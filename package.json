@@ -1,0 +1,14 @@
+{
+  "name": "n-pick",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "prepare": "lefthook install",
+    "test": "node --test scripts/*.test.cjs"
+  },
+  "devDependencies": {
+    "gitmoji-cli": "^9.7.0",
+    "lefthook": "^2.1.12"
+  }
+}

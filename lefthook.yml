@@ -1,0 +1,30 @@
+# Git 훅 설정. 전체 규칙 문서: .gitlab/CONTRIBUTING.md
+# 최초 1회 활성화: npm install  (prepare 스크립트가 lefthook install 을 실행)
+#
+# 검사 로직은 scripts/git-rules.cjs 한 파일에 모여 있다.
+
+# 브랜치 이름 검사를 pre-commit이 아닌 prepare-commit-msg에 둔 이유:
+# lefthook은 스테이징된 파일이 없으면 pre-commit 커맨드를 건너뛰는데,
+# 브랜치 이름은 파일과 무관하게 항상 검사해야 하기 때문이다.
+prepare-commit-msg:
+  piped: true # 앞 커맨드가 실패하면 뒤는 실행하지 않는다
+  commands:
+    branch-name:
+      priority: 1
+      run: node scripts/git-rules.cjs branch
+    jira-key:
+      priority: 2
+      run: node scripts/git-rules.cjs prepare {1} {2}
+
+commit-msg:
+  commands:
+    format:
+      run: node scripts/git-rules.cjs verify {1}
+# 포맷터(eslint / spotless / ruff 등)가 필요해지면 여기에 추가한다.
+# pre-commit:
+#   parallel: true
+#   commands:
+#     lint-fe:
+#       glob: "fe/**/*.{ts,tsx}"
+#       run: npx eslint {staged_files} --fix
+#       stage_fixed: true
