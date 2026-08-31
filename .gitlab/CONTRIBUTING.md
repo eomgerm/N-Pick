@@ -120,7 +120,6 @@ infra/chore/jenkins-pipeline-S15P21A501-4
 
 - 설정 파일: [`lefthook.yml`](../lefthook.yml)
 - 검사 로직 + 타입 목록 단일 소스: `scripts/git-rules.cjs`
-- 규칙 검사식 자체 테스트: `npm test`
 
 > 브랜치 검사를 `pre-commit`이 아닌 `prepare-commit-msg`에 둔 이유: lefthook은 스테이징된 파일이 없으면 `pre-commit` 커맨드를 건너뛰는데, 브랜치 이름은 파일과 무관하게 항상 검사해야 하기 때문입니다.
 

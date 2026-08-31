@@ -18,7 +18,6 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 - type 15종과 이모지 매핑, 검사 로직 단일 소스: `scripts/git-rules.cjs`
 - 브랜치 이름에 지라 키가 있으면 커밋 메시지에 자동으로 붙으므로 직접 쓰지 않아도 됩니다.
 - 클론 직후 1회: `npm install`
-- 규칙 검사식 테스트: `npm test`
 
 ## 문서 템플릿
 

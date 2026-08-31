@@ -4,8 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "prepare": "lefthook install",
-    "test": "node --test scripts/*.test.cjs"
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "gitmoji-cli": "^9.7.0",
