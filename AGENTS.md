@@ -23,6 +23,7 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 
 | 범위 | 문서 |
 | --- | --- |
+| `frontend/` (Next.js) | [frontend/AGENTS.md](frontend/AGENTS.md) → 설계 정본 [frontend/docs/architecture.md](frontend/docs/architecture.md) |
 | `backend/` (Spring Boot) | [backend/AGENTS.md](backend/AGENTS.md) → 설계 정본 [backend/docs/ddd-package-architecture.md](backend/docs/ddd-package-architecture.md) |
 
 해당 디렉터리에서 작업하기 전에 그 문서를 먼저 읽는다.

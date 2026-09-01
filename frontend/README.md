@@ -2,6 +2,30 @@
 
 NewsCut의 Next.js 프론트엔드 프로젝트입니다. 패키지 매니저는 npm만 사용합니다.
 
+현재 프로젝트는 App Router 기반의 화면 조합, 기능 단위 디렉터리, 공통 UI, API·환경변수 계층을 분리한 초기 구조입니다. 검색·검수 화면과 실제 API 연동, 인증, 상태관리, 자동화 테스트는 후속 작업 범위입니다.
+
+## 개발 문서
+
+- [프론트 작업 규칙](AGENTS.md): 반드시 지켜야 하는 코드·구조 규칙
+- [프론트 아키텍처](docs/architecture.md): 디렉터리 책임, 의존 방향과 데이터 흐름
+- [설계 결정 기록](docs/decisions/): 중요한 기술 선택과 그 배경
+- [제품 FRD](../docs/frd.md): 화면 상태, 기능 요구사항과 인수 조건
+
+## 기술 스택
+
+| 구분            | 기술                                                |
+| --------------- | --------------------------------------------------- |
+| Framework       | Next.js 15 App Router                               |
+| UI              | React 19                                            |
+| Language        | TypeScript 5.9                                      |
+| Styling         | Tailwind CSS 4, PostCSS                             |
+| Lint            | ESLint 9, `next/core-web-vitals`, `next/typescript` |
+| Format          | Prettier, `prettier-plugin-tailwindcss`             |
+| Package manager | npm 11                                              |
+| Runtime         | Node.js 24                                          |
+
+정확한 버전은 `package.json`과 `package-lock.json`을 기준으로 합니다.
+
 ## 요구 환경
 
 - Node.js 24.18.0 (`.nvmrc`)
@@ -45,6 +69,26 @@ npm run start
 | `npm run format:check` | Prettier 형식 검사                     |
 | `npm run check`        | 형식, 린트, 타입, 빌드를 순서대로 검사 |
 
+작업을 마치기 전에는 전체 품질 검사를 실행합니다.
+
+```bash
+npm run check
+```
+
+현재 Git hook은 브랜치명과 커밋 메시지만 검사합니다. 프론트엔드 lint와 format은 commit 시 자동 실행되지 않으므로 직접 `npm run check`를 실행해야 합니다.
+
+## 아키텍처 개요
+
+```text
+src/
+├─ app/          route와 화면 조합
+├─ components/   여러 기능에서 공유하거나 앱 전역에 쓰는 UI
+├─ features/     기능 단위 UI와 로직
+└─ lib/          환경변수와 HTTP client 등 공통 기반 코드
+```
+
+현재 구현된 화면은 정적으로 생성되는 루트 `/`뿐입니다. 제품 FRD가 정의한 `/search`와 `/review`는 아직 구현되지 않았습니다. 디렉터리 책임, 의존 방향, 상태 소유권과 API 흐름은 [프론트 아키텍처](docs/architecture.md)를 기준으로 합니다.
+
 ## 환경변수
 
 `.env.example`을 `.env.local`로 복사한 뒤 로컬 환경에 맞게 수정합니다.
@@ -54,13 +98,15 @@ npm run start
 
 `NEXT_PUBLIC_*` 값은 브라우저에 공개되며 빌드 시점에 번들에 포함될 수 있습니다. API 키, DB 접속 정보, 원본 미디어 경로와 같은 비밀값을 넣지 마세요. 실제 `.env.local` 파일은 Git에서 제외됩니다.
 
-## 디렉터리
+`src/lib/env.ts`는 API 주소가 HTTP 또는 HTTPS 절대 URL인지 확인하고 앱 모드가 비어 있지 않은지 검증합니다. 환경변수 접근은 각 컴포넌트에 흩어놓지 않고 이 모듈을 통해 처리합니다.
 
-- `src/app`: App Router의 route와 화면 조합
-- `src/components`: 여러 기능에서 공유하는 UI
-- `src/features`: 기능 단위 UI와 로직
-- `src/lib/api`: HTTP 접근 코드
-- `src/lib/env.ts`: 공개 환경변수 읽기와 검증
-- `public`: 정적 파일
+## 현재 구현 상태
 
-검색·검수 화면과 실제 API 연동, 인증, 상태관리, 자동화 테스트는 후속 작업 범위입니다.
+- 공통 환경변수 검증과 JSON HTTP client가 준비되어 있습니다.
+- 실제 API 연동, 인증, 상태관리와 자동화 테스트는 아직 구현되지 않았습니다.
+- 상태관리, form, 테스트와 UI 라이브러리 선택은 확정되지 않았습니다.
+- 팀 전체에 영향을 주는 새 기술 선택은 [ADR](docs/decisions/)로 기록합니다.
+
+## CI 상태
+
+Jenkins의 Frontend stage는 아직 placeholder입니다. 현재는 저장소에 `frontend` 디렉터리가 있어도 실제 `npm ci` 또는 `npm run check`를 실행하지 않습니다. CI 연결 전까지 로컬의 `npm run check` 결과를 프론트 품질 기준으로 사용합니다.
