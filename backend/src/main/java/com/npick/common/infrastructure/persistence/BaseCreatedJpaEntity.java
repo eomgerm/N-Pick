@@ -13,7 +13,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 public abstract class BaseCreatedJpaEntity {
 
     @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "DATETIME(6)")
+    @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMP(6)")
     private Instant createdAt;
 
     public Instant getCreatedAt() {

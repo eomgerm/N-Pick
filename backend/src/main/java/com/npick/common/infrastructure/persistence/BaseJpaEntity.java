@@ -10,7 +10,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 public abstract class BaseJpaEntity extends BaseCreatedJpaEntity {
 
     @LastModifiedDate
-    @Column(name = "updated_at", nullable = false, columnDefinition = "DATETIME(6)")
+    @Column(name = "updated_at", nullable = false, columnDefinition = "TIMESTAMP(6)")
     private Instant updatedAt;
 
     public Instant getUpdatedAt() {
