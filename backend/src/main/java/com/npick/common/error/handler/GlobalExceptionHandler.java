@@ -16,6 +16,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.npick.common.error.BusinessException;
 import com.npick.common.error.CommonErrorCode;
@@ -76,6 +77,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception exception, HttpServletRequest request) {
         log.debug("Invalid request", exception);
         return failure(CommonErrorCode.BAD_REQUEST, request, null);
+    }
+
+    /** 매핑되지 않은 경로. 이 advice 가 {@code @Order(HIGHEST_PRECEDENCE)} 라 아래 포괄 핸들러가 먼저 잡아 500 을 내려보내므로, 404 를 따로 받아야 한다. */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotFound(
+            NoResourceFoundException exception, HttpServletRequest request) {
+        log.debug("No handler for request", exception);
+        return failure(CommonErrorCode.NOT_FOUND, request, null);
     }
 
     @ExceptionHandler(Exception.class)

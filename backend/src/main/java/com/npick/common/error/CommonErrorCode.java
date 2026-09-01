@@ -5,6 +5,7 @@ public enum CommonErrorCode implements ErrorCode {
     VALIDATION_FAILED(ErrorType.BAD_REQUEST, "COMM_400_001", "Request validation failed"),
     UNAUTHORIZED(ErrorType.UNAUTHORIZED, "COMM_401", "Authentication is required"),
     FORBIDDEN(ErrorType.FORBIDDEN, "COMM_403", "Access is denied"),
+    NOT_FOUND(ErrorType.NOT_FOUND, "COMM_404", "Resource not found"),
     INTERNAL_SERVER_ERROR(ErrorType.INTERNAL_SERVER_ERROR, "COMM_500", "An unexpected server error occurred");
 
     private final ErrorType type;
