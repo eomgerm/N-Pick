@@ -79,6 +79,18 @@ pipeline {
         echo '[skip] frontend/ 없음'
       }
     }
+
+    stage('AI') {
+      // TODO: 워커 검증 명령은 후속 티켓에서 채운다
+      //   → dir('ai') { sh 'uv sync --frozen --no-group gpu && uv run ruff check . && uv run pytest' }
+      // 지금 실행하지 않는 이유: Jenkins Docker 에이전트에 Python/uv 툴체인이 없다.
+      // gpu 그룹은 CI 에서 절대 설치하지 않는다 (torch cu130 휠만 약 1.8GB).
+      // ai/ 는 S15P21A501-88 으로 들어와 있어 이 스테이지는 실행된다.
+      when { expression { fileExists('ai') } }
+      steps {
+        echo 'AI 빌드 명령 미설정 — 에이전트 Python 툴체인 provisioning 후 추가 예정'
+      }
+    }
   }
 
   post {
