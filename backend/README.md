@@ -72,4 +72,4 @@ com.npick
 
 설계 규약 정본은 [docs/ddd-package-architecture.md](docs/ddd-package-architecture.md)에 있다. **코드를 쓰기 전에 읽는다.**
 
-빈 패키지를 미리 만들지 않으므로 지금은 `NpickApplication.java` 하나뿐이다. DB 연동 및 JPA 설정은 이번 범위 밖이며 별도 일감에서 진행한다.
+도메인 모듈은 아직 없다. 정본 §16에 따라 빈 패키지를 미리 만들지 않고, 실제 기능이 생길 때 추가한다.
