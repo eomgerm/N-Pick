@@ -12,3 +12,6 @@ logging:
   level:
     root: WARN
     com.npick: INFO
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
