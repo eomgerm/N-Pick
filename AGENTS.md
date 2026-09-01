@@ -19,6 +19,14 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 - 브랜치 이름에 지라 키가 있으면 커밋 메시지에 자동으로 붙으므로 직접 쓰지 않아도 됩니다.
 - 클론 직후 1회: `npm install`
 
+## 하위 규약
+
+| 범위 | 문서 |
+| --- | --- |
+| `backend/` (Spring Boot) | [backend/AGENTS.md](backend/AGENTS.md) → 설계 정본 [backend/docs/ddd-package-architecture.md](backend/docs/ddd-package-architecture.md) |
+
+해당 디렉터리에서 작업하기 전에 그 문서를 먼저 읽는다.
+
 ## 문서 템플릿
 
 문서를 새로 만들 때는 반드시 해당 템플릿을 읽고 그 구조 그대로 채운다. 임의로 섹션을 추가/삭제하지 않는다.

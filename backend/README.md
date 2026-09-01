@@ -57,11 +57,19 @@ SERVER_PORT=8081 ./gradlew bootRun
 
 ## 패키지 구조
 
+최상위를 기술 계층이 아니라 **도메인 단위**로 나누는 실용적 DDD 구조를 따른다.
+
 ```
 com.npick
-├── api      # 컨트롤러, 요청/응답 DTO
-├── domain   # 도메인별 서비스 · 엔티티 · 리포지토리
-└── global   # 공통 설정, 예외 처리, 유틸
+├── NpickApplication.java
+├── common/          # 여러 도메인이 공유하는 기술 설정과 공통 계약
+└── <domain>/        # Bounded Context 또는 업무 도메인
+    ├── presentation/
+    ├── application/
+    ├── domain/
+    └── infrastructure/
 ```
 
-DB 연동 및 JPA 설정은 이번 범위 밖이며 별도 일감에서 진행한다.
+설계 규약 정본은 [docs/ddd-package-architecture.md](docs/ddd-package-architecture.md)에 있다. **코드를 쓰기 전에 읽는다.**
+
+빈 패키지를 미리 만들지 않으므로 지금은 `NpickApplication.java` 하나뿐이다. DB 연동 및 JPA 설정은 이번 범위 밖이며 별도 일감에서 진행한다.
