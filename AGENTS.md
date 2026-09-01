@@ -24,6 +24,7 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 | 범위 | 문서 |
 | --- | --- |
 | `backend/` (Spring Boot) | [backend/AGENTS.md](backend/AGENTS.md) → 설계 정본 [backend/docs/ddd-package-architecture.md](backend/docs/ddd-package-architecture.md) |
+| `ai/` (Python Pipeline Worker) | [ai/AGENTS.md](ai/AGENTS.md) → 처리 정본 [docs/frd.md](docs/frd.md) §5 |
 
 해당 디렉터리에서 작업하기 전에 그 문서를 먼저 읽는다.
 
