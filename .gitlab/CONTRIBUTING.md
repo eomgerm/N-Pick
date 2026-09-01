@@ -46,7 +46,7 @@ git commit -m ":sparkles: feat(fe): 로그인 페이지 UI 구현"
 # -> ":sparkles: feat(fe): 로그인 페이지 UI 구현 (S15P21A501-123)" 으로 자동 완성
 ```
 
-- `main`/`develop`처럼 지라 키가 없는 보호 브랜치에서는 동작하지 않으므로 직접 적어야 합니다.
+- `main`/`dev`처럼 지라 키가 없는 보호 브랜치에서는 동작하지 않으므로 직접 적어야 합니다.
 - 이미 같은 지라 키가 있으면(`--amend` 등) 중복으로 붙이지 않습니다.
 - 자동 완성이 실패해도 최종적으로 `commit-msg` 검사가 지라 키 유무를 다시 확인합니다.
 
@@ -99,7 +99,7 @@ infra/chore/jenkins-pipeline-S15P21A501-4
 
 ## 3. Merge Request 규칙
 
-- **머지 대상 브랜치**: 기능/버그 브랜치는 `develop`으로 MR을 올립니다. `main`은 배포 시점에만 머지합니다.
+- **머지 대상 브랜치**: 기능/버그 브랜치는 `dev`로 MR을 올립니다. `main`은 배포 시점에만 머지합니다.
 - **제목 형식**: 커밋 메시지와 동일하게 `<:gitmoji:> <type>(<scope>): <설명> (지라 키)`
 - **템플릿**: MR 생성 시 "Choose a template" 드롭다운에서 선택합니다.
   - 신규 기능 → [Feature.md](merge_request_templates/Feature.md)
