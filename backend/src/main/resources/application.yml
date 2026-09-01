@@ -3,6 +3,18 @@ spring:
     name: npick
   profiles:
     default: local
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    # 마이그레이션 파일이 아직 없다. DB 연동 일감에서 db/migration 을 만들면서 켠다.
+    enabled: false
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    clean-disabled: true
 
 server:
   port: ${SERVER_PORT:8080}
