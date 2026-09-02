@@ -9,7 +9,7 @@ dependencies = [
     "uvicorn>=0.52,<1",
     "pydantic>=2.12,<3",
     "pydantic-settings>=2.15,<3",
-    "av>=13",
+    "av>=18,<19",
     "scenedetect[opencv-headless]>=0.6.7,<0.7",
 ]
 
