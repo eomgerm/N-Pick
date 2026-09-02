@@ -858,7 +858,46 @@ CREATE INDEX ix_pinned_override_active_scope ON pinned_override (query_fingerpri
 CREATE INDEX ix_search_session_query_fingerprint ON search_session (query_fingerprint);
 
 -- ============================================================================
--- 6. 컬럼 주석 -- ERDCloud v1.5 정본
+-- 6. 테이블 주석 -- ERDCloud v1.5 메모 정본
+-- ============================================================================
+
+COMMENT ON TABLE member IS '편집기자(editor)·검수자(reviewer) 계정. v1.5 에서 app_actor 를 개명하고 가짜 system 행을 제거했다';
+COMMENT ON TABLE api_idempotency_request IS '같은 요청이 두 번 실행되지 않게 막고 재요청에 같은 응답을 돌려준다. 자식 3개가 RESTRICT 로 붙잡아 행을 지울 수 없으므로 replay_expires_at 이후 response_body_json 만 비운다';
+COMMENT ON TABLE media_asset IS '영상·프레임·자막 파일 1개. content_hash 와 storage_key 가 각각 유니크(논리 삭제 제외)';
+COMMENT ON TABLE clip IS '등록된 영상 1건. 논리 삭제 대상 2개 중 하나(deleted_at). v1.0 은 clip 이 pipeline_run 의 자식으로 잘못 그려져 있었고 v1.5 에서 교정했다';
+COMMENT ON TABLE pipeline_run IS 'clip 1건에 대한 분석 실행 1회. clip.active_pipeline_run_id 가 현재 검색에 제공 중인 run 을 가리킨다(clip 당 1개가 구조적으로 보장)';
+COMMENT ON TABLE pipeline_stage IS 'run 안의 처리 단계. 정의된 10개';
+COMMENT ON TABLE pipeline_stage_attempt IS '단계의 실제 실행·재시도. lease_owner/leased_until 로 동시성을 제어한다';
+COMMENT ON TABLE index_generation IS '인덱스 전체 세대. status=''active'' 는 전역 1건(부분 유니크 인덱스)';
+COMMENT ON TABLE scene IS '영상의 시간 구간. 검색 결과의 단위';
+COMMENT ON TABLE frame_asset IS 'scene 에서 뽑은 프레임';
+COMMENT ON TABLE transcript_segment IS '자막·CC·ASR 구간';
+COMMENT ON TABLE scene_transcript_segment IS 'scene 과 transcript_segment 를 잇는 연결 테이블';
+COMMENT ON TABLE ocr_observation IS 'frame 에서 읽은 글자';
+COMMENT ON TABLE tag IS '인물·기관·장소 공통 태그 사전';
+COMMENT ON TABLE scene_tag IS 'scene 과 tag 를 잇는 연결 테이블. field_evidence 가 이 링크를 근거 대상으로 참조한다';
+COMMENT ON TABLE clip_tag IS 'clip 과 tag 를 잇는 연결 테이블';
+COMMENT ON TABLE field_evidence IS '어떤 값이 왜 그렇게 정해졌는지에 대한 근거. target_type 과 일치하는 FK 1개만 채워진다(CHECK)';
+COMMENT ON TABLE search_index_state IS 'scene 과 세대를 잇는 세대별 색인 상태';
+COMMENT ON TABLE index_outbox IS '색인 반영 작업 큐(outbox 패턴). DB 커밋과 외부 색인을 분리한다';
+COMMENT ON TABLE search_configuration IS '검색 파라미터 구성. 색인 세대와 묶여 UNIQUE 이고 search_execution 의 복합 FK 대상이다';
+COMMENT ON TABLE search_session IS '편집기자의 검색 1건. query_fingerprint 로 exact override 를 찾는다';
+COMMENT ON TABLE search_execution IS '검색 실행 1회. 같은 session 이라도 replay 하면 새 행이 생긴다';
+COMMENT ON TABLE search_result_snapshot IS '후보·판정 전체 기록. 실행당 0..1. 3컬럼 복합 FK 로 ''스냅샷의 버전 = 실행 당시 버전''을 DB 가 보장한다';
+COMMENT ON TABLE search_result IS '최종 결과 1건(장면 1개). 문의의 출발점';
+COMMENT ON TABLE feedback_inquiry IS '''이 결과 이상해요'' 문의. 교정값 자체가 아니다';
+COMMENT ON TABLE pinned_override IS '검색어 교정 또는 장면 제외 규칙. 문의에서만 생성된다';
+COMMENT ON TABLE search_execution_applied_override IS 'search_execution 과 pinned_override 를 잇는 N:M 연결 테이블';
+COMMENT ON TABLE query_resolution_snapshot IS '검색어 해석 기록. 실행당 0..1. v1.0 은 링크 테이블만 경유해 override 가 적용된 실행에서만 존재할 수 있었다 — v1.5 교정';
+COMMENT ON TABLE inquiry_resolution IS '문의당 최종 조치 0..1';
+COMMENT ON TABLE override_lifecycle_history IS 'override 상태 전환 이력(append-only)';
+COMMENT ON TABLE inquiry_status_history IS '문의 상태 전환 이력(append-only)';
+COMMENT ON TABLE external_provider_profile IS '외부 AI 제공자 설정의 개정';
+COMMENT ON TABLE deployment_external_policy IS '배포별 외부 전송 정책. scope 당 active 1건(부분 유니크 인덱스)';
+COMMENT ON TABLE external_call_audit IS '외부 호출 감사. pipeline_run 또는 search_execution 중 정확히 하나에 매달린다(CHECK)';
+
+-- ============================================================================
+-- 7. 컬럼 주석 -- ERDCloud v1.5 정본
 -- ============================================================================
 
 COMMENT ON COLUMN member.member_id IS 'PK. TSID(bigint, 앱 생성). 편집기자·검수자 계정 식별자';
