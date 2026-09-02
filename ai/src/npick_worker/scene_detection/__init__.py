@@ -76,8 +76,9 @@ def detect_scenes(
 ) -> SceneDetectionResult:
     """영상 하나를 scene 목록으로 나눈다.
 
-    같은 `video_path` 와 같은 `cfg` 면 항상 같은 결과를 돌려준다. 재시도가
-    산출물의 의미를 바꾸지 않아야 한다는 FR-PRC-006 의 전제다.
+    같은 `video_path` + 같은 `cfg` + 같은 detector 구현이면 항상 같은 결과를
+    돌려준다. 재시도가 산출물의 의미를 바꾸지 않아야 한다는 FR-PRC-006 의 전제다.
+    구현 버전은 결과의 `engine_version` 에 실어 보낸다.
     """
     config = cfg if cfg is not None else get_default_config()
     engine = detector if detector is not None else PySceneDetectDetector()
@@ -87,6 +88,8 @@ def detect_scenes(
         scenes=_to_scenes(detection, config.min_scene_len_ms),
         config_version=config.version_id,
         detector=config.detector,
+        engine=engine.name,
+        engine_version=engine.version,
         duration_ms=detection.duration_ms,
         frame_rate=detection.frame_rate,
     )

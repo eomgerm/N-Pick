@@ -64,11 +64,14 @@ from npick_worker.scene_detection import detect_scenes
 
 result = detect_scenes(Path("clip.mp4"))
 result.scenes  # (Scene(scene_index=0, start_time_ms=0, end_time_ms=2000), ...)
-result.config_version  # 'scene-detect/v1:20dfc0a6'
+result.config_version  # 'scene-detect/v1:20dfc0a6'  ← 설정 해시
+result.engine_version  # '0.7.1'                     ← 구현 버전
 ```
 
-구간은 `[start_time_ms, end_time_ms)` 반열린이고 서로 붙어 있다. 같은 파일 + 같은 설정이면
-항상 같은 결과가 나온다(FR-PRC-006). 임계값은 `config/scene_detection.v1.toml` 에 있다.
+구간은 `[start_time_ms, end_time_ms)` 반열린이고 서로 붙어 있다. **같은 파일 + 같은
+`config_version` + 같은 `engine_version` 이면 항상 같은 결과가 나온다**(FR-PRC-006).
+`config_version` 은 설정 파일만 해시하므로 라이브러리를 올리면 값이 그대로인데 경계는 달라질
+수 있다 — 그래서 두 축을 다 싣는다. 임계값은 `config/scene_detection.v1.toml` 에 있다.
 
 샘플 클립 육안 확인:
 
@@ -96,11 +99,13 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 
 | 그룹 | 설치 | 내용 | 비고 |
 | --- | --- | --- | --- |
-| 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect·av | 약 90MB |
+| 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av | 설치 약 240MB (cv2 113 · av 67 · numpy 45) |
 | `dev` | `uv sync` (기본 포함) | ruff·mypy·pytest·pytest-asyncio·httpx | |
 | `gpu` | `uv sync --group gpu` | torch(cu130)·faster-whisper | 약 1.8GB, 최초 1회 |
 
-`scenedetect` 는 PyAV 백엔드만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. 그래서 `opencv-headless` extra 로 설치한다 — GUI 라이브러리가 붙은 `opencv-python` 이면 헤드리스 컨테이너에서 `libGL.so` 로 죽는다.
+`scenedetect` 는 PyAV 백엔드만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. GUI 라이브러리가 붙은 `opencv-python` 이면 헤드리스 컨테이너에서 `libGL.so` 로 죽으므로 headless 변종을 쓴다 — 0.7 부터 이건 extra 가 아니라 **`scenedetect-headless` 별도 배포판**이다. 임포트 이름은 그대로 `scenedetect` 이고, 두 배포판을 같이 설치하면 임포트 이름을 다투므로 한쪽만 선언한다.
+
+`scenedetect-headless` 를 `<0.8` 로 묶은 것은 상한 관례를 따른 것이지만, **`<0.7` 처럼 좁게 묶으면 안 된다** — 0.6.x 는 `click<8.3` 을 요구해서 `click` 과 `huggingface-hub`(ASR 단계에서 쓴다)를 함께 끌어내린다.
 
 **torch 는 PyPI 가 아니라 `download.pytorch.org/whl/cu130` 에서 온다.** PyPI 의 Windows torch 휠은 CPU 전용(약 122MB)이라 그대로 설치하면 CUDA 가 조용히 비활성화된다. `pyproject.toml` 의 `[[tool.uv.index]]` 와 `[tool.uv.sources]` 가 이걸 막는다. macOS 는 CUDA 휠이 없으므로 marker 로 제외되어 PyPI 의 arm64(MPS) 휠로 해석된다.
 

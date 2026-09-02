@@ -12,7 +12,7 @@ FRD §5.3 `FR-PRC-010`·`FR-PRC-015` 구현 근거. 구현은 `src/npick_worker/
 | hard cut | 강함 | 강함 | 강함 | 보통 |
 | 디졸브·와이프 | **약함** (점진 전환을 놓친다) | 강함 (이 모델의 존재 이유) | 강함 | 약함 |
 | 모델 가중치 | 없음 | 필요 (수십 MB) | 필요 | 없음 |
-| 의존성 | `scenedetect` + `av` + opencv-headless (약 42MB) | torch — `gpu` 그룹 opt-in 성질을 깬다 | 동일 | **시스템 ffmpeg 설치 필요** |
+| 의존성 | `scenedetect-headless` + `av`. opencv-headless·numpy 를 끌어온다 (설치 기준 약 160MB) | torch — `gpu` 그룹 opt-in 성질을 깬다 | 동일 | **시스템 ffmpeg 설치 필요** |
 | 결정론 | 완전. 같은 파일·같은 설정이면 동일 | 가중치·torch 버전까지 고정해야 성립 | 동일 | 결정론적이나 후처리를 직접 짜야 함 |
 | 최소 장면 길이 | 내장 (`min_scene_len`) | 없음 — 직접 구현 | 없음 | 없음 |
 | 임계값 조정 | 파라미터로 노출 | 재학습 또는 후처리 임계값 | 동일 | scene score 하나뿐 |
@@ -31,7 +31,7 @@ FRD §5.3 `FR-PRC-010`·`FR-PRC-015` 구현 근거. 구현은 `src/npick_worker/
 
 샘플 클립 3번(디졸브)에서 놓침이 실무적으로 문제가 되면 TransNetV2 를 `SceneDetector` Protocol
 (`scene_detection/detector.py`) 뒤에 두 번째 구현체로 붙인다. 상위 코드는 바뀌지 않는다.
-그때는 가중치 해시를 `version_id` 에 포함시켜야 한다.
+그때는 가중치 해시를 그 구현의 `version` 에 섞는다 — Protocol 이 이미 그 자리를 갖고 있다(§2).
 
 세 후보의 정확도 순위는 논문·벤치마크에 있지만 **뉴스 도메인 수치는 우리 Gold Set 으로만 말할 수 있다.**
 근거 없는 숫자를 이 문서에 옮겨 적지 않는다(FRD §15 원칙).
@@ -43,8 +43,13 @@ PySceneDetect 는 OpenCV 와 PyAV 백엔드를 모두 지원하고 기본값은 
 - PyAV 휠에 ffmpeg 이 번들되어 있어 **시스템 ffmpeg 설치가 필요 없다.**
 - 백엔드가 환경마다 다르면 같은 파일에서 프레임 수와 타임스탬프가 달라질 수 있다. 멱등성이 깨진다.
 
-`scenedetect` 는 PyAV 만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. 그래서 `scenedetect[opencv-headless]`
-로 설치한다. `opencv-python`(GUI 포함)이 아니라 headless 여야 컨테이너에서 `libGL.so` 로 죽지 않는다.
+`scenedetect` 는 PyAV 만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. 그래서 headless OpenCV 를 쓴다 —
+`opencv-python`(GUI 포함)이면 컨테이너에서 `libGL.so` 로 죽는다.
+
+0.7 부터 이 선택 방법이 바뀌었다. `[opencv-headless]` **extra 가 없어지고** headless 변종이
+`scenedetect-headless` **별도 배포판**이 됐다. 그래서 의존성은 `scenedetect-headless` 로 선언하고,
+임포트 이름은 그대로 `scenedetect` 다. 두 배포판을 동시에 설치하면 같은 임포트 이름을 다투므로
+한쪽만 선언한다.
 
 ## 2. 설정과 버전 (FR-PRC-015)
 
@@ -68,10 +73,28 @@ PySceneDetect 는 OpenCV 와 PyAV 백엔드를 모두 지원하고 기본값은 
 detector 를 바꾸면 당연히 다른 version 이어야 하기 때문이다.
 
 이 값은 **scene detection 단계의 몫**이다. FRD `pipeline_run.pipeline_version` 은 파이프라인 전체
-값이므로 여러 단계의 `version_id` 를 묶는 일은 S15P21A501-70 에서 한다.
+값이므로 여러 단계의 버전을 묶는 일은 S15P21A501-70 에서 한다.
 
 설정을 바꾸려면 이 파일을 `v2` 로 복사하고 아래 §4 에 근거를 남긴다. v1 을 그 자리에서 고치면
 과거 결과의 `version_id` 가 무엇을 뜻했는지 알 수 없게 된다.
+
+### 재현 조건은 두 축이다
+
+`version_id` 는 **설정 파일만** 해시한다. 설정을 그대로 두고 라이브러리를 올려도 경계가 달라질
+수 있으므로 `version_id` 하나로는 재현을 보장하지 못한다. 그래서 결과에 구현 버전도 함께 싣는다:
+
+| 축 | 필드 | 값 예시 | 무엇이 바뀌면 변하는가 |
+| --- | --- | --- | --- |
+| 설정 | `SceneDetectionResult.config_version` | `scene-detect/v1:20dfc0a6` | toml 값 |
+| 구현 | `SceneDetectionResult.engine` / `engine_version` | `pyscenedetect` / `0.7.1` | 라이브러리·모델 버전(가중치 해시 포함) |
+
+> 같은 입력 + 같은 `config_version` + 같은 `engine_version` = 같은 분할 결과 (FR-PRC-006)
+
+`engine_version` 은 하드코딩하지 않고 설치된 배포판에서 읽는다. 하드코딩하면 휠과 조용히
+어긋나는데, 그게 바로 재현성 기록이 거짓이 되는 경로다.
+
+`version_id` 의 정의는 "설정 파일의 해시"로 **유지한다.** 라이브러리 버전을 여기에 섞으면
+v1/v2 config 버저닝이 무의미해진다 — 설정을 안 바꿨는데 버전 이름이 달라지기 때문이다.
 
 ## 3. Gate B 로 미룬 항목
 
@@ -96,6 +119,11 @@ detector 를 바꾸면 당연히 다른 version 이어야 하기 때문이다.
 출처는 AI Hub 017 한국어 텍스트-비디오-사운드 데이터(스포츠뉴스, 라이선스 KBS, 2017-02-09 방송분).
 영상과 라벨 JSON 은 커밋하지 않는다(`ai/.gitignore`).
 
+아래 수치는 **`pyscenedetect 0.7.1`** 에서 측정했다. 처음 `0.6.7.1` 로 측정한 뒤 라이브러리를
+올려 같은 클립을 다시 돌렸는데 **scene 수·경계 ms·`duration_ms` 가 전부 동일했다** — 즉 이
+기준선은 두 버전에 걸쳐 재현된다. 그래도 §2 의 두 번째 축이 필요한 이유는, "이번엔 같았다"가
+"항상 같다"를 뜻하지 않기 때문이다.
+
 ### 4.1 산출 결과
 
 | 클립 | expected_cut_count | 산출 scene 수 | 과분할 지점 | 미분할 지점 | detector / threshold |
@@ -112,8 +140,13 @@ detector 를 바꾸면 당연히 다른 version 이어야 하기 때문이다.
 
 ### 4.2 임계값 스윕 — 39.5s 이후 경계는 안정적이다
 
-`content.threshold` 를 27 → 6 으로 내려도 39.5s 이후 경계 8개는 하나도 변하지 않는다.
-임계값을 아슬아슬하게 넘긴 약한 경계가 아니라 강한 hard cut 이라는 뜻이다.
+`content.threshold` 를 27 → 20 → 15 → 12 → 9 → 6 으로 내려가며 봤다. 39.5s 이후 경계 8개 중
+**7개는 ms 까지 완전히 고정**이고, 나머지 하나(`62867`)만 `threshold=6` 에서 `62833` 으로
+1프레임(34ms) 움직인다. 임계값을 아슬아슬하게 넘긴 약한 경계가 아니라 강한 hard cut 이라는 뜻이다.
+
+임계값을 내리면 경계가 사라지는 대신 **늘어난다**: 27에서 10개 → 20에서 12개 → 12에서 16개 →
+6에서 21개. 27 이 놓치고 있는 후보가 있다는 뜻이므로, 동결할 때는 이 추가 경계들이 실제 컷인지
+과분할인지 Gold Set 으로 갈라야 한다(§3).
 
 프레임별 `content_val` 분포:
 

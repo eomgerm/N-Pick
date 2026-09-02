@@ -9,10 +9,11 @@
 import math
 from pathlib import Path
 
+import scenedetect
+from scenedetect import SceneDetector as _LibDetector
 from scenedetect import SceneManager
 from scenedetect.backends.pyav import VideoStreamAv
 from scenedetect.detectors import AdaptiveDetector, ContentDetector
-from scenedetect.scene_detector import SceneDetector as _LibDetector
 
 from npick_worker.scene_detection.config import SceneDetectionConfig
 from npick_worker.scene_detection.detector import RawDetection
@@ -24,9 +25,11 @@ def frames_to_ms(frame_num: int, frame_rate: float) -> int:
     부동소수 초를 여기저기서 반올림하면 재실행 간 1ms 가 흔들린다. 규칙을 한 곳에
     모아 "같은 프레임 번호 + 같은 fps = 항상 같은 ms" 를 보장한다.
 
-    한계: PySceneDetect 의 타임코드는 프레임 번호 기반이라 VFR(가변 프레임레이트)
-    소스에서는 실제 PTS 와 어긋날 수 있다. 결정론은 유지되지만 정확도가 떨어지므로
-    샘플 클립은 CFR 을 쓴다(docs/scene-detection.md).
+    한계: 프레임 번호 기반이라 VFR(가변 프레임레이트) 소스에서는 실제 PTS 와 어긋날
+    수 있다. 결정론은 유지되지만 정확도가 떨어지므로 샘플 클립은 CFR 을 쓴다
+    (docs/scene-detection.md). scenedetect 0.7 의 `FrameTimecode` 는 `pts` 와
+    `time_base` 를 노출하므로 PTS 기반으로 바꿀 수 있다 — 다만 그건 ms 값 자체를
+    바꾸는 변경이라 라이브러리 업그레이드와 섞지 않고 별도로 다룬다.
     """
     return round(frame_num * 1000 / frame_rate)
 
@@ -62,14 +65,26 @@ class PySceneDetectDetector:
     def name(self) -> str:
         return "pyscenedetect"
 
+    @property
+    def version(self) -> str:
+        """설치된 scenedetect 버전. 하드코딩하면 휠과 조용히 어긋난다.
+
+        배포판이 `scenedetect` 와 `scenedetect-headless` 로 갈리므로 임포트 이름
+        (`scenedetect.__version__`)에서 읽는다. 배포판 이름으로 조회하면 headless
+        변종에서 PackageNotFoundError 가 난다.
+        """
+        return str(scenedetect.__version__)
+
     def detect(self, video_path: Path, cfg: SceneDetectionConfig) -> RawDetection:
         video = VideoStreamAv(str(video_path))
-        frame_rate = video.frame_rate
+        # 0.7 부터 frame_rate 는 Fraction 이다. 경계에서 float 로 내려 이 함수 밖으로는
+        # 라이브러리 타입이 새지 않게 한다 (JSON 직렬화도 Fraction 을 못 받는다).
+        frame_rate = float(video.frame_rate)
         if frame_rate <= 0:
             msg = f"프레임레이트를 읽을 수 없다: {video_path}"
             raise ValueError(msg)
 
-        total_frames = video.duration.get_frames() if video.duration is not None else 0
+        total_frames = video.duration.frame_num if video.duration is not None else 0
         if total_frames <= 0:
             msg = f"프레임이 없는 영상이다: {video_path}"
             raise ValueError(msg)
@@ -86,7 +101,7 @@ class PySceneDetectDetector:
         # start_in_scene=True: 컷이 하나도 없어도 영상 전체를 덮는 구간 1개를 돌려준다.
         # FR-PRC-010 의 "한 개 이상" 하한이 여기서 보장된다.
         spans = manager.get_scene_list(start_in_scene=True)
-        boundaries = tuple(frames_to_ms(start.get_frames(), frame_rate) for start, _ in spans)
+        boundaries = tuple(frames_to_ms(start.frame_num, frame_rate) for start, _ in spans)
 
         return RawDetection(
             boundaries_ms=boundaries,

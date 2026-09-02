@@ -37,7 +37,8 @@ def render_table(result: SceneDetectionResult) -> str:
     ]
     summary = (
         f"scene {len(result.scenes)}개 | {_format_ms(result.duration_ms)} | "
-        f"{result.frame_rate:g}fps | {result.detector} | {result.config_version}"
+        f"{result.frame_rate:g}fps | {result.detector} | {result.config_version} | "
+        f"{result.engine} {result.engine_version}"
     )
     return "\n".join([summary, header, "-" * len(header), *rows])
 

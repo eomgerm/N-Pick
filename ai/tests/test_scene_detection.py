@@ -5,6 +5,7 @@
 """
 
 from collections.abc import Callable, Sequence
+from importlib import metadata
 from pathlib import Path
 
 import pytest
@@ -131,6 +132,22 @@ def test_result_carries_config_version(make_video: MakeVideo) -> None:
     video = make_video("version", [("bars", BLOCK_FRAMES)])
 
     assert detect_scenes(video).config_version == load_config().version_id
+
+
+def test_result_carries_engine_version(make_video: MakeVideo) -> None:
+    """재현 조건의 두 번째 축. `config_version` 만으로는 부족하다.
+
+    설정을 그대로 두고 라이브러리만 올려도 경계가 달라질 수 있다. 실제로 이 기능은
+    scenedetect 0.6.7.1 → 0.7.1 업그레이드에서 필요해졌다. 버전을 하드코딩하지 않고
+    설치된 배포판에서 읽는지 확인한다 (`importlib.metadata` 로 독립 조회해 대조).
+    """
+    installed = metadata.version("scenedetect-headless")
+    video = make_video("engine", [("bars", BLOCK_FRAMES)])
+
+    result = detect_scenes(video)
+
+    assert result.engine == "pyscenedetect"
+    assert result.engine_version == installed
 
 
 # ── Gate B: 임계값이 코드가 아니라 설정에 있는가 ────────────────────────

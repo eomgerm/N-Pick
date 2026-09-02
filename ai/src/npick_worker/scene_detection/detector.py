@@ -35,4 +35,15 @@ class SceneDetector(Protocol):
     @property
     def name(self) -> str: ...
 
+    @property
+    def version(self) -> str:
+        """구현을 실제로 수행한 라이브러리·모델의 버전.
+
+        `config_version` 은 설정만 해시하므로 이 값이 따로 필요하다. 라이브러리가
+        바뀌면 같은 설정에서도 경계가 달라질 수 있다 — 결과를 재현하려면 두 축이
+        모두 있어야 한다(FR-PRC-006). 모델 기반 detector 라면 가중치 해시를 여기에
+        섞는다.
+        """
+        ...
+
     def detect(self, video_path: Path, cfg: SceneDetectionConfig) -> RawDetection: ...

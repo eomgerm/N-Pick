@@ -25,13 +25,25 @@ class Scene:
 
 @dataclass(frozen=True, slots=True)
 class SceneDetectionResult:
-    """단계 산출물 전체. 같은 입력 + 같은 `config_version` 이면 항상 동일하다."""
+    """단계 산출물 전체.
+
+    재현 조건은 **같은 입력 + 같은 `config_version` + 같은 `engine_version`** 이다.
+    `config_version` 은 설정 파일만 해시하므로 라이브러리가 바뀌면 값이 그대로인데
+    경계는 달라질 수 있다. 두 축을 모두 실어야 FR-PRC-006 이 성립한다.
+
+    두 축을 묶어 FRD `pipeline_run.pipeline_version` 을 만드는 일은 파이프라인 전체의
+    몫이므로 S15P21A501-70 에서 한다.
+    """
 
     scenes: tuple[Scene, ...]
     #: 이 결과를 만든 설정의 버전(SceneDetectionConfig.version_id). FR-PRC-015.
     config_version: str
     #: 사용한 detector 이름. config 에 이미 들어 있지만 로그·리포트에서 자주 쓴다.
     detector: str
+    #: 경계를 실제로 계산한 구현 이름 (SceneDetector.name). 예: `pyscenedetect`
+    engine: str
+    #: 그 구현의 버전 (SceneDetector.version). 예: `0.7.1`
+    engine_version: str
     #: clip 전체 길이. 마지막 scene 의 end_time_ms 와 같다.
     duration_ms: int
     #: 디코드에 사용한 프레임레이트. VFR 소스 판별과 재현 확인용 기록이다.
