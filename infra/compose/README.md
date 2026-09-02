@@ -1,6 +1,7 @@
 # 로컬·서버 공통 compose 스택 (S15P21A501-130)
 
-PostgreSQL · Spring Boot BE · Next.js FE 를 한 번에 띄운다. 로컬 개발과 EC2 서버가 같은 구성을 쓴다.
+PostgreSQL · Spring Boot BE · Next.js FE · Python AI 워커를 한 번에 띄운다.
+로컬 개발과 EC2 서버가 같은 구성을 쓴다.
 
 ## 빠른 시작
 
@@ -26,12 +27,13 @@ docker compose up -d --build
 docker compose ps
 ```
 
-세 서비스가 모두 `healthy` 면 정상이다.
+네 서비스가 모두 `healthy` 면 정상이다.
 
 | 서비스 | 접속 |
 |---|---|
 | FE | http://127.0.0.1:3000 |
 | BE health | http://127.0.0.1:8080/actuator/health |
+| AI 워커 health | http://127.0.0.1:8000/health |
 | PostgreSQL | `127.0.0.1:5432` (DB·계정은 `.env`) |
 
 ## 파일 구성
@@ -43,6 +45,7 @@ docker compose ps
 | `infra/compose/profiles/` | **Gate D 값이 들어갈 자리.** 아래 참고 |
 | `backend/Dockerfile` | JDK 21 멀티스테이지 → JRE 런타임 |
 | `frontend/Dockerfile` | Node 24 멀티스테이지 |
+| `ai/Dockerfile` | uv + Python 3.12 멀티스테이지 |
 
 ## 설정 프로필 — Gate D 자리
 
@@ -53,7 +56,7 @@ profile 하나에서 관리"* 하라고 한다. 그 자리를 미리 만들어 �
 | 파일 | 담는 것 |
 |---|---|
 | `profiles/media.yml` | 파일 크기·길이·허용 codec |
-| `profiles/pipeline.yml` | 단계별 retry·timeout·동시성, CPU/GPU 배치 |
+| `profiles/pipeline.yml` | 단계별 retry·timeout·동시성, CPU/GPU 배치<br>단계 목록 자체는 `ai/src/npick_worker/stages.py` 가 정본 |
 | `profiles/runtime.yml` | 타임존·로그·telemetry·bind·API 규칙 |
 
 **세 파일 모두 `version: 0`, `frozen: false` 이고 수치는 `null` 이다.** 아직 동결되지 않았기 때문이며,
@@ -94,15 +97,19 @@ FRD §15.6 Gate D 의 `loopback bind` 에 따라 세 서비스 모두 `127.0.0.1
 EC2 에서 브라우저로 볼 때는 SSH 터널을 쓴다.
 
 ```bash
-ssh -i <키>.pem -L 3000:localhost:3000 -L 8080:localhost:8080 ubuntu@<EC2-도메인>
+ssh -i <키>.pem -L 3000:localhost:3000 -L 8080:localhost:8080 -L 8000:localhost:8000 ubuntu@<EC2-도메인>
 ```
 
-### AI 워커는 아직 없다
+### AI 워커는 CPU 전용으로 뜬다
 
-S15P21A501-88 이 착수되지 않아 Python 워커 서비스는 넣지 않았다. 나중에 추가할 때는
-`compose.yaml` 에 서비스를 하나 더하고 `media` 볼륨과 기본 네트워크를 그대로 쓰면 된다.
-모델 캐시가 필요하면 `volumes` 에 `model-cache` 를 추가한다. 어느 파이프라인 단계를 CPU 워커가
-맡을지는 `profiles/pipeline.yml` 의 `placement` 에 기록한다.
+`NPICK_AI_DEVICE=cpu` 로 고정했다. GPU 단계는 이 스택에 포함하지 않는다(SSAFY GPU 서버 배치).
+`ai/pyproject.toml` 의 `gpu` 그룹(torch, faster-whisper)은 opt-in 이라 이미지 빌드 시 받지 않는다.
+
+모델 캐시는 `model-cache` 볼륨에 남는다(`HF_HOME`, `TORCH_HOME`). 컨테이너를 다시 만들어도
+재다운로드하지 않는다.
+
+현재 워커는 `/health` 만 제공한다. 파이프라인 단계 구현과 작업 수신 방식은 S15P21A501-70 에서
+정한다. 어느 단계를 CPU 워커가 맡을지는 `profiles/pipeline.yml` 의 `placement` 에 기록한다.
 
 ## 자주 쓰는 명령
 
@@ -140,4 +147,5 @@ EC2 사양이 낮으면 Next.js 빌드가 OOM 될 수 있다. 로컬에서 이�
 swap 을 늘린다.
 
 **포트가 이미 사용 중이다**
-`.env` 에서 `BACKEND_PORT`·`FRONTEND_PORT`·`POSTGRES_PORT` 를 바꾼다.
+`.env` 에서 `BACKEND_PORT`·`FRONTEND_PORT`·`POSTGRES_PORT`·`AI_WORKER_PORT` 를 바꾼다.
+EC2 에서는 8080 을 Jenkins 가 쓰고 있어 `BACKEND_PORT` 조정이 필요하다.

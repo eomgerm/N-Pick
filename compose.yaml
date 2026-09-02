@@ -78,10 +78,38 @@ services:
       retries: 10
       start_period: 30s
 
-# AI 워커(S15P21A501-88)는 미착수. 추가 시 media 볼륨과 기본 네트워크를 그대로 쓰면 된다.
+  ai-worker:
+    build:
+      context: ./ai
+    image: npick/ai-worker:local
+    container_name: npick-ai-worker
+    restart: unless-stopped
+    environment:
+      # 기본값이 127.0.0.1 이라 컨테이너 안에서는 뒤집어야 포트 매핑이 닿는다
+      NPICK_AI_HOST: 0.0.0.0
+      NPICK_AI_PORT: 8000
+      NPICK_AI_LOG_LEVEL: ${AI_LOG_LEVEL:-INFO}
+      # GPU 단계는 이 스택에 포함하지 않는다(SSAFY GPU 서버 배치)
+      NPICK_AI_DEVICE: cpu
+    ports:
+      - "127.0.0.1:${AI_WORKER_PORT:-8000}:8000"
+    volumes:
+      - media:/srv/npick/media
+      - model-cache:/var/cache/npick/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 volumes:
   postgres-data:
     name: npick-postgres-data
   media:
     name: npick-media
+  model-cache:
+    name: npick-model-cache
