@@ -27,6 +27,7 @@ packages = ["src/npick_worker"]
 # dev 는 기본 설치, gpu 는 opt-in. `uv sync` 만 하면 torch 를 받지 않는다.
 [dependency-groups]
 dev = [
+    "numpy>=2,<3",
     "ruff>=0.16,<0.17",
     "mypy>=2.3,<3",
     "pytest>=9,<10",

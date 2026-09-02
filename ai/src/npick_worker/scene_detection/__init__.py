@@ -53,7 +53,8 @@ def _to_scenes(detection: RawDetection, min_scene_len_ms: int) -> tuple[Scene, .
     # 0 을 강제로 넣고 중복·역순·범위 밖을 걷어낸다. detector 를 믿지 않는다.
     starts = sorted({0, *(b for b in detection.boundaries_ms if 0 < b < duration_ms)})
 
-    # ms 로 내림하면서 서로 다른 프레임 경계가 같은 ms 로 뭉갤 수 있다. 그때 생기는
+    # 가장 가까운 정수 ms 로 반올림하면서 서로 다른 프레임 경계가 같은 ms 로 뭉갤 수 있다.
+    # 그때 생기는
     # 길이 0 scene 과, 설정보다 짧은 꼬리 scene 을 직전 scene 에 흡수시킨다.
     kept: list[int] = [0]
     for start in starts[1:]:
@@ -76,9 +77,9 @@ def detect_scenes(
 ) -> SceneDetectionResult:
     """영상 하나를 scene 목록으로 나눈다.
 
-    같은 `video_path` + 같은 `cfg` + 같은 detector 구현이면 항상 같은 결과를
-    돌려준다. 재시도가 산출물의 의미를 바꾸지 않아야 한다는 FR-PRC-006 의 전제다.
-    구현 버전은 결과의 `engine_version` 에 실어 보낸다.
+    재현성 식별자는 `(config_version, engine, engine_version)` 튜플이다. 같은
+    `video_path` 와 같은 식별자면 항상 같은 결과를 돌려준다. 재시도가 산출물의
+    의미를 바꾸지 않아야 한다는 FR-PRC-006 의 전제다.
     """
     config = cfg if cfg is not None else get_default_config()
     engine = detector if detector is not None else PySceneDetectDetector()

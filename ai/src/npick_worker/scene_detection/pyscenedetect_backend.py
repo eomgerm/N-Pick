@@ -20,7 +20,7 @@ from npick_worker.scene_detection.detector import RawDetection
 
 
 def frames_to_ms(frame_num: int, frame_rate: float) -> int:
-    """프레임 번호를 정수 ms 로 내린다. **ms 변환은 이 함수 하나만 쓴다.**
+    """프레임 번호를 가장 가까운 정수 ms 로 반올림한다. **ms 변환은 이 함수 하나만 쓴다.**
 
     부동소수 초를 여기저기서 반올림하면 재실행 간 1ms 가 흔들린다. 규칙을 한 곳에
     모아 "같은 프레임 번호 + 같은 fps = 항상 같은 ms" 를 보장한다.

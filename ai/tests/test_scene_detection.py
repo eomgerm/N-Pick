@@ -12,8 +12,10 @@ import pytest
 
 from npick_worker.scene_detection import (
     DEFAULT_CONFIG_PATH,
+    RawDetection,
     SceneDetectionConfig,
     detect_scenes,
+    frames_to_ms,
     load_config,
 )
 
@@ -24,12 +26,27 @@ BLOCK_FRAMES = 20
 BLOCK_MS = 2000
 
 
+class FakeDetector:
+    """주입 경로가 구현 provenance 와 원시 경계를 보존하는지 확인하는 대역."""
+
+    name = "fake-detector"
+    version = "test-1.2.3"
+
+    def detect(self, video_path: Path, cfg: SceneDetectionConfig) -> RawDetection:
+        return RawDetection(boundaries_ms=(0, 2000, 5000), duration_ms=8000, frame_rate=30.0)
+
+
 def _cfg(**overrides: object) -> SceneDetectionConfig:
     """기본 설정에서 일부만 바꾼 사본. 테스트가 toml 을 건드리지 않게 한다."""
     return load_config().model_copy(update=overrides)
 
 
 # ── FR-PRC-010: [start,end) 구간 분할 ──────────────────────────────────
+
+
+def test_frames_to_ms_rounds_to_nearest_integer() -> None:
+    assert frames_to_ms(2, 30.0) == 67
+    assert frames_to_ms(20, 10.0) == 2000
 
 
 def test_three_shot_video_splits_into_three_scenes(make_video: MakeVideo) -> None:
@@ -135,7 +152,7 @@ def test_result_carries_config_version(make_video: MakeVideo) -> None:
 
 
 def test_result_carries_engine_version(make_video: MakeVideo) -> None:
-    """재현 조건의 두 번째 축. `config_version` 만으로는 부족하다.
+    """재현성 식별자의 엔진 필드. `config_version` 만으로는 부족하다.
 
     설정을 그대로 두고 라이브러리만 올려도 경계가 달라질 수 있다. 실제로 이 기능은
     scenedetect 0.6.7.1 → 0.7.1 업그레이드에서 필요해졌다. 버전을 하드코딩하지 않고
@@ -148,6 +165,22 @@ def test_result_carries_engine_version(make_video: MakeVideo) -> None:
 
     assert result.engine == "pyscenedetect"
     assert result.engine_version == installed
+
+
+def test_injected_detector_controls_provenance_and_boundaries(tmp_path: Path) -> None:
+    config = _cfg(detector="adaptive", min_scene_len_ms=1000)
+
+    result = detect_scenes(tmp_path / "not-opened.mp4", config, FakeDetector())
+
+    assert result.engine == "fake-detector"
+    assert result.engine_version == "test-1.2.3"
+    assert result.detector == "adaptive"
+    assert result.config_version == config.version_id
+    assert [(scene.start_time_ms, scene.end_time_ms) for scene in result.scenes] == [
+        (0, 2000),
+        (2000, 5000),
+        (5000, 8000),
+    ]
 
 
 # ── Gate B: 임계값이 코드가 아니라 설정에 있는가 ────────────────────────

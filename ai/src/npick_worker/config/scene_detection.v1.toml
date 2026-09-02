@@ -7,9 +7,9 @@
 # 이 파일의 값이 하나라도 바뀌면 SceneDetectionConfig.version_id 가 바뀐다.
 #
 # 다만 version_id 는 **이 파일만** 해시한다. 설정을 그대로 두고 라이브러리를 올려도
-# 경계가 달라질 수 있으므로 재현 조건은 두 축이다:
-#   같은 입력 + 같은 version_id + 같은 engine_version = 같은 분할 결과
-# engine_version 은 SceneDetectionResult 에 실려 나간다.
+# 경계가 달라질 수 있으므로 재현성 식별자는 세 필드 튜플이다:
+#   같은 입력 + 같은 (version_id, engine, engine_version) = 같은 분할 결과
+# engine 과 engine_version 은 SceneDetectionResult 에 실려 나간다.
 
 schema = "scene-detect/v1"
 

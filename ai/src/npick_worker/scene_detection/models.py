@@ -27,11 +27,11 @@ class Scene:
 class SceneDetectionResult:
     """단계 산출물 전체.
 
-    재현 조건은 **같은 입력 + 같은 `config_version` + 같은 `engine_version`** 이다.
+    재현성 식별자는 `(config_version, engine, engine_version)` 튜플이다.
     `config_version` 은 설정 파일만 해시하므로 라이브러리가 바뀌면 값이 그대로인데
-    경계는 달라질 수 있다. 두 축을 모두 실어야 FR-PRC-006 이 성립한다.
+    경계는 달라질 수 있다. 세 필드를 모두 실어야 FR-PRC-006 이 성립한다.
 
-    두 축을 묶어 FRD `pipeline_run.pipeline_version` 을 만드는 일은 파이프라인 전체의
+    이 튜플을 묶어 FRD `pipeline_run.pipeline_version` 을 만드는 일은 파이프라인 전체의
     몫이므로 S15P21A501-70 에서 한다.
     """
 

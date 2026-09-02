@@ -65,13 +65,15 @@ from npick_worker.scene_detection import detect_scenes
 result = detect_scenes(Path("clip.mp4"))
 result.scenes  # (Scene(scene_index=0, start_time_ms=0, end_time_ms=2000), ...)
 result.config_version  # 'scene-detect/v1:20dfc0a6'  ← 설정 해시
+result.engine  # 'pyscenedetect'                     ← 구현 이름
 result.engine_version  # '0.7.1'                     ← 구현 버전
 ```
 
 구간은 `[start_time_ms, end_time_ms)` 반열린이고 서로 붙어 있다. **같은 파일 + 같은
-`config_version` + 같은 `engine_version` 이면 항상 같은 결과가 나온다**(FR-PRC-006).
+`(config_version, engine, engine_version)` 재현성 식별자가 같으면 항상 같은 결과가
+나온다**(FR-PRC-006).
 `config_version` 은 설정 파일만 해시하므로 라이브러리를 올리면 값이 그대로인데 경계는 달라질
-수 있다 — 그래서 두 축을 다 싣는다. 임계값은 `config/scene_detection.v1.toml` 에 있다.
+수 있다 — 그래서 세 필드를 다 싣는다. 임계값은 `config/scene_detection.v1.toml` 에 있다.
 
 샘플 클립 육안 확인:
 

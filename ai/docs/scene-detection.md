@@ -78,7 +78,7 @@ detector 를 바꾸면 당연히 다른 version 이어야 하기 때문이다.
 설정을 바꾸려면 이 파일을 `v2` 로 복사하고 아래 §4 에 근거를 남긴다. v1 을 그 자리에서 고치면
 과거 결과의 `version_id` 가 무엇을 뜻했는지 알 수 없게 된다.
 
-### 재현 조건은 두 축이다
+### 재현 조건은 세 필드 튜플이다
 
 `version_id` 는 **설정 파일만** 해시한다. 설정을 그대로 두고 라이브러리를 올려도 경계가 달라질
 수 있으므로 `version_id` 하나로는 재현을 보장하지 못한다. 그래서 결과에 구현 버전도 함께 싣는다:
@@ -88,7 +88,9 @@ detector 를 바꾸면 당연히 다른 version 이어야 하기 때문이다.
 | 설정 | `SceneDetectionResult.config_version` | `scene-detect/v1:20dfc0a6` | toml 값 |
 | 구현 | `SceneDetectionResult.engine` / `engine_version` | `pyscenedetect` / `0.7.1` | 라이브러리·모델 버전(가중치 해시 포함) |
 
-> 같은 입력 + 같은 `config_version` + 같은 `engine_version` = 같은 분할 결과 (FR-PRC-006)
+> 재현성 식별자: `(config_version, engine, engine_version)` (FR-PRC-006)
+
+같은 입력과 같은 재현성 식별자는 같은 분할 결과를 만든다.
 
 `engine_version` 은 하드코딩하지 않고 설치된 배포판에서 읽는다. 하드코딩하면 휠과 조용히
 어긋나는데, 그게 바로 재현성 기록이 거짓이 되는 경로다.

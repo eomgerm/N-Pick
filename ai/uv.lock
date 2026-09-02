@@ -518,6 +518,7 @@ dependencies = [
 dev = [
     { name = "httpx2" },
     { name = "mypy" },
+    { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -542,6 +543,7 @@ requires-dist = [
 dev = [
     { name = "httpx2", specifier = ">=2,<3" },
     { name = "mypy", specifier = ">=2.3,<3" },
+    { name = "numpy", specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9,<10" },
     { name = "pytest-asyncio", specifier = ">=1.4,<2" },
     { name = "ruff", specifier = ">=0.16,<0.17" },
