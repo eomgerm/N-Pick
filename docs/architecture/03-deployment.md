@@ -11,9 +11,11 @@
 
 ## 개요
 
-N-Pick은 노드 두 개로 운영된다. SSAFY EC2(`j15a501.p.ssafy.io`) 한 대가 사용자 대면 경로 전부와 정본을 담고, RunPod GPU 파드가 장면 처리만 맡는다.
+N-Pick은 EC2 한 대와 GPU 환경 두 개로 운영된다. SSAFY EC2(`j15a501.p.ssafy.io`)가 사용자 대면 경로 전부와 정본을 담고, 장면 처리는 GPU 쪽이 맡는다.
 
-이 다이어그램의 핵심은 **두 노드 사이에 화살표가 단 하나이고 방향이 GPU → EC2**라는 점이다. 워커가 항상 발신자이므로 GPU 파드에 인바운드 포트를 열 필요가 없고, EC2의 보안 그룹에도 GPU 쪽을 위한 규칙이 없다. 파드가 죽거나 요금 절약을 위해 내려가도 lease 만료로 회수되므로 잡이 유실되지 않는다.
+GPU는 용도로 갈린다. **RunPod 파드는 실시간 전체 플로우를 구동할 때** 쓰고 — 실시간 분석이 필요한 시점에 띄운다 — **SSAFY GPU 서버는 개발 검증용**이다. 워커 이미지는 양쪽이 같고 바뀌는 것은 잡을 받아오는 대상과 GPU 사양뿐이다.
+
+이 다이어그램의 핵심은 **EC2와 GPU 사이에 화살표가 단 하나이고 방향이 GPU → EC2**라는 점이다. 워커가 항상 발신자이므로 GPU 파드에 인바운드 포트를 열 필요가 없고, EC2의 보안 그룹에도 GPU 쪽을 위한 규칙이 없다. 파드가 죽거나 요금 절약을 위해 내려가도 lease 만료로 회수되므로 잡이 유실되지 않는다.
 
 nginx와 Jenkins가 여기 있고 [Container 다이어그램](./02-container.md)에는 없는 이유도 이 문서가 설명한다. 둘 다 N-Pick의 코드를 담지 않는 인프라이며, 이 문서에서는 기술란에 `— 인프라`를 붙여 구분한다.
 
@@ -62,9 +64,15 @@ C4Deployment
         }
     }
 
-    Deployment_Node(gpu, "RunPod GPU 파드", "NVIDIA CUDA · 네트워크 볼륨에 모델 가중치 상주") {
+    Deployment_Node(gpu, "RunPod GPU 파드 — 실시간 구동", "NVIDIA CUDA · 네트워크 볼륨에 모델 가중치 상주") {
         Deployment_Node(n_wrk, "컨테이너: worker", "Python 3.12 · PyTorch") {
             Container(worker, "파이프라인 워커", "FastAPI · Python 3.12 · PyTorch", "장면 분할부터 임베딩까지 9단계를 GPU에서 실행한다.")
+        }
+    }
+
+    Deployment_Node(gpudev, "SSAFY GPU 서버 — 개발 검증", "NVIDIA CUDA · 팀 공용 · 상시 가동") {
+        Deployment_Node(n_wrkdev, "컨테이너: worker", "Python 3.12 · PyTorch") {
+            Container(workerdev, "파이프라인 워커 (검증)", "FastAPI · Python 3.12 · PyTorch", "운영과 같은 이미지로 단계 구현과 모델 후보를 검증한다. 운영 색인은 만들지 않는다.")
         }
     }
 
@@ -101,7 +109,8 @@ C4Deployment
 | 컨테이너: mlflow | Deployment_Node | 평가 추적 | backend store는 `db` 노드 안의 별도 `mlflow` DB. **호스트 포트를 노출하지 않고 nginx 경유로만 접근** |
 | 호스트 볼륨: mlflow-artifacts | Deployment_Node | MLflow artifact 스토어 | run 메타데이터는 `db`에 있음 |
 | 컨테이너: jenkins | Deployment_Node | Jenkins (인프라) | `jenkins/jenkins:lts`, 호스트 포트 8080. **이미 가동 중** |
-| RunPod GPU 파드 | Deployment_Node | 파이프라인 워커 | NVIDIA CUDA. 모델 가중치는 네트워크 볼륨 |
+| RunPod GPU 파드 | Deployment_Node | 파이프라인 워커 | NVIDIA CUDA. **실시간 전체 플로우 구동용** — 필요한 시점에 띄우고 끝나면 내린다. 모델 가중치는 네트워크 볼륨 |
+| SSAFY GPU 서버 | Deployment_Node | 파이프라인 워커 (검증) | NVIDIA CUDA, 팀 공용 상시 가동. **개발 검증용** — 단계 구현과 모델 후보 확인에만 쓰고 운영 색인은 만들지 않는다 |
 
 ## 주요 관계
 
@@ -126,6 +135,8 @@ C4Deployment
 
 - **성능 수치에 GPU 모델을 반드시 기록한다.** RunPod은 실행할 때마다 GPU 종류가 달라질 수 있다. 333클립 배치 목표 시간을 측정할 때 GPU 모델을 benchmark profile에 남기지 않으면 그 수치는 재현 불가능하고 합격 근거로 쓸 수 없다.
 
+- **GPU 환경을 용도로 둘로 나눈다.** RunPod은 실시간 전체 플로우를 구동할 때만 띄우는 종량 자원이고, SSAFY GPU 서버는 상시 가동되는 개발 검증 자원이다. 워커 이미지와 잡 API 계약이 같으므로 코드는 한 벌이고 환경변수로 대상 서비스 서버만 갈아 끼운다. 검증을 RunPod에서 하면 개발 중 파드를 계속 띄워야 해 비용이 새고, 실시간 구동을 SSAFY GPU에서 하면 팀 공용 자원을 장시간 점유한다.
+
 - **검색 경로가 GPU 서버에 의존하지 않는다.** 질의 리졸버를 EC2에 남겨, GPU 파드가 내려가 있어도 검색은 계속 동작하고 색인만 멈춘다. 검색 p95 목표가 대여 GPU의 가용성과 네트워크에 묶이지 않는다.
 
 - **서비스 서버는 호스트 포트 8081을 쓴다.** 8080은 이미 Jenkins 컨테이너가 점유하고 있다(확인 시점 기준 가동 중). 컨테이너 내부 포트는 8080 그대로 두고 퍼블리시만 8081로 매핑한다. `compose.yaml`의 `BACKEND_PORT` 기본값은 아직 8080이며 MLflow 구성 시 함께 옮긴다. 세 서비스 모두 `127.0.0.1`에만 바인딩되므로 외부 접근은 nginx 또는 SSH 터널을 거친다.
@@ -140,7 +151,8 @@ C4Deployment
 - **nginx는 아직 설치되지 않았다.** 확인 시점에 80/443이 비어 있었다. 컨테이너로 띄울지 호스트 패키지로 설치할지는 미정이다.
 - **에셋 스토어는 named volume `npick-media`다.** `/srv/npick/media`로 backend와 AI 워커가 공유 마운트한다. 오브젝트 스토리지는 검토하지 않았다.
 - **질의 리졸버가 사용할 LLM이 미정이다.** GMS 또는 EC2에서 도는 소형 모델. 어느 쪽이든 이 배포도는 바뀌지 않는다.
-- **환경은 P0 한 벌뿐이다.** dev/staging 분리가 없으므로 이 문서가 유일한 배포도다.
+- **환경은 사용자 대면 경로가 P0 한 벌뿐이다.** EC2 스택에는 dev/staging 분리가 없어 이 문서가 유일한 배포도다. GPU만 실시간 구동(RunPod)과 개발 검증(SSAFY GPU)으로 갈린다.
+- **개발 검증 워커가 어느 서비스 서버에서 잡을 받는지는 미정이다.** 운영 EC2를 그대로 쓸지 개발자 로컬 스택을 붙일지 정해야 한다. 운영 EC2를 쓰면 검증 산출물이 운영 정본에 섞이지 않도록 격리 방법이 필요하다.
 
 ## 다른 레벨로의 링크
 
