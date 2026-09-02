@@ -170,9 +170,7 @@ def test_config_rejects_unknown_key(tmp_path: Path) -> None:
 def test_no_threshold_literals_in_source() -> None:
     """임계값은 toml 에만 있어야 한다(Gate B, FRD §15.4)."""
     package = DEFAULT_CONFIG_PATH.parent.parent / "scene_detection"
-    sources = "\n".join(
-        p.read_text(encoding="utf-8") for p in sorted(package.glob("*.py")) if p.name != "report.py"
-    )
+    sources = "\n".join(p.read_text(encoding="utf-8") for p in sorted(package.glob("*.py")))
 
     for literal in ("27.0", "3.0", "15.0"):
         assert literal not in sources, f"임계값 {literal} 이 코드에 남아 있다"

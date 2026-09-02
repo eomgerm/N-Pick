@@ -14,7 +14,12 @@ from pathlib import Path
 
 import av
 
-from npick_worker.scene_detection import SceneDetectionResult, detect_scenes, load_config
+from npick_worker.scene_detection import (
+    SceneDetectionResult,
+    detect_scenes,
+    frames_to_ms,
+    load_config,
+)
 
 
 def _format_ms(value: int) -> str:
@@ -49,7 +54,7 @@ def save_boundary_frames(video_path: Path, result: SceneDetectionResult, out_dir
     with av.open(str(video_path)) as container:
         stream = container.streams.video[0]
         for frame_number, frame in enumerate(container.decode(stream)):
-            frame_ms = round(frame_number * 1000 / result.frame_rate)
+            frame_ms = frames_to_ms(frame_number, result.frame_rate)
             index = wanted.pop(frame_ms, None)
             if index is None:
                 continue

@@ -19,7 +19,10 @@ from npick_worker.scene_detection.config import (
 )
 from npick_worker.scene_detection.detector import RawDetection, SceneDetector
 from npick_worker.scene_detection.models import Scene, SceneDetectionResult
-from npick_worker.scene_detection.pyscenedetect_backend import PySceneDetectDetector
+from npick_worker.scene_detection.pyscenedetect_backend import (
+    PySceneDetectDetector,
+    frames_to_ms,
+)
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
@@ -32,6 +35,7 @@ __all__ = [
     "SceneDetectionResult",
     "SceneDetector",
     "detect_scenes",
+    "frames_to_ms",
     "get_default_config",
     "load_config",
 ]
