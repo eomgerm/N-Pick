@@ -19,6 +19,16 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 - 브랜치 이름에 지라 키가 있으면 커밋 메시지에 자동으로 붙으므로 직접 쓰지 않아도 됩니다.
 - 클론 직후 1회: `npm install`
 
+## 아키텍처 정본
+
+시스템 전체 구조는 C4 다이어그램 3종이 정본입니다. 기술 표기가 문서 간에 어긋나면 [02 Container](docs/architecture/02-container.md)의 *요소* 표를 따릅니다.
+
+| 레벨 | 문서 | 범위 |
+| --- | --- | --- |
+| L1 Context | [docs/architecture/01-context.md](docs/architecture/01-context.md) | 사용자와 시스템 경계, 경계 밖으로 나가는 데이터 |
+| L2 Container | [docs/architecture/02-container.md](docs/architecture/02-container.md) | 배포 단위와 통신 프로토콜, **기술 스택 정본** |
+| Deployment | [docs/architecture/03-deployment.md](docs/architecture/03-deployment.md) | P0 노드 배치 (EC2 + RunPod GPU 파드) |
+
 ## 하위 규약
 
 | 범위 | 문서 |
