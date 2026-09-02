@@ -35,7 +35,7 @@ C4Deployment
             Container(web, "웹 애플리케이션", "Next.js 16.3.4", "브라우저에 화면을 전달한다.")
         }
 
-        Deployment_Node(n_api, "컨테이너: api", "JRE 21 LTS · 호스트 포트 8081 (loopback)") {
+        Deployment_Node(n_api, "컨테이너: api", "JRE 21 LTS · 호스트 포트 8080 (loopback)") {
             Container(api, "서비스 서버", "Spring Boot 4.1.1", "정본 쓰기와 검색 오케스트레이션, 잡 디스패치를 담당한다.")
         }
 
@@ -51,15 +51,15 @@ C4Deployment
             ContainerDb(assets, "에셋 스토어", "파일시스템", "원본 영상·keyframe·thumbnail. 인덱스 재구축의 manifest 원천.")
         }
 
-        Deployment_Node(n_mlf, "컨테이너: mlflow", "MLflow 3.x · 호스트 포트 5000") {
-            Container(mlflow, "평가 추적", "MLflow 3.x", "backend store는 db 노드 안의 별도 mlflow DB. nginx 경유로만 접근.")
+        Deployment_Node(n_mlf, "컨테이너: mlflow", "MLflow 3.15.2 · 호스트 포트 5000 (loopback)") {
+            Container(mlflow, "평가 추적", "MLflow 3.15.2", "backend store는 db 노드 안의 별도 mlflow DB. 브라우저 접근은 nginx의 /mlflow/ 서브패스.")
         }
 
         Deployment_Node(n_mvol, "호스트 볼륨: mlflow-artifacts", "EC2 로컬 디스크") {
             ContainerDb(mlflow_art, "MLflow artifact 스토어", "파일시스템", "Gold Set 결과와 ablation artifact 파일.")
         }
 
-        Deployment_Node(n_ci, "컨테이너: jenkins", "Docker · 호스트 포트 8080") {
+        Deployment_Node(n_ci, "컨테이너: jenkins", "Docker · 호스트 포트 18080") {
             Container(jenkins, "Jenkins", "jenkins/jenkins:lts — 인프라", "빌드와 배포를 실행한다. N-Pick의 컨테이너가 아니며 이미 가동 중이다.")
         }
     }
@@ -102,13 +102,13 @@ C4Deployment
 | SSAFY EC2 (`j15a501.p.ssafy.io`) | Deployment_Node | 사용자 대면 경로 전부와 정본 | Ubuntu 24.04.4 LTS (noble), 커널 6.17.0-aws, 4 vCPU / 15GB RAM / 305GB 여유. swap 없음 |
 | 호스트 진입점 | Deployment_Node | 리버스 프록시 (nginx 1.28) | 포트 80/443. **TLS 종단**이며 80 은 443 으로 리다이렉트한다. 인증서는 Let's Encrypt(certbot, webroot 갱신) |
 | 컨테이너: web | Deployment_Node | 웹 애플리케이션 | Node 24 (`.nvmrc` 24.18.0, `node:24-alpine`). 호스트 포트 3000 |
-| 컨테이너: api | Deployment_Node | 서비스 서버 | JRE 21 LTS. **호스트 포트 8081** — 8080은 Jenkins가 선점. 컨테이너 내부는 8080 유지, 퍼블리시만 8081 |
+| 컨테이너: api | Deployment_Node | 서비스 서버 | JRE 21 LTS. **호스트 포트 8080**. 8080을 쓰던 Jenkins를 18080으로 옮겼다 (`S15P21A501-151`) |
 | 컨테이너: resolver | Deployment_Node | 질의 리졸버 | FastAPI, Python 3.12. 호스트 포트 8001. **아직 분리되지 않았다** — 현재 `ai-worker` 한 컨테이너(포트 8000)에 통합 |
-| 컨테이너: db | Deployment_Node | 정본 및 검색 인덱스 | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4. **현재 `compose.yaml`은 `postgres:17-alpine`** — MLflow 구성 시 확장 포함 이미지로 올린다 |
+| 컨테이너: db | Deployment_Node | 정본 및 검색 인덱스 | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4 (`paradedb/paradedb:0.25.6-pg18`). 반영 완료 (`S15P21A501-151`) |
 | 호스트 볼륨: assets | Deployment_Node | 에셋 스토어 | named volume `npick-media` → `/srv/npick/media`. backend와 ai-worker가 **공유 마운트** |
-| 컨테이너: mlflow | Deployment_Node | 평가 추적 | backend store는 `db` 노드 안의 별도 `mlflow` DB. **호스트 포트를 노출하지 않고 nginx 경유로만 접근** |
-| 호스트 볼륨: mlflow-artifacts | Deployment_Node | MLflow artifact 스토어 | run 메타데이터는 `db`에 있음 |
-| 컨테이너: jenkins | Deployment_Node | Jenkins (인프라) | `jenkins/jenkins:lts`, 호스트 포트 8080. **이미 가동 중** |
+| 컨테이너: mlflow | Deployment_Node | 평가 추적 | backend store는 `db` 노드 안의 별도 `mlflow` DB. 호스트 포트 5000은 **`127.0.0.1`에만** 퍼블리시한다. 브라우저 접근은 nginx `/mlflow/` + basic auth |
+| 호스트 볼륨: mlflow-artifacts | Deployment_Node | MLflow artifact 스토어 | named volume `npick-mlflow-artifacts` → `/mlartifacts`. run 메타데이터는 `db`에 있음 |
+| 컨테이너: jenkins | Deployment_Node | Jenkins (인프라) | `jenkins/jenkins:lts`, 호스트 포트 **18080**. 컨테이너 내부 포트는 8080 그대로다 |
 | RunPod GPU 파드 | Deployment_Node | 파이프라인 워커 | NVIDIA CUDA. **실시간 전체 플로우 구동용** — 필요한 시점에 띄우고 끝나면 내린다. 모델 가중치는 네트워크 볼륨 |
 | SSAFY GPU 서버 | Deployment_Node | 파이프라인 워커 (검증) | NVIDIA CUDA, 팀 공용 상시 가동. **개발 검증용** — 단계 구현과 모델 후보 확인에만 쓰고 운영 색인은 만들지 않는다 |
 
@@ -139,7 +139,9 @@ C4Deployment
 
 - **검색 경로가 GPU 서버에 의존하지 않는다.** 질의 리졸버를 EC2에 남겨, GPU 파드가 내려가 있어도 검색은 계속 동작하고 색인만 멈춘다. 검색 p95 목표가 대여 GPU의 가용성과 네트워크에 묶이지 않는다.
 
-- **서비스 서버는 호스트 포트 8081을 쓴다.** 8080은 이미 Jenkins 컨테이너가 점유하고 있다(확인 시점 기준 가동 중). 컨테이너 내부 포트는 8080 그대로 두고 퍼블리시만 8081로 매핑한다. `compose.yaml`의 `BACKEND_PORT` 기본값도 8081이다. 애플리케이션 컨테이너는 모두 `127.0.0.1`에만 바인딩되고 외부에 열리는 것은 nginx의 80·443뿐이다. 프록시가 라우팅하지 않는 경로(`/actuator/health` 등)는 SSH 터널로 확인한다.
+- **서비스 서버가 호스트 포트 8080을 쓰고 Jenkins가 18080으로 비켜났다** (`S15P21A501-151`). 애플리케이션 포트를 관례값에서 옮기는 것보다 빌드 인프라를 옮기는 편이 영향 범위가 좁다 — Jenkins는 데이터 볼륨을 그대로 둔 채 컨테이너 재생성과 URL·웹훅 두 곳 수정으로 끝난다. 절차는 [infra/jenkins/README.md](../../infra/jenkins/README.md) 4장에 있다. 애플리케이션 컨테이너는 모두 `127.0.0.1`에만 바인딩되고 외부에 열리는 것은 nginx의 80·443뿐이다. 프록시가 라우팅하지 않는 경로(`/actuator/health` 등)는 SSH 터널로 확인한다.
+
+- **MLflow UI는 서브도메인이 아니라 nginx의 `/mlflow/` 서브패스로 연다** (`S15P21A501-151`). SSAFY가 배정한 도메인의 하위 도메인을 팀이 만들 수 없고, 서브패스는 인증서를 다시 발급할 필요가 없다. `--static-prefix`가 REST 라우트에 붙지 않던 버그는 MLflow 3.12에서 해결됐다. MLflow 서버는 기본이 무인증이므로 nginx의 basic auth가 유일한 관문이다.
 
 - **평가 추적은 정본과 같은 PostgreSQL 인스턴스를 공유하되 별도 DB와 role로 격리한다** (`S15P21A501-151`). SQLite 파일도 후보였으나, "동시 사용자 1명"은 사용자 부하의 상한일 뿐이고 ablation을 병렬로 돌리면 `database is locked`가 난다. 저장소를 하나로 유지하면 백업 대상과 접근 경로가 한 곳이고 나중에 옮길 일도 없다. role 단위 `CONNECTION LIMIT`과 `REVOKE CONNECT`로 실험 트래픽이 서비스 커넥션을 잠식하거나 정본에 닿는 것을 막는다. artifact 파일만 별도 호스트 볼륨에 남는다.
 

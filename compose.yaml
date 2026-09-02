@@ -4,20 +4,25 @@ name: npick
 
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    # pg_search(BM25) 와 pgvector 가 같은 인스턴스에 있어야 검색 설계가 성립한다.
+    image: ${POSTGRES_IMAGE:-paradedb/paradedb:0.25.6-pg18}
     container_name: npick-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-npick}
       POSTGRES_USER: ${POSTGRES_USER:-npick}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정해야 한다}
+      # postgres-init 스크립트가 mlflow role 을 만들 때만 쓴다.
+      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD 를 .env 에 설정해야 한다}
       TZ: UTC
       PGTZ: UTC
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-      # npick 스키마 생성. 볼륨이 비어 있는 최초 기동에만 실행된다.
+      # PG18 부터 PGDATA 가 /var/lib/postgresql/<major>/docker 로 바뀌었다.
+      # /var/lib/postgresql/data 에 마운트하면 에러 없이 볼륨 밖에 데이터가 쓰인다.
+      - postgres-data:/var/lib/postgresql
+      # npick 스키마와 mlflow DB·role 생성. 볼륨이 비어 있는 최초 기동에만 실행된다.
       - ./infra/compose/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-npick} -d ${POSTGRES_DB:-npick}"]
@@ -56,7 +61,7 @@ services:
       NPICK_PROFILES_DIR: /app/config/profiles
       NPICK_MEDIA_ROOT: /srv/npick/media
     ports:
-      - "127.0.0.1:${BACKEND_PORT:-8081}:8080"
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
     volumes:
       - media:/srv/npick/media
       - ./infra/compose/profiles:/app/config/profiles:ro
@@ -125,6 +130,43 @@ services:
       retries: 10
       start_period: 30s
 
+  mlflow:
+    # -full 태그는 db extra(psycopg2-binary)를 포함한다. 별도 빌드가 필요 없다.
+    image: ${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.15.2-full}
+    container_name: npick-mlflow
+    restart: unless-stopped
+    environment:
+      # 비밀번호가 프로세스 argv 에 남지 않도록 URI 는 환경변수로 넘긴다.
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:${MLFLOW_DB_PASSWORD:?MLFLOW_DB_PASSWORD 를 .env 에 설정해야 한다}@postgres:5432/mlflow
+      TZ: UTC
+    # --host 0.0.0.0 은 컨테이너 내부 바인딩일 뿐이다. 접근 제한은 --allowed-hosts,
+    # loopback 퍼블리시, nginx 의 basic auth 가 담당한다.
+    # --workers: 기본 4. 워커마다 커넥션 풀이 따로 잡혀 role 의 CONNECTION LIMIT 20 을 넘긴다.
+    # --static-prefix: nginx 서브패스 노출용. REST 라우트까지 붙는 것은 3.12 부터다(#22159).
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --workers 2
+      --static-prefix /mlflow
+      --artifacts-destination /mlartifacts
+      --allowed-hosts ${MLFLOW_ALLOWED_HOSTS:-mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000}
+    ports:
+      # loopback 전용. 공인 IP 에 5000 을 직접 노출하지 않는다.
+      - "127.0.0.1:${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlflow-artifacts:/mlartifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # 이미지에 curl 이 없다. python 은 있다. 경로에 static-prefix 가 붙는다.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/mlflow/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
   # 인증서가 있는 환경에서만 띄운다. 로컬은 FE 가 BE 를 직접 호출한다.
   #   배포 환경 .env: COMPOSE_PROFILES=proxy
   nginx:
@@ -144,6 +186,8 @@ services:
       - ./infra/nginx/snippets:/etc/nginx/snippets:ro
       # 이미지 기본 default.conf 를 비워 우리 설정만 남긴다
       - ./infra/nginx/conf.d-default-override.conf:/etc/nginx/conf.d/default.conf:ro
+      # MLflow basic auth. 커밋되지 않으며 배포 환경에서 직접 만든다(README 참고).
+      - ./infra/nginx/htpasswd:/etc/nginx/htpasswd:ro
       - media:/srv/npick/media:ro
       - certbot-conf:/etc/letsencrypt:ro
       - certbot-www:/var/www/certbot
@@ -151,6 +195,9 @@ services:
       frontend:
         condition: service_healthy
       backend:
+        condition: service_healthy
+      # upstream 호스트명은 기동 시 해석된다. mlflow 가 없으면 nginx 가 뜨지 못한다.
+      mlflow:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
@@ -176,6 +223,8 @@ volumes:
     name: npick-media
   model-cache:
     name: npick-model-cache
+  mlflow-artifacts:
+    name: npick-mlflow-artifacts
   certbot-conf:
     name: npick-certbot-conf
   certbot-www:

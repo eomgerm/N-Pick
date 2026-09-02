@@ -18,7 +18,7 @@ EC2에 Docker로 Jenkins를 올리고, GitLab push가 자동으로 빌드를 트
 
 | 결과물 | 위치 |
 |---|---|
-| Jenkins 컨테이너 | EC2, 포트 8080 |
+| Jenkins 컨테이너 | EC2, 포트 18080 |
 | Jenkins 데이터(잡·설정·플러그인) | EC2 `/home/ubuntu/jenkins-data` |
 | 파이프라인 정의 | 레포 루트 `Jenkinsfile` (커밋됨) |
 | 관리자 계정 / GitLab 토큰 | **EC2 안에만 존재. 레포에 커밋하지 않는다** |
@@ -65,7 +65,7 @@ sudo shutdown    sudo halt       sudo init       sudo rm -rf /
 > (보안 그룹 → ufw) **접근 제한이라는 목적은 동일하게 달성한다.** MR 설명에 이 대체 사실을 적는다.
 >
 > **전제 2: 발급 시점에 22번(SSH)만 열려 있다.** (컨설턴트 공지)
-> 즉 8080은 닫힌 상태에서 출발한다. 열어야 할 것만 최소로 연다.
+> 즉 18080은 닫힌 상태에서 출발한다. 열어야 할 것만 최소로 연다.
 
 ### 1-1. 현재 상태 확인
 
@@ -77,32 +77,32 @@ sudo ufw status numbered
 
 ### 1-2. GitLab 웹훅용 한 줄만 추가 (권장)
 
-**사람은 8080을 열지 않고 SSH 터널로 접속한다.** 그러면 추가할 규칙은 이 한 줄뿐이다.
+**사람은 18080을 열지 않고 SSH 터널로 접속한다.** 그러면 추가할 규칙은 이 한 줄뿐이다.
 
 ```bash
 GITLAB_IP=$(getent hosts lab.ssafy.com | awk '{print $1}' | head -1)
 echo "GitLab IP: $GITLAB_IP"
-sudo ufw allow from "$GITLAB_IP" to any port 8080 proto tcp
+sudo ufw allow from "$GITLAB_IP" to any port 18080 proto tcp
 sudo ufw status numbered
 ```
 
 팀원은 각자 이렇게 접속한다.
 
 ```bash
-ssh -i J15<팀ID>T.pem -L 8080:localhost:8080 ubuntu@j15<팀ID>.p.ssafy.io
-# 터널을 띄운 뒤 브라우저에서 http://localhost:8080
+ssh -i J15<팀ID>T.pem -L 18080:localhost:18080 ubuntu@j15<팀ID>.p.ssafy.io
+# 터널을 띄운 뒤 브라우저에서 http://localhost:18080
 ```
 
 | 이 방식의 이점 | |
 |---|---|
 | 팀원 공인 IP를 모아둘 필요가 없다 | 6명 IP 수집 + ufw 6줄 관리가 사라진다 |
 | 팀원 IP가 바뀌어도 영향이 없다 | 집 인터넷은 공인 IP가 자주 바뀐다 |
-| 8080이 GitLab에게만 열린다 | 노출면이 최소가 된다 |
+| 18080이 GitLab에게만 열린다 | 노출면이 최소가 된다 |
 
 단점은 접속할 때마다 터널 명령을 한 번 더 쳐야 하는 것뿐이다.
 
-> **주의**: 이때 Jenkins의 URL 설정(5장)은 여전히 `http://j15<팀ID>.p.ssafy.io:8080` 이다.
-> 브라우저로는 `localhost:8080`으로 보지만, GitLab이 웹훅을 보낼 주소는 EC2의 실제 도메인이다.
+> **주의**: 이때 Jenkins의 URL 설정(5장)은 여전히 `http://j15<팀ID>.p.ssafy.io:18080` 이다.
+> 브라우저로는 `localhost:18080`으로 보지만, GitLab이 웹훅을 보낼 주소는 EC2의 실제 도메인이다.
 > 이걸 `localhost`로 적으면 GitLab에 찍히는 빌드 링크가 깨진다.
 
 ### 1-3. 대안 — 팀원 IP를 직접 허용
@@ -111,11 +111,11 @@ ssh -i J15<팀ID>T.pem -L 8080:localhost:8080 ubuntu@j15<팀ID>.p.ssafy.io
 
 ```bash
 # 팀원별로 한 줄씩
-sudo ufw allow from <팀원-공인-IP> to any port 8080 proto tcp
+sudo ufw allow from <팀원-공인-IP> to any port 18080 proto tcp
 sudo ufw status numbered
 ```
 
-> **`sudo ufw allow 8080` (소스 없이)은 쓰지 않는다.** 컨설턴트 공지의 포트 추가 예시가 이 형태지만,
+> **`sudo ufw allow 18080` (소스 없이)은 쓰지 않는다.** 컨설턴트 공지의 포트 추가 예시가 이 형태지만,
 > 그건 전체 공개라 이슈 제약("팀 접근만 허용")을 위반한다. Jenkins를 인터넷에 그대로 열면
 > 크리덴셜 스캐닝 대상이 된다.
 >
@@ -189,8 +189,28 @@ cd /home/ubuntu && mkdir jenkins-data
 ```
 
 ```bash
-sudo docker run -d -p 8080:8080 -v /home/ubuntu/jenkins-data:/var/jenkins_home --restart=unless-stopped --name jenkins jenkins/jenkins:lts
+sudo docker run -d -p 18080:8080 -v /home/ubuntu/jenkins-data:/var/jenkins_home --restart=unless-stopped --name jenkins jenkins/jenkins:lts
 ```
+
+> **호스트 포트는 18080이다** (S15P21A501-151). 8080은 애플리케이션 서버 몫이라
+> `compose.yaml`의 `BACKEND_PORT` 기본값과 충돌한다. 컨테이너 내부 포트는 8080 그대로 두고
+> 퍼블리시만 옮긴다.
+>
+> **이미 8080으로 돌고 있다면** 아래로 옮긴다. 잡·설정·플러그인은 `/home/ubuntu/jenkins-data`
+> 볼륨에 있으므로 컨테이너를 지워도 유실되지 않는다.
+>
+> ```bash
+> sudo docker rm -f jenkins
+> sudo docker run -d -p 18080:8080 -v /home/ubuntu/jenkins-data:/var/jenkins_home --restart=unless-stopped --name jenkins jenkins/jenkins:lts
+> GITLAB_IP=$(getent hosts lab.ssafy.com | awk '{print $1}' | head -1)
+> sudo ufw allow from "$GITLAB_IP" to any port 18080 proto tcp
+> sudo ufw status numbered   # 8080 규칙 번호를 확인해서 지운다
+> sudo ufw delete <번호>
+> ```
+>
+> 컨테이너를 옮긴 뒤 **두 곳을 같이 고쳐야 한다.** 안 고치면 웹훅이 끊긴다.
+> 1. Jenkins → Manage Jenkins → System → **Jenkins URL** 을 `:18080` 으로 (5장·10장)
+> 2. GitLab → Settings → Webhooks → URL 을 `:18080` 으로 (10장)
 
 > **`--restart=unless-stopped` 는 SSAFY 가이드 명령에 없는 것을 추가한 것이다.** 이게 없으면
 > EC2를 재부팅하거나 docker 데몬이 재시작될 때 Jenkins가 자동으로 올라오지 않는다. 그 사이
@@ -320,14 +340,14 @@ sudo docker restart jenkins
 
 ## 5. 초기 설정 (웹 마법사)
 
-브라우저에서 `http://localhost:8080` 접속. (1-2의 SSH 터널을 띄운 상태여야 한다. 1-3 방식이면 `http://j15<팀ID>.p.ssafy.io:8080`)
+브라우저에서 `http://localhost:18080` 접속. (1-2의 SSH 터널을 띄운 상태여야 한다. 1-3 방식이면 `http://j15<팀ID>.p.ssafy.io:18080`)
 
 1. **Unlock Jenkins** — 3장에서 복사한 초기 비밀번호 입력
 2. **Customize Jenkins** — `Install suggested plugins` 클릭
 3. **Create First Admin User** — 관리자 계정 생성
    - 비밀번호는 12자 이상. `openssl rand -base64 24` 로 만들어 쓰면 편하다
    - **이 계정 정보는 레포에 적지 않는다** (0장)
-4. **Instance Configuration** — Jenkins URL을 **`http://j15<팀ID>.p.ssafy.io:8080`** 으로 설정
+4. **Instance Configuration** — Jenkins URL을 **`http://j15<팀ID>.p.ssafy.io:18080`** 으로 설정
    - 기본값이 맞아 보여도 확인한다. 틀리면 GitLab에 찍히는 빌드 링크가 엉뚱한 주소가 된다
 
 ---
@@ -509,7 +529,7 @@ GitLab 프로젝트 → **Settings → Webhooks** → Add new webhook
 
 | 항목 | 값 |
 |---|---|
-| URL | `http://j15<팀ID>.p.ssafy.io:8080/project/npick-ci` |
+| URL | `http://j15<팀ID>.p.ssafy.io:18080/project/npick-ci` |
 | Secret token | 9장에서 Generate한 토큰 |
 | Trigger | ☑ Push events ☑ Merge request events |
 | SSL verification | HTTP면 해제 |
@@ -764,7 +784,7 @@ cat id_rsa.pub >> ~/.ssh/authorized_keys
 **3. 앱 비밀값** — DB 비밀번호, API 키 등이 생긴다. Jenkins Credentials + `withCredentials` 로
 주입한다. **레포에 커밋하지 않는다**는 제약이 그대로 이어진다.
 
-**4. ufw에 앱 포트 추가** — 지금은 8080(GitLab IP 한정)뿐이다. 앱은 80/443을 **소스 제한 없이**
+**4. ufw에 앱 포트 추가** — 지금은 18080(GitLab IP 한정)뿐이다. 앱은 80/443을 **소스 제한 없이**
 열게 되므로 Jenkins 포트와 정책이 갈린다. nginx + HTTPS도 이 시점에 붙는다.
 
 **5. EC2 자원** — Jenkins + 앱 + DB가 한 대에 올라간다. 빌드 중 앱이 느려지거나 OOM이 날 수 있다.
