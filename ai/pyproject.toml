@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn>=0.52,<1",
     "pydantic>=2.12,<3",
     "pydantic-settings>=2.15,<3",
+    "av>=13",
+    "scenedetect[opencv-headless]>=0.6.7,<0.7",
 ]
 
 [project.scripts]
@@ -81,6 +83,12 @@ warn_unused_configs = true
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
 module = ["torch.*", "numpy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# PySceneDetect 는 py.typed 를 배포하지 않는다. 경계는 detector.py 의 Protocol 이
+# 잡으므로 타입 부재가 pyscenedetect_backend.py 밖으로 번지지 않는다.
+module = ["scenedetect.*"]
 ignore_missing_imports = true
 
 # ── pytest ──────────────────────────────────────────────────────────
