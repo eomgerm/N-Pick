@@ -27,11 +27,11 @@ C4Container
     Person(reviewer, "검수자 / 아카이빙 담당자", "영상을 등록하고 문의를 진단해 override를 등록한다.")
 
     System_Boundary(npick, "N-Pick") {
-        Container(web, "웹 애플리케이션", "Next.js 16.3.3, Node 22 LTS", "/review 처리·문의 화면과 /search 화면을 제공한다.")
+        Container(web, "웹 애플리케이션", "Next.js 15.5.25, Node 24", "/review 처리·문의 화면과 /search 화면을 제공한다.")
         Container(api, "서비스 서버", "Spring Boot 4.1.1, Java 21 LTS", "정본 쓰기를 소유하고 검색을 오케스트레이션한다. 잡 디스패치와 외부 전송 게이트를 담당한다.")
         Container(resolver, "질의 리졸버", "FastAPI, Python 3.12", "질의를 JSON schema로 구조화하고, 임베딩과 Kiwi 형태소 토큰을 반환한다. 동기 호출 전용.")
         Container(worker, "파이프라인 워커", "FastAPI, Python 3.12, PyTorch", "장면 분할·keyframe 추출·VLM·OCR·Whisper ASR·entity·임베딩 9단계를 자체 GPU에서 실행한다. 서비스 서버로 잡을 받으러 오는 발신자 역할.")
-        ContainerDb(db, "정본 및 검색 인덱스", "PostgreSQL 18.6 (pg_search, pgvector)", "clip·scene·evidence·상태·snapshot·override·inquiry의 정본. BM25와 dense 인덱스를 같은 인스턴스에서 제공한다.")
+        ContainerDb(db, "정본 및 검색 인덱스", "PostgreSQL 17 (pg_search·pgvector 미도입)", "clip·scene·evidence·상태·snapshot·override·inquiry의 정본. BM25와 dense 인덱스를 같은 인스턴스에서 제공한다.")
         ContainerDb(assets, "에셋 스토어", "로컬 파일시스템", "원본 영상, keyframe, thumbnail을 보관한다. 인덱스 재구축의 manifest 원천.")
         Container(mlflow, "평가 추적", "MLflow 3.x", "search_version별 Gold Set 실행 결과와 지표를 불변 run으로 기록한다. backend store는 정본과 같은 PostgreSQL 인스턴스 안의 별도 mlflow DB를 쓴다.")
     }
@@ -74,14 +74,16 @@ C4Container
 ## 요소
 
 > 이 표가 **기술 스택의 정본**이다. Deployment 문서는 배치 위치를 다루며 기술 표기는 여기를 따른다.
+>
+> **버전은 저장소 매니페스트에서 확인한 실측값이다** — `frontend/package.json`, `backend/build.gradle`, `ai/pyproject.toml`, 루트 `compose.yaml` (2026-09-02 대조). 매니페스트를 올릴 때 이 표도 같이 올린다.
 
 | 요소 | 유형 | 기술 | 책임 |
 | --- | --- | --- | --- |
-| 웹 애플리케이션 | Container | Next.js 16.3.3, Node 22 LTS | `/review` 처리·문의 화면과 `/search` 화면 |
+| 웹 애플리케이션 | Container | Next.js 15.5.25, Node 24 | `/review` 처리·문의 화면과 `/search` 화면 |
 | 서비스 서버 | Container | Spring Boot 4.1.1, Java 21 LTS | 정본 쓰기 소유, 검색 오케스트레이션(RRF·guard·Top 10 보충), 잡 디스패치, 외부 전송 게이트와 감사 기록 |
 | 질의 리졸버 | Container | FastAPI, Python 3.12 | 질의 구조화, 질의 임베딩, Kiwi 형태소 토큰화. 동기 호출 전용이며 재시도 없음 |
 | 파이프라인 워커 | Container | FastAPI, Python 3.12, PyTorch | 장면 분할, keyframe 추출, VLM 메타데이터, OCR, transcript 선택, ASR, scene-transcript 매핑, entity 추출, 텍스트 임베딩 |
-| 정본 및 검색 인덱스 | ContainerDb | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4 | 모든 ID·관계·상태·snapshot·override·inquiry의 정본이자 BM25·dense 인덱스 |
+| 정본 및 검색 인덱스 | ContainerDb | PostgreSQL 17 (compose 기본 `postgres:17-alpine`). pg_search·pgvector는 아직 미도입 — 도입 시 확장 포함 이미지로 교체한다 | 모든 ID·관계·상태·snapshot·override·inquiry의 정본이자 BM25·dense 인덱스 |
 | 에셋 스토어 | ContainerDb | 로컬 파일시스템 | 원본 영상, keyframe, thumbnail. 인덱스 재구축 시 manifest 원천 |
 | 평가 추적 | Container | MLflow 3.x (backend store: 같은 인스턴스의 별도 `mlflow` DB) | search_version별 파라미터·지표·artifact를 불변 run으로 기록 |
 
@@ -123,7 +125,7 @@ C4Container
 
 - **질의 리졸버가 사용할 LLM이 미정이다.** GMS 또는 EC2에서 도는 소형 모델. 어댑터 경계 뒤에 있어 이 다이어그램은 두 경우 모두에 유효하다.
 - **`웹 애플리케이션 → 서비스 서버` 호출은 브라우저에서 nginx를 거쳐 이뤄진다.** Next.js 서버가 프록시하지 않는다.
-- **EC2는 Ubuntu 24.04.4 LTS, 4 vCPU / 15GB RAM으로 확인되었다.** 호스트 포트 배정은 [Deployment](./03-deployment.md)를 따른다 — 8080은 Jenkins가 선점하고 있어 서비스 서버는 8081을 쓴다.
+- **EC2는 Ubuntu 24.04.4 LTS, 4 vCPU / 15GB RAM으로 확인되었다.** 호스트 포트 배정은 [Deployment](./03-deployment.md)를 따른다 — compose 기본값은 8080이고 세 서비스 모두 `127.0.0.1`에만 바인딩된다. EC2에서는 8080을 Jenkins가 선점하고 있어 `BACKEND_PORT`로 옮겨야 한다.
 
 ## 저장소 매핑
 
