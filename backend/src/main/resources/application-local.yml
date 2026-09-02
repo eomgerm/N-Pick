@@ -1,11 +1,4 @@
 spring:
-  # DB가 아직 없다. datasource 설정은 미리 잡아두되, 접속 대상이 생기기 전까지는
-  # 자동설정을 꺼서 기동이 가능하게 한다. DB 연동 일감에서 이 exclude 블록만 지운다.
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
-      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
-      - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
   datasource:
     url: ${LOCAL_DB_URL:jdbc:postgresql://localhost:5432/npick}
     username: ${LOCAL_DB_USERNAME:postgres}

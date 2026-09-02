@@ -1,6 +1,6 @@
-# 아직 DB가 없다. 엔티티·리포지토리가 0개라 검증할 대상도 없으므로
-# 테스트에서는 DataSource/JPA 자동설정을 끈다.
-# DB 연동 일감에서 Testcontainers 도입 여부를 정하고 이 파일을 지운다.
+# 엔티티·리포지토리가 0개라 테스트에서 검증할 DB 대상이 없다. 테스트가 Postgres 를
+# 요구하지 않도록 DataSource/JPA 자동설정을 끈다(DataSource 가 없으면 Flyway 도 뜨지 않는다).
+# 엔티티가 생기면 Testcontainers 도입 여부를 정하고 이 파일을 지운다.
 spring:
   autoconfigure:
     exclude:

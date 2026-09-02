@@ -6,6 +6,8 @@ Spring Boot 기반 N-Pick API 서버.
 
 - **JDK 21** (필수). `java -version` 으로 확인.
 - Gradle 은 wrapper(`./gradlew`)를 쓰므로 별도 설치 불필요.
+- **PostgreSQL 17** (필수). 기동 시 Flyway 가 `db/migration` 의 baseline 을 적용한다.
+  로컬은 저장소 루트에서 `docker compose up -d postgres` 로 띄운다.
 
 ## 실행
 
