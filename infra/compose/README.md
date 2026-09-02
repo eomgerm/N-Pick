@@ -67,18 +67,14 @@ BE 컨테이너에는 `/app/config/profiles` 로 read-only 마운트되고 `NPIC
 
 ## 알아둘 것
 
-### BE 의 DataSource 자동설정을 compose 에서 되살린다
+### BE 기동 시 Flyway 가 스키마를 만든다
 
-`backend/src/main/resources/application-local.yml` 은 DB 가 없던 시점에 만들어져 DataSource·JPA
-자동설정을 꺼두었다. 이 스택에는 PostgreSQL 이 있으므로 compose 에서 그 목록을 비운다.
+BE 는 `backend/src/main/resources/application.yml` 한 파일에서 프로필을 나눠 관리하고,
+기동할 때 `db/migration` 의 baseline 을 적용한다. postgres 컨테이너가 healthy 가 된 뒤
+backend 가 뜨도록 `depends_on` 이 잡혀 있으므로 별도 순서 조정은 필요 없다.
 
-```yaml
-SPRING_AUTOCONFIGURE_EXCLUDE: ""
-```
-
-**BE 파일을 고치지 않기 위한 조치다.** BE 쪽에서 exclude 블록을 정식으로 제거하면 이 환경변수는
-지워도 된다. 현재 엔티티가 0개라 `ddl-auto: validate` 는 빈 스키마에서도 통과한다. 엔티티가
-생기면 Flyway 마이그레이션이 필요하다(현재 `flyway.enabled: false`).
+과거 이 자리에는 BE 의 DataSource 자동설정 exclude 를 비우는 `SPRING_AUTOCONFIGURE_EXCLUDE: ""`
+가 있었다. BE 에서 exclude 블록을 정식으로 제거해 더는 필요 없어 지웠다.
 
 ### NEXT_PUBLIC_* 는 빌드 시점 값이다
 

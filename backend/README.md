@@ -38,6 +38,9 @@ curl http://localhost:8080/actuator/health   # {"status":"UP"}
 | `local` | 로컬 개발 (기본값) | `com.npick` DEBUG 로그, health 상세 노출 |
 | `prod` | 배포 | root WARN 로그, health 상세 비노출 |
 
+프로파일별 설정은 `src/main/resources/application.yml` 한 파일에 `---` 로 나뉘어 들어 있다
+(`spring.config.activate.on-profile`). 프로파일을 추가할 때도 파일을 늘리지 않는다.
+
 프로파일 지정:
 
 ```bash

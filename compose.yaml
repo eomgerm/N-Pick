@@ -32,8 +32,6 @@ services:
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
-      # application-local.yml 의 DataSource 자동설정 exclude 를 비운다. BE 파일을 고치지 않기 위한 값.
-      SPRING_AUTOCONFIGURE_EXCLUDE: ""
       LOCAL_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-npick}
       LOCAL_DB_USERNAME: ${POSTGRES_USER:-npick}
       LOCAL_DB_PASSWORD: ${POSTGRES_PASSWORD}
