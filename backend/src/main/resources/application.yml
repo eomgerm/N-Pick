@@ -10,11 +10,16 @@ spring:
     open-in-view: false
     properties:
       hibernate:
+        default_schema: npick
         jdbc:
           time_zone: UTC
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # 스키마는 DB 프로비저닝이 만든다(compose 의 postgres-init). Flyway 는 만들지 않는다.
+    default-schema: npick
+    schemas: npick
+    create-schemas: false
     validate-on-migrate: true
     clean-disabled: true
 
@@ -38,8 +43,9 @@ spring:
       on-profile: local
   datasource:
     url: ${LOCAL_DB_URL:jdbc:postgresql://localhost:5432/npick}
-    username: ${LOCAL_DB_USERNAME:postgres}
-    password: ${LOCAL_DB_PASSWORD:postgres}
+    username: ${LOCAL_DB_USERNAME:npick}
+    # 기본값 없음. .env 의 POSTGRES_PASSWORD 를 그대로 넘긴다(README 참고).
+    password: ${LOCAL_DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:

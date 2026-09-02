@@ -6,17 +6,47 @@ Spring Boot 기반 N-Pick API 서버.
 
 - **JDK 21** (필수). `java -version` 으로 확인.
 - Gradle 은 wrapper(`./gradlew`)를 쓰므로 별도 설치 불필요.
-- **PostgreSQL 17** (필수). 기동 시 Flyway 가 `db/migration` 의 baseline 을 적용한다.
-  로컬은 저장소 루트에서 `docker compose up -d postgres` 로 띄운다.
+- **PostgreSQL 17** (필수). 스키마는 `npick` 이고, 기동 시 Flyway 가 `db/migration` 의
+  baseline 을 이 스키마에 적용한다. `npick` 스키마 자체는 compose 의
+  `infra/compose/postgres-init` 초기화 스크립트가 만든다(Flyway 는 `create-schemas=false`).
 
 ## 실행
 
+DB 를 먼저 띄우고, 그 접속 정보를 backend 프로세스에 넘긴다. compose 는 `.env` 를 읽지만
+`./gradlew bootRun` 은 읽지 않으므로 **환경 변수를 직접 넘겨야 한다.**
+
 ```bash
-cd backend
-./gradlew bootRun            # 기본 프로파일: local
+# 1) 저장소 루트에서 DB 기동 (.env 필요 — .env.example 참고)
+cp .env.example .env          # 최초 1회. POSTGRES_PASSWORD 를 채운다
+docker compose up -d postgres
+
+# 2) .env 의 값을 셸로 불러와 backend 에 전달
+set -a && . ./.env && set +a
+export LOCAL_DB_USERNAME="$POSTGRES_USER" LOCAL_DB_PASSWORD="$POSTGRES_PASSWORD"
+
+# 3) 기동
+cd backend && ./gradlew bootRun            # 기본 프로파일: local
 ```
 
-Windows PowerShell 에서는 `.\gradlew.bat bootRun`.
+Windows PowerShell:
+
+```powershell
+docker compose up -d postgres
+Get-Content .env | Where-Object { $_ -match '^\s*[^#].*=' } | ForEach-Object {
+    $k, $v = $_ -split '=', 2
+    Set-Item -Path "env:$($k.Trim())" -Value $v.Trim()
+}
+$env:LOCAL_DB_USERNAME = $env:POSTGRES_USER
+$env:LOCAL_DB_PASSWORD = $env:POSTGRES_PASSWORD
+cd backend; .\gradlew.bat bootRun
+```
+
+`LOCAL_DB_PASSWORD` 는 기본값이 없다. 2) 단계를 빠뜨리면 기동이 이렇게 실패한다.
+
+```
+Unable to obtain connection from database:
+FATAL: password authentication failed for user "npick"
+```
 
 기동 확인:
 
@@ -55,6 +85,13 @@ java -jar build/libs/npick-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `SERVER_PORT` | `8080` | 포트 충돌 시 오버라이드 |
+| `LOCAL_DB_URL` | `jdbc:postgresql://localhost:5432/npick` | local 프로파일 접속 주소 |
+| `LOCAL_DB_USERNAME` | `npick` | `.env` 의 `POSTGRES_USER` 와 같아야 한다 |
+| `LOCAL_DB_PASSWORD` | **없음** | `.env` 의 `POSTGRES_PASSWORD` 를 넘긴다 |
+| `LOCAL_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 허용 origin |
+
+prod 프로파일은 `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` / `CORS_ALLOWED_ORIGINS` 를 쓰며
+넷 다 기본값이 없다.
 
 ```bash
 SERVER_PORT=8081 ./gradlew bootRun

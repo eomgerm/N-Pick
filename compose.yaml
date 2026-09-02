@@ -17,6 +17,8 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # npick 스키마 생성. 볼륨이 비어 있는 최초 기동에만 실행된다.
+      - ./infra/compose/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-npick} -d ${POSTGRES_DB:-npick}"]
       interval: 10s
