@@ -1,0 +1,21 @@
+# 단계별 실행 수치. Gate D 미동결.
+# 단계 목록·순서·fatal 은 ai/src/npick_worker/stages.py 가 정본이다(FRD §5.1 전사).
+# 여기서 다시 정의하지 않는다 — 정본이 두 곳이 되면 어긋난다.
+# 오케스트레이터(Airflow 등) 도입 시 아래 수치는 그쪽으로 옮긴다.
+
+version: 0
+frozen: false
+
+defaults:
+  retry_count: null
+  timeout_seconds: null
+  concurrency: null
+
+# 단계별로 defaults 를 덮어쓸 때만 적는다. 키는 stages.py 의 name 을 쓴다.
+# 예: scene_detection: { retry_count: 3, timeout_seconds: 600 }
+stage_overrides: {}
+
+# CPU 워커 / GPU 서버 배치. S15P21A501-70(작업 수신 방식) 합의 후 채운다.
+placement:
+  cpu_worker_stages: []
+  gpu_server_stages: []

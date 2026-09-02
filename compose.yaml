@@ -1,0 +1,115 @@
+# 실행: docker compose up -d --build   /  자세한 내용: infra/compose/README.md
+
+name: npick
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    container_name: npick-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-npick}
+      POSTGRES_USER: ${POSTGRES_USER:-npick}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정해야 한다}
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-npick} -d ${POSTGRES_DB:-npick}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./backend
+    image: npick/backend:local
+    container_name: npick-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
+      # application-local.yml 의 DataSource 자동설정 exclude 를 비운다. BE 파일을 고치지 않기 위한 값.
+      SPRING_AUTOCONFIGURE_EXCLUDE: ""
+      LOCAL_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-npick}
+      LOCAL_DB_USERNAME: ${POSTGRES_USER:-npick}
+      LOCAL_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      LOCAL_CORS_ALLOWED_ORIGINS: http://127.0.0.1:${FRONTEND_PORT:-3000}
+      SERVER_PORT: 8080
+      NPICK_PROFILES_DIR: /app/config/profiles
+      NPICK_MEDIA_ROOT: /srv/npick/media
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - media:/srv/npick/media
+      - ./infra/compose/profiles:/app/config/profiles:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* 는 빌드 시점에 번들로 들어간다. 바꾸면 재빌드 필요.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://127.0.0.1:8080/api/v1}
+        NEXT_PUBLIC_APP_MODE: ${NEXT_PUBLIC_APP_MODE:-demo}
+    image: npick/frontend:local
+    container_name: npick-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  ai-worker:
+    build:
+      context: ./ai
+    image: npick/ai-worker:local
+    container_name: npick-ai-worker
+    restart: unless-stopped
+    environment:
+      # 기본값이 127.0.0.1 이라 컨테이너 안에서는 뒤집어야 포트 매핑이 닿는다
+      NPICK_AI_HOST: 0.0.0.0
+      NPICK_AI_PORT: 8000
+      NPICK_AI_LOG_LEVEL: ${AI_LOG_LEVEL:-INFO}
+      # GPU 단계는 이 스택에 포함하지 않는다(SSAFY GPU 서버 배치)
+      NPICK_AI_DEVICE: cpu
+    ports:
+      - "127.0.0.1:${AI_WORKER_PORT:-8000}:8000"
+    volumes:
+      - media:/srv/npick/media
+      - model-cache:/var/cache/npick/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  postgres-data:
+    name: npick-postgres-data
+  media:
+    name: npick-media
+  model-cache:
+    name: npick-model-cache
