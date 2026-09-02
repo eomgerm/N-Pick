@@ -15,11 +15,11 @@ NewsCut의 Next.js 프론트엔드 프로젝트입니다. 패키지 매니저는
 
 | 구분            | 기술                                                |
 | --------------- | --------------------------------------------------- |
-| Framework       | Next.js 15 App Router                               |
+| Framework       | Next.js 16 App Router (Turbopack)                   |
 | UI              | React 19                                            |
 | Language        | TypeScript 5.9                                      |
 | Styling         | Tailwind CSS 4, PostCSS                             |
-| Lint            | ESLint 9, `next/core-web-vitals`, `next/typescript` |
+| Lint            | ESLint 9, `eslint-config-next` flat config          |
 | Format          | Prettier, `prettier-plugin-tailwindcss`             |
 | Package manager | npm 11                                              |
 | Runtime         | Node.js 24                                          |
