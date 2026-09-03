@@ -4,7 +4,8 @@
 구현 모듈을 참조해 기대값을 만들면 검증이 자기 자신을 확인하는 셈이 된다.
 """
 
-from collections.abc import Callable, Sequence
+import ast
+from collections.abc import Callable, Iterable, Sequence
 from importlib import metadata
 from pathlib import Path
 
@@ -13,11 +14,14 @@ import pytest
 from npick_worker.scene_detection import (
     DEFAULT_CONFIG_PATH,
     RawDetection,
+    Scene,
     SceneDetectionConfig,
+    SceneDetectionResult,
     detect_scenes,
     frames_to_ms,
     load_config,
 )
+from npick_worker.scene_detection.report import save_boundary_frames
 
 MakeVideo = Callable[[str, Sequence[tuple[str, int]]], Path]
 
@@ -34,6 +38,14 @@ class FakeDetector:
 
     def detect(self, video_path: Path, cfg: SceneDetectionConfig) -> RawDetection:
         return RawDetection(boundaries_ms=(0, 2000, 5000), duration_ms=8000, frame_rate=30.0)
+
+
+class InvalidDurationDetector(FakeDetector):
+    def __init__(self, duration_ms: int) -> None:
+        self.duration_ms = duration_ms
+
+    def detect(self, video_path: Path, cfg: SceneDetectionConfig) -> RawDetection:
+        return RawDetection(boundaries_ms=(0,), duration_ms=self.duration_ms, frame_rate=30.0)
 
 
 def _cfg(**overrides: object) -> SceneDetectionConfig:
@@ -183,6 +195,12 @@ def test_injected_detector_controls_provenance_and_boundaries(tmp_path: Path) ->
     ]
 
 
+@pytest.mark.parametrize("duration_ms", [0, -1])
+def test_injected_detector_rejects_non_positive_duration(tmp_path: Path, duration_ms: int) -> None:
+    with pytest.raises(ValueError, match=rf"duration_ms={duration_ms}"):
+        detect_scenes(tmp_path / "not-opened.mp4", detector=InvalidDurationDetector(duration_ms))
+
+
 # ── Gate B: 임계값이 코드가 아니라 설정에 있는가 ────────────────────────
 
 
@@ -217,10 +235,76 @@ def test_config_rejects_unknown_key(tmp_path: Path) -> None:
         load_config(broken)
 
 
+def _write_config_copy(path: Path, *, schema: str) -> None:
+    source = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
+    path.write_text(
+        source.replace('schema = "scene-detect/v1"', f'schema = "{schema}"'),
+        encoding="utf-8",
+    )
+
+
+def test_versioned_config_filename_must_match_schema(tmp_path: Path) -> None:
+    matching = tmp_path / "scene_detection.v2.toml"
+    _write_config_copy(matching, schema="scene-detect/v2")
+
+    assert load_config(matching).schema_ == "scene-detect/v2"
+
+
+def test_versioned_config_filename_rejects_mismatched_schema(tmp_path: Path) -> None:
+    mismatched = tmp_path / "scene_detection.v2.toml"
+    _write_config_copy(mismatched, schema="scene-detect/v1")
+
+    with pytest.raises(ValueError, match="scene-detect/v2"):
+        load_config(mismatched)
+
+
+def test_experiment_config_filename_allows_arbitrary_schema(tmp_path: Path) -> None:
+    experiment = tmp_path / "threshold-sweep.toml"
+    _write_config_copy(experiment, schema="scene-detect/v1")
+
+    assert load_config(experiment).schema_ == "scene-detect/v1"
+
+
+def test_save_boundary_frames_warns_about_missing_boundaries(
+    make_video: MakeVideo, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    video = make_video("missing-boundary", [("gray", BLOCK_FRAMES)])
+    detected = detect_scenes(video)
+    out_dir = tmp_path / "frames"
+    out_dir.mkdir()
+    result = SceneDetectionResult(
+        scenes=(*detected.scenes, Scene(1, BLOCK_MS + 1000, BLOCK_MS + 2000)),
+        config_version=detected.config_version,
+        detector=detected.detector,
+        engine=detected.engine,
+        engine_version=detected.engine_version,
+        duration_ms=BLOCK_MS + 2000,
+        frame_rate=detected.frame_rate,
+    )
+
+    assert save_boundary_frames(video, result, out_dir) == 1
+    assert capsys.readouterr().err == "경고: 경계 프레임 1개를 찾지 못했다 (경계 ms: 3000)\n"
+
+
+def _numeric_literals(source: str) -> Iterable[int | float | complex]:
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float, complex)):
+            yield node.value
+
+
 def test_no_threshold_literals_in_source() -> None:
     """임계값은 toml 에만 있어야 한다(Gate B, FRD §15.4)."""
     package = DEFAULT_CONFIG_PATH.parent.parent / "scene_detection"
-    sources = "\n".join(p.read_text(encoding="utf-8") for p in sorted(package.glob("*.py")))
+    literals = {
+        literal
+        for path in sorted(package.glob("*.py"))
+        for literal in _numeric_literals(path.read_text(encoding="utf-8"))
+    }
 
-    for literal in ("27.0", "3.0", "15.0"):
-        assert literal not in sources, f"임계값 {literal} 이 코드에 남아 있다"
+    assert not literals.intersection({27.0, 3.0, 15.0})
+
+
+def test_threshold_literal_scan_uses_numeric_ast_constants() -> None:
+    literals = set(_numeric_literals('exact = 27.00\nunrelated = 13.05\ntext = "3.0"\n'))
+
+    assert literals.intersection({27.0, 3.0, 15.0}) == {27.0}

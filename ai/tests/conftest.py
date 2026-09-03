@@ -48,22 +48,21 @@ def _panel(kind: PanelKind) -> np.ndarray:
 
 
 def _write_video(path: Path, blocks: Sequence[tuple[PanelKind, int]]) -> Path:
-    container = av.open(str(path), "w")
-    stream = container.add_stream("libx264", rate=VIDEO_FPS)
-    stream.width = VIDEO_WIDTH
-    stream.height = VIDEO_HEIGHT
-    stream.pix_fmt = "yuv420p"
-    # ultrafast + 낮은 crf: 테스트가 1초 안에 끝나야 하고, 압축 아티팩트가
-    # 경계 판정을 흔들면 안 된다.
-    stream.options = {"crf": "16", "preset": "ultrafast"}
-    for kind, frame_count in blocks:
-        array = _panel(kind)
-        for _ in range(frame_count):
-            for packet in stream.encode(av.VideoFrame.from_ndarray(array, format="rgb24")):
-                container.mux(packet)
-    for packet in stream.encode():
-        container.mux(packet)
-    container.close()
+    with av.open(str(path), "w") as container:
+        stream = container.add_stream("libx264", rate=VIDEO_FPS)
+        stream.width = VIDEO_WIDTH
+        stream.height = VIDEO_HEIGHT
+        stream.pix_fmt = "yuv420p"
+        # ultrafast + 낮은 crf: 테스트가 1초 안에 끝나야 하고, 압축 아티팩트가
+        # 경계 판정을 흔들면 안 된다.
+        stream.options = {"crf": "16", "preset": "ultrafast"}
+        for kind, frame_count in blocks:
+            array = _panel(kind)
+            for _ in range(frame_count):
+                for packet in stream.encode(av.VideoFrame.from_ndarray(array, format="rgb24")):
+                    container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
     return path
 
 

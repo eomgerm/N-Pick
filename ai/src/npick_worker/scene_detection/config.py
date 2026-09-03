@@ -7,6 +7,7 @@
 
 import hashlib
 import json
+import re
 import tomllib
 from functools import lru_cache
 from pathlib import Path
@@ -23,6 +24,10 @@ DEFAULT_CONFIG_PATH: Final[Path] = (
 
 #: version_id 뒤에 붙는 해시 길이. 충돌 확률보다 로그 가독성을 우선한 값이다.
 _HASH_LENGTH: Final[int] = 8
+
+_VERSIONED_CONFIG_NAME: Final[re.Pattern[str]] = re.compile(
+    r"scene_detection\.v(?P<version>\d+)\.toml"
+)
 
 
 class _Frozen(BaseModel):
@@ -79,7 +84,17 @@ def load_config(path: Path | None = None) -> SceneDetectionConfig:
     """toml 을 읽어 설정을 만든다. `path` 를 주면 임계값 실험에 쓸 수 있다."""
     target = path if path is not None else DEFAULT_CONFIG_PATH
     raw: dict[str, Any] = tomllib.loads(target.read_text(encoding="utf-8"))
-    return SceneDetectionConfig.model_validate(raw)
+    config = SceneDetectionConfig.model_validate(raw)
+    match = _VERSIONED_CONFIG_NAME.fullmatch(target.name)
+    if match is not None:
+        expected_schema = f"scene-detect/v{match.group('version')}"
+        if config.schema_ != expected_schema:
+            msg = (
+                f"설정 파일 버전과 schema가 일치하지 않는다: "
+                f"{target.name}에는 schema = {expected_schema!r}가 필요하다"
+            )
+            raise ValueError(msg)
+    return config
 
 
 @lru_cache(maxsize=1)

@@ -9,6 +9,7 @@
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -64,6 +65,12 @@ def save_boundary_frames(video_path: Path, result: SceneDetectionResult, out_dir
             saved += 1
             if not wanted:
                 break
+    if wanted:
+        missing = ", ".join(str(boundary_ms) for boundary_ms in sorted(wanted))
+        print(
+            f"경고: 경계 프레임 {len(wanted)}개를 찾지 못했다 (경계 ms: {missing})",
+            file=sys.stderr,
+        )
     return saved
 
 
