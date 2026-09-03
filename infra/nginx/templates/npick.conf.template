@@ -1,21 +1,42 @@
-# nginx:alpine 이 /etc/nginx/templates/*.template 을 envsubst 로 처리한다.
+# nginx:alpine 이 이 디렉터리의 *.template 을 envsubst 로 처리한다.
 # NGINX_ENVSUBST_FILTER=NPICK_ 로 범위를 좁혀 $host 같은 nginx 변수를 보호한다.
 #
-# TLS 를 쓰는 환경은 이 디렉터리 대신 templates-tls 를 마운트한다(NGINX_TEMPLATE_DIR).
+# 인증서 파일이 없으면 nginx 가 기동에 실패한다. 그래서 nginx 는 proxy 프로필 뒤에 있고
+# 인증서를 발급한 환경(EC2)에서만 뜬다. 로컬은 FE 가 BE 를 직접 호출한다(CORS 구성됨).
 
 include /etc/nginx/snippets/upstreams.conf;
 
 server {
-    # default_server 가 없으면 이미지 기본 default.conf 가 80번의 기본 서버가 되어
-    # server_name 과 맞지 않는 요청(healthcheck 의 Host: 127.0.0.1)이 404 가 된다.
     listen 80 default_server;
     server_name ${NPICK_DOMAIN};
 
+    # 갱신 요청은 리다이렉트하지 않는다. ACME HTTP-01 은 평문 80 으로 와야 한다.
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
     }
 
-    # compose healthcheck 전용. 업스트림에 의존하지 않는다
+    # compose healthcheck 전용. 리다이렉트 대상에서 제외한다.
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name ${NPICK_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${NPICK_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${NPICK_DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
     location = /healthz {
         access_log off;
         return 200 "ok\n";
