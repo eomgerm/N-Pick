@@ -134,7 +134,8 @@ services:
       - "${NGINX_HTTP_PORT:-80}:80"
       - "${NGINX_HTTPS_PORT:-443}:443"
     volumes:
-      - ./infra/nginx/templates:/etc/nginx/templates:ro
+      # TLS 를 쓰는 환경은 .env 에서 templates-tls 로 바꾼다. 인증서 발급 후에 전환한다.
+      - ${NGINX_TEMPLATE_DIR:-./infra/nginx/templates}:/etc/nginx/templates:ro
       - ./infra/nginx/snippets:/etc/nginx/snippets:ro
       # 이미지 기본 default.conf 를 비워 우리 설정만 남긴다
       - ./infra/nginx/conf.d-default-override.conf:/etc/nginx/conf.d/default.conf:ro

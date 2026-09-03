@@ -61,6 +61,7 @@ docker compose ps
 | `POSTGRES_PASSWORD` | 팀 비밀 채널의 값 | 볼륨 초기화 시점에 고정되어 나중에 바꿀 수 없다 |
 | `NPICK_DOMAIN` | 실제 도메인 | nginx `server_name` |
 | `BACKEND_PROFILE` | `prod` | `local` 은 SQL echo 와 DEBUG 로깅이 켜져 로그가 과하다 |
+| `NGINX_TEMPLATE_DIR` | `./infra/nginx/templates-tls` | 인증서 발급 후에 바꾼다. 아래 「TLS」 참고 |
 
 `BACKEND_PORT` 가 8080 이 아니라 **8081** 인 것은 의도된 값이다. EC2 의 8080 은 Jenkins 가
 `0.0.0.0` 으로 점유하고 있어 `127.0.0.1:8080` 바인딩도 실패한다. [배포 다이어그램](../../docs/architecture/03-deployment.md)
@@ -83,7 +84,10 @@ NEXT_PUBLIC_API_BASE_URL=https://<도메인>/api/v1
 | `backend/.env` | **BE 팀 소유.** |
 | `ai/.env` | **AI 팀 소유.** |
 | `infra/compose/postgres-init/` | 최초 기동 1회만 실행되는 SQL. `npick` 스키마를 만든다 |
-| `infra/nginx/` | 리버스 프록시 템플릿·스니펫 |
+| `infra/nginx/templates/` | HTTP 전용 nginx 설정(기본) |
+| `infra/nginx/templates-tls/` | HTTP→HTTPS 리다이렉트 + TLS 종단 |
+| `infra/nginx/snippets/` | 두 템플릿이 공유하는 upstream·라우팅·프록시 헤더 |
+| `infra/nginx/renew-cert.sh` | 인증서 갱신 + nginx 리로드. cron 에서 실행 |
 | `infra/compose/profiles/` | **Gate D 값이 들어갈 자리.** 아래 참고 |
 | `backend/Dockerfile` | JDK 21 멀티스테이지 → JRE 런타임 |
 | `frontend/Dockerfile` | Node 24 멀티스테이지 |
@@ -125,6 +129,43 @@ backend 가 뜨도록 `depends_on` 이 잡혀 있으므로 별도 순서 조정�
 
 과거 이 자리에는 BE 의 DataSource 자동설정 exclude 를 비우는 `SPRING_AUTOCONFIGURE_EXCLUDE: ""`
 가 있었다. BE 에서 exclude 블록을 정식으로 제거해 더는 필요 없어 지웠다.
+
+### TLS
+
+인증서 파일이 없으면 nginx 가 기동에 실패한다. 그래서 기본 템플릿은 HTTP 전용이고,
+발급을 마친 환경만 `NGINX_TEMPLATE_DIR` 로 TLS 템플릿으로 전환한다.
+
+발급은 HTTP 로 서비스가 떠 있는 상태에서 한다. ACME HTTP-01 이 80 번으로 오기 때문이다.
+`--dry-run` 은 staging 서버를 쓰므로 운영 발급 한도를 소모하지 않는다. 반드시 먼저 돌린다.
+
+```bash
+docker compose run --rm certbot certonly --webroot -w /var/www/certbot -d <도메인> --agree-tos --no-eff-email -m <메일> --dry-run
+```
+
+성공하면 `--dry-run` 을 빼고 실제로 발급한다. 인증서는 `certbot-conf` 볼륨에 남는다.
+
+전환은 `.env` 에 한 줄을 넣고 nginx 만 다시 만든다.
+
+```
+NGINX_TEMPLATE_DIR=./infra/nginx/templates-tls
+```
+
+```bash
+docker compose up -d --force-recreate nginx
+```
+
+TLS 로 바꾼 뒤에는 `frontend/.env` 의 `NEXT_PUBLIC_API_BASE_URL` 도 `https://` 로 고치고
+재빌드한다. 번들에 박히는 값이라 재시작으로는 반영되지 않는다.
+
+리다이렉트에서 두 경로를 제외했다. `/.well-known/acme-challenge/` 는 ACME 가 평문으로
+와야 해서, `/healthz` 는 compose healthcheck 가 HTTP 로 확인해서다.
+
+갱신은 `infra/nginx/renew-cert.sh` 를 root cron 에 넣는다. certbot 은 만료 30 일 전부터만
+실제로 갱신하므로 자주 돌려도 안전하다.
+
+```
+0 3,15 * * * /home/<계정>/S15P21A501/infra/nginx/renew-cert.sh >> /var/log/npick-certbot.log 2>&1
+```
 
 ### BE 프로필은 BACKEND_PROFILE 로 고른다
 

@@ -28,7 +28,7 @@ C4Deployment
     Deployment_Node(ec2, "SSAFY EC2 — j15a501.p.ssafy.io", "Ubuntu 24.04.4 LTS · 4 vCPU · 15GB RAM · Docker 29.7.2 / Compose v5.5.0") {
 
         Deployment_Node(n_proxy, "호스트 진입점", "포트 80 / 443") {
-            Container(proxy, "리버스 프록시", "nginx 1.28 — 인프라", "'/'는 web으로, '/api/*'는 api로 라우팅한다. '/media'는 api가 인증한 뒤 X-Accel-Redirect로 Range 전송한다.")
+            Container(proxy, "리버스 프록시", "nginx 1.28 — 인프라", "TLS를 종단하고 80은 443으로 리다이렉트한다. '/'는 web으로, '/api/*'는 api로 라우팅한다. '/media'는 api가 인증한 뒤 X-Accel-Redirect로 Range 전송한다.")
         }
 
         Deployment_Node(n_web, "컨테이너: web", "Node 24 · 호스트 포트 3000 (loopback)") {
@@ -100,7 +100,7 @@ C4Deployment
 | 노드 | 유형 | 담고 있는 것 | 비고 |
 | --- | --- | --- | --- |
 | SSAFY EC2 (`j15a501.p.ssafy.io`) | Deployment_Node | 사용자 대면 경로 전부와 정본 | Ubuntu 24.04.4 LTS (noble), 커널 6.17.0-aws, 4 vCPU / 15GB RAM / 305GB 여유. swap 없음 |
-| 호스트 진입점 | Deployment_Node | 리버스 프록시 (nginx 1.28) | 포트 80/443. `compose.yaml` 에 포함(`S15P21A501-131`). TLS 는 미구성 |
+| 호스트 진입점 | Deployment_Node | 리버스 프록시 (nginx 1.28) | 포트 80/443. **TLS 종단**이며 80 은 443 으로 리다이렉트한다. 인증서는 Let's Encrypt(certbot, webroot 갱신) |
 | 컨테이너: web | Deployment_Node | 웹 애플리케이션 | Node 24 (`.nvmrc` 24.18.0, `node:24-alpine`). 호스트 포트 3000 |
 | 컨테이너: api | Deployment_Node | 서비스 서버 | JRE 21 LTS. **호스트 포트 8081** — 8080은 Jenkins가 선점. 컨테이너 내부는 8080 유지, 퍼블리시만 8081 |
 | 컨테이너: resolver | Deployment_Node | 질의 리졸버 | FastAPI, Python 3.12. 호스트 포트 8001. **아직 분리되지 않았다** — 현재 `ai-worker` 한 컨테이너(포트 8000)에 통합 |

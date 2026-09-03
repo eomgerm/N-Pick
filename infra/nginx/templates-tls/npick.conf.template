@@ -1,0 +1,43 @@
+# TLS 를 쓰는 환경용. NGINX_TEMPLATE_DIR 로 이 디렉터리를 마운트할 때만 적용된다.
+# 인증서 파일이 없으면 nginx 가 기동에 실패하므로 발급 후에 전환한다.
+
+include /etc/nginx/snippets/upstreams.conf;
+
+server {
+    listen 80 default_server;
+    server_name ${NPICK_DOMAIN};
+
+    # 갱신 요청은 리다이렉트하지 않는다. ACME HTTP-01 은 평문 80 으로 와야 한다.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # compose healthcheck 전용. 리다이렉트 대상에서 제외한다.
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl default_server;
+    http2 on;
+    server_name ${NPICK_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${NPICK_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${NPICK_DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    include /etc/nginx/snippets/app-routes.conf;
+}
