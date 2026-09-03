@@ -7,9 +7,13 @@ PostgreSQL · Spring Boot BE · Next.js FE · Python AI 워커를 한 번에 띄
 
 저장소 루트에서 실행한다.
 
+네 파일 모두 있어야 한다. 하나라도 없으면 `up` 이 멈춘다.
+
 ```bash
 cp .env.example .env
 cp frontend/.env.example frontend/.env
+cp backend/.env.example backend/.env
+cp ai/.env.example ai/.env
 ```
 
 `.env` 의 `POSTGRES_PASSWORD` 를 채운다. 비어 있으면 compose 가 기동을 거부한다.
@@ -75,9 +79,9 @@ NEXT_PUBLIC_API_BASE_URL=https://<도메인>/api/v1
 |---|---|
 | `compose.yaml` (루트) | 서비스·네트워크·볼륨 정의 |
 | `.env.example` (루트) | **인프라 값 전용.** 포트·계정·도메인·이미지 태그 |
-| `frontend/.env` | **FE 팀 소유.** `NEXT_PUBLIC_*`. 빌드 필수 |
-| `backend/.env` | **BE 팀 소유.** 없어도 기동한다 |
-| `ai/.env` | **AI 팀 소유.** 없어도 기동한다 |
+| `frontend/.env` | **FE 팀 소유.** `NEXT_PUBLIC_*` |
+| `backend/.env` | **BE 팀 소유.** |
+| `ai/.env` | **AI 팀 소유.** |
 | `infra/compose/postgres-init/` | 최초 기동 1회만 실행되는 SQL. `npick` 스키마를 만든다 |
 | `infra/nginx/` | 리버스 프록시 템플릿·스니펫 |
 | `infra/compose/profiles/` | **Gate D 값이 들어갈 자리.** 아래 참고 |
@@ -142,16 +146,19 @@ backend 가 뜨도록 `depends_on` 이 잡혀 있으므로 별도 순서 조정�
 
 각 팀이 자기 디렉터리의 `.env` 에 변수를 추가한다. 인프라 파일을 고치지 않아도 된다.
 
-| 파일 | 소유 | compose 가 쓰는 방식 | 없으면 |
-|---|---|---|---|
-| `.env` (루트) | 인프라 | 변수 치환(`${...}`) | `POSTGRES_PASSWORD` 만 필수 |
-| `frontend/.env` | FE | `next build` 가 컨테이너 안에서 직접 읽는다 | **`up` 이 빌드 전에 멈춘다** |
-| `backend/.env` | BE | `env_file` 로 런타임 주입 | 기동한다 |
-| `ai/.env` | AI | `env_file` 로 런타임 주입 | 기동한다 |
+| 파일 | 소유 | compose 가 쓰는 방식 |
+|---|---|---|
+| `.env` (루트) | 인프라 | 변수 치환(`${...}`) |
+| `frontend/.env` | FE | `next build` 가 컨테이너 안에서 직접 읽는다 |
+| `backend/.env` | BE | `env_file` 로 런타임 주입 |
+| `ai/.env` | AI | `env_file` 로 런타임 주입 |
 
-env 배선은 전부 `compose.yaml` 에 있다. Dockerfile 은 env 파일을 모른다.
+팀 파일 세 개는 모두 `required: true` 다. 없으면 `up` 이 멈춘다. 내용이 비어 있어도 되지만
+파일 자체는 있어야 한다 — 어느 팀이 무엇을 소유하는지가 파일 존재로 드러난다.
 
 이름이 겹치면 compose 의 `environment:` 가 이긴다. 팀 파일이 인프라 값을 덮을 수 없다.
+
+env 배선은 전부 `compose.yaml` 에 있다. Dockerfile 은 env 파일을 모른다.
 
 ### NEXT_PUBLIC_* 는 빌드 시점 값이다
 
@@ -221,11 +228,9 @@ docker compose down -v
 **`POSTGRES_PASSWORD 를 .env 에 설정해야 한다`**
 `.env` 가 없거나 비밀번호가 비어 있다. `cp .env.example .env` 후 값을 채운다.
 
-**`env file ... frontend/.env not found` 로 멈춘다**
-```bash
-cp frontend/.env.example frontend/.env
-```
-`NEXT_PUBLIC_API_BASE_URL` 을 nginx 주소로 바꾼 뒤 다시 빌드한다.
+**`env file ... not found` 로 멈춘다**
+팀 `.env` 가 없다. 「빠른 시작」의 `cp` 네 줄을 모두 실행했는지 확인한다.
+`frontend/.env` 였다면 `NEXT_PUBLIC_API_BASE_URL` 을 nginx 주소로 바꾼 뒤 다시 빌드한다.
 
 **backend 가 `unhealthy` 로 남는다**
 ```bash

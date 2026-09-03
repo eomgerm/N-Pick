@@ -32,10 +32,10 @@ services:
     image: npick/backend:local
     container_name: npick-backend
     restart: unless-stopped
-    # BE 팀이 변수를 추가할 자리. 없어도 기동한다. 아래 environment 가 우선한다.
+    # BE 팀이 변수를 추가할 자리. 아래 environment 가 우선한다.
     env_file:
       - path: ./backend/.env
-        required: false
+        required: true
     environment:
       SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
       # local·prod 두 프로필의 변수를 모두 넘긴다. BACKEND_PROFILE 만 바꿔 고를 수 있다.
@@ -99,7 +99,7 @@ services:
     restart: unless-stopped
     env_file:
       - path: ./ai/.env
-        required: false
+        required: true
     environment:
       # 기본값이 127.0.0.1 이라 컨테이너 안에서는 뒤집어야 포트 매핑이 닿는다
       NPICK_AI_HOST: 0.0.0.0
