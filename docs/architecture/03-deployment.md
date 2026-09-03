@@ -100,9 +100,9 @@ C4Deployment
 | 노드 | 유형 | 담고 있는 것 | 비고 |
 | --- | --- | --- | --- |
 | SSAFY EC2 (`j15a501.p.ssafy.io`) | Deployment_Node | 사용자 대면 경로 전부와 정본 | Ubuntu 24.04.4 LTS (noble), 커널 6.17.0-aws, 4 vCPU / 15GB RAM / 305GB 여유. swap 없음 |
-| 호스트 진입점 | Deployment_Node | 리버스 프록시 (nginx 1.28) | 포트 80/443. 확인 시점 기준 미설치 |
+| 호스트 진입점 | Deployment_Node | 리버스 프록시 (nginx 1.28) | 포트 80/443. `compose.yaml` 에 포함(`S15P21A501-131`). TLS 는 미구성 |
 | 컨테이너: web | Deployment_Node | 웹 애플리케이션 | Node 24 (`.nvmrc` 24.18.0, `node:24-alpine`). 호스트 포트 3000 |
-| 컨테이너: api | Deployment_Node | 서비스 서버 | JRE 21 LTS. **호스트 포트 8081** — 8080은 Jenkins가 선점. `compose.yaml` 기본값은 아직 8080이며 MLflow 구성 시 함께 옮긴다 |
+| 컨테이너: api | Deployment_Node | 서비스 서버 | JRE 21 LTS. **호스트 포트 8081** — 8080은 Jenkins가 선점. 컨테이너 내부는 8080 유지, 퍼블리시만 8081 |
 | 컨테이너: resolver | Deployment_Node | 질의 리졸버 | FastAPI, Python 3.12. 호스트 포트 8001. **아직 분리되지 않았다** — 현재 `ai-worker` 한 컨테이너(포트 8000)에 통합 |
 | 컨테이너: db | Deployment_Node | 정본 및 검색 인덱스 | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4. **현재 `compose.yaml`은 `postgres:17-alpine`** — MLflow 구성 시 확장 포함 이미지로 올린다 |
 | 호스트 볼륨: assets | Deployment_Node | 에셋 스토어 | named volume `npick-media` → `/srv/npick/media`. backend와 ai-worker가 **공유 마운트** |
@@ -139,7 +139,7 @@ C4Deployment
 
 - **검색 경로가 GPU 서버에 의존하지 않는다.** 질의 리졸버를 EC2에 남겨, GPU 파드가 내려가 있어도 검색은 계속 동작하고 색인만 멈춘다. 검색 p95 목표가 대여 GPU의 가용성과 네트워크에 묶이지 않는다.
 
-- **서비스 서버는 호스트 포트 8081을 쓴다.** 8080은 이미 Jenkins 컨테이너가 점유하고 있다(확인 시점 기준 가동 중). 컨테이너 내부 포트는 8080 그대로 두고 퍼블리시만 8081로 매핑한다. `compose.yaml`의 `BACKEND_PORT` 기본값은 아직 8080이며 MLflow 구성 시 함께 옮긴다. 세 서비스 모두 `127.0.0.1`에만 바인딩되므로 외부 접근은 nginx 또는 SSH 터널을 거친다.
+- **서비스 서버는 호스트 포트 8081을 쓴다.** 8080은 이미 Jenkins 컨테이너가 점유하고 있다(확인 시점 기준 가동 중). 컨테이너 내부 포트는 8080 그대로 두고 퍼블리시만 8081로 매핑한다. `compose.yaml`의 `BACKEND_PORT` 기본값도 8081이다. 애플리케이션 컨테이너는 모두 `127.0.0.1`에만 바인딩되고 외부에 열리는 것은 nginx의 80·443뿐이다. 프록시가 라우팅하지 않는 경로(`/actuator/health` 등)는 SSH 터널로 확인한다.
 
 - **평가 추적은 정본과 같은 PostgreSQL 인스턴스를 공유하되 별도 DB와 role로 격리한다** (`S15P21A501-151`). SQLite 파일도 후보였으나, "동시 사용자 1명"은 사용자 부하의 상한일 뿐이고 ablation을 병렬로 돌리면 `database is locked`가 난다. 저장소를 하나로 유지하면 백업 대상과 접근 경로가 한 곳이고 나중에 옮길 일도 없다. role 단위 `CONNECTION LIMIT`과 `REVOKE CONNECT`로 실험 트래픽이 서비스 커넥션을 잠식하거나 정본에 닿는 것을 막는다. artifact 파일만 별도 호스트 볼륨에 남는다.
 

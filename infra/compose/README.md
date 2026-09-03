@@ -1,4 +1,4 @@
-# 로컬·서버 공통 compose 스택 (S15P21A501-130)
+# 로컬·서버 공통 compose 스택 (S15P21A501-130, -131)
 
 PostgreSQL · Spring Boot BE · Next.js FE · Python AI 워커를 한 번에 띄운다.
 로컬 개발과 EC2 서버가 같은 구성을 쓴다.
@@ -9,12 +9,20 @@ PostgreSQL · Spring Boot BE · Next.js FE · Python AI 워커를 한 번에 띄
 
 ```bash
 cp .env.example .env
+cp frontend/.env.example frontend/.env
 ```
 
 `.env` 의 `POSTGRES_PASSWORD` 를 채운다. 비어 있으면 compose 가 기동을 거부한다.
 
 ```bash
 openssl rand -base64 24
+```
+
+`frontend/.env` 의 `NEXT_PUBLIC_API_BASE_URL` 은 **nginx 를 거치는 주소**로 바꾼다.
+`.env.example` 의 기본값은 BE 직접 주소라 프록시 구성과 맞지 않는다.
+
+```
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1/api/v1
 ```
 
 ```bash
@@ -27,21 +35,50 @@ docker compose up -d --build
 docker compose ps
 ```
 
-네 서비스가 모두 `healthy` 면 정상이다.
+다섯 서비스가 모두 `healthy` 면 정상이다.
 
-| 서비스 | 접속 |
+| 대상 | 접속 |
 |---|---|
-| FE | http://127.0.0.1:3000 |
-| BE health | http://127.0.0.1:8080/actuator/health |
-| AI 워커 health | http://127.0.0.1:8000/health |
+| 서비스 | http://127.0.0.1/ (nginx → FE) |
+| API | http://127.0.0.1/api/ (nginx → BE) |
+| nginx 자체 | http://127.0.0.1/healthz |
+| BE health | http://127.0.0.1:8081/actuator/health (프록시 미경유) |
+| AI 워커 health | http://127.0.0.1:8000/health (프록시 미경유) |
 | PostgreSQL | `127.0.0.1:5432` (DB·계정은 `.env`) |
+
+`NGINX_HTTP_PORT` 를 바꿨으면 위 주소에 그 포트를 붙인다.
+
+## 배포 환경에서 다른 값
+
+포트는 로컬과 배포가 같다. 환경마다 다른 값은 아래 둘뿐이다.
+
+| 변수 | 배포 값 | 이유 |
+|---|---|---|
+| `POSTGRES_PASSWORD` | 팀 비밀 채널의 값 | 볼륨 초기화 시점에 고정되어 나중에 바꿀 수 없다 |
+| `NPICK_DOMAIN` | 실제 도메인 | nginx `server_name` |
+
+`BACKEND_PORT` 가 8080 이 아니라 **8081** 인 것은 의도된 값이다. EC2 의 8080 은 Jenkins 가
+`0.0.0.0` 으로 점유하고 있어 `127.0.0.1:8080` 바인딩도 실패한다. [배포 다이어그램](../../docs/architecture/03-deployment.md)
+의 확정 값이므로 8080 으로 되돌리지 않는다.
+
+`frontend/.env` 의 `NEXT_PUBLIC_API_BASE_URL` 도 배포 도메인으로 바꾼다. 번들에 박히는 값이라
+바꾼 뒤 재빌드가 필요하다.
+
+```
+NEXT_PUBLIC_API_BASE_URL=https://<도메인>/api/v1
+```
 
 ## 파일 구성
 
 | 파일 | 역할 |
 |---|---|
 | `compose.yaml` (루트) | 서비스·네트워크·볼륨 정의 |
-| `.env.example` (루트) | 포트·계정·이미지 태그. 실제 `.env` 는 커밋되지 않는다 |
+| `.env.example` (루트) | **인프라 값 전용.** 포트·계정·도메인·이미지 태그 |
+| `frontend/.env` | **FE 팀 소유.** `NEXT_PUBLIC_*`. 빌드 필수 |
+| `backend/.env` | **BE 팀 소유.** 없어도 기동한다 |
+| `ai/.env` | **AI 팀 소유.** 없어도 기동한다 |
+| `infra/compose/postgres-init/` | 최초 기동 1회만 실행되는 SQL. `npick` 스키마를 만든다 |
+| `infra/nginx/` | 리버스 프록시 템플릿·스니펫 |
 | `infra/compose/profiles/` | **Gate D 값이 들어갈 자리.** 아래 참고 |
 | `backend/Dockerfile` | JDK 21 멀티스테이지 → JRE 런타임 |
 | `frontend/Dockerfile` | Node 24 멀티스테이지 |
@@ -67,7 +104,15 @@ BE 컨테이너에는 `/app/config/profiles` 로 read-only 마운트되고 `NPIC
 
 ## 알아둘 것
 
-### BE 기동 시 Flyway 가 스키마를 만든다
+### 스키마는 postgres-init 이 만들고 Flyway 는 baseline 만 적용한다
+
+BE 의 Flyway 는 `create-schemas: false` 라 스키마를 만들지 않는다. `npick` 스키마는
+`infra/compose/postgres-init/01-create-schema.sql` 이 만든다. 이 스크립트는 데이터 볼륨이
+비어 있을 때 1회만 실행되므로, 이미 쓰던 볼륨에는 적용되지 않는다.
+
+```bash
+docker compose exec postgres psql -U npick -d npick -c 'CREATE SCHEMA IF NOT EXISTS npick'
+```
 
 BE 는 `backend/src/main/resources/application.yml` 한 파일에서 프로필을 나눠 관리하고,
 기동할 때 `db/migration` 의 baseline 을 적용한다. postgres 컨테이너가 healthy 가 된 뒤
@@ -76,24 +121,51 @@ backend 가 뜨도록 `depends_on` 이 잡혀 있으므로 별도 순서 조정�
 과거 이 자리에는 BE 의 DataSource 자동설정 exclude 를 비우는 `SPRING_AUTOCONFIGURE_EXCLUDE: ""`
 가 있었다. BE 에서 exclude 블록을 정식으로 제거해 더는 필요 없어 지웠다.
 
+### env 파일은 소유자별로 나뉜다
+
+각 팀이 자기 디렉터리의 `.env` 에 변수를 추가한다. 인프라 파일을 고치지 않아도 된다.
+
+| 파일 | 소유 | compose 가 쓰는 방식 | 없으면 |
+|---|---|---|---|
+| `.env` (루트) | 인프라 | 변수 치환(`${...}`) | `POSTGRES_PASSWORD` 만 필수 |
+| `frontend/.env` | FE | `next build` 가 컨테이너 안에서 직접 읽는다 | **`up` 이 빌드 전에 멈춘다** |
+| `backend/.env` | BE | `env_file` 로 런타임 주입 | 기동한다 |
+| `ai/.env` | AI | `env_file` 로 런타임 주입 | 기동한다 |
+
+env 배선은 전부 `compose.yaml` 에 있다. Dockerfile 은 env 파일을 모른다.
+
+이름이 겹치면 compose 의 `environment:` 가 이긴다. 팀 파일이 인프라 값을 덮을 수 없다.
+
 ### NEXT_PUBLIC_* 는 빌드 시점 값이다
 
-`NEXT_PUBLIC_API_BASE_URL` 을 바꾸면 컨테이너 재시작으로는 반영되지 않는다. 번들에 박히기 때문에
-다시 빌드해야 한다.
+`next build` 가 변수 참조를 문자열 리터럴로 치환하므로 **런타임 환경변수는 효과가 없다.**
+컨테이너 재시작이 아니라 재빌드가 필요하다.
 
 ```bash
 docker compose up -d --build frontend
 ```
 
-### 포트는 전부 loopback 이다
+`frontend/.env` 가 없으면 코드 기본값이 박힌 이미지가 조용히 만들어진다. 그래서 compose 의
+`env_file` 에 `required: true` 를 걸어 `up` 이 빌드에 들어가기 전에 멈추게 했다. 여기 선언은
+존재 강제가 목적이고, 런타임 주입은 이미 번들에 박힌 값을 바꾸지 못한다.
 
-FRD §15.6 Gate D 의 `loopback bind` 에 따라 세 서비스 모두 `127.0.0.1` 에만 바인딩된다.
-컨테이너 외부에서 접근하려면 프록시를 앞에 두어야 하며, `0.0.0.0` 으로 바꾸지 않는다.
+`docker compose build frontend` 단독 실행은 이 검사를 거치지 않는다. 빌드는 항상
+`docker compose up -d --build` 로 한다.
 
-EC2 에서 브라우저로 볼 때는 SSH 터널을 쓴다.
+`backend/.env.example` 은 `backend/.gitignore` 가 `.env.*` 를 예외 없이 무시해 커밋되지 않는다.
+BE 변수가 생기면 그 규칙에 `!.env.example` 을 추가해야 한다.
+
+### 외부에 열리는 것은 nginx 뿐이다
+
+FRD §15.6 Gate D 의 `loopback bind` 에 따라 애플리케이션 서비스 네 개는 모두 `127.0.0.1` 에만
+바인딩된다. `0.0.0.0` 으로 바꾸지 않는다.
+
+외부에 열리는 것은 nginx 의 80·443 뿐이고, 나머지는 컨테이너 네트워크 안에서만 닿는다.
+그래서 브라우저로 볼 때 SSH 터널이 필요하지 않다. 프록시를 거치지 않는 health 엔드포인트만
+터널이 필요하다.
 
 ```bash
-ssh -i <키>.pem -L 3000:localhost:3000 -L 8080:localhost:8080 -L 8000:localhost:8000 ubuntu@<EC2-도메인>
+ssh -i <키>.pem -L 8081:localhost:8081 -L 8000:localhost:8000 <계정>@<도메인>
 ```
 
 ### AI 워커는 CPU 전용으로 뜬다
@@ -132,6 +204,12 @@ docker compose down -v
 **`POSTGRES_PASSWORD 를 .env 에 설정해야 한다`**
 `.env` 가 없거나 비밀번호가 비어 있다. `cp .env.example .env` 후 값을 채운다.
 
+**`env file ... frontend/.env not found` 로 멈춘다**
+```bash
+cp frontend/.env.example frontend/.env
+```
+`NEXT_PUBLIC_API_BASE_URL` 을 nginx 주소로 바꾼 뒤 다시 빌드한다.
+
 **backend 가 `unhealthy` 로 남는다**
 ```bash
 docker compose logs backend | tail -50
@@ -144,4 +222,4 @@ swap 을 늘린다.
 
 **포트가 이미 사용 중이다**
 `.env` 에서 `BACKEND_PORT`·`FRONTEND_PORT`·`POSTGRES_PORT`·`AI_WORKER_PORT` 를 바꾼다.
-EC2 에서는 8080 을 Jenkins 가 쓰고 있어 `BACKEND_PORT` 조정이 필요하다.
+EC2 는 아래 「배포 환경에서 다른 값」을 참고한다.
