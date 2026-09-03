@@ -38,10 +38,17 @@ services:
         required: false
     environment:
       SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
+      # local·prod 두 프로필의 변수를 모두 넘긴다. BACKEND_PROFILE 만 바꿔 고를 수 있다.
+      # prod 는 기본값 없이 요구하므로 여기서 주지 않으면 기동에 실패한다.
       LOCAL_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-npick}
       LOCAL_DB_USERNAME: ${POSTGRES_USER:-npick}
       LOCAL_DB_PASSWORD: ${POSTGRES_PASSWORD}
       LOCAL_CORS_ALLOWED_ORIGINS: http://127.0.0.1:${FRONTEND_PORT:-3000}
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-npick}
+      DB_USERNAME: ${POSTGRES_USER:-npick}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      # nginx 경유로 같은 오리진이라 실제로 쓰이지 않지만 값이 없으면 기동하지 않는다
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-https://${NPICK_DOMAIN:-localhost}}
       SERVER_PORT: 8080
       NPICK_PROFILES_DIR: /app/config/profiles
       NPICK_MEDIA_ROOT: /srv/npick/media

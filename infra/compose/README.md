@@ -56,6 +56,7 @@ docker compose ps
 |---|---|---|
 | `POSTGRES_PASSWORD` | 팀 비밀 채널의 값 | 볼륨 초기화 시점에 고정되어 나중에 바꿀 수 없다 |
 | `NPICK_DOMAIN` | 실제 도메인 | nginx `server_name` |
+| `BACKEND_PROFILE` | `prod` | `local` 은 SQL echo 와 DEBUG 로깅이 켜져 로그가 과하다 |
 
 `BACKEND_PORT` 가 8080 이 아니라 **8081** 인 것은 의도된 값이다. EC2 의 8080 은 Jenkins 가
 `0.0.0.0` 으로 점유하고 있어 `127.0.0.1:8080` 바인딩도 실패한다. [배포 다이어그램](../../docs/architecture/03-deployment.md)
@@ -120,6 +121,22 @@ backend 가 뜨도록 `depends_on` 이 잡혀 있으므로 별도 순서 조정�
 
 과거 이 자리에는 BE 의 DataSource 자동설정 exclude 를 비우는 `SPRING_AUTOCONFIGURE_EXCLUDE: ""`
 가 있었다. BE 에서 exclude 블록을 정식으로 제거해 더는 필요 없어 지웠다.
+
+### BE 프로필은 BACKEND_PROFILE 로 고른다
+
+`local` 과 `prod` 두 프로필의 변수를 compose 가 모두 넘기므로 `BACKEND_PROFILE` 만 바꾸면 된다.
+`prod` 는 DB 접속 정보를 기본값 없이 요구하는데, 그 값을 주지 않으면 기동에 실패한다.
+
+| | `local` | `prod` |
+|---|---|---|
+| `com.npick` 로그 | `DEBUG` | `INFO` |
+| root 로그 | 기본 | `WARN` |
+| SQL echo | 켜짐 | 꺼짐 |
+| health 상세 | `always` | `never` |
+
+기동 로그가 58줄에서 21줄로 줄어든다. CORS 허용 오리진은 `CORS_ALLOWED_ORIGINS` 로 덮을 수
+있고 기본값은 `https://${NPICK_DOMAIN}` 이다. nginx 경유라 같은 오리진이어서 실제로는 쓰이지
+않지만, 값이 비면 `prod` 가 기동하지 않는다.
 
 ### env 파일은 소유자별로 나뉜다
 
