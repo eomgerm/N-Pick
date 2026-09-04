@@ -94,7 +94,7 @@ uv sync --directory ai --group gpu
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `NPICK_AI_HOST` | `127.0.0.1` | 바인드 주소. 컨테이너에서는 `0.0.0.0` |
-| `NPICK_AI_PORT` | `8000` | backend 8080 과 분리 |
+| `NPICK_AI_PORT` | `8000` | backend 8081 과 분리 |
 | `NPICK_AI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `NPICK_AI_DEVICE` | `auto` | `auto` / `cuda` / `cpu`. `cuda` 를 지정해도 불가하면 경고 후 `cpu` 로 내려간다 |
 
