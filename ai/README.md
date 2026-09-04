@@ -101,13 +101,31 @@ result = resolve_query("2022년 촬영한 서울역", resolver)
 result.resolution.locations  # (Location(type='facility', value='서울역', origin='explicit_query', ...),)
 result.resolution_schema_version  # 'query-resolver/v1'
 result.prompt_version  # 'query-resolver-prompt/v1:daadc2c3'
-result.model_version  # 'qwen2.5:7b@a8b4c1d2e3f4'
+result.model_version  # 'gpt-5.4-mini-2026-03-17' (게이트웨이가 응답에 실어 준 이름)
 result.findings  # 검증이 무엇을 바꿨는지 (explicit_anchor_validation_json)
 ```
 
-`origin` 이 `explicit_query` 면 **원문에 그 문자열이 실제로 있다**는 뜻이다. LLM 이 그렇게
-주장해도 `query[span] != value` 면 `inferred` 로 강등된다(`FR-QRY-011`). `inferred` 는
-hard filter 가 되지 않는다(`AC-SRH-005`).
+`origin` 이 `explicit_query` 면 **원문에 그 문자열이 실제로 있다**는 뜻이다. 원문에 없는
+값을 그렇게 주장하면 `inferred` 로 강등된다(`FR-QRY-011`). `inferred` 는 hard filter 가
+되지 않는다(`AC-SRH-005`).
+
+### span 은 모델이 준 숫자를 쓰지 않는다
+
+`query_span` 은 validator 가 원문에서 직접 찾는다. 대표 질의 20개 실측에서 **11개
+질의**의 인덱스가 어긋났고 **9건 전부 값은 원문에 실제로 있었다**(오차 `+1` 7건,
+`+2` 2건). LLM 은 문자 오프셋 계산에 약하다.
+
+그 숫자를 믿으면 사용자가 직접 입력한 `서울역` 이 `inferred` 로 떨어져 hard filter 에서
+빠진다. 검증해야 하는 명제는 "이 값이 원문에 있는가" 이고 그건 substring 검색이 더
+정확하게 답한다. 없으면 그대로 강등하므로 **창작 방어는 그대로다.**
+
+`findings` 의 `action` 세 가지:
+
+| `action` | 뜻 |
+| --- | --- |
+| `span_corrected` | 값은 원문에 있고 인덱스만 고쳤다. `explicit_query` 유지 |
+| `demoted_to_inferred` | 원문에 없는 값이거나 resolver 가 `explicit_filter` 를 주장했다 |
+| `dropped` | 뒤집힌 날짜 구간, 또는 `locations` 와 겹친 `entities` (`AC-QRY-005`) |
 
 ### backend 2개
 
@@ -117,6 +135,11 @@ hard filter 가 되지 않는다(`AC-SRH-005`).
 | --- | --- | --- |
 | `ollama` (기본) | `ollama_backend.py` | 로컬 [Ollama](https://ollama.com) `/api/chat` |
 | `gms` | `gms_backend.py` | 승인된 GMS `/v1/chat/completions` (OpenAI 호환) |
+
+`NPICK_AI_GMS_BASE_URL` 은 base 만 줘도 되고 전체 엔드포인트를 줘도 된다 — SSAFY GMS 처럼
+`.../v1/chat/completions` 까지 안내하는 게이트웨이가 있어서 양쪽을 받는다.
+토큰 상한은 `max_completion_tokens` 로 보낸다. 옛 이름 `max_tokens` 는 최신 모델이
+400 으로 거부한다.
 
 `ollama` 를 기본으로 두는 이유는 FRD §13.4 가 query 외부 전송을 **별도 승인 대상**으로
 두기 때문이다. 어느 쪽이든 **없어도 워커는 기동한다** — 실패는 실제로 호출할 때만 난다.
@@ -176,6 +199,12 @@ uv sync --directory ai --group gpu
 ```
 
 ## 환경 변수
+
+**설정 파일은 `ai/.env` 다.** `cp ai/.env.example ai/.env` 로 만든다. 저장소 루트의 `.env` 와
+다른 파일이다 — 루트 쪽은 compose 가 `${AI_LOG_LEVEL}` 같은 자기 치환에 쓰고 접두사 없는
+이름을 쓴다. `compose.yaml` 의 `ai-worker` 도 `env_file: ./ai/.env` 하나만 읽으므로,
+루트에 `NPICK_AI_*` 를 넣으면 로컬 실행도 컨테이너도 그 값을 보지 못한다.
+
 
 민감값은 하드코딩하지 않고 환경 변수로만 주입한다. `.env` 류 파일은 커밋 금지(`.gitignore` 처리됨).
 

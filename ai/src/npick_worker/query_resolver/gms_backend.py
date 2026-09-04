@@ -29,8 +29,27 @@ _RATE_LIMITED: Final[str] = "RESOLVER_RATE_LIMITED"
 _NETWORK: Final[str] = "RESOLVER_NETWORK"
 
 _TOO_MANY_REQUESTS: Final[int] = 429
+_ERROR_STATUS: Final[int] = 400
+#: 오류 본문을 얼마나 실을지. 전부 넣으면 로그가 HTML 페이지로 뒤덮인다.
+_ERROR_BODY_LIMIT: Final[int] = 500
 
 _CHAT_PATH: Final[str] = "/v1/chat/completions"
+#: 전체 엔드포인트인지 판정하는 꼬리. `/v1` 을 붙이지 않는 게이트웨이도 있다.
+_CHAT_SUFFIX: Final[str] = "/chat/completions"
+
+
+def resolve_endpoint(base_url: str) -> str:
+    """요청 URL 을 **한 번만** 만든다.
+
+    게이트웨이가 안내하는 주소는 base 일 수도 있고 전체 엔드포인트일 수도 있다.
+    SSAFY GMS 는 후자다 — `https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions`.
+    둘 다 받는다. 어느 쪽인지 사람이 기억해야 하는 구조였고, 그래서 경로가 두 번
+    붙어 실패했다. 조립을 여기 한 곳으로 모아 그 실패가 다시 생기지 않게 한다.
+    """
+    trimmed = base_url.rstrip("/")
+    if trimmed.endswith(_CHAT_SUFFIX):
+        return trimmed
+    return trimmed + _CHAT_PATH
 
 
 class GmsResolver:
@@ -58,7 +77,7 @@ class GmsResolver:
             if not value:
                 msg = f"{env} 이 비어 있다. 환경 변수로 지정한다"
                 raise ValueError(msg)
-        self._base_url = base_url.rstrip("/")
+        self._endpoint = resolve_endpoint(base_url)
         self._api_key = api_key
         self._model = model
         self._params = params
@@ -88,7 +107,9 @@ class GmsResolver:
             ],
             "stream": False,
             "temperature": self._params.temperature,
-            "max_tokens": self._params.max_output_tokens,
+            # OpenAI 는 max_tokens 를 폐기하고 이 이름을 쓴다. 옛 이름을 보내면
+            # 최신 모델이 400 으로 거부한다(실측: gpt-5.4-mini).
+            "max_completion_tokens": self._params.max_output_tokens,
         }
         if self._json_mode:
             # 디코딩 단계 제약이라 프롬프트 지시보다 강하다 — RESOLVER_SCHEMA_INVALID 를
@@ -97,7 +118,7 @@ class GmsResolver:
             # 자동 재시도는 하지 않는다(FR-QRY-023).
             payload["response_format"] = {"type": "json_object"}
 
-        data = self._post(_CHAT_PATH, payload, self._params.timeout_seconds)
+        data = self._post(self._endpoint, payload, self._params.timeout_seconds)
         reported = data.get("model")
         if isinstance(reported, str) and reported:
             self._reported_model = reported
@@ -114,28 +135,50 @@ class GmsResolver:
             raise ResolverCallError(msg, category=_NETWORK)
         return str(message["content"])
 
-    def _post(self, path: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
+    def _post(self, url: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
         """예외 변환은 `ollama_backend._post` 와 같은 규칙이다.
 
-        오류 메시지에 base_url·path 만 넣는다. 키는 헤더에만 있고 문자열로
-        조립되는 곳이 없다.
+        절대 URL 하나로 보낸다. Client 의 base_url 과 상대 경로를 조합하면 조립
+        지점이 둘로 갈리고, 그게 경로 중복 버그의 원인이었다.
+
+        오류 메시지에 URL 만 넣는다. 키는 헤더에만 있고 문자열로 조립되는 곳이 없다.
         """
         headers = {"Authorization": f"Bearer {self._api_key}"}
         try:
-            with httpx2.Client(base_url=self._base_url, timeout=timeout, headers=headers) as client:
-                response = client.post(path, json=payload)
-                if response.status_code == _TOO_MANY_REQUESTS:
-                    msg = f"GMS 가 요청을 제한했다: {path}"
-                    raise ResolverCallError(msg, category=_RATE_LIMITED)
-                response.raise_for_status()
-                body = response.json()
+            with httpx2.Client(timeout=timeout, headers=headers) as client:
+                response = client.post(url, json=payload)
         except httpx2.TimeoutException as exc:
-            msg = f"GMS 응답이 {timeout}초 안에 오지 않았다: {path}"
+            msg = f"GMS 응답이 {timeout}초 안에 오지 않았다: {url}"
             raise ResolverCallError(msg, category=_TIMEOUT) from exc
         except httpx2.HTTPError as exc:
-            msg = f"GMS 호출이 실패했다 ({self._base_url}{path}): {exc}"
+            msg = f"GMS 호출이 실패했다 ({url}): {exc}"
+            raise ResolverCallError(msg, category=_NETWORK) from exc
+
+        if response.status_code == _TOO_MANY_REQUESTS:
+            msg = f"GMS 가 요청을 제한했다: {url}"
+            raise ResolverCallError(msg, category=_RATE_LIMITED)
+        if response.status_code >= _ERROR_STATUS:
+            # 본문을 반드시 싣는다. 상태 코드만으로는 무엇이 거부됐는지 알 수 없고,
+            # 그러면 원인을 찾으려고 손으로 다시 찔러보게 된다.
+            detail = self._redact(response.text)[:_ERROR_BODY_LIMIT]
+            msg = f"GMS 가 요청을 거부했다 ({url}): {response.status_code} {detail}"
+            raise ResolverCallError(msg, category=_NETWORK)
+
+        try:
+            body = response.json()
+        except ValueError as exc:
+            detail = self._redact(response.text)[:_ERROR_BODY_LIMIT]
+            msg = f"GMS 응답이 JSON 이 아니다 ({url}): {detail}"
             raise ResolverCallError(msg, category=_NETWORK) from exc
         if not isinstance(body, dict):
             msg = f"GMS 응답이 객체가 아니다: {type(body).__name__}"
             raise ResolverCallError(msg, category=_NETWORK)
         return body
+
+    def _redact(self, text: str) -> str:
+        """오류 본문에 키가 섞여 나오는 경우를 막는다.
+
+        게이트웨이가 요청을 되돌려 보여주는 구현이 있다. 본문을 실어 나르기로
+        결정한 이상 이 가림은 선택이 아니다.
+        """
+        return text.replace(self._api_key, "<redacted>")

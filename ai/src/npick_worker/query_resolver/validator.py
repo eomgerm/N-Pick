@@ -11,6 +11,14 @@ JSON 이 아니거나 enum 이 틀리면 무엇을 의도했는지 알 수 없�
 `FR-QRY-011` 이 그 방식을 지정한다 — "span 검증 실패 시 `inferred`로 강등해야 한다".
 거부가 아니라 강등이다.
 
+**span 은 모델이 준 숫자를 믿지 않고 코드가 찾는다.** 실측에서 대표 질의 20개 중
+11개가 인덱스가 어긋났고, 9건 전부 값은 원문에 실제로 있었다(오차 +1 이 7건, +2 가 2건).
+LLM 은 문자 오프셋 계산에 약하다. 그 숫자를 믿으면 사용자가 직접 입력한 조건이
+`inferred` 로 떨어져 hard filter 에서 빠진다(`AC-SRH-005`).
+
+검증해야 하는 명제는 "이 값이 원문에 있는가" 이고, 그건 substring 검색이 모델의
+산수보다 정확하게 답한다. 없으면 그대로 강등한다 — 창작 방어는 그대로다.
+
 검증 과정은 전부 `AnchorFinding` 으로 남는다. `query_resolution_snapshot` 의
 `explicit_anchor_validation_json` 이 NOT NULL 이라 통과했을 때도 기록이 있어야 한다.
 """
@@ -183,39 +191,73 @@ def _parse_window_bounds(window: DateWindow) -> tuple[date, date] | None:
 def _check_value_anchor[A: ValuedAnchor](
     anchor: A, path: str, query: str, findings: list[AnchorFinding]
 ) -> A:
-    """`value` 를 갖는 anchor: span 이 원문에서 정확히 그 문자열이어야 한다.
+    """`value` 를 갖는 anchor: 그 문자열이 원문에 있어야 하고, span 은 코드가 찾는다.
 
     구체 타입을 그대로 돌려준다. 유니온으로 받으면 `entities` 자리에 `Location` 을 넣어도
     타입 검사를 통과해 버린다 — 이 파일이 막으려는 것이 바로 그런 뒤섞임이다.
     """
-    reason = _explicit_claim_problem(anchor.origin, anchor.query_span, query, anchor.value)
-    if reason is None:
+    if anchor.origin not in RESOLVER_ORIGINS:
+        # FR-QRY-012 — explicit UI filter 는 사용자만 만든다. resolver 가 이걸 내는 것은
+        # 사용자 조건을 위조하는 것이다. 다만 값 자체는 원문에서 왔을 수 있으므로
+        # 검색 전체를 실패시키지 않고 출처 주장만 떼어낸다.
+        reason = f"resolver 가 만들 수 없는 origin 이다: {anchor.origin}"
+        findings.append(AnchorFinding(path, "demoted_to_inferred", reason))
+        return anchor.model_copy(update={"origin": "inferred", "query_span": None})
+    if anchor.origin != "explicit_query":
         return anchor
-    findings.append(AnchorFinding(path, "demoted_to_inferred", reason))
-    return anchor.model_copy(update={"origin": "inferred", "query_span": None})
+
+    located = _locate(anchor.value, query, anchor.query_span)
+    if located is None:
+        # 여기가 창작 anchor 가 걸러지는 자리다(FR-QRY-014).
+        reason = f"원문에 없는 값을 explicit_query 로 주장했다: {anchor.value!r}"
+        findings.append(AnchorFinding(path, "demoted_to_inferred", reason))
+        return anchor.model_copy(update={"origin": "inferred", "query_span": None})
+    if located == anchor.query_span:
+        return anchor
+
+    claimed = (
+        f"[{anchor.query_span.start}, {anchor.query_span.end})"
+        if anchor.query_span is not None
+        else "없음"
+    )
+    reason = f"모델 span {claimed} 을 원문에서 찾은 [{located.start}, {located.end}) 로 고쳤다"
+    findings.append(AnchorFinding(path, "span_corrected", reason))
+    return anchor.model_copy(update={"query_span": located})
+
+
+def _locate(value: str, query: str, hint: QuerySpan | None) -> QuerySpan | None:
+    """`value` 가 원문에 있으면 그 위치를 돌려준다. 없으면 `None`.
+
+    같은 문자열이 여러 번 나오면 모델이 준 위치에 **가장 가까운** 것을 고른다.
+    모델의 숫자는 신뢰할 값이 아니지만 어느 쪽을 가리켰는지에 대한 힌트로는 쓸 수 있다.
+    힌트가 없으면 첫 번째를 쓴다.
+    """
+    starts = [i for i in range(len(query) - len(value) + 1) if query.startswith(value, i)]
+    if not starts:
+        return None
+    start = starts[0] if hint is None else min(starts, key=lambda s: abs(s - hint.start))
+    return QuerySpan(start=start, end=start + len(value))
 
 
 def _demote_unless_span_in_range(
     window: DateWindow, path: str, query: str, findings: list[AnchorFinding]
 ) -> DateWindow:
-    reason = _explicit_claim_problem(window.origin, window.query_span, query, expected=None)
+    """날짜 구간은 대조할 문자열이 없어 span 을 찾아줄 수 없다. 범위만 본다."""
+    reason = _explicit_claim_problem(window.origin, window.query_span, query)
     if reason is None:
         return window
     findings.append(AnchorFinding(path, "demoted_to_inferred", reason))
     return window.model_copy(update={"origin": "inferred", "query_span": None})
 
 
-def _explicit_claim_problem(
-    origin: str, span: QuerySpan | None, query: str, expected: str | None
-) -> str | None:
-    """`explicit_query` 주장이 원문으로 뒷받침되는지. 문제가 없으면 `None`.
+def _explicit_claim_problem(origin: str, span: QuerySpan | None, query: str) -> str | None:
+    """span 범위만 보는 검사. 대조할 문자열이 없는 날짜 구간에만 쓴다.
 
-    `expected` 가 `None` 이면 span 범위만 본다(날짜 구간처럼 대조할 문자열이 없는 경우).
+    값을 갖는 anchor 는 `_check_value_anchor` 가 span 을 직접 찾으므로 이 함수를
+    쓰지 않는다.
     """
     if origin not in RESOLVER_ORIGINS:
-        # FR-QRY-012 — explicit UI filter 는 사용자만 만든다. resolver 가 이걸 내는 것은
-        # 사용자 조건을 위조하는 것이다. 다만 값 자체는 원문에서 왔을 수 있으므로
-        # 검색 전체를 실패시키지 않고 출처 주장만 떼어낸다.
+        # FR-QRY-012 — explicit UI filter 는 사용자만 만든다.
         return f"resolver 가 만들 수 없는 origin 이다: {origin}"
     if origin != "explicit_query":
         return None
@@ -225,11 +267,6 @@ def _explicit_claim_problem(
         return f"query_span 이 빈 구간이다: [{span.start}, {span.end})"
     if span.end > len(query):
         return f"query_span 이 원문 길이를 넘는다: end={span.end}, len={len(query)}"
-    if expected is not None and query[span.start : span.end] != expected:
-        return (
-            f"query_span 이 원문과 다르다: 원문[{span.start}:{span.end}]="
-            f"{query[span.start : span.end]!r} != {expected!r}"
-        )
     return None
 
 

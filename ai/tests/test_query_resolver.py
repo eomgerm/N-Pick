@@ -22,6 +22,7 @@ from npick_worker.query_resolver import (
     SCHEMA_VERSION,
     DateField,
     QueryResolverConfig,
+    QuerySpan,
     ResolverSchemaInvalidError,
     empty_resolution,
     get_default_config,
@@ -33,11 +34,11 @@ from npick_worker.query_resolver import (
     validate,
 )
 from npick_worker.query_resolver.config import DEFAULT_CONFIG_PATH
-from npick_worker.query_resolver.gms_backend import GmsResolver
+from npick_worker.query_resolver.gms_backend import GmsResolver, resolve_endpoint
 from npick_worker.query_resolver.prompt import BROADCAST_FIELD, FILMING_FIELD
-from npick_worker.query_resolver.report import _build_resolver, load_queries
+from npick_worker.query_resolver.report import REQUIRED_ENV, _build_resolver, load_queries
 from npick_worker.query_resolver.resolver import ResolverCallError
-from npick_worker.settings import Settings
+from npick_worker.settings import ResolverBackend, Settings
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "npick_worker" / "query_resolver"
 
@@ -138,11 +139,57 @@ def test_mismatched_span_is_demoted_not_rejected() -> None:
     assert outcome.findings[0].action == "demoted_to_inferred"
 
 
-def test_span_beyond_query_length_is_demoted() -> None:
+def test_off_by_one_span_is_corrected_not_demoted() -> None:
+    """실측에서 가장 흔한 실패다. 값은 원문에 있고 인덱스만 어긋난다.
+
+    강등해 버리면 사용자가 직접 입력한 조건이 hard filter 에서 빠진다(AC-SRH-005).
+    """
+    query = "비 오는 시장"
+    outcome = validate(
+        parse_raw(_payload(locations=[_anchor("시장", 4, 6, type="location")])), query
+    )
+    location = outcome.resolution.locations[0]
+    assert location.origin == "explicit_query"
+    assert location.query_span is not None
+    assert query[location.query_span.start : location.query_span.end] == "시장"
+    assert outcome.findings[0].action == "span_corrected"
+
+
+def test_span_beyond_query_length_is_corrected_when_value_is_present() -> None:
+    """end 가 원문 길이를 넘어도 값이 있으면 찾아 준다(실측 #2·#16 유형)."""
     outcome = validate(
         parse_raw(_payload(entities=[_anchor("홍길동", 0, 99, type="person")])), "홍길동"
     )
-    assert outcome.resolution.entities[0].origin == "inferred"
+    entity = outcome.resolution.entities[0]
+    assert entity.origin == "explicit_query"
+    assert entity.query_span == QuerySpan(start=0, end=3)
+
+
+def test_missing_span_is_derived_when_value_is_present() -> None:
+    """span 을 아예 안 줘도 값이 원문에 있으면 코드가 채운다."""
+    payload = _payload(
+        incident_names=[
+            {
+                "value": "이태원 참사",
+                "origin": "explicit_query",
+                "query_span": None,
+                "confidence": 0.9,
+            }
+        ]
+    )
+    outcome = validate(parse_raw(payload), "이태원 참사 현장")
+    assert outcome.resolution.incident_names[0].origin == "explicit_query"
+    assert outcome.resolution.incident_names[0].query_span == QuerySpan(start=0, end=6)
+
+
+def test_repeated_value_uses_the_occurrence_nearest_the_hint() -> None:
+    """모델의 숫자는 못 믿지만 '어느 쪽을 가리켰나' 힌트로는 쓴다."""
+    query = "서울역에서 부산역 그리고 서울역"
+    outcome = validate(
+        parse_raw(_payload(locations=[_anchor("서울역", 12, 15, type="facility")])), query
+    )
+    span = outcome.resolution.locations[0].query_span
+    assert span == QuerySpan(start=14, end=17)
 
 
 def test_explicit_without_span_is_demoted() -> None:
@@ -436,16 +483,15 @@ def test_config_type_is_frozen() -> None:
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, body: Any) -> None:
+    def __init__(self, status_code: int, body: Any, text: str = "") -> None:
         self.status_code = status_code
         self._body = body
-
-    def raise_for_status(self) -> None:
-        if self.status_code >= 400:
-            msg = f"{self.status_code} error"
-            raise httpx2.HTTPError(msg)
+        self.text = text or json.dumps(body, ensure_ascii=False)
 
     def json(self) -> Any:
+        if isinstance(self._body, str):
+            msg = "not json"
+            raise ValueError(msg)
         return self._body
 
 
@@ -505,6 +551,14 @@ def _gms(**overrides: Any) -> GmsResolver:
     return GmsResolver(**kwargs)
 
 
+def _raise_with(response: _FakeResponse) -> None:
+    """monkeypatch 없이 응답 하나를 흘려 넣는다. 예외 변환만 보는 테스트용."""
+    resolver = _gms()
+    with pytest.MonkeyPatch.context() as mp:
+        _patch_client(mp, response)
+        resolver.complete("SYS", "USR")
+
+
 @pytest.mark.parametrize(
     ("missing", "env"),
     [
@@ -524,18 +578,44 @@ def test_gms_sends_openai_chat_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _gms().complete("SYS", "USR") == '{"intent":"unknown"}'
 
     (call,) = calls
-    assert call["path"] == "/v1/chat/completions"
+    # 절대 URL 하나로 나간다. base_url + 상대 경로 조합은 경로 중복을 만들었다.
+    assert call["path"] == "https://gms.example/api/v1/chat/completions"
     body = call["json"]
     assert body["messages"] == [
         {"role": "system", "content": "SYS"},
         {"role": "user", "content": "USR"},
     ]
     # Ollama 와 다른 두 지점.
-    assert body["max_tokens"] == get_default_config().call.max_output_tokens
+    assert body["max_completion_tokens"] == get_default_config().call.max_output_tokens
+    assert "max_tokens" not in body  # 최신 모델이 옛 이름을 400 으로 거부한다
     assert body["response_format"] == {"type": "json_object"}
     assert call["client"]["headers"]["Authorization"].endswith("sk-do-not-log-me")
-    # base_url 의 끝 슬래시가 남으면 //v1/... 이 된다.
-    assert call["client"]["base_url"] == "https://gms.example/api"
+    assert "base_url" not in call["client"]
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        # 게이트웨이가 base 만 안내한 경우.
+        "https://gms.ssafy.io/gmsapi/api.openai.com",
+        "https://gms.ssafy.io/gmsapi/api.openai.com/",
+        # SSAFY GMS 가 실제로 안내하는 형태 — 전체 엔드포인트다.
+        "https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions",
+        "https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions/",
+    ],
+)
+def test_endpoint_is_the_same_whichever_form_is_configured(given: str) -> None:
+    """경로가 두 번 붙어 실패한 적이 있다. 네 형태 모두 같은 URL 로 가야 한다."""
+    assert resolve_endpoint(given) == (
+        "https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions"
+    )
+
+
+def test_endpoint_keeps_a_gateway_path_without_v1() -> None:
+    """`/v1` 을 안 붙이는 게이트웨이도 있다. 그 주소를 고쳐 쓰지 않는다."""
+    assert resolve_endpoint("https://gw.example/openai/chat/completions") == (
+        "https://gw.example/openai/chat/completions"
+    )
 
 
 def test_gms_json_mode_can_be_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -577,6 +657,28 @@ def test_gms_http_error_does_not_leak_the_api_key(monkeypatch: pytest.MonkeyPatc
         _gms().complete("SYS", "USR")
     assert exc.value.category == "RESOLVER_NETWORK"
     assert "sk-do-not-log-me" not in str(exc.value)
+
+
+def test_gms_error_body_is_in_the_message() -> None:
+    """상태 코드만 남기면 무엇이 거부됐는지 알 수 없다. 실제로 그래서 헤맸다."""
+    detail = '{"error":{"message":"Unsupported parameter: max_tokens"}}'
+    with pytest.raises(ResolverCallError, match="Unsupported parameter"):
+        _raise_with(_FakeResponse(400, {}, text=detail))
+
+
+def test_gms_error_body_is_redacted() -> None:
+    """게이트웨이가 요청을 되돌려 주는 구현이 있다. 본문을 싣기로 했으면 가려야 한다."""
+    echoed = "sent Authorization: Bearer sk-do-not-log-me"
+    with pytest.raises(ResolverCallError) as exc:
+        _raise_with(_FakeResponse(400, {}, text=echoed))
+    assert "sk-do-not-log-me" not in str(exc.value)
+    assert "<redacted>" in str(exc.value)
+
+
+def test_gms_non_json_response_is_a_call_error() -> None:
+    """게이트웨이가 HTML 오류 페이지를 200 으로 주는 경우가 있다."""
+    with pytest.raises(ResolverCallError, match="JSON 이 아니다"):
+        _raise_with(_FakeResponse(200, "<html>maintenance</html>"))
 
 
 def test_gms_response_without_content_is_a_call_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -621,6 +723,13 @@ def test_backend_selection_follows_the_setting(monkeypatch: pytest.MonkeyPatch) 
         _settings(monkeypatch, resolver_backend="ollama", ollama_model="qwen2.5:7b"), params
     )
     assert local.name == "ollama"
+
+
+def test_required_env_covers_every_backend() -> None:
+    """backend 를 늘리면서 필요한 변수 목록을 잊으면 오류 안내가 KeyError 로 죽는다."""
+    from typing import get_args
+
+    assert set(get_args(ResolverBackend)) == set(REQUIRED_ENV)
 
 
 def test_api_key_setting_is_masked_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -17,7 +17,7 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from npick_worker.query_resolver import (
     ResolutionResult,
@@ -33,6 +33,17 @@ from npick_worker.query_resolver.resolver import QueryResolver
 from npick_worker.settings import Settings, get_settings
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "representative_queries.json"
+
+#: backend 별로 반드시 있어야 하는 환경 변수. `_build_resolver` 와 같은 파일에 두어야
+#: 변수를 늘릴 때 한쪽만 고쳐지는 일이 없다. 누락은 테스트가 잡는다.
+REQUIRED_ENV: Final[dict[str, tuple[str, ...]]] = {
+    "ollama": ("NPICK_AI_OLLAMA_MODEL",),
+    "gms": ("NPICK_AI_GMS_BASE_URL", "NPICK_AI_GMS_API_KEY", "NPICK_AI_GMS_MODEL"),
+}
+
+_CONFIG_HINT = """backend: {backend}  (NPICK_AI_RESOLVER_BACKEND 로 바꾼다. {choices})
+필요한 값: {needed}
+설정 위치: ai/.env  (루트 .env 가 아니다 - 그건 compose 가 자기 치환에 쓰는 파일이다)"""
 
 
 def load_queries() -> list[dict[str, Any]]:
@@ -89,6 +100,21 @@ def _build_resolver(settings: Settings, params: CallParams) -> QueryResolver:
     return OllamaResolver(settings.ollama_url, settings.ollama_model, params)
 
 
+def _force_utf8_output() -> None:
+    """출력 인코딩을 UTF-8 로 고정한다.
+
+    파이프나 파일로 넘기면 Windows 기본 인코딩(cp949)이 잡히고, 표에 들어가는
+    `⚠` 나 em dash 를 만나면 출력 도중에 UnicodeEncodeError 로 죽는다.
+    표를 읽는 것이 이 도구의 목적이라 인코딩 때문에 결과를 잃으면 안 된다.
+
+    `errors="replace"`: 콘솔이 정말 cp949 여도 죽지 않고 대체 문자로 나온다.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="대표 질의 20개 해석 결과를 출력한다")
     parser.add_argument("--out", type=Path, default=None, help="결과 JSON 저장 경로")
@@ -97,6 +123,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    _force_utf8_output()
     args = _parse_args()
     settings = get_settings()
     config = get_default_config()
@@ -104,7 +131,16 @@ def main() -> None:
         resolver = _build_resolver(settings, config.call)
     except ValueError as exc:
         # 설정 실수는 스택트레이스가 아니라 무엇을 해야 하는지로 알려준다.
-        print(f"{exc}\n\n현재 backend: {settings.resolver_backend}", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        print(file=sys.stderr)
+        print(
+            _CONFIG_HINT.format(
+                backend=settings.resolver_backend,
+                choices=" | ".join(sorted(REQUIRED_ENV)),
+                needed=", ".join(REQUIRED_ENV[settings.resolver_backend]),
+            ),
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     specs = load_queries()
