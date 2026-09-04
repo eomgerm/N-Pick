@@ -9,11 +9,14 @@
 
 import ast
 import json
+import os
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import httpx2
 import pytest
+from pydantic import SecretStr
 
 from npick_worker.query_resolver import (
     SCHEMA_VERSION,
@@ -30,8 +33,11 @@ from npick_worker.query_resolver import (
     validate,
 )
 from npick_worker.query_resolver.config import DEFAULT_CONFIG_PATH
+from npick_worker.query_resolver.gms_backend import GmsResolver
 from npick_worker.query_resolver.prompt import BROADCAST_FIELD, FILMING_FIELD
-from npick_worker.query_resolver.report import load_queries
+from npick_worker.query_resolver.report import _build_resolver, load_queries
+from npick_worker.query_resolver.resolver import ResolverCallError
+from npick_worker.settings import Settings
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "npick_worker" / "query_resolver"
 
@@ -424,3 +430,200 @@ def test_config_type_is_frozen() -> None:
     cfg: QueryResolverConfig = get_default_config()
     with pytest.raises(ValueError, match="frozen"):
         cfg.system_prompt = "x"
+
+
+# ── GMS backend (OpenAI 호환) ─────────────────────────────────────────
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, body: Any) -> None:
+        self.status_code = status_code
+        self._body = body
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            msg = f"{self.status_code} error"
+            raise httpx2.HTTPError(msg)
+
+    def json(self) -> Any:
+        return self._body
+
+
+class _FakeClient:
+    """`httpx2.Client` 대역. 요청을 기록하고 정해진 응답을 돌려준다.
+
+    `GmsResolver` 가 Client 를 스스로 만든다(adapter 경계 안). transport 를 생성자로
+    받게 하면 httpx 타입이 경계 밖으로 새므로, 대신 모듈 이름공간을 갈아끼운다.
+    """
+
+    calls: list[dict[str, Any]] = []  # noqa: RUF012 - 테스트 대역이다
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+        self.response: _FakeResponse | Exception = _FakeResponse(200, {})
+
+    def __enter__(self) -> "_FakeClient":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def post(self, path: str, *, json: Any) -> _FakeResponse:
+        type(self).calls.append({"path": path, "json": json, "client": self.kwargs})
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+
+def _patch_client(
+    monkeypatch: pytest.MonkeyPatch, response: _FakeResponse | Exception
+) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+
+    def factory(**kwargs: Any) -> _FakeClient:
+        client = _FakeClient(**kwargs)
+        client.response = response
+        return client
+
+    _FakeClient.calls = calls
+    monkeypatch.setattr(httpx2, "Client", factory)
+    return calls
+
+
+def _ok_body(content: str, model: str = "gateway-model-2026") -> dict[str, Any]:
+    return {"model": model, "choices": [{"message": {"role": "assistant", "content": content}}]}
+
+
+def _gms(**overrides: Any) -> GmsResolver:
+    kwargs: dict[str, Any] = {
+        "base_url": "https://gms.example/api/",
+        "api_key": "sk-do-not-log-me",
+        "model": "some-model",
+        "params": get_default_config().call,
+    }
+    kwargs.update(overrides)
+    return GmsResolver(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("missing", "env"),
+    [
+        ("base_url", "NPICK_AI_GMS_BASE_URL"),
+        ("api_key", "NPICK_AI_GMS_API_KEY"),
+        ("model", "NPICK_AI_GMS_MODEL"),
+    ],
+)
+def test_gms_missing_setting_names_the_env_var(missing: str, env: str) -> None:
+    """설정 실수는 무엇을 해야 하는지로 알려준다. 기본값으로 때우지 않는다."""
+    with pytest.raises(ValueError, match=env):
+        _gms(**{missing: ""})
+
+
+def test_gms_sends_openai_chat_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_client(monkeypatch, _FakeResponse(200, _ok_body('{"intent":"unknown"}')))
+    assert _gms().complete("SYS", "USR") == '{"intent":"unknown"}'
+
+    (call,) = calls
+    assert call["path"] == "/v1/chat/completions"
+    body = call["json"]
+    assert body["messages"] == [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "USR"},
+    ]
+    # Ollama 와 다른 두 지점.
+    assert body["max_tokens"] == get_default_config().call.max_output_tokens
+    assert body["response_format"] == {"type": "json_object"}
+    assert call["client"]["headers"]["Authorization"].endswith("sk-do-not-log-me")
+    # base_url 의 끝 슬래시가 남으면 //v1/... 이 된다.
+    assert call["client"]["base_url"] == "https://gms.example/api"
+
+
+def test_gms_json_mode_can_be_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """게이트웨이가 response_format 을 거부하면 끈다. 자동 재시도는 없다(FR-QRY-023)."""
+    calls = _patch_client(monkeypatch, _FakeResponse(200, _ok_body("{}")))
+    _gms(json_mode=False).complete("SYS", "USR")
+    assert "response_format" not in calls[0]["json"]
+
+
+def test_gms_version_prefers_the_model_the_gateway_reports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """별칭을 보냈는데 게이트웨이가 구체 버전을 돌려주면 그걸 기록한다."""
+    _patch_client(monkeypatch, _FakeResponse(200, _ok_body("{}", model="gpt-x-2026-01-01")))
+    resolver = _gms(model="gpt-x")
+    assert resolver.version == "gpt-x"  # 호출 전에는 설정값. 지어내지 않는다
+    resolver.complete("SYS", "USR")
+    assert resolver.version == "gpt-x-2026-01-01"
+
+
+def test_gms_rate_limit_maps_to_frd_error_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_client(monkeypatch, _FakeResponse(429, {}))
+    with pytest.raises(ResolverCallError) as exc:
+        _gms().complete("SYS", "USR")
+    assert exc.value.category == "RESOLVER_RATE_LIMITED"
+
+
+def test_gms_timeout_maps_to_frd_error_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_client(monkeypatch, httpx2.TimeoutException("too slow"))
+    with pytest.raises(ResolverCallError) as exc:
+        _gms().complete("SYS", "USR")
+    assert exc.value.category == "RESOLVER_TIMEOUT"
+
+
+def test_gms_http_error_does_not_leak_the_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """키는 헤더에만 있다. 오류 문자열로 새면 로그·스냅샷에 그대로 남는다."""
+    _patch_client(monkeypatch, _FakeResponse(500, {}))
+    with pytest.raises(ResolverCallError) as exc:
+        _gms().complete("SYS", "USR")
+    assert exc.value.category == "RESOLVER_NETWORK"
+    assert "sk-do-not-log-me" not in str(exc.value)
+
+
+def test_gms_response_without_content_is_a_call_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """빈 응답을 빈 문자열로 넘기면 RESOLVER_SCHEMA_INVALID 로 잘못 기록된다."""
+    _patch_client(monkeypatch, _FakeResponse(200, {"choices": []}))
+    with pytest.raises(ResolverCallError) as exc:
+        _gms().complete("SYS", "USR")
+    assert exc.value.category == "RESOLVER_NETWORK"
+
+
+def _settings(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> Settings:
+    """개발자 머신의 `.env`·환경 변수가 테스트 결과를 바꾸지 않게 격리한다."""
+    for name in list(os.environ):
+        if name.startswith("NPICK_AI_"):
+            monkeypatch.delenv(name)
+    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]
+
+
+# ── backend 선택 ──────────────────────────────────────────────────────
+
+
+def test_backend_default_is_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FRD §13.4 가 외부 전송을 별도 승인 대상으로 둔다. 기본은 나가지 않는 쪽이다."""
+    assert _settings(monkeypatch).resolver_backend == "ollama"
+
+
+def test_backend_selection_follows_the_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    params = get_default_config().call
+    gms = _build_resolver(
+        _settings(
+            monkeypatch,
+            resolver_backend="gms",
+            gms_base_url="https://gms.example",
+            gms_api_key=SecretStr("k"),
+            gms_model="m",
+        ),
+        params,
+    )
+    assert gms.name == "gms"
+
+    local = _build_resolver(
+        _settings(monkeypatch, resolver_backend="ollama", ollama_model="qwen2.5:7b"), params
+    )
+    assert local.name == "ollama"
+
+
+def test_api_key_setting_is_masked_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _settings(monkeypatch, gms_api_key=SecretStr("sk-do-not-log-me"))
+    assert "sk-do-not-log-me" not in repr(settings)
+    assert settings.gms_api_key.get_secret_value() == "sk-do-not-log-me"

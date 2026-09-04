@@ -1,7 +1,9 @@
 """대표 질의 20개를 실제 모델로 돌려 눈으로 확인하는 도구.
 
-    NPICK_AI_OLLAMA_MODEL=<모델> uv run --directory ai \
+    NPICK_AI_RESOLVER_BACKEND=gms uv run --directory ai \
         python -m npick_worker.query_resolver.report
+
+어느 backend 로 나가는지는 `NPICK_AI_RESOLVER_BACKEND` 가 정한다(`ollama` | `gms`).
 
 운영 경로가 아니다. 티켓 완료 조건("대표 질의 20개에서 schema 유효 출력 + 창작 anchor
 없음 육안 확인")을 사람이 확인하기 위한 개발자 도구다.
@@ -24,8 +26,11 @@ from npick_worker.query_resolver import (
     get_default_config,
     resolve_query,
 )
+from npick_worker.query_resolver.config import CallParams
+from npick_worker.query_resolver.gms_backend import GmsResolver
 from npick_worker.query_resolver.ollama_backend import OllamaResolver
-from npick_worker.settings import get_settings
+from npick_worker.query_resolver.resolver import QueryResolver
+from npick_worker.settings import Settings, get_settings
 
 FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "representative_queries.json"
 
@@ -67,6 +72,23 @@ def render(rows: list[tuple[dict[str, Any], ResolutionResult | str]]) -> str:
     return "\n".join(lines)
 
 
+def _build_resolver(settings: Settings, params: CallParams) -> QueryResolver:
+    """설정이 고른 backend 를 만든다. 여기가 유일한 backend 선택 지점이다.
+
+    패키지 안에서 고르지 않는 이유: `query_resolver/` 는 환경 변수를 모른다.
+    호출부가 구현을 주입하는 구조를 깨면 adapter 경계가 흐려진다.
+    """
+    if settings.resolver_backend == "gms":
+        return GmsResolver(
+            settings.gms_base_url,
+            settings.gms_api_key.get_secret_value(),
+            settings.gms_model,
+            params,
+            json_mode=settings.gms_json_mode,
+        )
+    return OllamaResolver(settings.ollama_url, settings.ollama_model, params)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="대표 질의 20개 해석 결과를 출력한다")
     parser.add_argument("--out", type=Path, default=None, help="결과 JSON 저장 경로")
@@ -79,10 +101,10 @@ def main() -> None:
     settings = get_settings()
     config = get_default_config()
     try:
-        resolver = OllamaResolver(settings.ollama_url, settings.ollama_model, config.call)
+        resolver = _build_resolver(settings, config.call)
     except ValueError as exc:
         # 설정 실수는 스택트레이스가 아니라 무엇을 해야 하는지로 알려준다.
-        print(f"{exc}\n\n예: NPICK_AI_OLLAMA_MODEL=qwen2.5:7b", file=sys.stderr)
+        print(f"{exc}\n\n현재 backend: {settings.resolver_backend}", file=sys.stderr)
         sys.exit(2)
 
     specs = load_queries()
@@ -103,7 +125,7 @@ def main() -> None:
         len(outcome.findings) for _, outcome in rows if isinstance(outcome, ResolutionResult)
     )
     print(f"질의 {len(rows)}개 | 실패 {failures} | 검증 조치 {demoted}건")
-    print(f"prompt {config.prompt_version} | model {resolver.version}")
+    print(f"prompt {config.prompt_version} | {resolver.name} {resolver.version}")
 
     if args.out is not None:
         payload = [

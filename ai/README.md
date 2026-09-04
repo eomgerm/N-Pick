@@ -109,11 +109,30 @@ result.findings  # 검증이 무엇을 바꿨는지 (explicit_anchor_validation_
 주장해도 `query[span] != value` 면 `inferred` 로 강등된다(`FR-QRY-011`). `inferred` 는
 hard filter 가 되지 않는다(`AC-SRH-005`).
 
-로컬 모델은 [Ollama](https://ollama.com) 를 쓴다. **없어도 워커는 기동한다** — 실패는 실제로
-호출할 때만 난다.
+### backend 2개
+
+`QueryResolver` Protocol 구현이 둘이다. `NPICK_AI_RESOLVER_BACKEND` 가 고른다.
+
+| 값 | 구현 | 어디로 나가나 |
+| --- | --- | --- |
+| `ollama` (기본) | `ollama_backend.py` | 로컬 [Ollama](https://ollama.com) `/api/chat` |
+| `gms` | `gms_backend.py` | 승인된 GMS `/v1/chat/completions` (OpenAI 호환) |
+
+`ollama` 를 기본으로 두는 이유는 FRD §13.4 가 query 외부 전송을 **별도 승인 대상**으로
+두기 때문이다. 어느 쪽이든 **없어도 워커는 기동한다** — 실패는 실제로 호출할 때만 난다.
+
+> ⚠️ **외부 전송 승인 검사가 아직 코드에 없다.** `NFR-GMS-002` 는 active deployment
+> policy·provider profile 이 없으면 외부 호출 **전에** fail-closed 하라고 요구하고,
+> §13.4 는 deployment-level `query_external_processing_allowed=yes` 와 provider
+> allowlist 를 요구한다. `deployment_external_policy`·`external_provider_profile`
+> 테이블은 비어 있고 BE 도메인 코드도 없다. `gms` 를 쓰는 것은 **승인 절차를 우회하는
+> 것**이며, 검사가 생기면 `gms_backend.complete()` 진입부가 그 자리다.
 
 ```powershell
-$env:NPICK_AI_OLLAMA_MODEL = "qwen2.5:7b"
+$env:NPICK_AI_RESOLVER_BACKEND = "gms"
+$env:NPICK_AI_GMS_BASE_URL = "<게이트웨이 주소>"
+$env:NPICK_AI_GMS_API_KEY = "<키>"
+$env:NPICK_AI_GMS_MODEL = "<모델명>"
 uv run --directory ai python -m npick_worker.query_resolver.report
 ```
 
@@ -166,8 +185,13 @@ uv sync --directory ai --group gpu
 | `NPICK_AI_PORT` | `8000` | backend 8081 과 분리 |
 | `NPICK_AI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `NPICK_AI_DEVICE` | `auto` | `auto` / `cuda` / `cpu`. `cuda` 를 지정해도 불가하면 경고 후 `cpu` 로 내려간다 |
+| `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §13.4 |
 | `NPICK_AI_OLLAMA_URL` | `http://127.0.0.1:11434` | Query Resolver 가 부를 Ollama 주소 |
 | `NPICK_AI_OLLAMA_MODEL` | (없음) | 쓸 모델 태그. **기본값을 두지 않는다** — 모델이 결과를 바꾸고 Gate B 미동결이라 코드가 임의로 고르면 근거 없는 동결이 된다 |
+| `NPICK_AI_GMS_BASE_URL` | (없음) | 승인된 GMS 게이트웨이 주소. 추정하지 않는다 |
+| `NPICK_AI_GMS_API_KEY` | (없음) | `Authorization: Bearer` 토큰. `SecretStr` 로 받아 로그·예외에 실리지 않는다 |
+| `NPICK_AI_GMS_MODEL` | (없음) | `model_version` 에 실려 나가는 모델명 |
+| `NPICK_AI_GMS_JSON_MODE` | `true` | `response_format={"type":"json_object"}` 를 보낼지. 게이트웨이가 거부하면 `false` |
 
 ```powershell
 $env:NPICK_AI_PORT = "8001"; uv run --directory ai npick-worker
@@ -199,7 +223,8 @@ ai/
 │       ├── prompt.py                 템플릿 렌더링
 │       ├── validator.py              schema → semantic → 강등
 │       ├── resolver.py               QueryResolver Protocol
-│       ├── ollama_backend.py         Ollama HTTP 구현
+│       ├── ollama_backend.py         Ollama HTTP 구현 (local)
+│       ├── gms_backend.py            승인된 GMS HTTP 구현 (OpenAI 호환)
 │       ├── report.py                 대표 질의 20개 확인 CLI
 │       └── fixtures/                 대표 질의 20개
 ├── docs/scene-detection.md   선정 근거·설정 키·Gate B 항목
