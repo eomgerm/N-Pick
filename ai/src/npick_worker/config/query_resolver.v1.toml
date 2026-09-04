@@ -49,13 +49,41 @@ system_prompt = """당신은 뉴스 영상 아카이브 검색을 돕는 질의 
 4. 추론한 값은 origin 을 "inferred" 로 하고 query_span 은 null 로 둔다.
 5. 별도 설명이 없는 날짜는 "{broadcast_field}" 로 해석한다.
 6. "촬영", "찍힌", "촬영 당시" 처럼 촬영 의미가 원문에 명시된 날짜만 "{filming_field}" 로 해석한다.
-7. 사람과 기관은 entities 에 넣는다.
-8. 장소와 시설은 locations 에 넣는다.
-9. 계절·날씨·장면 유형은 classifications 에 넣는다.
+7. 사람과 기관은 entities 에 넣고, 그 외의 것을 entities 에 넣지 않는다.
+8. 장소와 시설은 locations 에 넣고, 그 외의 것을 locations 에 넣지 않는다.
+9. classifications 에는 계절·날씨·장면 유형 세 가지만 넣는다.
+   장소·시설·사람·기관·사건은 classifications 에 넣지 않는다.
 10. 같은 의미의 값을 여러 배열에 중복해서 넣지 않는다.
 11. 동의어와 관련 검색어는 expanded_terms 에만 넣는다.
 12. 재작성한 질의문을 만들지 않는다.
 13. 확실하지 않으면 무리하게 만들지 않는다. 빈 배열과 "unknown" 이 허용된다.
+
+## 분류 배정 제한
+
+배열마다 담을 것이 정해져 있다. 애매하면 넣지 말고 빈 배열로 둔다.
+
+장소와 시설은 고유명사가 아니어도 locations 다. classifications 로 보내지 않는다.
+
+  "귀성객 몰린 기차역"  → locations: 기차역(facility)              (허용)
+  "귀성객 몰린 기차역"  → classifications: scene_type "기차역"      (금지: 시설이다)
+  "비 오는 시장"        → locations: 시장(facility) + classifications: weather "비 오는"
+  "2022년 추석 고속도로" → locations: 고속도로(facility)             (허용)
+
+사람 무리를 가리키는 말은 장면 유형이 아니다. 필요하면 expanded_terms 로 보낸다.
+
+  "서울역 귀성객"       → locations: 서울역 + expanded_terms: 귀성, 인파  (허용)
+  "서울역 귀성객"       → classifications: scene_type "귀성객"           (금지: 사람이다)
+
+계절은 봄·여름·가을·겨울이다. 명절과 사건은 계절이 아니다.
+
+  "추석"  → incident_names 또는 expanded_terms   (허용)
+  "추석"  → classifications: season "추석"        (금지: 계절이 아니다)
+
+가리키는 대상이 없는 일반 명사는 anchor 로 만들지 않는다.
+
+  "이태원 참사 현장" → incident_names: 이태원 참사                 (허용)
+  "이태원 참사 현장" → locations: location "현장"                  (금지: 장소 이름이 아니다)
+  "장면", "모습", "영상", "사진" 도 같다.
 
 ## expanded_terms 제한
 

@@ -100,7 +100,7 @@ from npick_worker.query_resolver.ollama_backend import OllamaResolver
 result = resolve_query("2022년 촬영한 서울역", resolver)
 result.resolution.locations  # (Location(type='facility', value='서울역', origin='explicit_query', ...),)
 result.resolution_schema_version  # 'query-resolver/v1'
-result.prompt_version  # 'query-resolver-prompt/v1:daadc2c3'
+result.prompt_version  # 'query-resolver-prompt/v1:4d0caca2'
 result.model_version  # 'gpt-5.4-mini-2026-03-17' (게이트웨이가 응답에 실어 준 이름)
 result.findings  # 검증이 무엇을 바꿨는지 (explicit_anchor_validation_json)
 ```
