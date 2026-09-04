@@ -11,6 +11,9 @@ dependencies = [
     "pydantic-settings>=2.15,<3",
     "av>=18,<19",
     "scenedetect-headless>=0.7.1,<0.8",
+    # query_resolver 가 Ollama HTTP 를 부른다. adapter(ollama_backend.py) 안에서만 쓴다.
+    # dev 그룹에 있었으나 런타임 경로가 생겨 기본 의존성으로 옮겼다.
+    "httpx2>=2,<3",
 ]
 
 [project.scripts]
@@ -32,7 +35,6 @@ dev = [
     "mypy>=2.3,<3",
     "pytest>=9,<10",
     "pytest-asyncio>=1.4,<2",
-    "httpx2>=2,<3",
 ]
 gpu = [
     "torch>=2.13,<3",

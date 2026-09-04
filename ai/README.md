@@ -1,6 +1,10 @@
 # N-Pick AI Worker
 
-FRD §2.1 `[Pipeline Worker]`. 헬스체크와 1단계 `scene_detection`(FRD §5.1) 이 구현되어 있다.
+FRD §2.1 `[Pipeline Worker]`. 헬스체크, 1단계 `scene_detection`(FRD §5.1), Query Resolver
+프롬프트·출력 schema(FRD §6) 가 구현되어 있다.
+
+Query Resolver 는 파이프라인 단계가 아니다 — 검색 시점에 쓰이고 FRD §2.1 에서는
+`[Search Service]` 아래 adapter 로 붙는다. 여기에는 프롬프트·schema·검증만 있다.
 
 ## 요구 사항
 
@@ -85,6 +89,38 @@ scene 표를 출력하고 `--out` 에 `scenes.json` 과 경계 프레임 PNG 를
 필요한 샘플 클립 종류는 [samples/README.md](samples/README.md), 선정 근거와 설정 키는
 [docs/scene-detection.md](docs/scene-detection.md).
 
+## Query Resolver (FRD §6)
+
+한국어 질의를 구조화 조건으로 바꾼다. **검색 시점**에 쓰이며 파이프라인 단계가 아니다.
+
+```python
+from npick_worker.query_resolver import resolve_query
+from npick_worker.query_resolver.ollama_backend import OllamaResolver
+
+result = resolve_query("2022년 촬영한 서울역", resolver)
+result.resolution.locations  # (Location(type='facility', value='서울역', origin='explicit_query', ...),)
+result.resolution_schema_version  # 'query-resolver/v1'
+result.prompt_version  # 'query-resolver-prompt/v1:daadc2c3'
+result.model_version  # 'qwen2.5:7b@a8b4c1d2e3f4'
+result.findings  # 검증이 무엇을 바꿨는지 (explicit_anchor_validation_json)
+```
+
+`origin` 이 `explicit_query` 면 **원문에 그 문자열이 실제로 있다**는 뜻이다. LLM 이 그렇게
+주장해도 `query[span] != value` 면 `inferred` 로 강등된다(`FR-QRY-011`). `inferred` 는
+hard filter 가 되지 않는다(`AC-SRH-005`).
+
+로컬 모델은 [Ollama](https://ollama.com) 를 쓴다. **없어도 워커는 기동한다** — 실패는 실제로
+호출할 때만 난다.
+
+```powershell
+$env:NPICK_AI_OLLAMA_MODEL = "qwen2.5:7b"
+uv run --directory ai python -m npick_worker.query_resolver.report
+```
+
+대표 질의 20개를 돌려 표로 출력한다. `--out result.json` 으로 저장, `--only 15` 로 하나만.
+프롬프트는 `config/query_resolver.v1.toml` 에 있고 그 해시가 `prompt_version` 이다.
+**프롬프트 문구와 timeout 은 Gate B 미동결**이다.
+
 ## 빌드 / 테스트
 
 ```bash
@@ -101,8 +137,8 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 
 | 그룹 | 설치 | 내용 | 비고 |
 | --- | --- | --- | --- |
-| 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av | 설치 약 240MB (cv2 113 · av 67 · numpy 45) |
-| `dev` | `uv sync` (기본 포함) | ruff·mypy·pytest·pytest-asyncio·httpx | |
+| 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av·httpx2 | 설치 약 240MB (cv2 113 · av 67 · numpy 45) |
+| `dev` | `uv sync` (기본 포함) | ruff·mypy·pytest·pytest-asyncio | |
 | `gpu` | `uv sync --group gpu` | torch(cu130)·faster-whisper | 약 1.8GB, 최초 1회 |
 
 `scenedetect` 는 PyAV 백엔드만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. GUI 라이브러리가 붙은 `opencv-python` 이면 헤드리스 컨테이너에서 `libGL.so` 로 죽으므로 headless 변종을 쓴다 — 0.7 부터 이건 extra 가 아니라 **`scenedetect-headless` 별도 배포판**이다. 임포트 이름은 그대로 `scenedetect` 이고, 두 배포판을 같이 설치하면 임포트 이름을 다투므로 한쪽만 선언한다.
@@ -130,6 +166,8 @@ uv sync --directory ai --group gpu
 | `NPICK_AI_PORT` | `8000` | backend 8081 과 분리 |
 | `NPICK_AI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `NPICK_AI_DEVICE` | `auto` | `auto` / `cuda` / `cpu`. `cuda` 를 지정해도 불가하면 경고 후 `cpu` 로 내려간다 |
+| `NPICK_AI_OLLAMA_URL` | `http://127.0.0.1:11434` | Query Resolver 가 부를 Ollama 주소 |
+| `NPICK_AI_OLLAMA_MODEL` | (없음) | 쓸 모델 태그. **기본값을 두지 않는다** — 모델이 결과를 바꾸고 Gate B 미동결이라 코드가 임의로 고르면 근거 없는 동결이 된다 |
 
 ```powershell
 $env:NPICK_AI_PORT = "8001"; uv run --directory ai npick-worker
@@ -147,19 +185,30 @@ ai/
 │   ├── schemas.py       /health 응답 스키마
 │   ├── stages.py        FRD §5.1 10단계 선언적 메타데이터
 │   ├── config/
-│   │   └── scene_detection.v1.toml   임계값 정본 (Gate B 미동결)
-│   └── scene_detection/ FRD §5.1 1단계. detect_scenes() 순수 함수
-│       ├── config.py                 toml 로딩 + version_id
-│       ├── models.py                 Scene / SceneDetectionResult
-│       ├── detector.py               SceneDetector Protocol
-│       ├── pyscenedetect_backend.py  PySceneDetect + PyAV 구현
-│       └── report.py                 육안 확인 CLI
+│   │   ├── scene_detection.v1.toml   임계값 정본 (Gate B 미동결)
+│   │   └── query_resolver.v1.toml    프롬프트 정본 (Gate B 미동결)
+│   ├── scene_detection/ FRD §5.1 1단계. detect_scenes() 순수 함수
+│   │   ├── config.py                 toml 로딩 + version_id
+│   │   ├── models.py                 Scene / SceneDetectionResult
+│   │   ├── detector.py               SceneDetector Protocol
+│   │   ├── pyscenedetect_backend.py  PySceneDetect + PyAV 구현
+│   │   └── report.py                 육안 확인 CLI
+│   └── query_resolver/  FRD §6. resolve_query() 순수 함수
+│       ├── schema.py                 출력 schema 정본 + SCHEMA_VERSION
+│       ├── config.py                 toml 로딩 + prompt_version
+│       ├── prompt.py                 템플릿 렌더링
+│       ├── validator.py              schema → semantic → 강등
+│       ├── resolver.py               QueryResolver Protocol
+│       ├── ollama_backend.py         Ollama HTTP 구현
+│       ├── report.py                 대표 질의 20개 확인 CLI
+│       └── fixtures/                 대표 질의 20개
 ├── docs/scene-detection.md   선정 근거·설정 키·Gate B 항목
 ├── samples/                  로컬 샘플 클립 (영상은 커밋 금지)
 └── tests/
     ├── conftest.py           합성 영상 픽스처 (PyAV 로 그 자리에서 인코딩)
     ├── test_health.py        레지스트리가 FRD §5.1 과 일치하는지 검증
     ├── test_scene_detection.py
+    ├── test_query_resolver.py
     └── test_smoke_models.py  -m smoke: torch CUDA + faster-whisper tiny
 ```
 

@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     device: DeviceChoice = "auto"
 
+    # ── Query Resolver LLM (FRD §2.1 "local 또는 승인된 GMS" 중 local) ──
+    # Ollama 가 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만
+    # 난다(ai/AGENTS.md — GPU 없이도 기동하는 성질을 깨지 않는다).
+    ollama_url: str = "http://127.0.0.1:11434"
+    # 기본값을 두지 않는다. 모델명은 결과를 바꾸는 값이고 Gate B 미동결이라,
+    # 코드가 임의로 고르면 그게 곧 근거 없는 동결이다(PRD §15.3).
+    ollama_model: str = ""
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
