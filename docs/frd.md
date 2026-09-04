@@ -492,10 +492,25 @@ active run이 이미 있는 재처리는 clip serving status를 `ready`로 유�
 | --- | --- |
 | `FR-PRC-010` | scene detection으로 clip을 한 개 이상의 `[start_time,end_time)` 구간으로 분할해야 한다. |
 | `FR-PRC-011` | scene은 clip 내 `scene_index`, 시작·종료, `processing_version`, 안정 `scene_id`를 가져야 한다. |
-| `FR-PRC-012` | 각 scene에서 복수 keyframe과 대표 thumbnail 하나를 생성해야 한다. |
+| `FR-PRC-012` | 각 scene에서 복수 keyframe과 대표 thumbnail 하나를 생성해야 한다. keyframe은 고정 개수가 아니라 **scene 내 변화량 기반 적응형 선택**으로 뽑는다(정적 scene은 적게, 동적 scene은 많게). |
 | `FR-PRC-013` | frame asset은 scene, timestamp, 추출 방식·version과 연결되어야 한다. |
 | `FR-PRC-014` | 작은 OCR 대상에는 thumbnail이 아닌 원본 해상도 기반 frame을 사용할 수 있어야 한다. |
-| `FR-PRC-015` | scene 경계 임계값·최소 길이·frame 선정은 pipeline version에 포함해야 한다. |
+| `FR-PRC-015` | scene 경계 임계값·최소 길이·frame 선정 파라미터는 pipeline version에 포함해야 한다. |
+
+**적응형 keyframe 선택 (FR-PRC-012 구체화)**
+
+scene마다 균등 후보 프레임 N개(초기 5개: 0/25/50/75/100%)를 뽑고, 중앙(50%) 프레임을 시드로 시작해, 나머지 후보를 이미 선택된 keyframe들과 비교하여 **변화량이 임계값 이상일 때만** 새 keyframe으로 추가한다. 결과적으로 정적 scene은 1~2장, 동적 scene은 3장 이상이 자동으로 선택된다.
+
+> **초기 파라미터(init) — 정밀 측정 후 재정의 예정.** 아래 값은 소표본 실측(화재 카테고리, VLM 프록시 판정) 기준의 시작값이며, 정식 gold set·실제 검색 평가로 재튜닝한 뒤 pipeline version에 동결한다(FR-PRC-015).
+>
+> | 파라미터 | 초기값 | 근거·비고 |
+> | --- | --- | --- |
+> | scene 경계 임계값 | ~20 (PySceneDetect ContentDetector) | 하드컷 감지. 비슷한 톤 전환은 놓칠 수 있어 하향 여지 |
+> | keyframe 후보 수 | 5 (0/25/50/75/100%) | scene당 균등 샘플 |
+> | keyframe 변화량 임계 | ~12 (HSV 히스토그램 코사인거리 기반) | 커버리지 실측 기준. scene 경계 임계와 척도 통일 필요 |
+> | scene당 평균 keyframe | ~2.0장 (실측) | 고정 2장과 유사 처리량, 분배는 적응형 |
+>
+> 변화량 척도는 scene 분할이 계산하는 content score와 통일하는 것을 권장한다(재활용).
 
 ### 5.4 VLM metadata
 
