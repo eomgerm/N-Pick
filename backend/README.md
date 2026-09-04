@@ -6,7 +6,8 @@ Spring Boot 기반 N-Pick API 서버.
 
 - **JDK 21** (필수). `java -version` 으로 확인.
 - Gradle 은 wrapper(`./gradlew`)를 쓰므로 별도 설치 불필요.
-- **PostgreSQL 17** (필수). 스키마는 `npick` 이고, 기동 시 Flyway 가 `db/migration` 의
+- **PostgreSQL 18.6 + pg_search 0.25.6 + pgvector** (필수). compose 기준 이미지는
+  `paradedb/paradedb:0.25.6-pg18`이다. 스키마는 `npick` 이고, 기동 시 Flyway 가 `db/migration` 의
   baseline 을 이 스키마에 적용한다. `npick` 스키마 자체는 compose 의
   `infra/compose/postgres-init` 초기화 스크립트가 만든다(Flyway 는 `create-schemas=false`).
 
@@ -60,6 +61,47 @@ curl http://localhost:8080/actuator/health   # {"status":"UP"}
 ./gradlew build              # 컴파일 + 테스트 + jar
 ./gradlew test
 ```
+
+### Flyway V1 검증 (S15P21A501-153)
+
+V1은 FRD v3.1을 반영한 최종 ERDCloud의 **13개 테이블·134개 컬럼·23개 FK** 기준이다.
+미적용 V1을 교체한 것이므로 구 V1이 이미 적용된 DB에는 그대로 실행하지 않는다.
+그런 DB가 발견되면 checksum을 강제로 repair하거나 데이터를 삭제하지 말고 이관을 별도로 결정한다.
+`research/` 원문 반입은 154번 작업이며 저장소의 옛 FRD v2.2와 혼동하지 않는다.
+
+`FlywayBaselineTest`는 전용 테스트 DB 환경 변수가 있을 때만 실행된다. 일반 `test`에서
+이 테스트가 생략된 것은 DB 검증 성공을 의미하지 않는다. 기존 npick 객체가 하나라도 있으면
+수정 전에 실패하며, Flyway clean은 사용하지 않는다. 기존 컨텍스트 테스트는 DB 없이 유지한다.
+
+Windows PowerShell에서 아래처럼 **새 일회용 컨테이너**를 사용한다(backend 디렉터리 기준).
+테스트용 비밀번호이며 실제 개발·운영 DB의 자격증명을 사용하지 않는다.
+
+```powershell
+docker run -d --rm --name npick-flyway-test -p 127.0.0.1::5432 `
+  -e POSTGRES_USER=npick_test -e POSTGRES_PASSWORD=disposable_test_only `
+  -e POSTGRES_DB=npick_schema_test paradedb/paradedb:0.25.6-pg18
+docker exec npick-flyway-test pg_isready -U npick_test -d npick_schema_test
+# accepting connections 확인 후 진행한다.
+$migrationPort = (docker port npick-flyway-test 5432/tcp).Split(':')[-1]
+$env:NPICK_MIGRATION_TEST_URL = "jdbc:postgresql://127.0.0.1:${migrationPort}/npick_schema_test"
+$env:NPICK_MIGRATION_TEST_USER = 'npick_test'
+$env:NPICK_MIGRATION_TEST_PASSWORD = 'disposable_test_only'
+try {
+  .\gradlew.bat clean build --console=plain
+} finally {
+  Remove-Item Env:NPICK_MIGRATION_TEST_URL, Env:NPICK_MIGRATION_TEST_USER, Env:NPICK_MIGRATION_TEST_PASSWORD
+  docker stop npick-flyway-test
+}
+```
+
+검증 항목: V1 최초 적용·validate·재실행 무변경, ERD 전체 컬럼/주석/FK 대조,
+중복·값 조합 제약, 확장 및 BM25/벡터 검색, 후보 변경의 롤백과 검증 기록 저장 가능 여부.
+검색 서비스의 순위 품질·권한·동시 확정 로직까지 테스트하는 것은 아니다.
+기대 구조 TSV는 2026-09-04 최종 ERD 스냅샷에서 얻은 회귀 테스트 기준이다.
+
+V1의 확장 설치에는 DB 관리자 권한이 필요하다. 제한된 앱 계정이라면 관리자가 같은 DB의
+public 스키마에 `vector`·`pg_search`를 먼저 설치한다. ANN 인덱스의 거리 연산자·튜닝은
+100번의 임베딩 모델 확정 후 정하며, 임시 차원은 `vector(1024)`다.
 
 ## 프로파일
 
