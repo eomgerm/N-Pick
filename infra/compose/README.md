@@ -59,6 +59,8 @@ docker compose ps
 | 변수 | 배포 값 | 이유 |
 |---|---|---|
 | `POSTGRES_PASSWORD` | 팀 비밀 채널의 값 | 볼륨 초기화 시점에 고정되어 나중에 바꿀 수 없다 |
+| `MLFLOW_DB_PASSWORD` | 팀 비밀 채널의 값 | 같은 이유로 볼륨 초기화 시점에 role 에 박힌다 |
+| `MLFLOW_ALLOWED_HOSTS` | 기본값 + `,<도메인>` | 빠지면 basic auth 통과 후 403. 아래 「MLflow」 참고 |
 | `NPICK_DOMAIN` | 실제 도메인 | nginx `server_name` 과 인증서 경로 |
 | `BACKEND_PROFILE` | `prod` | `local` 은 SQL echo 와 DEBUG 로깅이 켜져 로그가 과하다 |
 | `COMPOSE_PROFILES` | `proxy` | nginx 를 띄운다. 인증서 발급 후에 넣는다 |
@@ -320,7 +322,11 @@ docker compose exec postgres psql "postgresql://mlflow:<비밀번호>@127.0.0.1:
 않던 버그는 MLflow 3.12 에서 해결됐다([#22159](https://github.com/mlflow/mlflow/pull/22159)).
 
 **basic auth 파일은 배포 환경에서 직접 만든다.** MLflow 는 기본이 무인증이라 이 파일이 유일한
-관문이다. 커밋되지 않으며(`.gitignore`), **없으면 nginx 가 뜨지 못한다.**
+관문이다. 커밋되지 않는다(`.gitignore`).
+
+**만들지 않으면 조용히 깨진다.** nginx 는 이 파일을 기동 시점에 검사하지 않으므로 정상적으로
+뜨고, Docker 가 마운트 대상 자리에 **디렉터리를 만들어** `/mlflow/` 요청만 500 이 된다.
+`.gitignore` 에 걸려 `git status` 에도 보이지 않는다. 스택을 올리기 전에 먼저 만든다.
 
 ```bash
 printf '%s:%s\n' <아이디> "$(openssl passwd -apr1)" > infra/nginx/htpasswd

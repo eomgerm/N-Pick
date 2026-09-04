@@ -196,9 +196,11 @@ services:
         condition: service_healthy
       backend:
         condition: service_healthy
-      # upstream 호스트명은 기동 시 해석된다. mlflow 가 없으면 nginx 가 뜨지 못한다.
+      # upstream 호스트명은 기동 시 해석된다. 컨테이너가 없으면 nginx 가 뜨지 못한다.
+      # 해석에 필요한 건 존재뿐이라 healthy 까지 기다리지 않는다. MLflow 기동 실패가
+      # 사이트 배포를 막지 않게 하려는 것이다.
       mlflow:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 10s

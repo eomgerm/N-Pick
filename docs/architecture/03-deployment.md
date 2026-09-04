@@ -28,7 +28,7 @@ C4Deployment
     Deployment_Node(ec2, "SSAFY EC2 — j15a501.p.ssafy.io", "Ubuntu 24.04.4 LTS · 4 vCPU · 15GB RAM · Docker 29.7.2 / Compose v5.5.0") {
 
         Deployment_Node(n_proxy, "호스트 진입점", "포트 80 / 443") {
-            Container(proxy, "리버스 프록시", "nginx 1.28 — 인프라", "TLS를 종단하고 80은 443으로 리다이렉트한다. '/'는 web으로, '/api/*'는 api로 라우팅한다. '/media'는 api가 인증한 뒤 X-Accel-Redirect로 Range 전송한다.")
+            Container(proxy, "리버스 프록시", "nginx 1.28 — 인프라", "TLS를 종단하고 80은 443으로 리다이렉트한다. '/'는 web으로, '/api/*'는 api로, '/mlflow/*'는 basic auth 뒤의 mlflow로 라우팅한다. '/media'는 api가 인증한 뒤 X-Accel-Redirect로 Range 전송한다.")
         }
 
         Deployment_Node(n_web, "컨테이너: web", "Node 24 · 호스트 포트 3000 (loopback)") {
@@ -78,6 +78,7 @@ C4Deployment
 
     Rel(proxy, web, "'/' 화면 요청을 전달한다", "HTTP · 컨테이너 네트워크")
     Rel(proxy, api, "'/api/*' 요청을 전달한다", "HTTP · 컨테이너 네트워크")
+    Rel(proxy, mlflow, "'/mlflow/*' UI 요청을 전달한다", "HTTP · basic auth · 컨테이너 네트워크")
     Rel(api, db, "정본을 읽고 쓰며 활성 generation을 고정해 조회한다", "JDBC · 컨테이너 네트워크")
     Rel(api, resolver, "질의 구조화·임베딩·형태소 토큰을 요청한다", "JSON/HTTP · 컨테이너 네트워크")
     Rel(api, assets, "원본을 저장하고 Preview 구간을 스트리밍한다", "호스트 볼륨 마운트")
@@ -118,6 +119,7 @@ C4Deployment
 | --- | --- | --- | --- |
 | 리버스 프록시 | 웹 애플리케이션 | `/` 화면 요청 전달 | HTTP, 컨테이너 네트워크 |
 | 리버스 프록시 | 서비스 서버 | `/api/*` 요청 전달 | HTTP, 컨테이너 네트워크 |
+| 리버스 프록시 | 평가 추적 | `/mlflow/*` UI 요청 전달. MLflow가 무인증이라 여기가 유일한 관문 | HTTP, basic auth, 컨테이너 네트워크 |
 | 서비스 서버 | 정본 및 검색 인덱스 | 정본 읽기·쓰기, 활성 generation 고정 조회 | JDBC, 컨테이너 네트워크 |
 | 서비스 서버 | 질의 리졸버 | 질의 구조화·임베딩·토큰화 요청 | JSON/HTTP, 컨테이너 네트워크 |
 | 서비스 서버 | 에셋 스토어 | 원본 저장, Preview 스트리밍 | 호스트 볼륨 마운트 |
@@ -150,7 +152,6 @@ C4Deployment
 ## 가정
 
 - **swap이 0이다.** 15GB RAM에 컨테이너 7개(nginx · web · api · resolver · db · mlflow · jenkins)가 올라가므로 여유는 있으나, 색인 재구축이나 PostgreSQL `maintenance_work_mem` 상향 시 OOM 여지가 있다. 필요해지면 swapfile을 추가한다.
-- **nginx는 아직 설치되지 않았다.** 확인 시점에 80/443이 비어 있었다. 컨테이너로 띄울지 호스트 패키지로 설치할지는 미정이다.
 - **에셋 스토어는 named volume `npick-media`다.** `/srv/npick/media`로 backend와 AI 워커가 공유 마운트한다. 오브젝트 스토리지는 검토하지 않았다.
 - **질의 리졸버가 사용할 LLM이 미정이다.** GMS 또는 EC2에서 도는 소형 모델. 어느 쪽이든 이 배포도는 바뀌지 않는다.
 - **환경은 사용자 대면 경로가 P0 한 벌뿐이다.** EC2 스택에는 dev/staging 분리가 없어 이 문서가 유일한 배포도다. GPU만 실시간 구동(RunPod)과 개발 검증(SSAFY GPU)으로 갈린다.
