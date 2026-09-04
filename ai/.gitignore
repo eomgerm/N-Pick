@@ -29,3 +29,8 @@ models/
 .env
 .env.*
 !.env.example
+
+### 샘플 뉴스 클립 — 영상은 커밋하지 않는다 ###
+samples/*
+!samples/README.md
+!samples/manifest.example.json
