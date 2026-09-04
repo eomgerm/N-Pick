@@ -19,18 +19,15 @@ cp backend/.env.example backend/.env
 cp ai/.env.example ai/.env
 ```
 
-`.env` 의 `POSTGRES_PASSWORD` 를 채운다. 비어 있으면 compose 가 기동을 거부한다.
+`.env` 의 `POSTGRES_PASSWORD` 와 `MLFLOW_DB_PASSWORD` 를 채운다. 둘 중 하나라도 비어 있으면
+compose 가 기동을 거부한다.
 
 ```bash
-openssl rand -base64 24
+openssl rand -hex 24
 ```
 
-`frontend/.env` 의 `NEXT_PUBLIC_API_BASE_URL` 을 `BACKEND_PORT` 와 맞춘다.
-`.env.example` 의 기본값이 `:8080` 이라 그대로 두면 BE 에 닿지 않는다.
-
-```
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8081/api/v1
-```
+> `MLFLOW_DB_PASSWORD` 는 접속 URI 에 그대로 들어간다. `base64` 는 `/` `+` `=` 가 섞여
+> URI 파싱을 깨뜨리므로 **`-hex` 를 쓴다.**
 
 ```bash
 docker compose up -d --build
@@ -42,13 +39,14 @@ docker compose up -d --build
 docker compose ps
 ```
 
-네 서비스가 모두 `healthy` 면 정상이다.
+다섯 서비스가 모두 `healthy` 면 정상이다.
 
 | 대상 | 접속 |
 |---|---|
 | FE | http://127.0.0.1:3000 |
-| BE health | http://127.0.0.1:8081/actuator/health |
+| BE health | http://127.0.0.1:8080/actuator/health |
 | AI 워커 health | http://127.0.0.1:8000/health |
+| MLflow UI | http://127.0.0.1:5000/mlflow |
 | PostgreSQL | `127.0.0.1:5432` (DB·계정은 `.env`) |
 
 `proxy` 프로필을 켠 환경에서는 nginx 가 앞에 붙어 `/` 와 `/api/` 를 한 오리진으로 묶고
@@ -61,14 +59,16 @@ docker compose ps
 | 변수 | 배포 값 | 이유 |
 |---|---|---|
 | `POSTGRES_PASSWORD` | 팀 비밀 채널의 값 | 볼륨 초기화 시점에 고정되어 나중에 바꿀 수 없다 |
+| `MLFLOW_DB_PASSWORD` | 팀 비밀 채널의 값 | 같은 이유로 볼륨 초기화 시점에 role 에 박힌다 |
+| `MLFLOW_ALLOWED_HOSTS` | 기본값 + `,<도메인>` | 빠지면 basic auth 통과 후 403. 아래 「MLflow」 참고 |
 | `NPICK_DOMAIN` | 실제 도메인 | nginx `server_name` 과 인증서 경로 |
 | `BACKEND_PROFILE` | `prod` | `local` 은 SQL echo 와 DEBUG 로깅이 켜져 로그가 과하다 |
 | `COMPOSE_PROFILES` | `proxy` | nginx 를 띄운다. 인증서 발급 후에 넣는다 |
 | `CORS_ALLOWED_ORIGINS` | `https://<도메인>` | 아래 「CORS」 참고 |
 
-`BACKEND_PORT` 가 8080 이 아니라 **8081** 인 것은 의도된 값이다. EC2 의 8080 은 Jenkins 가
-`0.0.0.0` 으로 점유하고 있어 `127.0.0.1:8080` 바인딩도 실패한다. [배포 다이어그램](../../docs/architecture/03-deployment.md)
-의 확정 값이므로 8080 으로 되돌리지 않는다.
+`BACKEND_PORT` 는 **8080** 이다. EC2 의 8080 을 점유하던 Jenkins 를 **18080** 으로 옮겨 충돌을
+없앴다(`S15P21A501-151`). 이전 절차는 [infra/jenkins/README.md](../jenkins/README.md) 4장에 있다.
+Jenkins 를 옮기지 않은 서버에서는 `docker compose up` 이 `EADDRINUSE` 로 실패한다.
 
 `frontend/.env` 의 `NEXT_PUBLIC_API_BASE_URL` 도 배포 도메인으로 바꾼다. 번들에 박히는 값이라
 바꾼 뒤 재빌드가 필요하다.
@@ -86,7 +86,8 @@ NEXT_PUBLIC_API_BASE_URL=https://<도메인>/api/v1
 | `frontend/.env` | **FE 팀 소유.** `NEXT_PUBLIC_*` |
 | `backend/.env` | **BE 팀 소유.** |
 | `ai/.env` | **AI 팀 소유.** |
-| `infra/compose/postgres-init/` | 최초 기동 1회만 실행되는 SQL. `npick` 스키마를 만든다 |
+| `infra/compose/postgres-init/` | 최초 기동 1회만 실행. `npick` 스키마, 검색 확장, `mlflow` DB·role |
+| `infra/nginx/htpasswd` | MLflow basic auth. **커밋되지 않는다** — 배포 환경에서 직접 만든다 |
 | `infra/nginx/templates/` | nginx 설정. HTTP→HTTPS 리다이렉트 + TLS 종단 |
 | `infra/nginx/snippets/` | 두 템플릿이 공유하는 upstream·라우팅·프록시 헤더 |
 | `infra/nginx/renew-cert.sh` | 인증서 갱신 + nginx 리로드. cron 에서 실행 |
@@ -254,7 +255,119 @@ FRD §15.6 Gate D 의 `loopback bind` 에 따라 애플리케이션 서비스 �
 프록시를 거치지 않는 health 엔드포인트는 SSH 터널로 확인한다.
 
 ```bash
-ssh -i <키>.pem -L 8081:localhost:8081 -L 8000:localhost:8000 <계정>@<도메인>
+ssh -i <키>.pem -L 8080:localhost:8080 -L 8000:localhost:8000 -L 5000:localhost:5000 <계정>@<도메인>
+```
+
+### PostgreSQL 은 ParadeDB 이미지다 — 볼륨 경로가 PG17 과 다르다
+
+`paradedb/paradedb:0.25.6-pg18` 은 `postgres:18-trixie` 위에 `pg_search` 와 `pgvector` 를 얹은
+이미지다. BM25 인덱스(`USING bm25`)와 dense 검색이 같은 인스턴스에 있어야 하므로 이 조합이 전제다.
+
+**PG18 부터 데이터 경로가 바뀌었다.** `PGDATA` 가 `/var/lib/postgresql/18/docker` 이고 이미지가
+선언하는 볼륨은 `/var/lib/postgresql` 이다. 예전처럼 `/var/lib/postgresql/data` 에 마운트하면
+**에러 없이** 볼륨 밖에 데이터가 쓰이고, 컨테이너를 다시 만들 때마다 DB 가 초기화된다.
+`compose.yaml` 은 `/var/lib/postgresql` 에 마운트한다. 바꾸지 않는다.
+
+**PG17 볼륨은 PG18 이 읽지 못한다.** 이미 `postgres:17-alpine` 으로 띄운 적이 있으면 볼륨을 비운다.
+아래는 `npick-postgres-data` 만 지운다 — `docker compose down -v` 는 media 볼륨까지 날린다.
+스키마는 `postgres-init` 이, 테이블은 BE 의 Flyway baseline 이 다시 만든다.
+
+```bash
+docker compose down
+docker volume rm npick-postgres-data
+docker compose up -d
+```
+
+확장이 붙었는지 확인한다.
+
+```bash
+docker compose exec postgres psql -U npick -d npick -c "\dx"
+```
+
+`pg_search` 와 `vector` 가 보이면 정상이다.
+
+### MLflow 트래킹 서버
+
+STT/OCR/LLM 비교 실험 기록을 팀이 공유해 본다. run 메타데이터는 `mlflow` DB 에, artifact 파일은
+`npick-mlflow-artifacts` 볼륨에 남는다. 컨테이너를 다시 만들어도 둘 다 보존된다.
+
+```bash
+docker compose up -d mlflow      # 기동
+docker compose stop mlflow       # 중지
+docker compose logs -f mlflow    # 로그
+```
+
+내부망 응답 확인 — 완료 조건의 검증 명령이다.
+
+```bash
+docker compose exec backend curl -sS -o /dev/null -w '%{http_code}\n' http://mlflow:5000/mlflow/health
+```
+
+**DB 격리**: 같은 PostgreSQL 인스턴스 안에 `mlflow` DB 와 `mlflow` role 을 따로 만들고,
+`CONNECTION LIMIT 20` 으로 실험 트래픽이 서비스 커넥션을 잠식하지 못하게 막는다. 서비스 DB 로는
+접속이 거부된다.
+
+```bash
+docker compose exec postgres psql "postgresql://mlflow:<비밀번호>@127.0.0.1:5432/npick" -c "select 1"
+# FATAL: permission denied for database "npick" 가 나와야 정상
+```
+
+`REVOKE ... FROM mlflow` 만으로는 막히지 않는다. PUBLIC 이 기본 `CONNECT` 를 갖고 있어
+`REVOKE CONNECT ... FROM PUBLIC` 이 필요하다. `postgres-init/10-mlflow.sh` 가 그렇게 한다.
+이미 초기화된 볼륨에는 스크립트가 돌지 않으므로 그 SQL 을 직접 실행한다.
+
+**UI 는 nginx 의 `/mlflow/` 로 연다.** MLflow 서버가 `--static-prefix /mlflow` 로 뜨고 nginx 가
+경로를 그대로 넘긴다. 서브도메인이 아니라 서브패스인 이유는 SSAFY 도메인의 하위 도메인을
+팀이 만들 수 없고, 인증서를 다시 발급할 필요도 없기 때문이다. REST 라우트에 prefix 가 붙지
+않던 버그는 MLflow 3.12 에서 해결됐다([#22159](https://github.com/mlflow/mlflow/pull/22159)).
+
+**basic auth 파일은 배포 환경에서 직접 만든다.** MLflow 는 기본이 무인증이라 이 파일이 유일한
+관문이다. 커밋되지 않는다(`.gitignore`).
+
+**만들지 않으면 조용히 깨진다.** nginx 는 이 파일을 기동 시점에 검사하지 않으므로 정상적으로
+뜨고, Docker 가 마운트 대상 자리에 **디렉터리를 만들어** `/mlflow/` 요청만 500 이 된다.
+`.gitignore` 에 걸려 `git status` 에도 보이지 않는다. 스택을 올리기 전에 먼저 만든다.
+
+```bash
+printf '%s:%s\n' <아이디> "$(openssl passwd -apr1)" > infra/nginx/htpasswd
+```
+
+`.env` 의 `MLFLOW_ALLOWED_HOSTS` 에 실제 도메인을 추가한다. 이 값을 주면 MLflow 의 기본 허용
+목록이 통째로 대체되고, nginx 는 **포트 없는** `Host` 를 넘긴다. 빠지면 basic auth 를 통과한 뒤
+`Invalid Host header - possible DNS rebinding attack detected` 로 403 이 난다.
+
+```
+MLFLOW_ALLOWED_HOSTS=mlflow,mlflow:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,<도메인>
+```
+
+**주의 사항**
+
+- `--host 0.0.0.0` 은 보안 설정이 아니라 컨테이너 내부 바인딩이다. 접근 제한은 `--allowed-hosts`,
+  loopback 퍼블리시, nginx 의 basic auth 가 담당한다. 5000 을 공인 IP 에 직접 노출하지 않는다.
+- 파이썬 클라이언트로 기록할 때는 인증 정보를 환경변수로 준다.
+  `MLFLOW_TRACKING_URI=https://<도메인>/mlflow`, `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_PASSWORD`.
+- `--workers 2` 는 커넥션 상한과 맞춘 값이다. 기본 4 로 두면 워커마다 풀이 잡혀
+  `CONNECTION LIMIT 20` 을 넘긴다. MLflow 쪽 풀 크기 설정은
+  [#19379](https://github.com/mlflow/mlflow/issues/19379) 로 실효가 없다.
+- 서비스 DB 와 인스턴스를 공유하므로 DB 가 죽으면 MLflow 도 멈춘다. 실험 기록 손실은 서비스
+  가용성에 영향이 없으므로 감수한다.
+
+### 백업은 DB 별로 뜬다
+
+한 인스턴스에 DB 가 둘이라 `pg_dump` 도 둘이다.
+
+```bash
+docker compose exec postgres pg_dump -U npick -d npick  -Fc -f /tmp/npick.dump
+docker compose exec postgres pg_dump -U npick -d mlflow -Fc -f /tmp/mlflow.dump
+docker compose cp postgres:/tmp/npick.dump  ./npick.dump
+docker compose cp postgres:/tmp/mlflow.dump ./mlflow.dump
+```
+
+artifact 파일은 DB 에 없다. 볼륨을 따로 받는다.
+
+```bash
+docker run --rm -v npick-mlflow-artifacts:/src -v "$PWD":/out alpine \
+  tar czf /out/mlflow-artifacts.tgz -C /src .
 ```
 
 ### AI 워커는 CPU 전용으로 뜬다
