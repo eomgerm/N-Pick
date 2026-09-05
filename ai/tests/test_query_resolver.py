@@ -36,7 +36,13 @@ from npick_worker.query_resolver import (
 from npick_worker.query_resolver.config import DEFAULT_CONFIG_PATH
 from npick_worker.query_resolver.gms_backend import GmsResolver, resolve_endpoint
 from npick_worker.query_resolver.prompt import BROADCAST_FIELD, FILMING_FIELD
-from npick_worker.query_resolver.report import REQUIRED_ENV, _build_resolver, load_queries
+from npick_worker.query_resolver.report import (
+    DEFAULT_SET,
+    FIXTURES,
+    REQUIRED_ENV,
+    _build_resolver,
+    load_queries,
+)
 from npick_worker.query_resolver.resolver import ResolverCallError
 from npick_worker.settings import ResolverBackend, Settings
 
@@ -408,17 +414,34 @@ def test_prompt_body_is_not_in_python_sources() -> None:
 # ── 픽스처 (완료 조건) ────────────────────────────────────────────────
 
 
-def test_representative_queries_cover_twenty_cases() -> None:
-    queries = load_queries()
+@pytest.mark.parametrize("set_name", sorted(FIXTURES))
+def test_representative_queries_cover_twenty_cases(set_name: str) -> None:
+    queries = load_queries(set_name)
     assert len(queries) == 20
     assert [q["id"] for q in queries] == list(range(1, 21))
     assert all(q["query"].strip() and q["checks"].strip() for q in queries)
 
 
-def test_hallucination_case_is_present() -> None:
-    """15번이 FR-QRY-014 확인 케이스다. 빠지면 완료 조건을 못 본다."""
-    case = next(q for q in load_queries() if q["id"] == 15)
-    assert case["query"] == "서울역 사람 많은 장면"
+@pytest.mark.parametrize("set_name", sorted(FIXTURES))
+def test_hallucination_case_is_present(set_name: str) -> None:
+    """15번이 FR-QRY-014 확인 케이스다. 빠지면 완료 조건을 못 본다.
+
+    질의 문자열이 아니라 ★ 표시를 근거로 본다. 세트가 늘거나 문구가 바뀌어도
+    "창작 anchor 를 보는 케이스가 정확히 하나 있다" 는 의도는 그대로 지켜진다.
+    """
+    starred = [q for q in load_queries(set_name) if "★" in q["checks"]]
+    assert len(starred) == 1
+    assert starred[0]["id"] == 15
+
+
+def test_default_set_queries_are_sentences() -> None:
+    """기본 세트는 편집기자가 실제로 치는 문장이어야 한다.
+
+    resolver 가 받는 것은 canonical 된 원문 그대로다(FRD §6.1 — 한국어를 보존한다).
+    키워드 조각으로 되돌아가면 요청 어미·도메인 상투어 누수를 못 본다.
+    """
+    queries = load_queries(DEFAULT_SET)
+    assert all(len(q["query"].split()) >= 3 for q in queries)
 
 
 # ── 전체 경로 ─────────────────────────────────────────────────────────

@@ -4,6 +4,8 @@
         python -m npick_worker.query_resolver.report
 
 어느 backend 로 나가는지는 `NPICK_AI_RESOLVER_BACKEND` 가 정한다(`ollama` | `gms`).
+어느 질의 세트를 쓰는지는 `--set` 이 정한다. 기본은 `v2`(자연어 문장)이고,
+`v1`(키워드 조각)은 회귀 비교용으로 남아 있다.
 
 운영 경로가 아니다. 티켓 완료 조건("대표 질의 20개에서 schema 유효 출력 + 창작 anchor
 없음 육안 확인")을 사람이 확인하기 위한 개발자 도구다.
@@ -32,7 +34,16 @@ from npick_worker.query_resolver.ollama_backend import OllamaResolver
 from npick_worker.query_resolver.resolver import QueryResolver
 from npick_worker.settings import Settings, get_settings
 
-FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "representative_queries.json"
+_FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+
+#: 대표 질의 세트. v1 은 키워드 조각, v2 는 편집기자가 실제로 치는 자연어 문장이다.
+#: resolver 가 받는 것은 문장이므로(FRD 6.1 canonical_query 는 한국어를 보존한다)
+#: 완료 조건 판정의 기본은 v2 다. v1 은 회귀 비교용으로 남긴다.
+FIXTURES: Final[dict[str, Path]] = {
+    "v1": _FIXTURE_DIR / "representative_queries.json",
+    "v2": _FIXTURE_DIR / "representative_queries.v2.json",
+}
+DEFAULT_SET: Final = "v2"
 
 #: backend 별로 반드시 있어야 하는 환경 변수. `_build_resolver` 와 같은 파일에 두어야
 #: 변수를 늘릴 때 한쪽만 고쳐지는 일이 없다. 누락은 테스트가 잡는다.
@@ -46,8 +57,8 @@ _CONFIG_HINT = """backend: {backend}  (NPICK_AI_RESOLVER_BACKEND 로 바꾼다. 
 설정 위치: ai/.env  (루트 .env 가 아니다 - 그건 compose 가 자기 치환에 쓰는 파일이다)"""
 
 
-def load_queries() -> list[dict[str, Any]]:
-    data = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+def load_queries(set_name: str = DEFAULT_SET) -> list[dict[str, Any]]:
+    data = json.loads(FIXTURES[set_name].read_text(encoding="utf-8"))
     queries: list[dict[str, Any]] = data["queries"]
     return queries
 
@@ -119,6 +130,13 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="대표 질의 20개 해석 결과를 출력한다")
     parser.add_argument("--out", type=Path, default=None, help="결과 JSON 저장 경로")
     parser.add_argument("--only", type=int, default=None, help="질의 id 하나만 실행")
+    parser.add_argument(
+        "--set",
+        dest="query_set",
+        choices=sorted(FIXTURES),
+        default=DEFAULT_SET,
+        help="대표 질의 세트. v2=자연어 문장(기본), v1=키워드 조각",
+    )
     return parser.parse_args()
 
 
@@ -143,7 +161,7 @@ def main() -> None:
         )
         sys.exit(2)
 
-    specs = load_queries()
+    specs = load_queries(args.query_set)
     if args.only is not None:
         specs = [s for s in specs if s["id"] == args.only]
 
@@ -160,7 +178,7 @@ def main() -> None:
     demoted = sum(
         len(outcome.findings) for _, outcome in rows if isinstance(outcome, ResolutionResult)
     )
-    print(f"질의 {len(rows)}개 | 실패 {failures} | 검증 조치 {demoted}건")
+    print(f"세트 {args.query_set} | 질의 {len(rows)}개 | 실패 {failures} | 검증 조치 {demoted}건")
     print(f"prompt {config.prompt_version} | {resolver.name} {resolver.version}")
 
     if args.out is not None:
