@@ -10,6 +10,13 @@ if [ ! -f .deploy-previous ]; then
   exit 1
 fi
 
+# 형식 검사. 예전 판본은 태그 한 줄만 적었으므로 source 하면 그 값을 명령으로 실행한다.
+if ! grep -q '^BACKEND_TAG=' .deploy-previous; then
+  echo "롤백 파일 형식이 예전 것이다. 수동 확인이 필요하다:" >&2
+  cat .deploy-previous >&2
+  exit 1
+fi
+
 # 서비스별 태그를 그대로 되돌린다.
 set -a
 . ./.deploy-previous
