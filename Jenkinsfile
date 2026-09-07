@@ -48,12 +48,15 @@ pipeline {
         script {
           // GIT_BRANCH 는 origin/dev 형태로 온다. fetch 인자로 쓰려면 접두사를 뗀다.
           env.DEPLOY_REF  = (env.GIT_BRANCH ?: 'dev').replaceFirst(/^origin\//, '')
-          env.IMAGE_TAG   = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+          // 배포 디렉터리를 이 SHA 로 고정한다. 브랜치의 최신 커밋을 쓰면 fetch 시점에
+          // dev 가 갱신됐을 때 새 코드를 이전 태그로 빌드하게 된다.
+          env.DEPLOY_SHA  = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+          env.IMAGE_TAG   = env.DEPLOY_SHA.take(7)
           env.GIT_AUTHOR  = sh(returnStdout: true, script: 'git log -1 --pretty=%an').trim()
           env.GIT_SUBJECT = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
         }
         echo "커밋 ${env.IMAGE_TAG} — ${env.GIT_SUBJECT} (${env.GIT_AUTHOR})"
-        echo "배포 ref: ${env.DEPLOY_REF}"
+        echo "배포 ref: ${env.DEPLOY_REF} @ ${env.DEPLOY_SHA}"
       }
     }
 
@@ -77,6 +80,7 @@ pipeline {
 
     stage('Detect changes') {
       // 모노레포이므로 바뀐 앱만 빌드한다. 인프라 파일이 바뀌면 전체를 다시 만든다.
+      // 비교 기준은 직전 커밋이 아니라 마지막 성공 배포 커밋이다(changed-paths.sh).
       steps {
         script {
           def changed = sh(returnStdout: true, script: 'infra/jenkins/changed-paths.sh').trim()
@@ -130,9 +134,13 @@ pipeline {
 
   post {
     success {
+      // 성공한 배포 커밋을 남긴다. 다음 빌드의 변경 비교 기준이 되고,
+      // 이번 실행의 롤백 표시를 지워 이후 실패가 이 배포를 되돌리지 않게 한다.
+      sh 'infra/jenkins/deploy-done.sh'
       updateGitlabCommitStatus name: 'jenkins', state: 'success'
     }
     failure {
+      // 배포를 시작한 경우에만 되돌린다. 판단은 rollback.sh 가 .deploy-rollback 존재로 한다.
       // 이미지만 되돌린다. Flyway 마이그레이션은 롤백되지 않으므로 스키마 변경이 포함된
       // 배포가 실패하면 사람이 판단해야 한다.
       sh 'infra/jenkins/rollback.sh || true'

@@ -12,6 +12,5 @@ node_modules/
 # nginx basic auth. 배포 환경에서 직접 만든다.
 infra/nginx/htpasswd
 
-# 배포 상태. Jenkins 가 /deploy 에 기록한다
-.deploy-current
-.deploy-previous
+# 배포 상태. Jenkins 가 배포 디렉터리에 기록한다
+.deploy-*
