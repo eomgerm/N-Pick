@@ -65,7 +65,16 @@ sudo shutdown    sudo halt       sudo init       sudo rm -rf /
 > (보안 그룹 → ufw) **접근 제한이라는 목적은 동일하게 달성한다.** MR 설명에 이 대체 사실을 적는다.
 >
 > **전제 2: 발급 시점에 22번(SSH)만 열려 있다.** (컨설턴트 공지)
-> 즉 18080은 닫힌 상태에서 출발한다. 열어야 할 것만 최소로 연다.
+>
+> **전제 3 (2026-09-07 정정): ufw 로 Docker publish 포트를 제한할 수 없다.**
+> Docker 가 `-p` 로 포트를 열면 자체 NAT/forwarding 규칙을 추가하고, 그 순서 때문에 ufw 의
+> 일반 incoming 규칙이 적용되지 않는다. 외부 IP 두 곳에서 `:8080` 에 접속해 Jenkins 로그인
+> 화면을 확인했다 — `ufw allow from <GitLab IP> to any port 8080` 규칙이 있는 상태였다.
+> 포트 번호를 옮겨도 같다.
+>
+> 그래서 아래 1-2·1-3 의 ufw 규칙은 **효과가 없다.** 유효한 통제는 바인딩 주소이며,
+> `127.0.0.1` 로 퍼블리시하고 nginx 를 앞에 둔다. 절차는 3장을 따른다.
+> `sudo iptables` 로 `DOCKER-USER` 체인을 쓰는 방법은 SSAFY 금지 명령이라 쓰지 않는다.
 
 ### 1-1. 현재 상태 확인
 
@@ -188,8 +197,36 @@ sudo systemctl is-active docker      # active 여야 한다
 cd /home/ubuntu && mkdir jenkins-data
 ```
 
+**CD 를 쓰는 환경은 아래 이미지와 마운트로 만든다** (S15P21A501-132).
+
 ```bash
-sudo docker run -d -p 18080:8080 -v /home/ubuntu/jenkins-data:/var/jenkins_home --restart=unless-stopped --name jenkins jenkins/jenkins:lts
+sudo docker build -t npick/jenkins:lts --build-arg DOCKER_GID=$(getent group docker | cut -d: -f3) infra/jenkins
+```
+
+```bash
+sudo docker run -d --name jenkins --network npick_default -p 127.0.0.1:18080:8080 -v /home/ubuntu/jenkins-data:/var/jenkins_home -v /var/run/docker.sock:/var/run/docker.sock -v /home/ubuntu/S15P21A501:/home/ubuntu/S15P21A501 -e JENKINS_OPTS=--prefix=/jenkins --restart=unless-stopped npick/jenkins:lts
+```
+
+| 옵션 | 이유 |
+|---|---|
+| `npick/jenkins:lts` | docker CLI·buildx·compose plugin 을 넣은 이미지. `infra/jenkins/Dockerfile` |
+| `--network npick_default` | nginx 가 `jenkins:8080` 으로 찾을 수 있게 한다 |
+| `-p 127.0.0.1:18080:8080` | 외부에 열지 않는다. nginx 장애 시 SSH 터널용 예비 경로 |
+| `-v /var/run/docker.sock` | 호스트 Docker 데몬으로 빌드·배포를 실행한다 |
+| `-v <배포경로>:<같은 경로>` | **양쪽 경로가 같아야 한다.** compose 가 보는 경로가 그대로 데몬에 전달되므로, 다르면 상대 경로 볼륨 마운트가 실패한다 |
+| `JENKINS_OPTS=--prefix=/jenkins` | nginx 서브패스 노출용. 없으면 정적 리소스 경로가 깨진다 |
+
+그리고 Jenkins 전역 환경변수에 배포 경로를 등록한다 — `Jenkinsfile` 이 이 값을 읽는다.
+
+```
+Manage Jenkins → System → Global properties → Environment variables
+  NPICK_DEPLOY_DIR = /home/ubuntu/S15P21A501
+```
+
+**CD 없이 Jenkins 만 쓰는 환경**은 아래로도 충분하다.
+
+```bash
+sudo docker run -d -p 127.0.0.1:18080:8080 -v /home/ubuntu/jenkins-data:/var/jenkins_home --restart=unless-stopped --name jenkins jenkins/jenkins:lts
 ```
 
 > **호스트 포트는 18080이다** (S15P21A501-151). 8080은 애플리케이션 서버 몫이라
@@ -529,10 +566,13 @@ GitLab 프로젝트 → **Settings → Webhooks** → Add new webhook
 
 | 항목 | 값 |
 |---|---|
-| URL | `http://j15<팀ID>.p.ssafy.io:18080/project/npick-ci` |
+| URL | `https://j15<팀ID>.p.ssafy.io/jenkins/project/npick-ci` |
 | Secret token | 9장에서 Generate한 토큰 |
 | Trigger | ☑ Push events ☑ Merge request events |
-| SSL verification | HTTP면 해제 |
+| SSL verification | 체크한다 — 실제 인증서라 검증을 통과한다 |
+
+> **nginx 경유 주소다** (S15P21A501-132). Jenkins 가 `127.0.0.1:18080` 에만 바인딩되어
+> GitLab 이 직접 닿을 수 없다. 포트가 없는 이유는 nginx 의 443 을 쓰기 때문이다.
 
 > URL이 `/job/npick-ci`가 아니라 **`/project/npick-ci`** 다. gitlab-plugin 전용 엔드포인트이고,
 > 이 경로만 Jenkins의 CSRF 보호에서 예외 처리되어 있다. `/job/...`으로 넣으면 403이 뜬다.
