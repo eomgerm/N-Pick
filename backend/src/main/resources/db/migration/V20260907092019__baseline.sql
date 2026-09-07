@@ -2,7 +2,7 @@
 -- https://www.erdcloud.com/d/eFoaB2wCwPcCZFNzX
 -- 업무 테이블 13개 / 컬럼 134개 / FK 23개 (확장·Flyway 관리 객체 제외).
 --
--- 아직 적용하지 않은 V1을 교체한다. 이미 V1이 적용된 DB의 이관 SQL이 아니다.
+-- timestamp 버전으로 시작하는 baseline이다. 기존 baseline이 적용된 DB의 이관 SQL이 아니다.
 -- PK는 앱 생성 bigint TSID. ERD의 타입·NULL 여부·기본값(없음)을 그대로 유지한다.
 -- FK는 모두 ON DELETE RESTRICT. 순환 참조 때문에 테이블 생성 후 연결한다.
 -- enum 어휘는 서비스가 검증한다. DB는 필요한 값 조합·범위·중복만 방어한다.

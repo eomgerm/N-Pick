@@ -62,10 +62,10 @@ curl http://localhost:8080/actuator/health   # {"status":"UP"}
 ./gradlew test
 ```
 
-### Flyway V1 검증 (S15P21A501-153)
+### Flyway baseline 검증 (S15P21A501-153)
 
-V1은 FRD v3.1을 반영한 최종 ERDCloud의 **13개 테이블·134개 컬럼·23개 FK** 기준이다.
-미적용 V1을 교체한 것이므로 구 V1이 이미 적용된 DB에는 그대로 실행하지 않는다.
+timestamp baseline은 FRD v3.1을 반영한 최종 ERDCloud의 **13개 테이블·134개 컬럼·23개 FK** 기준이다.
+기존 baseline이 적용된 DB에는 그대로 실행하지 않고 별도 이관 방식을 결정한다.
 그런 DB가 발견되면 checksum을 강제로 repair하거나 데이터를 삭제하지 말고 이관을 별도로 결정한다.
 `research/` 원문 반입은 154번 작업이며 저장소의 옛 FRD v2.2와 혼동하지 않는다.
 
@@ -94,12 +94,12 @@ try {
 }
 ```
 
-검증 항목: V1 최초 적용·validate·재실행 무변경, ERD 전체 컬럼/주석/FK 대조,
+검증 항목: timestamp baseline 최초 적용·validate·재실행 무변경, ERD 전체 컬럼/주석/FK 대조,
 중복·값 조합 제약, 확장 및 BM25/벡터 검색, 후보 변경의 롤백과 검증 기록 저장 가능 여부.
 검색 서비스의 순위 품질·권한·동시 확정 로직까지 테스트하는 것은 아니다.
 기대 구조 TSV는 2026-09-04 최종 ERD 스냅샷에서 얻은 회귀 테스트 기준이다.
 
-V1의 확장 설치에는 DB 관리자 권한이 필요하다. 제한된 앱 계정이라면 관리자가 같은 DB의
+baseline의 확장 설치에는 DB 관리자 권한이 필요하다. 제한된 앱 계정이라면 관리자가 같은 DB의
 public 스키마에 `vector`·`pg_search`를 먼저 설치한다. ANN 인덱스의 거리 연산자·튜닝은
 100번의 임베딩 모델 확정 후 정하며, 임시 차원은 `vector(1024)`다.
 

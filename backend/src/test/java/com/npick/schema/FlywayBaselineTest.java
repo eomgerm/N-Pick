@@ -78,7 +78,7 @@ class FlywayBaselineTest {
     void migrationIsValidAndReexecutionIsNoOp() throws Exception {
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
-        assertThat(number("SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND success"))
+        assertThat(number("SELECT count(*) FROM flyway_schema_history WHERE version = '20260907092019' AND success"))
                 .isEqualTo(1);
     }
 
