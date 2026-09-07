@@ -1,5 +1,7 @@
 'use client';
 
+import { routes } from '@/lib/routes';
+
 import {
   CheckCircle2,
   ChevronDown,
@@ -115,7 +117,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
       params.set('filmingTo', filming.to);
     }
     startNavigation(() =>
-      router.push(`/wireframes/shinhan?${params.toString()}`, { scroll: false }),
+      router.push(`${routes.searchResults}?${params.toString()}`, { scroll: false }),
     );
   }
 
@@ -164,7 +166,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   return (
     <div className={styles.shell} data-theme={theme}>
       <header className={styles.appHeader}>
-        <Link className={styles.brand} href="/landing" aria-label="N-Pick 홈">
+        <Link className={styles.brand} href={routes.landing} aria-label="N-Pick 홈">
           <span className={styles.brandMark} aria-hidden="true">
             <span />
             <span />
@@ -176,11 +178,11 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           <a className={styles.primaryNavActive} href="#search-results">
             장면 검색
           </a>
-          <Link href={`/review/${theme}`}>검수 워크스페이스</Link>
+          <Link href={routes.review}>검수 워크스페이스</Link>
         </nav>
 
         <div className={styles.headerActions}>
-          <Link className={styles.reviewerEntry} href={`/review/${theme}`}>
+          <Link className={styles.reviewerEntry} href={routes.review}>
             <ShieldCheck aria-hidden="true" />
             <span>검수 화면</span>
           </Link>

@@ -1,5 +1,7 @@
 'use client';
 
+import { routes } from '@/lib/routes';
+
 import {
   ArrowLeft,
   CheckCircle2,
@@ -746,7 +748,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   return (
     <div className={styles.shell} data-theme={theme}>
       <header className={styles.appHeader}>
-        <Link className={styles.brand} href="/landing" aria-label="N-Pick 홈">
+        <Link className={styles.brand} href={routes.landing} aria-label="N-Pick 홈">
           <span className={styles.brandMark} aria-hidden="true">
             <span />
             <span />
@@ -754,8 +756,8 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           <span>N-Pick</span>
         </Link>
         <nav className={styles.primaryNav} aria-label="역할별 화면">
-          <Link href={`/search/${theme}`}>장면 검색</Link>
-          <Link aria-current="page" className={styles.primaryNavActive} href={`/review/${theme}`}>
+          <Link href={routes.search}>장면 검색</Link>
+          <Link aria-current="page" className={styles.primaryNavActive} href={routes.review}>
             검수자 화면
           </Link>
         </nav>
@@ -874,7 +876,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                         ) : selectedClip.servingStatus === 'ready' ? (
                           <Link
                             className={styles.primaryButton}
-                            href={`/wireframes/${theme}?q=${encodeURIComponent(selectedClip.title)}`}
+                            href={`${routes.searchResults}?q=${encodeURIComponent(selectedClip.title)}`}
                           >
                             <Search aria-hidden="true" />
                             영상 검색하기

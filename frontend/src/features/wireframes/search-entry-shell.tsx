@@ -1,5 +1,7 @@
 'use client';
 
+import { routes } from '@/lib/routes';
+
 import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState } from 'react';
@@ -20,7 +22,7 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (query.trim()) router.push(`/wireframes/${theme}?q=${encodeURIComponent(query.trim())}`);
+    if (query.trim()) router.push(`${routes.searchResults}?q=${encodeURIComponent(query.trim())}`);
   }
 
   return (

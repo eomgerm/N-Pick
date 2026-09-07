@@ -11,6 +11,7 @@ import {
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState, useTransition } from 'react';
+import { routes } from '@/lib/routes';
 
 import { EntryHeader, EntryFooter } from '@/features/wireframes/entry-chrome';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
@@ -50,7 +51,7 @@ export function LoginShell({ role, theme }: LoginShellProps) {
     }
     if (passwordRef.current) passwordRef.current.value = '';
     startTransition(() => {
-      router.push(role === 'editor' ? `/search/${theme}` : `/review/${theme}`);
+      router.push(role === 'editor' ? routes.search : routes.review);
     });
   }
 
@@ -89,7 +90,7 @@ export function LoginShell({ role, theme }: LoginShellProps) {
           </div>
         </section>
         <section className={styles.loginCard} aria-labelledby="login-title">
-          <Link className={styles.backLink} href="/landing">
+          <Link className={styles.backLink} href={routes.landing}>
             <ArrowLeft aria-hidden="true" />
             역할 다시 선택
           </Link>
