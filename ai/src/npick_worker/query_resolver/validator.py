@@ -1,26 +1,11 @@
-"""LLM 출력 검증 3단계 (FR-QRY-011·012·014·016, AC-QRY-005).
+"""LLM 출력 검증: schema → semantic → 안전한 결과 (FRD F-04~06).
 
-    1) schema        JSON 파싱 · 필드 · enum · 범위      실패 → 복구하지 않고 예외
-    2) semantic      span 대조 · 날짜 구간 · 중복         실패 → 3단계로
-    3) safe          explicit → inferred 강등 · 중복 제거  통과
-
-1단계와 2·3단계의 차이가 이 파일의 핵심이다. **모양이 깨진 출력은 복구하지 않는다** —
-JSON 이 아니거나 enum 이 틀리면 무엇을 의도했는지 알 수 없다. 반면 "원문에 없는 것을
-사용자가 쓴 것처럼 표시한" 출력은 의도가 분명하므로, 거짓 근거만 떼어내고 값은 살린다.
-
-`FR-QRY-011` 이 그 방식을 지정한다 — "span 검증 실패 시 `inferred`로 강등해야 한다".
-거부가 아니라 강등이다.
-
-**span 은 모델이 준 숫자를 믿지 않고 코드가 찾는다.** 실측에서 대표 질의 20개 중
-11개가 인덱스가 어긋났고, 9건 전부 값은 원문에 실제로 있었다(오차 +1 이 7건, +2 가 2건).
-LLM 은 문자 오프셋 계산에 약하다. 그 숫자를 믿으면 사용자가 직접 입력한 조건이
-`inferred` 로 떨어져 hard filter 에서 빠진다(`AC-SRH-005`).
-
-검증해야 하는 명제는 "이 값이 원문에 있는가" 이고, 그건 substring 검색이 모델의
-산수보다 정확하게 답한다. 없으면 그대로 강등한다 — 창작 방어는 그대로다.
-
-검증 과정은 전부 `AnchorFinding` 으로 남는다. `query_resolution_snapshot` 의
-`explicit_anchor_validation_json` 이 NOT NULL 이라 통과했을 때도 기록이 있어야 한다.
+JSON·필드·enum 검증 실패는 예외로 반환한다. 원문에 있는 값의 span은 직접 찾아
+보정하고, 없는 값이나 resolver가 주장한 explicit_filter는 inferred로 강등한다.
+이는 F-05의 명시 조건·추론 구분과 사용자 필터 보호를 충족하기 위한 구현 선택이다.
+날짜 구간 삭제와 locations 우선 중복 제거 역시 구현 선택이며 F-05의 중복 계산을
+방지한다. inferred만으로 강제 제외하지 않는 것은 검색 호출부 책임이다(F-06).
+변경 내역은 AnchorFinding으로 반환하여 §7.2 기록을 지원한다. 특정 DB 구조를 전제하지 않는다.
 """
 
 import json
@@ -41,12 +26,12 @@ from npick_worker.query_resolver.schema import (
     ValuedAnchor,
 )
 
-#: FRD §12 의 오류 코드. Search Service 가 degraded 사유로 기록한다(`FR-QRY-022`).
+#: 모듈 오류 코드. Search Service 가 degraded 사유로 기록한다(`FRD §6.2`).
 RESOLVER_SCHEMA_INVALID: Final[str] = "RESOLVER_SCHEMA_INVALID"
 
 
 class ResolverSchemaInvalidError(ValueError):
-    """1단계 실패. 호출부는 raw query BM25 fallback 으로 내려간다(`FR-QRY-022`)."""
+    """1단계 실패. 호출부는 raw query BM25 fallback 으로 내려간다(`FRD §6.2`)."""
 
     code = RESOLVER_SCHEMA_INVALID
 
@@ -60,7 +45,7 @@ class AnchorFinding:
 
     #: 어느 항목인가. 예: `entities[1]`
     path: str
-    #: 무엇을 했나. `demoted_to_inferred` | `dropped`
+    #: 무엇을 했나. `span_corrected` | `demoted_to_inferred` | `dropped`
     action: str
     #: 왜 했나. 사람이 읽는 문장이다.
     reason: str
@@ -72,7 +57,7 @@ class ValidationOutcome:
     findings: tuple[AnchorFinding, ...]
 
     def to_validation_json(self) -> list[dict[str, str]]:
-        """`explicit_anchor_validation_json` 에 실을 형태."""
+        """호출자가 기록할 findings의 JSON 직렬화 형태."""
         return [{"path": f.path, "action": f.action, "reason": f.reason} for f in self.findings]
 
 
@@ -197,7 +182,7 @@ def _check_value_anchor[A: ValuedAnchor](
     타입 검사를 통과해 버린다 — 이 파일이 막으려는 것이 바로 그런 뒤섞임이다.
     """
     if anchor.origin not in RESOLVER_ORIGINS:
-        # FR-QRY-012 — explicit UI filter 는 사용자만 만든다. resolver 가 이걸 내는 것은
+        # FRD F-05 — explicit UI filter 는 사용자만 만든다. resolver 가 이걸 내는 것은
         # 사용자 조건을 위조하는 것이다. 다만 값 자체는 원문에서 왔을 수 있으므로
         # 검색 전체를 실패시키지 않고 출처 주장만 떼어낸다.
         reason = f"resolver 가 만들 수 없는 origin 이다: {anchor.origin}"
@@ -208,7 +193,7 @@ def _check_value_anchor[A: ValuedAnchor](
 
     located = _locate(anchor.value, query, anchor.query_span)
     if located is None:
-        # 여기가 창작 anchor 가 걸러지는 자리다(FR-QRY-014).
+        # 여기가 창작 anchor 가 걸러지는 자리다(FRD F-05).
         reason = f"원문에 없는 값을 explicit_query 로 주장했다: {anchor.value!r}"
         findings.append(AnchorFinding(path, "demoted_to_inferred", reason))
         return anchor.model_copy(update={"origin": "inferred", "query_span": None})
@@ -257,7 +242,7 @@ def _explicit_claim_problem(origin: str, span: QuerySpan | None, query: str) -> 
     쓰지 않는다.
     """
     if origin not in RESOLVER_ORIGINS:
-        # FR-QRY-012 — explicit UI filter 는 사용자만 만든다.
+        # FRD F-05 — explicit UI filter 는 사용자만 만든다.
         return f"resolver 가 만들 수 없는 origin 이다: {origin}"
     if origin != "explicit_query":
         return None
@@ -273,12 +258,10 @@ def _explicit_claim_problem(origin: str, span: QuerySpan | None, query: str) -> 
 def _drop_entities_shadowed_by_locations(
     entities: tuple[Entity, ...], locations: tuple[Location, ...], findings: list[AnchorFinding]
 ) -> tuple[Entity, ...]:
-    """`AC-QRY-005` — 같은 값이 entities 와 locations 에 동시에 오면 한 건만 남긴다.
+    """`F-05 중복 계산 방지` — 같은 값이 entities 와 locations 에 동시에 오면 한 건만 남긴다.
 
-    수용 기준은 "거부 또는 locations 한 건으로 정규화" 둘 다 허용한다. **locations 를
-    남긴다** — 검색 단위가 장면이고, 같은 문자열이 양쪽으로 읽힐 때(예: `서울시청`)
-    장면 화면에 실제로 보이는 것은 장소·시설 쪽이기 때문이다. 반대로 지우면
-    이중 scoring 이 아니라 신호 자체가 사라진다.
+    F-05의 중복 계산 방지를 지원하기 위해 locations를 우선하는 구현 선택이다.
+    FRD가 특정 배열의 우선순위를 요구하는 것은 아니다.
     """
     taken = {_fold(item.value) for item in locations}
     kept: list[Entity] = []
@@ -288,7 +271,7 @@ def _drop_entities_shadowed_by_locations(
                 AnchorFinding(
                     f"entities[{i}]",
                     "dropped",
-                    f"locations 에 같은 값이 있다: {entity.value!r} (AC-QRY-005)",
+                    f"locations 에 같은 값이 있다: {entity.value!r} (F-05 중복 계산 방지)",
                 )
             )
             continue

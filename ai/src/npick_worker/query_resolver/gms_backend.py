@@ -1,19 +1,10 @@
-"""승인된 GMS(OpenAI 호환 게이트웨이) HTTP 구현.
+"""GMS(OpenAI 호환 게이트웨이) HTTP 어댑터.
 
-`ollama_backend.py` 와 같은 자리에 있는 두 번째 `QueryResolver` 구현이다. 둘 다
-남겨 두는 이유는 FRD §13.4 가 "승인되지 않으면 local adapter 를 사용"을 fallback
-경로로 지정하기 때문이다 — 로컬 구현을 지우면 그 문장을 만족할 수단이 없어진다.
-
-`httpx2` 심볼과 API 키는 이 파일 밖으로 나가지 않는다. 예외도 전부
-`ResolverCallError` 로 바꿔서 내보낸다.
-
-**외부 전송 승인 검사가 아직 없다.** `NFR-GMS-002` 는 active deployment policy·
-provider profile 이 없으면 외부 호출 **전에** fail-closed 하라고 요구하고, §13.4 는
-deployment-level `query_external_processing_allowed=yes` 와 provider allowlist 를
-요구한다. `deployment_external_policy`·`external_provider_profile` 테이블은 비어
-있고 BE 도메인 코드도 없어서, 지금은 그 검사가 **어디에도 없다.** 검사가 생기면
-`complete()` 진입부가 붙일 자리다. 이 파일이 그걸 대신 판단하지는 않는다 —
-승인 정보는 배포 단위의 것이고 워커가 지어낼 수 없다.
+FRD §6.4는 검색어 전송 승인을 영상 전송 승인과 구분한다. 권리·외부 처리 허용과
+제공자 조건을 확인하기 전에는 전송할 수 없다. §11은 별도 정책 테이블을 요구하지 않는다.
+이 모듈에는 승인 검사가 없으므로 호출자가 승인된 제공자·목적지·데이터 범위를
+확인해야 한다. 설정만으로 승인이 성립하지 않는다. 허용된 로컬 처리나 대체 검색은
+§6.2에 따른 호출부 책임이다. httpx2와 provider 예외는 어댑터 안에 가둔다.
 """
 
 from typing import Any, Final
@@ -23,7 +14,7 @@ import httpx2
 from npick_worker.query_resolver.config import CallParams
 from npick_worker.query_resolver.resolver import ResolverCallError
 
-#: FRD §12 오류 코드.
+#: 모듈 오류 코드.
 _TIMEOUT: Final[str] = "RESOLVER_TIMEOUT"
 _RATE_LIMITED: Final[str] = "RESOLVER_RATE_LIMITED"
 _NETWORK: Final[str] = "RESOLVER_NETWORK"
@@ -56,7 +47,7 @@ class GmsResolver:
     """`QueryResolver` Protocol 구현. OpenAI 호환 `chat/completions` 를 쓴다.
 
     `messages` 구조가 Ollama 와 같아서 상위의 system/user 분리를 그대로 쓴다.
-    다른 곳은 두 군데다 — `max_tokens`(Ollama 는 `options.num_predict`)와
+    다른 곳은 두 군데다 — `max_completion_tokens`(Ollama 는 `options.num_predict`)와
     `response_format`(Ollama 는 `format="json"`).
     """
 
@@ -115,7 +106,7 @@ class GmsResolver:
             # 디코딩 단계 제약이라 프롬프트 지시보다 강하다 — RESOLVER_SCHEMA_INVALID 를
             # 줄인다. 게이트웨이가 이 키를 받지 않으면 4xx 가 오므로,
             # NPICK_AI_GMS_JSON_MODE=false 로 끄고 프롬프트 지시에만 의존한다.
-            # 자동 재시도는 하지 않는다(FR-QRY-023).
+            # 자동 재시도는 하지 않는다(FRD §6.2).
             payload["response_format"] = {"type": "json_object"}
 
         data = self._post(self._endpoint, payload, self._params.timeout_seconds)

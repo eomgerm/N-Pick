@@ -1,10 +1,10 @@
 # N-Pick AI Worker
 
-FRD §2.1 `[Pipeline Worker]`. 헬스체크, 1단계 `scene_detection`(FRD §5.1), Query Resolver
-프롬프트·출력 schema(FRD §6) 가 구현되어 있다.
+헬스체크, `scene_detection`, Query Resolver 프롬프트·출력 계약(FRD v3.1 F-04~06)이 구현되어 있다.
 
-Query Resolver 는 파이프라인 단계가 아니다 — 검색 시점에 쓰이고 FRD §2.1 에서는
-`[Search Service]` 아래 adapter 로 붙는다. 여기에는 프롬프트·schema·검증만 있다.
+Query Resolver는 검색 시점에 쓰이며 파이프라인 단계가 아니다. 배포 경계는
+[Container 요소 표](../docs/architecture/02-container.md#요소)를 따른다. 이 모듈은
+프롬프트·모델 호출 어댑터·출력 검증을 제공하며 검색 오케스트레이션은 호출부 책임이다.
 
 ## 요구 사항
 
@@ -60,7 +60,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health | ConvertTo-Json -Depth 5
 
 `gpu` 그룹을 설치하지 않은 환경에서는 `torch_available: false`, `resolved: "cpu"` 로 응답한다. GPU 부재는 오류가 아니다.
 
-## scene 분할 (FRD §5.1 1단계)
+## scene 분할 (FRD F-03)
 
 ```python
 from pathlib import Path
@@ -75,7 +75,7 @@ result.engine_version  # '0.7.1'                     ← 구현 버전
 
 구간은 `[start_time_ms, end_time_ms)` 반열린이고 서로 붙어 있다. **같은 파일 + 같은
 `(config_version, engine, engine_version)` 재현성 식별자가 같으면 항상 같은 결과가
-나온다**(FR-PRC-006).
+나온다**(모듈 재현성 계약).
 `config_version` 은 설정 파일만 해시하므로 라이브러리를 올리면 값이 그대로인데 경계는 달라질
 수 있다 — 그래서 세 필드를 다 싣는다. 임계값은 `config/scene_detection.v1.toml` 에 있다.
 
@@ -89,7 +89,7 @@ scene 표를 출력하고 `--out` 에 `scenes.json` 과 경계 프레임 PNG 를
 필요한 샘플 클립 종류는 [samples/README.md](samples/README.md), 선정 근거와 설정 키는
 [docs/scene-detection.md](docs/scene-detection.md).
 
-## Query Resolver (FRD §6)
+## Query Resolver (FRD F-04~06)
 
 한국어 질의를 구조화 조건으로 바꾼다. **검색 시점**에 쓰이며 파이프라인 단계가 아니다.
 
@@ -99,15 +99,23 @@ from npick_worker.query_resolver.ollama_backend import OllamaResolver
 
 result = resolve_query("2022년 촬영한 서울역", resolver)
 result.resolution.locations  # (Location(type='facility', value='서울역', origin='explicit_query', ...),)
-result.resolution_schema_version  # 'query-resolver/v1'
+result.resolution_schema_version  # 'query-resolver/v2'
 result.prompt_version  # 'query-resolver-prompt/v1:4d0caca2'
 result.model_version  # 'gpt-5.4-mini-2026-03-17' (게이트웨이가 응답에 실어 준 이름)
-result.findings  # 검증이 무엇을 바꿨는지 (explicit_anchor_validation_json)
+result.findings  # 검증이 무엇을 바꿨는지 (호출자가 기록할 변경 내역)
 ```
 
 `origin` 이 `explicit_query` 면 **원문에 그 문자열이 실제로 있다**는 뜻이다. 원문에 없는
-값을 그렇게 주장하면 `inferred` 로 강등된다(`FR-QRY-011`). `inferred` 는 hard filter 가
-되지 않는다(`AC-SRH-005`).
+값을 그렇게 주장하면 `inferred` 로 강등된다(F-05를 충족하기 위한 구현 선택). `inferred` 는 hard filter 가
+되지 않는다(FRD F-06).
+
+출력 v2에서 날짜 값은 **`broadcast_date | filmed_date`**다. BE 소비자는 날짜 enum과
+`resolution_schema_version`·`schema_version`의 `query-resolver/v2`를 반영해야 한다.
+v1의 `filming_date`는 거부하며 호환 별칭은 없다. BE 코드는 이번 변경에 포함하지 않는다.
+프롬프트 TOML 파일명과 `query-resolver-prompt/v1` 접두사는 출력 버전과 별개로 유지한다.
+
+`classifications`는 F-04의 `season`, `weather`, `scene_type`을 표현하는 출력 계약이다.
+기존 분류 동작을 유지하며 이 필드가 별도 DB 컬럼을 요구하는 것은 아니다.
 
 ### span 은 모델이 준 숫자를 쓰지 않는다
 
@@ -125,7 +133,7 @@ result.findings  # 검증이 무엇을 바꿨는지 (explicit_anchor_validation_
 | --- | --- |
 | `span_corrected` | 값은 원문에 있고 인덱스만 고쳤다. `explicit_query` 유지 |
 | `demoted_to_inferred` | 원문에 없는 값이거나 resolver 가 `explicit_filter` 를 주장했다 |
-| `dropped` | 뒤집힌 날짜 구간, 또는 `locations` 와 겹친 `entities` (`AC-QRY-005`) |
+| `dropped` | 뒤집힌 날짜 구간, 또는 `locations` 와 겹친 `entities`; locations 우선은 F-05의 중복 계산 방지를 위한 구현 선택 |
 
 ### backend 2개
 
@@ -141,15 +149,15 @@ result.findings  # 검증이 무엇을 바꿨는지 (explicit_anchor_validation_
 토큰 상한은 `max_completion_tokens` 로 보낸다. 옛 이름 `max_tokens` 는 최신 모델이
 400 으로 거부한다.
 
-`ollama` 를 기본으로 두는 이유는 FRD §13.4 가 query 외부 전송을 **별도 승인 대상**으로
-두기 때문이다. 어느 쪽이든 **없어도 워커는 기동한다** — 실패는 실제로 호출할 때만 난다.
+`ollama` 기본값은 외부 전송을 기본으로 켜지 않기 위한 구현 선택이다. FRD §6.4는
+검색어·필터 전송 승인을 영상 전송 승인과 구분한다. 권리·외부 처리 허용 및 제공자
+조건을 확인하기 전에는 외부 AI로 보내면 안 된다. §11에 따라 별도 정책 테이블은
+전제하지 않는다. 현재 GMS 어댑터에는 승인 검사가 없으므로 호출자가 승인된
+제공자·목적지·데이터 범위를 확인해야 한다. 환경 변수 설정만으로 승인되지는 않는다.
 
-> ⚠️ **외부 전송 승인 검사가 아직 코드에 없다.** `NFR-GMS-002` 는 active deployment
-> policy·provider profile 이 없으면 외부 호출 **전에** fail-closed 하라고 요구하고,
-> §13.4 는 deployment-level `query_external_processing_allowed=yes` 와 provider
-> allowlist 를 요구한다. `deployment_external_policy`·`external_provider_profile`
-> 테이블은 비어 있고 BE 도메인 코드도 없다. `gms` 를 쓰는 것은 **승인 절차를 우회하는
-> 것**이며, 검사가 생기면 `gms_backend.complete()` 진입부가 그 자리다.
+호출·schema 오류 코드는 모듈 계약이다. 호출부는 §6.2에 따라 원 검색어 BM25로
+전환하고 누락을 안내하며 동기 AI 재시도를 하지 않는다. 반환하는 해석·findings·
+세 버전은 §7.2 기록을 지원하는 메타데이터이며 특정 snapshot 테이블을 요구하지 않는다.
 
 ```powershell
 $env:NPICK_AI_RESOLVER_BACKEND = "gms"
@@ -161,7 +169,7 @@ uv run --directory ai python -m npick_worker.query_resolver.report
 
 대표 질의 20개를 돌려 표로 출력한다. `--out result.json` 으로 저장, `--only 15` 로 하나만.
 프롬프트는 `config/query_resolver.v1.toml` 에 있고 그 해시가 `prompt_version` 이다.
-**프롬프트 문구와 timeout 은 Gate B 미동결**이다.
+**모델·프롬프트·timeout은 FRD §11에 따라 실측 후 확정한다.** 검색 p95 10초는 §8.2의 품질 목표이며 현재 설정이 이를 달성했다는 뜻은 아니다.
 
 ## 빌드 / 테스트
 
@@ -214,9 +222,9 @@ uv sync --directory ai --group gpu
 | `NPICK_AI_PORT` | `8000` | backend 8081 과 분리 |
 | `NPICK_AI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `NPICK_AI_DEVICE` | `auto` | `auto` / `cuda` / `cpu`. `cuda` 를 지정해도 불가하면 경고 후 `cpu` 로 내려간다 |
-| `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §13.4 |
+| `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §6.4 |
 | `NPICK_AI_OLLAMA_URL` | `http://127.0.0.1:11434` | Query Resolver 가 부를 Ollama 주소 |
-| `NPICK_AI_OLLAMA_MODEL` | (없음) | 쓸 모델 태그. **기본값을 두지 않는다** — 모델이 결과를 바꾸고 Gate B 미동결이라 코드가 임의로 고르면 근거 없는 동결이 된다 |
+| `NPICK_AI_OLLAMA_MODEL` | (없음) | 쓸 모델 태그. **기본값을 두지 않는다** — 모델이 결과를 바꾸고 실측 후 확정이라 코드가 임의로 고르면 근거 없는 동결이 된다 |
 | `NPICK_AI_GMS_BASE_URL` | (없음) | 승인된 GMS 게이트웨이 주소. 추정하지 않는다 |
 | `NPICK_AI_GMS_API_KEY` | (없음) | `Authorization: Bearer` 토큰. `SecretStr` 로 받아 로그·예외에 실리지 않는다 |
 | `NPICK_AI_GMS_MODEL` | (없음) | `model_version` 에 실려 나가는 모델명 |
@@ -236,17 +244,17 @@ ai/
 │   ├── settings.py      NPICK_AI_* 환경 변수
 │   ├── device.py        장치 탐지 (torch 지연 임포트, CPU 폴백)
 │   ├── schemas.py       /health 응답 스키마
-│   ├── stages.py        FRD §5.1 10단계 선언적 메타데이터
+│   ├── stages.py        기존 10단계 선언적 메타데이터
 │   ├── config/
-│   │   ├── scene_detection.v1.toml   임계값 정본 (Gate B 미동결)
-│   │   └── query_resolver.v1.toml    프롬프트 정본 (Gate B 미동결)
-│   ├── scene_detection/ FRD §5.1 1단계. detect_scenes() 순수 함수
+│   │   ├── scene_detection.v1.toml   임계값 정본 (실측 후 확정)
+│   │   └── query_resolver.v1.toml    프롬프트 정본 (실측 후 확정)
+│   ├── scene_detection/ 장면 분할. detect_scenes() 순수 함수
 │   │   ├── config.py                 toml 로딩 + version_id
 │   │   ├── models.py                 Scene / SceneDetectionResult
 │   │   ├── detector.py               SceneDetector Protocol
 │   │   ├── pyscenedetect_backend.py  PySceneDetect + PyAV 구현
 │   │   └── report.py                 육안 확인 CLI
-│   └── query_resolver/  FRD §6. resolve_query() 순수 함수
+│   └── query_resolver/  FRD F-04~06. resolve_query() 모델 호출·검증
 │       ├── schema.py                 출력 schema 정본 + SCHEMA_VERSION
 │       ├── config.py                 toml 로딩 + prompt_version
 │       ├── prompt.py                 템플릿 렌더링
@@ -256,19 +264,19 @@ ai/
 │       ├── gms_backend.py            승인된 GMS HTTP 구현 (OpenAI 호환)
 │       ├── report.py                 대표 질의 20개 확인 CLI
 │       └── fixtures/                 대표 질의 20개
-├── docs/scene-detection.md   선정 근거·설정 키·Gate B 항목
+├── docs/scene-detection.md   선정 근거·설정 키·실측 후 확정 항목
 ├── samples/                  로컬 샘플 클립 (영상은 커밋 금지)
 └── tests/
     ├── conftest.py           합성 영상 픽스처 (PyAV 로 그 자리에서 인코딩)
-    ├── test_health.py        레지스트리가 FRD §5.1 과 일치하는지 검증
+    ├── test_health.py        기존 단계 레지스트리 검증
     ├── test_scene_detection.py
     ├── test_query_resolver.py
     └── test_smoke_models.py  -m smoke: torch CUDA + faster-whisper tiny
 ```
 
-- `stages.py` 는 FRD §5.1 표의 전사다. 단계 구현은 같은 이름의 패키지에 둔다.
-- **임계값은 코드가 아니라 `config/*.toml` 에 있다.** 값이 바뀌면 `version_id` 가 바뀐다(FR-PRC-015).
-- HTTP 표면은 헬스·운영용이다. 작업 수신 방식(FRD §10.8 outbox claim)과 BE 호출 인터페이스는 S15P21A501-70 에서 합의한다.
+- `stages.py`는 기존 단계 선언이다. v3.1과의 파이프라인 정합성 정리는 별도 작업이다. 단계 구현은 같은 이름의 패키지에 둔다.
+- **임계값은 코드가 아니라 `config/*.toml` 에 있다.** 값이 바뀌면 `version_id` 가 바뀐다(FRD §7.2 기록 지원).
+- HTTP 표면은 헬스·운영용이다. 작업 수신 방식과 BE 호출 인터페이스는 S15P21A501-70 에서 합의한다.
 - 장치 정보는 프로세스 기동 후 1회만 탐지해 캐시한다. 드라이버를 교체했으면 워커를 재기동한다.
 - 빈 패키지를 미리 만들지 않는다. 실제 기능이 생길 때 추가한다.
 - 손으로 명령을 칠 때는 `--directory ai`(CWD 를 옮긴다), lefthook 훅에서는 `--project ai`(루트 기준 경로를 보존한다)를 쓴다. 클론 직후 `uv sync --directory ai` 를 먼저 돌리면 첫 커밋 훅이 빠르다.

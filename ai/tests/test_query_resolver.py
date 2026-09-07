@@ -1,9 +1,9 @@
-"""Query Resolver 검증 테스트 (FR-QRY-010~016, AC-QRY-005).
+"""Query Resolver 검증 테스트 (FRD F-05, F-05 중복 계산 방지).
 
 전부 LLM 없이 돈다. 고정된 출력 문자열을 validator 에 넣어 검사한다 — 모델 응답을
-채점하는 것은 Gold Set 이 있어야 하는 일이고(FRD §14), 여기서 할 일이 아니다.
+채점하는 것은 Gold Set 이 있어야 하는 일이고(FRD §8.2), 여기서 할 일이 아니다.
 
-설계 §17 의 Hard/Soft 구분에서 **Hard 쪽**이다. Soft(확장어가 적절한가, 추론이 과한가)는
+구조와 검증 동작을 검사한다. 확장어 적절성이나 추론 품질은
 `report.py` 로 사람이 본다.
 """
 
@@ -120,7 +120,7 @@ def test_json_array_is_rejected() -> None:
         parse_raw("[]")
 
 
-# ── 2·3단계: span 검증과 강등 (FR-QRY-011) ────────────────────────────
+# ── 2·3단계: span 검증과 강등 (FRD F-05) ────────────────────────────
 
 
 def test_matching_span_stays_explicit() -> None:
@@ -133,7 +133,7 @@ def test_matching_span_stays_explicit() -> None:
 
 
 def test_mismatched_span_is_demoted_not_rejected() -> None:
-    """FR-QRY-011 은 '거부'가 아니라 'inferred 로 강등'을 지정한다."""
+    """F-05의 명시·추론 구분을 위해 원문에 없는 값을 강등하는 구현 선택."""
     query = "서울역 귀성객"
     outcome = validate(
         parse_raw(_payload(locations=[_anchor("부산역", 0, 3, type="facility")])), query
@@ -148,7 +148,7 @@ def test_mismatched_span_is_demoted_not_rejected() -> None:
 def test_off_by_one_span_is_corrected_not_demoted() -> None:
     """실측에서 가장 흔한 실패다. 값은 원문에 있고 인덱스만 어긋난다.
 
-    강등해 버리면 사용자가 직접 입력한 조건이 hard filter 에서 빠진다(AC-SRH-005).
+    강등해 버리면 사용자가 직접 입력한 조건이 hard filter 에서 빠진다(FRD F-06).
     """
     query = "비 오는 시장"
     outcome = validate(
@@ -199,7 +199,7 @@ def test_repeated_value_uses_the_occurrence_nearest_the_hint() -> None:
 
 
 def test_explicit_without_span_is_demoted() -> None:
-    """FR-QRY-014 — 원문에 없는 값을 사용자 조건처럼 만들지 못하게 한다."""
+    """FRD F-05 — 원문에 없는 값을 사용자 조건처럼 만들지 못하게 한다."""
     payload = _payload(
         incident_names=[
             {"value": "추석", "origin": "explicit_query", "query_span": None, "confidence": 0.9}
@@ -210,7 +210,7 @@ def test_explicit_without_span_is_demoted() -> None:
 
 
 def test_resolver_cannot_forge_explicit_filter() -> None:
-    """FR-QRY-012 — explicit UI filter 는 사용자만 만든다."""
+    """FRD F-05 — explicit UI filter 는 사용자만 만든다."""
     payload = _payload(
         entities=[
             {
@@ -242,7 +242,7 @@ def test_inferred_anchor_needs_no_span() -> None:
     assert outcome.findings == ()
 
 
-# ── 날짜 (FR-QRY-013) ─────────────────────────────────────────────────
+# ── 날짜 (모듈 날짜 해석 계약 (FRD F-04~06)) ─────────────────────────────────────────────────
 
 
 def _window(field: str, start: str, end: str, **extra: Any) -> dict[str, Any]:
@@ -282,7 +282,7 @@ def test_both_date_fields_are_accepted() -> None:
         assert validate(parse_raw(payload), "2022년").resolution.date_windows[0].field == field
 
 
-# ── entities / locations 중복 (FR-QRY-016, AC-QRY-005) ────────────────
+# ── entities / locations 중복 (FRD F-04~05, F-05 중복 계산 방지) ────────────────
 
 
 def test_duplicate_value_keeps_locations_only() -> None:
@@ -294,7 +294,7 @@ def test_duplicate_value_keeps_locations_only() -> None:
     outcome = validate(parse_raw(payload), query)
     assert outcome.resolution.entities == ()
     assert len(outcome.resolution.locations) == 1
-    assert "AC-QRY-005" in outcome.findings[0].reason
+    assert "F-05 중복 계산 방지" in outcome.findings[0].reason
 
 
 def test_duplicate_check_ignores_case_and_spacing() -> None:
@@ -331,7 +331,7 @@ def test_different_values_both_survive() -> None:
     assert len(outcome.resolution.locations) == 1
 
 
-# ── 버전 (FR-OVR-005, DB 컬럼) ────────────────────────────────────────
+# ── 버전 (FRD F-14, 모듈 메타데이터) ────────────────────────────────────────
 
 
 def test_schema_version_is_added_by_code_not_model() -> None:
@@ -360,12 +360,12 @@ def test_versioned_config_filename_must_match_schema(tmp_path: Path) -> None:
 
 
 def test_empty_resolution_carries_schema_version() -> None:
-    """FR-QRY-024 — fallback 도 validated resolution 이고, DB 컬럼이 NOT NULL 이다."""
+    """모듈 fallback 계약 — 빈 결과에도 schema 버전을 반환한다."""
     assert empty_resolution().schema_version == SCHEMA_VERSION
     assert empty_resolution().intent == "unknown"
 
 
-# ── 프롬프트 (FR-QRY-013~016) ─────────────────────────────────────────
+# ── 프롬프트 (FRD F-05) ─────────────────────────────────────────
 
 
 def test_prompt_uses_schema_date_field_names() -> None:
@@ -390,7 +390,7 @@ def test_prompt_states_the_five_rules() -> None:
         assert token in rendered
 
 
-# ── Gate B: 프롬프트가 코드에 없어야 한다 ─────────────────────────────
+# ── 실측 후 확정: 프롬프트 설정 분리 ─────────────────────────────
 
 
 def _string_literals(source: str) -> Iterable[str]:
@@ -400,7 +400,7 @@ def _string_literals(source: str) -> Iterable[str]:
 
 
 def test_prompt_body_is_not_in_python_sources() -> None:
-    """ai/AGENTS.md — Gate B 미동결 값은 코드에 두지 않는다.
+    """ai/AGENTS.md — 실측 후 확정 값은 코드에 두지 않는다.
 
     프롬프트 규칙 문장이 `.py` 에 복사돼 있으면 toml 을 고쳐도 그쪽이 안 바뀐다.
     """
@@ -424,7 +424,7 @@ def test_representative_queries_cover_twenty_cases(set_name: str) -> None:
 
 @pytest.mark.parametrize("set_name", sorted(FIXTURES))
 def test_hallucination_case_is_present(set_name: str) -> None:
-    """15번이 FR-QRY-014 확인 케이스다. 빠지면 완료 조건을 못 본다.
+    """15번이 FRD F-05 확인 케이스다. 빠지면 완료 조건을 못 본다.
 
     질의 문자열이 아니라 ★ 표시를 근거로 본다. 세트가 늘거나 문구가 바뀌어도
     "창작 anchor 를 보는 케이스가 정확히 하나 있다" 는 의도는 그대로 지켜진다.
@@ -437,7 +437,7 @@ def test_hallucination_case_is_present(set_name: str) -> None:
 def test_default_set_queries_are_sentences() -> None:
     """기본 세트는 편집기자가 실제로 치는 문장이어야 한다.
 
-    resolver 가 받는 것은 canonical 된 원문 그대로다(FRD §6.1 — 한국어를 보존한다).
+    resolver 가 받는 것은 사용자가 입력한 원문이다(FRD F-05의 원문 보존).
     키워드 조각으로 되돌아가면 요청 어미·도메인 상투어 누수를 못 본다.
     """
     queries = load_queries(DEFAULT_SET)
@@ -465,12 +465,12 @@ def test_resolve_query_sends_rendered_prompts() -> None:
 
 
 def test_resolve_query_propagates_schema_error() -> None:
-    """FR-QRY-022 — 호출부가 fallback 으로 내려갈 수 있게 예외를 그대로 올린다."""
+    """FRD §6.2 — 호출부가 fallback 으로 내려갈 수 있게 예외를 그대로 올린다."""
     with pytest.raises(ResolverSchemaInvalidError):
         resolve_query("서울역", StubResolver("not json"))
 
 
-def test_findings_serialize_for_snapshot_column() -> None:
+def test_findings_serialize_for_caller_record() -> None:
     """explicit_anchor_validation_json 이 NOT NULL 이라 항상 실을 값이 있어야 한다."""
     outcome = validate(
         parse_raw(_payload(entities=[_anchor("부산역", 0, 3, type="person")])), "서울역"
@@ -642,7 +642,7 @@ def test_endpoint_keeps_a_gateway_path_without_v1() -> None:
 
 
 def test_gms_json_mode_can_be_turned_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """게이트웨이가 response_format 을 거부하면 끈다. 자동 재시도는 없다(FR-QRY-023)."""
+    """게이트웨이가 response_format 을 거부하면 끈다. 자동 재시도는 없다(FRD §6.2)."""
     calls = _patch_client(monkeypatch, _FakeResponse(200, _ok_body("{}")))
     _gms(json_mode=False).complete("SYS", "USR")
     assert "response_format" not in calls[0]["json"]
@@ -724,7 +724,7 @@ def _settings(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> Settings:
 
 
 def test_backend_default_is_local(monkeypatch: pytest.MonkeyPatch) -> None:
-    """FRD §13.4 가 외부 전송을 별도 승인 대상으로 둔다. 기본은 나가지 않는 쪽이다."""
+    """FRD §6.4 가 외부 전송을 별도 승인 대상으로 둔다. 기본은 나가지 않는 쪽이다."""
     assert _settings(monkeypatch).resolver_backend == "ollama"
 
 
@@ -759,3 +759,36 @@ def test_api_key_setting_is_masked_in_repr(monkeypatch: pytest.MonkeyPatch) -> N
     settings = _settings(monkeypatch, gms_api_key=SecretStr("sk-do-not-log-me"))
     assert "sk-do-not-log-me" not in repr(settings)
     assert settings.gms_api_key.get_secret_value() == "sk-do-not-log-me"
+
+
+@pytest.mark.parametrize("field", ["broadcast_date", "filmed_date"])
+def test_v2_date_contract_round_trip(field: str) -> None:
+    payload = _payload(date_windows=[_window(field, "2022-01-01", "2023-01-01")])
+    result = resolve_query("2022년 촬영", StubResolver(payload))
+    serialized = json.loads(result.resolution.model_dump_json())
+    assert serialized["date_windows"][0]["field"] == field
+    assert serialized["schema_version"] == "query-resolver/v2"
+    assert result.resolution_schema_version == "query-resolver/v2"
+    assert result.prompt_version.startswith("query-resolver-prompt/v1:")
+
+
+def test_legacy_filming_date_is_rejected() -> None:
+    with pytest.raises(ResolverSchemaInvalidError):
+        parse_raw(_payload(date_windows=[_window("filming_date", "2022-01-01", "2023-01-01")]))
+
+
+def test_v2_schema_prompt_and_empty_resolution_contract() -> None:
+    from npick_worker.query_resolver.schema import RawResolution, ValidatedResolution
+
+    for model in (RawResolution, ValidatedResolution):
+        schema = model.model_json_schema()
+        assert schema["$defs"]["DateWindow"]["properties"]["field"]["enum"] == [
+            "broadcast_date",
+            "filmed_date",
+        ]
+    prompt = render_system_prompt(get_default_config())
+    assert '"field": "broadcast_date | filmed_date"' in prompt
+    assert "filming_date" not in prompt
+    empty = json.loads(empty_resolution().model_dump_json())
+    assert empty["schema_version"] == "query-resolver/v2"
+    assert empty["date_windows"] == []

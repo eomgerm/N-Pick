@@ -1,11 +1,7 @@
-"""LLM 호출 경계.
+"""LLM 호출을 감싸는 모듈 어댑터 경계.
 
-`ai/AGENTS.md`: "외부 모델 호출은 FRD §2.1 의 adapter 경계 뒤에 둔다. 호출부에
-provider SDK 를 직접 노출하지 않는다."
-
-`scene_detection/detector.py` 의 `SceneDetector` 와 같은 형태다. 이 Protocol 만
-만족시키면 Ollama 든 승인된 GMS 든 갈아끼울 수 있고, 상위 코드는 바뀌지 않는다
-(FRD §2.1 — "자체 호스팅 구현으로 교체 가능해야 한다").
+QueryResolver Protocol 뒤에 provider 구현을 두어 상위 코드에 SDK를 노출하지 않는다.
+FRD F-05의 질의 해석과 §6.2의 실패 처리를 지원하는 구현 계약이다.
 """
 
 from typing import Protocol
@@ -16,12 +12,12 @@ class ResolverCallError(RuntimeError):
 
     provider 예외를 이 타입으로 바꿔서 내보낸다. httpx·SDK 예외가 호출부로 새면
     adapter 경계가 없는 것과 같다. 호출부는 이걸 받아 raw query BM25 fallback 으로
-    내려간다(`FR-QRY-022`).
+    내려간다(`FRD §6.2`).
     """
 
     def __init__(self, message: str, *, category: str) -> None:
         super().__init__(message)
-        #: FRD §12 의 오류 코드. `RESOLVER_TIMEOUT` | `RESOLVER_RATE_LIMITED` 등.
+        #: 모듈 오류 코드. `RESOLVER_TIMEOUT` | `RESOLVER_RATE_LIMITED` 등.
         self.category = category
 
 
@@ -37,7 +33,7 @@ class QueryResolver(Protocol):
 
     @property
     def version(self) -> str:
-        """`query_resolution_snapshot.model_version` 에 실릴 값.
+        """반환 메타데이터 model_version에 실릴 값.
 
         모델을 바꾸면 같은 프롬프트에서도 해석이 달라진다. `prompt_version` 만으로는
         재현이 보장되지 않아 이 값이 따로 필요하다.

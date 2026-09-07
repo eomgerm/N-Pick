@@ -1,7 +1,7 @@
-"""Query Resolver 출력 schema (FRD §6.2, FR-QRY-010).
+"""Query Resolver 출력 계약 (FRD F-04~06, §11.1).
 
 이 파일이 출력 schema 의 **정본**이다. `resolution_schema_version` 이 가리키는 대상이
-여기이고, `query_resolution_snapshot.resolution_value_json` 에 그대로 실린다.
+여기이다. 반환 메타데이터는 FRD §7.2의 해석·버전 기록을 지원한다.
 
 두 가지를 구분한다.
 
@@ -18,21 +18,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 #: 출력 schema 의 버전. **해시가 아니라 손으로 붙인다.**
 #:
-#: `FR-OVR-005` 가 resolution_patch 와 현재 validator 의 **호환성 판정**을 요구한다.
+#: FRD F-14의 출력 형식 비호환 처리를 지원하는 모듈 버전이다.
 #: 해시로 만들면 주석 한 줄만 고쳐도 값이 달라져 "호환된다"를 표현할 방법이 없다.
 #: 필드가 늘거나 의미가 바뀔 때만 올린다.
-SCHEMA_VERSION: Final[str] = "query-resolver/v1"
+SCHEMA_VERSION: Final[str] = "query-resolver/v2"
 
 #: 날짜 필드 이름. **여기 한 곳에서만 정의한다.**
 #:
-#: 레포 정본(`docs/frd.md` v2.2)은 `filming_date`, 설계가 참조한 Notion FRD v3.0 은
-#: `filmed_date` 로 서로 다르다. 아직 확정되지 않았으므로 정본을 따르고, 바뀌면
-#: 이 Literal 과 픽스처 상수만 고치면 되도록 가둬 둔다.
-DateField = Literal["broadcast_date", "filming_date"]
+#: FRD v3.1 F-04의 날짜 태그와 동일한 이름을 출력 계약으로 확정한다.
+DateField = Literal["broadcast_date", "filmed_date"]
 
 #: `explicit_filter` 는 사용자가 UI 에서 직접 고른 필터다. schema 에는 존재하지만
-#: **resolver 는 이 값을 만들 수 없다** — `FR-QRY-012` 가 "explicit UI filter 는
-#: resolver 가 변경할 수 없다"고 못 박는다. 강제는 `validator.py` 가 한다.
+#: **resolver 는 이 값을 만들 수 없다** — F-05의 사용자 명시 필터 보호를 위한
+#: 모듈 계약이다. 강제는 `validator.py` 가 한다.
 Origin = Literal["explicit_filter", "explicit_query", "inferred"]
 
 #: resolver 출력에서 허용되는 origin. 위 Origin 의 부분집합이다.
@@ -56,7 +54,7 @@ class QuerySpan(_Frozen):
     """원문 query 기준 `[start, end)` 반열린 구간.
 
     `query[start:end] == value` 가 성립해야 한다. 이 대조는 schema 로 표현할 수 없어
-    `validator.py` 가 한다(`FR-QRY-011`).
+    `validator.py` 가 한다(`FRD F-05`).
     """
 
     start: int = Field(ge=0)
@@ -75,12 +73,12 @@ class _Anchor(_Frozen):
 class DateWindow(_Anchor):
     """`[start, end_exclusive)` 반열린 날짜 구간.
 
-    `FR-QRY-013`: 설명 없는 bare 날짜는 `broadcast_date`, 촬영 의미가 원문에 명시된
-    날짜만 `filming_date` 다.
+    모듈 날짜 해석 계약 (FRD F-04~06): 설명 없는 날짜는 `broadcast_date`,
+    촬영 의미가 원문에 명시된 날짜만 `filmed_date` 다.
     """
 
     field: DateField
-    #: `YYYY-MM-DD`. 형식 검증은 pydantic 이, `start < end_exclusive` 는 validator 가 한다.
+    #: `YYYY-MM-DD`. 날짜 파싱과 `start < end_exclusive` 검증은 validator 가 한다.
     start: str
     end_exclusive: str
 
@@ -89,7 +87,7 @@ class ValuedAnchor(_Anchor):
     """`value` 문자열을 갖는 anchor.
 
     `DateWindow` 와 갈리는 지점이다. 여기 속한 항목은 `query[span] == value` 대조가
-    가능하지만(`FR-QRY-011`), 날짜 구간은 대조할 문자열이 없어 span 범위만 본다.
+    가능하지만(`FRD F-05`), 날짜 구간은 대조할 문자열이 없어 span 범위만 본다.
     validator 가 이 구분에 기대어 동작한다.
     """
 
@@ -97,17 +95,17 @@ class ValuedAnchor(_Anchor):
 
 
 class IncidentName(ValuedAnchor):
-    """사건명. 사건 목록·배정 기능은 P0 에 없다(PRD §3.5)."""
+    """사건명. 사건 목록·배정 기능은 P0 에 없다(FRD §1.2)."""
 
 
 class Entity(ValuedAnchor):
-    """사람·기관. 장소·시설은 여기 넣지 않는다(`FR-QRY-016`)."""
+    """사람·기관. 장소·시설은 여기 넣지 않는다(`FRD F-04~05`)."""
 
     type: EntityType
 
 
 class Location(ValuedAnchor):
-    """장소·시설. 사람·기관은 여기 넣지 않는다(`FR-QRY-016`)."""
+    """장소·시설. 사람·기관은 여기 넣지 않는다(`FRD F-04~05`)."""
 
     type: LocationType
 
@@ -116,15 +114,15 @@ class Classification(ValuedAnchor):
     """계절·날씨·장면 유형.
 
     `value` 를 enum 으로 닫지 않는다. 허용 어휘는 개발셋을 보고 정할 항목이라
-    지금 값을 박으면 근거 없는 수치를 코드에 두는 것이 된다(`ai/AGENTS.md`,
-    PRD §15.3 Gate B). 어휘가 확정되면 그때 `Literal` 로 좁힌다.
+    F-04의 season·weather·scene_type을 classifications로 표현한다.
+    어휘를 열린 문자열로 두는 것은 모듈 계약이며 FRD가 enum을 요구하지 않는다.
     """
 
     type: ClassificationType
 
 
 class _ResolutionBase(_Frozen):
-    """FRD §6.2 논리 schema. `RawResolution` 과 `ValidatedResolution` 의 공통 정의."""
+    """F-04~05를 표현하는 모듈 출력 계약. `RawResolution` 과 `ValidatedResolution` 의 공통 정의."""
 
     intent: Intent
     date_windows: tuple[DateWindow, ...] = ()
@@ -132,7 +130,7 @@ class _ResolutionBase(_Frozen):
     entities: tuple[Entity, ...] = ()
     locations: tuple[Location, ...] = ()
     classifications: tuple[Classification, ...] = ()
-    #: 동의어·관련어. `FR-QRY-015` — 확장은 여기 한 곳에서만 하고 별도 rewrite 단계를 두지 않는다.
+    #: 동의어·관련어. `FRD F-05` — 확장은 여기 한 곳에서만 하고 별도 rewrite 단계를 두지 않는다.
     expanded_terms: tuple[str, ...] = ()
     confidence: float = Field(ge=0.0, le=1.0)
 
@@ -154,8 +152,7 @@ class ValidatedResolution(_ResolutionBase):
 def empty_resolution() -> ValidatedResolution:
     """fallback 이 쓰는 빈 resolution.
 
-    `FR-QRY-024`: fallback 은 **비어 있는 validated resolution** 과 raw query 를 쓴다.
-    `query_resolution_snapshot.resolution_schema_version` 이 NOT NULL 이므로 이
-    경로에서도 버전 문자열이 있어야 한다.
+    `모듈 fallback 계약`: fallback 은 **비어 있는 validated resolution** 과 raw query 를 쓴다.
+    빈 결과도 같은 출력 계약의 schema_version을 반환한다.
     """
     return ValidatedResolution(intent="unknown", confidence=0.0)

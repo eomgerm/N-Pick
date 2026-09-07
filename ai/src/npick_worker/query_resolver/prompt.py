@@ -5,7 +5,7 @@ toml 의 템플릿에 값을 채운다. 채우는 값은 두 종류뿐이다.
 - 날짜 필드명 — `schema.py` 의 `DateField` 에서 온다. 프롬프트와 schema 가 서로 다른
   이름을 말하면 LLM 출력이 항상 schema 검증에서 떨어진다. 정본을 한 곳에 두는 이유다.
 - 사용자 질의 — 원문 그대로. 정규화한 질의를 넣지 않는다. `query_span` 은 원문 기준이고
-  (`FR-QRY-011`) 정규화된 문자열을 넣으면 span 이 원문과 어긋난다.
+  (`FRD F-05`) 정규화된 문자열을 넣으면 span 이 원문과 어긋난다.
 """
 
 from typing import Final, get_args

@@ -1,19 +1,9 @@
-"""Query Resolver — 한국어 질의를 구조화 조건으로 바꾼다 (FRD §6, FR-QRY-010~016).
+"""Query Resolver — 한국어 질의를 구조화한다 (FRD F-04~06).
 
-이 모듈은 순수 함수만 제공한다. fingerprint·canonical query(`FR-QRY-001`~`006`),
-override lookup, fallback 전환, snapshot 저장은 전부 Search Service 몫이다
-(FRD §2.1 — resolver 는 Search Service 아래 adapter 로 붙는다).
-
-여기가 책임지는 것은 **프롬프트 구성 → LLM 호출 → 검증** 한 줄이다.
-
-호출부가 다뤄야 하는 실패는 두 가지다.
-
-- `ResolverCallError`   호출 자체가 실패 (timeout·network·rate limit)
-- `ResolverSchemaInvalidError`  출력 모양이 깨짐
-
-둘 다 `FR-QRY-022` 에 따라 raw query BM25 fallback 으로 이어져야 한다. 검색 전체를
-실패시키지 않는다. 이 모듈은 예외를 던지기만 하고 fallback 을 직접 만들지 않는다 —
-degraded 표시와 snapshot 기록이 Search Service 에 있기 때문이다.
+프롬프트 구성 → LLM 호출 → 검증을 제공한다. 검색 정규화·규칙 적용·기록은 검색
+호출부 책임이다(F-05, §7.2). 배포 경계는 docs/architecture/02-container.md를 따른다.
+ResolverCallError와 ResolverSchemaInvalidError는 모듈 오류 계약이다. 호출부는 §6.2에
+따라 원 검색어의 BM25로 전환하고 누락을 안내하며 동기 AI 재시도를 하지 않는다.
 """
 
 from dataclasses import dataclass
@@ -83,7 +73,7 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class ResolutionResult:
-    """`query_resolution_snapshot` 한 행에 필요한 값 전부.
+    """해석 결과와 §7.2 기록을 지원하는 모듈 반환 메타데이터.
 
     버전이 셋인 이유는 셋 다 결과를 바꾸기 때문이다 — schema 가 바뀌면 필드가,
     프롬프트가 바뀌면 해석이, 모델이 바뀌면 판단이 달라진다. 하나라도 빠지면
@@ -91,7 +81,7 @@ class ResolutionResult:
     """
 
     resolution: ValidatedResolution
-    #: 검증이 무엇을 바꿨는지. `explicit_anchor_validation_json` 에 실린다.
+    #: 검증이 무엇을 바꿨는지. 호출자가 기록할 변경 내역이다.
     findings: tuple[AnchorFinding, ...]
     #: `resolution_schema_version`
     resolution_schema_version: str
@@ -109,7 +99,7 @@ def resolve_query(
     """원문 질의 하나를 검증된 resolution 으로 바꾼다.
 
     `query` 는 **사용자가 친 원문**이다. canonical query 를 넣지 않는다 —
-    `query_span` 이 원문 기준이라(`FR-QRY-011`) 정규화된 문자열을 넣으면 모든
+    `query_span` 이 원문 기준이라(`FRD F-05`) 정규화된 문자열을 넣으면 모든
     explicit anchor 가 강등된다.
 
     `resolver` 를 인자로 받는 이유는 이 함수가 provider 를 고르지 않기 때문이다.

@@ -1,10 +1,10 @@
-"""프롬프트와 호출 파라미터, 그리고 그 버전(FR-QRY-010, PRD §15.3 Gate B).
+"""프롬프트와 호출 파라미터, 그리고 그 버전(FRD F-05, FRD §11 실측 후 확정).
 
 `scene_detection/config.py` 와 같은 구조다. 값은 전부
 `config/query_resolver.v*.toml` 에 있고 그 해시가 `prompt_version` 이 된다.
 
 `prompt_version` 과 `resolution_schema_version` 은 **다른 값**이다.
-`query_resolution_snapshot` 에 컬럼이 따로 있고, 프롬프트만 고치는 일과 schema 를
+모듈 메타데이터로 따로 제공한다(§7.2 기록 지원). 프롬프트와 schema 를
 고치는 일이 서로 다른 속도로 일어나기 때문이다. schema 버전은 `schema.py` 가 갖는다.
 """
 
@@ -38,11 +38,11 @@ class _Frozen(BaseModel):
 
 
 class CallParams(_Frozen):
-    """LLM 호출 파라미터. 전부 Gate B 미동결 잠정값이다."""
+    """LLM 호출 파라미터. 전부 실측 후 확정 잠정값이다."""
 
     temperature: float = Field(ge=0.0, le=2.0)
     max_output_tokens: int = Field(gt=0)
-    #: FR-QRY-023 — retry 는 하지 않는다. 이 값이 검색 p95 예산 안에 들어야 한다.
+    #: FRD §6.2 — retry 는 하지 않는다. 이 값이 검색 p95 예산 안에 들어야 한다.
     timeout_seconds: float = Field(gt=0)
 
 

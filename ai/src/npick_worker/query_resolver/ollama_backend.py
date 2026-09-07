@@ -14,7 +14,7 @@ import httpx2
 from npick_worker.query_resolver.config import CallParams
 from npick_worker.query_resolver.resolver import ResolverCallError
 
-#: FRD §12 오류 코드.
+#: 모듈 오류 코드.
 _TIMEOUT: Final[str] = "RESOLVER_TIMEOUT"
 _RATE_LIMITED: Final[str] = "RESOLVER_RATE_LIMITED"
 _NETWORK: Final[str] = "RESOLVER_NETWORK"

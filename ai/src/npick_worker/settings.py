@@ -31,13 +31,13 @@ class Settings(BaseSettings):
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만
     # 난다(ai/AGENTS.md — GPU 없이도 기동하는 성질을 깨지 않는다).
     #
-    # 기본이 local 인 이유: FRD §13.4 가 query 외부 전송을 별도 승인 대상으로 둔다.
+    # 기본이 local 인 이유: FRD §6.4 가 query 외부 전송을 별도 승인 대상으로 둔다.
     # 승인된 배포에서만 명시적으로 gms 로 뒤집는다.
     resolver_backend: ResolverBackend = "ollama"
 
     ollama_url: str = "http://127.0.0.1:11434"
-    # 기본값을 두지 않는다. 모델명은 결과를 바꾸는 값이고 Gate B 미동결이라,
-    # 코드가 임의로 고르면 그게 곧 근거 없는 동결이다(PRD §15.3).
+    # 기본값을 두지 않는다. 모델명은 결과를 바꾸는 값이고 실측 후 확정 대상이라,
+    # 코드가 임의로 고르면 그게 곧 근거 없는 동결이다(FRD §11).
     ollama_model: str = ""
 
     # 승인된 GMS(OpenAI 호환 게이트웨이). 세 값 모두 기본값이 없다 —
