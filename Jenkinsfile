@@ -42,11 +42,14 @@ pipeline {
       steps {
         checkout scm
         script {
+          // GIT_BRANCH 는 origin/dev 형태로 온다. fetch 인자로 쓰려면 접두사를 뗀다.
+          env.DEPLOY_REF  = (env.GIT_BRANCH ?: 'dev').replaceFirst(/^origin\//, '')
           env.IMAGE_TAG   = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
           env.GIT_AUTHOR  = sh(returnStdout: true, script: 'git log -1 --pretty=%an').trim()
           env.GIT_SUBJECT = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
         }
         echo "커밋 ${env.IMAGE_TAG} — ${env.GIT_SUBJECT} (${env.GIT_AUTHOR})"
+        echo "배포 ref: ${env.DEPLOY_REF}"
       }
     }
 
@@ -55,8 +58,8 @@ pipeline {
       // .env 4개와 같은 compose 프로젝트를 쓴다. 워크스페이스에서 up 하면 프로젝트 이름이
       // 달라져 별개 스택이 뜬다.
       //
-      // reset --hard 는 gitignore 된 .env·htpasswd 를 건드리지 않는다(untracked).
-      // 자격증명은 credential.helper 로 넘겨 URL 과 디스크에 남기지 않는다.
+      // 빌드 중인 브랜치를 그대로 배포한다. 머지 전에도 파이프라인 전체를 시험할 수 있고,
+      // 머지 후에는 dev 가 넘어와 같은 경로로 동작한다.
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'gitlab-repo-credentials',
