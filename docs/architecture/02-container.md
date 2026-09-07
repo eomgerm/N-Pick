@@ -33,7 +33,7 @@ C4Container
         Container(worker, "파이프라인 워커", "FastAPI, Python 3.12, PyTorch", "장면 분할·keyframe 추출·VLM·OCR·Whisper ASR·entity·임베딩 9단계를 자체 GPU에서 실행한다. 서비스 서버로 잡을 받으러 오는 발신자 역할.")
         ContainerDb(db, "정본 및 검색 인덱스", "PostgreSQL 18.6 (pg_search, pgvector)", "clip·scene·evidence·상태·snapshot·override·inquiry의 정본. BM25와 dense 인덱스를 같은 인스턴스에서 제공한다.")
         ContainerDb(assets, "에셋 스토어", "로컬 파일시스템", "원본 영상, keyframe, thumbnail을 보관한다. 인덱스 재구축의 manifest 원천.")
-        Container(mlflow, "평가 추적", "MLflow 3.x", "search_version별 Gold Set 실행 결과와 지표를 불변 run으로 기록한다. backend store는 정본과 같은 PostgreSQL 인스턴스 안의 별도 mlflow DB를 쓴다.")
+        Container(mlflow, "평가 추적", "MLflow 3.15.2", "search_version별 Gold Set 실행 결과와 지표를 불변 run으로 기록한다. backend store는 정본과 같은 PostgreSQL 인스턴스 안의 별도 mlflow DB를 쓴다.")
     }
 
     System_Ext(gms, "GMS — Query Resolver 프로파일", "질의 텍스트와 명시 필터만 수신.")
@@ -77,7 +77,7 @@ C4Container
 >
 > **버전 정본은 저장소 매니페스트다** — `frontend/package.json`, `backend/build.gradle`, `ai/pyproject.toml`. 매니페스트를 올릴 때 이 표도 같이 올린다.
 >
-> **PostgreSQL 18.6과 확장 두 개는 아직 코드에 없다.** 현재 `compose.yaml`은 `postgres:17-alpine`이고 pg_search·pgvector가 없다. MLflow 트래킹 서버를 구성할 때(`S15P21A501-151`) 확장 포함 이미지로 함께 올린다. 그때까지 이 표의 DB 행은 목표 값이다.
+> **DB 행은 반영 완료다** (`S15P21A501-151`). `compose.yaml`이 `paradedb/paradedb:0.25.6-pg18`을 쓰며, 컨테이너에서 PostgreSQL 18.6 · pg_search 0.25.6 · pgvector 0.8.4로 실측 확인했다.
 
 | 요소 | 유형 | 기술 | 책임 |
 | --- | --- | --- | --- |
@@ -87,7 +87,7 @@ C4Container
 | 파이프라인 워커 | Container | FastAPI, Python 3.12, PyTorch | 장면 분할, keyframe 추출, VLM 메타데이터, OCR, transcript 선택, ASR, scene-transcript 매핑, entity 추출, 텍스트 임베딩 |
 | 정본 및 검색 인덱스 | ContainerDb | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4 | 모든 ID·관계·상태·snapshot·override·inquiry의 정본이자 BM25·dense 인덱스 |
 | 에셋 스토어 | ContainerDb | 로컬 파일시스템 | 원본 영상, keyframe, thumbnail. 인덱스 재구축 시 manifest 원천 |
-| 평가 추적 | Container | MLflow 3.x (backend store: 같은 인스턴스의 별도 `mlflow` DB) | search_version별 파라미터·지표·artifact를 불변 run으로 기록 |
+| 평가 추적 | Container | MLflow 3.15.2 (backend store: 같은 인스턴스의 별도 `mlflow` DB) | search_version별 파라미터·지표·artifact를 불변 run으로 기록 |
 
 ## 주요 관계
 
@@ -127,7 +127,7 @@ C4Container
 
 - **질의 리졸버가 사용할 LLM이 미정이다.** GMS 또는 EC2에서 도는 소형 모델. 어댑터 경계 뒤에 있어 이 다이어그램은 두 경우 모두에 유효하다.
 - **`웹 애플리케이션 → 서비스 서버` 호출은 브라우저에서 nginx를 거쳐 이뤄진다.** Next.js 서버가 프록시하지 않는다.
-- **EC2는 Ubuntu 24.04.4 LTS, 4 vCPU / 15GB RAM으로 확인되었다.** 호스트 포트 배정은 [Deployment](./03-deployment.md)를 따른다 — 8080은 Jenkins가 선점하고 있어 서비스 서버는 8081을 쓴다. **현재 `compose.yaml` 기본값은 아직 8080이며** MLflow 구성 시(`S15P21A501-151`) 포트 배정을 함께 옮긴다. 세 서비스 모두 `127.0.0.1`에만 바인딩된다.
+- **EC2는 Ubuntu 24.04.4 LTS, 4 vCPU / 15GB RAM으로 확인되었다.** 호스트 포트 배정은 [Deployment](./03-deployment.md)를 따른다 — 서비스 서버가 8080을 쓰고 Jenkins가 18080으로 비켜났다(`S15P21A501-151`). 앱 서비스는 모두 `127.0.0.1`에만 바인딩된다.
 
 ## 저장소 매핑
 
