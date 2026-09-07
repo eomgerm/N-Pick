@@ -1,7 +1,7 @@
-"""Query Resolver 검증 테스트 (FRD F-05, F-05 중복 계산 방지).
+"""Query Resolver 검증 테스트 (FRD F-04~06).
 
 전부 LLM 없이 돈다. 고정된 출력 문자열을 validator 에 넣어 검사한다 — 모델 응답을
-채점하는 것은 Gold Set 이 있어야 하는 일이고(FRD §8.2), 여기서 할 일이 아니다.
+채점하는 것은 Gold Set 이 있어야 하는 일이고(FRD §8.3), 여기서 할 일이 아니다.
 
 구조와 검증 동작을 검사한다. 확장어 적절성이나 추론 품질은
 `report.py` 로 사람이 본다.
@@ -242,7 +242,7 @@ def test_inferred_anchor_needs_no_span() -> None:
     assert outcome.findings == ()
 
 
-# ── 날짜 (모듈 날짜 해석 계약 (FRD F-04~06)) ─────────────────────────────────────────────────
+# ── 날짜 (모듈 날짜 해석 계약, FRD F-04~06) ─────────────────────────
 
 
 def _window(field: str, start: str, end: str, **extra: Any) -> dict[str, Any]:

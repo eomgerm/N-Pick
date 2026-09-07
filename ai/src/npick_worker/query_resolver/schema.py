@@ -113,9 +113,12 @@ class Location(ValuedAnchor):
 class Classification(ValuedAnchor):
     """계절·날씨·장면 유형.
 
-    `value` 를 enum 으로 닫지 않는다. 허용 어휘는 개발셋을 보고 정할 항목이라
-    F-04의 season·weather·scene_type을 classifications로 표현한다.
-    어휘를 열린 문자열로 두는 것은 모듈 계약이며 FRD가 enum을 요구하지 않는다.
+    이 축의 근거는 F-04 태그 유형표의 `season`·`weather`·`scene_type` 이다. F-05 #3 의
+    열거에는 없으므로, 해석기 출력에 이 축을 두는 근거는 F-04 쪽에서 온다.
+
+    `value` 를 enum 으로 닫지 않는다. 허용 어휘는 개발셋을 보고 정할 항목이고
+    (FRD §11 실측 후 확정) FRD 가 enum 을 요구하지도 않는다. 어휘가 확정되면 그때
+    `Literal` 로 좁힌다.
     """
 
     type: ClassificationType

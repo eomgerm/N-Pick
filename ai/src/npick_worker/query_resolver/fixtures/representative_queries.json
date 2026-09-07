@@ -1,6 +1,6 @@
 {
-  "note": "완료 조건(육안 확인)용 대표 질의 20개. 정답지가 아니라 '무엇을 볼 것인가' 목록이다. expect 는 사람이 표를 볼 때 확인할 항목이고 자동 채점에 쓰지 않는다 — LLM 출력 채점은 개발셋과 Gold label 이 있어야 한다(FRD §8.2).",
-  "date_field_note": "filmed_date 는 schema.py 의 DateField 를 따른다. 정본이 filmed_date 로 확정되면 여기 문자열도 같이 바뀐다.",
+  "note": "완료 조건(육안 확인)용 대표 질의 20개. 정답지가 아니라 '무엇을 볼 것인가' 목록이다. expect 는 사람이 표를 볼 때 확인할 항목이고 자동 채점에 쓰지 않는다 — LLM 출력 채점은 개발셋과 Gold label 이 있어야 한다(FRD §8.3).",
+  "date_field_note": "filmed_date 는 schema.py 의 DateField 를 따른다. FRD v3.1 F-04 의 저장 태그와 같은 이름으로 확정됐다.",
   "queries": [
     { "id": 1,  "query": "2022년 추석 고속도로",
       "checks": "date_windows 1건 · field=broadcast_date · 2022-01-01~2023-01-01 · '추석' 이 incident_names 또는 explicit anchor" },

@@ -8,7 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DeviceChoice = Literal["auto", "cuda", "cpu"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
-#: Query Resolver 가 어느 adapter 로 나가는가. FRD §2.1 "local 또는 승인된 GMS".
+#: Query Resolver 가 어느 adapter 로 나가는가. local 또는 승인된 GMS 중 하나다.
+#: 배포 경계와 교체 가능성은 `docs/architecture/02-container.md` 요소 표가 정본이다.
 ResolverBackend = Literal["ollama", "gms"]
 
 
@@ -27,7 +28,7 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     device: DeviceChoice = "auto"
 
-    # ── Query Resolver LLM (FRD §2.1 "local 또는 승인된 GMS") ──
+    # ── Query Resolver LLM (local 또는 승인된 GMS) ──
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만
     # 난다(ai/AGENTS.md — GPU 없이도 기동하는 성질을 깨지 않는다).
     #
