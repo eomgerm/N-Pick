@@ -33,8 +33,12 @@ pipeline {
   }
 
   environment {
-    TZ         = 'Asia/Seoul'
-    DEPLOY_DIR = '/deploy'
+    TZ = 'Asia/Seoul'
+    // Jenkins 컨테이너 안에서 compose 를 돌리면 compose 가 보는 경로가 그대로 호스트
+    // Docker 데몬에 전달된다. 상대 경로 볼륨(./infra/nginx/...)이 있으므로 마운트 지점을
+    // 호스트 경로와 같게 맞춰야 한다. 값은 환경마다 다르므로 Jenkins 전역 환경변수
+    // NPICK_DEPLOY_DIR 에서 읽는다 (Manage Jenkins → System → Global properties).
+    DEPLOY_DIR = "${env.NPICK_DEPLOY_DIR ?: '/deploy'}"
   }
 
   stages {
@@ -137,7 +141,9 @@ pipeline {
     aborted {
       updateGitlabCommitStatus name: 'jenkins', state: 'canceled'
     }
-    always {
+    cleanup {
+      // always 가 아니라 cleanup 이다. always 는 failure 보다 먼저 실행되어
+      // rollback.sh 를 지워버린다(2026-09-07 실측).
       cleanWs()
     }
   }
