@@ -1,6 +1,6 @@
-# NewsCut Frontend
+# N-Pick Frontend
 
-NewsCut의 Next.js 프론트엔드 프로젝트입니다. 패키지 매니저는 npm만 사용합니다.
+N-Pick의 Next.js 프론트엔드 프로젝트입니다. 패키지 매니저는 npm만 사용합니다.
 
 현재 프로젝트는 App Router 기반의 화면 조합, 기능 단위 디렉터리, 공통 UI, API·환경변수 계층을 분리한 초기 구조입니다. 검색·검수 화면과 실제 API 연동, 인증, 상태관리, 자동화 테스트는 후속 작업 범위입니다.
 
