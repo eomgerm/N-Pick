@@ -77,6 +77,10 @@ npm run check
 
 현재 Git hook은 브랜치명과 커밋 메시지만 검사합니다. 프론트엔드 lint와 format은 commit 시 자동 실행되지 않으므로 직접 `npm run check`를 실행해야 합니다.
 
+검수 게시판의 검색·정렬·상태 필터·페이지 경계 테스트는 `node --test src/features/wireframes/reviewer-board-state.test.mjs`로 실행합니다.
+영상 등록의 파일 선택 검증·중복 첨부 방지 테스트는 `node --test src/features/wireframes/registration-files.test.mjs`로 실행합니다.
+처리 현황의 진행 목록·건수·완료 상태 반영 테스트는 `node --test src/features/wireframes/reviewer-progress-state.test.mjs`로 실행합니다.
+
 ## 아키텍처 개요
 
 ```text
@@ -87,7 +91,7 @@ src/
 └─ lib/          환경변수와 HTTP client 등 공통 기반 코드
 ```
 
-현재 구현된 화면은 정적으로 생성되는 루트 `/`뿐입니다. 제품 FRD가 정의한 `/search`와 `/review`는 아직 구현되지 않았습니다. 디렉터리 책임, 의존 방향, 상태 소유권과 API 흐름은 [프론트 아키텍처](docs/architecture.md)를 기준으로 합니다.
+현재 `/landing`은 신한 디자인의 역할 선택 화면입니다. 기존 `/landing/[theme]`도 `/landing`으로 이동합니다. `/login/shinhan?role=editor|reviewer`에서 ID와 비밀번호를 입력하면 편집자는 `/search/shinhan`의 검색 바로, 검수자는 `/review/shinhan`의 문의 영상 목록으로 이동합니다. 검색 결과는 `/wireframes/shinhan`입니다. 신한 디자인만 유지하며 디자인 전환 바와 다른 테마 구현은 제거했습니다. 기존 여기어때·원티드·지마켓·당근 주소는 검색어·필터·역할 등 query를 보존하여 신한 주소로 이동합니다. 로그인은 ID와 비밀번호를 저장·전송하지 않는 로컬 화면 전환 데모이며 실제 인증·인가를 제공하지 않습니다. 제품 FRD가 정의한 실제 `/search`와 `/review` API 연동은 아직 구현되지 않았습니다. 디렉터리 책임, 의존 방향, 상태 소유권과 API 흐름은 [프론트 아키텍처](docs/architecture.md)를 기준으로 합니다.
 
 ## 환경변수
 
