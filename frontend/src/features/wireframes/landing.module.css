@@ -1,0 +1,354 @@
+.shell {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
+  color: #17243b;
+  background: radial-gradient(ellipse at 18% 60%, #e5f0ff 0, transparent 48%), #f8faff;
+  font-family: 'DM Sans', 'Segoe UI', Arial, sans-serif;
+}
+.header,
+.footer {
+  width: min(1280px, calc(100% - 96px));
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header {
+  min-height: 100px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  text-decoration: none;
+}
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 36px;
+  border-radius: 11px 11px 11px 3px;
+  color: white;
+  background: #1473e6;
+  font-size: 24px;
+  font-style: italic;
+}
+.headerNote {
+  font-size: 13px;
+  color: #69778d;
+}
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.12fr 1fr;
+  align-items: center;
+  gap: 90px;
+  width: min(1180px, calc(100% - 96px));
+  min-height: 650px;
+  margin: 0 auto;
+  padding: 48px 0 56px;
+}
+.visual {
+  position: relative;
+  min-width: 0;
+  text-align: center;
+}
+.eyebrow {
+  color: #52769d;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 2px;
+  margin: 0 0 17px;
+}
+.visual h1 {
+  margin: 0;
+  font-size: clamp(72px, 7.5vw, 104px);
+  line-height: 1;
+  letter-spacing: -7px;
+  font-weight: 800;
+}
+.visual h1 span {
+  color: #1473e6;
+}
+.tagline {
+  margin: 22px 0 0;
+  font-size: 19px;
+  color: #55647a;
+  letter-spacing: -0.7px;
+}
+.cubeStage {
+  position: relative;
+  height: 300px;
+  margin: 8px -60px 0;
+  isolation: isolate;
+}
+.cubeStage canvas {
+  display: block;
+}
+.cubeFallback {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 145px;
+  aspect-ratio: 1;
+  border: 2px solid #fff;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #ffffffa6, #66c8ff20 45%, #5afad83b);
+  box-shadow:
+    inset 10px 10px 30px #ffffffb0,
+    14px 20px 0 #73a7ff25,
+    0 30px 60px #1473e633;
+  transform: translate(-50%, -50%) rotate(-25deg) skew(10deg, 10deg);
+}
+.cubeFallback[data-ready='true'] {
+  opacity: 0;
+}
+.visualCaption {
+  color: #7b8aa0;
+  font-size: 12px;
+}
+.roles {
+  animation: reveal 700ms 2150ms both;
+}
+.roles h2 {
+  margin: 0;
+  font-size: clamp(25px, 2.5vw, 34px);
+  line-height: 1.35;
+  letter-spacing: -1.7px;
+  font-weight: 750;
+}
+.roleDescription {
+  margin: 14px 0 32px;
+  font-size: 15px;
+  color: #758095;
+}
+.roleCard {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 150px;
+  padding: 25px;
+  margin-top: 16px;
+  border: 1px solid #dce7f8;
+  border-radius: 20px;
+  background: #ffffffd9;
+  box-shadow: 0 10px 30px #26549905;
+  text-decoration: none;
+  transition:
+    border-color 180ms,
+    box-shadow 180ms,
+    transform 180ms;
+}
+.roleCard:hover {
+  border-color: #1473e6;
+  box-shadow: 0 16px 36px #1473e617;
+  transform: translateY(-3px);
+}
+.roleIcon {
+  flex-shrink: 0;
+  width: 56px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  color: #1473e6;
+  background: #edf4ff;
+}
+.roleIcon svg {
+  width: 27px;
+  height: 27px;
+  stroke-width: 1.6;
+}
+.cardCopy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.cardCopy small {
+  margin-bottom: 8px;
+  color: #1473e6;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.5px;
+}
+.cardCopy strong {
+  font-size: 21px;
+  letter-spacing: -0.8px;
+  font-weight: 750;
+}
+.cardCopy > span {
+  margin-top: 9px;
+  color: #798396;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+.arrow {
+  width: 20px;
+  color: #7394bc;
+  flex-shrink: 0;
+}
+.reviewerCard .roleIcon {
+  color: #168b80;
+  background: #eaf8f4;
+}
+.reviewerCard small {
+  color: #168b80;
+}
+.footer {
+  min-height: 72px;
+  color: #8590a1;
+  font-size: 11px;
+  border-top: 1px solid #e4ebf5;
+}
+.shell a:focus-visible {
+  outline: 3px solid #1473e6;
+  outline-offset: 5px;
+}
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 65%, #e4efff, #f8faff 65%);
+  animation: dismissIntro 650ms 1950ms forwards;
+}
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  font-size: clamp(52px, 10vw, 132px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.065em;
+  color: #17243b;
+}
+.letters {
+  overflow: hidden;
+  width: 2.23em;
+  animation: collapseLetters 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
+}
+.wordSpace {
+  width: 0.3em;
+  animation: collapseLetters 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
+}
+.hyphen {
+  width: 0;
+  opacity: 0;
+  overflow: hidden;
+  color: #1473e6;
+  animation: showHyphen 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
+}
+.punctuation {
+  width: 0.26em;
+  overflow: hidden;
+  animation: collapseLetters 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
+}
+.intro p {
+  margin-top: 24px;
+  font-size: 14px;
+  color: #73829a;
+  letter-spacing: 1px;
+}
+@keyframes collapseLetters {
+  to {
+    width: 0;
+    opacity: 0;
+  }
+}
+@keyframes showHyphen {
+  to {
+    width: 0.36em;
+    opacity: 1;
+  }
+}
+@keyframes dismissIntro {
+  to {
+    opacity: 0;
+    visibility: hidden;
+    transform: scale(1.035);
+  }
+}
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 1000px) {
+  .main {
+    gap: 32px;
+  }
+  .roleCard {
+    gap: 14px;
+    padding: 20px;
+  }
+  .cardCopy strong {
+    font-size: 18px;
+  }
+}
+@media (max-width: 740px) {
+  .header,
+  .footer {
+    width: calc(100% - 40px);
+  }
+  .header {
+    min-height: 80px;
+  }
+  .main {
+    width: calc(100% - 40px);
+    grid-template-columns: 1fr;
+    padding: 28px 0 40px;
+    gap: 42px;
+  }
+  .visual h1 {
+    font-size: 74px;
+  }
+  .cubeStage {
+    height: 220px;
+    margin: 0 -20px;
+  }
+  .visualCaption {
+    display: none;
+  }
+  .roles {
+    width: min(100%, 480px);
+    margin: 0 auto;
+  }
+  .roles h2 {
+    font-size: 27px;
+  }
+  .roleDescription {
+    margin-bottom: 24px;
+  }
+  .roleCard {
+    min-height: 126px;
+  }
+  .headerNote {
+    font-size: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro {
+    display: none;
+  }
+  .roles {
+    animation: none;
+  }
+  .roleCard {
+    transition: none;
+  }
+}

@@ -2,8 +2,9 @@
 
 :root {
   color-scheme: light;
-  --background: #f4f7fb;
-  --foreground: #14213d;
+  background: #ffffff;
+  color: #1a1c20;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 * {
@@ -11,15 +12,46 @@
 }
 
 html {
-  background: var(--background);
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+  scroll-behavior: smooth;
 }
 
 body {
+  width: 100%;
+  max-width: 100%;
   min-height: 100vh;
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgb(219 234 254 / 70%), transparent 32rem),
-    var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: clip;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
