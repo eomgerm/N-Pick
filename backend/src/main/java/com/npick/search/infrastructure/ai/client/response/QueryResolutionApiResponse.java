@@ -7,7 +7,9 @@ import java.util.function.Function;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import com.npick.search.application.error.QueryResolverErrorCode;
 import com.npick.search.application.port.AnchorFinding;
+import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolution;
 import com.npick.search.application.port.QueryResolutionResult;
 
@@ -16,29 +18,70 @@ import com.npick.search.application.port.QueryResolutionResult;
  *
  * <p>이 DTO 가 리졸버의 snake_case 표기를 떠안아 application 의 {@link QueryResolution} 이 외부 표현에 묶이지 않게 한다 (설계 정본 §10).
  *
- * <p>없는 필드를 조용히 기본값으로 채우지 않는다. 키 이름이 어긋나면 오류 없이 빈 해석이 성공으로 흘러가고, 그러면 검색은 AI 해석을 받은 것처럼 보이면서 아무 조건도 걸리지 않는다.
+ * <p>TODO(S15P21A501-164): 질의 임베딩 필드가 여기 들어온다. 모델·차원은 S15P21A501-100 이 확정한다.
  *
- * <p>TODO(S15P21A501-45): HTTP 엔드포인트가 아직 없어 본문 형태는 모듈 반환 타입을 기준으로 둔 잠정값이다. 엔드포인트 계약이 정해지면 맞춘다.
+ * <p>없는 필드를 조용히 기본값으로 채우지 않는다. 키 이름이 어긋나면 오류 없이 빈 해석이 성공으로 흘러가고, 그러면 검색은 AI 해석을 받은 것처럼 보이면서 아무 조건도 걸리지 않는다.
  */
 public record QueryResolutionApiResponse(
+        @JsonProperty("normalization") Normalization normalization,
         @JsonProperty("resolution") Resolution resolution,
         @JsonProperty("findings") List<Finding> findings,
         @JsonProperty("resolution_schema_version") String resolutionSchemaVersion,
         @JsonProperty("prompt_version") String promptVersion,
-        @JsonProperty("model_version") String modelVersion) {
+        @JsonProperty("model_version") String modelVersion,
+        @JsonProperty("error") ResolverError error) {
 
     public QueryResolutionResult toResult() {
-        require(resolution != null, "resolution");
+        require(normalization != null, "normalization");
+        QueryNormalization normalized = normalization.toNormalization();
+
+        if (resolution == null) {
+            // 해석은 실패했지만 정규화는 살아 있다. 호출부가 이 토큰으로 BM25 로 간다.
+            require(error != null, "resolution 이 없으면 error");
+            return new QueryResolutionResult(normalized, null, List.of(), null, null, null, error.toErrorCode());
+        }
+
         require(resolutionSchemaVersion != null, "resolution_schema_version");
         require(promptVersion != null, "prompt_version");
         require(modelVersion != null, "model_version");
 
         return new QueryResolutionResult(
+                normalized,
                 resolution.toResolution(),
                 map(findings, Finding::toFinding),
                 resolutionSchemaVersion,
                 promptVersion,
-                modelVersion);
+                modelVersion,
+                null);
+    }
+
+    public record Normalization(
+            @JsonProperty("normalized_query") String normalizedQuery,
+            @JsonProperty("search_tokens") List<String> searchTokens,
+            @JsonProperty("normalization_version") String normalizationVersion) {
+
+        QueryNormalization toNormalization() {
+            require(normalizedQuery != null, "normalization.normalized_query");
+            require(searchTokens != null, "normalization.search_tokens");
+            require(normalizationVersion != null, "normalization.normalization_version");
+            return new QueryNormalization(normalizedQuery, List.copyOf(searchTokens), normalizationVersion);
+        }
+    }
+
+    /** 리졸버가 분류한 실패 사유. {@code category} 문자열이 ErrorCode 이름과 1:1 이다. */
+    public record ResolverError(
+            @JsonProperty("category") String category,
+            @JsonProperty("message") String message) {
+
+        QueryResolverErrorCode toErrorCode() {
+            require(category != null, "error.category");
+            try {
+                return QueryResolverErrorCode.valueOf(category);
+            } catch (IllegalArgumentException ex) {
+                // 우리가 모르는 사유다. 실패라는 사실은 유지하고 분류만 포기한다.
+                return QueryResolverErrorCode.RESOLVER_FAILED;
+            }
+        }
     }
 
     public record Resolution(

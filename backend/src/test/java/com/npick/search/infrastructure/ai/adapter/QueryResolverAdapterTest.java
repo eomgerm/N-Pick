@@ -34,6 +34,11 @@ class QueryResolverAdapterTest {
 
     private static final String VALID_RESPONSE = """
             {
+              "normalization": {
+                "normalized_query": "부산 여름 작년 침수",
+                "search_tokens": ["작년", "여름", "부산", "침수"],
+                "normalization_version": "query-norm/v1:1a2b3c4d:kiwi0.23.2:model0.23.0"
+              },
               "resolution": {
                 "schema_version": "query-resolver/v2",
                 "intent": "scene_search",
@@ -66,7 +71,8 @@ class QueryResolverAdapterTest {
               ],
               "resolution_schema_version": "query-resolver/v2",
               "prompt_version": "query-resolver-prompt/v1:1a2b3c4d",
-              "model_version": "qwen2.5:7b"
+              "model_version": "qwen2.5:7b",
+              "error": null
             }
             """;
 
@@ -82,7 +88,7 @@ class QueryResolverAdapterTest {
     @Test
     @DisplayName("정규화 질의가 아니라 사용자 원문을 그대로 보낸다")
     void sendsRawQuery() {
-        server.expect(requestTo(BASE_URL + "/resolve"))
+        server.expect(requestTo(BASE_URL + "/query/resolve"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(jsonPath("$.query").value("작년 여름에 부산 침수됐던 장면 좀 찾아줘"))
                 .andRespond(withSuccess(VALID_RESPONSE, MediaType.APPLICATION_JSON));
@@ -95,11 +101,16 @@ class QueryResolverAdapterTest {
     @Test
     @DisplayName("정상 응답을 resolution 과 세 가지 버전으로 파싱한다")
     void resolvesValidResponse() {
-        server.expect(requestTo(BASE_URL + "/resolve"))
+        server.expect(requestTo(BASE_URL + "/query/resolve"))
                 .andRespond(withSuccess(VALID_RESPONSE, MediaType.APPLICATION_JSON));
 
         QueryResolutionResult result = adapter().resolve("2024년 3월 집중호우");
 
+        assertThat(result.isResolved()).isTrue();
+        assertThat(result.failure()).isNull();
+        assertThat(result.normalization().searchTokens()).containsExactly("작년", "여름", "부산", "침수");
+        assertThat(result.normalization().normalizationVersion())
+                .isEqualTo("query-norm/v1:1a2b3c4d:kiwi0.23.2:model0.23.0");
         assertThat(result.resolutionSchemaVersion()).isEqualTo("query-resolver/v2");
         assertThat(result.promptVersion()).isEqualTo("query-resolver-prompt/v1:1a2b3c4d");
         assertThat(result.modelVersion()).isEqualTo("qwen2.5:7b");
@@ -134,7 +145,7 @@ class QueryResolverAdapterTest {
     @Test
     @DisplayName("timeout 이면 재시도 없이 RESOLVER_TIMEOUT 으로 실패한다")
     void failsFastOnTimeout() {
-        server.expect(requestTo(BASE_URL + "/resolve")).andRespond(request -> {
+        server.expect(requestTo(BASE_URL + "/query/resolve")).andRespond(request -> {
             throw new ResourceAccessException("timeout", new SocketTimeoutException("Read timed out"));
         });
 
@@ -181,8 +192,52 @@ class QueryResolverAdapterTest {
         assertThatSchemaInvalid();
     }
 
+    @Test
+    @DisplayName("해석이 실패해도 정규화 결과는 살려서 돌려준다")
+    void keepsNormalizationWhenResolverFails() {
+        // 이 토큰이 없으면 원 검색어 BM25 fallback 을 만들 수 없다 (FRD v3.1 §6.2).
+        respondWith("""
+                {
+                  "normalization": {
+                    "normalized_query": "부산 여름 작년 침수",
+                    "search_tokens": ["작년", "여름", "부산", "침수"],
+                    "normalization_version": "query-norm/v1:1a2b3c4d:kiwi0.23.2:model0.23.0"
+                  },
+                  "resolution": null,
+                  "error": {"category": "RESOLVER_TIMEOUT", "message": "timed out"}
+                }
+                """);
+
+        QueryResolutionResult result = adapter().resolve("작년 여름 부산 침수");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_TIMEOUT);
+        assertThat(result.normalization().searchTokens()).containsExactly("작년", "여름", "부산", "침수");
+    }
+
+    @Test
+    @DisplayName("모르는 실패 사유는 RESOLVER_FAILED 로 접되 실패라는 사실은 유지한다")
+    void unknownFailureCategoryStillFails() {
+        respondWith("""
+                {
+                  "normalization": {
+                    "normalized_query": "뉴스",
+                    "search_tokens": ["뉴스"],
+                    "normalization_version": "query-norm/v1:1a2b3c4d"
+                  },
+                  "resolution": null,
+                  "error": {"category": "PARALLEL_UNIVERSE", "message": "?"}
+                }
+                """);
+
+        QueryResolutionResult result = adapter().resolve("뉴스");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_FAILED);
+    }
+
     private void respondWith(String body) {
-        server.expect(requestTo(BASE_URL + "/resolve")).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        server.expect(requestTo(BASE_URL + "/query/resolve")).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
     }
 
     private void assertThatSchemaInvalid() {
