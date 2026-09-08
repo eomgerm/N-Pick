@@ -91,6 +91,9 @@ services:
     env_file:
       - path: ./frontend/.env
         required: true
+    environment:
+      # Server Component의 세션 확인 주소. 브라우저 번들에는 포함하지 않는다.
+      API_INTERNAL_BASE_URL: http://backend:8080/api/v1
     image: npick/frontend:${FRONTEND_TAG:-local}
     container_name: npick-frontend
     restart: unless-stopped
