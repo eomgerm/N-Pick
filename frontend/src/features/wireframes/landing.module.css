@@ -6,7 +6,8 @@
   position: relative;
   min-height: 100svh;
   color: #ffffff;
-  background: #0b0d11;
+  /* 인트로는 완전한 검은 화면에서 시작한다. */
+  background: #000000;
   font-family:
     'Pretendard', 'Inter', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
     Arial, sans-serif;
@@ -22,6 +23,22 @@
   background: #0b0d11;
 }
 
+/* 인트로 동안 숨어 있다가, 헤드라인이 자리를 잡으면 함께 드러나는 요소들. */
+.backdrop,
+.overlay,
+.header,
+.scrollCue {
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.shell[data-intro='done'] .backdrop,
+.shell[data-intro='done'] .overlay,
+.shell[data-intro='done'] .header,
+.shell[data-intro='done'] .scrollCue {
+  opacity: 1;
+}
+
 /* 세 클립을 겹쳐 두고 활성 클립만 보여 준다. */
 .video {
   position: absolute;
@@ -31,7 +48,7 @@
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 700ms ease;
+  /* 클립 전환은 겹침 없이 곧바로 바뀐다. */
   /* 채도만 낮춰 그레이 톤으로 맞추고, 야경의 디테일은 살린다. */
   filter: saturate(0.72) contrast(1.06) brightness(1.16);
 }
@@ -136,6 +153,13 @@
   line-height: 0.95;
   letter-spacing: -0.045em;
   text-transform: uppercase;
+  /* 인트로 동안 화면 한가운데로 밀어 두었다가 제자리로 돌아온다. 이동량은 landing-shell이 실측해 넣는다. */
+  transform: translate3d(var(--intro-x, 0px), var(--intro-y, 0px), 0);
+  transition: transform 1000ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.shell[data-intro='done'] .heroTitle {
+  transform: none;
 }
 
 .heroLine {
@@ -466,6 +490,17 @@
 @media (prefers-reduced-motion: reduce) {
   .heroLine {
     animation: none;
+  }
+  .heroTitle {
+    transform: none;
+    transition: none;
+  }
+  .backdrop,
+  .overlay,
+  .header,
+  .scrollCue {
+    opacity: 1;
+    transition: none;
   }
   .scrollCueArrow {
     animation: none;

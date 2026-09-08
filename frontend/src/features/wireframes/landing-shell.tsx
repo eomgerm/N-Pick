@@ -23,16 +23,49 @@ const HERO_CLIPS = [
   '/media/landing-hero-3.mp4',
 ] as const;
 
-// 다음 클립이 겹쳐 들어오는 시간. landing.module.css의 .video transition과 맞춘다.
-const CLIP_CROSSFADE_MS = 700;
+// 헤드라인 wipe가 끝나는 시점. 이후 문구가 좌하단으로 내려가고 배경이 드러난다.
+// (landing.module.css의 .heroLine 애니메이션 delay + duration과 맞춘다.)
+const INTRO_SETTLE_MS = 2400;
 
 export function LandingShell() {
   const heroRef = useRef<HTMLElement | null>(null);
   const rolesRef = useRef<HTMLElement | null>(null);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const activeClipRef = useRef(0);
-  const isAdvancingRef = useRef(false);
   const [activeClip, setActiveClip] = useState(0);
+  const [isIntroDone, setIsIntroDone] = useState(false);
+
+  // 인트로 동안 헤드라인을 화면 한가운데로 밀어 둘 이동량을 실측한다.
+  // (transform의 영향을 받지 않는 offset* 값을 쓴다.)
+  useEffect(() => {
+    const hero = heroRef.current;
+    const title = titleRef.current;
+    if (!hero || !title) return;
+
+    const measure = () => {
+      // h1 상자는 가로를 꽉 채우므로, 실제로 보이는 가장 긴 줄을 기준으로 가운데를 잡는다.
+      const lines = [...title.children] as HTMLElement[];
+      const textWidth = Math.max(...lines.map((line) => line.offsetWidth), 0);
+      const x = (hero.clientWidth - textWidth) / 2 - title.offsetLeft;
+      const y = (hero.clientHeight - title.offsetHeight) / 2 - title.offsetTop;
+      hero.style.setProperty('--intro-x', `${x}px`);
+      hero.style.setProperty('--intro-y', `${y}px`);
+    };
+
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
+  useEffect(() => {
+    // 모션을 줄이는 설정이면 인트로를 건너뛰고 바로 정착 상태로 둔다.
+    const delay = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? 0
+      : INTRO_SETTLE_MS;
+    const timer = window.setTimeout(() => setIsIntroDone(true), delay);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   // 두 섹션 모두 sticky로 같은 자리에 고정된 채, 스크롤 진행도로 서로 교차 페이드한다.
   useEffect(() => {
@@ -49,6 +82,7 @@ export function LandingShell() {
         (progress - ROLES_FADE_START) / (ROLES_FADE_END - ROLES_FADE_START),
       );
 
+      if (window.scrollY > 0) setIsIntroDone(true);
       hero.style.setProperty('--hero-fade', String(heroFade));
       hero.dataset.faded = String(heroFade <= 0);
       roles.style.setProperty('--roles-fade', String(rolesFade));
@@ -68,13 +102,12 @@ export function LandingShell() {
     };
   }, []);
 
-  // 현재 클립이 끝나갈 때 다음 클립을 겹쳐 재생해 끊김 없이 넘긴다.
+  // 클립이 끝나면 겹침 없이 곧바로 다음 클립으로 잘라 넘긴다.
   const advanceClip = useCallback(() => {
-    if (isAdvancingRef.current) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-    isAdvancingRef.current = true;
-    const next = (activeClipRef.current + 1) % HERO_CLIPS.length;
+    const previous = activeClipRef.current;
+    const next = (previous + 1) % HERO_CLIPS.length;
     activeClipRef.current = next;
 
     const nextVideo = videoRefs.current[next];
@@ -82,24 +115,20 @@ export function LandingShell() {
       nextVideo.currentTime = 0;
       nextVideo.play().catch(() => undefined);
     }
+    const previousVideo = videoRefs.current[previous];
+    if (previousVideo) {
+      previousVideo.pause();
+      previousVideo.currentTime = 0;
+    }
     setActiveClip(next);
-
-    window.setTimeout(() => {
-      isAdvancingRef.current = false;
-      // 넘어간 클립은 되감아 멈춰 둔다.
-      videoRefs.current.forEach((video, index) => {
-        if (!video || index === activeClipRef.current) return;
-        video.pause();
-        video.currentTime = 0;
-      });
-    }, CLIP_CROSSFADE_MS);
   }, []);
 
+  // 배경 영상은 인트로가 끝난 뒤부터 재생해, 첫 클립을 처음부터 온전히 보여 준다.
   useEffect(() => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const applyMotionPreference = () => {
       const active = videoRefs.current[activeClipRef.current];
-      if (reducedMotion.matches) {
+      if (reducedMotion.matches || !isIntroDone) {
         videoRefs.current.forEach((video) => video?.pause());
         return;
       }
@@ -109,14 +138,14 @@ export function LandingShell() {
     applyMotionPreference();
     reducedMotion.addEventListener('change', applyMotionPreference);
     return () => reducedMotion.removeEventListener('change', applyMotionPreference);
-  }, []);
+  }, [isIntroDone]);
 
   const handleScrollCue = useCallback(() => {
     window.scrollTo({ top: window.innerHeight, behavior: 'smooth' });
   }, []);
 
   return (
-    <div className={styles.shell}>
+    <div className={styles.shell} data-intro={isIntroDone ? 'done' : 'running'}>
       <div aria-hidden="true" className={styles.backdrop}>
         {HERO_CLIPS.map((clip, index) => (
           <video
@@ -128,18 +157,11 @@ export function LandingShell() {
             }}
             poster={index === 0 ? '/media/landing-hero-poster.jpg' : undefined}
             preload="auto"
-            autoPlay={index === 0}
             muted
             playsInline
             tabIndex={-1}
             onEnded={() => {
               if (index === activeClipRef.current) advanceClip();
-            }}
-            onTimeUpdate={(event) => {
-              if (index !== activeClipRef.current) return;
-              const { duration, currentTime } = event.currentTarget;
-              if (!Number.isFinite(duration)) return;
-              if (duration - currentTime <= CLIP_CROSSFADE_MS / 1000) advanceClip();
             }}
           >
             <source src={clip} type="video/mp4" />
@@ -157,7 +179,7 @@ export function LandingShell() {
 
       <main className={styles.main}>
         <section aria-labelledby="landing-title" className={styles.hero} ref={heroRef}>
-          <h1 className={styles.heroTitle} id="landing-title">
+          <h1 className={styles.heroTitle} id="landing-title" ref={titleRef}>
             <span className={styles.heroLine}>
               WHAT YOU <em className={styles.accent}>NEED</em>?
             </span>
