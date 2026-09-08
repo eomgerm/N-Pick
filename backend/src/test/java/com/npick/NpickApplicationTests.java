@@ -9,6 +9,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.clip.domain.repository.ClipRegistrationRepository;
+import com.npick.search.application.query.candidate.FindSceneCandidatesQueryPort;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -20,6 +21,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class NpickApplicationTests {
     @MockitoBean
     private ClipRegistrationRepository clipRegistrationRepository;
+
+    /** 단어 검색 어댑터는 DataSource 를 요구한다. 이 컨텍스트는 DB 없이 뜨므로 포트만 대체한다. */
+    @MockitoBean
+    private FindSceneCandidatesQueryPort findSceneCandidatesQueryPort;
 
     @Autowired
     private MockMvc mockMvc;
