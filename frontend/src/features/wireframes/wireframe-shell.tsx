@@ -1,11 +1,9 @@
 'use client';
 
 import { routes } from '@/lib/routes';
-import { SessionControls } from '@/components/session-controls';
-import { useMember } from '@/components/session-boundary';
+import { AppShell } from '@/components/app-shell';
 
 import { CheckCircle2, ChevronDown, ListFilter, Play, Search, Sparkles } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   type FormEvent,
@@ -46,7 +44,6 @@ interface WireframeShellProps {
 }
 
 export function WireframeShell({ initialQuery, theme, initialParams = {} }: WireframeShellProps) {
-  const member = useMember();
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -159,32 +156,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   }
 
   return (
-    <div className={styles.shell} data-theme={theme}>
-      <header className={styles.appHeader}>
-        <Link className={styles.brand} href={routes.landing} aria-label="N-Pick 홈">
-          <span className={styles.brandMark} aria-hidden="true">
-            <span />
-            <span />
-          </span>
-          <span>N-Pick</span>
-        </Link>
-
-        <nav className={styles.primaryNav} aria-label="주요 메뉴">
-          <a className={styles.primaryNavActive} href="#search-results">
-            장면 검색
-          </a>
-          {member.role === 'REVIEWER' && (
-            <Link href={routes.review} prefetch={false}>
-              검수 워크스페이스
-            </Link>
-          )}
-        </nav>
-
-        <div className={styles.headerActions}>
-          <SessionControls className="text-white" showReviewLink={false} />
-        </div>
-      </header>
-
+    <AppShell className={styles.shell} data-theme={theme}>
       <div className={`${styles.workspace} ${styles.workspaceNoPreview}`}>
         <aside className={styles.filterRail} aria-label="검색 필터">
           <div className={styles.railHeading}>
@@ -407,6 +379,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           onClose={() => setInquiryResultId(null)}
         />
       ) : null}
-    </div>
+    </AppShell>
   );
 }

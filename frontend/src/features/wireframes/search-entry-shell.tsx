@@ -1,13 +1,13 @@
 'use client';
 
 import { routes } from '@/lib/routes';
-import { SessionControls } from '@/components/session-controls';
+import { AppShell } from '@/components/app-shell';
 
 import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState } from 'react';
 
-import { EntryHeader, EntryFooter } from '@/features/wireframes/entry-chrome';
+import { EntryFooter } from '@/features/wireframes/entry-chrome';
 import { SearchHistory } from '@/features/wireframes/search-history';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/entry.module.css';
@@ -27,8 +27,11 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
   }
 
   return (
-    <div className={`${styles.shell} ${styles.searchShell}`} data-theme={theme}>
-      <EntryHeader label="검색 워크스페이스" actions={<SessionControls />} />
+    <AppShell
+      className={`${styles.shell} ${styles.searchShell}`}
+      data-theme={theme}
+      headerTone="light"
+    >
       <main className={styles.searchMain}>
         <div className={styles.searchHero}>
           <p className={styles.eyebrow}>FIND YOUR NEXT SCENE</p>
@@ -81,6 +84,6 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
         <SearchHistory theme={theme} />
       </main>
       <EntryFooter />
-    </div>
+    </AppShell>
   );
 }

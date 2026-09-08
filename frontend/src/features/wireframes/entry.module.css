@@ -118,6 +118,13 @@
   background: #fff;
   box-shadow: 0 22px 70px color-mix(in srgb, var(--accent) 7%, transparent);
 }
+.loginCard[data-invalid-credentials='true'] {
+  border-color: color-mix(in srgb, #be2834 58%, var(--line));
+  box-shadow:
+    0 0 0 3px rgb(190 40 52 / 8%),
+    0 22px 70px rgb(190 40 52 / 10%);
+  animation: loginFailureShake 360ms ease-out;
+}
 .backLink {
   display: inline-flex;
   align-items: center;
@@ -229,11 +236,68 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+.primaryButton[data-login-failed='true'] {
+  background: #be2834;
+  opacity: 0.82;
+}
 .cardFootnote {
   text-align: center;
   font-size: 11px;
   color: var(--muted);
   margin: 28px 0 0;
+}
+.loginErrorDialog {
+  width: min(420px, calc(100% - 32px));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: 0 28px 80px rgb(0 0 0 / 24%);
+}
+.loginErrorDialog::backdrop {
+  background: rgb(12 24 44 / 48%);
+  backdrop-filter: blur(4px);
+}
+.loginErrorPopup {
+  padding: 34px;
+  text-align: center;
+}
+.loginErrorIcon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 16px;
+  color: #be2834;
+  border-radius: 50%;
+  background: #fff0f1;
+}
+.loginErrorIcon svg {
+  width: 25px;
+}
+.loginErrorEyebrow {
+  margin: 0 0 8px;
+  color: #be2834;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.8px;
+}
+.loginErrorPopup h2 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.7px;
+}
+.loginErrorPopup > p:last-of-type {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.loginErrorPopup .primaryButton {
+  margin-top: 26px;
 }
 .sceneArt {
   position: relative;
@@ -420,6 +484,21 @@
 .clearButton:disabled {
   visibility: hidden;
 }
+@keyframes loginFailureShake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+}
 @media (max-width: 1100px) {
   .loginMain {
     gap: 36px;
@@ -491,6 +570,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .loginCard[data-invalid-credentials='true'] {
+    animation: none;
+  }
   .primaryButton {
     transition: none;
   }
