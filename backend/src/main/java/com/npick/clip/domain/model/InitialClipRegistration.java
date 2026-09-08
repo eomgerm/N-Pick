@@ -1,0 +1,160 @@
+package com.npick.clip.domain.model;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+
+import com.npick.clip.domain.error.ClipRegistrationErrorCode;
+import com.npick.common.error.BusinessException;
+
+/** 최초 등록 시의 영상·처리·입력 날짜를 함께 생성한다. 실행 중 상태 전이와 재처리는 이 모델의 범위가 아니다. */
+public record InitialClipRegistration(
+        long clipId,
+        long pipelineRunId,
+        SourceType sourceType,
+        String storageKey,
+        String contentHash,
+        String title,
+        String transcriptFileKey,
+        String scriptText,
+        long registeredById,
+        LocalDate broadcastDate,
+        LocalDate filmedDate,
+        PipelineDefinition pipeline,
+        Instant registeredAt) {
+
+    public InitialClipRegistration {
+        if (clipId <= 0 || pipelineRunId <= 0 || registeredById <= 0) {
+            throw new IllegalArgumentException("서버가 생성한 영상·처리 ID와 인증된 등록자 ID가 필요합니다.");
+        }
+        Objects.requireNonNull(sourceType, "sourceType");
+        Objects.requireNonNull(pipeline, "pipeline");
+        Objects.requireNonNull(registeredAt, "registeredAt");
+        if ((broadcastDate != null && (broadcastDate.getYear() < 1 || broadcastDate.getYear() > 9999))
+                || (filmedDate != null && (filmedDate.getYear() < 1 || filmedDate.getYear() > 9999))) {
+            throw new BusinessException(ClipRegistrationErrorCode.INVALID_DATE);
+        }
+        if (storageKey == null || storageKey.isBlank() || contentHash == null || !contentHash.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("저장 결과의 키와 SHA-256 소문자 hex가 필요합니다.");
+        }
+        title = emptyToNull(title);
+        transcriptFileKey = emptyToNull(transcriptFileKey);
+        scriptText = emptyToNull(scriptText);
+        if (title != null && title.length() > 500) {
+            throw new BusinessException(ClipRegistrationErrorCode.TITLE_TOO_LONG);
+        }
+        if (sourceType == SourceType.ARCHIVE && broadcastDate != null) {
+            throw new BusinessException(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE);
+        }
+    }
+
+    public String transcriptSource() {
+        return transcriptFileKey == null ? "none" : "provided";
+    }
+
+    public Long activePipelineRunId() {
+        return null;
+    }
+
+    public int processingNo() {
+        return 1;
+    }
+
+    public String status() {
+        return "queued";
+    }
+
+    public Instant startedAt() {
+        return null;
+    }
+
+    public Instant finishedAt() {
+        return null;
+    }
+
+    public String errorCode() {
+        return null;
+    }
+
+    public Map<String, StageState> stageStates() {
+        Map<String, StageState> states = new LinkedHashMap<>();
+        pipeline.stageNames().forEach(name -> states.put(name, new StageState("pending", 0)));
+        return Collections.unmodifiableMap(states);
+    }
+
+    public List<DateEvidence> dateEvidence() {
+        List<DateEvidence> evidence = new ArrayList<>();
+        if (broadcastDate != null) evidence.add(new DateEvidence("broadcast_date", broadcastDate));
+        if (filmedDate != null) evidence.add(new DateEvidence("filmed_date", filmedDate));
+        return List.copyOf(evidence);
+    }
+
+    public enum SourceType {
+        BROADCAST,
+        ARCHIVE;
+
+        public static SourceType fromValue(String value) {
+            if ("broadcast".equals(value)) return BROADCAST;
+            if ("archive".equals(value)) return ARCHIVE;
+            throw new BusinessException(ClipRegistrationErrorCode.INVALID_SOURCE_TYPE);
+        }
+    }
+
+    /** 실행 환경의 정의를 전달받는다. 모델에 단계 이름의 별도 정본을 만들지 않는다. */
+    public record PipelineDefinition(String version, List<String> stageNames) {
+        public PipelineDefinition {
+            if (version == null || version.isBlank() || version.length() > 128) {
+                throw new IllegalArgumentException("유효한 파이프라인 버전이 필요합니다.");
+            }
+            if (stageNames == null
+                    || stageNames.isEmpty()
+                    || stageNames.stream().anyMatch(name -> name == null || name.isBlank())
+                    || stageNames.stream().distinct().count() != stageNames.size()) {
+                throw new IllegalArgumentException("중복되지 않는 파이프라인 단계 목록이 필요합니다.");
+            }
+            stageNames = List.copyOf(stageNames);
+        }
+    }
+
+    public record StageState(String status, int attempts) {}
+
+    public record DateEvidence(String tagType, LocalDate date) {
+        public String source() {
+            return "user_input";
+        }
+
+        public String verificationStatus() {
+            return "unverified";
+        }
+
+        public BigDecimal confidence() {
+            return null;
+        }
+
+        public Long sceneId() {
+            return null;
+        }
+
+        public String sourceRefType() {
+            return null;
+        }
+
+        public Long sourceRefId() {
+            return null;
+        }
+
+        public Long sourceFeedbackId() {
+            return null;
+        }
+    }
+
+    private static String emptyToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+}

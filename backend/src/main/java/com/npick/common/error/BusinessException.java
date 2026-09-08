@@ -1,6 +1,6 @@
 package com.npick.common.error;
 
-public abstract class BusinessException extends RuntimeException {
+public final class BusinessException extends RuntimeException {
 
     private final ErrorCode errorCode;
 

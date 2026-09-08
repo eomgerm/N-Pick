@@ -18,11 +18,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.npick.common.error.BusinessException;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
-import com.npick.member.domain.error.MemberAuthException;
 import com.npick.member.domain.error.MemberErrorCode;
 import com.npick.member.presentation.request.LoginRequest;
 import com.npick.member.presentation.response.MemberResponse;
@@ -50,7 +50,7 @@ public class AuthController {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(request.loginId(), request.password()));
         } catch (BadCredentialsException | UsernameNotFoundException ex) {
-            throw new MemberAuthException(MemberErrorCode.INVALID_CREDENTIALS);
+            throw new BusinessException(MemberErrorCode.INVALID_CREDENTIALS);
         }
 
         httpRequest.getSession(true);

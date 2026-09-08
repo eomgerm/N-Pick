@@ -12,8 +12,8 @@ RUN ./gradlew bootJar --no-daemon -x test
 FROM eclipse-temurin:21-jre-noble
 WORKDIR /app
 
-# compose healthcheck 용. jre 이미지에는 curl 이 없다
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# curl: compose healthcheck, ffmpeg 패키지의 ffprobe: 영상 정보 추출
+RUN apt-get update && apt-get install -y --no-install-recommends curl ffmpeg && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --gid 10001 npick && useradd --uid 10001 --gid npick --create-home npick
 

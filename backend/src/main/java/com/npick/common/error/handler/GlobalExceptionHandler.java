@@ -14,8 +14,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.npick.common.error.BusinessException;
@@ -39,6 +41,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(
             BusinessException exception, HttpServletRequest request) {
         ErrorCode errorCode = exception.errorCode();
+        if (exception.getSuppressed().length > 0) {
+            log.warn(
+                    "Business failure cleanup requires attention: code={}, cleanupFailures={}",
+                    errorCode.code(),
+                    exception.getSuppressed().length);
+        }
         return ResponseEntity.status(statusMapper.map(errorCode.type()))
                 .body(ApiResponse.failure(errorCode, requestPath(request)));
     }
@@ -71,6 +79,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({
         MissingServletRequestParameterException.class,
+        ServletRequestBindingException.class,
+        HandlerMethodValidationException.class,
         TypeMismatchException.class,
         HttpMessageNotReadableException.class
     })
