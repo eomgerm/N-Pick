@@ -508,6 +508,7 @@ source = { editable = "." }
 dependencies = [
     { name = "av" },
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "scenedetect-headless" },
@@ -516,7 +517,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "mypy" },
     { name = "numpy" },
     { name = "pytest" },
@@ -533,6 +533,7 @@ gpu = [
 requires-dist = [
     { name = "av", specifier = ">=18,<19" },
     { name = "fastapi", specifier = ">=0.141,<1" },
+    { name = "httpx2", specifier = ">=2,<3" },
     { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pydantic-settings", specifier = ">=2.15,<3" },
     { name = "scenedetect-headless", specifier = ">=0.7.1,<0.8" },
@@ -541,7 +542,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2,<3" },
     { name = "mypy", specifier = ">=2.3,<3" },
     { name = "numpy", specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9,<10" },

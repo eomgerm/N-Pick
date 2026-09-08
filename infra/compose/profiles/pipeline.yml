@@ -6,16 +6,24 @@
 version: 0
 frozen: false
 
+# 이 수치는 BE 디스패처가 소유한다. 워커는 단계 재시도도 단계 타임아웃도 구현하지
+# 않고 결과만 보고한다. null 인 동안 maxAttempts 는 1(자동 재시도 없음)로 해석한다.
 defaults:
   retry_count: null
   timeout_seconds: null
   concurrency: null
 
+# 단계별 기대 버전. BE 가 이 맵을 접어 pipeline_run.pipeline_version 을 만든다.
+# 형식과 롤업 규칙은 docs/contracts/job-api.md, 해시 규약은 docs/contracts/README.md.
+stage_versions: {}
+
 # 단계별로 defaults 를 덮어쓸 때만 적는다. 키는 stages.py 의 name 을 쓴다.
 # 예: scene_detection: { retry_count: 3, timeout_seconds: 600 }
 stage_overrides: {}
 
-# CPU 워커 / GPU 서버 배치. S15P21A501-70(작업 수신 방식) 합의 후 채운다.
+# CPU 워커 / GPU 서버 배치.
+# 정적 목록으로 채우지 않는다. 워커가 claim 요청의 capabilities 로 실행 가능한 단계를
+# 선언하고 BE 가 그것으로 배정을 거른다(docs/contracts/job-api.md).
+# CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 배치는 설정이 아니라 능력의 문제다.
 placement:
-  cpu_worker_stages: []
-  gpu_server_stages: []
+  declared_by: worker_capabilities
