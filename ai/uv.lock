@@ -533,6 +533,7 @@ dependencies = [
     { name = "av" },
     { name = "fastapi" },
     { name = "kiwipiepy" },
+    { name = "kiwipiepy-model" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "scenedetect-headless" },
@@ -558,7 +559,8 @@ gpu = [
 requires-dist = [
     { name = "av", specifier = ">=18,<19" },
     { name = "fastapi", specifier = ">=0.141,<1" },
-    { name = "kiwipiepy", specifier = ">=0.23,<0.24" },
+    { name = "kiwipiepy", specifier = "==0.23.2" },
+    { name = "kiwipiepy-model", specifier = "==0.23.0" },
     { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pydantic-settings", specifier = ">=2.15,<3" },
     { name = "scenedetect-headless", specifier = ">=0.7.1,<0.8" },

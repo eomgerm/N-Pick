@@ -12,6 +12,7 @@ import pytest
 
 from npick_worker.query_normalization import (
     QueryNormalizationConfig,
+    get_default_config,
     load_config,
     normalize,
 )
@@ -135,6 +136,103 @@ def test_alias_does_not_corrupt_a_longer_word(tmp_path: Path) -> None:
     assert normalize("부산시청 집회", config).normalized_query == "부산 시청 집회"
 
 
+def test_alias_applies_before_the_stopword_filter(tmp_path: Path) -> None:
+    """별칭을 먼저 걸어야 불용어 판정이 일관된다.
+
+    필터가 먼저면 '영상물'(별칭 -> '영상')은 살아남아 매체어가 지문에 남고,
+    '영상'은 거부된다. 같은 뜻인데 결과가 갈린다.
+    """
+    config_path = tmp_path / "query_normalization.v1.toml"
+    config_path.write_text(
+        """
+schema = "query-norm/v1"
+keep_pos = ["NNG", "NNP", "SL", "SN", "VV", "VA"]
+sort_tokens = true
+stopwords = ["영상/NNG", "찾/VV"]
+user_words = []
+
+[aliases]
+"영상물" = "영상"
+""",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+
+    # '영상물' 은 Kiwi 가 NNG 로 잡으므로 별칭 뒤 ('영상', 'NNG') 가 되어 불용어에 걸린다.
+    with pytest.raises(ValueError, match="내용어가 없다"):
+        normalize("영상물 찾아줘", config)
+
+
+def _write_config(tmp_path: Path, aliases: str = "", stopwords: str = "[]") -> Path:
+    config_path = tmp_path / "query_normalization.v1.toml"
+    config_path.write_text(
+        f"""
+schema = "query-norm/v1"
+keep_pos = ["NNG", "NNP", "SL", "SN", "VV", "VA"]
+sort_tokens = true
+stopwords = {stopwords}
+user_words = []
+
+[aliases]
+{aliases}
+""",
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def test_malformed_stopword_is_rejected_at_load(tmp_path: Path) -> None:
+    """설정 오타는 기동 때 터져야 한다. 질의 때 터지면 매 요청이 400 이 된다.
+
+    `normalize()` 는 사용자 입력 오류에도 ValueError 를 쓰므로, 호출부가 설정 오타와
+    빈 질의를 구분하지 못한다.
+    """
+    with pytest.raises(ValueError, match="stopwords 항목은"):
+        load_config(_write_config(tmp_path, stopwords='["영상"]'))
+
+
+def test_alias_key_that_is_also_a_stopword_is_rejected(tmp_path: Path) -> None:
+    """불용어인 토큰을 별칭 키로 쓰면 치환된 형태로 필터를 빠져나간다.
+
+    별칭이 필터보다 먼저라서 생기는 거울상이다. 실제로 '태풍 영상' 이 '태풍' 이 아니라
+    '비디오 태풍' 이 됐다.
+    """
+    with pytest.raises(ValueError, match="불용어"):
+        load_config(_write_config(tmp_path, aliases='"영상" = "비디오"', stopwords='["영상/NNG"]'))
+
+
+def test_identity_alias_is_allowed(tmp_path: Path) -> None:
+    """`"부산" = "부산"` 은 아무 일도 안 하는 항목이지 연쇄가 아니다."""
+    config = load_config(_write_config(tmp_path, aliases='"부산" = "부산"'))
+
+    assert normalize("부산 침수", config).normalized_query == "부산 침수"
+
+
+def test_chained_alias_is_rejected_at_load(tmp_path: Path) -> None:
+    """A->B 와 B->C 를 함께 두면 A 는 B 에서 멈추고 B 만 C 가 된다.
+
+    단일 패스라 연쇄가 끊긴다. 조용히 절반만 적용되느니 설정 로딩에서 막는다.
+    """
+    config_path = tmp_path / "query_normalization.v1.toml"
+    config_path.write_text(
+        """
+schema = "query-norm/v1"
+keep_pos = ["NNG", "NNP"]
+sort_tokens = true
+stopwords = []
+user_words = []
+
+[aliases]
+"부산광역시" = "부산시"
+"부산시" = "부산"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="별칭이 연쇄"):
+        load_config(config_path)
+
+
 def test_alias_does_not_reach_search_tokens(tmp_path: Path) -> None:
     """별칭은 지문용 규칙이다. BM25 토큰에 적용하면 색인 측과 어긋난다."""
     config = _config_with_busan_alias(tmp_path)
@@ -175,6 +273,52 @@ def test_shipped_aliases_collapse_ministry_abbreviations(full: str, abbreviation
     assert canonical == normalize(f"{abbreviation} 브리핑").normalized_query
     assert abbreviation in canonical
     assert full not in canonical
+
+
+#: 별칭 수렴 스윕이 쓰는 꼬리말. 별칭 뒤에 무엇이 오든 수렴해야 한다.
+_SWEEP_TAILS = (
+    "교통사고",
+    "기자회견",
+    "집중호우",
+    "브리핑",
+    "산불",
+    "폭우",
+    "대책 발표",
+    "현장",
+    "침수",
+    "태풍 피해",
+    "지진",
+    "회의",
+    "시위",
+    "화재",
+    "예산안",
+    "조사 결과",
+    "발표",
+    "논란",
+    "사고",
+    "대응",
+)
+
+
+def test_every_shipped_alias_converges_on_every_tail() -> None:
+    """별칭 전수 x 꼬리말 전수. 표본 몇 개로는 안 잡히는 구멍이 있었다.
+
+    별칭은 형태소 분석 **뒤** 에 걸리므로, 별칭 키의 표층형이 뒤따르는 단어의 분절까지
+    바꾼다. 별칭 값을 `user_words` 에 넣지 않았을 때 38/680 이 갈렸다.
+
+        "부산시 교통사고" -> "교통사고 부산"
+        "부산 교통사고"   -> "교통 부산 사고"
+    """
+    aliases = get_default_config().aliases
+    diverged = [
+        (key, value, tail)
+        for key, value in aliases.items()
+        for tail in _SWEEP_TAILS
+        if normalize(f"{key} {tail}").normalized_query
+        != normalize(f"{value} {tail}").normalized_query
+    ]
+
+    assert diverged == []
 
 
 def test_facility_names_are_left_to_the_resolver() -> None:
@@ -218,6 +362,53 @@ def test_version_embeds_kiwi_version() -> None:
     import kiwipiepy
 
     assert f"kiwi{kiwipiepy.__version__}" in normalize("부산 침수").normalization_version
+
+
+def test_version_ignores_list_order(tmp_path: Path) -> None:
+    """리스트 순서는 동작을 안 바꾸므로 버전도 안 바꿔야 한다.
+
+    `stopwords`·`keep_pos`·`user_words` 는 소비 시점에 전부 집합이다. 가독성 때문에
+    재정렬하면 동작은 그대로인데 버전만 바뀌어 쌓인 exclude_scene 이 전멸한다.
+    """
+    body = """
+schema = "query-norm/v1"
+keep_pos = {keep_pos}
+sort_tokens = true
+stopwords = {stopwords}
+user_words = {user_words}
+
+[aliases]
+"""
+    a = tmp_path / "a.toml"
+    b = tmp_path / "b.toml"
+    a.write_text(
+        body.format(
+            keep_pos='["NNG", "NNP"]',
+            stopwords='["영상/NNG", "장면/NNG"]',
+            user_words='["서울시", "부산시"]',
+        ),
+        encoding="utf-8",
+    )
+    b.write_text(
+        body.format(
+            keep_pos='["NNP", "NNG"]',
+            stopwords='["장면/NNG", "영상/NNG"]',
+            user_words='["부산시", "서울시"]',
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_config(a).version_id == load_config(b).version_id
+
+
+def test_version_embeds_kiwi_model_version() -> None:
+    """토큰 경계를 정하는 것은 kiwipiepy 가 아니라 kiwipiepy-model 이다.
+
+    모델만 올라가면 canonical 이 바뀌는데 `kiwipiepy.__version__` 은 그대로다.
+    """
+    from importlib.metadata import version
+
+    assert f"model{version('kiwipiepy_model')}" in normalize("부산 침수").normalization_version
 
 
 def test_version_changes_when_config_changes(tmp_path: Path) -> None:

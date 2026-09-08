@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: 패키지에 동봉된 기본 설정.
 DEFAULT_CONFIG_PATH: Final[Path] = (
@@ -41,6 +41,9 @@ class QueryNormalizationConfig(BaseModel):
     #: '서울특별시' 는 홀로 두면 NNP 한 토큰이지만 '서울특별시 집중호우' 에서는
     #: '서울'+'특별시' 로 쪼개진다(실측). 그러면 별칭 키가 안 걸린다.
     user_words: tuple[str, ...] = ()
+    #: 사용자 사전 항목에 주는 가산점. 0 이면 Kiwi 가 문맥에 따라 여전히 쪼갠다 —
+    #: '보건복지부 기자회견' 이 '보건'+'복지'+'부' 로 갈렸다(실측). 3.0 에서 붙는다.
+    user_word_score: float = 3.0
     aliases: dict[str, str] = Field(default_factory=dict)
 
     @property
@@ -57,12 +60,50 @@ class QueryNormalizationConfig(BaseModel):
 
     @property
     def version_id(self) -> str:
-        """`<schema>:<해시8>`. 파일 내용이 1바이트라도 다르면 달라진다."""
+        """`<schema>:<해시8>`. 동작을 바꾸는 변경에만 반응한다.
+
+        리스트 항목은 정렬해서 해시한다. `keep_pos`·`stopwords`·`user_words` 는 소비
+        시점에 전부 집합이라 순서가 동작을 안 바꾸는데, `json.dumps(sort_keys=True)` 는
+        dict 키만 정렬하고 리스트 순서는 그대로 둔다. 가독성 때문에 불용어를 재정렬하면
+        동작은 같은데 버전만 바뀌어 그때까지 쌓인 exclude_scene 이 전멸한다.
+        """
         payload = self.model_dump(by_alias=True, mode="json")
+        for key, value in payload.items():
+            if isinstance(value, list):
+                payload[key] = sorted(value)
         # sort_keys + 고정 separators: 같은 값이면 항상 같은 바이트열이어야 한다.
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return f"{self.schema_}:{digest[:_HASH_LENGTH]}"
+
+    @model_validator(mode="after")
+    def _check_rules(self) -> "QueryNormalizationConfig":
+        """설정 오류는 전부 로딩 시점에 터뜨린다.
+
+        질의 시점에 터지면 `normalize()` 가 사용자 입력 오류에도 쓰는 `ValueError` 와
+        섞여, 호출부가 설정 오타를 매 요청 400 으로 바꿔 버린다.
+        """
+        # 형식 검사를 여기서 한 번 돌려 둔다. property 로만 두면 첫 질의 때 터진다.
+        _ = self.stopword_pairs
+
+        # 치환은 토큰당 한 번이다. `A->B` 와 `B->C` 를 함께 두면 A 는 B 에서 멈추고
+        # B 만 C 가 되어 같은 뜻의 두 표기가 다른 지문을 갖는다. 항등 별칭(`A->A`)은
+        # 아무 일도 안 하므로 연쇄가 아니다.
+        moving = {key: value for key, value in self.aliases.items() if key != value}
+        chained = sorted(set(moving.values()) & set(moving))
+        if chained:
+            msg = f"별칭이 연쇄한다 — 다른 별칭의 키를 값으로 쓸 수 없다: {chained}"
+            raise ValueError(msg)
+
+        # 별칭이 불용어 필터보다 먼저라서, 불용어인 토큰을 별칭 키로 두면 치환된
+        # 형태로 필터를 빠져나간다("태풍 영상" -> "비디오 태풍").
+        stopword_forms = {form for form, _ in self.stopword_pairs}
+        escaping = sorted(set(moving) & stopword_forms)
+        if escaping:
+            msg = f"불용어를 별칭 키로 쓸 수 없다 — 치환된 형태로 필터를 빠져나간다: {escaping}"
+            raise ValueError(msg)
+
+        return self
 
 
 def load_config(path: Path | None = None) -> QueryNormalizationConfig:
