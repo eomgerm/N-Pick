@@ -8,8 +8,9 @@
   color: #ffffff;
   background: #0b0d11;
   font-family:
-    'Pretendard', 'Inter', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
-    Arial, sans-serif;
+    'Black Han Sans', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', Arial, sans-serif;
+  /* Black Han Sans는 400 한 종뿐이라 굵기 합성을 끈다 (합성 볼드는 뭉개진다). */
+  font-synthesis-weight: none;
 }
 
 /* ── 비디오 배경과 어두운 그레이 오버레이 ───────────────────────────── */
@@ -94,6 +95,18 @@
   width: min(1440px, 100%);
   margin: 0 auto;
   padding: clamp(110px, 16vh, 180px) var(--edge) clamp(52px, 8vh, 96px);
+  /* 스크롤해도 자리를 지키다가 서서히 사라진다. --hero-fade는 landing-shell이 갱신한다. */
+  position: sticky;
+  top: 0;
+  z-index: 0;
+  opacity: var(--hero-fade, 1);
+  transform: translate3d(0, calc((1 - var(--hero-fade, 1)) * 24px), 0);
+  will-change: opacity, transform;
+}
+
+.hero[data-faded='true'] {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .eyebrow {
@@ -197,16 +210,15 @@
   width: min(1440px, 100%);
   margin: 0 auto;
   padding: clamp(110px, 15vh, 170px) var(--edge) clamp(26px, 4vh, 44px);
-}
-
-/* 역할 카드 구간은 영상 프레임과 무관하게 읽히도록 한 겹 더 어둡게 깐다. */
-.roles::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(130% 95% at 50% 50%, rgba(9, 11, 15, 0.66), rgba(9, 11, 15, 0.38));
+  /* 페이드 아웃되는 히어로 위로 올라온다. 배경은 영상 프레임과 무관하게 읽히도록 한 겹 더 어둡게. */
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(9, 11, 15, 0) 0%,
+    rgba(9, 11, 15, 0.62) 14%,
+    rgba(9, 11, 15, 0.7) 55%,
+    rgba(9, 11, 15, 0.56) 100%
+  );
 }
 
 .rolesBrand {
@@ -464,6 +476,9 @@
   }
   .scrollCueArrow {
     animation: none;
+  }
+  .hero {
+    transform: none;
   }
   .rolesBrand,
   .roleCard {
