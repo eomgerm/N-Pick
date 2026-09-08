@@ -55,6 +55,11 @@ logger = logging.getLogger(__name__)
 #: 예상치 못한 오류 뒤에 쉬는 시간. 즉시 재발하는 오류에서 hot loop 가 되지 않게 한다.
 _UNEXPECTED_ERROR_BACKOFF_SECONDS: Final[float] = 5.0
 
+#: 잡 API 에 닿지 못했을 때의 최소 수면. `_send` 소진 경로는 이미 백오프했지만
+#: `_unwrap` 의 봉투 실패(`200 {"isSuccess": false}`)는 재시도도 수면도 없이 올라온다.
+#: 그 경로에 하한이 없으면 워커가 /claim 을 무제한 두드린다.
+_UNAVAILABLE_MIN_BACKOFF_SECONDS: Final[float] = 1.0
+
 #: 실패·생략을 보고할 때 쓰는 자리표시자 버전. 단계를 돌리지 못했으므로 실제 재현
 #: 식별자가 없다. 봉투는 versions 를 요구하므로 "확인되지 않았다" 를 명시적으로 적는다.
 _UNKNOWN_VERSION: Final[str] = "unknown"
@@ -185,8 +190,11 @@ class JobRunner:
                 logger.error("잡 API 인증이 거절됐다. 폴링을 멈춘다.")
                 return
             except JobApiUnavailableError as exc:
-                # 클라이언트가 이미 백오프하며 재시도했다. 여기서 또 자지 않는다.
+                # `_send` 소진 경로는 이미 백오프했으니 여기서 오래 자지 않는다.
+                # 다만 `_unwrap` 의 봉투 실패는 재시도도 수면도 없이 여기로 오므로
+                # 짧은 하한을 둔다 — 그것이 없으면 유휴 루프에 제동이 없다.
                 logger.warning("잡 API 에 닿지 못했다: %s", exc)
+                await asyncio.sleep(_UNAVAILABLE_MIN_BACKOFF_SECONDS)
             except asyncio.CancelledError:
                 raise
             except Exception:

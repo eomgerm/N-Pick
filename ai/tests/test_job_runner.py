@@ -634,3 +634,35 @@ async def test_heartbeat_stays_alive_while_complete_retries(
     # complete 첫 시도 뒤에 heartbeat 가 한 번이라도 있었는가.
     first_complete = seen.index("complete")
     assert "heartbeat" in seen[first_complete:]
+
+
+# ── 유휴 claim 루프 하한 ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_envelope_failure_does_not_spin(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """200 {"isSuccess": false} 에는 클라이언트 백오프가 없다.
+
+    _unwrap 은 그 응답을 재시도도 수면도 없이 JobApiUnavailableError 로 올린다
+    (HTTP 1회, sleep 0회). run() 도 자지 않으면 워커가 /claim 을 무제한 두드린다.
+    잡 API 가 아직 구현되지 않았으므로 개발 중 흔한 상태다.
+    """
+    slept: list[float] = []
+    real_sleep = asyncio.sleep
+
+    async def record(seconds: float) -> None:
+        slept.append(seconds)
+        await real_sleep(0)
+
+    fake_backend.enqueue("claim", httpx2.Response(200, json=envelope(None, is_success=False)))
+    fake_backend.enqueue_status("claim", 401, code="JOB_401")
+
+    runner = _runner(job_client, media_root)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(asyncio, "sleep", record)
+        await asyncio.wait_for(runner.run(), timeout=5)
+
+    assert len(fake_backend.calls("claim")) == 2
+    assert slept, "봉투 실패 뒤에 최소 수면이 없다"

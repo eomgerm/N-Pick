@@ -171,6 +171,21 @@ class UnreadStream(httpx2.AsyncByteStream):
         yield self._body
 
 
+class BreakingStream(httpx2.AsyncByteStream):
+    """본문을 조금 주고 전송 오류를 낸다. 수 GB 를 받는 도중 연결이 끊기는 경우다.
+
+    헤더 교환은 성공했으므로 `send()` 를 감싸는 핸들러로는 잡히지 않는다 —
+    오류는 청크 순회 중에 난다.
+    """
+
+    def __init__(self, prefix: bytes = b"partial") -> None:
+        self._prefix = prefix
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._prefix
+        raise httpx2.ReadError("연결이 끊겼다")
+
+
 class FakeBackend:
     """(method, path) 로 라우팅하고 모든 요청을 기록한다.
 

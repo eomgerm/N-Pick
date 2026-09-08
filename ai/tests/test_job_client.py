@@ -32,7 +32,7 @@ from npick_worker.jobs.models import (
     WorkerIdentity,
 )
 
-from .conftest import FakeBackend, envelope, make_job
+from .conftest import BreakingStream, FakeBackend, envelope, make_job
 
 #: 계약이 정한 베이스 경로.
 CLAIM_PATH = "/api/v1/internal/jobs/claim"
@@ -554,3 +554,19 @@ async def test_artifact_key_escaping_the_path_is_rejected(job_client: JobApiClie
             content_type="image/png",
             content_sha256="a71c",
         )
+
+
+@pytest.mark.asyncio
+async def test_transport_error_during_body_is_media_unavailable(
+    job_client: JobApiClient, fake_backend: FakeBackend, tmp_path: Path
+) -> None:
+    """본문 순회 중 끊긴 연결이 "장면 분할 실패" 로 둔갑하면 안 된다.
+
+    헤더 교환은 성공하므로 send() 를 감싸는 핸들러로는 잡히지 않는다. 날 ReadError 가
+    올라가면 classify() 가 OSError 로도 보지 못해 단계별 기본값으로 떨어진다.
+    """
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, stream=BreakingStream()))
+    with pytest.raises(InputDownloadError) as caught:
+        await job_client.download_input("398021847361024", "clips/a/x.mp4", tmp_path / "x.mp4")
+    assert caught.value.error_code == "MEDIA_UNAVAILABLE"
+    assert caught.value.retryable is True

@@ -174,9 +174,17 @@ class JobApiClient:
                     # 토큰 문제는 단계 문제가 아니다.
                     msg = f"입력을 받아오지 못했다: {storage_key}"
                     raise InputDownloadError(msg) from exc
-            with dest.open("wb") as handle:
-                async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
-                    handle.write(chunk)
+            try:
+                with dest.open("wb") as handle:
+                    async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
+                        handle.write(chunk)
+            except httpx2.TransportError as exc:
+                # 헤더 교환은 성공했으므로 위의 핸들러로는 잡히지 않는다. 수 GB 를
+                # 받는 도중 끊기면 날 ReadError 가 올라가고, classify() 가 그것을
+                # OSError 로도 보지 못해 단계별 기본값으로 떨어진다 — "미디어를 못
+                # 가져왔다" 가 "이 단계가 실패했다" 로 기록되는 그 오분류다.
+                msg = f"입력을 받는 중 연결이 끊겼다: {storage_key}"
+                raise InputDownloadError(msg) from exc
         finally:
             await response.aclose()
 
