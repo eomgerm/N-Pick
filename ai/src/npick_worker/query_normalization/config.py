@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: 패키지에 동봉된 기본 설정.
 DEFAULT_CONFIG_PATH: Final[Path] = (
@@ -57,12 +57,35 @@ class QueryNormalizationConfig(BaseModel):
 
     @property
     def version_id(self) -> str:
-        """`<schema>:<해시8>`. 파일 내용이 1바이트라도 다르면 달라진다."""
+        """`<schema>:<해시8>`. 동작을 바꾸는 변경에만 반응한다.
+
+        리스트 항목은 정렬해서 해시한다. `keep_pos`·`stopwords`·`user_words` 는 소비
+        시점에 전부 집합이라 순서가 동작을 안 바꾸는데, `json.dumps(sort_keys=True)` 는
+        dict 키만 정렬하고 리스트 순서는 그대로 둔다. 가독성 때문에 불용어를 재정렬하면
+        동작은 같은데 버전만 바뀌어 그때까지 쌓인 exclude_scene 이 전멸한다.
+        """
         payload = self.model_dump(by_alias=True, mode="json")
+        for key, value in payload.items():
+            if isinstance(value, list):
+                payload[key] = sorted(value)
         # sort_keys + 고정 separators: 같은 값이면 항상 같은 바이트열이어야 한다.
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return f"{self.schema_}:{digest[:_HASH_LENGTH]}"
+
+    @model_validator(mode="after")
+    def _reject_chained_aliases(self) -> "QueryNormalizationConfig":
+        """별칭 값이 다른 별칭의 키이면 거부한다.
+
+        치환은 토큰당 한 번이다. `A->B` 와 `B->C` 를 함께 두면 A 는 B 에서 멈추고 B 만
+        C 가 되어 같은 뜻의 두 표기가 다른 지문을 갖는다. 조용히 절반만 적용되느니
+        설정을 못 읽게 막는다.
+        """
+        chained = sorted(set(self.aliases.values()) & set(self.aliases))
+        if chained:
+            msg = f"별칭이 연쇄한다 — 다른 별칭의 키를 값으로 쓸 수 없다: {chained}"
+            raise ValueError(msg)
+        return self
 
 
 def load_config(path: Path | None = None) -> QueryNormalizationConfig:

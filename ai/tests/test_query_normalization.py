@@ -135,6 +135,58 @@ def test_alias_does_not_corrupt_a_longer_word(tmp_path: Path) -> None:
     assert normalize("부산시청 집회", config).normalized_query == "부산 시청 집회"
 
 
+def test_alias_applies_before_the_stopword_filter(tmp_path: Path) -> None:
+    """별칭을 먼저 걸어야 불용어 판정이 일관된다.
+
+    필터가 먼저면 '영상물'(별칭 -> '영상')은 살아남아 매체어가 지문에 남고,
+    '영상'은 거부된다. 같은 뜻인데 결과가 갈린다.
+    """
+    config_path = tmp_path / "query_normalization.v1.toml"
+    config_path.write_text(
+        """
+schema = "query-norm/v1"
+keep_pos = ["NNG", "NNP", "SL", "SN", "VV", "VA"]
+sort_tokens = true
+stopwords = ["영상/NNG", "찾/VV"]
+user_words = []
+
+[aliases]
+"영상물" = "영상"
+""",
+        encoding="utf-8",
+    )
+    config = load_config(config_path)
+
+    # '영상물' 은 Kiwi 가 NNG 로 잡으므로 별칭 뒤 ('영상', 'NNG') 가 되어 불용어에 걸린다.
+    with pytest.raises(ValueError, match="내용어가 없다"):
+        normalize("영상물 찾아줘", config)
+
+
+def test_chained_alias_is_rejected_at_load(tmp_path: Path) -> None:
+    """A->B 와 B->C 를 함께 두면 A 는 B 에서 멈추고 B 만 C 가 된다.
+
+    단일 패스라 연쇄가 끊긴다. 조용히 절반만 적용되느니 설정 로딩에서 막는다.
+    """
+    config_path = tmp_path / "query_normalization.v1.toml"
+    config_path.write_text(
+        """
+schema = "query-norm/v1"
+keep_pos = ["NNG", "NNP"]
+sort_tokens = true
+stopwords = []
+user_words = []
+
+[aliases]
+"부산광역시" = "부산시"
+"부산시" = "부산"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="별칭이 연쇄"):
+        load_config(config_path)
+
+
 def test_alias_does_not_reach_search_tokens(tmp_path: Path) -> None:
     """별칭은 지문용 규칙이다. BM25 토큰에 적용하면 색인 측과 어긋난다."""
     config = _config_with_busan_alias(tmp_path)
@@ -218,6 +270,53 @@ def test_version_embeds_kiwi_version() -> None:
     import kiwipiepy
 
     assert f"kiwi{kiwipiepy.__version__}" in normalize("부산 침수").normalization_version
+
+
+def test_version_ignores_list_order(tmp_path: Path) -> None:
+    """리스트 순서는 동작을 안 바꾸므로 버전도 안 바꿔야 한다.
+
+    `stopwords`·`keep_pos`·`user_words` 는 소비 시점에 전부 집합이다. 가독성 때문에
+    재정렬하면 동작은 그대로인데 버전만 바뀌어 쌓인 exclude_scene 이 전멸한다.
+    """
+    body = """
+schema = "query-norm/v1"
+keep_pos = {keep_pos}
+sort_tokens = true
+stopwords = {stopwords}
+user_words = {user_words}
+
+[aliases]
+"""
+    a = tmp_path / "a.toml"
+    b = tmp_path / "b.toml"
+    a.write_text(
+        body.format(
+            keep_pos='["NNG", "NNP"]',
+            stopwords='["영상/NNG", "장면/NNG"]',
+            user_words='["서울시", "부산시"]',
+        ),
+        encoding="utf-8",
+    )
+    b.write_text(
+        body.format(
+            keep_pos='["NNP", "NNG"]',
+            stopwords='["장면/NNG", "영상/NNG"]',
+            user_words='["부산시", "서울시"]',
+        ),
+        encoding="utf-8",
+    )
+
+    assert load_config(a).version_id == load_config(b).version_id
+
+
+def test_version_embeds_kiwi_model_version() -> None:
+    """토큰 경계를 정하는 것은 kiwipiepy 가 아니라 kiwipiepy-model 이다.
+
+    모델만 올라가면 canonical 이 바뀌는데 `kiwipiepy.__version__` 은 그대로다.
+    """
+    from importlib.metadata import version
+
+    assert f"model{version('kiwipiepy_model')}" in normalize("부산 침수").normalization_version
 
 
 def test_version_changes_when_config_changes(tmp_path: Path) -> None:
