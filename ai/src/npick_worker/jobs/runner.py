@@ -60,6 +60,27 @@ _UNEXPECTED_ERROR_BACKOFF_SECONDS: Final[float] = 5.0
 _UNKNOWN_VERSION: Final[str] = "unknown"
 
 
+def _mount_is_usable(media_root: Path | None) -> bool:
+    """공유 마운트를 **선언해도 되는지**. 설정만으로 판단하지 않는다.
+
+    `compose.yaml` 이 `NPICK_AI_MEDIA_ROOT` 를 무조건 주입하므로, 볼륨이 안 붙거나
+    경로가 어긋나도 설정값은 그대로 있다. 그 상태로 `sharedMediaVolume: true` 를
+    선언하면 BE 는 계속 `transport: shared-volume` 을 내려주고 워커는 매 잡을
+    떨어뜨린다. 계약 §5 는 `http` 를 필수, `shared-volume` 을 선택(최적화)으로
+    두므로 마운트 오타 하나가 fleet 전체를 실패시키는 것은 그 의도와 반대다.
+    """
+    if media_root is None:
+        return False
+    if media_root.is_dir():
+        return True
+    logger.warning(
+        "NPICK_AI_MEDIA_ROOT 가 디렉터리가 아니다. 공유 마운트를 선언하지 않고 "
+        "입력을 HTTP 로 받는다: %s",
+        media_root,
+    )
+    return False
+
+
 def generate_worker_id() -> str:
     """설정에 없을 때 쓸 워커 식별자.
 
@@ -141,7 +162,7 @@ class JobRunner:
             fleet=settings.job_fleet,
             poll_wait_seconds=settings.job_poll_wait_seconds,
             heartbeat_seconds=settings.job_heartbeat_seconds,
-            shared_media_volume=settings.media_root is not None,
+            shared_media_volume=_mount_is_usable(settings.media_root),
             media_root=settings.media_root,
             device=WorkerDevice(
                 kind=info.resolved,

@@ -17,7 +17,11 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Final, Literal
 
 from npick_worker.jobs.client import JobApiClient
-from npick_worker.jobs.errors import ContentHashMismatchError, InputUnavailableError
+from npick_worker.jobs.errors import (
+    ContentHashMismatchError,
+    InputDownloadError,
+    InputUnavailableError,
+)
 from npick_worker.jobs.models import MediaRef
 
 logger = logging.getLogger(__name__)
@@ -50,8 +54,19 @@ class MediaResolver:
         휘발성이지만 한 파드가 잡을 여러 개 처리하므로, 남겨 두면 금방 찬다.
         """
         if ref.transport == "shared-volume":
-            yield ResolvedInput(path=self._shared_path(ref), source="shared_mount")
-            return
+            mounted = self._shared_path(ref)
+            if mounted is not None:
+                yield ResolvedInput(path=mounted, source="shared_mount")
+                return
+            # 마운트가 안 붙었거나 파일이 없다. 계약 §5 는 http 를 필수, shared-volume
+            # 을 선택(최적화)으로 두므로 여기서 포기하지 않는다 — 마운트 오타 하나가
+            # fleet 전체를 재시도 없는 영구 실패로 만드는 것은 그 의도와 반대다.
+            if self._client is None:
+                msg = f"공유 마운트에서 입력을 찾지 못했고 내려받을 수단도 없다: {ref.storage_key}"
+                raise InputUnavailableError(msg)
+            logger.warning(
+                "공유 마운트에서 입력을 찾지 못했다. HTTP 로 내려받는다: %s", ref.storage_key
+            )
 
         if self._client is None:
             msg = f"내려받을 수단이 없다: {ref.storage_key}"
@@ -60,33 +75,33 @@ class MediaResolver:
         with tempfile.TemporaryDirectory(prefix="npick-input-") as tmp:
             dest = Path(tmp) / Path(ref.storage_key).name
             await self._client.download_input(run_id, ref.storage_key, dest)
-            _verify_hash(dest, ref)
+            _verify_input(dest, ref)
             yield ResolvedInput(path=dest, source="download")
 
-    def _shared_path(self, ref: MediaRef) -> Path:
-        """공유 마운트에서 파일을 찾는다. 키가 미디어 루트를 벗어나면 거절한다.
+    def _shared_path(self, ref: MediaRef) -> Path | None:
+        """공유 마운트에서 파일을 찾는다. 마운트나 파일이 없으면 `None`.
 
         `storage_key` 는 BE 가 준 값이지만 검증 없이 경로로 이어 붙이면 잡 API 가
         임의 파일 읽기 통로가 된다. media 는 사용자 경로가 아니라 검증된 ID 로만
         접근한다는 요구가 코드에서 지켜지는 지점이 여기다.
-        """
-        if self._media_root is None:
-            msg = f"공유 마운트가 설정되지 않았다: {ref.storage_key}"
-            raise InputUnavailableError(msg)
 
+        **키 거절과 "없음" 을 가른다.** 루트를 벗어난 키는 `None` 이 아니라 예외다 —
+        `None` 을 돌려주면 호출부가 다운로드로 내려가 같은 키를 BE 에 보낸다.
+        마운트·파일이 없는 것은 설정 문제이므로 폴백할 수 있다.
+        """
         key = ref.local_path or ref.storage_key
         if _is_absolute_anywhere(key):
             msg = f"절대 경로 키는 허용하지 않는다: {key}"
             raise InputUnavailableError(msg)
 
+        if self._media_root is None or not self._media_root.is_dir():
+            return None
+
         candidate = (self._media_root / key).resolve()
         if not candidate.is_relative_to(self._media_root):
             msg = f"미디어 루트를 벗어난 키다: {key}"
             raise InputUnavailableError(msg)
-        if not candidate.is_file():
-            msg = f"입력 파일이 없다: {key}"
-            raise InputUnavailableError(msg)
-        return candidate
+        return candidate if candidate.is_file() else None
 
 
 def _is_absolute_anywhere(key: str) -> bool:
@@ -99,19 +114,46 @@ def _is_absolute_anywhere(key: str) -> bool:
     return PurePosixPath(key).is_absolute() or PureWindowsPath(key).is_absolute()
 
 
-def _verify_hash(path: Path, ref: MediaRef) -> None:
-    """배정이 해시를 줬으면 대조한다.
+def _verify_input(path: Path, ref: MediaRef) -> None:
+    """받은 파일이 배정이 말한 것인지 본다. 크기를 먼저, 그다음 해시.
 
-    해시가 다르면 다시 받아도 같은 파일이 온다. 일시 오류가 아니다.
+    **크기가 유일한 방어선인 경우가 있다.** 해시가 없으면 오류 없이 일찍 끝난 응답
+    (프록시 타임아웃·BE 가 스트림 중간에 죽는 경우)이 부분 파일을 남기고 그대로
+    정상 해석된다. 그러면 `detect_scenes` 가 잘린 mp4 를 돌려 틀린 scene 경계를
+    `succeeded` 로 정본에 넣는다 — 깨끗한 실패보다 나쁘다. 아무도 그 run 을
+    의심하지 않는다.
     """
+    if ref.size_bytes is not None:
+        actual_size = path.stat().st_size
+        if actual_size != ref.size_bytes:
+            # 잘린 응답은 **일시** 오류다. 다시 받으면 온전할 수 있다.
+            msg = (
+                f"받은 크기가 배정과 다르다: {ref.storage_key} "
+                f"(기대 {ref.size_bytes}, 실제 {actual_size})"
+            )
+            raise InputDownloadError(msg)
+
     if ref.content_hash is None:
         return
     actual = sha256_file(path)
-    if actual != ref.content_hash:
+    if actual != _normalize_hash(ref.content_hash):
+        # 해시가 다르면 다시 받아도 같은 파일이 온다. 일시 오류가 아니다.
         msg = (
             f"입력 해시가 배정과 다르다: {ref.storage_key} (기대 {ref.content_hash}, 실제 {actual})"
         )
         raise ContentHashMismatchError(msg)
+
+
+def _normalize_hash(value: str) -> str:
+    """표현 차이를 지운다. 대소문자·`sha256:` 접두·앞뒤 공백은 같은 해시다.
+
+    계약 §4.1 이 `"contentHash": "3f1e…"` 로만 적어 인코딩을 못 박지 않았다. 여기서
+    표현이 갈리면 `ContentHashMismatchError` 는 영구(`UNSUPPORTED_MEDIA`)이고 계약
+    §9.2 가 영구를 "attempts 동결·재claim 없음" 으로 두므로, 치명 단계인
+    `scene_detection` 이 이걸로 죽으면 run 이 **재시도 없이** failed 가 된다.
+    Java 쪽이 `String.format("%02X")` 를 쓰기만 해도 전 잡이 그렇게 된다.
+    """
+    return value.strip().lower().removeprefix("sha256:")
 
 
 def sha256_file(path: Path) -> str:

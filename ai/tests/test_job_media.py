@@ -7,7 +7,11 @@ import httpx2
 import pytest
 
 from npick_worker.jobs.client import JobApiClient
-from npick_worker.jobs.errors import ContentHashMismatchError, InputUnavailableError
+from npick_worker.jobs.errors import (
+    ContentHashMismatchError,
+    InputDownloadError,
+    InputUnavailableError,
+)
 from npick_worker.jobs.media import MediaResolver, redact
 from npick_worker.jobs.models import MediaRef
 
@@ -163,3 +167,122 @@ async def test_download_404_is_permanent_media_unavailable(
             pass
     assert caught.value.error_code == "MEDIA_UNAVAILABLE"
     assert caught.value.retryable is False
+
+
+# ── 잘린 다운로드 ────────────────────────────────────────────────────
+# 오류 없이 일찍 끝난 응답(프록시 타임아웃·BE 가 스트림 중간에 죽는 경우)은 부분
+# 파일을 남긴다. 걸러내지 않으면 detect_scenes 가 잘린 mp4 를 돌려 틀린 scene
+# 경계를 succeeded 로 정본에 넣는다 — 깨끗한 실패보다 나쁘다.
+
+
+@pytest.mark.asyncio
+async def test_truncated_download_is_rejected(
+    fake_backend: FakeBackend, job_client: JobApiClient
+) -> None:
+    """sizeBytes 가 해시 없을 때의 유일한 방어선이다."""
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"x" * 512))
+    resolver = MediaResolver(None, job_client)
+    ref = MediaRef(storage_key="clips/a/source.mp4", transport="http", size_bytes=1 << 20)
+    with pytest.raises(InputDownloadError):
+        async with resolver.resolve("run-1", ref):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_truncated_download_is_transient(
+    fake_backend: FakeBackend, job_client: JobApiClient
+) -> None:
+    """해시 불일치와 다르다 — 다시 받으면 온전할 수 있다."""
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"x" * 512))
+    resolver = MediaResolver(None, job_client)
+    ref = MediaRef(storage_key="clips/a/source.mp4", transport="http", size_bytes=1 << 20)
+    with pytest.raises(InputDownloadError) as caught:
+        async with resolver.resolve("run-1", ref):
+            pass
+    assert caught.value.retryable is True
+    assert caught.value.error_code == "MEDIA_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_matching_size_passes(fake_backend: FakeBackend, job_client: JobApiClient) -> None:
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=_VIDEO_BYTES))
+    resolver = MediaResolver(None, job_client)
+    ref = MediaRef(storage_key="clips/a/source.mp4", transport="http", size_bytes=len(_VIDEO_BYTES))
+    async with resolver.resolve("run-1", ref) as resolved:
+        assert resolved.path.exists()
+
+
+# ── 해시 표현 차이 ───────────────────────────────────────────────────
+# 계약 §4.1 이 인코딩을 못 박지 않았다. 여기서 갈리면 ContentHashMismatchError 는
+# 영구(UNSUPPORTED_MEDIA)이고 계약 §9.2 가 영구를 "attempts 동결·재claim 없음" 으로
+# 두므로, 치명 단계인 scene_detection 이 이걸로 죽으면 run 이 재시도 없이 failed 다.
+
+
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(str.upper, id="대문자_hex"),
+        pytest.param(lambda h: f"sha256:{h}", id="sha256_접두"),
+        pytest.param(lambda h: f"  {h}  ", id="앞뒤_공백"),
+        pytest.param(lambda h: f"SHA256:{h.upper()}", id="접두와_대문자"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_content_hash_representation_does_not_matter(
+    fake_backend: FakeBackend, job_client: JobApiClient, render: object
+) -> None:
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=_VIDEO_BYTES))
+    resolver = MediaResolver(None, job_client)
+    digest = hashlib.sha256(_VIDEO_BYTES).hexdigest()
+    ref = MediaRef(
+        storage_key="clips/a/source.mp4",
+        transport="http",
+        content_hash=render(digest),  # type: ignore[operator]
+    )
+    async with resolver.resolve("run-1", ref) as resolved:
+        assert resolved.path.exists()
+
+
+@pytest.mark.asyncio
+async def test_normalization_does_not_swallow_a_real_mismatch(
+    fake_backend: FakeBackend, job_client: JobApiClient
+) -> None:
+    """표현 차이를 지우는 것이 진짜 불일치를 삼키면 안 된다."""
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"different"))
+    resolver = MediaResolver(None, job_client)
+    ref = MediaRef(
+        storage_key="clips/a/source.mp4",
+        transport="http",
+        content_hash=hashlib.sha256(_VIDEO_BYTES).hexdigest().upper(),
+    )
+    with pytest.raises(ContentHashMismatchError):
+        async with resolver.resolve("run-1", ref):
+            pass
+
+
+# ── 마운트가 없을 때 ─────────────────────────────────────────────────
+# 계약 §5 는 http 를 필수, shared-volume 을 선택(최적화)으로 둔다. 마운트 오타
+# 하나가 fleet 전체를 재시도 없는 100% 실패로 만드는 것은 그 의도와 반대다.
+
+
+@pytest.mark.asyncio
+async def test_shared_volume_falls_back_to_download_when_the_mount_is_gone(
+    tmp_path: Path, fake_backend: FakeBackend, job_client: JobApiClient
+) -> None:
+    """BE 가 선언을 무시하고 shared-volume 을 보내도 느리게라도 성공해야 한다."""
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=_VIDEO_BYTES))
+    resolver = MediaResolver(tmp_path / "없는마운트", job_client)
+    ref = MediaRef(storage_key="clips/a/source.mp4", transport="shared-volume")
+    async with resolver.resolve("run-1", ref) as resolved:
+        assert resolved.source == "download"
+        assert resolved.path.read_bytes() == _VIDEO_BYTES
+
+
+@pytest.mark.asyncio
+async def test_fallback_needs_a_client(tmp_path: Path) -> None:
+    """내려받을 수단이 없으면 폴백도 없다. 그때는 영구 실패가 정직하다."""
+    resolver = MediaResolver(tmp_path / "없는마운트")
+    ref = MediaRef(storage_key="clips/a/source.mp4", transport="shared-volume")
+    with pytest.raises(InputUnavailableError):
+        async with resolver.resolve("run-1", ref):
+            pass
