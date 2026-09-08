@@ -115,14 +115,6 @@
   pointer-events: none;
 }
 
-.eyebrow {
-  margin: 0 0 clamp(14px, 2vh, 22px);
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.24em;
-}
-
 .heroTitle {
   display: flex;
   flex-direction: column;
@@ -135,16 +127,19 @@
   line-height: 0.95;
   letter-spacing: -0.045em;
   text-transform: uppercase;
-  text-wrap: balance;
 }
 
 .heroLine {
   display: block;
-  animation: riseIn 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* 글자 폭만큼만 차지해야 wipe가 문장 끝에서 정확히 끝난다. */
+  width: fit-content;
+  /* 페이드가 아니라, 왼쪽에서 오른쪽으로 폭이 늘어나며 글자가 드러난다. */
+  animation: wipeIn 900ms cubic-bezier(0.65, 0, 0.35, 1) 300ms both;
 }
 
+/* 첫 줄이 끝난 뒤 둘째 줄이 같은 방식으로 이어진다. */
 .heroLine:nth-child(2) {
-  animation-delay: 160ms;
+  animation-delay: 1300ms;
 }
 
 .accent,
@@ -158,16 +153,6 @@
 
 .accentMint {
   color: var(--accent-mint);
-}
-
-.heroTagline {
-  max-width: 34ch;
-  margin: clamp(20px, 3vh, 34px) 0 0;
-  color: rgba(255, 255, 255, 0.74);
-  font-size: clamp(14px, 1.15vw, 18px);
-  letter-spacing: -0.01em;
-  word-break: keep-all;
-  animation: riseIn 900ms 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* ── 스크롤 안내 ─────────────────────────────────────────────────── */
@@ -394,14 +379,13 @@
   outline-offset: 5px;
 }
 
-@keyframes riseIn {
+@keyframes wipeIn {
   from {
-    opacity: 0;
-    transform: translate3d(0, 34px, 0);
+    clip-path: inset(0 100% 0 0);
   }
   to {
-    opacity: 1;
-    transform: none;
+    /* 끝에서 살짝 넘겨 마지막 글자의 획이 잘리지 않게 한다. */
+    clip-path: inset(0 -2% 0 0);
   }
 }
 
@@ -471,8 +455,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .heroLine,
-  .heroTagline {
+  .heroLine {
     animation: none;
   }
   .scrollCueArrow {

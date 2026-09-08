@@ -105,7 +105,6 @@ export function LandingShell() {
 
       <main className={styles.main}>
         <section aria-labelledby="landing-title" className={styles.hero} ref={heroRef}>
-          <p className={styles.eyebrow}>NEWS SCENE INTELLIGENCE</p>
           <h1 className={styles.heroTitle} id="landing-title">
             <span className={styles.heroLine}>
               WHAT YOU <em className={styles.accent}>NEED</em>?
@@ -114,8 +113,6 @@ export function LandingShell() {
               I WILL <em className={styles.accentMint}>PICK</em>!
             </span>
           </h1>
-          <p className={styles.heroTagline}>수많은 뉴스 속, 당신이 찾던 바로 그 장면.</p>
-
           <button className={styles.scrollCue} onClick={handleScrollCue} type="button">
             <span className={styles.scrollCueLabel}>Scroll down</span>
             <ArrowDown aria-hidden="true" className={styles.scrollCueArrow} />
