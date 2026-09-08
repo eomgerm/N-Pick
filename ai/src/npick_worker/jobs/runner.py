@@ -9,7 +9,6 @@
 """
 
 import asyncio
-import contextlib
 import logging
 import time
 import uuid
@@ -22,6 +21,7 @@ from npick_worker.jobs import registry
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.errors import (
     JobApiConflictError,
+    JobApiError,
     JobApiUnauthorizedError,
     JobApiUnavailableError,
     LeaseLostError,
@@ -225,26 +225,26 @@ class JobRunner:
             )
             try:
                 result = await self._execute(job, lease)
+
+                if control.abandoned.is_set():
+                    logger.warning(
+                        "중단된 작업의 결과를 버린다 (%s): %s/%s",
+                        control.reason,
+                        job.pipeline_run_id,
+                        job.stage,
+                    )
+                    return
+
+                # **반납도 heartbeat 안에서 한다.** `_send` 는 complete 에 5회 시도를
+                # 주고 각 시도의 read timeout 이 30초라 최악 ~165초인데 lease TTL 은
+                # 60초다. 계약 §4.2 가 "연장하는 것은 heartbeat 뿐" 이므로, 취소를
+                # 여기 앞에 두면 BE 가 느릴 때 반납 도중 lease 가 만료되고 이미 쓴
+                # GPU 시간을 통째로 버린다.
+                ack = await self._client.complete(job.pipeline_run_id, job.stage, result)
             except LeaseLostError:
                 logger.warning("lease 를 잃어 결과를 버린다: %s/%s", job.pipeline_run_id, job.stage)
                 return
-            finally:
-                heartbeat.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat
-
-            if control.abandoned.is_set():
-                logger.warning(
-                    "중단된 작업의 결과를 버린다 (%s): %s/%s",
-                    control.reason,
-                    job.pipeline_run_id,
-                    job.stage,
-                )
-                return
-
-            try:
-                ack = await self._client.complete(job.pipeline_run_id, job.stage, result)
-            except (LeaseLostError, StageAlreadyCompletedError, JobApiConflictError) as exc:
+            except (StageAlreadyCompletedError, JobApiConflictError) as exc:
                 logger.warning(
                     "결과를 반납하지 못했다 (%s): %s/%s",
                     exc.error_code,
@@ -252,6 +252,13 @@ class JobRunner:
                     job.stage,
                 )
                 return
+            finally:
+                heartbeat.cancel()
+                # `gather` 가 예외를 값으로 돌려주므로 finally 에서 되던지지 않는다.
+                # `suppress(CancelledError)` 로는 부족했다 — heartbeat 태스크가 다른
+                # 예외를 든 채 이미 끝났으면 cancel() 이 무효이고 await 가 그것을
+                # 여기서 올려 `try` 의 예외까지 가린다.
+                await asyncio.gather(heartbeat, return_exceptions=True)
 
             nxt = ack.next
             if nxt is None or not nxt.assigned or nxt.job is None or nxt.lease is None:
@@ -276,13 +283,30 @@ class JobRunner:
                     job.stage,
                     HeartbeatRequest(lease_id=lease.lease_id, elapsed_ms=elapsed_ms),
                 )
-            except LeaseLostError:
-                logger.warning("heartbeat 에서 lease 를 잃었다: %s", job.pipeline_run_id)
-                control.abandon("lease 회수")
-                return
             except JobApiUnavailableError as exc:
+                # BE 가 잠깐 흔들린 것이다. lease 는 아직 내 것이므로 계속 뛴다.
                 logger.warning("heartbeat 실패: %s", exc)
                 continue
+            except JobApiError as exc:
+                # LeaseLostError·StageAlreadyCompletedError·JobApiConflictError·
+                # JobApiUnauthorizedError 를 한 어휘로 받는다. 모두 "이 단계를 계속할
+                # 이유가 없다" 이고, 계약 §4.2 는 STAGE_ALREADY_COMPLETED 를 정당한
+                # abort 사유로 열거하므로 예상 밖 상황도 아니다.
+                #
+                # **태스크 밖으로 내보내면 안 된다.** join 이 그것을 finally 에서
+                # 되던져 이미 만든 정상 결과를 버리고, heartbeat 의 403 하나가
+                # run() 까지 올라가 폴링을 영구 정지시킨다.
+                logger.warning(
+                    "heartbeat 가 중단을 알렸다 (%s): %s", exc.error_code, job.pipeline_run_id
+                )
+                control.abandon(exc.error_code)
+                return
+            except Exception:
+                # heartbeat 는 결과를 만들지 않는다. 여기서 나는 예외는 폐기 사유일
+                # 뿐이고, 태스크 밖으로 나가면 위와 같은 일이 벌어진다.
+                logger.exception("heartbeat 에서 예상치 못한 오류가 났다: %s", job.pipeline_run_id)
+                control.abandon("heartbeat 오류")
+                return
             if ack.command == "abort":
                 logger.warning("BE 가 중단을 지시했다 (%s)", ack.abort_reason)
                 control.abandon(ack.abort_reason or "abort")

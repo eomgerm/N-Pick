@@ -536,3 +536,101 @@ async def test_run_survives_an_unexpected_error(
 
     # 두 번째 claim 이 있었다는 것이 루프가 살아남았다는 증거다.
     assert len(fake_backend.calls("claim")) == 2
+
+
+# ── heartbeat 가 태스크 밖으로 예외를 내보내지 않는다 ────────────────
+# heartbeat 태스크가 예외를 든 채 끝나면 이미 done 이라 cancel() 이 무효이고,
+# join 이 그 예외를 finally 안에서 되던진다 — _execute 가 정상 결과를 만든 뒤다.
+# contextlib.suppress(CancelledError) 로는 막히지 않는다.
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_403_does_not_stop_the_worker(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """heartbeat 의 403 하나가 폴링을 영구 정지시키면 안 된다.
+
+    run() 은 JobApiUnauthorizedError 를 "폴링을 멈춘다" 로 처리한다. heartbeat 예외가
+    거기까지 올라가면 워커는 영원히 놀고 /health 는 계속 ok 를 준다.
+    """
+    _plant_default_media(media_root)
+    fake_backend.enqueue_claim()
+    fake_backend.enqueue_status("heartbeat", 403, code="JOB_403_002")
+    runner = _runner(job_client, media_root)
+
+    assert await runner.run_once() is True
+
+    assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_409_001_discards_the_result(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """이미 완료된 단계다. 계약 §4.2 가 STAGE_ALREADY_COMPLETED 를 정당한 abort 사유로
+    열거하므로 예상 밖 상황이 아니다 — 조용히 폐기하고 루프는 계속한다."""
+    _plant_default_media(media_root)
+    fake_backend.enqueue_claim()
+    fake_backend.enqueue_status("heartbeat", 409, code="JOB_409_001")
+
+    assert await _runner(job_client, media_root).run_once() is True
+
+    assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_conflict_discards_the_result(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """모르는 충돌·run 없음도 결과를 버릴 사유다. 루프 밖으로 나가면 안 된다."""
+    _plant_default_media(media_root)
+    fake_backend.enqueue_claim()
+    fake_backend.enqueue_status("heartbeat", 404, code="JOB_404_001")
+
+    assert await _runner(job_client, media_root).run_once() is True
+
+    assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_lease_lost_during_execution_is_not_masked_by_the_join(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """finally 에서 예외가 올라오면 try 에서 나온 LeaseLostError 를 가린다.
+
+    가려지면 "lease 를 잃어 결과를 버린다" 대신 엉뚱한 오류가 run() 까지 간다.
+    """
+    _plant_default_media(media_root)
+    fake_backend.enqueue_claim()
+    # 실행 중 lease 회수 + heartbeat 도 실패한다. 둘이 겹쳐도 폐기 경로로 가야 한다.
+    fake_backend.enqueue_status("heartbeat", 409, code="JOB_409_002")
+
+    assert await _runner(job_client, media_root).run_once() is True
+
+    assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_stays_alive_while_complete_retries(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """반납 도중에도 lease 를 연장해야 한다.
+
+    _send 는 complete 에 5회 시도를 주고 최악 ~165초다. lease TTL 은 60초이고
+    계약 §4.2 가 "연장하는 것은 heartbeat 뿐" 이므로, 그 구간에 heartbeat 가
+    없으면 반납 도중 lease 가 만료된다.
+    """
+    _plant_default_media(media_root)
+    fake_backend.enqueue_claim()
+    fake_backend.enqueue_status("complete", 503)
+    fake_backend.enqueue_status("complete", 503)
+    # 재시도 사이에 heartbeat 가 뛰도록 강제한다.
+    seen: list[str] = []
+    fake_backend.on_request = lambda route, request: seen.append(route)
+
+    assert await _runner(job_client, media_root).run_once() is True
+
+    assert len(fake_backend.calls("complete")) == 3
+    # complete 첫 시도 뒤에 heartbeat 가 한 번이라도 있었는가.
+    first_complete = seen.index("complete")
+    assert "heartbeat" in seen[first_complete:]
