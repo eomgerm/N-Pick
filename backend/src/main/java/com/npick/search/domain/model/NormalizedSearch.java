@@ -1,0 +1,156 @@
+package com.npick.search.domain.model;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.SortedMap;
+import java.util.TreeMap;
+
+/**
+ * 정규화된 검색 하나. "이 검색과 저 검색이 같은가" 를 판정한다 (FR-QRY-002, FR-QRY-003).
+ *
+ * <p>{@code search_execution} 과 {@code search_rule} 이 똑같은 네 컬럼(normalized_query, normalized_filters_json,
+ * normalization_version, query_fingerprint)을 각각 들고 있다. 그 네 컬럼이 이 값 객체 하나에 대응한다.
+ *
+ * <p>정규화 자체는 여기서 하지 않는다. 형태소 분석이 필요해 질의 리졸버(Python)가 담당하며, 이 객체는 이미 정규화된 값을 받아 지문만 만든다.
+ *
+ * <p>지문이 달라지면 그때까지 쌓인 장면 제외 규칙이 통째로 안 걸린다. 해시 입력 방식을 바꾸는 것은 {@code normalization_version} 을 바꾸는 것과 같은 무게의 변경이다.
+ */
+public final class NormalizedSearch {
+    private static final String HASH_ALGORITHM = "SHA-256";
+
+    private final String normalizedQuery;
+    private final SortedMap<String, List<String>> normalizedFilters;
+    private final String normalizationVersion;
+    private final String fingerprint;
+
+    private NormalizedSearch(
+            String normalizedQuery, SortedMap<String, List<String>> normalizedFilters, String normalizationVersion) {
+        this.normalizedQuery = normalizedQuery;
+        this.normalizedFilters = normalizedFilters;
+        this.normalizationVersion = normalizationVersion;
+        this.fingerprint = computeFingerprint();
+    }
+
+    /**
+     * @param normalizedQuery 질의 리졸버가 만든 정규화 질의. 비어 있을 수 없다
+     * @param normalizedFilters 사용자가 명시한 필터. 없으면 빈 맵
+     * @param normalizationVersion 그 질의를 만든 정규화 규칙의 버전
+     */
+    public static NormalizedSearch of(
+            String normalizedQuery, Map<String, List<String>> normalizedFilters, String normalizationVersion) {
+        Objects.requireNonNull(normalizedQuery, "normalizedQuery");
+        Objects.requireNonNull(normalizedFilters, "normalizedFilters");
+        Objects.requireNonNull(normalizationVersion, "normalizationVersion");
+        requireNotBlank(normalizedQuery, "정규화된 질의가 비어 있다");
+        requireNotBlank(normalizationVersion, "정규화 버전이 비어 있다");
+        return new NormalizedSearch(normalizedQuery, copyOf(normalizedFilters), normalizationVersion);
+    }
+
+    /** {@code query_fingerprint} 컬럼에 그대로 들어가는 SHA-256 hex 64자. */
+    public String fingerprint() {
+        return fingerprint;
+    }
+
+    public String normalizedQuery() {
+        return normalizedQuery;
+    }
+
+    /** 호출자가 원본 맵을 고쳐도 이 값은 영향받지 않는다. */
+    public SortedMap<String, List<String>> normalizedFilters() {
+        return normalizedFilters;
+    }
+
+    public String normalizationVersion() {
+        return normalizationVersion;
+    }
+
+    /**
+     * 같은 검색인가 (FR-QRY-003).
+     *
+     * <p>지문이 같아도 원본 값을 한 번 더 비교한다. 해시 충돌로 남의 규칙이 걸리는 일을 막기 위해서다. 유사 질의로의 확장은 금지되어 있으므로(FR-OVR-009) 정확히 같을 때만 참이다.
+     */
+    public boolean matches(NormalizedSearch other) {
+        if (other == null) {
+            return false;
+        }
+        return fingerprint.equals(other.fingerprint)
+                && normalizedQuery.equals(other.normalizedQuery)
+                && normalizationVersion.equals(other.normalizationVersion)
+                && normalizedFilters.equals(other.normalizedFilters);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof NormalizedSearch that && matches(that);
+    }
+
+    @Override
+    public int hashCode() {
+        return fingerprint.hashCode();
+    }
+
+    /** 지문만 남긴다. 정규화 질의는 사용자 입력에서 온 값이라 로그로 흘리지 않는다. */
+    @Override
+    public String toString() {
+        return "NormalizedSearch[fingerprint=" + fingerprint + ']';
+    }
+
+    /**
+     * 해시 입력은 길이 접두 방식이다.
+     *
+     * <p>구분자로 이어 붙이면 값 안에 그 구분자가 들어갔을 때 경계가 흐려진다 — {@code ["a,b"]} 와 {@code ["a","b"]} 가 같은 지문이 된다. 각 문자열 앞에 바이트 길이를
+     * 붙이면 이스케이프 없이 경계가 확정된다.
+     */
+    private String computeFingerprint() {
+        MessageDigest digest = newDigest();
+        update(digest, normalizedQuery);
+        update(digest, normalizationVersion);
+        // 정렬은 SortedMap 이 보장한다. 필터를 넣은 순서가 지문을 바꾸면 안 된다.
+        for (Map.Entry<String, List<String>> entry : normalizedFilters.entrySet()) {
+            update(digest, entry.getKey());
+            for (String value : entry.getValue()) {
+                update(digest, value);
+            }
+        }
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static void update(MessageDigest digest, String value) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+        digest.update(bytes);
+    }
+
+    private static MessageDigest newDigest() {
+        try {
+            return MessageDigest.getInstance(HASH_ALGORITHM);
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256 은 모든 JVM 이 제공한다.
+            throw new IllegalStateException(HASH_ALGORITHM + " 을 사용할 수 없다", e);
+        }
+    }
+
+    /** 값 순서도 지문을 바꾸지 않아야 하므로 정렬해 둔다. */
+    private static SortedMap<String, List<String>> copyOf(Map<String, List<String>> filters) {
+        SortedMap<String, List<String>> copy = new TreeMap<>();
+        filters.forEach((key, values) -> {
+            Objects.requireNonNull(key, "필터 키가 널이다");
+            Objects.requireNonNull(values, "필터 값이 널이다");
+            copy.put(key, values.stream().sorted().toList());
+        });
+        return Collections.unmodifiableSortedMap(copy);
+    }
+
+    private static void requireNotBlank(String value, String message) {
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(message);
+        }
+    }
+}
