@@ -1,17 +1,20 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { QueryProvider } from '@/components/query-provider';
 
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'NewsCut',
-  description: '뉴스 영상 검색과 검수를 위한 NewsCut 프론트엔드',
+  title: 'N-Pick',
+  description: '필요한 뉴스 장면을 찾고 문의를 검수하는 N-Pick 워크스페이스',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="ko">
-      <body>{children}</body>
+    <html data-scroll-behavior="smooth" lang="ko">
+      <body>
+        <QueryProvider>{children}</QueryProvider>
+      </body>
     </html>
   );
 }

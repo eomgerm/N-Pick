@@ -12,10 +12,14 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.method.ParameterErrors;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import com.npick.common.error.BusinessException;
@@ -39,6 +43,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(
             BusinessException exception, HttpServletRequest request) {
         ErrorCode errorCode = exception.errorCode();
+        if (exception.getSuppressed().length > 0) {
+            log.warn(
+                    "Business failure cleanup requires attention: code={}, cleanupFailures={}",
+                    errorCode.code(),
+                    exception.getSuppressed().length);
+        }
         return ResponseEntity.status(statusMapper.map(errorCode.type()))
                 .body(ApiResponse.failure(errorCode, requestPath(request)));
     }
@@ -58,6 +68,42 @@ public class GlobalExceptionHandler {
         return failure(CommonErrorCode.VALIDATION_FAILED, request, errors);
     }
 
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleMethodValidation(
+            HandlerMethodValidationException exception, HttpServletRequest request) {
+        if (exception.isForReturnValue()) {
+            return failure(CommonErrorCode.INTERNAL_SERVER_ERROR, request, null);
+        }
+        Map<String, String> errors = new LinkedHashMap<>();
+        for (var result : exception.getParameterValidationResults()) {
+            if (result instanceof ParameterErrors beanErrors) {
+                beanErrors
+                        .getFieldErrors()
+                        .forEach(error -> addValidationError(errors, error.getField(), error.getDefaultMessage()));
+                beanErrors
+                        .getGlobalErrors()
+                        .forEach(error ->
+                                addValidationError(errors, beanErrors.getObjectName(), error.getDefaultMessage()));
+            } else {
+                var parameter = result.getMethodParameter();
+                var header = parameter.getParameterAnnotation(RequestHeader.class);
+                String name = header == null
+                        ? parameter.getParameterName()
+                        : (!header.name().isBlank() ? header.name() : header.value());
+                if (name == null || name.isBlank()) name = "argument" + parameter.getParameterIndex();
+                for (var error : result.getResolvableErrors()) {
+                    addValidationError(errors, name, error.getDefaultMessage());
+                }
+            }
+        }
+        return failure(CommonErrorCode.VALIDATION_FAILED, request, errors);
+    }
+
+    private static void addValidationError(Map<String, String> errors, String field, String message) {
+        errors.merge(
+                field, message == null ? "Invalid value" : message, (previous, current) -> previous + ", " + current);
+    }
+
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> handleConstraintViolation(
             ConstraintViolationException exception, HttpServletRequest request) {
@@ -71,6 +117,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({
         MissingServletRequestParameterException.class,
+        ServletRequestBindingException.class,
         TypeMismatchException.class,
         HttpMessageNotReadableException.class
     })

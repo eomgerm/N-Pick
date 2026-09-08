@@ -34,9 +34,9 @@ FRD_STAGE_NAMES = (
 )
 
 #: 단계가 아닌 패키지. 여기 없는 디렉터리가 생기면 배치 규약이 흔들린 것이다.
-#: `jobs` 와 `query_resolver` 는 배포 단위 둘의 자리다 — 각각 파이프라인 워커와
-#: 질의 리졸버(docs/architecture/02-container.md 의 *요소* 표).
-NON_STAGE_PACKAGES = {"config", "jobs", "query_resolver"}
+#: `jobs` 는 파이프라인 워커의 자리이고 `query_normalization`·`query_resolver` 는
+#: 질의 리졸버의 자리다 — 배포 단위 둘(docs/architecture/02-container.md 의 *요소* 표).
+NON_STAGE_PACKAGES = {"config", "jobs", "query_normalization", "query_resolver"}
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "npick_worker"
 
