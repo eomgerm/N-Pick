@@ -20,6 +20,64 @@ interface JsonRequestInit extends Omit<RequestInit, 'body' | 'cache'> {
   query?: URLSearchParams;
 }
 
+interface JsonParseContext {
+  source?: string;
+}
+
+const parseJsonWithSource = JSON.parse as unknown as (
+  text: string,
+  reviver: (this: unknown, key: string, value: unknown, context?: JsonParseContext) => unknown,
+) => unknown;
+
+function parseApiJson(text: string): unknown {
+  return parseJsonWithSource(text, (key, value, context) => {
+    if (
+      key === 'memberId' &&
+      typeof value === 'number' &&
+      typeof context?.source === 'string' &&
+      /^-?\d+$/.test(context.source)
+    ) {
+      return context.source;
+    }
+    return value;
+  });
+}
+
+let csrfReady = false;
+let csrfPreparation: Promise<void> | undefined;
+
+function readCsrfCookie(): string | undefined {
+  const value = document.cookie.split('; ').find((item) => item.startsWith('XSRF-TOKEN='));
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value.slice('XSRF-TOKEN='.length)) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function prepareCsrf(): Promise<string> {
+  if (!csrfReady || !readCsrfCookie()) {
+    csrfPreparation ??= fetchJson<void>('/auth/csrf', { signal: AbortSignal.timeout(10_000) })
+      .then(() => {
+        csrfReady = true;
+      })
+      .finally(() => {
+        csrfPreparation = undefined;
+      });
+    await csrfPreparation;
+  }
+  const token = readCsrfCookie();
+  if (!token) {
+    csrfReady = false;
+    throw new ApiClientError('api', 0, {
+      code: 'CLIENT_CSRF_UNAVAILABLE',
+      message: '요청 보안 쿠키를 확인할 수 없습니다. 쿠키 허용 여부와 접속 주소를 확인해 주세요.',
+    });
+  }
+  return token;
+}
+
 export function createApiUrl(
   path: string,
   baseUrl = env.apiBaseUrl,
@@ -44,6 +102,7 @@ export function createApiUrl(
 export async function fetchJson<ResponseData>(
   path: string,
   init: JsonRequestInit = {},
+  baseUrl = env.apiBaseUrl,
 ): Promise<ResponseData> {
   const { body, cache = 'no-store', headers, query, ...requestInit } = init;
   const requestHeaders = new Headers(headers);
@@ -58,9 +117,20 @@ export async function fetchJson<ResponseData>(
     requestHeaders.set('content-type', 'application/json');
   }
 
-  const url = createApiUrl(path, env.apiBaseUrl, query);
+  const url = createApiUrl(path, baseUrl, query);
+  if (typeof document !== 'undefined') {
+    if (baseUrl !== env.apiBaseUrl) throw new Error('Browser requests must use the public API.');
+    if (!['GET', 'HEAD', 'OPTIONS'].includes((requestInit.method ?? 'GET').toUpperCase())) {
+      if (requestInit.signal?.aborted) throw new ApiClientError('aborted', 0);
+      requestHeaders.set('X-XSRF-TOKEN', await prepareCsrf());
+      if (requestInit.signal?.aborted) throw new ApiClientError('aborted', 0);
+    }
+  }
   const options: RequestInit = {
     ...requestInit,
+    credentials: 'include',
+    // Do not forward session cookies or CSRF headers through an API redirect.
+    redirect: 'error',
     body: isFormData ? body : body === undefined ? undefined : JSON.stringify(body),
     cache,
     headers: requestHeaders,
@@ -73,6 +143,10 @@ export async function fetchJson<ResponseData>(
       diagnostics: { cause },
     });
   }
+
+  // The backend currently uses the same 403 for CSRF and role denial. Prepare
+  // a fresh token on the NEXT manual attempt; never replay a mutation here.
+  if (response.status === 403) csrfReady = false;
 
   const headerRequestId = readRequestId(response.headers.get('x-request-id'));
   if (response.status === 204 || response.status === 205) return undefined as ResponseData;
@@ -89,7 +163,7 @@ export async function fetchJson<ResponseData>(
   let data: unknown;
 
   try {
-    data = JSON.parse(text);
+    data = parseApiJson(text);
   } catch (cause) {
     throw new ApiClientError('invalid-response', response.status, {
       requestId: headerRequestId,

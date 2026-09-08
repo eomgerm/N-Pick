@@ -21,7 +21,10 @@ const legacyMessages: Record<string, readonly [string, string]> = {
   COMM_400: ['Invalid request', '요청 내용을 확인해 주세요.'],
   COMM_400_001: ['Request validation failed', '입력한 내용을 확인해 주세요.'],
   COMM_401: ['Authentication is required', '로그인이 필요합니다. 로그인 후 다시 시도해 주세요.'],
-  COMM_403: ['Access is denied', '이 작업을 수행할 권한이 없습니다.'],
+  COMM_403: [
+    'Access is denied',
+    '권한이 없거나 요청 보안 정보가 만료되었습니다. 다시 시도해도 계속되면 담당자에게 문의해 주세요.',
+  ],
   COMM_404: ['Resource not found', '요청한 항목을 찾을 수 없습니다.'],
   COMM_500: [
     'An unexpected server error occurred',
