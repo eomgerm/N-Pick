@@ -34,9 +34,10 @@ NNNN-short-kebab-title.md
 
 ## 목록
 
-| ADR                                                   | 상태     | 결정                             |
-| ----------------------------------------------------- | -------- | -------------------------------- |
-| [0001](0001-use-app-router-and-feature-boundaries.md) | Accepted | App Router와 기능 단위 경계 사용 |
+| ADR                                                   | 상태     | 결정                                   |
+| ----------------------------------------------------- | -------- | -------------------------------------- |
+| [0001](0001-use-app-router-and-feature-boundaries.md) | Accepted | App Router와 기능 단위 경계 사용       |
+| [0002](0002-backend-session-auth.md)                  | Accepted | 백엔드 세션 인증과 TanStack Query 사용 |
 
 ## 작성 형식
 
