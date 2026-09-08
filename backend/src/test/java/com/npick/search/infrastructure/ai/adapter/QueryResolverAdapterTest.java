@@ -159,11 +159,41 @@ class QueryResolverAdapterTest {
     }
 
     @Test
-    @DisplayName("알 수 없는 enum 값은 RESOLVER_SCHEMA_INVALID 로 실패한다")
-    void failsOnUnknownEnumValue() {
+    @DisplayName("해석만 못 읽으면 정규화는 살려서 SCHEMA_INVALID 로 돌려준다")
+    void keepsNormalizationWhenResolutionMappingFails() {
+        // 날짜 형식이 어긋난 경우다. 리졸버 validator 는 date.fromisoformat 로 "20240301" 을
+        // 통과시키지만 Jackson 의 LocalDate 는 YYYY-MM-DD 만 받는다. 이때 정규화까지 버리면
+        // BM25 fallback 재료가 사라진다 (FRD v3.1 §6.2).
+        respondWith(VALID_RESPONSE.replace("\"2024-03-01\"", "\"20240301\""));
+
+        QueryResolutionResult result = adapter().resolve("2024년 3월");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+        assertThat(result.normalization().searchTokens()).containsExactly("작년", "여름", "부산", "침수");
+    }
+
+    @Test
+    @DisplayName("알 수 없는 enum 값도 정규화를 살린다")
+    void keepsNormalizationOnUnknownEnumValue() {
         respondWith(VALID_RESPONSE.replace("\"scene_search\"", "\"time_travel\""));
 
-        assertThatSchemaInvalid();
+        QueryResolutionResult result = adapter().resolve("어제 뉴스");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+        assertThat(result.normalization().searchTokens()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("resolution 과 error 가 동시에 오면 정규화만 살리고 실패로 본다")
+    void rejectsBothResolutionAndError() {
+        respondWith(VALID_RESPONSE.replace("\"error\": null", "\"error\": {\"category\": \"RESOLVER_TIMEOUT\"}"));
+
+        QueryResolutionResult result = adapter().resolve("어제 뉴스");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
     }
 
     @Test
@@ -175,21 +205,25 @@ class QueryResolverAdapterTest {
     }
 
     @Test
-    @DisplayName("키 이름이 어긋나 빈 응답이 되면 성공으로 통과시키지 않는다")
-    void failsOnSilentlyEmptyResponse() {
-        // 엔드포인트 계약이 어긋나 우리가 아는 키가 하나도 없는 경우다. 기본값으로 채워
-        // 조건 없는 해석을 성공이라고 넘기면 검색이 조용히 잘못된다.
+    @DisplayName("정규화조차 없는 응답은 예외다 — 검색을 이어갈 재료가 없다")
+    void failsWhenNormalizationMissing() {
+        // 엔드포인트 계약이 통째로 어긋난 경우다. search_tokens 가 없으면 BM25 fallback 도
+        // 만들 수 없으므로 degraded 가 아니라 실패다.
         respondWith("{\"parsed\": {\"intent\": \"scene_search\"}}");
 
         assertThatSchemaInvalid();
     }
 
     @Test
-    @DisplayName("origin 이 빠진 항목은 명시와 추정을 구분할 수 없어 실패로 본다")
+    @DisplayName("origin 이 빠진 항목은 명시와 추정을 구분할 수 없어 해석 실패로 본다")
     void failsOnMissingOrigin() {
         respondWith(VALID_RESPONSE.replace("\"origin\": \"inferred\",", ""));
 
-        assertThatSchemaInvalid();
+        QueryResolutionResult result = adapter().resolve("어제 뉴스");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+        assertThat(result.normalization().searchTokens()).isNotEmpty();
     }
 
     @Test

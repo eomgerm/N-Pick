@@ -14,6 +14,7 @@
 넣으면 `query_span` 이 원문과 어긋나 explicit anchor 가 전부 강등된다.
 """
 
+import logging
 from functools import lru_cache
 
 from pydantic import BaseModel, Field
@@ -31,6 +32,8 @@ from npick_worker.query_resolver.gms_backend import GmsResolver
 from npick_worker.query_resolver.ollama_backend import OllamaResolver
 from npick_worker.query_resolver.validator import RESOLVER_SCHEMA_INVALID
 from npick_worker.settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 #: 해석 경로 전체가 죽었을 때 쓰는 사유. 백엔드가 분류하지 못한 실패다.
 RESOLVER_FAILED = "RESOLVER_FAILED"
@@ -54,9 +57,12 @@ class ResolverError(BaseModel):
     """해석 실패 사유. 호출부가 degraded 사유로 기록한다 (FRD v3.1 §7.2)."""
 
     #: `RESOLVER_TIMEOUT` · `RESOLVER_SCHEMA_INVALID` · `RESOLVER_RATE_LIMITED`
-    #: · `RESOLVER_NETWORK_ERROR` · `RESOLVER_FAILED`
+    #: · `RESOLVER_NETWORK` · `RESOLVER_FAILED`
+    #:
+    #: 값은 백엔드의 `ResolverCallError.category` 상수와 같다. BE 의
+    #: `QueryResolverErrorCode` enum 이름이 여기에 1:1 로 맞춰져 있으므로 문자열을 바꾸면
+    #: 양쪽을 같이 고쳐야 한다.
     category: str
-    message: str
 
 
 class QueryResolveResponse(BaseModel):
@@ -98,6 +104,20 @@ def _resolver() -> QueryResolver:
     return OllamaResolver(base_url=settings.ollama_url, model=settings.ollama_model, params=params)
 
 
+def _degraded(
+    normalization: Normalization, category: str, cause: Exception | None
+) -> QueryResolveResponse:
+    """해석 실패를 응답으로 만든다. 정규화는 살려서 보낸다.
+
+    **응답에는 `category` 만 싣는다.** 백엔드 예외 메시지에는 GMS 엔드포인트 URL 과 응답 본문
+    조각이 들어 있어(`gms_backend.py`), 그대로 내보내면 FRD v3.1 §6.4 의 "서버 절대 경로·전체
+    민감 원문을 응답에 노출하지 않는다" 를 어긴다. 진단용 상세는 워커 로그에만 남긴다.
+    """
+    if cause is not None:
+        logger.warning("질의 해석 실패 category=%s: %s", category, cause)
+    return QueryResolveResponse(normalization=normalization, error=ResolverError(category=category))
+
+
 def resolve(request: QueryResolveRequest) -> QueryResolveResponse:
     """정규화는 반드시, 해석은 되는 만큼.
 
@@ -114,21 +134,15 @@ def resolve(request: QueryResolveRequest) -> QueryResolveResponse:
     try:
         result = resolve_query(request.query, _resolver())
     except ResolverCallError as exc:
-        return QueryResolveResponse(
-            normalization=normalization,
-            error=ResolverError(category=exc.category, message=str(exc)),
-        )
+        return _degraded(normalization, exc.category, exc)
     except ResolverSchemaInvalidError as exc:
-        return QueryResolveResponse(
-            normalization=normalization,
-            error=ResolverError(category=RESOLVER_SCHEMA_INVALID, message=str(exc)),
-        )
-    except Exception as exc:  # 해석 실패가 검색을 죽이지 않게 한다 (FRD v3.1 §6.2)
-        # 모델 미설정 등 분류되지 않은 실패다. 원문 대신 종류만 남긴다 (§6.4).
-        return QueryResolveResponse(
-            normalization=normalization,
-            error=ResolverError(category=RESOLVER_FAILED, message=type(exc).__name__),
-        )
+        return _degraded(normalization, RESOLVER_SCHEMA_INVALID, exc)
+    except Exception:  # 해석 실패가 검색을 죽이지 않게 한다 (FRD v3.1 §6.2)
+        # 분류되지 않은 실패다. 여기에는 모델 미설정 같은 설정 문제와 **우리 쪽 버그**가
+        # 함께 걸린다. 버그를 조용히 degraded 로 넘기면 모든 검색이 해석 없이 돌면서
+        # 아무도 모르게 되므로 스택트레이스를 남긴다.
+        logger.exception("질의 해석이 분류되지 않은 이유로 실패했다")
+        return _degraded(normalization, RESOLVER_FAILED, None)
 
     return QueryResolveResponse(
         normalization=normalization,

@@ -21,10 +21,12 @@ import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.QueryResolverErrorCode;
 
 /**
- * 질의 리졸버 호출 실패를 search application 이 소유한 ErrorCode 로 번역한다.
+ * 질의 리졸버에 닿지 못한 실패를 search application 이 소유한 ErrorCode 로 번역한다.
  *
- * <p>Anti-Corruption Layer 의 Translator 자리다. RestClient·Jackson 예외가 이 클래스 바깥으로 새어나가지 않게 막고, 호출측이 fallback 을 판단할 수 있도록
- * 실패를 네 갈래로 나눈다 (FRD v3.1 §6.2).
+ * <p>Anti-Corruption Layer 의 Translator 자리다. RestClient·Jackson 예외가 이 클래스 바깥으로 새어나가지 않게 막는다.
+ *
+ * <p>리졸버가 <b>응답을 준</b> 경우의 해석 실패는 여기 오지 않는다 — 200 본문의 {@code error.category} 로 오며 {@code QueryResolutionApiResponse} 가
+ * 다룬다 (FRD v3.1 §6.2).
  */
 final class QueryResolverExceptionTranslator {
 
@@ -36,26 +38,40 @@ final class QueryResolverExceptionTranslator {
         if (hasCause(cause, JacksonException.class)) {
             return QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID;
         }
-        if (isRateLimited(cause)) {
-            return QueryResolverErrorCode.RESOLVER_RATE_LIMITED;
+        // 4xx 는 우리 요청이 잘못됐다는 뜻이므로 의존성 장애로 분류하지 않는다. 특히 리졸버는
+        // 정규화 불가 질의("!!!" 등)에 400 을 준다 — 그걸 503 으로 만들면 사용자가 자기 입력
+        // 문제를 서버 장애로 안내받는다.
+        QueryResolverErrorCode clientError = classifyClientError(cause);
+        if (clientError != null) {
+            return clientError;
         }
         if (isTimeout(cause)) {
             return QueryResolverErrorCode.RESOLVER_TIMEOUT;
         }
         if (isNetworkFailure(cause)) {
-            return QueryResolverErrorCode.RESOLVER_NETWORK_ERROR;
+            return QueryResolverErrorCode.RESOLVER_NETWORK;
         }
         return QueryResolverErrorCode.RESOLVER_FAILED;
     }
 
-    private boolean isRateLimited(Throwable cause) {
+    private QueryResolverErrorCode classifyClientError(Throwable cause) {
         for (Throwable current : causeChain(cause)) {
-            if (current instanceof RestClientResponseException response
-                    && response.getStatusCode().isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS)) {
-                return true;
+            if (!(current instanceof RestClientResponseException response)) {
+                continue;
+            }
+            HttpStatus status = HttpStatus.resolve(response.getStatusCode().value());
+            if (response.getStatusCode().isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS)) {
+                return QueryResolverErrorCode.RESOLVER_RATE_LIMITED;
+            }
+            if (status == HttpStatus.BAD_REQUEST) {
+                return QueryResolverErrorCode.QUERY_NOT_NORMALIZABLE;
+            }
+            if (response.getStatusCode().is4xxClientError()) {
+                // 401·404·422 등은 배선이 틀린 것이다. 재시도해도 소용없으므로 장애와 구분한다.
+                return QueryResolverErrorCode.RESOLVER_FAILED;
             }
         }
-        return false;
+        return null;
     }
 
     /** SocketTimeoutException 은 InterruptedIOException 하위라 {@link #isNetworkFailure} 의 IOException 검사보다 먼저 판정해야 한다. */

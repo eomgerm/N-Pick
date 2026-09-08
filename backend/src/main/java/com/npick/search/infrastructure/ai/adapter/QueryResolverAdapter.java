@@ -43,7 +43,8 @@ class QueryResolverAdapter implements QueryResolverPort {
         try {
             return response.toResult();
         } catch (RuntimeException ex) {
-            // 응답은 왔지만 우리가 아는 schema 가 아니다.
+            // 정규화조차 읽지 못한 경우다. 이때는 BM25 fallback 재료가 없어 검색을 이어갈 수 없다.
+            // 해석만 못 읽은 경우는 toResult() 안에서 failure 로 바뀌어 정상 반환된다.
             throw new BusinessException(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID, ex);
         }
     }

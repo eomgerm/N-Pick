@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.core.JacksonException;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.error.ErrorType;
 import com.npick.search.application.error.QueryResolverErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,16 +32,16 @@ class QueryResolverExceptionTranslatorTest {
     }
 
     @Test
-    @DisplayName("접속 실패와 DNS 실패는 RESOLVER_NETWORK_ERROR 로 분류한다")
+    @DisplayName("접속 실패와 DNS 실패는 RESOLVER_NETWORK 로 분류한다")
     void classifiesNetworkFailure() {
         assertThat(translator.classify(
                         new ResourceAccessException("refused", new ConnectException("Connection refused"))))
-                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK_ERROR);
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK);
         assertThat(translator.classify(
                         new ResourceAccessException("dns", new UnknownHostException("resolver.internal"))))
-                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK_ERROR);
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK);
         assertThat(translator.classify(new IOException("broken pipe")))
-                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK_ERROR);
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK);
     }
 
     @Test
@@ -58,6 +59,37 @@ class QueryResolverExceptionTranslatorTest {
         Throwable cause = new IllegalStateException("convert failed", new StubJacksonException());
 
         assertThat(translator.classify(cause)).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+    }
+
+    @Test
+    @DisplayName("리졸버의 400(정규화 불가 질의)은 장애가 아니라 잘못된 요청이다")
+    void classifiesBadRequestAsQueryProblem() {
+        Throwable cause = new RestClientResponseException(
+                "Bad Request", HttpStatus.BAD_REQUEST, "Bad Request", HttpHeaders.EMPTY, null, null);
+
+        assertThat(translator.classify(cause)).isEqualTo(QueryResolverErrorCode.QUERY_NOT_NORMALIZABLE);
+        assertThat(QueryResolverErrorCode.QUERY_NOT_NORMALIZABLE.type()).isEqualTo(ErrorType.BAD_REQUEST);
+    }
+
+    @Test
+    @DisplayName("그 외 4xx 는 배선 문제이므로 RESOLVER_FAILED 로 둔다")
+    void classifiesOtherClientErrorsAsFailed() {
+        Throwable cause = new RestClientResponseException(
+                "Not Found", HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, null, null);
+
+        assertThat(translator.classify(cause)).isEqualTo(QueryResolverErrorCode.RESOLVER_FAILED);
+    }
+
+    @Test
+    @DisplayName("enum 이름이 리졸버 category 문자열과 1:1 이어야 한다")
+    void enumNamesMatchResolverCategories() {
+        // 정본은 ai/src/npick_worker/query_resolver/*_backend.py 의 상수다.
+        // 이름이 어긋나면 QueryResolutionApiResponse 가 category 를 못 읽어 모든 실패가
+        // RESOLVER_FAILED 로 뭉개진다 — 오류가 나지 않아 못 잡는다.
+        for (String category :
+                new String[] {"RESOLVER_TIMEOUT", "RESOLVER_RATE_LIMITED", "RESOLVER_NETWORK", "RESOLVER_FAILED"}) {
+            assertThat(QueryResolverErrorCode.valueOf(category)).isNotNull();
+        }
     }
 
     @Test

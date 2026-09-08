@@ -29,10 +29,13 @@ spring:
       # (S15P21A501-45, 02-container 요소 표).
       queryResolver:
         base-url: ${QUERY_RESOLVER_BASE_URL:http://localhost:8000}
-        # TODO(Gate B): 아래 timeout 은 잠정값이다. 검색 p95 목표에 맞춰 벤치마크로 동결한다.
-        # FR-QRY-023: 재시도는 하지 않는다. read timeout 이면 그대로 실패한다.
         connect-timeout: ${QUERY_RESOLVER_CONNECT_TIMEOUT:1s}
-        read-timeout: ${QUERY_RESOLVER_TIMEOUT:3s}
+        # read-timeout 은 리졸버의 LLM timeout(ai/.../query_resolver.v1.toml 의
+        # timeout_seconds = 8.0)보다 반드시 커야 한다. 작으면 BE 가 먼저 끊어서
+        # 정규화 결과(search_tokens)를 잃고, FRD v3.1 §6.2 의 원 검색어 BM25 fallback 이
+        # 불가능해진다. 재시도는 하지 않으므로 이 값이 곧 상한이다.
+        # 두 값 모두 실측 후 확정 대상이다 (FRD v3.1 §11).
+        read-timeout: ${QUERY_RESOLVER_TIMEOUT:10s}
 
 server:
   port: ${SERVER_PORT:8080}

@@ -24,6 +24,18 @@ public record QueryResolutionResult(
         String modelVersion,
         QueryResolverErrorCode failure) {
 
+    public QueryResolutionResult {
+        if (normalization == null) {
+            throw new IllegalArgumentException("normalization 은 항상 있어야 한다");
+        }
+        // 정확히 하나. 둘 다 없으면 호출부가 판단할 근거가 없고, 둘 다 있으면 어느 쪽이 진짜인지
+        // 모른다. 어느 경우든 조용히 흘려보내면 검색이 잘못된 상태로 이어진다.
+        if ((resolution == null) == (failure == null)) {
+            throw new IllegalArgumentException("resolution 과 failure 중 정확히 하나여야 한다");
+        }
+        findings = findings == null ? List.of() : List.copyOf(findings);
+    }
+
     /** 해석을 쓸 수 있는가. 거짓이면 {@link #failure()} 를 degraded 사유로 기록하고 BM25 로 간다. */
     public boolean isResolved() {
         return resolution != null;

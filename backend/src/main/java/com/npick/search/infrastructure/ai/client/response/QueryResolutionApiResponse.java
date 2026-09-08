@@ -1,6 +1,7 @@
 package com.npick.search.infrastructure.ai.client.response;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Function;
@@ -38,21 +39,32 @@ public record QueryResolutionApiResponse(
         if (resolution == null) {
             // 해석은 실패했지만 정규화는 살아 있다. 호출부가 이 토큰으로 BM25 로 간다.
             require(error != null, "resolution 이 없으면 error");
-            return new QueryResolutionResult(normalized, null, List.of(), null, null, null, error.toErrorCode());
+            return failed(normalized, error.toErrorCode());
         }
+        try {
+            // 둘 다 오면 어느 쪽이 진짜인지 알 수 없다. 성공으로 밀면 error 를 조용히 버린다.
+            require(error == null, "resolution 과 error 가 동시에 왔다 — error");
+            require(resolutionSchemaVersion != null, "resolution_schema_version");
+            require(promptVersion != null, "prompt_version");
+            require(modelVersion != null, "model_version");
 
-        require(resolutionSchemaVersion != null, "resolution_schema_version");
-        require(promptVersion != null, "prompt_version");
-        require(modelVersion != null, "model_version");
+            return new QueryResolutionResult(
+                    normalized,
+                    resolution.toResolution(),
+                    map(findings, Finding::toFinding),
+                    resolutionSchemaVersion,
+                    promptVersion,
+                    modelVersion,
+                    null);
+        } catch (RuntimeException ex) {
+            // 해석 부분만 못 읽었다. 정규화는 이미 파싱됐으므로 버리지 않는다 — 그 토큰이 없으면
+            // FRD v3.1 §6.2 의 원 검색어 BM25 fallback 자체가 불가능해진다.
+            return failed(normalized, QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+        }
+    }
 
-        return new QueryResolutionResult(
-                normalized,
-                resolution.toResolution(),
-                map(findings, Finding::toFinding),
-                resolutionSchemaVersion,
-                promptVersion,
-                modelVersion,
-                null);
+    private static QueryResolutionResult failed(QueryNormalization normalized, QueryResolverErrorCode failure) {
+        return new QueryResolutionResult(normalized, null, List.of(), null, null, null, failure);
     }
 
     public record Normalization(
@@ -68,7 +80,15 @@ public record QueryResolutionApiResponse(
         }
     }
 
-    /** 리졸버가 분류한 실패 사유. {@code category} 문자열이 ErrorCode 이름과 1:1 이다. */
+    /**
+     * 리졸버가 분류한 실패 사유.
+     *
+     * <p>{@code category} 는 {@link QueryResolverErrorCode} 의 enum 이름과 1:1 이다. 정본은
+     * {@code ai/src/npick_worker/query_resolver/*_backend.py} 의 상수다.
+     *
+     * <p>{@code message} 는 쓰지 않는다 — 리졸버가 category 만 보내기로 했고(FRD v3.1 §6.4 "외부 호출 기록은 원문 대신 처리 종류·성공/실패를 남긴다"), 상세는 워커
+     * 로그에 있다.
+     */
     public record ResolverError(
             @JsonProperty("category") String category,
             @JsonProperty("message") String message) {
@@ -116,6 +136,9 @@ public record QueryResolutionApiResponse(
             @JsonProperty("reason") String reason) {
 
         AnchorFinding toFinding() {
+            require(path != null, "findings.path");
+            require(action != null, "findings.action");
+            require(reason != null, "findings.reason");
             return new AnchorFinding(path, action, reason);
         }
     }
@@ -132,18 +155,17 @@ public record QueryResolutionApiResponse(
 
     public record DateWindow(
             @JsonProperty("field") String field,
-            @JsonProperty("start") LocalDate start,
-            @JsonProperty("end_exclusive") LocalDate endExclusive,
+            @JsonProperty("start") String start,
+            @JsonProperty("end_exclusive") String endExclusive,
             @JsonProperty("origin") String origin,
             @JsonProperty("query_span") QuerySpan querySpan,
             @JsonProperty("confidence") Double confidence) {
 
         QueryResolution.DateWindow toDateWindow() {
-            require(start != null && endExclusive != null, "date_windows.start/end_exclusive");
             return new QueryResolution.DateWindow(
                     enumOf(QueryResolution.DateField.class, field, "date_windows.field"),
-                    start,
-                    endExclusive,
+                    date(start, "date_windows.start"),
+                    date(endExclusive, "date_windows.end_exclusive"),
                     toOrigin(origin, "date_windows"),
                     toSpan(querySpan, "date_windows"),
                     toConfidence(confidence, "date_windows"));
@@ -228,8 +250,28 @@ public record QueryResolutionApiResponse(
         return enumOf(QueryResolution.Origin.class, value, path + ".origin");
     }
 
+    /**
+     * {@code explicit_query} 인데 span 이 없는 경우를 BE 가 막지 않는다 — 리졸버의 {@code validator.py} 가 그 조합을 이미 {@code inferred} 로
+     * 강등하기 때문이다. 그 보장이 사라지면 여기에 검증을 넣어야 한다 (FRD v3.1 F-05 의 명시/추정 구분).
+     */
     private static QueryResolution.QuerySpan toSpan(QuerySpan span, String path) {
         return span == null ? null : span.toQuerySpan(path);
+    }
+
+    /**
+     * 리졸버는 날짜를 {@code YYYY-MM-DD} 문자열로 보낸다(schema.py 의 {@code start: str}).
+     *
+     * <p>DTO 필드를 {@code LocalDate} 로 두면 안 된다 — 형식이 어긋날 때 Jackson 이 본문 전체 역직렬화를 실패시켜 {@code normalization} 까지 사라지고, BM25
+     * fallback 재료를 잃는다. 리졸버 쪽 validator 는 {@code date.fromisoformat} 을 쓰므로 {@code "20240301"} 같은 값도 통과시킨다. 여기서 파싱하면 그
+     * 경우가 해석 실패로만 남는다.
+     */
+    private static LocalDate date(String value, String path) {
+        require(value != null, path);
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException ex) {
+            throw new IllegalArgumentException("%s 가 YYYY-MM-DD 가 아니다: %s".formatted(path, value), ex);
+        }
     }
 
     private static double toConfidence(Double value, String path) {

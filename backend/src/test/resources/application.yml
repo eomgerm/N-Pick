@@ -8,8 +8,10 @@ spring:
       - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
       - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
 
-  # 이 파일이 메인 application.yml 을 통째로 가린다. 질의 리졸버 base-url 이 없으면
-  # 컨텍스트가 뜨지 않으므로, 실제로 호출되지 않을 더미 주소를 준다.
+  # 이 파일이 메인 application.yml 을 통째로 가린다. base-url 이 없어도 컨텍스트는 뜨지만
+  # 호출할 때 상대 URI 로 실패하므로, 실제로 닿지 않을 주소를 명시해 둔다.
+  # 그룹 이름(queryResolver)이 QueryResolverClientConfig 와 어긋나면 조용히 미설정 상태가
+  # 되므로 QueryResolverClientWiringTest 가 그 이름을 검증한다.
   http:
     serviceclient:
       queryResolver:

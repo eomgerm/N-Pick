@@ -19,6 +19,8 @@ from fastapi.testclient import TestClient
 
 from npick_worker import query_api
 from npick_worker.query_resolver import ResolverCallError, ResolverSchemaInvalidError
+from npick_worker.query_resolver.gms_backend import _NETWORK, _RATE_LIMITED, _TIMEOUT
+from npick_worker.query_resolver.ollama_backend import _NETWORK as _OLLAMA_NETWORK
 
 RAW_QUERY = "작년 여름에 부산 침수됐던 장면 좀 찾아줘"
 
@@ -113,9 +115,9 @@ def test_returns_normalization_and_resolution(client: TestClient, stub: StubFact
 @pytest.mark.parametrize(
     ("failure", "expected"),
     [
-        (ResolverCallError("timed out", category="RESOLVER_TIMEOUT"), "RESOLVER_TIMEOUT"),
-        (ResolverCallError("429", category="RESOLVER_RATE_LIMITED"), "RESOLVER_RATE_LIMITED"),
-        (ResolverCallError("refused", category="RESOLVER_NETWORK_ERROR"), "RESOLVER_NETWORK_ERROR"),
+        (ResolverCallError("timed out", category=_TIMEOUT), _TIMEOUT),
+        (ResolverCallError("429", category=_RATE_LIMITED), _RATE_LIMITED),
+        (ResolverCallError("refused", category=_NETWORK), _NETWORK),
         (RuntimeError("모델 미설정"), "RESOLVER_FAILED"),
     ],
 )
@@ -166,3 +168,24 @@ def test_empty_query_is_rejected_by_validation(client: TestClient) -> None:
     response = client.post("/query/resolve", json={"query": ""})
 
     assert response.status_code == 422
+
+
+def test_backends_agree_on_categories() -> None:
+    """두 백엔드가 다른 문자열을 쓰면 BE 가 한쪽을 RESOLVER_FAILED 로 뭉갠다."""
+    assert _NETWORK == _OLLAMA_NETWORK
+
+
+def test_error_response_carries_no_vendor_detail(client: TestClient, stub: StubFactory) -> None:
+    """FRD v3.1 §6.4 — 엔드포인트 URL·응답 본문이 응답으로 새면 안 된다."""
+    secret = "http://gms.internal/v1/chat"
+    stub(ResolverCallError(f"GMS 호출이 실패했다 ({secret}): boom", category=_NETWORK))
+
+    body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
+
+    assert body["error"]["category"] == _NETWORK
+    assert secret not in response_text(body)
+    assert "boom" not in response_text(body)
+
+
+def response_text(body: dict) -> str:
+    return json.dumps(body, ensure_ascii=False)
