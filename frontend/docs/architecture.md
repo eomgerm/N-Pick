@@ -71,6 +71,7 @@ src/
    ├─ auth/               앱 전역 보안 계약·API·서버 guard·캐시/초안 정리
    └─ api/
       ├─ client.ts         공통 응답 envelope 해석과 HTTP client
+      ├─ idempotency.ts    새 제출용 불투명한 UUID 멱등성 키 생성
       └─ error.ts          안전한 ApiClientError와 개발용 진단 정보 분리
 ```
 
@@ -185,6 +186,17 @@ Backend API
 공통 API client는 백엔드 `ApiResponse.java`의 `isSuccess/code/message/data` envelope를 해석합니다. `fetchJson<T>`의 `T`는 envelope 안의 `data` 타입입니다. 성공 시 `data`만 반환하며 `null`, 빈 배열, degraded 상태를 바꾸지 않습니다. `data` 생략 및 HTTP 204·205는 `undefined`를 반환하므로 데이터 없는 호출은 `fetchJson<void>`를 사용합니다. 다른 2xx 빈 본문·비정상 JSON·envelope 누락은 성공으로 처리하지 않습니다.
 
 HTTP·업무 실패·네트워크·본문 수신 실패·비정상 응답·취소는 `ApiClientError`로 정규화합니다. `kind`, HTTP `status`(응답 전 실패는 0), 사용자용 `message`, stable `code`, 선택적 `requestId`를 제공합니다. 원래 응답의 `path/data`와 예외는 직렬화되지 않는 `diagnostics` 접근자로 분리하며 UI에 전달하거나 출력하지 않습니다. signal은 호출자가 전달하고 자동 재시도는 하지 않습니다. 공통 client는 `credentials: include`와 `redirect: error`를 강제하고 브라우저 변경 요청에 CSRF 헤더를 추가합니다.
+
+멱등성 키는 `src/lib/api/idempotency.ts`의 `createIdempotencyKey()`가 `globalThis.crypto.randomUUID()`로 생성합니다. 사용자·리소스 식별자와 요청 데이터를 키에 포함하지 않습니다. 기능별 제출 경계가 키를 소유하며 공통 client는 키를 생성하거나 변경 요청을 자동 재시도하지 않습니다.
+
+- 새로운 사용자 제출을 시작할 때 키를 한 번 생성하고 요청 데이터와 함께 보관합니다.
+- 네트워크 오류·응답 유실 등으로 같은 논리적 요청을 다시 보낼 때는 같은 입력과 기존 키를 재사용합니다.
+- 성공·취소·입력 변경 후 새로 제출할 때는 새 키를 생성합니다.
+- 이후 기능별 TanStack Query mutation을 연결할 때는 `mutationFn` 내부에서 키를 생성하지 않고, 제출 시 만든 mutation variables가 입력과 키를 함께 소유하도록 합니다.
+
+`fetchJson`의 `idempotencyKey?: string` 옵션은 `Idempotency-Key` 헤더로 변환하고 기존 CSRF·JSON·FormData·사용자 지정 헤더와 병합합니다. 같은 헤더가 이미 있으면 명시적인 옵션 값을 우선하며 원본 `Headers`는 변경하지 않습니다. 키가 없으면 헤더를 자동 추가하지 않습니다. `GET/HEAD/OPTIONS`(메서드 생략 시 GET)에 옵션 또는 직접 헤더로 키를 전달하면 대소문자와 관계없이 `fetch` 전에 `Error`로 거부합니다. 이는 HTTP 실패와 구분되는 호출 계약 오류입니다.
+
+**멱등성 연동 범위 (`S15P21A501-157`):** 이번 구현은 FE 키 생성·전달·수명 계약까지입니다. 현재 문의 컨트롤러의 키 처리와 백엔드 CORS 허용 헤더에 `Idempotency-Key` 연동이 필요하며, 실제 서버 중복 방지는 별도 BE 작업입니다. 문의·영상 등록·검수 mutation의 실제 API 연결은 각 기능 연동 시 적용합니다. FRD의 중복 생성 방지 완료 기준은 서버 연동까지 갖춘 뒤 검증합니다.
 
 `components/api-error-notice.tsx`는 오류 객체를 받아 한국어 메시지·오류 코드·요청 ID와 후속 안내만 `role="alert"`로 표시합니다. form의 `aria-describedby`에 연결할 수 있는 `id`를 지원합니다. 정상 한국어 서버 메시지를 우선하며, 현재 백엔드의 고정 영어 메시지는 `code/message`가 정확히 일치하는 6개 조합만 번역합니다. 메시지 누락·타입 오류·한국어 안내 계약 위반(내부 경로·HTML·JSON·예외 trace 등)에는 일반 한국어 안내를 사용합니다. 임의 JSON 응답의 `message`나 일반 `Error.message`는 표시하지 않습니다.
 
