@@ -50,6 +50,9 @@ public final class NormalizedSearch {
     private final String normalizationVersion;
 
     /**
+     * 필터는 <b>값</b> 만 정규화한다(정렬·중복 제거·빈 선택 제거). 키 표기는 손대지 않으며 빈 문자열 키도 통과한다 — 질의는 blank 를 거부하는 것과 비대칭이다. UI 명시 필터의 스키마가
+     * 아직 정해지지 않아 키 규칙을 발명하지 않았다. 스키마가 확정되면 키 표기 정규화와 blank 키 거부를 함께 정한다.
+     *
      * @param normalizedQuery 질의 리졸버가 만든 정규화 질의. 비어 있을 수 없다
      * @param normalizedFilters 사용자가 명시한 필터. 없으면 빈 맵
      * @param normalizationVersion 그 질의를 만든 정규화 규칙의 버전
@@ -73,8 +76,8 @@ public final class NormalizedSearch {
      * <p>지문이 같아도 원본 값을 한 번 더 비교한다. 해시 충돌로 남의 규칙이 걸리는 일을 막기 위해서다. 유사 질의로의 확장은 금지되어 있으므로(FR-OVR-009) 정확히 같을 때만 참이다.
      */
     public boolean matches(NormalizedSearch other) {
-        // @EqualsAndHashCode 가 fingerprint 를 먼저 비교하고(필드 선언 순서) 이어서
-        // 나머지 세 값을 비교한다. 그것이 FR-QRY-003 이 요구하는 재비교다.
+        // @EqualsAndHashCode 가 지문과 원본 세 값을 모두 비교한다. 비교 순서는
+        // 요구사항과 무관하다 — 전부 같아야 참이기 때문이다.
         return equals(other);
     }
 
@@ -83,15 +86,21 @@ public final class NormalizedSearch {
      *
      * <p>구분자로 이어 붙이면 값 안에 그 구분자가 들어갔을 때 경계가 흐려진다 — {@code ["a,b"]} 와 {@code ["a","b"]} 가 같은 지문이 된다. 각 문자열 앞에 바이트 길이를
      * 붙이면 이스케이프 없이 경계가 확정된다.
+     *
+     * <p>길이 접두만으로는 <b>문자열</b> 경계만 잡힌다. 구조가 평평하면 키가 옆 엔트리의 값으로 흡수된다 — {@code {"a":["b"], "c":["d"]}} 와
+     * {@code {"a":["b","c","d"]}} 가 둘 다 {@code a,b,c,d} 로 흘러 같은 지문이 됐다. 필터 값은 사용자·UI 문자열이라 다른 필터의 키 이름과 겹치는 것을 막을 수 없다.
+     * 그래서 맵의 엔트리 수와 각 값 리스트의 원소 수도 함께 먹인다.
      */
     private static String computeFingerprint(
             String normalizedQuery, SortedMap<String, List<String>> normalizedFilters, String normalizationVersion) {
         MessageDigest digest = newDigest();
         update(digest, normalizedQuery);
         update(digest, normalizationVersion);
+        updateCount(digest, normalizedFilters.size());
         // 정렬은 SortedMap 이 보장한다. 필터를 넣은 순서가 지문을 바꾸면 안 된다.
         for (Map.Entry<String, List<String>> entry : normalizedFilters.entrySet()) {
             update(digest, entry.getKey());
+            updateCount(digest, entry.getValue().size());
             for (String value : entry.getValue()) {
                 update(digest, value);
             }
@@ -101,8 +110,12 @@ public final class NormalizedSearch {
 
     private static void update(MessageDigest digest, String value) {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+        updateCount(digest, bytes.length);
         digest.update(bytes);
+    }
+
+    private static void updateCount(MessageDigest digest, int count) {
+        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(count).array());
     }
 
     private static MessageDigest newDigest() {

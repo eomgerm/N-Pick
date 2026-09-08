@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 
 /**
  * 정규화된 검색의 동일성 계약 (S15P21A501-44).
@@ -90,6 +91,26 @@ class NormalizedSearchTest {
         var split = search("부산", Map.of("tag", List.of("a", "b")));
 
         assertThat(joined.fingerprint()).isNotEqualTo(split.fingerprint());
+    }
+
+    @Test
+    void 필터_엔트리_사이의_경계가_흐려지지_않는다() {
+        // 문자열마다 길이를 붙여도 구조가 평평하면 키가 옆 키의 값으로 흡수된다.
+        // {"a":["b"], "c":["d"]} 와 {"a":["b","c","d"]} 는 둘 다 a,b,c,d 로 흐른다.
+        var split = search("q", Map.of("a", List.of("b"), "c", List.of("d")));
+        var merged = search("q", Map.of("a", List.of("b", "c", "d")));
+
+        assertThat(split.fingerprint()).isNotEqualTo(merged.fingerprint());
+    }
+
+    @Test
+    void 필터_키가_옆_엔트리의_값으로_흡수되지_않는다() {
+        // 필터 값은 사용자·UI 문자열이라 다른 필터의 키 이름과 겹치는 것을
+        // 구조적으로 막을 수 없다.
+        var split = search("q", Map.of("tagType", List.of("location"), "x", List.of("y")));
+        var merged = search("q", Map.of("tagType", List.of("location", "x", "y")));
+
+        assertThat(split.fingerprint()).isNotEqualTo(merged.fingerprint());
     }
 
     @Test
@@ -180,7 +201,7 @@ class NormalizedSearchTest {
     // ── 불변 ────────────────────────────────────────────────────────
 
     @Test
-    void 넘긴_필터_맵을_나중에_고쳐도_지문이_바뀌지_않는다() {
+    void 넘긴_필터_맵을_나중에_고쳐도_값이_바뀌지_않는다() {
         var mutable = new HashMap<String, List<String>>();
         mutable.put("tag", new ArrayList<>(List.of("홍수")));
         var subject = search("부산", mutable);
@@ -189,6 +210,9 @@ class NormalizedSearchTest {
         mutable.get("tag").add("태풍");
         mutable.put("extra", List.of("x"));
 
+        // 지문만 보면 방어적 복사가 없어도 통과한다 — 생성 시점에 계산해 박아 두기
+        // 때문이다. 보관한 필터까지 봐야 copyOf 를 실제로 고정한다.
+        assertThat(subject.normalizedFilters()).containsExactly(entry("tag", List.of("홍수")));
         assertThat(subject.fingerprint()).isEqualTo(before);
     }
 }
