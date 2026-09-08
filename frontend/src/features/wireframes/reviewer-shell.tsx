@@ -1,6 +1,8 @@
 'use client';
 
 import { routes } from '@/lib/routes';
+import { SessionControls } from '@/components/session-controls';
+import { useMember } from '@/components/session-boundary';
 
 import {
   ArrowLeft,
@@ -12,7 +14,6 @@ import {
   Layers3,
   RefreshCw,
   Search,
-  ShieldCheck,
   Sparkles,
   TriangleAlert,
   UserCheck,
@@ -324,6 +325,7 @@ function createInitialWork(): Record<string, InquiryWork> {
 }
 
 export function ReviewerShell({ theme }: ReviewerShellProps) {
+  const member = useMember();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -761,9 +763,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
             검수자 화면
           </Link>
         </nav>
-        <span className={styles.roleBadge}>
-          <ShieldCheck aria-hidden="true" /> 검수자
-        </span>
+        <SessionControls className="text-white" showReviewLink={false} />
       </header>
 
       <main className={styles.page}>
@@ -796,6 +796,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           />
         ) : isBoard ? (
           <ReviewerBoard
+            loginId={member.loginId}
             isNavigating={isNavigating}
             items={inquiries.map((inquiry) => ({
               ...inquiry,
@@ -841,7 +842,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                 </span>
                 <span>
                   <small>현재 검수자</small>
-                  <strong>나현우 · 아카이빙팀</strong>
+                  <strong>{member.loginId} · 검수자</strong>
                 </span>
               </div>
             </section>
@@ -1250,7 +1251,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                             <SectionHeading
                               eyebrow="2. 수정안 작성"
                               title="어떻게 처리할까요?"
-                              meta="담당 · 나현우"
+                              meta={`담당 · ${member.loginId}`}
                             />
                             <button
                               className={styles.backToResults}
@@ -1602,7 +1603,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                           <dl>
                             <div>
                               <dt>담당자</dt>
-                              <dd>나현우</dd>
+                              <dd>{member.loginId}</dd>
                             </div>
                             <div>
                               <dt>완료 시각</dt>

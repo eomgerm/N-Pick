@@ -24,6 +24,7 @@ import {
 import styles from '@/features/wireframes/reviewer-board.module.css';
 
 interface ReviewerBoardProps {
+  loginId: string;
   items: ReviewBoardItem[];
   isNavigating: boolean;
   onInquirySelect: (id: string) => void;
@@ -42,6 +43,7 @@ const filters: { value: BoardStatus; label: string }[] = [
 const statusLabels = { pending: '대기', reviewing: '처리중', completed: '완료' };
 
 export function ReviewerBoard({
+  loginId,
   items,
   isNavigating,
   onInquirySelect,
@@ -72,7 +74,7 @@ export function ReviewerBoard({
         <div>
           <p className={styles.eyebrow}>REVIEWER WORKSPACE</p>
           <h1 id="reviewer-greeting">
-            안녕하세요 나현우님.
+            안녕하세요 {loginId}님.
             <br />
             <span>
               문의 내역이 <em>{items.length}개</em> 있어요
