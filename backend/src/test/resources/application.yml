@@ -6,3 +6,15 @@ spring:
       - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
       - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
       - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
+
+# 테스트 컨텍스트는 main 의 application.yml 을 읽지 않는다(같은 이름이 test 쪽으로 가려진다).
+# 단어 검색 설정은 부팅 시점에 검증되므로 여기서도 값을 준다. 실제 기본값 검증은
+# SceneCandidateConfigurationTest 가 main 의 application.yml 을 직접 읽어서 한다.
+npick:
+  search:
+    candidate:
+      config-version: test-candidate
+      caption-weight: 1.0
+      transcript-weight: 1.0
+      ocr-weight: 1.0
+      pool-size: 50
