@@ -5,3 +5,8 @@
 # Gradle wrapper 예외
 *.bat text eol=crlf
 *.jar binary
+
+# 미디어 자산은 이진 파일로 다룬다 (Windows 체크아웃에서 손상되지 않도록).
+*.mp4 binary
+*.jpg binary
+*.png binary
