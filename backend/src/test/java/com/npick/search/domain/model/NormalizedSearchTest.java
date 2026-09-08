@@ -7,6 +7,9 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import com.npick.common.error.BusinessException;
+import com.npick.search.domain.error.SearchErrorCode;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
@@ -181,14 +184,52 @@ class NormalizedSearchTest {
     @Test
     void 정규화된_질의가_비어_있으면_거부한다() {
         // 정규화기가 이미 거부하지만, 지문의 재료가 비는 상태를 여기서도 막는다.
+        // 불변식 위반은 BusinessException 이어야 한다 — IllegalArgumentException 이면
+        // GlobalExceptionHandler 의 Exception 폴백에 걸려 입력 문제가 500 이 된다.
         assertThatThrownBy(() -> NormalizedSearch.of("", Map.of(), VERSION))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(SearchErrorCode.NORMALIZED_QUERY_BLANK);
     }
 
     @Test
     void 정규화_버전이_비어_있으면_거부한다() {
         assertThatThrownBy(() -> NormalizedSearch.of("부산 침수", Map.of(), ""))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(SearchErrorCode.NORMALIZATION_VERSION_BLANK);
+    }
+
+    @Test
+    void 필터_값이_널이면_거부한다() {
+        var withNull = new HashMap<String, List<String>>();
+        withNull.put("tag", java.util.Collections.singletonList(null));
+
+        assertThatThrownBy(() -> NormalizedSearch.of("부산", withNull, VERSION))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(SearchErrorCode.FILTER_CONTAINS_NULL);
+    }
+
+    @Test
+    void 유니코드_표기가_달라도_같은_지문이다() {
+        // macOS 는 NFD, Windows 는 NFC 로 한글을 보낸다. 눈에 같은 값이 다른 지문을
+        // 만들면 한쪽에서 만든 규칙이 다른 쪽에 안 걸린다.
+        var nfc = search("부산", Map.of("tag", List.of("홍수")));
+        var nfd = search(
+                "부산", Map.of("tag", List.of(java.text.Normalizer.normalize("홍수", java.text.Normalizer.Form.NFD))));
+
+        assertThat(nfc.fingerprint()).isEqualTo(nfd.fingerprint());
+    }
+
+    @Test
+    void 질의와_버전을_그대로_돌려준다() {
+        // 생성자가 위치 기반이고 String 필드가 셋이다. 선언 순서를 바꾸면 지문은
+        // 그대로인 채 normalized_query 컬럼에 버전 문자열이 들어간다.
+        var subject = search("부산 침수", Map.of());
+
+        assertThat(subject.normalizedQuery()).isEqualTo("부산 침수");
+        assertThat(subject.normalizationVersion()).isEqualTo(VERSION);
     }
 
     @Test

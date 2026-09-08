@@ -4,11 +4,11 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.Normalizer;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -19,6 +19,9 @@ import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import lombok.experimental.Accessors;
+
+import com.npick.common.error.BusinessException;
+import com.npick.search.domain.error.SearchErrorCode;
 
 /**
  * 정규화된 검색 하나. "이 검색과 저 검색이 같은가" 를 판정한다 (FR-QRY-002, FR-QRY-003).
@@ -61,8 +64,8 @@ public final class NormalizedSearch {
             @NonNull String normalizedQuery,
             @NonNull Map<String, List<String>> normalizedFilters,
             @NonNull String normalizationVersion) {
-        requireNotBlank(normalizedQuery, "정규화된 질의가 비어 있다");
-        requireNotBlank(normalizationVersion, "정규화 버전이 비어 있다");
+        requireNotBlank(normalizedQuery, SearchErrorCode.NORMALIZED_QUERY_BLANK);
+        requireNotBlank(normalizationVersion, SearchErrorCode.NORMALIZATION_VERSION_BLANK);
         SortedMap<String, List<String>> filters = copyOf(normalizedFilters);
         // 지문은 나머지 세 값에서 파생된다. Lombok 생성자로는 이 계산을 표현할 수 없어
         // 정적 메서드에서 만들어 넘긴다.
@@ -137,28 +140,42 @@ public final class NormalizedSearch {
      *   <li>빈 선택 제거 — {@code {"tag": []}} 는 tag 필터를 안 건 것이다
      * </ul>
      *
+     * <p>키와 값에 NFKC 를 건다. 질의는 Python 정규화기가 이미 NFKC 를 거쳤는데 필터만 안 걸면, macOS 가 보낸 NFD 한글과 Windows 가 보낸 NFC 한글이 다른 바이트가 되어
+     * 같은 선택이 다른 지문을 갖는다. casefold 는 걸지 않는다 — 질의는 자유 텍스트지만 필터 값은 태그·enum 이라 대소문자가 의미를 가를 수 있다.
+     *
      * <p>여기의 널 검사만 손으로 쓴다. Lombok {@code @NonNull} 은 메서드 파라미터와 필드에만 붙고 맵 항목·리스트 원소에는 붙일 수 없다.
      */
     private static SortedMap<String, List<String>> copyOf(Map<String, List<String>> filters) {
         SortedMap<String, List<String>> copy = new TreeMap<>();
         filters.forEach((key, values) -> {
-            Objects.requireNonNull(key, "필터 키가 널이다");
-            Objects.requireNonNull(values, "필터 값이 널이다");
+            requireNotNull(key);
+            requireNotNull(values);
             List<String> normalized = values.stream()
-                    .map(value -> Objects.requireNonNull(value, "필터 값 항목이 널이다"))
+                    .map(NormalizedSearch::canonicalText)
                     .distinct()
                     .sorted()
                     .toList();
             if (!normalized.isEmpty()) {
-                copy.put(key, normalized);
+                copy.put(canonicalText(key), normalized);
             }
         });
         return Collections.unmodifiableSortedMap(copy);
     }
 
-    private static void requireNotBlank(String value, String message) {
+    private static String canonicalText(String value) {
+        requireNotNull(value);
+        return Normalizer.normalize(value, Normalizer.Form.NFKC);
+    }
+
+    private static void requireNotNull(Object value) {
+        if (value == null) {
+            throw new BusinessException(SearchErrorCode.FILTER_CONTAINS_NULL);
+        }
+    }
+
+    private static void requireNotBlank(String value, SearchErrorCode errorCode) {
         if (value.isBlank()) {
-            throw new IllegalArgumentException(message);
+            throw new BusinessException(errorCode);
         }
     }
 }
