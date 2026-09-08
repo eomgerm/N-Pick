@@ -12,8 +12,10 @@ public record InquiryDetailResponse(
         long feedbackId,
         String status,
         String resolution,
+        String resolutionNote,
         Instant createdAt,
         String comment,
+        String resultExplainJson,
         ExecutionSnapshotResponse execution,
         List<SceneEvidenceResponse> evidence,
         ReviewHistoryResponse history) {
@@ -23,8 +25,10 @@ public record InquiryDetailResponse(
                 detail.feedbackId(),
                 detail.status(),
                 detail.resolution(),
+                detail.resolutionNote(),
                 detail.createdAt(),
                 detail.comment(),
+                detail.resultExplainJson(),
                 ExecutionSnapshotResponse.from(detail.execution()),
                 detail.evidence().stream().map(SceneEvidenceResponse::from).toList(),
                 ReviewHistoryResponse.from(detail.history()));
@@ -46,10 +50,15 @@ public record InquiryDetailResponse(
         }
     }
 
-    public record SceneEvidenceResponse(long taggingId, String tagName, String source, String verifiedState) {
+    public record SceneEvidenceResponse(
+            long taggingId, String tagName, String source, String verifiedState, String scope) {
         public static SceneEvidenceResponse from(SceneEvidence evidence) {
             return new SceneEvidenceResponse(
-                    evidence.taggingId(), evidence.tagName(), evidence.source(), evidence.verifiedState());
+                    evidence.taggingId(),
+                    evidence.tagName(),
+                    evidence.source(),
+                    evidence.verifiedState(),
+                    evidence.scope());
         }
     }
 

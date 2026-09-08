@@ -7,8 +7,10 @@ public record InquiryDetail(
         long feedbackId,
         String status,
         String resolution,
+        String resolutionNote,
         Instant createdAt,
         String comment,
+        String resultExplainJson,
         ExecutionSnapshot execution,
         List<SceneEvidence> evidence,
         ReviewHistory history) {}

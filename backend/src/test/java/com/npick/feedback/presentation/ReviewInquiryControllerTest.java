@@ -34,6 +34,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = ReviewInquiryController.class)
@@ -97,15 +98,20 @@ class ReviewInquiryControllerTest {
                 1L,
                 "OPEN",
                 null,
+                null,
                 java.time.Instant.parse("2026-09-08T00:00:00Z"),
                 "이상해요",
+                "{\"score\":1}",
                 new ExecutionSnapshot("query", "{}", "{}", "{}", "{}"),
-                java.util.List.of(),
+                java.util.List.of(new com.npick.feedback.application.query.SceneEvidence(
+                        5L, "사건명", "verified", "verified", "SCENE")),
                 new ReviewHistory(null, null, null));
         given(reviewService.detail(1L)).willReturn(detail);
         mockMvc.perform(get("/api/v1/review/inquiries/1")
                         .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.resultExplainJson").value("{\"score\":1}"))
+                .andExpect(jsonPath("$.data.evidence[0].scope").value("SCENE"));
     }
 
     @Test
