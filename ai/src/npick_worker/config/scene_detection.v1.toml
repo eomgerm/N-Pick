@@ -1,6 +1,6 @@
-# scene detection 설정 (FR-PRC-015).
+# scene detection 설정. 값이 바뀌면 version_id 가 바뀐다(FRD §7.2 기록 지원).
 #
-# ⚠ 아래 수치는 전부 Gate B(FRD §15.4) 미동결 잠정값이다.
+# ⚠ 아래 수치는 전부 실측 후 확정(FRD §11) 잠정값이다.
 #    개발셋 측정 근거 없이 바꾸지 않는다. 근거가 생기면 이 파일을 v2 로 복사하고
 #    docs/scene-detection.md 에 변경 근거를 남긴다.
 #
