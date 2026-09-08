@@ -21,6 +21,7 @@ from npick_worker.jobs.runner import JobRunner, generate_worker_id
 from npick_worker.schemas import (
     DeviceStatus,
     HealthResponse,
+    JobPollingStatus,
     PipelineRegistry,
     StageSummary,
     WarmStageStatus,
@@ -41,6 +42,15 @@ _COLD = WarmupStatus(enabled=False, ready=False, stages=[])
 
 _warmup: WarmupStatus = _COLD
 
+#: 잡 루프 태스크. /health 가 살아 있는지 보고하려면 참조를 들고 있어야 한다.
+#: 없으면 폴링이 꺼졌거나 아직 뜨지 않은 것이다.
+_job_task: "asyncio.Task[None] | None" = None
+
+
+def _polling_status() -> JobPollingStatus:
+    task = _job_task
+    return JobPollingStatus(enabled=task is not None, running=task is not None and not task.done())
+
 
 @router.get("/health", response_model=HealthResponse, summary="워커 상태·장치·단계 레지스트리")
 def health() -> HealthResponse:
@@ -55,6 +65,7 @@ def health() -> HealthResponse:
             stages=[StageSummary(order=s.order, name=s.name, fatal=s.fatal) for s in STAGES],
         ),
         warmup=_warmup,
+        polling=_polling_status(),
     )
 
 
@@ -101,7 +112,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     워밍업도 여기서만 돈다. `scenedetect`→`cv2` 임포트가 100MB 를 넘으므로 헬스체크만
     하는 프로세스가 그 비용을 낼 이유가 없다.
     """
-    global _warmup  # /health 가 읽는 프로세스 단위 상태다
+    global _warmup, _job_task  # /health 가 읽는 프로세스 단위 상태다
     settings = get_settings()
     if not settings.job_poll_enabled or not settings.job_api_base_url:
         logger.info("잡 폴링 비활성 (NPICK_AI_JOB_POLL_ENABLED / NPICK_AI_JOB_API_BASE_URL)")
@@ -111,6 +122,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _warmup = _to_status(await asyncio.to_thread(warm_up))
     client, runner = build_worker(settings)
     task = asyncio.create_task(runner.run(), name="npick-job-runner")
+    _job_task = task
     try:
         yield
     finally:
@@ -119,6 +131,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await task
         await client.aclose()
         _warmup = _COLD
+        _job_task = None
 
 
 def create_app() -> FastAPI:

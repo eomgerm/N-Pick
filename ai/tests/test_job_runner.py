@@ -16,12 +16,12 @@ import pytest
 from npick_worker.jobs import registry
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.media import MediaResolver
-from npick_worker.jobs.models import WorkerDevice
+from npick_worker.jobs.models import LeaseGrant, WorkerDevice
 from npick_worker.jobs.registry import StageContext, StageHandler, StageOutcome
 from npick_worker.jobs.runner import JobRunner
 from npick_worker.jobs.versions import StageVersion
 
-from .conftest import FakeBackend, envelope, make_job
+from .conftest import FakeBackend, envelope, make_job, make_lease
 
 RUN_ID = "398021847361024"
 
@@ -488,3 +488,51 @@ async def test_input_404_is_reported_as_media_unavailable(
     error = _complete_body(fake_backend)["error"]
     assert error["code"] == "MEDIA_UNAVAILABLE"
     assert error["retryable"] is False
+
+
+# ── heartbeat 주기 ───────────────────────────────────────────────────
+
+
+def test_heartbeat_interval_is_capped_by_the_setting(
+    job_client: JobApiClient, media_root: Path
+) -> None:
+    """BE 가 lease TTL 보다 긴 주기를 주면 lease 가 만료된다. 설정이 상한이다.
+
+    README·settings 가 이 값을 "상한" 이라고 설명한다. 그 설명이 참인지 확인한다.
+    """
+    runner = _runner(job_client, media_root)  # heartbeat_seconds=0.01
+    lease = LeaseGrant.model_validate(make_lease(heartbeatIntervalMs=120_000))
+
+    assert runner._heartbeat_interval(lease) == 0.01
+
+
+def test_heartbeat_interval_follows_the_server_when_below_the_cap(
+    job_client: JobApiClient, media_root: Path
+) -> None:
+    """상한 아래면 서버가 준 값을 그대로 쓴다."""
+    runner = _runner(job_client, media_root)
+    lease = LeaseGrant.model_validate(make_lease(heartbeatIntervalMs=5))
+
+    assert runner._heartbeat_interval(lease) == 0.005
+
+
+# ── 루프 생존 ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_survives_an_unexpected_error(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """계약을 벗어난 응답에 루프가 죽으면 안 된다.
+
+    죽으면 lifespan 태스크가 조용히 끝나고 아무도 await 하지 않아 예외가 어디에도
+    보고되지 않는다. 컨테이너는 healthy 인데 잡을 하나도 안 가져간다.
+    """
+    # assigned=true 인데 job·lease 가 없다 — ClaimResponse 검증이 터진다.
+    fake_backend.enqueue("claim", httpx2.Response(200, json=envelope({"assigned": "네"})))
+    fake_backend.enqueue_status("claim", 401, code="JOB_401")
+
+    await asyncio.wait_for(_runner(job_client, media_root).run(), timeout=5)
+
+    # 두 번째 claim 이 있었다는 것이 루프가 살아남았다는 증거다.
+    assert len(fake_backend.calls("claim")) == 2

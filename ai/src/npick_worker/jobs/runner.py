@@ -52,9 +52,8 @@ from npick_worker.versioning import service_version
 
 logger = logging.getLogger(__name__)
 
-#: heartbeat 주기를 lease 의 몇 분의 일로 둘 것인가. 한 번 놓쳐도 회수되지 않도록
-#: 여유를 둔다. 서버가 heartbeatIntervalMs 를 주면 그 값이 이긴다.
-_LEASE_SAFETY_DIVISOR: Final[int] = 3
+#: 예상치 못한 오류 뒤에 쉬는 시간. 즉시 재발하는 오류에서 hot loop 가 되지 않게 한다.
+_UNEXPECTED_ERROR_BACKOFF_SECONDS: Final[float] = 5.0
 
 #: 실패·생략을 보고할 때 쓰는 자리표시자 버전. 단계를 돌리지 못했으므로 실제 재현
 #: 식별자가 없다. 봉투는 versions 를 요구하므로 "확인되지 않았다" 를 명시적으로 적는다.
@@ -169,6 +168,16 @@ class JobRunner:
                 logger.warning("잡 API 에 닿지 못했다: %s", exc)
             except asyncio.CancelledError:
                 raise
+            except Exception:
+                # 여기까지 오는 것은 계약을 벗어난 응답(ClaimResponse 검증 실패)이나
+                # 러너 자체의 버그다. 그대로 나가면 lifespan 이 띄운 태스크가 조용히
+                # 끝나고, 아무도 그 태스크를 await 하지 않으므로 예외가 어디에도
+                # 보고되지 않는다. 컨테이너는 healthy 인데 잡을 하나도 안 가져간다.
+                #
+                # CancelledError 는 BaseException 이라 여기 걸리지 않는다 — 종료는
+                # 위의 분기가 그대로 처리한다.
+                logger.exception("잡 루프에서 예상치 못한 오류가 났다. 계속 폴링한다.")
+                await asyncio.sleep(_UNEXPECTED_ERROR_BACKOFF_SECONDS)
 
     async def run_once(self) -> bool:
         """잡을 하나 받아 처리한다. 배정이 없으면 False.
@@ -280,11 +289,15 @@ class JobRunner:
                 return
 
     def _heartbeat_interval(self, lease: LeaseGrant) -> float:
-        """서버가 준 주기를 쓰되 lease 안에 여러 번 들어가도록 한다."""
-        server = lease.heartbeat_interval_ms / 1000
-        if server > 0:
-            return server
-        return self._heartbeat_seconds / _LEASE_SAFETY_DIVISOR
+        """서버가 준 주기를 쓰되 설정한 상한을 넘지 않는다.
+
+        BE 가 lease TTL 보다 긴 주기를 주면 워커는 그 사이 heartbeat 를 한 번도 보내지
+        못하고 lease 가 만료된다. 상한이 그 사고를 막는다.
+
+        `heartbeat_interval_ms` 는 `Field(gt=0)`(`models.py`)이라 0 이하가 들어올 수 없다.
+        "서버가 안 주면 폴백" 분기를 두면 그 분기는 실행되지 않는다.
+        """
+        return min(lease.heartbeat_interval_ms / 1000, self._heartbeat_seconds)
 
     # ── 단계 실행 ────────────────────────────────────────────────────
 

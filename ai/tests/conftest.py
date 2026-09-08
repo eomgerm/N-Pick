@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -156,6 +156,21 @@ def make_job(**overrides: object) -> dict[str, object]:
     return job
 
 
+class UnreadStream(httpx2.AsyncByteStream):
+    """아직 읽지 않은 응답 본문. 실서버의 스트리밍 응답과 같은 상태를 만든다.
+
+    `httpx2.Response(json=...)` 는 생성 시점에 `read()` 되어 `_content` 가 채워진다
+    (`httpx2/_models.py` Response.__init__). 그 응답으로는 "본문을 읽지 않고 판정했다"
+    는 결함이 재현되지 않는다 — `response.json()` 이 그냥 성공해 버린다.
+    """
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._body
+
+
 class FakeBackend:
     """(method, path) 로 라우팅하고 모든 요청을 기록한다.
 
@@ -219,15 +234,27 @@ class FakeBackend:
         *,
         code: str = "JOB_500",
         headers: dict[str, str] | None = None,
+        streamed: bool = False,
     ) -> None:
-        self.enqueue(
-            route,
-            httpx2.Response(
-                status,
-                json=envelope(None, is_success=False, code=code, message="fake"),
-                headers=headers,
-            ),
-        )
+        """오류 응답 하나를 큐에 넣는다.
+
+        `streamed` 는 `stream=True` 로 받는 경로(`download_input`)를 위한 것이다.
+        기본값이 만드는 응답은 이미 읽힌 상태라, 본문을 읽지 않고 판정하는 결함이
+        그 위에서는 드러나지 않는다. `UnreadStream` 을 참고.
+        """
+        body = envelope(None, is_success=False, code=code, message="fake")
+        if streamed:
+            merged = {"content-type": "application/json"} | (headers or {})
+            self.enqueue(
+                route,
+                httpx2.Response(
+                    status,
+                    headers=merged,
+                    stream=UnreadStream(json.dumps(body).encode()),
+                ),
+            )
+            return
+        self.enqueue(route, httpx2.Response(status, json=body, headers=headers))
 
     # 검사 --------------------------------------------------------------
 

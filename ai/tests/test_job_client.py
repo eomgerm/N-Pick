@@ -16,6 +16,7 @@ import pytest
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.errors import (
     ArtifactKeyRejectedError,
+    InputDownloadError,
     InputUnavailableError,
     JobApiConflictError,
     JobApiUnauthorizedError,
@@ -443,7 +444,7 @@ async def test_download_404_is_input_unavailable(
     job_client: JobApiClient, fake_backend: FakeBackend, tmp_path: Path
 ) -> None:
     """없는 입력을 다시 받아도 없다."""
-    fake_backend.enqueue_status("artifact_get", 404, code="JOB_404_002")
+    fake_backend.enqueue_status("artifact_get", 404, code="JOB_404_002", streamed=True)
     with pytest.raises(InputUnavailableError) as caught:
         await job_client.download_input("398021847361024", "clips/a/gone.mp4", tmp_path / "x.mp4")
     assert caught.value.retryable is False
@@ -460,3 +461,96 @@ async def test_worker_id_header_matches_the_client_property(
     await job_client.claim(_claim_request())
     assert fake_backend.requests[0].headers["x-worker-id"] == job_client.worker_id
     assert job_client.worker_id != ""
+
+
+# ── 다운로드 오류 경로 ───────────────────────────────────────────────
+# 스트리밍으로 받는 경로라 응답이 아직 읽히지 않은 상태다. 판정 전에 읽지 않으면
+# ResponseNotRead 가 나고, 그것은 StreamError(RuntimeError) 라 _error_code 의
+# except ValueError 에 걸리지 않는다. streamed=True 가 그 상태를 만든다.
+
+
+@pytest.mark.asyncio
+async def test_download_500_is_reported_as_media_unavailable(
+    job_client: JobApiClient, fake_backend: FakeBackend, tmp_path: Path
+) -> None:
+    """미디어를 못 가져온 것이 "이 단계가 실패했다" 로 둔갑하면 안 된다."""
+    fake_backend.enqueue_status("artifact_get", 500, streamed=True)
+    with pytest.raises(InputDownloadError) as caught:
+        await job_client.download_input("398021847361024", "clips/a/x.mp4", tmp_path / "x.mp4")
+    assert caught.value.error_code == "MEDIA_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_download_500_is_transient(
+    job_client: JobApiClient, fake_backend: FakeBackend, tmp_path: Path
+) -> None:
+    """서버 사정이다. 같은 입력을 다시 받으면 될 수 있다."""
+    fake_backend.enqueue_status("artifact_get", 500, streamed=True)
+    with pytest.raises(InputDownloadError) as caught:
+        await job_client.download_input("398021847361024", "clips/a/x.mp4", tmp_path / "x.mp4")
+    assert caught.value.retryable is True
+
+
+@pytest.mark.asyncio
+async def test_download_403_002_stays_unauthorized(
+    job_client: JobApiClient, fake_backend: FakeBackend, tmp_path: Path
+) -> None:
+    """토큰 문제는 단계 문제가 아니다. 미디어 오류로 감싸면 워커가 계속 돈다."""
+    fake_backend.enqueue_status("artifact_get", 403, code="JOB_403_002", streamed=True)
+    with pytest.raises(JobApiUnauthorizedError):
+        await job_client.download_input("398021847361024", "clips/a/x.mp4", tmp_path / "x.mp4")
+
+
+# ── 재시도 소진 ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_last_attempt_does_not_sleep(
+    job_client: JobApiClient, fake_backend: FakeBackend, _no_real_sleep: list[float]
+) -> None:
+    """실패가 확정된 뒤에 자면 그만큼 늦게 보고할 뿐이다."""
+    for _ in range(5):
+        fake_backend.enqueue_status("claim", 503)
+    with pytest.raises(JobApiUnavailableError):
+        await job_client.claim(_claim_request())
+    assert len(fake_backend.calls("claim")) == 5
+    assert len(_no_real_sleep) == 4
+
+
+# ── 산출물 키 ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_artifact_key_does_not_leak_into_the_query(
+    job_client: JobApiClient, fake_backend: FakeBackend
+) -> None:
+    """키에 ? 나 # 가 있으면 인코딩하지 않은 경로가 잘린다.
+
+    공백·비ASCII 는 httpx2 가 이미 퍼센트 인코딩한다. 여기서 잡는 것은 구분자다.
+    """
+    await job_client.upload_artifact(
+        "398021847361024",
+        "runs/398021847361024/scene_detection/a1/x.png?evil=1#frag",
+        b"png",
+        content_type="image/png",
+        content_sha256="a71c",
+    )
+    url = fake_backend.calls("artifact_put")[0].url
+    assert url.query == b""
+    assert url.path.endswith("/a1/x.png?evil=1#frag")
+
+
+@pytest.mark.asyncio
+async def test_artifact_key_escaping_the_path_is_rejected(job_client: JobApiClient) -> None:
+    """.. 는 인코딩으로 막히지 않는다 — 구분자를 남기므로 경로가 정규화된다.
+
+    그대로 두면 요청이 아예 다른 엔드포인트로 가고, 접두 검사(JOB_403_001)가 돌지 않는다.
+    """
+    with pytest.raises(ArtifactKeyRejectedError):
+        await job_client.upload_artifact(
+            "398021847361024",
+            "runs/398021847361024/../../../admin",
+            b"png",
+            content_type="image/png",
+            content_sha256="a71c",
+        )

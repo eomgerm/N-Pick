@@ -12,8 +12,9 @@ import asyncio
 import logging
 import random
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Final
+from urllib.parse import quote
 
 import httpx2
 
@@ -153,12 +154,26 @@ class JobApiClient:
             msg = f"입력을 받아오지 못했다: {storage_key}"
             raise InputDownloadError(msg) from exc
         try:
-            if response.status_code == 404:
-                # 이 경로의 404 는 언제나 "입력이 없다" 다. 다시 받아도 없다.
+            if response.status_code >= 400:
+                # 스트리밍 응답이므로 **판정 전에 본문을 읽어야 한다.** 읽지 않은
+                # 스트림에서 .json() 을 부르면 ResponseNotRead 가 나고, 그것은
+                # StreamError(RuntimeError) 라 _error_code 의 except ValueError 에
+                # 걸리지 않는다. 그대로 올라가면 classify() 가 단계별 기본값으로
+                # 떨어뜨려 "미디어를 못 가져왔다" 가 "이 단계가 실패했다" 로 둔갑한다.
                 await response.aread()
-                msg = f"입력이 없다: {storage_key}"
-                raise InputUnavailableError(msg)
-            _raise_for_status(response)
+                if response.status_code == 404:
+                    # 이 경로의 404 는 언제나 "입력이 없다" 다. 다시 받아도 없다.
+                    msg = f"입력이 없다: {storage_key}"
+                    raise InputUnavailableError(msg)
+                try:
+                    _raise_for_status(response)
+                except JobApiUnavailableError as exc:
+                    # 입력을 못 가져온 것이지 잡 API 일반 오류가 아니다. 단계 결과에
+                    # 실리는 코드가 미디어 어휘여야 원인을 찾을 수 있다.
+                    # 인증 거절은 _raise_for_status 가 먼저 갈라내 그대로 올라간다 —
+                    # 토큰 문제는 단계 문제가 아니다.
+                    msg = f"입력을 받아오지 못했다: {storage_key}"
+                    raise InputDownloadError(msg) from exc
             with dest.open("wb") as handle:
                 async for chunk in response.aiter_bytes(_DOWNLOAD_CHUNK_BYTES):
                     handle.write(chunk)
@@ -175,10 +190,11 @@ class JobApiClient:
         content_sha256: str,
     ) -> None:
         """산출물을 올린다. 계약이 교환하는 것은 언제나 storage key 이고 바이트는 여기로 흐른다."""
+        safe_key = _safe_artifact_key(storage_key)
         try:
             await self._send(
                 "PUT",
-                f"{JOB_API_PREFIX}/{run_id}/artifacts/{storage_key}",
+                f"{JOB_API_PREFIX}/{run_id}/artifacts/{safe_key}",
                 content=body,
                 headers={"Content-Type": content_type, "X-Content-SHA256": content_sha256},
             )
@@ -228,9 +244,13 @@ class JobApiClient:
                     _raise_for_status(response)
                 last_error = JobApiUnavailableError(f"{response.status_code} {method} {url}")
                 logger.warning("잡 API %s (%s %s)", response.status_code, method, url)
-                await self._sleep_before_retry(attempt, response)
+                if attempt < self._max_attempts - 1:
+                    await self._sleep_before_retry(attempt, response)
                 continue
-            await self._sleep_before_retry(attempt, None)
+            if attempt < self._max_attempts - 1:
+                # 마지막 시도 뒤에 자면 이미 확정된 실패를 그만큼 늦게 보고한다.
+                # complete 에서 나면 워커가 끝난 결과를 든 채 lease 를 흘린다.
+                await self._sleep_before_retry(attempt, None)
 
         msg = f"잡 API 호출이 {self._max_attempts}회 실패했다: {method} {url}"
         raise JobApiUnavailableError(msg) from last_error
@@ -251,6 +271,32 @@ class JobApiClient:
 
 
 # ── 응답 처리 ────────────────────────────────────────────────────────
+
+
+def _safe_artifact_key(storage_key: str) -> str:
+    """산출물 키를 URL 경로에 실을 수 있는 형태로 만든다.
+
+    두 가지를 한다.
+
+    1. **`..`·절대 경로를 거절한다.** 인코딩으로는 막히지 않는다 —
+       `quote(key, safe="/")` 는 구분자를 남기므로 `runs/1/../../admin` 이
+       `/api/v1/internal/jobs/1/admin` 으로 정규화된다(실측). 접두 밖 쓰기를 막는 것은
+       계약이 BE 에 맡긴 일이지만(`JOB_403_001`), 요청이 아예 다른 엔드포인트로 가면
+       그 검사가 돌지 않는다. 판정은 POSIX·Windows 양쪽 규칙으로 한다 — 같은 키가
+       개발 머신과 리눅스 컨테이너에서 다르게 판정되면 안 된다.
+    2. **`?`·`#` 를 인코딩한다.** 그대로 두면 httpx2 가 질의·프래그먼트로 갈라
+       경로가 잘린다(실측). 공백·비ASCII 는 httpx2 가 이미 퍼센트 인코딩하므로
+       여기서 하는 일이 아니다. 구분자 `/` 는 남긴다 — 계약이 키를 미디어 루트
+       상대 **경로**로 정의한다(`docs/contracts/job-api.md` §4.4).
+    """
+    if _is_absolute_anywhere(storage_key) or ".." in PurePosixPath(storage_key).parts:
+        msg = f"산출물 키가 경로를 벗어난다: {storage_key}"
+        raise ArtifactKeyRejectedError(msg)
+    return quote(storage_key, safe="/")
+
+
+def _is_absolute_anywhere(key: str) -> bool:
+    return PurePosixPath(key).is_absolute() or PureWindowsPath(key).is_absolute()
 
 
 def _dump(model: ClaimRequest | HeartbeatRequest | StageResult) -> dict[str, Any]:
