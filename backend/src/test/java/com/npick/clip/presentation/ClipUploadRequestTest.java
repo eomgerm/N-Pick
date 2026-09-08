@@ -191,19 +191,25 @@ class ClipUploadRequestTest {
         verifyNoInteractions(upload);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {" ", "too-long"})
+    void returnsHeaderValidationMessage(String value) throws Exception {
+        String key = value.equals("too-long") ? "a".repeat(129) : value;
+        mockMvc.perform(multipart("/api/v1/clips")
+                        .file(new MockMultipartFile("video", "sample.mp4", "video/mp4", new byte[] {1}))
+                        .header("Idempotency-Key", key)
+                        .param("source_type", "archive")
+                        .param("rights_confirmed", "true"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMM_400_001"))
+                .andExpect(jsonPath("$.data['Idempotency-Key']").isNotEmpty());
+        verifyNoInteractions(upload);
+    }
+
     private org.springframework.test.web.servlet.ResultMatcher invalidField(String field, String message) {
         return result -> {
-            jsonPath("$.code").value("COMM_400").match(result);
-            assertThat(result.getResolvedException())
-                    .isInstanceOfSatisfying(
-                            org.springframework.web.method.annotation.HandlerMethodValidationException.class,
-                            error -> assertThat(error.getBeanResults())
-                                    .flatExtracting(
-                                            org.springframework.validation.method.ParameterErrors::getFieldErrors)
-                                    .anySatisfy(failure -> {
-                                        assertThat(failure.getField()).isEqualTo(field);
-                                        assertThat(failure.getDefaultMessage()).isEqualTo(message);
-                                    }));
+            jsonPath("$.code").value("COMM_400_001").match(result);
+            jsonPath("$.data." + field).value(message).match(result);
         };
     }
 

@@ -76,26 +76,28 @@ public class ClipRegistrationConfiguration {
                             properties.inputLimits())))
                     .prepare(command);
         };
-        return new ClipUploadService(
-                context,
-                preparation,
-                new StoredClipRegistrationService(
-                        (clipId, video) -> {
-                            ready(properties);
-                            return new LocalVideoStorageAdapter(properties.mediaRoot()).store(clipId, video);
-                        },
-                        new com.npick.clip.infrastructure.persistence.repository.RegistrationPersistenceAdapter(
-                                registration)),
-                (key, actor, hash, request, create) -> {
-                    var adapter = deduplications.getIfAvailable();
-                    if (adapter == null) throw new BusinessException(ClipRuntimeErrorCode.INTEGRATION_UNAVAILABLE);
-                    return adapter.register(key, actor, hash, request, create);
-                },
-                (subtitle, duration, clipId) -> {
-                    var adapter = transcripts.getIfAvailable();
-                    if (adapter == null) throw new BusinessException(ClipRuntimeErrorCode.INTEGRATION_UNAVAILABLE);
-                    return adapter.receive(subtitle, duration, clipId);
-                });
+        return command -> {
+            var server = context.requireAuthorizedContext();
+            var deduplication = deduplications.getIfAvailable();
+            var transcript = command.subtitle() == null ? null : transcripts.getIfAvailable();
+            if (deduplication == null || (command.subtitle() != null && transcript == null)) {
+                throw new BusinessException(ClipRuntimeErrorCode.INTEGRATION_UNAVAILABLE);
+            }
+            return new ClipUploadService(
+                            () -> server,
+                            preparation,
+                            new StoredClipRegistrationService(
+                                    (clipId, video) -> {
+                                        ready(properties);
+                                        return new LocalVideoStorageAdapter(properties.mediaRoot())
+                                                .store(clipId, video);
+                                    },
+                                    new com.npick.clip.infrastructure.persistence.repository
+                                            .RegistrationPersistenceAdapter(registration)),
+                            deduplication,
+                            transcript)
+                    .upload(command);
+        };
     }
 
     private static void ready(ClipRegistrationProperties properties) {

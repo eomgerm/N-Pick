@@ -90,6 +90,40 @@ class ClipRegistrationConfigurationTest {
                 });
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,true"})
+    void rejectsMissingRequiredAdaptersBeforeReadingVideo(boolean hasDeduplication, boolean hasSubtitle) {
+        var beans = new StaticListableBeanFactory();
+        var deduplication =
+                org.mockito.Mockito.mock(com.npick.clip.application.port.RegistrationDeduplicationPort.class);
+        if (hasDeduplication) beans.addBean("deduplication", deduplication);
+        var content = org.mockito.Mockito.mock(java.io.InputStream.class);
+        var registration =
+                org.mockito.Mockito.mock(com.npick.clip.application.command.register.RegisterClipUseCase.class);
+        var upload = new ClipRegistrationConfiguration()
+                .uploadClipUseCase(
+                        ready(),
+                        () -> new com.npick.clip.application.port.ClipRegistrationContextPort.Context(
+                                7, 101, 201, "test-v1", List.of("scene_detection"), false),
+                        registration,
+                        new tools.jackson.databind.ObjectMapper(),
+                        beans.getBeanProvider(com.npick.clip.application.port.RegistrationDeduplicationPort.class),
+                        beans.getBeanProvider(com.npick.clip.application.port.TranscriptIntakePort.class));
+        var subtitle = hasSubtitle
+                ? new com.npick.clip.application.command.register.UploadClipCommand.Subtitle(
+                        content, "sample.srt", "text/plain")
+                : null;
+        var command = new com.npick.clip.application.command.register.UploadClipCommand(
+                content, "archive", null, null, null, "test-key", null, subtitle, true, false);
+        assertThatThrownBy(() -> upload.upload(command))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        failure -> assertThat(failure.errorCode())
+                                .isEqualTo(
+                                        com.npick.clip.application.error.ClipRuntimeErrorCode.INTEGRATION_UNAVAILABLE));
+        org.mockito.Mockito.verifyNoInteractions(content, registration, deduplication);
+    }
+
     private static ClipRegistrationProperties ready() {
         return new ClipRegistrationProperties(
                 Path.of("media").toAbsolutePath(),
