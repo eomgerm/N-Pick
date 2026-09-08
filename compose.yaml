@@ -31,10 +31,17 @@ services:
       retries: 10
       start_period: 20s
 
+  # 이미지 태그는 CI 가 커밋 해시로 채운다. CD 는 --build 없이 그 이미지를 띄운다.
+  #
+  # 서비스마다 변수를 따로 두는 이유: compose 는 image 문자열이 바뀌면 이미지 내용이 같아도
+  # 컨테이너를 재생성한다. 태그를 하나로 묶으면 backend 만 고쳐도 frontend·ai-worker 가
+  # 함께 재시작된다(2026-09-07 실측). 안 바뀐 서비스는 기존 태그를 그대로 넘겨 건드리지 않는다.
+  #
+  # 로컬은 셋 다 기본값 local 을 쓴다.
   backend:
     build:
       context: ./backend
-    image: npick/backend:local
+    image: npick/backend:${BACKEND_TAG:-local}
     container_name: npick-backend
     restart: unless-stopped
     # BE 팀이 변수를 추가할 자리. 아래 environment 가 우선한다.
@@ -84,7 +91,7 @@ services:
     env_file:
       - path: ./frontend/.env
         required: true
-    image: npick/frontend:local
+    image: npick/frontend:${FRONTEND_TAG:-local}
     container_name: npick-frontend
     restart: unless-stopped
     ports:
@@ -102,7 +109,7 @@ services:
   ai-worker:
     build:
       context: ./ai
-    image: npick/ai-worker:local
+    image: npick/ai-worker:${AI_TAG:-local}
     container_name: npick-ai-worker
     restart: unless-stopped
     env_file:

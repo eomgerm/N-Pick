@@ -532,6 +532,7 @@ source = { editable = "." }
 dependencies = [
     { name = "av" },
     { name = "fastapi" },
+    { name = "httpx2" },
     { name = "kiwipiepy" },
     { name = "kiwipiepy-model" },
     { name = "pydantic" },
@@ -542,7 +543,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "mypy" },
     { name = "numpy" },
     { name = "pytest" },
@@ -559,6 +559,7 @@ gpu = [
 requires-dist = [
     { name = "av", specifier = ">=18,<19" },
     { name = "fastapi", specifier = ">=0.141,<1" },
+    { name = "httpx2", specifier = ">=2,<3" },
     { name = "kiwipiepy", specifier = "==0.23.2" },
     { name = "kiwipiepy-model", specifier = "==0.23.0" },
     { name = "pydantic", specifier = ">=2.12,<3" },
@@ -569,7 +570,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2,<3" },
     { name = "mypy", specifier = ">=2.3,<3" },
     { name = "numpy", specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9,<10" },
