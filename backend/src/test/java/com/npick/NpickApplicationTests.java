@@ -33,6 +33,12 @@ class NpickApplicationTests {
     private com.npick.feedback.domain.repository.FeedbackRepository feedbackRepository;
 
     @MockitoBean
+    private com.npick.feedback.application.query.InquiryListQuery inquiryListQuery;
+
+    @MockitoBean
+    private com.npick.feedback.application.query.InquiryDetailQuery inquiryDetailQuery;
+
+    @MockitoBean
     private org.springframework.data.jpa.mapping.JpaMetamodelMappingContext jpaMappingContext;
 
     @Autowired
