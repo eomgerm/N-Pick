@@ -67,6 +67,8 @@ services:
       SERVER_PORT: 8080
       NPICK_PROFILES_DIR: /app/config/profiles
       NPICK_MEDIA_ROOT: /srv/npick/media
+      # 원본과 같은 volume에서 검증한 파일을 이동한다.
+      CLIP_UPLOAD_ROOT: /srv/npick/media/.uploads
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
     volumes:
