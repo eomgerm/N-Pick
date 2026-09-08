@@ -12,6 +12,14 @@ import java.util.Objects;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+import lombok.AccessLevel;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
+import lombok.experimental.Accessors;
+
 /**
  * 정규화된 검색 하나. "이 검색과 저 검색이 같은가" 를 판정한다 (FR-QRY-002, FR-QRY-003).
  *
@@ -22,21 +30,24 @@ import java.util.TreeMap;
  *
  * <p>지문이 달라지면 그때까지 쌓인 장면 제외 규칙이 통째로 안 걸린다. 해시 입력 방식을 바꾸는 것은 {@code normalization_version} 을 바꾸는 것과 같은 무게의 변경이다.
  */
+@Getter
+@Accessors(fluent = true)
+@EqualsAndHashCode
+@ToString(onlyExplicitlyIncluded = true)
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class NormalizedSearch {
     private static final String HASH_ALGORITHM = "SHA-256";
 
-    private final String normalizedQuery;
-    private final SortedMap<String, List<String>> normalizedFilters;
-    private final String normalizationVersion;
+    /** {@code query_fingerprint} 컬럼에 그대로 들어가는 SHA-256 hex 64자. */
+    @ToString.Include
     private final String fingerprint;
 
-    private NormalizedSearch(
-            String normalizedQuery, SortedMap<String, List<String>> normalizedFilters, String normalizationVersion) {
-        this.normalizedQuery = normalizedQuery;
-        this.normalizedFilters = normalizedFilters;
-        this.normalizationVersion = normalizationVersion;
-        this.fingerprint = computeFingerprint();
-    }
+    private final String normalizedQuery;
+
+    /** 호출자가 원본 맵을 고쳐도 이 값은 영향받지 않는다. */
+    private final SortedMap<String, List<String>> normalizedFilters;
+
+    private final String normalizationVersion;
 
     /**
      * @param normalizedQuery 질의 리졸버가 만든 정규화 질의. 비어 있을 수 없다
@@ -44,31 +55,16 @@ public final class NormalizedSearch {
      * @param normalizationVersion 그 질의를 만든 정규화 규칙의 버전
      */
     public static NormalizedSearch of(
-            String normalizedQuery, Map<String, List<String>> normalizedFilters, String normalizationVersion) {
-        Objects.requireNonNull(normalizedQuery, "normalizedQuery");
-        Objects.requireNonNull(normalizedFilters, "normalizedFilters");
-        Objects.requireNonNull(normalizationVersion, "normalizationVersion");
+            @NonNull String normalizedQuery,
+            @NonNull Map<String, List<String>> normalizedFilters,
+            @NonNull String normalizationVersion) {
         requireNotBlank(normalizedQuery, "정규화된 질의가 비어 있다");
         requireNotBlank(normalizationVersion, "정규화 버전이 비어 있다");
-        return new NormalizedSearch(normalizedQuery, copyOf(normalizedFilters), normalizationVersion);
-    }
-
-    /** {@code query_fingerprint} 컬럼에 그대로 들어가는 SHA-256 hex 64자. */
-    public String fingerprint() {
-        return fingerprint;
-    }
-
-    public String normalizedQuery() {
-        return normalizedQuery;
-    }
-
-    /** 호출자가 원본 맵을 고쳐도 이 값은 영향받지 않는다. */
-    public SortedMap<String, List<String>> normalizedFilters() {
-        return normalizedFilters;
-    }
-
-    public String normalizationVersion() {
-        return normalizationVersion;
+        SortedMap<String, List<String>> filters = copyOf(normalizedFilters);
+        // 지문은 나머지 세 값에서 파생된다. Lombok 생성자로는 이 계산을 표현할 수 없어
+        // 정적 메서드에서 만들어 넘긴다.
+        String fingerprint = computeFingerprint(normalizedQuery, filters, normalizationVersion);
+        return new NormalizedSearch(fingerprint, normalizedQuery, filters, normalizationVersion);
     }
 
     /**
@@ -77,29 +73,9 @@ public final class NormalizedSearch {
      * <p>지문이 같아도 원본 값을 한 번 더 비교한다. 해시 충돌로 남의 규칙이 걸리는 일을 막기 위해서다. 유사 질의로의 확장은 금지되어 있으므로(FR-OVR-009) 정확히 같을 때만 참이다.
      */
     public boolean matches(NormalizedSearch other) {
-        if (other == null) {
-            return false;
-        }
-        return fingerprint.equals(other.fingerprint)
-                && normalizedQuery.equals(other.normalizedQuery)
-                && normalizationVersion.equals(other.normalizationVersion)
-                && normalizedFilters.equals(other.normalizedFilters);
-    }
-
-    @Override
-    public boolean equals(Object other) {
-        return other instanceof NormalizedSearch that && matches(that);
-    }
-
-    @Override
-    public int hashCode() {
-        return fingerprint.hashCode();
-    }
-
-    /** 지문만 남긴다. 정규화 질의는 사용자 입력에서 온 값이라 로그로 흘리지 않는다. */
-    @Override
-    public String toString() {
-        return "NormalizedSearch[fingerprint=" + fingerprint + ']';
+        // @EqualsAndHashCode 가 fingerprint 를 먼저 비교하고(필드 선언 순서) 이어서
+        // 나머지 세 값을 비교한다. 그것이 FR-QRY-003 이 요구하는 재비교다.
+        return equals(other);
     }
 
     /**
@@ -108,7 +84,8 @@ public final class NormalizedSearch {
      * <p>구분자로 이어 붙이면 값 안에 그 구분자가 들어갔을 때 경계가 흐려진다 — {@code ["a,b"]} 와 {@code ["a","b"]} 가 같은 지문이 된다. 각 문자열 앞에 바이트 길이를
      * 붙이면 이스케이프 없이 경계가 확정된다.
      */
-    private String computeFingerprint() {
+    private static String computeFingerprint(
+            String normalizedQuery, SortedMap<String, List<String>> normalizedFilters, String normalizationVersion) {
         MessageDigest digest = newDigest();
         update(digest, normalizedQuery);
         update(digest, normalizationVersion);
@@ -146,6 +123,8 @@ public final class NormalizedSearch {
      *   <li>값 중복 제거 — 다중 선택에서 같은 값을 두 번 고를 수는 없다
      *   <li>빈 선택 제거 — {@code {"tag": []}} 는 tag 필터를 안 건 것이다
      * </ul>
+     *
+     * <p>여기의 널 검사만 손으로 쓴다. Lombok {@code @NonNull} 은 메서드 파라미터와 필드에만 붙고 맵 항목·리스트 원소에는 붙일 수 없다.
      */
     private static SortedMap<String, List<String>> copyOf(Map<String, List<String>> filters) {
         SortedMap<String, List<String>> copy = new TreeMap<>();
