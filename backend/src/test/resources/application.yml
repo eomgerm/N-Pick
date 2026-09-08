@@ -7,3 +7,10 @@ spring:
       - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
       - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
       - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
+
+  # 이 파일이 메인 application.yml 을 통째로 가린다. 질의 리졸버 base-url 이 없으면
+  # 컨텍스트가 뜨지 않으므로, 실제로 호출되지 않을 더미 주소를 준다.
+  http:
+    serviceclient:
+      queryResolver:
+        base-url: http://localhost:1
