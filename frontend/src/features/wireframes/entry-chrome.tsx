@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { routes } from '@/lib/routes';
 
 import styles from '@/features/wireframes/entry.module.css';
 
@@ -9,7 +10,7 @@ interface EntryHeaderProps {
 export function EntryHeader({ label }: EntryHeaderProps) {
   return (
     <header className={styles.header}>
-      <Link aria-label="N-Pick 홈" className={styles.brand} href="/landing">
+      <Link aria-label="N-Pick 홈" className={styles.brand} href={routes.landing}>
         <span aria-hidden="true" className={styles.brandMark}>
           N
         </span>
