@@ -38,6 +38,10 @@ export function isSessionExpired(error: unknown): boolean {
   return error instanceof ApiClientError && error.status === 401 && error.code === 'COMM_401';
 }
 
+export function isInvalidCredentials(error: unknown): boolean {
+  return error instanceof ApiClientError && error.status === 401 && error.code === 'MEMBER_401_001';
+}
+
 export function canAccessPath(role: MemberRole, pathname: string): boolean {
   return (
     pathname === routes.search ||

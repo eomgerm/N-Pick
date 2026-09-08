@@ -25,7 +25,7 @@ src/
 │  ├─ error.tsx            서버 조회 실패 안내·재시도
 │  └─ globals.css          전역 토큰과 전역 스타일
 ├─ components/             여러 기능에서 공유하는 UI
-│  ├─ app-shell.tsx
+│  ├─ app-shell.tsx        제품 공통 헤더·역할별 메뉴와 페이지 본문 조합
 │  ├─ api-error-notice.tsx  한국어 오류·코드·요청 ID 공통 표시
 │  ├─ query-provider.tsx   TanStack Query와 인증 만료·탭 간 세션 변경 처리
 │  ├─ session-boundary.tsx 서버 사용자 snapshot과 클라이언트 세션 재확인
@@ -43,7 +43,7 @@ src/
 │     ├─ search-history.module.css 기록 목록·상태 칩·펼침 레이아웃
 │     ├─ demo-scenes.ts          검색 결과·기록이 공유하는 예시 구간과 시간 표시
 │     ├─ scene-dialogs.tsx        구간 영상·문의 공통 팝업과 상태별 조회·수정
-│     ├─ entry-chrome.tsx         로그인·검색 공통 헤더와 푸터
+│     ├─ entry-chrome.tsx         로그인 헤더와 로그인·검색 공통 푸터
 │     ├─ entry.module.css         신한 로그인·검색 반응형 레이아웃
 │     ├─ reviewer-shell.tsx    처리 상태·문의 검수 로컬 상호작용
 │     ├─ reviewer-scene-preview.tsx 문의 장면 카드와 공통 영상 팝업 연결
@@ -80,7 +80,11 @@ src/
 
 편집자 검색 입력 화면 하단에는 `이전 검색 기록`과 `문의 기록` 시트를 일부만 노출합니다. 제목 버튼으로 한 시트씩 위로 펼치고 접을 수 있으며 Escape로도 접습니다. 기존 검색 결과의 뉴스 썸네일을 재사용하고 구간·내용·경과일을 표시합니다. 검색 기록 항목은 검색 결과와 동일한 `ScenePreviewDialog`를 열고, 문의 기록 항목은 `이상해요` 접수와 같은 `InquiryDialog`에서 당시 검색어·구간·문의 내용을 보여 줍니다. 문의의 `pending/reviewing/resolved` 예시 상태는 `대기/처리 중/완료` 칩으로 표현합니다. 이번 와이어프레임 요청에 따라 대기는 문의 설명만 수정·저장할 수 있고, 처리 중과 완료는 읽기 전용이며 완료에는 처리 내용도 표시합니다. native dialog로 배경 조작을 막고 키보드 포커스를 가두며 Escape·닫기로 복귀합니다. 기록에서 새로 접수하거나 수정한 문의는 `SearchHistory` 메모리에서 유지하며 새로고침·페이지 이동 시 초기화됩니다. 실제 검색·문의 이력 API나 제품 FRD의 문의 수정 계약은 연결하지 않은 디자인 시안입니다.
 
-검수자는 `/review`에서 인사말과 문의 건수, 10개 단위 문의 게시판을 먼저 봅니다. 검색은 영상 제목·문의 내용·원문 query·문의자·주제를 대상으로 합니다. 상태는 전체·대기·처리중·완료로 필터링하며 완료는 `resolved/dismissed/deferred`를 포함하고 상세에서 실제 종료 사유를 구분합니다. 시간 최신순과 문의자·주제 가나다순을 지원합니다. `q/status/sort/page/inquiry/view/tab/clip`는 Next.js 라우터로 URL에 보존하며, 상세 진입과 복귀 중 검수 상태는 `ReviewerShell`이 유지합니다. 페이지는 `useSearchParams`를 위한 Suspense 경계를 제공합니다. 현재 고정 데모 검수자 이름은 나현우이며 문의 데이터와 변경 상태는 실제 API나 새로고침 후 영속 저장에 연결되지 않습니다.
+제품 화면 `/search`, `/search/results`, `/review`는 `AppShell`이 공통 헤더와 화면 이동 메뉴를 제공합니다. `SessionBoundary`의 현재 계정으로 역할을 읽고 `SessionControls`가 계정·역할·로그아웃을 표시합니다. 편집기자에게는 장면 검색, 검수자에게는 장면 검색과 검수 메뉴를 제공하며 pathname은 현재 메뉴 표시에만 사용합니다. 검색 입력은 밝은 헤더, 검색 결과·검수는 기존 브랜드 배경을 사용합니다. 공개 랜딩·로그인과 각 page의 서버 접근 검사는 별도로 유지합니다.
+
+검수자는 `/review`에서 인사말과 문의 건수, 10개 단위 문의 게시판을 먼저 봅니다. 검색은 영상 제목·문의 내용·원문 query·문의자·주제를 대상으로 합니다. 상태는 전체·대기·처리중·완료로 필터링하며 완료는 `resolved/dismissed/deferred`를 포함하고 상세에서 실제 종료 사유를 구분합니다. 시간 최신순과 문의자·주제 가나다순을 지원합니다. `q/status/sort/page/inquiry/view/tab/clip`는 Next.js 라우터로 URL에 보존하며, 상세 진입과 복귀 중 검수 상태는 `ReviewerShell`이 유지합니다. 페이지는 `useSearchParams`를 위한 Suspense 경계를 제공합니다. 검수자 계정은 서버의 `loginId`로 표시하며 문의 데이터와 변경 상태는 실제 API나 새로고침 후 영속 저장에 연결되지 않습니다.
+
+검수 화면 상단의 문의·처리 이동 메뉴는 URL로 선택 상태를 계산합니다. 기본 `/review`는 문의, `view=processing`은 처리이며 `view=upload` 등록 화면도 처리 영역으로 표시합니다. 상위 메뉴 이동은 `getReviewTabUrl`로 상세 선택(`inquiry/clip`)과 처리 하위 `tab`을 지우고 목록 조건과 나머지 query를 유지합니다. 처리 하위 탭은 기존 `tab=uploads/completed`를 사용하며 생략하거나 알 수 없는 값이면 문의 처리 중을 표시합니다. 문의·처리 이동은 브라우저 이력에 남고 새로고침·뒤로가기·앞으로가기로 복원됩니다. URL 변경에 따른 재마운트 없이 기존 검수 초안을 유지하며, 등록 취소는 문의 목록으로 돌아갑니다.
 
 영상 등록은 `/review?view=upload`에서 제공하며 문의 목록과 영상 처리 화면에서 진입할 수 있습니다. 영상 1개와 선택 첨부(TXT·SRT·VTT)를 클릭 또는 드래그로 고르고, 파일명·용량 확인과 삭제·교체가 가능합니다. 영상 형식은 이번 디자인 요청에 따라 원본·방영본 선택을 제공하고 방영일은 선택 입력입니다. 이는 실제 제품의 `FR-ING-002`(broadcast 고정)와 구분되는 디자인 시안입니다. 등록 시 파일 본문을 읽거나 전송하지 않고 이름·용량·형식·방영일·첨부 이름만 `ReviewerShell`의 메모리에 추가하여 `영상 등록 중` 탭에 `등록 대기`로 표시합니다. 취소 시 form을 비우고 기존 목록 조건으로 돌아갑니다. 새로고침 시 로컬 등록 데이터는 초기화됩니다. 실제 `/clips` API, 사용권 검증, media decode와 pipeline enqueue는 연결하지 않습니다.
 
