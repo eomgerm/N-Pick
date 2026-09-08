@@ -18,14 +18,18 @@ src/
 │  ├─ layout.tsx           HTML 뼈대, Metadata, 전역 CSS
 │  ├─ page.tsx             랜딩 기본 버전으로 이동
 │  ├─ landing/            신한 디자인의 역할 선택 랜딩
-│  ├─ login/              역할별 로그인 화면 (현재 로컬 데모)
+│  ├─ login/              백엔드 세션 로그인 (역할 query는 안내용)
 │  ├─ search/             편집자 검색 입력
 │  │  └─ results/         검색 결과와 URL 필터
 │  ├─ review/             문의·영상 등록·처리 현황
+│  ├─ error.tsx            서버 조회 실패 안내·재시도
 │  └─ globals.css          전역 토큰과 전역 스타일
 ├─ components/             여러 기능에서 공유하는 UI
 │  ├─ app-shell.tsx
-│  └─ api-error-notice.tsx  한국어 오류·코드·요청 ID 공통 표시
+│  ├─ api-error-notice.tsx  한국어 오류·코드·요청 ID 공통 표시
+│  ├─ query-provider.tsx   TanStack Query와 인증 만료·탭 간 세션 변경 처리
+│  ├─ session-boundary.tsx 서버 사용자 snapshot과 클라이언트 세션 재확인
+│  └─ session-controls.tsx 현재 계정과 로그아웃
 ├─ features/               기능 단위 UI와 로직
 │  ├─ search/
 │  │  └─ search-placeholder.tsx
@@ -33,7 +37,7 @@ src/
 │     ├─ landing-shell.tsx        브랜드 인트로와 역할 선택
 │     ├─ landing-cube.tsx         랜딩 전용 Three.js 유리 큐브 Canvas와 모션 경계
 │     ├─ landing.module.css       신한 랜딩과 글자 합치기 인트로
-│     ├─ login-shell.tsx          역할별 ID·비밀번호 입력과 로컬 화면 이동
+│     ├─ login-shell.tsx          로그인 form·mutation·오류와 안전한 복귀
 │     ├─ search-entry-shell.tsx   편집자 검색 입력과 결과 진입
 │     ├─ search-history.tsx       검색·문의 예시 기록과 부분 노출 시트
 │     ├─ search-history.module.css 기록 목록·상태 칩·펼침 레이아웃
@@ -63,12 +67,14 @@ src/
 └─ lib/                    프레임워크·인프라 성격의 공통 코드
    ├─ routes.ts            화면 경로 상수
    ├─ env.ts               공개 환경변수 읽기와 검증
+   ├─ server-env.ts        server-only 내부 API 주소
+   ├─ auth/               앱 전역 보안 계약·API·서버 guard·캐시/초안 정리
    └─ api/
       ├─ client.ts         공통 응답 envelope 해석과 HTTP client
       └─ error.ts          안전한 ApiClientError와 개발용 진단 정보 분리
 ```
 
-현재 와이어프레임 UI를 제품 화면으로 사용하며 디자인은 신한(`shinhan`)을 유지합니다. `/`는 `/landing`으로 이동하고, 역할 카드는 `/login?role=editor|reviewer`로 연결합니다. 로그인 후 편집자는 `/search`, 검수자는 `/review`로 이동하며 검색 결과는 `/search/results`에서 표시합니다. 화면 경로 상수는 `src/lib/routes.ts`가 소유합니다. 기존 다섯 테마의 `/landing/[theme]`, `/login/[theme]`, `/search/[theme]`, `/wireframes/[theme]`, `/review/[theme]` 주소는 `next.config.ts`의 307 redirect로 새 화면에 연결하고 query를 보존합니다. 알 수 없는 테마는 404로 처리합니다. 디자인과 로컬 상태 동작을 재사용하는 단계로, 로그인 자격 증명은 저장·전송하지 않으며 실제 인증과 검색·문의·등록·검수 API는 백엔드 명세 확정 후 연결합니다.
+현재 와이어프레임 UI를 제품 화면으로 사용하며 디자인은 신한(`shinhan`)을 유지합니다. `/`는 `/landing`으로 이동하고 역할 카드는 `/login?role=editor|reviewer`로 연결합니다. 로그인 후 실제 계정의 역할에 따라 편집자는 `/search`, 검수자는 `/review`로 이동합니다. 권한이 있는 내부 `returnTo`가 있으면 우선 복귀합니다. 검색 결과는 `/search/results`에서 표시합니다. 화면 경로 상수는 `src/lib/routes.ts`가 소유합니다. 기존 테마 주소는 `next.config.ts`의 307 redirect로 새 화면에 연결하고 query를 보존하며 알 수 없는 테마는 404로 처리합니다. 인증 API는 연결되어 있으며 검색·문의·등록·검수는 아직 로컬 데모입니다. 비밀번호와 세션 토큰은 프론트 저장소에 저장하지 않습니다.
 
 랜딩의 Three.js 유리 큐브는 `landing-shell.tsx`의 Client Component 경계에서 `next/dynamic({ ssr: false })`로 지연 로드합니다. Three.js physical material과 rounded box geometry로 굴절·두께·분산·무지갯빛 테두리를 표현하며, 투명 Canvas texture의 N-Pick 타이포그래피를 큐브 뒤에 배치합니다. 글자는 알파 컷아웃으로 불투명 렌더 패스에 포함해 유리의 굴절 대상이 되며, 큐브는 알파 블렌딩 없이 앞면의 transmission으로 글자를 굴절시킵니다. `Need? Pick!`의 글자 폭을 줄여 `N-Pick`으로 합치는 CSS 인트로 뒤에 큐브와 역할 카드가 나타납니다. 인트로는 WebGL 준비 여부와 무관하게 끝나고 CSS 유리 큐브는 로딩·WebGL 실패 fallback으로 유지합니다. WebGL render loop와 CSS animation은 `prefers-reduced-motion`에서 정지하고 Canvas의 DPR을 제한합니다.
 
@@ -90,13 +96,13 @@ src/
 
 ## 계층별 책임
 
-| 계층         | 책임                                              | 포함하지 않는 것                        |
-| ------------ | ------------------------------------------------- | --------------------------------------- |
-| `app`        | route, layout, metadata, 페이지 수준 조합         | 재사용 가능한 기능 로직, 공통 HTTP 처리 |
-| `features`   | 특정 사용자 기능의 UI, 상태, API 함수, Hook       | 다른 기능의 내부 코드, 전역 기반 코드   |
-| `components` | 여러 기능에서 공유하거나 앱 전역에 사용하는 UI    | 특정 기능의 업무 규칙, API 호출         |
-| `lib`        | 환경변수, HTTP client와 프레임워크 독립 기반 코드 | 화면 표현과 기능별 상태                 |
-| `public`     | 브라우저에 그대로 제공하는 정적 파일              | 빌드가 필요한 소스 파일                 |
+| 계층         | 책임                                                | 포함하지 않는 것                        |
+| ------------ | --------------------------------------------------- | --------------------------------------- |
+| `app`        | route, layout, metadata, 페이지 수준 조합           | 재사용 가능한 기능 로직, 공통 HTTP 처리 |
+| `features`   | 특정 사용자 기능의 UI, 상태, API 함수, Hook         | 다른 기능의 내부 코드, 전역 기반 코드   |
+| `components` | 공유 UI, 앱 전역 세션 UI 경계와 인증 query·mutation | 특정 기능의 업무 규칙·API 호출          |
+| `lib`        | 환경변수, HTTP client, 앱 전역 보안 기반 코드       | 화면 표현과 기능별 상태                 |
+| `public`     | 브라우저에 그대로 제공하는 정적 파일                | 빌드가 필요한 소스 파일                 |
 
 ## 의존 방향
 
@@ -134,9 +140,10 @@ Server Component를 기본값으로 사용합니다.
 
 ```text
 Server Component
-├─ 초기 데이터 조회
-├─ route와 layout 조합
+├─ 각 보호 page의 세션·역할 확인 (`/auth/me`, no-store)
+├─ route/searchParams, metadata와 정적인 뼈대
 └─ Client Component
+   ├─ TanStack Query 서버 상태 (현재 me·로그인·로그아웃 연결)
    ├─ 입력과 사용자 이벤트
    ├─ 브라우저 API
    └─ 일시적인 UI 상태
@@ -146,13 +153,13 @@ Server Component
 
 ## 상태 소유권
 
-| 상태 종류          | 기본 위치                            | 예시                                  |
-| ------------------ | ------------------------------------ | ------------------------------------- |
-| URL 상태           | route search params                  | 검색어, 명시 필터, 페이지             |
-| Server 상태        | Server Component 또는 서버 상태 도구 | 검색 결과, 처리 상태, 문의 목록       |
-| Local UI 상태      | 가장 가까운 Client Component         | modal, 펼침 여부, 입력 중인 값        |
-| Form 상태          | form 경계                            | validation 오류, 제출 중 상태         |
-| Global client 상태 | 도입 근거가 있는 전역 store          | 서로 떨어진 기능이 공유하는 편집 세션 |
+| 상태 종류          | 기본 위치                                            | 예시                                          |
+| ------------------ | ---------------------------------------------------- | --------------------------------------------- |
+| URL 상태           | route search params                                  | 검색어, 명시 필터, 페이지                     |
+| Server 상태        | TanStack Query (페이지 접근 확인은 Server Component) | 현재 계정, 이후 검색 결과·처리 상태·문의 목록 |
+| Local UI 상태      | 가장 가까운 Client Component                         | modal, 펼침 여부, 입력 중인 값                |
+| Form 상태          | form 경계                                            | validation 오류, 제출 중 상태                 |
+| Global client 상태 | 당분간 없음                                          | 필요가 생기면 재검토                          |
 
 URL로 표현할 수 있는 상태를 전역 store에 중복 저장하지 않습니다. 서버에서 받은 데이터를 여러 상태 계층에 복사하면 어느 값이 최신인지 불명확해지므로 하나의 소유 위치를 유지합니다.
 
@@ -177,21 +184,35 @@ Backend API
 
 공통 API client는 백엔드 `ApiResponse.java`의 `isSuccess/code/message/data` envelope를 해석합니다. `fetchJson<T>`의 `T`는 envelope 안의 `data` 타입입니다. 성공 시 `data`만 반환하며 `null`, 빈 배열, degraded 상태를 바꾸지 않습니다. `data` 생략 및 HTTP 204·205는 `undefined`를 반환하므로 데이터 없는 호출은 `fetchJson<void>`를 사용합니다. 다른 2xx 빈 본문·비정상 JSON·envelope 누락은 성공으로 처리하지 않습니다.
 
-HTTP·업무 실패·네트워크·본문 수신 실패·비정상 응답·취소는 `ApiClientError`로 정규화합니다. `kind`, HTTP `status`(응답 전 실패는 0), 사용자용 `message`, stable `code`, 선택적 `requestId`를 제공합니다. 원래 응답의 `path/data`와 예외는 직렬화되지 않는 `diagnostics` 접근자로 분리하며 UI에 전달하거나 출력하지 않습니다. 인증 옵션과 signal은 호출자가 전달하고 자동 재시도는 하지 않습니다.
+HTTP·업무 실패·네트워크·본문 수신 실패·비정상 응답·취소는 `ApiClientError`로 정규화합니다. `kind`, HTTP `status`(응답 전 실패는 0), 사용자용 `message`, stable `code`, 선택적 `requestId`를 제공합니다. 원래 응답의 `path/data`와 예외는 직렬화되지 않는 `diagnostics` 접근자로 분리하며 UI에 전달하거나 출력하지 않습니다. signal은 호출자가 전달하고 자동 재시도는 하지 않습니다. 공통 client는 `credentials: include`와 `redirect: error`를 강제하고 브라우저 변경 요청에 CSRF 헤더를 추가합니다.
 
 `components/api-error-notice.tsx`는 오류 객체를 받아 한국어 메시지·오류 코드·요청 ID와 후속 안내만 `role="alert"`로 표시합니다. form의 `aria-describedby`에 연결할 수 있는 `id`를 지원합니다. 정상 한국어 서버 메시지를 우선하며, 현재 백엔드의 고정 영어 메시지는 `code/message`가 정확히 일치하는 6개 조합만 번역합니다. 메시지 누락·타입 오류·한국어 안내 계약 위반(내부 경로·HTML·JSON·예외 trace 등)에는 일반 한국어 안내를 사용합니다. 임의 JSON 응답의 `message`나 일반 `Error.message`는 표시하지 않습니다.
 
-**현재 연동 차이:** FRD v3.1 §6.3은 한국어 오류와 요청 식별자를 요구하지만 백엔드 `CommonErrorCode`는 영어이고 `ApiResponse`에는 요청 ID가 없습니다. FE는 본문의 `requestId`, 없으면 `X-Request-ID` 응답 헤더를 읽도록 준비했으며 미제공 시 `제공되지 않음`으로 표시합니다. ID를 임의 생성하지 않습니다. 백엔드의 한국어 메시지·요청 ID 생성과 교차 오리진 호출 시 해당 헤더의 CORS 노출은 별도 연동 작업입니다. 화면은 아직 데모이며 공통 client와 오류 UI의 실제 기능 연결은 endpoint·인증 명세 확정 후 진행합니다.
+**현재 연동 차이:** FRD v3.1 §6.3은 한국어 오류와 요청 식별자를 요구하지만 백엔드 `CommonErrorCode`는 영어이고 `ApiResponse`에는 요청 ID가 없습니다. FE는 본문의 `requestId`, 없으면 `X-Request-ID` 응답 헤더를 읽도록 준비했으며 미제공 시 `제공되지 않음`으로 표시합니다. ID를 임의 생성하지 않습니다. 백엔드의 한국어 메시지·요청 ID 생성과 교차 오리진 호출 시 해당 헤더의 CORS 노출은 별도 연동 작업입니다. 공통 client와 오류 UI는 로그인·로그아웃·세션 조회에 연결되어 있습니다.
+
+## 인증·인가와 세션 수명
+
+[ADR 0002](decisions/0002-backend-session-auth.md)를 적용합니다. 인증의 정본은 Spring Security 세션이며 브라우저가 HttpOnly `JSESSIONID`를 보냅니다. 프론트에서 해독하거나 새 세션을 만들지 않습니다.
+
+- 보호된 각 page는 server-only `currentMember`/`requireMember`로 `/auth/me`를 확인합니다. 내부 주소는 `API_INTERNAL_BASE_URL`, 브라우저 주소는 `NEXT_PUBLIC_API_BASE_URL`입니다. 서버는 JSESSIONID만 전달하고 React `cache`는 한 렌더 요청 안에서만 중복 조회를 줄입니다. 영속·공유 캐시는 사용하지 않습니다.
+- 브라우저는 `['auth', 'me']` query를 서버 snapshot으로 시작하고 mount·창 복귀·재접속 시 재검증합니다. 백그라운드 재확인 중에는 현재 내용과 local/form 상태를 유지하고, 실패하거나 계정·역할 변경을 확인한 경우에만 상호작용을 차단합니다. 계정·역할이 바뀌면 기존 캐시와 화면을 폐기하고 다시 접근 검사합니다.
+- 로그인은 안내 role을 서버로 보내지 않습니다. 성공 DTO와 `/auth/me`의 쿠키 유지 확인 뒤 허용된 내부 복귀 주소 또는 실제 역할의 기본 화면으로 이동합니다. 비밀번호는 DOM 입력 동안만 유지하고 완료 시 비웁니다. mutation variables에도 넣지 않습니다.
+- 첫 변경 요청 전 `/auth/csrf`를 호출합니다. 동시 준비는 하나의 요청으로 합치며 각 변경 요청 직전에 현재 `XSRF-TOKEN`을 헤더로 읽습니다. GET/HEAD/OPTIONS에는 추가하지 않습니다. 403 후 다음 수동 시도는 토큰을 새로 준비합니다.
+- `COMM_401`만 만료로 처리해 query를 취소·폐기하고 재로그인으로 이동합니다. `MEMBER_401_001`은 로그인 폼 오류입니다. 403은 권한·CSRF 공통 오류로 안내하고 로그아웃하거나 mutation을 자동 재실행하지 않습니다. 서버 장애는 로그인 실패로 위장하지 않고 재시도 UI를 표시합니다.
+- Server Component가 로그인으로 redirect한 경우에도 로그인 화면 진입 시 기존 사용자 query cache를 폐기합니다. 초안은 인증 만료 정책에 따라 보존합니다.
+- 서버 로그아웃 성공 후 query cache와 앱 소유 `npick:{memberId}:…` 초안을 삭제하고 전체 문서 이동으로 Router Cache를 폐기합니다. 다른 탭에 BroadcastChannel로 로그아웃/계정 변경을 알립니다. 브라우저 뒤로가기의 bfcache 복원 시 새로고침하여 재검증합니다. BroadcastChannel이 없는 환경은 창 복귀·다음 요청의 세션 확인이 보완합니다.
+- 만료 시 현재 계정 초안은 보존하고 다른 계정으로 들어오면 이전 계정 초안을 삭제합니다. 이 구현은 초안 정리 규칙만 제공하며 실제 기능별 sessionStorage 백업은 아직 연결하지 않았습니다.
+- 문의 수정의 소유자·동시 수정·API 권한은 `[미정]`입니다. 현재 open 상태 문의 수정은 데모이며 클라이언트가 보낸 사용자 ID를 서버 인가 근거로 쓰면 안 됩니다.
 
 ## Route 경계
 
-| Route             | 사용자   | 책임                                        |
-| ----------------- | -------- | ------------------------------------------- |
-| `/landing`        | 공통     | 브랜드 인트로·역할 선택                     |
-| `/login`          | 공통     | 역할별 ID·비밀번호 입력                     |
-| `/search`         | editor   | 검색어 입력과 검색·문의 기록                |
-| `/search/results` | editor   | 결과·필터·근거 확인, Preview, 이상해요 제출 |
-| `/review`         | reviewer | 문의 검수, 영상 등록·처리 현황과 재시도     |
+| Route             | 사용자            | 책임                                        |
+| ----------------- | ----------------- | ------------------------------------------- |
+| `/landing`        | 공통              | 브랜드 인트로·역할 선택                     |
+| `/login`          | 공통              | 역할별 ID·비밀번호 입력                     |
+| `/search`         | EDITOR / REVIEWER | 검색어 입력과 검색·문의 기록                |
+| `/search/results` | EDITOR / REVIEWER | 결과·필터·근거 확인, Preview, 이상해요 제출 |
+| `/review`         | reviewer          | 문의 검수, 영상 등록·처리 현황과 재시도     |
 
 상세 상태와 인수 조건은 저장소의 [`../../docs/frd.md`](../../docs/frd.md)를 기준으로 합니다. route별 `loading.tsx`, `error.tsx`, `not-found.tsx`는 실제 상태 요구가 생길 때 추가합니다.
 
@@ -219,8 +240,8 @@ FRD의 접근성 기본 계약을 모든 화면에 적용합니다.
 
 다음 항목은 요구사항과 구현 시점에 결정합니다.
 
-- 인증과 역할별 접근 제어 방식
-- 서버 상태 관리와 cache 라이브러리
+- `[미정]` 문의 내용 수정의 소유자·동시 수정·API 계약
+- 기능별 query key·무효화·polling 정책의 실제 endpoint 연동 (인증은 ADR 0002로 확정)
 - form과 schema validation 도구
 - 기능별 data 스키마, 백엔드 한국어 오류·요청 ID 제공 계약
 - 단위·컴포넌트·E2E 테스트 도구

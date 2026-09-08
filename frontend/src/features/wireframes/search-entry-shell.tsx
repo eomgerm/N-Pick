@@ -1,6 +1,7 @@
 'use client';
 
 import { routes } from '@/lib/routes';
+import { SessionControls } from '@/components/session-controls';
 
 import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -27,7 +28,7 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
 
   return (
     <div className={`${styles.shell} ${styles.searchShell}`} data-theme={theme}>
-      <EntryHeader label="편집자 워크스페이스" />
+      <EntryHeader label="검색 워크스페이스" actions={<SessionControls />} />
       <main className={styles.searchMain}>
         <div className={styles.searchHero}>
           <p className={styles.eyebrow}>FIND YOUR NEXT SCENE</p>

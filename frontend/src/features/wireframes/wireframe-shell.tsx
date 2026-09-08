@@ -1,16 +1,10 @@
 'use client';
 
 import { routes } from '@/lib/routes';
+import { SessionControls } from '@/components/session-controls';
+import { useMember } from '@/components/session-boundary';
 
-import {
-  CheckCircle2,
-  ChevronDown,
-  ListFilter,
-  Play,
-  Search,
-  ShieldCheck,
-  Sparkles,
-} from 'lucide-react';
+import { CheckCircle2, ChevronDown, ListFilter, Play, Search, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -52,6 +46,7 @@ interface WireframeShellProps {
 }
 
 export function WireframeShell({ initialQuery, theme, initialParams = {} }: WireframeShellProps) {
+  const member = useMember();
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -178,15 +173,15 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           <a className={styles.primaryNavActive} href="#search-results">
             장면 검색
           </a>
-          <Link href={routes.review}>검수 워크스페이스</Link>
+          {member.role === 'REVIEWER' && (
+            <Link href={routes.review} prefetch={false}>
+              검수 워크스페이스
+            </Link>
+          )}
         </nav>
 
         <div className={styles.headerActions}>
-          <Link className={styles.reviewerEntry} href={routes.review}>
-            <ShieldCheck aria-hidden="true" />
-            <span>검수 화면</span>
-          </Link>
-          <span className={styles.roleBadge}>편집기자</span>
+          <SessionControls className="text-white" showReviewLink={false} />
         </div>
       </header>
 
