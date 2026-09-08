@@ -214,6 +214,33 @@ def test_pipeline_version_changes_when_any_stage_changes() -> None:
     assert a != b
 
 
+def test_stage_version_matches_recorded_vector() -> None:
+    """BE 가 재계산해야 하는 값이다. 계약 §7 이 이 파일을 벡터의 짝으로 지목한다.
+
+    입력 픽스처로만 등장하면 scenedetect 를 올리거나 toml 을 손댔을 때 테스트는
+    녹색인데 문서의 벡터와 BE 의 Java 대조가 조용히 어긋난다.
+    """
+    assert (
+        stage_version(
+            "scene_detection",
+            {
+                "configVersion": "scene-detect/v1:20dfc0a6",
+                "detector": "content",
+                "engine": "pyscenedetect",
+                "engineVersion": "0.7.1",
+            },
+        )
+        == "npick.stage.scene_detection/v1:3ab4bebe"
+    )
+
+
+def test_default_config_version_matches_recorded_vector() -> None:
+    """`scene_detection.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
+    from npick_worker.scene_detection import get_default_config
+
+    assert get_default_config().version_id == "scene-detect/v1:20dfc0a6"
+
+
 def test_pipeline_version_matches_recorded_vector() -> None:
     """BE 가 이 값을 Java 로 다시 계산한다. 고정 벡터로 양쪽을 대조한다.
 

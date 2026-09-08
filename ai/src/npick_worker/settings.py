@@ -38,7 +38,11 @@ class Settings(BaseSettings):
     # 둘이다 — 리졸버 쪽이 기본이어야 하고, 테스트가 lifespan 을 돌 때 네트워크로
     # 나가면 안 된다.
     job_poll_enabled: bool = False
-    #: 예: https://j15a501.p.ssafy.io/api. 비어 있으면 폴링하지 않는다.
+    #: **origin 만 넣는다.** 예: `http://backend:8080`. httpx2 는 base path 를
+    #: 덮어쓰지 않고 이어 붙이는데 client.py 의 모든 경로가 절대 경로
+    #: `/api/v1/internal/jobs/...` 로 시작한다. `/api` 를 붙이면 `/api/api/v1/...`
+    #: 이 되어 claim·heartbeat·complete 가 전부 404 다.
+    #: 비어 있으면 폴링하지 않는다.
     job_api_base_url: str = ""
     #: 절대 /health 나 로그에 싣지 않는다.
     job_api_token: SecretStr = SecretStr("")
@@ -49,7 +53,7 @@ class Settings(BaseSettings):
     job_fleet: str = "local"
 
     # 아래 수치는 **전송 파라미터**다. 소켓이 얼마나 기다리는가일 뿐 어떤 단계의
-    # 출력도 바꾸지 않으므로 Gate B 미동결 수치(ai/AGENTS.md)가 아니다.
+    # 출력도 바꾸지 않으므로 실측 후 확정할 실행 설정(ai/AGENTS.md)이 아니다.
     # 품질 수치인 단계 재시도 횟수와 단계 타임아웃은 워커가 구현하지 않는다 —
     # infra/compose/profiles/pipeline.yml 에서 null 로 남아 있고 BE 가 소유한다.
     #: claim 요청에 싣는 서버 대기 상한.

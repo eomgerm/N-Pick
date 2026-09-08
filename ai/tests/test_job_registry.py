@@ -169,3 +169,18 @@ def test_capability_version_matches_what_the_run_reports(make_video: object) -> 
         StageContext(stage="scene_detection", video_path=video, storage_key="k")
     )
     assert produced.versions.stage_version == declared
+
+
+def test_handler_without_warm_still_declares_its_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "워밍업이 없다" 와 "버전을 선언할 수 없다" 는 다른 말이다.
+
+    한데 묶으면 warm=None 인 핸들러가 capabilities 에서 조용히 빠지고, BE 는
+    "이 목록에 없는 단계를 배정하지 않는다" 이므로 그 단계는 resolve() 가 돌릴 수
+    있어도 영원히 배정되지 않는다. 로그도 남지 않는다.
+    """
+    cold = StageHandler("scene_detection", HANDLERS["scene_detection"].run, None)
+    monkeypatch.setattr(registry, "HANDLERS", {"scene_detection": cold})
+
+    assert "scene_detection" in capability_versions()

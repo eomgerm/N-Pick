@@ -666,3 +666,26 @@ async def test_envelope_failure_does_not_spin(
 
     assert len(fake_backend.calls("claim")) == 2
     assert slept, "봉투 실패 뒤에 최소 수면이 없다"
+
+
+@pytest.mark.asyncio
+async def test_non_empty_config_is_rejected(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """실제로 쓰는 단계가 없는데 조용히 무시하면 버전 기록이 거짓이 된다.
+
+    stageVersion 은 기본 설정에서 계산된다. BE 가 inputs.config 를 보내고 워커가
+    무시하면, 보고되는 stageVersion·configVersion 이 "이 설정으로 만든 결과" 라는
+    거짓 기록이 된다 — 계약 §7 이 막으려는 상황이다.
+    """
+    _plant_default_media(media_root)
+    job = make_job()
+    job["inputs"]["config"] = {"threshold": 41.0}  # type: ignore[index]
+    fake_backend.enqueue_claim(job=job)
+
+    assert await _runner(job_client, media_root).run_once() is True
+
+    body = fake_backend.body("complete")
+    assert body["status"] == "failed"
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    assert body["error"]["retryable"] is False

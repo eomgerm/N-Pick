@@ -26,6 +26,7 @@ from npick_worker.jobs.errors import (
     JobApiUnavailableError,
     LeaseLostError,
     StageAlreadyCompletedError,
+    StageConfigUnsupportedError,
     StageUnavailableError,
     UnknownStageError,
     WorkerError,
@@ -239,6 +240,10 @@ class JobRunner:
             device=self._device,
             wait_seconds=self._poll_wait_seconds,
         )
+        # heldLeases 를 싣지 않는 이유 — maxConcurrentStages 가 1 이라 claim 하는
+        # 순간 이 워커가 든 lease 가 없다. 그래서 계약 §4.1 의 좀비 절단(BE 가
+        # revokedLeases 로 되돌려 주는 것)은 지금 구조에서 항상 빈 값이다.
+        # maxConcurrentStages > 1 이 될 때 배선한다. 배선된 줄 착각하지 말 것.
 
     # ── 잡 하나 ──────────────────────────────────────────────────────
 
@@ -388,6 +393,14 @@ class JobRunner:
         )
 
     async def _run_stage(self, job: JobAssignment) -> StageOutcome:
+        if job.inputs.config:
+            # 계약 §4.1 이 `"config": {}` 이므로 지금 오는 일이 없다. 실제로 쓰는
+            # 단계가 생길 때까지는 조용히 무시하는 것보다 거절하는 편이 정직하다 —
+            # 무시하면 보고되는 stageVersion 이 기본 설정에서 계산된 값이라
+            # "이 설정으로 만든 결과" 라는 거짓 기록이 남는다.
+            msg = f"이 워커는 단계 설정을 쓰지 않는다: {sorted(job.inputs.config)}"
+            raise StageConfigUnsupportedError(msg)
+
         if job.stage not in STAGES_BY_NAME:
             msg = f"FRD 단계 표에 없는 이름이다: {job.stage}"
             raise UnknownStageError(msg)
@@ -437,10 +450,12 @@ class JobRunner:
         )
 
     def _failure_versions(self, job: JobAssignment) -> StageVersion:
-        """실패한 단계의 버전. 실제 재현 식별자를 만들 수 없었음을 그대로 적는다.
+        """실패한 단계의 버전.
 
-        아는 척하지 않는다. 여기에 그럴듯한 값을 넣으면 "이 버전으로 돌렸는데 실패했다"
-        는 잘못된 기록이 남는다.
+        실행 가능한 단계가 런타임에 실패한 경우는 **선언된 stage_version 을 그대로
+        싣는다** — 그 버전으로 돌렸다가 실패한 것이 맞으므로 그쪽이 정확한 기록이다.
+        선언조차 없는 단계(구현 없음·이름 미확인)만 "unknown" 으로 남긴다. 그럴듯한
+        값을 지어내지 않는다는 것이 요점이다.
         """
         declared = registry.capability_versions().get(job.stage)
         return StageVersion(

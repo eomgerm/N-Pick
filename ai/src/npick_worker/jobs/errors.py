@@ -91,6 +91,14 @@ class ContentHashMismatchError(PermanentStageError):
     error_code: ClassVar[str] = "UNSUPPORTED_MEDIA"
 
 
+class StageConfigUnsupportedError(PermanentStageError):
+    """배정이 단계 설정을 실어 보냈지만 이 워커가 그것을 쓰지 않는다.
+
+    조용히 무시하면 보고되는 `stageVersion`·`configVersion` 이 "이 설정으로 만든
+    결과" 라는 거짓 기록이 된다. 계약 §7 이 막으려는 상황이라 거절이 정직하다.
+    """
+
+
 class StageUnavailableError(PermanentStageError):
     """FRD 단계 표에는 있으나 이 워커에 구현이 없다."""
 

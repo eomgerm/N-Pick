@@ -209,9 +209,11 @@ def capability_versions() -> dict[str, str]:
     전에 걸러지는 편이 낫다.
     """
     versions: dict[str, str] = {}
-    for name, handler in HANDLERS.items():
-        if handler.warm is None:
-            continue
+    for name in HANDLERS:
+        # `warm is None` 으로 걸러내지 않는다. "워밍업이 없다" 와 "버전을 선언할 수
+        # 없다" 는 다른 말이고, 한데 묶으면 그 단계가 capabilities 에서 조용히 빠진다.
+        # BE 는 이 목록에 없는 단계를 배정하지 않으므로, resolve() 가 돌릴 수 있어도
+        # 영원히 배정되지 않는다. 선언 불가는 아래 _declared_version 이 알려 준다.
         try:
             versions[name] = _declared_version(name)
         except Exception as exc:  # 선언 실패가 폴링을 막으면 안 된다

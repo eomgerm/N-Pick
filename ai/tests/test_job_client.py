@@ -570,3 +570,20 @@ async def test_transport_error_during_body_is_media_unavailable(
         await job_client.download_input("398021847361024", "clips/a/x.mp4", tmp_path / "x.mp4")
     assert caught.value.error_code == "MEDIA_UNAVAILABLE"
     assert caught.value.retryable is True
+
+
+@pytest.mark.asyncio
+async def test_backslash_traversal_is_rejected(job_client: JobApiClient) -> None:
+    """판정은 POSIX·Windows 양쪽 규칙으로 한다 — docstring 이 그렇게 말한다.
+
+    quote 가 중화하고 BE 의 접두 검사에도 걸리므로 노출은 없었다. 주석이 코드보다
+    세게 말하는 것이 문제였다.
+    """
+    with pytest.raises(ArtifactKeyRejectedError):
+        await job_client.upload_artifact(
+            "398021847361024",
+            r"runs\398021847361024\..\..\admin.png",
+            b"png",
+            content_type="image/png",
+            content_sha256="a71c",
+        )

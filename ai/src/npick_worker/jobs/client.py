@@ -297,7 +297,7 @@ def _safe_artifact_key(storage_key: str) -> str:
        여기서 하는 일이 아니다. 구분자 `/` 는 남긴다 — 계약이 키를 미디어 루트
        상대 **경로**로 정의한다(`docs/contracts/job-api.md` §4.4).
     """
-    if _is_absolute_anywhere(storage_key) or ".." in PurePosixPath(storage_key).parts:
+    if _is_absolute_anywhere(storage_key) or _has_parent_segment(storage_key):
         msg = f"산출물 키가 경로를 벗어난다: {storage_key}"
         raise ArtifactKeyRejectedError(msg)
     return quote(storage_key, safe="/")
@@ -305,6 +305,16 @@ def _safe_artifact_key(storage_key: str) -> str:
 
 def _is_absolute_anywhere(key: str) -> bool:
     return PurePosixPath(key).is_absolute() or PureWindowsPath(key).is_absolute()
+
+
+def _has_parent_segment(key: str) -> bool:
+    """`..` 세그먼트가 있는지. POSIX·Windows 양쪽 규칙으로 본다.
+
+    `PurePosixPath` 만 보면 `\\` 를 구분자로 읽지 않아
+    `runs\\..\\admin.png` 가 통과한다. 같은 키가 개발 머신과 리눅스
+    컨테이너에서 다르게 판정되면 안 된다.
+    """
+    return ".." in PurePosixPath(key).parts or ".." in PureWindowsPath(key).parts
 
 
 def _dump(model: ClaimRequest | HeartbeatRequest | StageResult) -> dict[str, Any]:
