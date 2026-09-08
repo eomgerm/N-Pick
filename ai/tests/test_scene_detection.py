@@ -201,7 +201,7 @@ def test_injected_detector_rejects_non_positive_duration(tmp_path: Path, duratio
         detect_scenes(tmp_path / "not-opened.mp4", detector=InvalidDurationDetector(duration_ms))
 
 
-# ── Gate B: 임계값이 코드가 아니라 설정에 있는가 ────────────────────────
+# ── 실측 후 확정: 임계값이 코드가 아니라 설정에 있는가 ──────────────────
 
 
 def test_bundled_config_matches_expected_keys() -> None:
@@ -293,7 +293,7 @@ def _numeric_literals(source: str) -> Iterable[int | float | complex]:
 
 
 def test_no_threshold_literals_in_source() -> None:
-    """임계값은 toml 에만 있어야 한다(Gate B, FRD §15.4)."""
+    """임계값은 toml 에만 있어야 한다(실측 후 확정, FRD §11)."""
     package = DEFAULT_CONFIG_PATH.parent.parent / "scene_detection"
     literals = {
         literal
