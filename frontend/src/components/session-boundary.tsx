@@ -53,7 +53,7 @@ export function SessionBoundary({ member, children }: SessionBoundaryProps) {
     return () => window.removeEventListener('pageshow', checkRestoredPage);
   }, []);
 
-  const isBlocked = session.isFetching || session.isError || hasChangedMember;
+  const isBlocked = session.isError || hasChangedMember;
   return (
     <MemberContext value={session.data}>
       {isBlocked && (
@@ -74,7 +74,7 @@ export function SessionBoundary({ member, children }: SessionBoundaryProps) {
           )}
         </main>
       )}
-      {/* Keep local/form state mounted during a focus/reconnect check. */}
+      {/* Keep local/form state mounted if a failed check blocks interaction. */}
       <div hidden={isBlocked}>{children}</div>
     </MemberContext>
   );

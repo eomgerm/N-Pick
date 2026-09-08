@@ -31,13 +31,12 @@ const parseJsonWithSource = JSON.parse as unknown as (
 
 function parseApiJson(text: string): unknown {
   return parseJsonWithSource(text, (key, value, context) => {
-    if (
-      key === 'memberId' &&
-      typeof value === 'number' &&
-      typeof context?.source === 'string' &&
-      /^-?\d+$/.test(context.source)
-    ) {
-      return context.source;
+    if (key === 'memberId' && typeof value === 'number') {
+      if (typeof context?.source === 'string' && /^-?\d+$/.test(context.source)) {
+        return context.source;
+      }
+      // Older engines omit reviver source; only stringify values known to retain exact precision.
+      if (Number.isSafeInteger(value)) return String(value);
     }
     return value;
   });

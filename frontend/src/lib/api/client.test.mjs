@@ -109,6 +109,30 @@ test('백엔드 bigint memberId를 정밀도 손실 없이 십진 문자열로 �
   assert.equal(data.page, 2);
 });
 
+test('reviver source를 지원하지 않는 엔진도 safe integer memberId를 문자열로 보존한다', async (context) => {
+  const nativeParse = JSON.parse;
+  context.mock.method(JSON, 'parse', (text, reviver) =>
+    nativeParse(
+      text,
+      reviver
+        ? function withoutSource(key, value) {
+            return reviver.call(this, key, value);
+          }
+        : undefined,
+    ),
+  );
+  const { fetchJson: fetchJsonWithoutSource } = await import('./client.ts?without-reviver-source');
+  context.mock.method(
+    globalThis,
+    'fetch',
+    async () =>
+      new Response('{"isSuccess":true,"code":"COMM_200","message":"OK","data":{"memberId":42}}'),
+  );
+
+  const data = await fetchJsonWithoutSource('/auth/me');
+  assert.equal(data.memberId, '42');
+});
+
 test('파일 요청은 FormData와 브라우저가 만드는 multipart boundary를 사용한다', async (context) => {
   const body = new FormData();
   body.append('video', new File(['video'], 'news.mp4', { type: 'video/mp4' }));
