@@ -122,7 +122,7 @@ public class GlobalExceptionHandler {
         HttpMessageNotReadableException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception exception, HttpServletRequest request) {
-        log.debug("Invalid request", exception);
+        log.debug("Invalid request: type={}", exception.getClass().getSimpleName());
         return failure(CommonErrorCode.BAD_REQUEST, request, null);
     }
 
@@ -136,7 +136,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception exception, HttpServletRequest request) {
-        log.error("Unexpected exception", exception);
+        log.error(
+                "Unexpected exception: type={}, location={}",
+                exception.getClass().getSimpleName(),
+                safeLocation(exception));
         return failure(CommonErrorCode.INTERNAL_SERVER_ERROR, request, null);
     }
 
@@ -146,7 +149,16 @@ public class GlobalExceptionHandler {
     }
 
     private String requestPath(HttpServletRequest request) {
-        String query = request.getQueryString();
-        return request.getMethod() + " " + request.getRequestURI() + (query == null ? "" : "?" + query);
+        return request.getMethod() + " " + request.getRequestURI();
+    }
+
+    private static String safeLocation(Exception exception) {
+        for (var frame : exception.getStackTrace()) {
+            if (frame.getClassName().startsWith("com.npick.")) {
+                // Preserve a diagnostic code location without exception messages or source/OS file paths.
+                return frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber();
+            }
+        }
+        return "external";
     }
 }

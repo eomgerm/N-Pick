@@ -60,6 +60,14 @@ npick:
       allowed-video-codecs: ${CLIP_ALLOWED_VIDEO_CODECS:h264,hevc}
       allowed-audio-codecs: ${CLIP_ALLOWED_AUDIO_CODECS:aac,mp3}
 
+# PostgreSQL error details may include the failing row (script, paths, secrets).
+# API failures are reported through safe application error codes instead.
+logging:
+  level:
+    org.hibernate.orm.jdbc.error: OFF
+    org.hibernate.orm.jdbc.bind: OFF
+    org.hibernate.orm.jdbc.extract: OFF
+
 management:
   endpoints:
     web:
