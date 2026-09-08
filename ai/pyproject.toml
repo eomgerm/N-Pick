@@ -11,6 +11,11 @@ dependencies = [
     "pydantic-settings>=2.15,<3",
     "av>=18,<19",
     "scenedetect-headless>=0.7.1,<0.8",
+    # query_normalization 이 형태소 분석에 쓴다. 토큰 경계를 정하는 것은
+    # kiwipiepy 가 아니라 kiwipiepy-model 이라 둘 다 정확히 핀한다 — 올라가면
+    # canonical 이 바뀌어 쌓인 exclude_scene 이 전멸한다.
+    "kiwipiepy==0.23.2",
+    "kiwipiepy-model==0.23.0",
     # query_resolver 가 Ollama HTTP 를 부른다. adapter(ollama_backend.py) 안에서만 쓴다.
     # dev 그룹에 있었으나 런타임 경로가 생겨 기본 의존성으로 옮겼다.
     "httpx2>=2,<3",
@@ -86,6 +91,12 @@ warn_unused_configs = true
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
 module = ["torch.*", "numpy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# kiwipiepy 는 py.typed 를 배포하지 않는다. 경계는 query_normalization/normalizer.py
+# 의 NormalizedQuery 가 잡으므로 타입 부재가 그 밖으로 번지지 않는다.
+module = ["kiwipiepy.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
