@@ -12,6 +12,7 @@ import pytest
 
 from npick_worker.query_normalization import (
     QueryNormalizationConfig,
+    get_default_config,
     load_config,
     normalize,
 )
@@ -162,6 +163,51 @@ user_words = []
         normalize("영상물 찾아줘", config)
 
 
+def _write_config(tmp_path: Path, aliases: str = "", stopwords: str = "[]") -> Path:
+    config_path = tmp_path / "query_normalization.v1.toml"
+    config_path.write_text(
+        f"""
+schema = "query-norm/v1"
+keep_pos = ["NNG", "NNP", "SL", "SN", "VV", "VA"]
+sort_tokens = true
+stopwords = {stopwords}
+user_words = []
+
+[aliases]
+{aliases}
+""",
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def test_malformed_stopword_is_rejected_at_load(tmp_path: Path) -> None:
+    """설정 오타는 기동 때 터져야 한다. 질의 때 터지면 매 요청이 400 이 된다.
+
+    `normalize()` 는 사용자 입력 오류에도 ValueError 를 쓰므로, 호출부가 설정 오타와
+    빈 질의를 구분하지 못한다.
+    """
+    with pytest.raises(ValueError, match="stopwords 항목은"):
+        load_config(_write_config(tmp_path, stopwords='["영상"]'))
+
+
+def test_alias_key_that_is_also_a_stopword_is_rejected(tmp_path: Path) -> None:
+    """불용어인 토큰을 별칭 키로 쓰면 치환된 형태로 필터를 빠져나간다.
+
+    별칭이 필터보다 먼저라서 생기는 거울상이다. 실제로 '태풍 영상' 이 '태풍' 이 아니라
+    '비디오 태풍' 이 됐다.
+    """
+    with pytest.raises(ValueError, match="불용어"):
+        load_config(_write_config(tmp_path, aliases='"영상" = "비디오"', stopwords='["영상/NNG"]'))
+
+
+def test_identity_alias_is_allowed(tmp_path: Path) -> None:
+    """`"부산" = "부산"` 은 아무 일도 안 하는 항목이지 연쇄가 아니다."""
+    config = load_config(_write_config(tmp_path, aliases='"부산" = "부산"'))
+
+    assert normalize("부산 침수", config).normalized_query == "부산 침수"
+
+
 def test_chained_alias_is_rejected_at_load(tmp_path: Path) -> None:
     """A->B 와 B->C 를 함께 두면 A 는 B 에서 멈추고 B 만 C 가 된다.
 
@@ -227,6 +273,52 @@ def test_shipped_aliases_collapse_ministry_abbreviations(full: str, abbreviation
     assert canonical == normalize(f"{abbreviation} 브리핑").normalized_query
     assert abbreviation in canonical
     assert full not in canonical
+
+
+#: 별칭 수렴 스윕이 쓰는 꼬리말. 별칭 뒤에 무엇이 오든 수렴해야 한다.
+_SWEEP_TAILS = (
+    "교통사고",
+    "기자회견",
+    "집중호우",
+    "브리핑",
+    "산불",
+    "폭우",
+    "대책 발표",
+    "현장",
+    "침수",
+    "태풍 피해",
+    "지진",
+    "회의",
+    "시위",
+    "화재",
+    "예산안",
+    "조사 결과",
+    "발표",
+    "논란",
+    "사고",
+    "대응",
+)
+
+
+def test_every_shipped_alias_converges_on_every_tail() -> None:
+    """별칭 전수 x 꼬리말 전수. 표본 몇 개로는 안 잡히는 구멍이 있었다.
+
+    별칭은 형태소 분석 **뒤** 에 걸리므로, 별칭 키의 표층형이 뒤따르는 단어의 분절까지
+    바꾼다. 별칭 값을 `user_words` 에 넣지 않았을 때 38/680 이 갈렸다.
+
+        "부산시 교통사고" -> "교통사고 부산"
+        "부산 교통사고"   -> "교통 부산 사고"
+    """
+    aliases = get_default_config().aliases
+    diverged = [
+        (key, value, tail)
+        for key, value in aliases.items()
+        for tail in _SWEEP_TAILS
+        if normalize(f"{key} {tail}").normalized_query
+        != normalize(f"{value} {tail}").normalized_query
+    ]
+
+    assert diverged == []
 
 
 def test_facility_names_are_left_to_the_resolver() -> None:

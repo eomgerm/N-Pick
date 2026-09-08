@@ -52,14 +52,14 @@ def _version_id(settings: QueryNormalizationConfig) -> str:
 
 
 @lru_cache(maxsize=4)
-def _kiwi(user_words: tuple[str, ...]) -> Kiwi:
+def _kiwi(user_words: tuple[str, ...], score: float) -> Kiwi:
     """Kiwi 인스턴스. 초기화가 무거워 사용자 사전 조합마다 하나만 만든다.
 
     사용자 사전이 다르면 토큰 경계가 달라지므로 인스턴스를 공유할 수 없다.
     """
     kiwi = Kiwi()
     for word in user_words:
-        kiwi.add_user_word(word, "NNP")
+        kiwi.add_user_word(word, "NNP", score)
     return kiwi
 
 
@@ -79,7 +79,7 @@ def normalize(raw_query: str, config: QueryNormalizationConfig | None = None) ->
 
     # 2. 형태소 분석 후 품사로 거른다. 조사·어미·기호가 여기서 사라진다.
     keep_pos = frozenset(settings.keep_pos)
-    tokens = _kiwi(settings.user_words).tokenize(text)
+    tokens = _kiwi(settings.user_words, settings.user_word_score).tokenize(text)
     kept = [(token.form, token.tag) for token in tokens if token.tag in keep_pos]
 
     # 3. 여기서 갈라진다. search_tokens 는 색인 측과 같은 상태로 둔다 — 별칭도
