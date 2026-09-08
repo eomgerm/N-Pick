@@ -137,13 +137,29 @@ public final class NormalizedSearch {
         }
     }
 
-    /** 값 순서도 지문을 바꾸지 않아야 하므로 정렬해 둔다. */
+    /**
+     * 같은 선택을 나타내는 여러 표기를 하나로 모은다. 여기서 모으지 못하면 같은 검색이 지문을 두 개 갖고, 사람이 만든 규칙이 그중 한쪽에만 걸린다.
+     *
+     * <ul>
+     *   <li>키 정렬 — 필터를 넣은 순서는 선택이 아니다
+     *   <li>값 정렬 — 다중 선택의 순서는 선택이 아니다
+     *   <li>값 중복 제거 — 다중 선택에서 같은 값을 두 번 고를 수는 없다
+     *   <li>빈 선택 제거 — {@code {"tag": []}} 는 tag 필터를 안 건 것이다
+     * </ul>
+     */
     private static SortedMap<String, List<String>> copyOf(Map<String, List<String>> filters) {
         SortedMap<String, List<String>> copy = new TreeMap<>();
         filters.forEach((key, values) -> {
             Objects.requireNonNull(key, "필터 키가 널이다");
             Objects.requireNonNull(values, "필터 값이 널이다");
-            copy.put(key, values.stream().sorted().toList());
+            List<String> normalized = values.stream()
+                    .map(value -> Objects.requireNonNull(value, "필터 값 항목이 널이다"))
+                    .distinct()
+                    .sorted()
+                    .toList();
+            if (!normalized.isEmpty()) {
+                copy.put(key, normalized);
+            }
         });
         return Collections.unmodifiableSortedMap(copy);
     }

@@ -101,6 +101,25 @@ class NormalizedSearchTest {
     }
 
     @Test
+    void 빈_필터_리스트는_필터를_안_건_것과_같다() {
+        // UI 가 선택 없는 필터를 {} 로 보내든 {"tag": []} 로 보내든 같은 검색이다.
+        // 갈리면 같은 검색이 지문 두 개를 갖고 override 가 한쪽에만 걸린다.
+        var absent = search("부산", Map.of());
+        var emptySelection = search("부산", Map.of("tag", List.of()));
+
+        assertThat(absent.fingerprint()).isEqualTo(emptySelection.fingerprint());
+    }
+
+    @Test
+    void 같은_값을_두_번_보내도_지문이_같다() {
+        // 다중 선택 UI 에서 같은 값을 두 번 고를 수는 없다. 중복은 같은 선택이다.
+        var once = search("부산", Map.of("tag", List.of("홍수")));
+        var twice = search("부산", Map.of("tag", List.of("홍수", "홍수")));
+
+        assertThat(once.fingerprint()).isEqualTo(twice.fingerprint());
+    }
+
+    @Test
     void 빈_필터와_빈_문자열_필터값은_다르다() {
         var empty = search("부산", Map.of());
         var blank = search("부산", Map.of("tag", List.of("")));
