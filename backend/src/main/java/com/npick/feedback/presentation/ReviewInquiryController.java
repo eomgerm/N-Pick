@@ -3,12 +3,14 @@ package com.npick.feedback.presentation;
 import java.util.List;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.npick.common.response.ApiResponse;
 import com.npick.feedback.application.InquiryReviewService;
+import com.npick.feedback.presentation.response.InquiryDetailResponse;
 import com.npick.feedback.presentation.response.InquiryListItemResponse;
 
 @RestController
@@ -32,5 +34,10 @@ public class ReviewInquiryController {
                 .map(InquiryListItemResponse::from)
                 .toList();
         return ApiResponse.success(items);
+    }
+
+    @GetMapping("/inquiries/{feedbackId}")
+    public ApiResponse<InquiryDetailResponse> detail(@PathVariable long feedbackId) {
+        return ApiResponse.success(InquiryDetailResponse.from(reviewService.detail(feedbackId)));
     }
 }

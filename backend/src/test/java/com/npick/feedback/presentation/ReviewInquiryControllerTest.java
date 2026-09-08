@@ -19,10 +19,17 @@ import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
 import com.npick.feedback.application.InquiryReviewService;
+import com.npick.feedback.application.query.ExecutionSnapshot;
+import com.npick.feedback.application.query.InquiryDetail;
+import com.npick.feedback.application.query.ReviewHistory;
+import com.npick.feedback.domain.error.FeedbackErrorCode;
+import com.npick.feedback.domain.error.FeedbackException;
 
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -71,5 +78,42 @@ class ReviewInquiryControllerTest {
         mockMvc.perform(get("/api/v1/review/inquiries?status=open&page=-1")
                         .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("편집기자는 검수 상세 접근이 403")
+    void editorForbiddenOnDetail() throws Exception {
+        mockMvc.perform(get("/api/v1/review/inquiries/1")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("검수자는 문의 상세를 조회한다")
+    void reviewerGetsDetail() throws Exception {
+        InquiryDetail detail = new InquiryDetail(
+                1L,
+                "OPEN",
+                null,
+                java.time.Instant.parse("2026-09-08T00:00:00Z"),
+                "이상해요",
+                new ExecutionSnapshot("query", "{}", "{}", "{}", "{}"),
+                java.util.List.of(),
+                new ReviewHistory(null, null, null));
+        given(reviewService.detail(1L)).willReturn(detail);
+        mockMvc.perform(get("/api/v1/review/inquiries/1")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 문의 상세 조회는 404")
+    void detailNotFoundIs404() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.FEEDBACK_NOT_FOUND))
+                .given(reviewService)
+                .detail(anyLong());
+        mockMvc.perform(get("/api/v1/review/inquiries/999")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
+                .andExpect(status().isNotFound());
     }
 }
