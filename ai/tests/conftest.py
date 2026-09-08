@@ -1,12 +1,30 @@
+import json
+from collections import defaultdict, deque
 from collections.abc import Callable, Iterator, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, Literal
 
 import av
+import httpx2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from npick_worker.app import create_app
+from npick_worker.jobs.client import JobApiClient
+from npick_worker.jobs.models import StageResult
+from npick_worker.jobs.versions import StageVersion
+from npick_worker.settings import get_settings
+
+
+@pytest.fixture(autouse=True)
+def reset_settings() -> Iterator[None]:
+    """Settings 는 프로세스 수명 동안 캐시된다. 환경 변수를 건드리는 테스트가
+    다음 테스트로 새지 않게 매번 비운다."""
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -77,3 +95,225 @@ def make_video(tmp_path: Path) -> Callable[[str, Sequence[tuple[PanelKind, int]]
         return _write_video(tmp_path / f"{name}.mp4", blocks)
 
     return factory
+
+
+# ── 가짜 서비스 서버 ────────────────────────────────────────────────────
+# 왕복을 확인하려면 상대가 있어야 하는데 BE 잡 API 는 아직 구현되지 않았다.
+# 계약(docs/contracts/job-api.md)이 정한 모양대로만 응답하는 최소 서버를 여기 둔다.
+# respx 는 쓸 수 없다 — httpx 0.x 에 핀이 걸려 있고 이 환경에는 httpx2 만 있다.
+
+RouteName = Literal["claim", "heartbeat", "complete", "artifact_get", "artifact_put"]
+
+
+def envelope(
+    data: object,
+    *,
+    is_success: bool = True,
+    code: str = "COMM_200",
+    message: str = "OK",
+) -> dict[str, object]:
+    """BE 의 ApiResponse 봉투. 필드 순서와 이름은 ApiResponse.java 를 따른다."""
+    return {
+        "isSuccess": is_success,
+        "code": code,
+        "message": message,
+        "timestamp": "2026-09-07T09:20:19Z",
+        "path": "POST /api/v1/internal/jobs/claim",
+        "data": data,
+    }
+
+
+def make_lease(**overrides: object) -> dict[str, object]:
+    lease: dict[str, object] = {
+        "leaseId": "7d1f4e0c-3a55-4a10-8f60-2e1b9c0d4a77",
+        "leaseUntil": "2026-09-07T09:21:19Z",
+        "heartbeatIntervalMs": 10_000,
+    }
+    lease.update(overrides)
+    return lease
+
+
+def make_job(**overrides: object) -> dict[str, object]:
+    job: dict[str, object] = {
+        "pipelineRunId": "398021847361024",
+        "clipId": "398021840012345",
+        "processingNo": 1,
+        "stage": "scene_detection",
+        "attempt": 1,
+        "maxAttempts": 1,
+        "idempotencyKey": "398021847361024:scene_detection:1",
+        "pipelineVersion": "npick-pipeline/v1:64960bae4565",
+        "outputKeyPrefix": "runs/398021847361024/scene_detection/a1/",
+        "inputs": {
+            "media": {
+                "storageKey": "clips/398021840012345/source.mp4",
+                "transport": "shared-volume",
+                "localPath": "clips/398021840012345/source.mp4",
+            }
+        },
+    }
+    job.update(overrides)
+    return job
+
+
+class FakeBackend:
+    """(method, path) 로 라우팅하고 모든 요청을 기록한다.
+
+    큐가 비면 각 경로의 무해한 기본값을 돌려준다 — 테스트가 자기 관심사만 적도록.
+    """
+
+    def __init__(self) -> None:
+        self.requests: list[httpx2.Request] = []
+        self._queues: dict[RouteName, deque[httpx2.Response]] = defaultdict(deque)
+        #: 응답을 돌려준 직후 부르는 훅. "실행 중에 heartbeat 가 왔다" 같은 순서를
+        #: 타이밍에 기대지 않고 재현할 때 쓴다.
+        self.on_request: Callable[[RouteName, httpx2.Request], None] | None = None
+
+    # 준비 --------------------------------------------------------------
+
+    def enqueue(self, route: RouteName, response: httpx2.Response) -> None:
+        self._queues[route].append(response)
+
+    def enqueue_claim(
+        self,
+        job: dict[str, object] | None = None,
+        lease: dict[str, object] | None = None,
+    ) -> None:
+        payload = {
+            "assigned": True,
+            "lease": lease if lease is not None else make_lease(),
+            "job": job if job is not None else make_job(),
+        }
+        self.enqueue("claim", httpx2.Response(200, json=envelope(payload)))
+
+    def enqueue_empty_claim(self) -> None:
+        self.enqueue("claim", httpx2.Response(200, json=envelope({"assigned": False})))
+
+    def enqueue_heartbeat_abort(self, reason: str = "RUN_CANCELLED") -> None:
+        self.enqueue(
+            "heartbeat",
+            httpx2.Response(200, json=envelope({"command": "abort", "abortReason": reason})),
+        )
+
+    def enqueue_complete_with_next(
+        self,
+        job: dict[str, object],
+        lease: dict[str, object] | None = None,
+    ) -> None:
+        """complete 응답에 다음 단계 선배정을 실어 준다."""
+        payload = {
+            "accepted": True,
+            "duplicate": False,
+            "next": {
+                "assigned": True,
+                "lease": lease if lease is not None else make_lease(),
+                "job": job,
+            },
+        }
+        self.enqueue("complete", httpx2.Response(200, json=envelope(payload)))
+
+    def enqueue_status(
+        self,
+        route: RouteName,
+        status: int,
+        *,
+        code: str = "JOB_500",
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.enqueue(
+            route,
+            httpx2.Response(
+                status,
+                json=envelope(None, is_success=False, code=code, message="fake"),
+                headers=headers,
+            ),
+        )
+
+    # 검사 --------------------------------------------------------------
+
+    def calls(self, route: RouteName) -> list[httpx2.Request]:
+        return [r for r in self.requests if self._route(r) == route]
+
+    def body(self, route: RouteName, index: int = 0) -> dict[str, Any]:
+        payload: dict[str, Any] = json.loads(self.calls(route)[index].content)
+        return payload
+
+    # 처리 --------------------------------------------------------------
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response:
+        self.requests.append(request)
+        route = self._route(request)
+        queued = self._queues[route]
+        response = queued.popleft() if queued else self._default(route)
+        if self.on_request is not None:
+            self.on_request(route, request)
+        return response
+
+    @staticmethod
+    def _route(request: httpx2.Request) -> RouteName:
+        path = request.url.path
+        if path.endswith("/claim"):
+            return "claim"
+        if path.endswith("/heartbeat"):
+            return "heartbeat"
+        if path.endswith("/complete"):
+            return "complete"
+        return "artifact_get" if request.method == "GET" else "artifact_put"
+
+    @staticmethod
+    def _default(route: RouteName) -> httpx2.Response:
+        if route == "claim":
+            return httpx2.Response(200, json=envelope({"assigned": False}))
+        if route == "heartbeat":
+            return httpx2.Response(
+                200,
+                json=envelope({"command": "continue", "leaseUntil": "2026-09-07T09:22:19Z"}),
+            )
+        if route == "complete":
+            return httpx2.Response(200, json=envelope({"accepted": True, "duplicate": False}))
+        if route == "artifact_get":
+            return httpx2.Response(404, json=envelope(None, is_success=False, code="JOB_404_002"))
+        return httpx2.Response(201)
+
+
+@pytest.fixture
+def fake_backend() -> FakeBackend:
+    return FakeBackend()
+
+
+@pytest.fixture
+def job_client(fake_backend: FakeBackend) -> Iterator[JobApiClient]:
+    client = JobApiClient(
+        base_url="https://backend.test",
+        token="test-token",
+        worker_id="test-worker",
+        connect_timeout=1.0,
+        read_timeout=2.0,
+        poll_wait_seconds=25,
+        max_backoff_seconds=1.0,
+        transport=httpx2.MockTransport(fake_backend),
+    )
+    yield client
+
+
+@pytest.fixture
+def stage_result() -> StageResult:
+    """성공한 scene_detection 결과 하나. 봉투 모양을 확인하는 테스트가 쓴다."""
+    started = datetime(2026, 9, 7, 9, 20, 19, tzinfo=UTC)
+    return StageResult(
+        lease_id="7d1f4e0c-3a55-4a10-8f60-2e1b9c0d4a77",
+        idempotency_key="398021847361024:scene_detection:1",
+        stage="scene_detection",
+        attempt=1,
+        status="succeeded",
+        started_at=started,
+        finished_at=started + timedelta(milliseconds=41_230),
+        duration_ms=41_230,
+        versions=StageVersion(
+            stage_version="npick.stage.scene_detection/v1:0badc0de",
+            output_schema_version="npick.stage.scene_detection.output/v1",
+            config_version="scene-detect/v1:20dfc0a6",
+            detail={"engine": "pyscenedetect", "engineVersion": "0.7.1", "detector": "content"},
+        ),
+        output={"scenes": [], "mediaDurationMs": 76067, "frameRate": 30.0},
+    )

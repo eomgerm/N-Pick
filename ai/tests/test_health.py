@@ -47,3 +47,14 @@ def test_health_stage_registry_matches_frd(client: TestClient) -> None:
     assert [s["name"] for s in pipeline["stages"]] == EXPECTED_STAGE_NAMES
     assert [s["order"] for s in pipeline["stages"]] == list(range(1, 11))
     assert {s["name"] for s in pipeline["stages"] if s["fatal"]} == EXPECTED_FATAL_STAGES
+
+
+def test_health_reports_cold_warmup_when_polling_is_off(client: TestClient) -> None:
+    """폴링이 꺼진 프로세스는 차가운 것이지 고장난 것이 아니다.
+
+    여기서 실패를 내면 compose 헬스체크가 컨테이너를 재시작 루프에 빠뜨린다.
+    """
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body["warmup"]["enabled"] is False
+    assert body["warmup"]["ready"] is False

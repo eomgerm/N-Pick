@@ -1,0 +1,490 @@
+"""claim → 실행 → complete 왕복.
+
+헤드라인 테스트는 실제 mp4 를 실제 `detect_scenes` 로 처리해 가짜 BE 까지 보낸다.
+BE 잡 API 는 아직 구현되지 않았으므로 상대는 계약 모양으로만 응답하는 fake 다.
+"""
+
+import asyncio
+import json
+import threading
+from pathlib import Path
+from typing import Any
+
+import httpx2
+import pytest
+
+from npick_worker.jobs import registry
+from npick_worker.jobs.client import JobApiClient
+from npick_worker.jobs.media import MediaResolver
+from npick_worker.jobs.models import WorkerDevice
+from npick_worker.jobs.registry import StageContext, StageHandler, StageOutcome
+from npick_worker.jobs.runner import JobRunner
+from npick_worker.jobs.versions import StageVersion
+
+from .conftest import FakeBackend, envelope, make_job
+
+RUN_ID = "398021847361024"
+
+#: 10fps 합성 영상. 20프레임 블록 하나가 2000ms 다.
+ROUNDTRIP_BLOCKS = [("bars", 20), ("white", 20), ("noise", 20)]
+
+
+@pytest.fixture(autouse=True)
+def _fast_heartbeat(monkeypatch: pytest.MonkeyPatch) -> None:
+    """heartbeat 주기를 기다리지 않는다. 잔 시간이 아니라 호출 여부가 관심사다."""
+    real_sleep = asyncio.sleep
+
+    async def quick_sleep(seconds: float) -> None:
+        await real_sleep(0)
+
+    monkeypatch.setattr(asyncio, "sleep", quick_sleep)
+
+
+@pytest.fixture
+def media_root(tmp_path: Path) -> Path:
+    root = tmp_path / "media"
+    root.mkdir()
+    return root
+
+
+def _runner(client: JobApiClient, media_root: Path | None) -> JobRunner:
+    return JobRunner(
+        client=client,
+        media=MediaResolver(media_root, client),
+        worker_id="test-worker",
+        fleet="local",
+        poll_wait_seconds=1,
+        heartbeat_seconds=0.01,
+        shared_media_volume=media_root is not None,
+        media_root=media_root,
+        device=WorkerDevice(kind="cpu"),
+    )
+
+
+def _plant_default_media(media_root: Path) -> None:
+    """make_job() 기본 배정이 가리키는 입력을 만들어 둔다.
+
+    파일이 없으면 단계에 닿기 전에 실패해서, "실행 중에 중단 신호가 왔다" 를
+    재현하려는 테스트의 전제가 무너진다.
+    """
+    target = media_root / "clips/398021840012345/source.mp4"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"placeholder")
+
+
+def _complete_body(fake_backend: FakeBackend) -> dict[str, Any]:
+    body: dict[str, Any] = json.loads(fake_backend.calls("complete")[0].content)
+    return body
+
+
+# ── 왕복 ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_round_trip_scene_detection_job(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    make_video: Any,
+) -> None:
+    """실제 영상 → 실제 detect_scenes → 계약 봉투가 BE 에 도착한다."""
+    video = make_video("roundtrip", ROUNDTRIP_BLOCKS)
+    storage_key = "clips/a/source.mp4"
+    target = media_root / storage_key
+    target.parent.mkdir(parents=True)
+    target.write_bytes(video.read_bytes())
+
+    fake_backend.enqueue_claim(
+        make_job(inputs={"media": {"storageKey": storage_key, "transport": "shared-volume"}})
+    )
+
+    assert await _runner(job_client, media_root).run_once() is True
+
+    body = _complete_body(fake_backend)
+    assert body["stage"] == "scene_detection"
+    assert body["status"] == "succeeded"
+    assert body["envelopeVersion"] == "stage-result/v1"
+    # 20프레임 블록 셋 = 2000ms 씩 세 구간.
+    assert [(s["startTimeMs"], s["endTimeMs"]) for s in body["output"]["scenes"]] == [
+        (0, 2000),
+        (2000, 4000),
+        (4000, 6000),
+    ]
+    assert body["output"]["mediaDurationMs"] == 6000
+
+
+@pytest.mark.asyncio
+async def test_round_trip_reports_real_versions(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    make_video: Any,
+) -> None:
+    """버전이 자리표시자가 아니라 실제 엔진 값이어야 검증이 성립한다."""
+    video = make_video("versions", [("bars", 20), ("white", 20)])
+    target = media_root / "clips/a/source.mp4"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(video.read_bytes())
+    fake_backend.enqueue_claim(
+        make_job(
+            inputs={"media": {"storageKey": "clips/a/source.mp4", "transport": "shared-volume"}}
+        )
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    versions = _complete_body(fake_backend)["versions"]
+    assert versions["detail"]["engine"] == "pyscenedetect"
+    assert versions["detail"]["engineVersion"]
+    assert versions["configVersion"].startswith("scene-detect/v1:")
+    assert versions["stageVersion"].startswith("npick.stage.scene_detection/v1:")
+    # 이 단계는 가중치도 프롬프트도 쓰지 않는다. 키는 남고 값만 비어야 한다.
+    assert versions["modelVersion"] is None
+    assert versions["promptVersion"] is None
+
+
+@pytest.mark.asyncio
+async def test_round_trip_sends_heartbeats(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    make_video: Any,
+) -> None:
+    video = make_video("heartbeat", [("bars", 20), ("white", 20)])
+    target = media_root / "clips/a/source.mp4"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(video.read_bytes())
+    fake_backend.enqueue_claim(
+        make_job(
+            inputs={"media": {"storageKey": "clips/a/source.mp4", "transport": "shared-volume"}}
+        )
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    assert len(fake_backend.calls("heartbeat")) >= 1
+
+
+@pytest.mark.asyncio
+async def test_claim_declares_the_stage_it_can_run(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """BE 는 이 선언으로 배정을 거른다. pipeline.yml 의 정적 배치 목록을 대신한다."""
+    await _runner(job_client, media_root).run_once()
+
+    body = json.loads(fake_backend.calls("claim")[0].content)
+    stages = {c["stage"] for c in body["capabilities"]}
+    assert stages == {"scene_detection"}
+    assert body["capabilities"][0]["stageVersion"].startswith("npick.stage.scene_detection/v1:")
+
+
+@pytest.mark.asyncio
+async def test_no_assignment_does_not_complete(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    fake_backend.enqueue_empty_claim()
+    assert await _runner(job_client, media_root).run_once() is False
+    assert fake_backend.calls("complete") == []
+
+
+# ── 구현되지 않은 단계 ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_unimplemented_stage_is_skipped_not_failed(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """FRD 표에는 있으나 구현이 없는 단계. 비치명 단계의 생략은 run 을 멈추지 않는다."""
+    fake_backend.enqueue_claim(make_job(stage="ocr"))
+
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["status"] == "skipped"
+    assert body["error"]["code"] == "NO_ADAPTER"
+    assert body["error"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_unknown_stage_name_is_permanent_failure(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    fake_backend.enqueue_claim(make_job(stage="nope"))
+
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["status"] == "failed"
+    assert body["error"]["code"] == "UNSUPPORTED_STAGE"
+    assert body["error"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_failure_still_carries_the_required_version_keys(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    # 봉투는 실패에도 versions 를 요구한다. 없으면 BE 가 거절한다.
+    fake_backend.enqueue_claim(make_job(stage="ocr"))
+    await _runner(job_client, media_root).run_once()
+
+    versions = _complete_body(fake_backend)["versions"]
+    assert versions["stageVersion"]
+    assert versions["outputSchemaVersion"]
+
+
+# ── 실패 분류 ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_missing_input_is_permanent(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    fake_backend.enqueue_claim(
+        make_job(inputs={"media": {"storageKey": "clips/a/nope.mp4", "transport": "shared-volume"}})
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["error"]["code"] == "MEDIA_UNAVAILABLE"
+    assert body["error"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_broken_video_is_classified_permanent(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """detect_scenes 는 맨 ValueError 를 던진다. 경계에서 영구 오류로 번역한다."""
+    target = media_root / "clips/a/source.mp4"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"not a video")
+    fake_backend.enqueue_claim(
+        make_job(
+            inputs={"media": {"storageKey": "clips/a/source.mp4", "transport": "shared-volume"}}
+        )
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["status"] == "failed"
+    # 벤더 예외(VideoOpenFailure)가 어댑터 경계에서 계약 어휘로 번역돼야 한다.
+    assert body["error"]["code"] == "UNSUPPORTED_MEDIA"
+    assert body["error"]["retryable"] is False
+
+
+@pytest.mark.asyncio
+async def test_error_message_does_not_leak_absolute_paths(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    fake_backend.enqueue_claim(
+        make_job(inputs={"media": {"storageKey": "clips/a/nope.mp4", "transport": "shared-volume"}})
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    assert str(media_root) not in _complete_body(fake_backend)["error"]["message"]
+
+
+# ── lease 와 인증 ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_lease_lost_during_complete_is_swallowed(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """fencing 으로 거절당하는 것은 정상이다. 예외로 루프를 깨지 않는다."""
+    fake_backend.enqueue_claim(make_job(stage="ocr"))
+    fake_backend.enqueue_status("complete", 409, code="JOB_409_002")
+
+    await _runner(job_client, media_root).run_once()
+
+    assert len(fake_backend.calls("complete")) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_stops_on_unauthorized(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """토큰이 거절되는데 계속 두드려도 열리지 않는다."""
+    fake_backend.enqueue_status("claim", 401, code="JOB_401")
+
+    await asyncio.wait_for(_runner(job_client, media_root).run(), timeout=5)
+
+    assert len(fake_backend.calls("claim")) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_survives_a_transport_outage(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """BE 가 잠깐 죽어도 워커는 살아 있어야 한다. 5회 재시도 뒤 401 로 루프를 끝낸다."""
+    for _ in range(5):
+        fake_backend.enqueue_status("claim", 503)
+    fake_backend.enqueue_status("claim", 401, code="JOB_401")
+
+    await asyncio.wait_for(_runner(job_client, media_root).run(), timeout=5)
+
+    assert len(fake_backend.calls("claim")) == 6
+
+
+@pytest.mark.asyncio
+async def test_empty_claim_does_not_sleep(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """대기는 이미 서버가 했다. 여기서 또 자면 유휴 주기가 두 배가 된다."""
+    fake_backend.enqueue(
+        "claim", httpx2.Response(200, json=envelope({"assigned": False, "retryAfterMs": 0}))
+    )
+    slept: list[float] = []
+
+    async def record(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", record)
+    await _runner(job_client, media_root).run_once()
+
+    assert slept == []
+
+
+# ── 중단 신호 (계약 §4.2) ────────────────────────────────────────────
+
+
+@pytest.fixture
+def blocking_stage(monkeypatch: pytest.MonkeyPatch) -> threading.Event:
+    """heartbeat 가 한 번 올 때까지 멈춰 있는 단계를 등록한다.
+
+    "실행 중에 중단 신호가 왔다" 를 재현해야 하는데, 실제 단계가 언제 끝나는지에
+    기대면 테스트가 기계 속도에 흔들린다. 단계를 붙잡아 순서를 고정한다.
+    """
+    released = threading.Event()
+
+    def run(ctx: StageContext) -> StageOutcome:
+        released.wait(timeout=5)
+        return StageOutcome(
+            output={"ok": True},
+            versions=StageVersion(
+                stage_version="npick.stage.scene_detection/v1:0badc0de",
+                output_schema_version="npick.stage.scene_detection.output/v1",
+            ),
+        )
+
+    monkeypatch.setattr(
+        registry, "HANDLERS", {"scene_detection": StageHandler("scene_detection", run, None)}
+    )
+    return released
+
+
+@pytest.mark.asyncio
+async def test_abort_discards_the_result(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    blocking_stage: threading.Event,
+) -> None:
+    """BE 가 중단을 지시하면 결과를 반납하지 않는다.
+
+    계약 §4.2: "abort 를 받은 워커는 즉시 중단하고 산출물을 버리며 complete 를 보내지
+    않는다." 여기서 반납하면 BE 가 이미 다른 워커에 재배정한 단계 위에 덮어쓴다.
+    """
+    _plant_default_media(media_root)
+    fake_backend.enqueue_claim()
+    fake_backend.enqueue_heartbeat_abort()
+    fake_backend.on_request = lambda route, _req: (
+        blocking_stage.set() if route == "heartbeat" else None
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_lease_revoked_during_execution_discards_the_result(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    blocking_stage: threading.Event,
+) -> None:
+    """heartbeat 가 409 로 회수를 알리면 결과를 반납하지 않는다(fencing)."""
+    _plant_default_media(media_root)
+    fake_backend.enqueue_claim()
+    fake_backend.enqueue_status("heartbeat", 409, code="JOB_409_002")
+    fake_backend.on_request = lambda route, _req: (
+        blocking_stage.set() if route == "heartbeat" else None
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_stage_already_completed_is_not_an_error(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """이미 성공한 단계에 대한 409 는 정상이다. 폐기하고 다음으로 간다."""
+    fake_backend.enqueue_claim(make_job(stage="ocr"))
+    fake_backend.enqueue_status("complete", 409, code="JOB_409_001")
+
+    await _runner(job_client, media_root).run_once()
+
+    assert len(fake_backend.calls("complete")) == 1
+
+
+# ── next 선배정 (계약 §4.3) ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_next_assignment_is_executed(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """complete 응답의 next 를 이어서 실행한다.
+
+    무시하면 BE 가 배정한 lease 가 실행도 heartbeat 도 없이 만료된다.
+    """
+    fake_backend.enqueue_claim(make_job(stage="ocr"))
+    fake_backend.enqueue_complete_with_next(make_job(stage="asr"))
+
+    await _runner(job_client, media_root).run_once()
+
+    stages = [json.loads(c.content)["stage"] for c in fake_backend.calls("complete")]
+    assert stages == ["ocr", "asr"]
+
+
+@pytest.mark.asyncio
+async def test_next_chain_stops_when_not_assigned(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    fake_backend.enqueue_claim(make_job(stage="ocr"))
+    fake_backend.enqueue(
+        "complete",
+        httpx2.Response(200, json=envelope({"accepted": True, "next": {"assigned": False}})),
+    )
+
+    await _runner(job_client, media_root).run_once()
+
+    assert len(fake_backend.calls("complete")) == 1
+
+
+# ── 입력 404 (계약 §9.1 JOB_404_002) ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_input_404_is_reported_as_media_unavailable(
+    job_client: JobApiClient, fake_backend: FakeBackend
+) -> None:
+    """없는 입력을 다시 받아도 없다. 일시 오류로 보고하면 재시도 예산만 태운다."""
+    fake_backend.enqueue_claim(
+        make_job(inputs={"media": {"storageKey": "clips/a/gone.mp4", "transport": "http"}})
+    )
+    fake_backend.enqueue_status("artifact_get", 404, code="JOB_404_002")
+
+    await _runner(job_client, None).run_once()
+
+    error = _complete_body(fake_backend)["error"]
+    assert error["code"] == "MEDIA_UNAVAILABLE"
+    assert error["retryable"] is False
