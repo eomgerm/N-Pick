@@ -142,7 +142,7 @@ uv sync --directory ai --group gpu
 | `NPICK_AI_WORKER_ID` | 자동 생성 | 진단용 식별자 |
 | `NPICK_AI_JOB_FLEET` | `local` | `prod` / `dev` 등. 토큰과 짝이 맞아야 한다 |
 | `NPICK_AI_JOB_POLL_WAIT_SECONDS` | `25` | claim 롱폴 대기 상한 |
-| `NPICK_AI_JOB_HEARTBEAT_SECONDS` | `10` | 상한. 서버가 준 주기가 이긴다 |
+| `NPICK_AI_JOB_HEARTBEAT_SECONDS` | `10` | heartbeat 주기의 상한. 서버가 준 주기가 더 작으면 그쪽을 쓴다 |
 | `NPICK_AI_JOB_CONNECT_TIMEOUT_SECONDS` | `5` | |
 | `NPICK_AI_JOB_READ_TIMEOUT_SECONDS` | `30` | claim 이외 |
 | `NPICK_AI_JOB_MAX_BACKOFF_SECONDS` | `60` | |

@@ -54,7 +54,9 @@ class Settings(BaseSettings):
     job_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     #: claim 이외 요청의 read timeout. claim 은 대기 시간만큼 따로 늘린다.
     job_read_timeout_seconds: float = Field(default=30.0, gt=0)
-    #: 상한일 뿐이다. claim 이 heartbeatIntervalMs 를 주면 그 값을 쓴다.
+    #: heartbeat 주기의 상한. claim 이 준 heartbeatIntervalMs 가 이 값보다 작으면
+    #: 그 값을 쓰고, 크면 이 값으로 자른다. BE 가 lease TTL 보다 긴 주기를 줘서
+    #: lease 가 만료되는 사고를 여기서 막는다.
     job_heartbeat_seconds: float = Field(default=10.0, gt=0)
     job_max_backoff_seconds: float = Field(default=60.0, gt=0)
     #: GPU 한 장을 전제한다.

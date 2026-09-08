@@ -27,7 +27,7 @@ def test_configured_worker_id_is_used_as_is() -> None:
     assert runner.worker_id == "runpod-a40-01"
 
 
-def test_generated_worker_ids_differ_between_processes() -> None:
+def test_generated_worker_ids_are_unique_per_build() -> None:
     # 같은 프로세스 안에서는 하나여야 하지만, 프로세스마다 달라야 한다.
     first, _ = build_worker(_settings())
     second, _ = build_worker(_settings())
