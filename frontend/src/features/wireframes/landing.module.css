@@ -8,9 +8,8 @@
   color: #ffffff;
   background: #0b0d11;
   font-family:
-    'Black Han Sans', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', Arial, sans-serif;
-  /* Black Han Sans는 400 한 종뿐이라 굵기 합성을 끈다 (합성 볼드는 뭉개진다). */
-  font-synthesis-weight: none;
+    'Pretendard', 'Inter', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
+    Arial, sans-serif;
 }
 
 /* ── 비디오 배경과 어두운 그레이 오버레이 ───────────────────────────── */
@@ -84,6 +83,13 @@
   z-index: 2;
 }
 
+/* 히어로와 역할 섹션이 같은 자리에 겹쳐 고정되므로, 크로스페이드에 쓸 스크롤 여유를 따로 만든다. */
+.main::after {
+  content: '';
+  display: block;
+  height: 100svh;
+}
+
 /* ── 히어로 ───────────────────────────────────────────────────────── */
 
 .hero {
@@ -95,7 +101,7 @@
   width: min(1440px, 100%);
   margin: 0 auto;
   padding: clamp(110px, 16vh, 180px) var(--edge) clamp(52px, 8vh, 96px);
-  /* 스크롤해도 자리를 지키다가 서서히 사라진다. --hero-fade는 landing-shell이 갱신한다. */
+  /* 자리를 지킨 채 서서히 사라진다. --hero-fade는 landing-shell이 스크롤에 맞춰 갱신한다. */
   position: sticky;
   top: 0;
   z-index: 0;
@@ -121,6 +127,9 @@
   display: flex;
   flex-direction: column;
   margin: 0;
+  /* 히어로 헤드라인 전용 디스플레이 서체. 400 한 종뿐이라 굵기 합성을 끈다. */
+  font-family: 'Black Han Sans', 'Apple SD Gothic Neo', 'Malgun Gothic', Arial, sans-serif;
+  font-synthesis-weight: none;
   font-size: clamp(42px, 8.4vw, 150px);
   font-weight: 800;
   line-height: 0.95;
@@ -208,32 +217,32 @@
   column-gap: clamp(40px, 6vw, 110px);
   min-height: 100svh;
   width: min(1440px, 100%);
-  margin: 0 auto;
+  /* 음수 마진으로 히어로와 같은 자리에 겹친 뒤, 함께 sticky로 고정된 채 페이드 인 한다. */
+  margin: -100svh auto 0;
   padding: clamp(110px, 15vh, 170px) var(--edge) clamp(26px, 4vh, 44px);
-  /* 페이드 아웃되는 히어로 위로 올라온다. 배경은 영상 프레임과 무관하게 읽히도록 한 겹 더 어둡게. */
+  position: sticky;
+  top: 0;
   z-index: 1;
+  opacity: var(--roles-fade, 1);
+  will-change: opacity;
+  /* 배경은 영상 프레임과 무관하게 카드가 읽히도록 한 겹 더 어둡게 깐다. */
   background: linear-gradient(
     180deg,
-    rgba(9, 11, 15, 0) 0%,
-    rgba(9, 11, 15, 0.62) 14%,
-    rgba(9, 11, 15, 0.7) 55%,
-    rgba(9, 11, 15, 0.56) 100%
+    rgba(9, 11, 15, 0.6) 0%,
+    rgba(9, 11, 15, 0.74) 52%,
+    rgba(9, 11, 15, 0.6) 100%
   );
+}
+
+.roles[data-revealed='false'] {
+  pointer-events: none;
 }
 
 .rolesBrand {
   grid-column: 1;
   grid-row: 1;
-  opacity: 0;
-  transform: translate3d(48px, 0, 0);
-  transition:
-    opacity 760ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 760ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.roles[data-revealed='true'] .rolesBrand {
-  opacity: 1;
-  transform: none;
+  /* 페이드가 진행될수록 우측에서 제자리(좌측)로 들어온다. */
+  transform: translate3d(calc((1 - var(--roles-fade, 1)) * 44px), 0, 0);
 }
 
 .wordmark {
@@ -286,22 +295,14 @@
   background: rgba(14, 17, 22, 0.5);
   backdrop-filter: blur(18px) saturate(1.15);
   text-decoration: none;
-  opacity: 0;
-  transform: translate3d(0, 26px, 0);
+  transform: translate3d(0, calc((1 - var(--roles-fade, 1)) * 24px), 0);
   transition:
-    opacity 700ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 700ms cubic-bezier(0.22, 1, 0.36, 1),
     border-color 200ms,
     background-color 200ms;
 }
 
-.roles[data-revealed='true'] .roleCard {
-  opacity: 1;
-  transform: none;
-}
-
-.roles[data-revealed='true'] .roleCard:nth-child(2) {
-  transition-delay: 120ms;
+.roleCard:nth-child(2) {
+  transform: translate3d(0, calc((1 - var(--roles-fade, 1)) * 40px), 0);
 }
 
 .roleCard:hover {
@@ -477,13 +478,13 @@
   .scrollCueArrow {
     animation: none;
   }
-  .hero {
+  .hero,
+  .rolesBrand,
+  .roleCard,
+  .roleCard:nth-child(2) {
     transform: none;
   }
-  .rolesBrand,
   .roleCard {
-    opacity: 1;
-    transform: none;
     transition: none;
   }
 }

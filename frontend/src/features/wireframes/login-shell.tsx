@@ -1,7 +1,5 @@
 'use client';
 
-import '@fontsource/black-han-sans/400.css';
-
 import {
   ArrowLeft,
   ArrowRight,
@@ -156,7 +154,7 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
   }
 
   return (
-    <div className={`${styles.shell} ${styles.displayFont}`} data-theme={theme}>
+    <div className={styles.shell} data-theme={theme}>
       <EntryHeader label={`${roleLabel} 워크스페이스`} />
       {loginErrorDialogContent && (
         <LoginErrorDialog

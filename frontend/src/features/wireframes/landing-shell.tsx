@@ -4,32 +4,42 @@ import '@fontsource/black-han-sans/400.css';
 
 import { ArrowDown, ArrowRight, Clapperboard, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
 
 import styles from '@/features/wireframes/landing.module.css';
 import { routes } from '@/lib/routes';
 
-// 히어로가 완전히 사라지기까지 필요한 스크롤 거리 (뷰포트 높이 대비).
-const HERO_FADE_DISTANCE_RATIO = 0.5;
+// 크로스페이드 구간에서 각 섹션이 차지하는 진행도 구간 (0~1).
+const HERO_FADE_END = 0.55;
+const ROLES_FADE_START = 0.3;
+const ROLES_FADE_END = 0.85;
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 export function LandingShell() {
   const heroRef = useRef<HTMLElement | null>(null);
   const rolesRef = useRef<HTMLElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [hasEnteredRoles, setHasEnteredRoles] = useState(false);
 
-  // 히어로는 sticky로 고정된 채, 스크롤 진행도에 따라 fade out 한다.
+  // 두 섹션 모두 sticky로 같은 자리에 고정된 채, 스크롤 진행도로 서로 교차 페이드한다.
   useEffect(() => {
     const hero = heroRef.current;
-    if (!hero) return;
+    const roles = rolesRef.current;
+    if (!hero || !roles) return;
 
     let frame = 0;
     const update = () => {
       frame = 0;
-      const distance = Math.max(1, window.innerHeight * HERO_FADE_DISTANCE_RATIO);
-      const progress = Math.min(1, Math.max(0, window.scrollY / distance));
-      hero.style.setProperty('--hero-fade', String(1 - progress));
-      hero.dataset.faded = String(progress > 0.99);
+      const progress = clamp01(window.scrollY / Math.max(1, window.innerHeight));
+      const heroFade = 1 - clamp01(progress / HERO_FADE_END);
+      const rolesFade = clamp01(
+        (progress - ROLES_FADE_START) / (ROLES_FADE_END - ROLES_FADE_START),
+      );
+
+      hero.style.setProperty('--hero-fade', String(heroFade));
+      hero.dataset.faded = String(heroFade <= 0);
+      roles.style.setProperty('--roles-fade', String(rolesFade));
+      roles.dataset.revealed = String(rolesFade > 0);
     };
     const requestUpdate = () => {
       if (!frame) frame = window.requestAnimationFrame(update);
@@ -43,23 +53,6 @@ export function LandingShell() {
       window.removeEventListener('scroll', requestUpdate);
       window.removeEventListener('resize', requestUpdate);
     };
-  }, []);
-
-  useEffect(() => {
-    const roles = rolesRef.current;
-    if (!roles) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) setHasEnteredRoles(true);
-        }
-      },
-      { threshold: 0.2 },
-    );
-
-    observer.observe(roles);
-    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -81,7 +74,7 @@ export function LandingShell() {
   }, []);
 
   const handleScrollCue = useCallback(() => {
-    rolesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.scrollTo({ top: window.innerHeight, behavior: 'smooth' });
   }, []);
 
   return (
@@ -132,8 +125,9 @@ export function LandingShell() {
         <section
           aria-labelledby="role-title"
           className={styles.roles}
-          data-revealed={hasEnteredRoles}
+          data-revealed="false"
           ref={rolesRef}
+          style={{ '--roles-fade': 0 } as CSSProperties}
         >
           <div className={styles.rolesBrand}>
             <p className={styles.wordmark}>
