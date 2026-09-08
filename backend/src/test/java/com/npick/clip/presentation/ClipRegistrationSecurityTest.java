@@ -68,6 +68,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
             "npick.clip-registration.input.allowed-audio-codecs[0]=aac"
         })
 @Import({
+    com.npick.member.application.command.MemberLoginService.class,
+    com.npick.member.infrastructure.security.MemberAuthenticationAdapter.class,
     SecurityConfig.class,
     WebConfig.class,
     SecurityWebMvcConfig.class,
@@ -119,9 +121,7 @@ class ClipRegistrationSecurityTest {
                 (key, actor, hash, request, create) -> create.get(),
                 (subtitle, duration, id) -> {
                     throw new AssertionError("No subtitle in this request");
-                },
-                (rights, external) ->
-                        com.npick.clip.domain.policy.RegistrationPermissionPolicy.verify(rights, external, false));
+                });
         when(upload.upload(any())).thenAnswer(call -> flow.upload(call.getArgument(0)));
         when(database.register(any())).thenAnswer(call -> {
             RegisterClipCommand command = call.getArgument(0);

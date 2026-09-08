@@ -4,13 +4,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,12 +14,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.npick.common.error.BusinessException;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
-import com.npick.member.domain.error.MemberErrorCode;
+import com.npick.member.application.command.login.LoginCommand;
+import com.npick.member.application.command.login.LoginUseCase;
 import com.npick.member.presentation.request.LoginRequest;
 import com.npick.member.presentation.response.MemberResponse;
 
@@ -31,12 +27,11 @@ import com.npick.member.presentation.response.MemberResponse;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
-    private final AuthenticationManager authenticationManager;
+    private final LoginUseCase loginUseCase;
     private final SecurityContextRepository securityContextRepository;
 
-    public AuthController(
-            AuthenticationManager authenticationManager, SecurityContextRepository securityContextRepository) {
-        this.authenticationManager = authenticationManager;
+    public AuthController(LoginUseCase loginUseCase, SecurityContextRepository securityContextRepository) {
+        this.loginUseCase = loginUseCase;
         this.securityContextRepository = securityContextRepository;
     }
 
@@ -45,13 +40,10 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse) {
-        Authentication authentication;
-        try {
-            authentication = authenticationManager.authenticate(
-                    UsernamePasswordAuthenticationToken.unauthenticated(request.loginId(), request.password()));
-        } catch (BadCredentialsException | UsernameNotFoundException ex) {
-            throw new BusinessException(MemberErrorCode.INVALID_CREDENTIALS);
-        }
+        var result = loginUseCase.login(new LoginCommand(request.loginId(), request.password()));
+        var principal = new AuthenticatedMember(result.memberId(), result.loginId(), null, result.role());
+        var authentication =
+                UsernamePasswordAuthenticationToken.authenticated(principal, null, principal.getAuthorities());
 
         httpRequest.getSession(true);
         httpRequest.changeSessionId();
@@ -61,7 +53,6 @@ public class AuthController {
         SecurityContextHolder.setContext(securityContext);
         securityContextRepository.saveContext(securityContext, httpRequest, httpResponse);
 
-        AuthenticatedMember principal = (AuthenticatedMember) authentication.getPrincipal();
         CurrentMember current = new CurrentMember(principal.memberId(), authentication.getName(), principal.role());
         return ApiResponse.success(MemberResponse.from(current));
     }

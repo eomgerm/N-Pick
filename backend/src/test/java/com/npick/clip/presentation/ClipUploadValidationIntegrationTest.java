@@ -75,7 +75,8 @@ class ClipUploadValidationIntegrationTest {
                 new FfprobeVideoReader("ffprobe", Duration.ofSeconds(10), new ObjectMapper()),
                 new FfmpegVideoValidator("ffmpeg", Duration.ofSeconds(10))));
         var flow = new ClipUploadService(
-                () -> new ClipRegistrationContextPort.Context(7, 101, 201, "test-v1", List.of("scene_detection")),
+                () -> new ClipRegistrationContextPort.Context(
+                        7, 101, 201, "test-v1", List.of("scene_detection"), false),
                 command -> {
                     var video = inspection.inspect(command.content());
                     metadata = video.metadata();
@@ -88,9 +89,7 @@ class ClipUploadValidationIntegrationTest {
                 (key, actor, hash, request, create) -> create.get(),
                 (subtitle, duration, id) -> {
                     throw new AssertionError("No subtitle in this request");
-                },
-                (rights, external) ->
-                        com.npick.clip.domain.policy.RegistrationPermissionPolicy.verify(rights, external, false));
+                });
         when(useCase.upload(any())).thenAnswer(call -> flow.upload(call.getArgument(0)));
     }
 

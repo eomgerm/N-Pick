@@ -27,6 +27,7 @@ class ClipRegistrationConfigurationTest {
                 .doesNotHaveDuplicates();
         assertThat(first.pipelineVersion()).isEqualTo("test-v1");
         assertThat(first.stageNames()).containsExactly("scene_detection");
+        assertThat(first.externalProcessingRequired()).isTrue();
     }
 
     @Test
@@ -103,6 +104,6 @@ class ClipRegistrationConfigurationTest {
                         java.util.Set.of("mp4"),
                         java.util.Set.of("h264"),
                         java.util.Set.of("aac")),
-                false);
+                true);
     }
 }

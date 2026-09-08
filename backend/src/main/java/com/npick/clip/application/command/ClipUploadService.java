@@ -10,8 +10,8 @@ import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.clip.application.error.ClipRuntimeErrorCode;
 import com.npick.clip.application.port.ClipRegistrationContextPort;
 import com.npick.clip.application.port.RegistrationDeduplicationPort;
-import com.npick.clip.application.port.RegistrationPermissionPort;
 import com.npick.clip.application.port.TranscriptIntakePort;
+import com.npick.clip.domain.policy.RegistrationPermissionPolicy;
 import com.npick.common.error.BusinessException;
 
 public final class ClipUploadService implements UploadClipUseCase {
@@ -20,26 +20,25 @@ public final class ClipUploadService implements UploadClipUseCase {
     private final StoreAndRegisterClipUseCase registration;
     private final RegistrationDeduplicationPort deduplication;
     private final TranscriptIntakePort transcripts;
-    private final RegistrationPermissionPort permission;
+    private final RegistrationPermissionPolicy permission = new RegistrationPermissionPolicy();
 
     public ClipUploadService(
             ClipRegistrationContextPort context,
             PrepareVideoUseCase preparation,
             StoreAndRegisterClipUseCase registration,
             RegistrationDeduplicationPort deduplication,
-            TranscriptIntakePort transcripts,
-            RegistrationPermissionPort permission) {
+            TranscriptIntakePort transcripts) {
         this.context = context;
         this.preparation = preparation;
         this.registration = registration;
         this.deduplication = deduplication;
         this.transcripts = transcripts;
-        this.permission = permission;
     }
 
     public RegisterClipResult upload(UploadClipCommand command) {
         var server = context.requireAuthorizedContext();
-        permission.verify(command.rightsConfirmed(), command.externalProcessingConfirmed());
+        permission.verify(
+                command.rightsConfirmed(), command.externalProcessingConfirmed(), server.externalProcessingRequired());
         try (var video = preparation.prepare(new PrepareVideoCommand(command.content()));
                 var transcript = command.subtitle() == null
                         ? null

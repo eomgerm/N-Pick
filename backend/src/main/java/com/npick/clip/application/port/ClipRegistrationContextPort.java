@@ -7,7 +7,12 @@ public interface ClipRegistrationContextPort {
     Context requireAuthorizedContext();
 
     record Context(
-            long registeredById, long clipId, long pipelineRunId, String pipelineVersion, List<String> stageNames) {
+            long registeredById,
+            long clipId,
+            long pipelineRunId,
+            String pipelineVersion,
+            List<String> stageNames,
+            boolean externalProcessingRequired) {
         public Context {
             if (registeredById <= 0 || clipId <= 0 || pipelineRunId <= 0) {
                 throw new IllegalArgumentException("인증된 등록자와 서버 생성 ID가 필요합니다.");

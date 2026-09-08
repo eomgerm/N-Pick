@@ -39,6 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = AuthController.class)
 @Import({
+    com.npick.member.application.command.MemberLoginService.class,
+    com.npick.member.infrastructure.security.MemberAuthenticationAdapter.class,
     SecurityConfig.class,
     WebConfig.class,
     SecurityWebMvcConfig.class,

@@ -45,7 +45,8 @@ public class ClipRegistrationConfiguration {
                     TsidGenerator.generate(),
                     TsidGenerator.generate(),
                     properties.pipelineVersion(),
-                    properties.stageNames());
+                    properties.stageNames(),
+                    properties.externalProcessingRequired());
         };
     }
 
@@ -94,9 +95,7 @@ public class ClipRegistrationConfiguration {
                     var adapter = transcripts.getIfAvailable();
                     if (adapter == null) throw new BusinessException(ClipRuntimeErrorCode.INTEGRATION_UNAVAILABLE);
                     return adapter.receive(subtitle, duration, clipId);
-                },
-                (rights, external) -> com.npick.clip.domain.policy.RegistrationPermissionPolicy.verify(
-                        rights, external, properties.externalProcessingRequired()));
+                });
     }
 
     private static void ready(ClipRegistrationProperties properties) {

@@ -78,17 +78,15 @@ class ClipUploadFlowTest {
                 .thenAnswer(call -> ((java.util.function.Supplier<?>) call.getArgument(4)).get());
         context = mock(ClipRegistrationContextPort.class);
         when(context.requireAuthorizedContext())
-                .thenReturn(
-                        new ClipRegistrationContextPort.Context(3, 101, 201, "test-v1", List.of("scene_detection")));
+                .thenReturn(new ClipRegistrationContextPort.Context(
+                        3, 101, 201, "test-v1", List.of("scene_detection"), false));
         var flow = new ClipUploadService(
                 context,
                 new VideoPreparationService(new LocalVideoInspectionAdapter(
                         new UploadedVideoValidator(uploads, probe, mock(FfmpegVideoValidator.class)))),
                 new StoredClipRegistrationService(new LocalVideoStorageAdapter(media), database),
                 deduplication,
-                transcripts,
-                (rights, external) ->
-                        com.npick.clip.domain.policy.RegistrationPermissionPolicy.verify(rights, external, false));
+                transcripts);
         when(useCase.upload(any())).thenAnswer(call -> flow.upload(call.getArgument(0)));
     }
 
