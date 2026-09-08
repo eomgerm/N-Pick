@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getBoardStatus, getReviewUrl, selectBoardPage } from './reviewer-board-state.ts';
+import { getReviewUrl, selectBoardPage } from './reviewer-board-state.ts';
 
 const items = Array.from({ length: 23 }, (_, index) => ({
   id: `inquiry-${index}`,
@@ -11,23 +11,23 @@ const items = Array.from({ length: 23 }, (_, index) => ({
   requester: ['최유진', '김서연', '박지민'][index % 3],
   topic: ['사회', '교통', '날씨'][index % 3],
   daysAgo: index,
-  status: ['pending', 'reviewing', 'dismissed', 'deferred', 'resolved'][index % 5],
+  status: ['open', 'reviewing', 'closed'][index % 3],
   timecode: '00:42–00:49',
   thumbnail: 'station',
   isDegraded: false,
 }));
 
 test('상세 진입·복귀는 검색·필터·정렬·페이지 조건을 유지한다', () => {
-  const original = 'q=서울역&status=pending&sort=requester&page=2';
+  const original = 'q=서울역&status=open&sort=requester&page=2';
   const detail = getReviewUrl('/review/shinhan', original, { inquiry: 'INQ-1042' });
   const restored = getReviewUrl('/review/shinhan', detail.split('?')[1], { inquiry: null });
   assert.equal(
     new URL(`https://example.test${restored}`).searchParams.toString(),
     new URLSearchParams(original).toString(),
   );
-  const filtered = getReviewUrl('/review/shinhan', original, { status: 'completed', page: null });
+  const filtered = getReviewUrl('/review/shinhan', original, { status: 'closed', page: null });
   const next = new URL(`https://example.test${filtered}`).searchParams;
-  assert.equal(next.get('status'), 'completed');
+  assert.equal(next.get('status'), 'closed');
   assert.equal(next.get('q'), '서울역');
   assert.equal(next.get('page'), null);
 });
@@ -71,25 +71,16 @@ test('제목·문의 내용·문의자·주제에 검색을 적용한다', () =>
   assert.equal(selectBoardPage(items, new URLSearchParams('q=%20%20')).total, 23);
 });
 
-test('검색과 상태 필터를 결합하고 완료에는 모든 종료 상태를 포함한다', () => {
-  const result = selectBoardPage(items, new URLSearchParams('q=태풍&status=completed'));
+test('검색과 상태 필터를 결합하고 종료 상태를 별도로 집계한다', () => {
+  const result = selectBoardPage(items, new URLSearchParams('q=태풍&status=closed'));
   assert.ok(result.rows.length > 0);
   assert.ok(
-    result.rows.every(
-      (item) =>
-        item.sceneTitle.includes('태풍') &&
-        ['resolved', 'dismissed', 'deferred'].includes(item.status),
-    ),
+    result.rows.every((item) => item.sceneTitle.includes('태풍') && item.status === 'closed'),
   );
   assert.equal(
     result.counts.all,
-    result.counts.pending + result.counts.reviewing + result.counts.completed,
+    result.counts.open + result.counts.reviewing + result.counts.closed,
   );
-  assert.deepEqual(['resolved', 'dismissed', 'deferred'].map(getBoardStatus), [
-    'completed',
-    'completed',
-    'completed',
-  ]);
 });
 
 test('문의자와 주제 가나다순 정렬은 시간순을 보조 기준으로 사용한다', () => {

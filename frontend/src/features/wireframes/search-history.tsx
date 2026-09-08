@@ -4,6 +4,7 @@ import { ChevronUp, Clock3, History, MessageSquareText } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { results } from '@/features/wireframes/demo-scenes';
+import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import {
   InquiryDialog,
   ScenePreviewDialog,
@@ -13,7 +14,6 @@ import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/search-history.module.css';
 
 type HistoryKind = 'search' | 'inquiry';
-type InquiryStatus = InquiryDetails['status'];
 
 interface HistoryItem {
   id: string;
@@ -38,7 +38,7 @@ const inquiryHistory: HistoryItem[] = [
     sceneId: 1,
     daysAgo: 1,
     query: '2025년 추석 경부고속도로 귀성길 정체',
-    inquiry: { comment: '고속도로를 검색했는데 역 내부 장면이 나와요', status: 'pending' },
+    inquiry: { comment: '고속도로를 검색했는데 역 내부 장면이 나와요', status: 'open' },
   },
   {
     id: 'inquiry-2',
@@ -54,8 +54,9 @@ const inquiryHistory: HistoryItem[] = [
     query: '귀성길 고속도로 외경',
     inquiry: {
       comment: '도로 외경 대신 교통상황실이 검색돼요',
-      status: 'resolved',
-      resolution:
+      status: 'closed',
+      resolution: 'exclude_scene',
+      resolutionSummary:
         '문의하신 검색어에서 교통상황실 구간이 노출되지 않도록 제외했습니다. 동일한 검색어와 필터로 다시 검색하여 해당 구간이 제외되는 것을 확인했습니다.',
     },
   },
@@ -66,8 +67,9 @@ const inquiryHistory: HistoryItem[] = [
     query: '서울역 귀성 인파 전경',
     inquiry: {
       comment: '인파 전경을 찾았는데 인터뷰 장면이 포함돼요',
-      status: 'resolved',
-      resolution:
+      status: 'closed',
+      resolution: 'exclude_scene',
+      resolutionSummary:
         '문의하신 구간을 확인하고, 해당 검색어와 필터의 결과에서 제외했습니다. 같은 조건으로 재검색하여 제외 결과를 확인했습니다.',
     },
   },
@@ -78,18 +80,13 @@ const inquiryHistory: HistoryItem[] = [
     query: '원활한 경부고속도로 소통 상황',
     inquiry: {
       comment: '같은 검색에 적합하지 않은 구간이 보여요',
-      status: 'resolved',
-      resolution:
+      status: 'closed',
+      resolution: 'exclude_scene',
+      resolutionSummary:
         '원활한 소통 상황을 찾는 검색에서 정체 구간이 노출되지 않도록 제외했습니다. 동일한 검색 조건에서 다른 후보 구간이 표시되는 것을 확인했습니다.',
     },
   },
 ];
-
-const statusLabels: Record<InquiryStatus, string> = {
-  pending: '대기',
-  reviewing: '처리 중',
-  resolved: '완료',
-};
 
 interface HistorySheetProps {
   kind: HistoryKind;
@@ -178,7 +175,7 @@ function HistorySheet({ kind, title, items, isExpanded, onToggle, onSelect }: Hi
                   </span>
                   {item.inquiry ? (
                     <span className={styles.status} data-status={item.inquiry.status}>
-                      {statusLabels[item.inquiry.status]}
+                      {inquiryStatusLabels[item.inquiry.status]}
                     </span>
                   ) : null}
                   <span className={styles.age}>
@@ -232,10 +229,10 @@ export function SearchHistory({ theme }: SearchHistoryProps) {
   }
 
   function handleInquirySave(comment: string) {
-    if (!selectedItem || selectedItem.inquiry?.status !== 'pending') return;
+    if (!selectedItem || selectedItem.inquiry?.status !== 'open') return;
     setInquiries((current) =>
       current.map((item) =>
-        item.id === selectedItem.id && item.inquiry?.status === 'pending'
+        item.id === selectedItem.id && item.inquiry?.status === 'open'
           ? { ...item, inquiry: { ...item.inquiry, comment } }
           : item,
       ),
@@ -252,12 +249,12 @@ export function SearchHistory({ theme }: SearchHistoryProps) {
         sceneId: selectedScene.id,
         daysAgo: 0,
         query: selectedItem.query,
-        inquiry: { comment, status: 'pending' },
+        inquiry: { comment, status: 'open' },
       },
       ...current,
     ]);
     setSubmittedSceneIds((current) => [...current, selectedScene.id]);
-    setNotice('문의가 대기 상태로 접수되었습니다. 문의 기록에서 확인할 수 있어요.');
+    setNotice('문의가 접수되었습니다. 문의 기록에서 확인할 수 있어요.');
     handleClose();
   }
 

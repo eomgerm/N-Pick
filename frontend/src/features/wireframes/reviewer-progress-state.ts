@@ -22,10 +22,8 @@ export function getProgressOverview(inquiries: ProgressInquiry[], videos: Progre
   return {
     inquiries: {
       total: inquiries.length,
-      completed: inquiries.filter((item) =>
-        ['resolved', 'dismissed', 'deferred'].includes(item.status),
-      ).length,
-      pending: inquiries.filter((item) => item.status === 'pending').length,
+      closed: inquiries.filter((item) => item.status === 'closed').length,
+      open: inquiries.filter((item) => item.status === 'open').length,
       active: inquiries.filter((item) => item.status === 'reviewing'),
     },
     videos: {

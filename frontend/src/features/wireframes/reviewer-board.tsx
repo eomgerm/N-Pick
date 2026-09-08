@@ -16,11 +16,11 @@ import { useSearchParams } from 'next/navigation';
 import { type FormEvent, useRef } from 'react';
 
 import {
-  getBoardStatus,
   selectBoardPage,
   type BoardStatus,
   type ReviewBoardItem,
 } from '@/features/wireframes/reviewer-board-state';
+import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import styles from '@/features/wireframes/reviewer-board.module.css';
 
 interface ReviewerBoardProps {
@@ -35,12 +35,10 @@ interface ReviewerBoardProps {
 
 const filters: { value: BoardStatus; label: string }[] = [
   { value: 'all', label: '전체' },
-  { value: 'pending', label: '대기' },
-  { value: 'reviewing', label: '처리중' },
-  { value: 'completed', label: '완료' },
+  { value: 'open', label: inquiryStatusLabels.open },
+  { value: 'reviewing', label: inquiryStatusLabels.reviewing },
+  { value: 'closed', label: inquiryStatusLabels.closed },
 ];
-
-const statusLabels = { pending: '대기', reviewing: '처리중', completed: '완료' };
 
 export function ReviewerBoard({
   loginId,
@@ -216,8 +214,8 @@ export function ReviewerBoard({
                     {item.topic}
                     <i aria-hidden="true" />
                     {item.requester}
-                    <span className={styles.statusChip} data-status={getBoardStatus(item.status)}>
-                      {statusLabels[getBoardStatus(item.status)]}
+                    <span className={styles.statusChip} data-status={item.status}>
+                      {inquiryStatusLabels[item.status]}
                     </span>
                     {item.isDegraded ? (
                       <span className={styles.warning}>일부 검색 기능 제한</span>

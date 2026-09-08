@@ -1,3 +1,5 @@
+import type { InquiryResolution, InquiryStatus } from '@/features/wireframes/inquiry-state';
+
 interface InquirySnapshot {
   id: string;
   query: string;
@@ -24,7 +26,8 @@ export interface Inquiry extends InquirySnapshot {
   topic: string;
   daysAgo: number;
   thumbnail: 'station' | 'weather' | 'square';
-  initialStatus: 'pending' | 'reviewing' | 'dismissed';
+  initialStatus: InquiryStatus;
+  initialOutcome?: InquiryResolution;
 }
 const baseInquiries: InquirySnapshot[] = [
   {
@@ -245,9 +248,11 @@ export const inquiries: Inquiry[] = Array.from({ length: 23 }, (_, index) => {
     thumbnail: thumbnails[index % thumbnails.length],
     initialStatus:
       index < 3 || index % 5 === 0 || index % 5 === 3
-        ? 'pending'
+        ? 'open'
         : index % 5 === 1
           ? 'reviewing'
-          : 'dismissed',
+          : 'closed',
+    initialOutcome:
+      index < 3 || index % 5 === 0 || index % 5 === 3 || index % 5 === 1 ? undefined : 'no_action',
   };
 });
