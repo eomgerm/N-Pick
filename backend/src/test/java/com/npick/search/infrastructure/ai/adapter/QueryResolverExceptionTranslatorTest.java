@@ -13,8 +13,8 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.core.JacksonException;
 
-import com.npick.search.application.error.SearchErrorCode;
-import com.npick.search.application.error.SearchException;
+import com.npick.common.error.BusinessException;
+import com.npick.search.application.error.QueryResolverErrorCode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,7 +27,7 @@ class QueryResolverExceptionTranslatorTest {
     void classifiesReadTimeout() {
         Throwable cause = new ResourceAccessException("timeout", new SocketTimeoutException("Read timed out"));
 
-        assertThat(translator.classify(cause)).isEqualTo(SearchErrorCode.RESOLVER_TIMEOUT);
+        assertThat(translator.classify(cause)).isEqualTo(QueryResolverErrorCode.RESOLVER_TIMEOUT);
     }
 
     @Test
@@ -35,12 +35,12 @@ class QueryResolverExceptionTranslatorTest {
     void classifiesNetworkFailure() {
         assertThat(translator.classify(
                         new ResourceAccessException("refused", new ConnectException("Connection refused"))))
-                .isEqualTo(SearchErrorCode.RESOLVER_NETWORK_ERROR);
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK_ERROR);
         assertThat(translator.classify(
                         new ResourceAccessException("dns", new UnknownHostException("resolver.internal"))))
-                .isEqualTo(SearchErrorCode.RESOLVER_NETWORK_ERROR);
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK_ERROR);
         assertThat(translator.classify(new IOException("broken pipe")))
-                .isEqualTo(SearchErrorCode.RESOLVER_NETWORK_ERROR);
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_NETWORK_ERROR);
     }
 
     @Test
@@ -49,7 +49,7 @@ class QueryResolverExceptionTranslatorTest {
         Throwable cause = new RestClientResponseException(
                 "Too Many Requests", HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY, null, null);
 
-        assertThat(translator.classify(cause)).isEqualTo(SearchErrorCode.RESOLVER_RATE_LIMITED);
+        assertThat(translator.classify(cause)).isEqualTo(QueryResolverErrorCode.RESOLVER_RATE_LIMITED);
     }
 
     @Test
@@ -57,13 +57,14 @@ class QueryResolverExceptionTranslatorTest {
     void classifiesSchemaFailure() {
         Throwable cause = new IllegalStateException("convert failed", new StubJacksonException());
 
-        assertThat(translator.classify(cause)).isEqualTo(SearchErrorCode.RESOLVER_SCHEMA_INVALID);
+        assertThat(translator.classify(cause)).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
     }
 
     @Test
     @DisplayName("분류할 수 없는 실패는 RESOLVER_FAILED 로 떨어진다")
     void fallsBackToGenericFailure() {
-        assertThat(translator.classify(new IllegalStateException("boom"))).isEqualTo(SearchErrorCode.RESOLVER_FAILED);
+        assertThat(translator.classify(new IllegalStateException("boom")))
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_FAILED);
     }
 
     @Test
@@ -73,17 +74,17 @@ class QueryResolverExceptionTranslatorTest {
         Throwable second = new IllegalStateException("second", first);
         first.initCause(second);
 
-        assertThat(translator.classify(first)).isEqualTo(SearchErrorCode.RESOLVER_FAILED);
+        assertThat(translator.classify(first)).isEqualTo(QueryResolverErrorCode.RESOLVER_FAILED);
     }
 
     @Test
-    @DisplayName("translate 는 원인 예외를 보존한 SearchException 을 만든다")
+    @DisplayName("translate 는 원인 예외를 보존한 BusinessException 을 만든다")
     void translateKeepsCause() {
         Throwable cause = new ResourceAccessException("timeout", new SocketTimeoutException("Read timed out"));
 
-        SearchException translated = translator.translate(cause);
+        BusinessException translated = translator.translate(cause);
 
-        assertThat(translated.errorCode()).isEqualTo(SearchErrorCode.RESOLVER_TIMEOUT);
+        assertThat(translated.errorCode()).isEqualTo(QueryResolverErrorCode.RESOLVER_TIMEOUT);
         assertThat(translated.getCause()).isSameAs(cause);
     }
 

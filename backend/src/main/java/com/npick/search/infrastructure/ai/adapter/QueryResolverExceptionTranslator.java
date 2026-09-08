@@ -17,35 +17,35 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.core.JacksonException;
 
-import com.npick.search.application.error.SearchErrorCode;
-import com.npick.search.application.error.SearchException;
+import com.npick.common.error.BusinessException;
+import com.npick.search.application.error.QueryResolverErrorCode;
 
 /**
  * 질의 리졸버 호출 실패를 search application 이 소유한 ErrorCode 로 번역한다.
  *
  * <p>Anti-Corruption Layer 의 Translator 자리다. RestClient·Jackson 예외가 이 클래스 바깥으로 새어나가지 않게 막고, 호출측이 fallback 을 판단할 수 있도록
- * 실패를 네 갈래로 나눈다 (FR-QRY-022).
+ * 실패를 네 갈래로 나눈다 (FRD v3.1 §6.2).
  */
 final class QueryResolverExceptionTranslator {
 
-    SearchException translate(Throwable cause) {
-        return new SearchException(classify(cause), cause);
+    BusinessException translate(Throwable cause) {
+        return new BusinessException(classify(cause), cause);
     }
 
-    SearchErrorCode classify(Throwable cause) {
+    QueryResolverErrorCode classify(Throwable cause) {
         if (hasCause(cause, JacksonException.class)) {
-            return SearchErrorCode.RESOLVER_SCHEMA_INVALID;
+            return QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID;
         }
         if (isRateLimited(cause)) {
-            return SearchErrorCode.RESOLVER_RATE_LIMITED;
+            return QueryResolverErrorCode.RESOLVER_RATE_LIMITED;
         }
         if (isTimeout(cause)) {
-            return SearchErrorCode.RESOLVER_TIMEOUT;
+            return QueryResolverErrorCode.RESOLVER_TIMEOUT;
         }
         if (isNetworkFailure(cause)) {
-            return SearchErrorCode.RESOLVER_NETWORK_ERROR;
+            return QueryResolverErrorCode.RESOLVER_NETWORK_ERROR;
         }
-        return SearchErrorCode.RESOLVER_FAILED;
+        return QueryResolverErrorCode.RESOLVER_FAILED;
     }
 
     private boolean isRateLimited(Throwable cause) {
