@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.common.security.CurrentMember;
-import com.npick.common.security.resolver.CurrentUser;
+import com.npick.common.security.resolver.LoginMember;
 import com.npick.member.domain.error.MemberAuthException;
 import com.npick.member.domain.error.MemberErrorCode;
 import com.npick.member.presentation.request.LoginRequest;
@@ -76,7 +76,7 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ApiResponse<MemberResponse> me(@CurrentUser CurrentMember member) {
+    public ApiResponse<MemberResponse> me(@LoginMember CurrentMember member) {
         return ApiResponse.success(MemberResponse.from(member));
     }
 

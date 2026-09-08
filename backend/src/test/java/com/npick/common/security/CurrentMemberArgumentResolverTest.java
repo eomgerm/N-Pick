@@ -8,7 +8,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
-import com.npick.common.security.resolver.CurrentUser;
+import com.npick.common.security.resolver.LoginMember;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,7 +22,7 @@ class CurrentMemberArgumentResolverTest {
     }
 
     @SuppressWarnings("unused")
-    void handler(@CurrentUser CurrentMember member) {}
+    void handler(@LoginMember CurrentMember member) {}
 
     @Test
     @DisplayName("인증컨텍스트의 principal을 CurrentMember로 해석한다")

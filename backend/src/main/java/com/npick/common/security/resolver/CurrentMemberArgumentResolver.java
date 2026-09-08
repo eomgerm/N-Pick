@@ -17,7 +17,7 @@ public class CurrentMemberArgumentResolver implements HandlerMethodArgumentResol
 
     @Override
     public boolean supportsParameter(MethodParameter parameter) {
-        return parameter.hasParameterAnnotation(CurrentUser.class)
+        return parameter.hasParameterAnnotation(LoginMember.class)
                 && parameter.getParameterType().equals(CurrentMember.class);
     }
 
