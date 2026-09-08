@@ -19,7 +19,7 @@ import com.npick.feedback.infrastructure.persistence.query.InquiryDetailQueryAda
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// 실 PostgreSQL(paradedb) 컨테이너 대상 통합 테스트. NPICK_MIGRATION_TEST_URL 이 없으면 스킵된다.
+// 실 PostgreSQL(paradedb) 컨테이너 대상 통합 테스트. NPICK_FEEDBACK_DB_TEST_URL 이 없으면 스킵된다.
 @DataJpaTest(
         properties = {
             "spring.autoconfigure.exclude=",
@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         })
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(InquiryDetailQueryAdapter.class)
-@EnabledIfEnvironmentVariable(named = "NPICK_MIGRATION_TEST_URL", matches = ".+")
+@EnabledIfEnvironmentVariable(named = "NPICK_FEEDBACK_DB_TEST_URL", matches = ".+")
 class InquiryDetailQueryAdapterDbTest {
 
     @Autowired
@@ -42,9 +42,9 @@ class InquiryDetailQueryAdapterDbTest {
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry properties) {
-        properties.add("spring.datasource.url", () -> System.getenv("NPICK_MIGRATION_TEST_URL"));
-        properties.add("spring.datasource.username", () -> System.getenv("NPICK_MIGRATION_TEST_USER"));
-        properties.add("spring.datasource.password", () -> System.getenv("NPICK_MIGRATION_TEST_PASSWORD"));
+        properties.add("spring.datasource.url", () -> System.getenv("NPICK_FEEDBACK_DB_TEST_URL"));
+        properties.add("spring.datasource.username", () -> System.getenv("NPICK_FEEDBACK_DB_TEST_USER"));
+        properties.add("spring.datasource.password", () -> System.getenv("NPICK_FEEDBACK_DB_TEST_PASSWORD"));
         // 테스트 DB 계정(npick_test)은 "$user" 스키마 관례를 안 따르므로 세션 search_path를 직접 건다.
         // 어댑터의 네이티브 SQL이 스키마 미한정 테이블명을 쓰기 때문에 필요하다.
         properties.add("spring.datasource.hikari.connection-init-sql", () -> "SET search_path TO npick, public");
