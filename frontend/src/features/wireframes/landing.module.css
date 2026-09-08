@@ -22,13 +22,22 @@
   background: #0b0d11;
 }
 
+/* 세 클립을 겹쳐 두고 활성 클립만 보여 준다. */
 .video {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  opacity: 0;
+  transition: opacity 700ms ease;
   /* 채도만 낮춰 그레이 톤으로 맞추고, 야경의 디테일은 살린다. */
   filter: saturate(0.72) contrast(1.06) brightness(1.16);
+}
+
+.video[data-active='true'] {
+  opacity: 1;
 }
 
 .overlay {
