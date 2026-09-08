@@ -30,8 +30,10 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = ReviewInquiryController.class)
@@ -115,5 +117,35 @@ class ReviewInquiryControllerTest {
         mockMvc.perform(get("/api/v1/review/inquiries/999")
                         .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("검수자는 문의를 claim한다")
+    void reviewerClaimsInquiry() throws Exception {
+        mockMvc.perform(post("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
+                        .with(csrf()))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("이미 검수 시작된 문의 claim은 409")
+    void claimAlreadyClaimedIs409() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.ALREADY_CLAIMED))
+                .given(reviewService)
+                .claim(anyLong(), anyLong());
+        mockMvc.perform(post("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
+                        .with(csrf()))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("편집기자는 claim 접근이 403")
+    void editorForbiddenOnClaim() throws Exception {
+        mockMvc.perform(post("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
+                        .with(csrf()))
+                .andExpect(status().isForbidden());
     }
 }
