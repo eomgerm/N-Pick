@@ -146,6 +146,9 @@ PUT  /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 - `deadlineAt: null` = 단계 타임아웃 미동결(`pipeline.yml`의 `timeout_seconds: null`). 워커는 `null`이면 자체 상한을 쓰지 않는다.
 - `maxAttempts: 1` — `retry_count`가 `null`인 동안의 고정 해석이다. "무한 재시도하지 않는다"([docs/frd.md](../frd.md) §6 F-14)와 "실측 없이 숫자를 만들지 않는다"를 동시에 지키는 값이 자동 재시도 0회다.
 - `inputs.upstream`에는 상류 단계 산출물 중 1 MiB 이하의 구조화 데이터를 인라인한다. 워커는 DB에 접속하지 않으므로 BE가 되돌려 줘야 한다. 넘으면 artifact key로 대체한다.
+- **`contentHash`는 소문자 hex, 접두 없음** (`3f1e…`, `sha256:3f1e…`가 아니다). 워커는 받을 때 대소문자·접두·공백을 정규화하지만 발신 형식은 이 하나로 고정한다. 인코딩을 못 박지 않으면 Java의 `String.format("%02X")` 하나로 **전 잡이 영구 실패한다** — 불일치는 `UNSUPPORTED_MEDIA`(영구)이고 §9.2가 영구를 재claim 없음으로 두므로, 치명 단계인 `scene_detection`이 이걸로 죽으면 run이 재시도 없이 `failed`가 된다.
+- **`contentHash`·`sizeBytes` 중 최소 하나는 필수다.** 둘 다 비면 워커가 잘린 다운로드를 걸러낼 수단이 없다. 프록시 타임아웃이나 BE가 스트림 중간에 죽는 경우처럼 오류 없이 일찍 끝난 응답은 부분 파일을 남기고 정상 해석되며, 그 뒤 단계가 **틀린 결과를 `succeeded`로 정본에 넣는다.** 워커는 크기 불일치를 `MEDIA_UNAVAILABLE`(일시), 해시 불일치를 `UNSUPPORTED_MEDIA`(영구)로 보고한다.
+- `inputs.media.url`은 **워커가 무시한다.** `transport: "http"`는 언제나 §4.4의 `GET …/artifacts?key=`로 간다. 별도 URL을 실어도 그 경로로 가지 않는다.
 
 응답 (배정 없음, 200):
 
@@ -402,7 +405,7 @@ BE의 실제 `ErrorType`(`BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`
 | `JOB_400_002` | 400 | 산출물 sha256 불일치 | 1회 재시도 후 `ARTIFACT_UPLOAD_FAILED` |
 | `JOB_401` | 401 | 토큰 없음·불일치 | **루프 중단** |
 | `JOB_403_001` | 403 | `outputKeyPrefix` 밖의 키 | **해당 단계만 실패로 보고. 워커 루프는 계속** |
-| `JOB_403_002` | 403 | fleet 불일치 | 프로세스 종료 |
+| `JOB_403_002` | 403 | fleet 불일치 | **루프 중단** (프로세스는 살려 둔다) |
 | `JOB_404_001` | 404 | run 없음 | 결과 폐기 |
 | `JOB_404_002` | 404 | artifact key 없음 | `MEDIA_UNAVAILABLE`로 단계 실패 보고 |
 | `JOB_409_001` | 409 | 이미 `succeeded`인 단계 | 폐기 (정상) |
@@ -439,13 +442,15 @@ BE의 실제 `ErrorType`(`BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`
 | `STAGE_FAILED` | 일시 | 위 어느 것도 아닌 실패. 분류를 미룰 뿐 숨기지 않는다 |
 | `PIPELINE_VERSION_MISMATCH` | **영구** | run 레벨 (`pipeline_run.error_code`). BE만 발신 |
 
+`JOB_403_002`에서 프로세스를 죽이지 않는 이유 — 잘못 발급된 토큰 하나로 컨테이너가 재시작 루프에 빠지는 것이 보이면서 노는 컨테이너보다 나쁘다. 워커는 루프를 멈추고 `/health`의 `polling.running`을 `false`로 뒤집어 그 상태를 밖에 알린다. 상태 코드는 200을 유지하므로 compose 헬스체크가 컨테이너를 재기동하지 않는다.
+
 v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념이 없고 `JOB_401`/`JOB_403_002`가 같은 사실을 더 정확히 말한다.
 
 **재시도 정책** — 영구는 `attempts`를 동결하고 재claim하지 않는다. 일시는 `attempts < maxAttempts`일 때만 재claim한다. 치명 단계(`stages.py`의 `fatal=True`: `scene_detection`·`frame_extraction`·`indexing`)의 최종 실패는 run을 `failed`로 만들고, 비치명 단계 실패는 run을 계속 진행시킨다([docs/frd.md](../frd.md) §3 F-03).
 
 ## 10. 시간 수치
 
-Gate D 품질 임계값이 아니라 **프로토콜 타임아웃**이므로 실측 없이 고정해도 "실행 환경 수치를 만들지 않는다"를 위반하지 않는다. 품질 수치(`retry_count`·`timeout_seconds`·`concurrency`)는 `pipeline.yml`에 `null`로 남는다.
+실측 후 확정할 품질 임계값이 아니라 **프로토콜 타임아웃**이므로 실측 없이 고정해도 "실행 환경 수치를 만들지 않는다"를 위반하지 않는다. 품질 수치(`retry_count`·`timeout_seconds`·`concurrency`)는 `pipeline.yml`에 `null`로 남는다.
 
 | 항목 | 값 | 근거 |
 | --- | --- | --- |
@@ -495,7 +500,7 @@ Gate D 품질 임계값이 아니라 **프로토콜 타임아웃**이므로 실�
 | 항목 | 어디서 정하는가 |
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
-| 단계 재시도 횟수·타임아웃 | Gate D 실측 후 `infra/compose/profiles/pipeline.yml` |
+| 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
 | 미구현 9단계 | 각 단계 티켓. 그동안 워커는 `NO_ADAPTER`로 생략을 보고한다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
