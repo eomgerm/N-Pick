@@ -16,7 +16,7 @@ class StageSpec:
     order: int
     name: str
     required_output: str
-    #: 치명 단계는 실패 시 검색 제공이 불가하다(FRD FR-PRC-002, FR-PRC-005).
+    #: 치명 단계는 실패 시 검색 제공이 불가하다(FRD F-03 `docs/frd.md:135`).
     fatal: bool
     #: FRD §5.1 "실패 분류" 열의 원문. 임의의 enum 으로 재해석하지 않는다.
     failure_classification: str

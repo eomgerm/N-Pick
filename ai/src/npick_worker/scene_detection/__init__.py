@@ -1,7 +1,8 @@
 """FRD §5.1 1단계 `scene_detection` (치명).
 
-clip 을 `[start_time_ms, end_time_ms)` scene 목록으로 나눈다(FR-PRC-010).
-임계값은 전부 버전이 붙은 설정에 있다(FR-PRC-015).
+clip 을 `[start_time_ms, end_time_ms)` scene 목록으로 나눈다(FRD F-03 `docs/frd.md:120`,
+구간 해석은 `docs/frd.md:137`).
+임계값은 전부 버전이 붙은 설정에 있다(`docs/frd.md:415` 의 처리 번호·버전 기록).
 
 이 모듈은 순수 함수만 제공한다. pipeline run 배선·작업 수신·HTTP 표면은
 S15P21A501-70 의 몫이다.
@@ -50,7 +51,7 @@ def _to_scenes(detection: RawDetection, min_scene_len_ms: int) -> tuple[Scene, .
     detector 가 무엇이든 여기서 불변식을 강제한다.
     - 첫 scene 은 0 에서 시작하고 마지막 scene 은 duration 에서 끝난다
     - 인접 scene 은 붙어 있다: `scenes[i].end_time_ms == scenes[i+1].start_time_ms`
-    - scene 은 최소 1개다 (FR-PRC-010)
+    - scene 은 최소 1개다 (FRD F-03 `docs/frd.md:120`)
     """
     duration_ms = detection.duration_ms
     if duration_ms <= 0:
@@ -85,7 +86,7 @@ def detect_scenes(
 
     재현성 식별자는 `(config_version, engine, engine_version)` 튜플이다. 같은
     `video_path` 와 같은 식별자면 항상 같은 결과를 돌려준다. 재시도가 산출물의
-    의미를 바꾸지 않아야 한다는 FR-PRC-006 의 전제다.
+    의미를 바꾸지 않아야 한다는 F-03 완료 기준(`docs/frd.md:137`)의 전제다.
     """
     config = cfg if cfg is not None else get_default_config()
     engine = detector if detector is not None else PySceneDetectDetector()

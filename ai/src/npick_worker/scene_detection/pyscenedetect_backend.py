@@ -3,7 +3,7 @@
 디코드 백엔드를 **PyAV 로 고정**한다. 이유가 두 가지다.
 1. PyAV 휠에 ffmpeg 이 번들되어 있어 시스템 ffmpeg 설치가 필요 없다.
 2. 백엔드가 환경에 따라 OpenCV/PyAV 로 갈리면 같은 파일에서 프레임 수와
-   타임스탬프가 달라질 수 있다. 재시도 멱등성(FR-PRC-006)이 깨진다.
+   타임스탬프가 달라질 수 있다. 재시도 멱등성(`docs/frd.md:137`)이 깨진다.
 """
 
 import math
@@ -86,7 +86,7 @@ class PySceneDetectDetector:
         manager.detect_scenes(video=video, frame_skip=cfg.frame_skip, show_progress=False)
 
         # start_in_scene=True: 컷이 하나도 없어도 영상 전체를 덮는 구간 1개를 돌려준다.
-        # FR-PRC-010 의 "한 개 이상" 하한이 여기서 보장된다.
+        # FRD F-03 의 "한 개 이상" 하한이 여기서 보장된다(`docs/frd.md:120`).
         spans = manager.get_scene_list(start_in_scene=True)
         boundaries = tuple(frames_to_ms(start.frame_num, frame_rate) for start, _ in spans)
 

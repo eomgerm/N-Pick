@@ -54,7 +54,7 @@ def _cfg(**overrides: object) -> SceneDetectionConfig:
     return load_config().model_copy(update=overrides)
 
 
-# ── FR-PRC-010: [start,end) 구간 분할 ──────────────────────────────────
+# ── F-03: [start,end) 구간 분할 (docs/frd.md:120·137) ──────────────────
 
 
 def test_frames_to_ms_rounds_to_nearest_integer() -> None:
@@ -78,7 +78,7 @@ def test_three_shot_video_splits_into_three_scenes(make_video: MakeVideo) -> Non
 
 
 def test_single_shot_video_yields_exactly_one_scene(make_video: MakeVideo) -> None:
-    """FR-PRC-010 의 하한. 컷이 없어도 scene 은 한 개 이상이어야 한다."""
+    """F-03 의 하한. 컷이 없어도 scene 은 한 개 이상이어야 한다."""
     video = make_video("single", [("gray", BLOCK_FRAMES * 2)])
 
     result = detect_scenes(video)
@@ -109,7 +109,7 @@ def test_scenes_are_contiguous_half_open_intervals(
         assert earlier.start_time_ms < earlier.end_time_ms
 
 
-# ── FR-PRC-006: 재시도 멱등성 ──────────────────────────────────────────
+# ── F-03 완료 기준: 재시도 멱등성 (docs/frd.md:137) ────────────────────
 
 
 def test_same_input_and_config_produce_identical_result(make_video: MakeVideo) -> None:
@@ -118,7 +118,7 @@ def test_same_input_and_config_produce_identical_result(make_video: MakeVideo) -
     assert detect_scenes(video) == detect_scenes(video)
 
 
-# ── FR-PRC-015: 임계값·최소 길이가 설정과 version 에 묶여 있는가 ────────
+# ── FRD §7: 임계값·최소 길이가 설정과 version 에 묶여 있는가 ───────────
 
 
 def test_min_scene_len_absorbs_short_flash(make_video: MakeVideo) -> None:
