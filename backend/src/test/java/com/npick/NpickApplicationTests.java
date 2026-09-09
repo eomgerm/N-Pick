@@ -1,45 +1,27 @@
 package com.npick;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.npick.clip.application.port.RegistrationDeduplicationPort;
-import com.npick.clip.domain.repository.ClipRegistrationRepository;
+import com.npick.support.NpickPostgres;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@EnabledIfEnvironmentVariable(named = "NPICK_MIGRATION_TEST_URL", matches = ".+")
 @SpringBootTest
 @AutoConfigureMockMvc
 class NpickApplicationTests {
-    @MockitoBean
-    private ClipRegistrationRepository clipRegistrationRepository;
-
-    // This context deliberately excludes DataSource auto-configuration; DB wiring is verified separately.
-    @MockitoBean
-    private RegistrationDeduplicationPort registrationDeduplicationPort;
-
-    @MockitoBean
-    private com.npick.member.domain.repository.MemberRepository memberRepository;
-
-    @MockitoBean
-    private com.npick.feedback.domain.repository.FeedbackRepository feedbackRepository;
-
-    @MockitoBean
-    private com.npick.feedback.application.query.InquiryListQuery inquiryListQuery;
-
-    @MockitoBean
-    private com.npick.feedback.application.query.InquiryDetailQuery inquiryDetailQuery;
-
-    @MockitoBean
-    private org.springframework.data.jpa.mapping.JpaMetamodelMappingContext jpaMappingContext;
+    /** 실 DataSource 로 부퇅한다. 목을 쏘아 넣으려면 이 테스트가 검증하는 배선이 사라진다. */
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry properties) {
+        NpickPostgres.datasource(properties);
+    }
 
     @Autowired
     private MockMvc mockMvc;
