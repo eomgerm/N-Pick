@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  getReviewTabUrl,
-  getReviewUrl,
-  selectBoardPage,
-} from './reviewer-board-state.ts';
+import { getReviewTabUrl, getReviewUrl, selectBoardPage } from './reviewer-board-state.ts';
 
 const items = Array.from({ length: 23 }, (_, index) => ({
   id: `inquiry-${index}`,

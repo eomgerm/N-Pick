@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock3,
+  Film,
   Inbox,
   Plus,
   RefreshCw,
@@ -13,7 +14,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { AppShell } from '@/components/app-shell';
@@ -30,7 +31,16 @@ import {
   type ReviewInquiryDetail,
   type ReviewInquiryList,
 } from '@/features/wireframes/review-inquiry-api';
+import {
+  countSnapshotEntries,
+  displayClipTitle,
+  getClaimRecovery,
+  getFilterFacts,
+  uniqueTagNames,
+} from '@/features/wireframes/review-inquiry-view';
 import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { ResolutionSummary } from '@/features/wireframes/reviewer-resolution';
+import { getResolutionSummary } from '@/features/wireframes/reviewer-resolution-state';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
 import styles from '@/features/wireframes/reviewer.module.css';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
@@ -70,15 +80,6 @@ function formatTimecode(milliseconds: number): string {
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':');
 }
 
-function prettyJson(value: string | null): string {
-  if (!value) return '기록 없음';
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
 function InquiryList({
   data,
   currentStatus,
@@ -89,11 +90,16 @@ function InquiryList({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const listHeadingRef = useRef<HTMLHeadingElement>(null);
   const counts = {
     all: data.statusCounts.open + data.statusCounts.reviewing + data.statusCounts.closed,
     ...data.statusCounts,
   };
   const currentPage = data.page + 1;
+
+  useEffect(() => {
+    listHeadingRef.current?.focus({ preventScroll: true });
+  }, [currentStatus, data.page]);
 
   function move(updates: Record<string, string | null>) {
     router.push(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
@@ -133,7 +139,9 @@ function InquiryList({
 
       <section className={boardStyles.panel} aria-labelledby="inquiry-board-title">
         <div className={boardStyles.panelHeading}>
-          <h2 id="inquiry-board-title">문의 목록</h2>
+          <h2 id="inquiry-board-title" ref={listHeadingRef} tabIndex={-1}>
+            문의 목록
+          </h2>
           <span>최근 접수 순 · 10개씩</span>
         </div>
         <div className={boardStyles.filterRow}>
@@ -173,11 +181,8 @@ function InquiryList({
                   onClick={() => move({ inquiry: item.feedbackId })}
                   type="button"
                 >
-                  <span
-                    aria-label={`${item.scene.clipTitle} 장면`}
-                    className={boardStyles.thumbnail}
-                    role="img"
-                  >
+                  <span aria-hidden="true" className={boardStyles.thumbnail}>
+                    <Film />
                     <small>
                       {formatTimecode(item.scene.startTimeMs)}–
                       {formatTimecode(item.scene.endTimeMs)}
@@ -192,7 +197,7 @@ function InquiryList({
                         {inquiryStatusLabels[item.status]}
                       </span>
                     </span>
-                    <strong>{item.scene.clipTitle}</strong>
+                    <strong>{displayClipTitle(item.scene.clipTitle)}</strong>
                     <span className={boardStyles.comment}>{item.queryText}</span>
                   </span>
                   <span className={boardStyles.age}>{formatDate(item.createdAt)}</span>
@@ -226,27 +231,79 @@ function InquiryList({
   );
 }
 
-function Snapshot({ label, value }: { label: string; value: string | null }) {
+function FilterSnapshot({ value }: { value: string | null }) {
+  const facts = getFilterFacts(value);
   return (
-    <details className="rounded-xl border border-(--line) bg-(--surface-muted) p-4">
-      <summary className="cursor-pointer font-bold">{label}</summary>
-      <pre className="mt-3 max-h-80 overflow-auto text-xs whitespace-pre-wrap">
-        {prettyJson(value)}
-      </pre>
-    </details>
+    <section className="rounded-2xl border border-(--line) p-5" aria-labelledby="filter-title">
+      <h2 className="font-bold" id="filter-title">
+        문의 당시 검색 조건
+      </h2>
+      {facts === null ? (
+        <p className="mt-3 text-sm text-(--muted)">저장된 검색 조건을 확인할 수 없습니다.</p>
+      ) : facts.length === 0 ? (
+        <p className="mt-3 text-sm text-(--muted)">직접 선택한 검색 조건이 없습니다.</p>
+      ) : (
+        <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+          {facts.map((fact, index) => (
+            <div className="min-w-0" key={`${fact.label}-${index}`}>
+              <dt className="text-(--muted)">{fact.label}</dt>
+              <dd className="mt-1 wrap-anywhere">{fact.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </section>
+  );
+}
+
+function SearchInterpretation({ value }: { value: string | null }) {
+  if (!value) {
+    return (
+      <section className="rounded-2xl border border-(--line) p-5">
+        <h2 className="font-bold">문의 당시 검색 해석</h2>
+        <p className="mt-3 text-sm text-(--muted)">저장된 검색 해석이 없습니다.</p>
+      </section>
+    );
+  }
+  try {
+    getResolutionSummary(value);
+  } catch {
+    return (
+      <section className="rounded-2xl border border-(--line) p-5">
+        <h2 className="font-bold">문의 당시 검색 해석</h2>
+        <p className="mt-3 text-sm text-(--muted)">저장된 검색 해석을 확인할 수 없습니다.</p>
+      </section>
+    );
+  }
+  return <ResolutionSummary title="문의 당시 검색 해석" value={value} />;
+}
+
+function SnapshotCount({ label, value }: { label: string; value: string | null }) {
+  const count = countSnapshotEntries(value);
+  return (
+    <div className="rounded-xl bg-(--surface-muted) p-4">
+      <dt className="text-xs font-bold text-(--muted)">{label}</dt>
+      <dd className="mt-2 font-semibold">
+        {count === null ? '기록 확인 불가' : count === 0 ? '없음' : `${count}개 기록`}
+      </dd>
+    </div>
   );
 }
 
 function InquiryDetail({ feedbackId }: { feedbackId: string }) {
+  const member = useMember();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const claimKey = useRef<string | null>(null);
+  const detailTitleRef = useRef<HTMLHeadingElement>(null);
+  const detailQueryKey = ['review-inquiry', feedbackId] as const;
   const detail = useQuery({
-    queryKey: ['review-inquiry', feedbackId],
+    queryKey: detailQueryKey,
     queryFn: ({ signal }) => getReviewInquiry(feedbackId, signal),
   });
+  const loadedFeedbackId = detail.data?.feedbackId;
   const claim = useMutation({
     mutationFn: async () => {
       claimKey.current ??= createIdempotencyKey();
@@ -254,12 +311,29 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
     },
     onSuccess: async () => {
       claimKey.current = null;
+      queryClient.setQueryData<ReviewInquiryDetail>(detailQueryKey, (current) =>
+        current?.status === 'open'
+          ? {
+              ...current,
+              status: 'reviewing',
+              history: {
+                ...current.history,
+                reviewedById: member.memberId,
+                reviewerLoginId: member.loginId,
+              },
+            }
+          : current,
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['review-inquiries'] }),
-        queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] }),
+        queryClient.invalidateQueries({ queryKey: detailQueryKey }),
       ]);
     },
   });
+
+  useEffect(() => {
+    if (loadedFeedbackId) detailTitleRef.current?.focus({ preventScroll: true });
+  }, [loadedFeedbackId]);
 
   function back() {
     router.push(getReviewUrl(pathname, searchParams.toString(), { inquiry: null }), {
@@ -267,8 +341,28 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
     });
   }
 
+  async function recoverClaim() {
+    const recovery = getClaimRecovery(claim.error);
+    if (recovery.action === 'retry') {
+      claim.mutate();
+      return;
+    }
+    if (recovery.action === 'back') {
+      back();
+      return;
+    }
+    await Promise.all([
+      detail.refetch(),
+      queryClient.invalidateQueries({ queryKey: ['review-inquiries'] }),
+    ]);
+  }
+
   if (detail.isPending) {
-    return <p className="mx-auto max-w-5xl py-24 text-center">문의 상세를 불러오는 중…</p>;
+    return (
+      <p aria-busy="true" className="mx-auto max-w-5xl py-24 text-center" role="status">
+        문의 상세를 불러오는 중…
+      </p>
+    );
   }
   if (detail.isError) {
     return (
@@ -285,6 +379,9 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
   }
 
   const inquiry: ReviewInquiryDetail = detail.data;
+  const clipTitle = displayClipTitle(inquiry.scene.clipTitle);
+  const tagNames = uniqueTagNames(inquiry.evidence);
+  const claimRecovery = claim.isError ? getClaimRecovery(claim.error) : null;
   return (
     <div className="mx-auto max-w-5xl">
       <button className={boardStyles.backButton} onClick={back} type="button">
@@ -293,7 +390,9 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
       <section className={styles.hero}>
         <div>
           <p className={styles.eyebrow}>문의 #{inquiry.feedbackId}</p>
-          <h1>{inquiry.scene.clipTitle}</h1>
+          <h1 ref={detailTitleRef} tabIndex={-1}>
+            {clipTitle}
+          </h1>
           <p>
             {formatDate(inquiry.createdAt)} · 검색 결과 #{inquiry.resultRank}
           </p>
@@ -362,63 +461,113 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
               onClick={() => claim.mutate()}
               type="button"
             >
-              {claim.isPending ? '선점 중…' : '검수 시작'}
+              {claim.isPending ? '검수 시작 중…' : '검수 시작'}
             </button>
           </section>
         ) : null}
-        {claim.isError ? <ApiErrorNotice error={claim.error} /> : null}
+        <p aria-live="polite" className="sr-only" role="status">
+          {claim.isPending
+            ? '검수 시작 요청을 처리하고 있습니다.'
+            : claim.isSuccess
+              ? '검수 시작에 성공했습니다. 최신 문의 상태를 확인했습니다.'
+              : ''}
+        </p>
+        {claimRecovery ? (
+          <section className="space-y-3" aria-label="검수 시작 실패 안내">
+            <ApiErrorNotice error={claim.error} />
+            <p className="text-sm">{claimRecovery.message}</p>
+            <button
+              className={styles.secondaryButton}
+              disabled={claim.isPending}
+              onClick={() => void recoverClaim()}
+              type="button"
+            >
+              {claimRecovery.actionLabel}
+            </button>
+          </section>
+        ) : null}
 
-        {inquiry.history.reviewedById ? (
+        {inquiry.status !== 'open' ? (
           <section className="rounded-2xl border border-(--line) p-5">
             <h2 className="font-bold">검수 이력</h2>
             <p className="mt-2 text-sm">
               {inquiry.history.reviewerName || inquiry.history.reviewerLoginId || '담당 검수자'} ·{' '}
-              {formatDate(inquiry.history.reviewStartedAt)}
+              {inquiry.history.reviewStartedAt
+                ? formatDate(inquiry.history.reviewStartedAt)
+                : '시작 시각 확인 중'}
             </p>
           </section>
         ) : null}
 
-        {inquiry.status === 'closed' && inquiry.resolution ? (
-          <section className="rounded-2xl border border-(--line) bg-(--positive-soft) p-5">
-            <h2 className="font-bold">처리 결과</h2>
+        {inquiry.resolution ? (
+          <section
+            className={`rounded-2xl border border-(--line) p-5 ${
+              inquiry.resolution === 'deferred'
+                ? 'bg-(--warning-soft)'
+                : inquiry.resolution === 'no_action'
+                  ? 'bg-(--surface-muted)'
+                  : 'bg-(--positive-soft)'
+            }`}
+          >
+            <h2 className="font-bold">{inquiry.status === 'closed' ? '처리 결과' : '현재 판정'}</h2>
             <p className="mt-2">{inquiryResolutionLabels[inquiry.resolution]}</p>
             <p className="mt-1 text-sm text-(--muted)">
               {inquiry.resolutionNote || '추가 사유 없음'}
             </p>
+            {inquiry.status === 'reviewing' ? (
+              <p className="mt-3 text-sm font-semibold">
+                검증과 반영이 끝나기 전까지 이 문의는 검수 중입니다.
+              </p>
+            ) : null}
           </section>
         ) : null}
+        {inquiry.status === 'closed' && !inquiry.resolution ? (
+          <p className="rounded-2xl border border-(--line) bg-(--warning-soft) p-5" role="alert">
+            종료 상태이지만 처리 결과 기록을 확인할 수 없습니다. 최신 상태를 다시 확인해 주세요.
+          </p>
+        ) : null}
 
-        <section>
-          <h2 className="mb-3 font-bold">문의 당시 근거</h2>
-          {inquiry.evidence.length === 0 ? (
-            <p className="text-sm text-(--muted)">저장된 근거가 없습니다.</p>
-          ) : (
-            <ul className="grid gap-2 md:grid-cols-2">
-              {inquiry.evidence.map((evidence) => (
-                <li
-                  className="rounded-xl border border-(--line) p-4 text-sm"
-                  key={evidence.taggingId}
-                >
-                  <strong>{evidence.tagName}</strong>
-                  <p className="mt-1 text-(--muted)">
-                    {evidence.scope} · {evidence.source || '출처 없음'} ·{' '}
-                    {evidence.verifiedState || '검증 상태 없음'}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
+        <section aria-labelledby="result-comparison-title">
+          <h2 className="font-bold" id="result-comparison-title">
+            문의 당시 결과와 현재 태그
+          </h2>
+          <p className="mt-2 text-sm text-(--muted)">
+            당시 검색 기록은 읽기 전용이며 현재 태그가 바뀌어도 덮어쓰지 않습니다.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <section className="rounded-2xl border border-(--line) p-5">
+              <h3 className="font-bold">문의 당시 검색 결과</h3>
+              <p className="mt-2 text-sm">
+                검색 결과 <strong>#{inquiry.resultRank}</strong>로 저장됨
+              </p>
+              <dl className="mt-4 grid gap-2">
+                <SnapshotCount label="결과 설명" value={inquiry.resultExplainJson} />
+                <SnapshotCount label="적용 규칙" value={inquiry.execution.appliedRulesJson} />
+                <SnapshotCount label="장면 제외" value={inquiry.execution.appliedExcludesJson} />
+              </dl>
+            </section>
+            <section className="rounded-2xl border border-(--line) p-5">
+              <h3 className="font-bold">현재 태그</h3>
+              {tagNames.length === 0 ? (
+                <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
+              ) : (
+                <ul className="mt-4 flex flex-wrap gap-2" aria-label="현재 장면과 영상의 태그">
+                  {tagNames.map((tagName) => (
+                    <li
+                      className="rounded-full bg-(--accent-soft) px-3 py-2 text-sm font-semibold text-(--accent-strong)"
+                      key={tagName}
+                    >
+                      {tagName}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
         </section>
 
-        <section className="grid gap-3">
-          <h2 className="font-bold">문의 당시 실행 스냅샷</h2>
-          <Snapshot label="명시 필터" value={inquiry.execution.explicitFiltersJson} />
-          <Snapshot label="파싱 결과" value={inquiry.execution.parsedQueryJson} />
-          <Snapshot label="Resolver 출력" value={inquiry.execution.resolverOutputJson} />
-          <Snapshot label="적용 규칙" value={inquiry.execution.appliedRulesJson} />
-          <Snapshot label="적용 제외" value={inquiry.execution.appliedExcludesJson} />
-          <Snapshot label="검색 결과 설명" value={inquiry.resultExplainJson} />
-        </section>
+        <FilterSnapshot value={inquiry.execution.explicitFiltersJson} />
+        <SearchInterpretation value={inquiry.execution.parsedQueryJson} />
       </article>
     </div>
   );
@@ -426,6 +575,7 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
 
 export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
   const member = useMember();
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const status = selectedStatus(searchParams.get('status'));
@@ -436,6 +586,18 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
     queryFn: ({ signal }) => getReviewInquiries(page - 1, status, signal),
     enabled: feedbackId === null,
   });
+
+  useEffect(() => {
+    if (feedbackId !== null || !list.data) return;
+    const normalizedPage = list.data.totalPages === 0 ? 1 : Math.min(page, list.data.totalPages);
+    if (normalizedPage === page) return;
+    router.replace(
+      getReviewUrl(pathname, searchParams.toString(), {
+        page: normalizedPage === 1 ? null : String(normalizedPage),
+      }),
+      { scroll: false },
+    );
+  }, [feedbackId, list.data, page, pathname, router, searchParams]);
 
   return (
     <AppShell className={styles.shell} data-theme={theme}>
@@ -459,9 +621,14 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
         {feedbackId ? (
           <InquiryDetail feedbackId={feedbackId} />
         ) : list.isPending ? (
-          <p className="py-24 text-center">문의 목록을 불러오는 중…</p>
+          <p aria-busy="true" className="py-24 text-center" role="status">
+            문의 목록을 불러오는 중…
+          </p>
         ) : list.isError ? (
           <div className="mx-auto max-w-3xl py-12">
+            <p className="mb-3 text-sm text-(--muted)">
+              {status ? `${inquiryStatusLabels[status]} 상태 · ` : '전체 상태 · '}페이지 {page}
+            </p>
             <ApiErrorNotice error={list.error} />
             <button className="mt-4 underline" onClick={() => list.refetch()} type="button">
               다시 시도
