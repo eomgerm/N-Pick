@@ -177,7 +177,9 @@ class ArtifactRef(WireModel):
     kind: str
     storage_key: str
     byte_size: int = Field(ge=0)
-    content_hash: str | None = None
+    #: 계약 §4.4 의 `X-Content-SHA256` 값이다. 올리는 쪽이 반드시 아는 값이므로 필수다 —
+    #: 선택으로 두면 "해시를 모르는 산출물" 이라는, 계약에 없는 상태가 표현 가능해진다.
+    content_hash: str
 
 
 class StageResult(WireModel):

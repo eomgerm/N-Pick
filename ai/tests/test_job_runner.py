@@ -904,6 +904,7 @@ async def test_abort_during_upload_stops_the_remaining_files(
                     kind="keyframe",
                     storage_key=f"{FRAME_PREFIX}s0000/kf-{index}.jpg",
                     byte_size=local.stat().st_size,
+                    content_hash=hashlib.sha256(local.read_bytes()).hexdigest(),
                 ),
                 local_path=local,
                 content_type="image/jpeg",
@@ -935,6 +936,54 @@ async def test_abort_during_upload_stops_the_remaining_files(
 
     assert refs == ()
     assert len(fake_backend.calls("artifact_put")) == 1
+
+
+@pytest.mark.asyncio
+async def test_uploaded_keyframes_are_removed_from_the_pod_disk(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    tmp_path: Path,
+) -> None:
+    """올린 파일은 남기지 않는다. 파드 디스크는 휘발성이고 용량 제한이 있다.
+
+    피크가 내려가는 것은 아니다 — 단계가 그 클립의 keyframe 전부를 쓴 뒤에야 업로드가
+    시작한다. 여기서 잠그는 것은 뒤쪽 파일을 올리는 동안 앞쪽이 디스크를 잡고 있지
+    않다는 것이다.
+    """
+    uploads = []
+    for index in range(3):
+        local = tmp_path / f"kf-{index}.jpg"
+        local.write_bytes(JPEG_MAGIC + f" {index}".encode())
+        uploads.append(
+            PendingUpload(
+                ref=ArtifactRef(
+                    kind="keyframe",
+                    storage_key=f"{FRAME_PREFIX}s0000/kf-{index}.jpg",
+                    byte_size=local.stat().st_size,
+                    content_hash=hashlib.sha256(local.read_bytes()).hexdigest(),
+                ),
+                local_path=local,
+                content_type="image/jpeg",
+            )
+        )
+
+    runner = _runner(job_client, media_root)
+    outcome = StageOutcome(
+        output={"scenes": []},
+        versions=StageVersion(
+            stage_version="npick.stage.frame_extraction/v1:0badc0de",
+            output_schema_version="npick.stage.frame_extraction.output/v1",
+        ),
+        uploads=tuple(uploads),
+    )
+    job = JobAssignment.model_validate(_frame_job("clips/a/source.mp4", UPSTREAM_TWO_SCENES))
+
+    refs = await runner._upload(job, outcome, _JobControl(abandoned=asyncio.Event()), tmp_path)
+
+    assert len(refs) == 3
+    assert len(fake_backend.calls("artifact_put")) == 3
+    assert [upload.local_path.exists() for upload in uploads] == [False, False, False]
 
 
 @pytest.mark.asyncio
@@ -990,6 +1039,7 @@ async def test_output_key_outside_the_prefix_never_leaves_the_worker(
                         kind="keyframe",
                         storage_key="runs/other-run/frame_extraction/a1/s0000/kf.jpg",
                         byte_size=stray.stat().st_size,
+                        content_hash=hashlib.sha256(stray.read_bytes()).hexdigest(),
                     ),
                     local_path=stray,
                     content_type="image/jpeg",

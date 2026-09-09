@@ -35,7 +35,7 @@ from npick_worker.jobs.errors import (
     WorkerError,
     classify,
 )
-from npick_worker.jobs.media import MediaResolver, redact, sha256_bytes
+from npick_worker.jobs.media import MediaResolver, redact
 from npick_worker.jobs.models import (
     ArtifactRef,
     ClaimRequest,
@@ -459,8 +459,13 @@ class JobRunner:
                 upload.ref.storage_key,
                 body,
                 content_type=upload.content_type,
-                content_sha256=upload.ref.content_hash or sha256_bytes(body),
+                content_sha256=upload.ref.content_hash,
             )
+            # 올린 파일은 여기서 지운다. **피크를 낮추지는 못한다** — 단계가 그 클립의
+            # keyframe 전부를 쓴 뒤에야 이 반복이 시작하므로 최대 사용량은 그대로다.
+            # 줄어드는 것은 점유 시간이고, 뒤쪽 파일을 올리는 동안 앞쪽이 디스크를 잡고
+            # 있지 않게 된다. 실패해도 attempt N+1 은 새 접두를 받으므로 부작용이 없다.
+            upload.local_path.unlink(missing_ok=True)
             refs.append(upload.ref)
         logger.info("산출물 %d개를 올렸다: %s/%s", len(refs), job.pipeline_run_id, job.stage)
         return tuple(refs)

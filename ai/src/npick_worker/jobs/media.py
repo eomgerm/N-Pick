@@ -156,15 +156,6 @@ def _normalize_hash(value: str) -> str:
     return value.strip().lower().removeprefix("sha256:")
 
 
-def sha256_bytes(body: bytes) -> str:
-    """계약 §4.4 의 `X-Content-SHA256` 값.
-
-    `sha256_file` 과 나란히 둔다. 산출물은 이미 메모리에 있는 경우가 많고, 그때 파일을
-    다시 읽으면 같은 바이트를 두 번 읽는다.
-    """
-    return hashlib.sha256(body).hexdigest()
-
-
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
