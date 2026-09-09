@@ -180,17 +180,36 @@ def _run_frame_extraction(ctx: StageContext) -> StageOutcome:
     from npick_worker.jobs.models import FrameExtractionOutput, FrameExtractionUpstream
 
     upstream = _parse_upstream(FrameExtractionUpstream, ctx.upstream)
+    detection = upstream.scene_detection
     scenes = tuple(
         SceneSpan(
             scene_index=scene.scene_index,
             start_time_ms=scene.start_time_ms,
             end_time_ms=scene.end_time_ms,
         )
-        for scene in upstream.scene_detection.scenes
+        for scene in detection.scenes
     )
 
+    # 상류가 필수로 보내는 두 값을 실제로 쓴다. 받아 놓고 쓰지 않으면 계약이 요구하는
+    # 필드가 검증되지 않은 채 남고, 어긋남이 실패가 아니라 조용히 틀린 timestamp 로 나온다.
+    covered_ms = max(scene.end_time_ms for scene in scenes)
+    if covered_ms != detection.media_duration_ms:
+        # scene_detection 은 마지막 scene 을 영상 끝에서 닫으므로 두 값은 같아야 한다
+        # (scene_detection 의 `_to_scenes` 불변식). 다르면 scenes 와 나머지 필드가 서로
+        # 다른 산출물에서 온 것이고, 그러면 frameRate 도 이 미디어의 것이 아닐 수 있다.
+        msg = (
+            f"상류 scene 이 덮는 끝과 보고한 길이가 다르다: "
+            f"{covered_ms}ms vs {detection.media_duration_ms}ms"
+        )
+        raise UpstreamOutputInvalidError(msg)
+
     try:
-        result = extract_keyframes(ctx.video_path, scenes, ctx.work_dir)
+        result = extract_keyframes(
+            ctx.video_path,
+            scenes,
+            ctx.work_dir,
+            expected_frame_rate=detection.frame_rate,
+        )
     except _ffmpeg_errors() as exc:
         # 어댑터 경계에서 벤더 예외를 번역한다. 통과시키면 잡 레이어가 `av` 를 알아야
         # 하고(ai/AGENTS.md 가 금지한다) 분류를 못 해 재시도 가능으로 보고된다.

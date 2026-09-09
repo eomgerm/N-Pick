@@ -18,6 +18,7 @@ scene 마다 **복수 keyframe** 을 뽑고 그중 **결과 카드에 쓸 대표
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Final
 
 from npick_worker.frame_extraction.config import (
     DEFAULT_CONFIG_PATH,
@@ -53,6 +54,7 @@ from npick_worker.timecode import frames_in_range, ms_to_frame
 __all__ = [
     "DEFAULT_CONFIG_PATH",
     "FILE_NAME_TEMPLATE",
+    "FRAME_RATE_TOLERANCE",
     "ChosenFrame",
     "FrameExtractionConfig",
     "FrameExtractionResult",
@@ -83,6 +85,7 @@ def extract_keyframes(
     out_dir: Path,
     cfg: FrameExtractionConfig | None = None,
     grabber: FrameGrabber | None = None,
+    expected_frame_rate: float | None = None,
 ) -> FrameExtractionResult:
     """scene 목록을 keyframe 이미지 집합으로 바꾼다.
 
@@ -96,6 +99,8 @@ def extract_keyframes(
 
     _validate_scenes(scenes)
     profile = engine.profile(video_path)
+    if expected_frame_rate is not None:
+        _check_frame_rate(profile.frame_rate, expected_frame_rate)
 
     spans = {scene.scene_index: frames_in_span(scene, profile.frame_rate) for scene in scenes}
     requests = tuple(
@@ -176,6 +181,28 @@ def _validate_scenes(scenes: Sequence[SceneSpan]) -> None:
             )
             raise ValueError(msg)
         previous = scene
+
+
+#: 프레임레이트 대조 허용 오차. 정상 경로에서는 상류와 이 단계가 같은 `average_rate` 를
+#: 읽으므로 차가 0 이다. JSON 왕복에서 생길 수 있는 마지막 자리 차이만 허용한다.
+FRAME_RATE_TOLERANCE: Final[float] = 0.01
+
+
+def _check_frame_rate(actual: float, expected: float) -> None:
+    """이 미디어의 프레임레이트가 상류가 쓴 값과 같은지 본다.
+
+    ms 를 프레임 번호로 되돌리는 데 쓰는 값이 상류가 scene 경계를 만들 때 쓴 값과 다르면
+    실패가 아니라 **조용히 틀린 `timestamp_ms`** 가 나온다. 장 수는 줄지 않으므로
+    `_check_keyframe_count` 가 걸러 주지도 않고, keyframe 의 timestamp 는 검수자가 근거
+    프레임을 누르는 좌표라 조용한 오차가 가장 나쁘다.
+
+    상류 산출물이 이 미디어의 것이 아니라는 신호이므로 다시 시도해도 같다 — `ValueError`
+    이고 잡 레이어가 영구 오류로 번역한다.
+    """
+    if abs(actual - expected) <= FRAME_RATE_TOLERANCE:
+        return
+    msg = f"미디어의 프레임레이트가 상류 산출물과 다르다: {actual:g}fps (상류 {expected:g}fps)"
+    raise ValueError(msg)
 
 
 def frames_in_span(scene: SceneSpan, frame_rate: float) -> tuple[int, int]:
