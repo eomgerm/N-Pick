@@ -8,6 +8,7 @@
 | [../docs/contracts/job-api.md](../docs/contracts/job-api.md) | **BE↔워커 잡 API 정본.** 엔드포인트·결과 봉투·오류 코드·버전 규약 |
 | [README.md](README.md) | 실행·테스트·의존성 그룹·환경 변수 |
 | [docs/scene-detection.md](docs/scene-detection.md) | scene detection 선정 근거·설정 키·실측 후 확정 항목 |
+| [docs/frame-extraction.md](docs/frame-extraction.md) | frame extraction 선정 근거·대표 이미지 규약·인코딩 실측·설정 키 |
 | **[../docs/frd.md](../docs/frd.md) F-04~06, §6.2, §11** | **Query Resolver 정본.** 질의 해석·명시 조건 보호·실패 처리. 출력 schema와 span 검증 방식은 모듈 계약. `query_resolver/` 를 고치기 전에 읽는다 |
 | [../AGENTS.md](../AGENTS.md) | 저장소 공통 규칙 (커밋/브랜치/문서 템플릿) |
 

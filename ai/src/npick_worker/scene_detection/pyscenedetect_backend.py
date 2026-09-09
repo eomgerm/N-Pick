@@ -17,21 +17,7 @@ from scenedetect.detectors import AdaptiveDetector, ContentDetector
 
 from npick_worker.scene_detection.config import SceneDetectionConfig
 from npick_worker.scene_detection.detector import RawDetection
-
-
-def frames_to_ms(frame_num: int, frame_rate: float) -> int:
-    """프레임 번호를 가장 가까운 정수 ms 로 반올림한다. **ms 변환은 이 함수 하나만 쓴다.**
-
-    부동소수 초를 여기저기서 반올림하면 재실행 간 1ms 가 흔들린다. 규칙을 한 곳에
-    모아 "같은 프레임 번호 + 같은 fps = 항상 같은 ms" 를 보장한다.
-
-    한계: 프레임 번호 기반이라 VFR(가변 프레임레이트) 소스에서는 실제 PTS 와 어긋날
-    수 있다. 결정론은 유지되지만 정확도가 떨어지므로 샘플 클립은 CFR 을 쓴다
-    (docs/scene-detection.md). scenedetect 0.7 의 `FrameTimecode` 는 `pts` 와
-    `time_base` 를 노출하므로 PTS 기반으로 바꿀 수 있다 — 다만 그건 ms 값 자체를
-    바꾸는 변경이라 라이브러리 업그레이드와 섞지 않고 별도로 다룬다.
-    """
-    return round(frame_num * 1000 / frame_rate)
+from npick_worker.timecode import frames_to_ms
 
 
 def _min_scene_len_frames(min_scene_len_ms: int, frame_rate: float) -> int:

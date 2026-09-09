@@ -99,6 +99,14 @@ class StageConfigUnsupportedError(PermanentStageError):
     """
 
 
+class UpstreamOutputInvalidError(PermanentStageError):
+    """상류 단계 산출물(`inputs.upstream`)이 계약과 다르다.
+
+    영구인 이유는 BE 가 다시 보내도 같은 것을 보내기 때문이다. 일시로 신고하면
+    `maxAttempts` 만큼 GPU 분을 태우고 같은 자리에서 죽는다.
+    """
+
+
 class StageUnavailableError(PermanentStageError):
     """FRD 단계 표에는 있으나 이 워커에 구현이 없다."""
 

@@ -17,8 +17,10 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Final
 
+from pydantic import BaseModel, ValidationError
+
 from npick_worker.device import detect_device
-from npick_worker.jobs.errors import UnsupportedMediaError
+from npick_worker.jobs.errors import UnsupportedMediaError, UpstreamOutputInvalidError
 from npick_worker.jobs.models import ArtifactRef
 from npick_worker.jobs.versions import (
     StageRuntime,
@@ -31,6 +33,9 @@ from npick_worker.versioning import service_version
 
 logger = logging.getLogger(__name__)
 
+#: keyframe 이미지의 Content-Type. 계약 §4.4 의 PUT 헤더에 그대로 들어간다.
+_JPEG_CONTENT_TYPE: Final[str] = "image/jpeg"
+
 
 @dataclass(frozen=True, slots=True)
 class StageContext:
@@ -39,7 +44,29 @@ class StageContext:
     stage: str
     video_path: Path
     storage_key: str
+    #: 단계가 파일을 쓸 수 있는 디렉터리. 러너가 잡마다 만들고 잡이 끝나면 지운다.
+    #: 단계 구현은 여기 밖에 쓰지 않는다 — 미디어 루트도 최종 저장소도 모른다.
+    work_dir: Path
+    #: 올릴 수 있는 키 접두(`runs/{runId}/{stage}/a{attempt}/`). 계약 §5.
+    output_key_prefix: str
+    #: 상류 단계 산출물. BE 가 `inputs.upstream` 으로 되돌려 준 그대로다.
+    upstream: Mapping[str, Any] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class PendingUpload:
+    """단계가 만든 파일 하나와 그 파일이 올라갈 자리.
+
+    단계가 직접 올리지 않는 이유가 둘이다. 단계 구현은 순수 함수이고 잡 API 를
+    모른다(`ai/AGENTS.md`). 그리고 업로드는 lease 를 연장하지 않으므로(계약 §4.2)
+    heartbeat 가 도는 동안 러너가 해야 한다 — 단계 안에서 올리면 그 시간이 heartbeat
+    없이 흐른다.
+    """
+
+    ref: ArtifactRef
+    local_path: Path
+    content_type: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +75,8 @@ class StageOutcome:
     versions: StageVersion
     artifacts: tuple[ArtifactRef, ...] = ()
     metrics: Mapping[str, Any] = field(default_factory=dict)
+    #: 러너가 올려야 하는 파일. 올린 뒤 `artifacts` 에 합쳐져 봉투로 나간다.
+    uploads: tuple[PendingUpload, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +173,160 @@ def _scene_detection_identity(
     }
 
 
+def _run_frame_extraction(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. av·numpy 는 헬스체크만 하는 프로세스가 낼 비용이 아니다
+    # (scene_detection 의 cv2 와 같은 이유).
+    from npick_worker.frame_extraction import SceneSpan, extract_keyframes
+    from npick_worker.jobs.models import FrameExtractionOutput, FrameExtractionUpstream
+
+    upstream = _parse_upstream(FrameExtractionUpstream, ctx.upstream)
+    scenes = tuple(
+        SceneSpan(
+            scene_index=scene.scene_index,
+            start_time_ms=scene.start_time_ms,
+            end_time_ms=scene.end_time_ms,
+        )
+        for scene in upstream.scene_detection.scenes
+    )
+
+    try:
+        result = extract_keyframes(ctx.video_path, scenes, ctx.work_dir)
+    except _ffmpeg_errors() as exc:
+        # 어댑터 경계에서 벤더 예외를 번역한다. 통과시키면 잡 레이어가 `av` 를 알아야
+        # 하고(ai/AGENTS.md 가 금지한다) 분류를 못 해 재시도 가능으로 보고된다.
+        if isinstance(exc, OSError):
+            # PyAV 는 errno 기반 오류를 해당 내장 예외(FileNotFoundError 등)와 함께
+            # 상속시킨다. 그건 코덱 문제가 아니라 파일 시스템 문제이므로 코드를 여기서
+            # 정하지 않고 `classify` 에 맡긴다 — 없는 파일과 깨진 파일은 다른 사실이다.
+            raise
+        # 같은 파일은 다시 열어도 안 열리므로 영구 오류다.
+        msg = f"영상을 열 수 없다: {ctx.storage_key}"
+        raise UnsupportedMediaError(msg) from exc
+
+    storage_keys = {
+        (keyframe.scene_index, keyframe.timestamp_ms): _output_key(
+            ctx.output_key_prefix, keyframe.file_name
+        )
+        for scene in result.scenes
+        for keyframe in scene.keyframes
+    }
+    identity = _frame_extraction_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        output=FrameExtractionOutput.from_result(result, storage_keys).model_dump(
+            by_alias=True, mode="json"
+        ),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            # 이 단계도 가중치도 프롬프트도 쓰지 않는다. 키는 남기고 값만 비운다.
+            model_version=None,
+            prompt_version=None,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "scenes": len(result.scenes),
+            "keyframes": result.keyframe_count,
+            # 블랭크 판정에 걸렸는데도 대안이 없어 쓴 장 수. 0 이 아니면 그 클립의
+            # 대표 이미지를 사람이 한 번 봐야 한다는 신호다.
+            "blankKeyframes": result.blank_count,
+            "bytes": sum(
+                keyframe.byte_size for scene in result.scenes for keyframe in scene.keyframes
+            ),
+            "imageWidth": result.image_width,
+            "imageHeight": result.image_height,
+        },
+        uploads=tuple(
+            PendingUpload(
+                ref=ArtifactRef(
+                    # `keyframe.storage_key` 와 같은 어휘를 쓴다. 새 식별자를 만들지
+                    # 않는다(계약 §4.4).
+                    kind="keyframe",
+                    storage_key=storage_keys[(keyframe.scene_index, keyframe.timestamp_ms)],
+                    byte_size=keyframe.byte_size,
+                    content_hash=keyframe.content_sha256,
+                ),
+                local_path=ctx.work_dir / keyframe.file_name,
+                content_type=_JPEG_CONTENT_TYPE,
+            )
+            for scene in result.scenes
+            for keyframe in scene.keyframes
+        ),
+    )
+
+
+def _parse_upstream[T: BaseModel](model: type[T], payload: Mapping[str, Any]) -> T:
+    """`inputs.upstream` 을 단계가 기대하는 모양으로 검증한다.
+
+    실패를 영구로 본다. 상류 산출물의 모양이 틀렸다면 다시 시도해도 BE 는 같은 것을
+    보낸다. 일시로 신고하면 `maxAttempts` 만큼 GPU 분을 태우고 같은 자리에서 죽는다.
+    """
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        msg = f"상류 산출물이 계약과 다르다: {exc.error_count()}건"
+        raise UpstreamOutputInvalidError(msg) from exc
+
+
+def _output_key(prefix: str, file_name: str) -> str:
+    """`outputKeyPrefix` 와 파일명을 잇는다.
+
+    접두에 슬래시가 있는지 없는지로 키가 갈리면 BE 의 접두 검사(`JOB_403_001`)가 통과
+    여부만 다르고 이유는 알 수 없는 실패가 된다. 여기서 한 번만 정규화한다.
+    """
+    return f"{prefix.rstrip('/')}/{file_name}"
+
+
+def _frame_extraction_identity(
+    *, config_version: str, engine: str, engine_version: str
+) -> dict[str, str]:
+    """frame extraction 의 재현 튜플.
+
+    `scene_detection` 과 같은 이유로 조립 지점을 하나로 둔다 — 실행 결과에서 만들 때와
+    claim 에 실을 값을 미리 선언할 때가 갈라지면 BE 의 배정 필터가 하는 일이 없어진다.
+
+    `detector` 에 대응하는 항목이 없다. 이 단계에는 고를 구현이 하나뿐이고, 없는 축을
+    만들어 두면 그 축이 항상 같은 값이어서 해시에 아무 정보도 넣지 않는다.
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+    }
+
+
+def _ffmpeg_errors() -> tuple[type[Exception], ...]:
+    """`av` 가 던지는 예외의 뿌리.
+
+    함수로 감싸는 이유는 임포트 시점을 늦추기 위해서다. 모듈 최상단에서 `av` 를
+    끌어오면 지연 임포트로 아낀 비용이 그대로 돌아온다. `except` 절의 식은 예외가
+    실제로 났을 때만 평가되므로, 정상 경로에서는 이 함수가 불리지 않는다.
+    """
+    from av.error import FFmpegError
+
+    return (FFmpegError,)
+
+
+def _warm_frame_extraction() -> str:
+    """설정을 미리 읽고 디코더·점수 계산 의존성을 미리 임포트한다.
+
+    `scene_detection` 의 워밍업과 같은 성격이다. 깨진 toml 이 잡 도중이 아니라 기동
+    시 터지게 하고, `av`·`numpy` 임포트 비용을 첫 잡에서 떼어 낸다. 이 단계도 ML
+    가중치를 쓰지 않으므로 미리 잡을 GPU 메모리는 없다.
+    """
+    from npick_worker.frame_extraction import PyAvFrameGrabber, get_default_config
+
+    config = get_default_config()
+    grabber = PyAvFrameGrabber()
+    return f"config={config.version_id} engine={grabber.name} {grabber.version}"
+
+
 def _warm_scene_detection() -> str:
     """설정을 미리 읽고 엔진을 미리 임포트한다.
 
@@ -164,6 +347,7 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
         handler.name: handler
         for handler in (
             StageHandler("scene_detection", _run_scene_detection, _warm_scene_detection),
+            StageHandler("frame_extraction", _run_frame_extraction, _warm_frame_extraction),
         )
     }
 )
@@ -235,6 +419,26 @@ def _declared_version(stage: str) -> str:
                 detector=config.detector,
                 engine=engine.name,
                 engine_version=engine.version,
+            ),
+        )
+    if stage == "frame_extraction":
+        # 두 단계의 `get_default_config` 가 이름이 같다. 한 함수 안에서 둘을 지연
+        # 임포트하므로 별칭을 준다 — 같은 이름에 다른 타입이 묶이면 타입 검사가 막힌다.
+        from npick_worker.frame_extraction import (
+            PyAvFrameGrabber,
+        )
+        from npick_worker.frame_extraction import (
+            get_default_config as get_frame_config,
+        )
+
+        frame_config = get_frame_config()
+        grabber = PyAvFrameGrabber()
+        return stage_version(
+            stage,
+            _frame_extraction_identity(
+                config_version=frame_config.version_id,
+                engine=grabber.name,
+                engine_version=grabber.version,
             ),
         )
     msg = f"버전을 선언할 수 없는 단계다: {stage}"

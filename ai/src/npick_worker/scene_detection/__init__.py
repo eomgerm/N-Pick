@@ -19,10 +19,12 @@ from npick_worker.scene_detection.config import (
 )
 from npick_worker.scene_detection.detector import RawDetection, SceneDetector
 from npick_worker.scene_detection.models import Scene, SceneDetectionResult
-from npick_worker.scene_detection.pyscenedetect_backend import (
-    PySceneDetectDetector,
-    frames_to_ms,
-)
+from npick_worker.scene_detection.pyscenedetect_backend import PySceneDetectDetector
+
+# ms 변환 규칙은 `npick_worker.timecode` 하나다. frame_extraction 이 같은 규칙으로
+# ms 를 프레임 번호로 되돌리므로 여기 사본을 두면 두 단계가 조용히 갈라진다.
+# 기존 호출부(report.py·테스트)를 위해 이름은 계속 이 패키지에서 노출한다.
+from npick_worker.timecode import frames_to_ms
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",

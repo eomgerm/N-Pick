@@ -56,11 +56,34 @@ def _jobs_import_lines(source: Path) -> list[int]:
     return lines
 
 
+def _context(
+    stage: str,
+    video: Path,
+    work_dir: Path,
+    upstream: dict[str, object] | None = None,
+) -> StageContext:
+    """배정 하나를 흉내낸 실행 맥락.
+
+    `outputKeyPrefix` 는 계약 §5 의 모양(`runs/{runId}/{stage}/a{attempt}/`)을 그대로
+    쓴다. attempt 가 접두에 들어 있어 실패한 시도의 파일이 성공한 시도를 덮어쓸 수
+    없다는 성질이 키 조립에 실제로 반영되는지 여기서 함께 확인된다.
+    """
+    return StageContext(
+        stage=stage,
+        video_path=video,
+        storage_key="clips/1/source.mp4",
+        work_dir=work_dir,
+        output_key_prefix=f"runs/398021847361024/{stage}/a1/",
+        upstream=upstream or {},
+    )
+
+
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_only_scene_detection_is_implemented() -> None:
-    assert set(HANDLERS) == {"scene_detection"}
+def test_implemented_stages_are_exactly_the_two_earliest() -> None:
+    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 여덟은 resolve() 가 None 이다."""
+    assert set(HANDLERS) == {"scene_detection", "frame_extraction"}
 
 
 def test_every_handler_is_an_frd_stage() -> None:
@@ -159,14 +182,42 @@ def test_capability_versions_cover_exactly_the_implemented_stages() -> None:
     assert set(capability_versions()) == set(HANDLERS)
 
 
-def test_capability_version_matches_what_the_run_reports(make_video: object) -> None:
+def test_capability_version_matches_what_the_run_reports(
+    make_video: object, tmp_path: Path
+) -> None:
     """선언한 버전과 실제로 만든 버전이 달라지면 BE 의 배정 필터가 무의미해진다."""
     assert callable(make_video)
     video = make_video("capability", [("bars", 20), ("white", 20)])
 
     declared = capability_versions()["scene_detection"]
-    produced = HANDLERS["scene_detection"].run(
-        StageContext(stage="scene_detection", video_path=video, storage_key="k")
+    produced = HANDLERS["scene_detection"].run(_context("scene_detection", video, tmp_path))
+    assert produced.versions.stage_version == declared
+
+
+def test_frame_extraction_capability_version_matches_what_the_run_reports(
+    make_video: object, tmp_path: Path
+) -> None:
+    """같은 검사를 2단계에도 한다. 조립 지점이 둘로 갈라졌는지 여기서 잡힌다."""
+    assert callable(make_video)
+    video = make_video("capability-frames", [("bars", 20), ("white", 20)])
+
+    declared = capability_versions()["frame_extraction"]
+    produced = HANDLERS["frame_extraction"].run(
+        _context(
+            "frame_extraction",
+            video,
+            tmp_path,
+            upstream={
+                "sceneDetection": {
+                    "scenes": [
+                        {"sceneIndex": 0, "startTimeMs": 0, "endTimeMs": 2000},
+                        {"sceneIndex": 1, "startTimeMs": 2000, "endTimeMs": 4000},
+                    ],
+                    "mediaDurationMs": 4000,
+                    "frameRate": 10.0,
+                }
+            },
+        )
     )
     assert produced.versions.stage_version == declared
 

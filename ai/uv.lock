@@ -535,6 +535,7 @@ dependencies = [
     { name = "httpx2" },
     { name = "kiwipiepy" },
     { name = "kiwipiepy-model" },
+    { name = "numpy" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "scenedetect-headless" },
@@ -544,7 +545,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
-    { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -562,6 +562,7 @@ requires-dist = [
     { name = "httpx2", specifier = ">=2,<3" },
     { name = "kiwipiepy", specifier = "==0.23.2" },
     { name = "kiwipiepy-model", specifier = "==0.23.0" },
+    { name = "numpy", specifier = ">=2,<3" },
     { name = "pydantic", specifier = ">=2.12,<3" },
     { name = "pydantic-settings", specifier = ">=2.15,<3" },
     { name = "scenedetect-headless", specifier = ">=0.7.1,<0.8" },
@@ -571,7 +572,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=2.3,<3" },
-    { name = "numpy", specifier = ">=2,<3" },
     { name = "pytest", specifier = ">=9,<10" },
     { name = "pytest-asyncio", specifier = ">=1.4,<2" },
     { name = "ruff", specifier = ">=0.16,<0.17" },

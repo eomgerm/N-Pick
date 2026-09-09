@@ -14,7 +14,8 @@ from pydantic import ConfigDict, Field, model_validator
 from npick_worker.jobs.errors import StageErrorCode
 from npick_worker.jobs.versions import StageVersion, WireModel
 
-if TYPE_CHECKING:  # 런타임에 scene_detection 을 끌어오지 않는다(cv2 가 딸려 온다).
+if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(scene_detection 은 cv2 가 딸려 온다).
+    from npick_worker.frame_extraction.models import FrameExtractionResult
     from npick_worker.scene_detection.models import SceneDetectionResult
 
 #: 결과 봉투의 형식 버전. BE 는 모르는 값을 받으면 400 으로 거절한다.
@@ -289,4 +290,124 @@ class SceneDetectionOutput(WireModel):
             ],
             media_duration_ms=result.duration_ms,
             frame_rate=result.frame_rate,
+        )
+
+
+class UpstreamSceneOut(SceneOut):
+    """수신용 `SceneOut`. 값의 뜻은 같고 미지의 키 정책만 반대다.
+
+    계약 §3 은 보내는 모델에 `extra="forbid"`, 받는 모델에 `extra="ignore"` 를 둔다.
+    같은 payload 가 방향에 따라 두 정책을 다 필요로 하는 곳이 여기다 — 워커가 만든
+    `scene_detection` 산출물을 BE 가 `inputs.upstream` 으로 되돌려 주기 때문이다.
+    상속으로 정책만 뒤집어 필드가 갈라질 여지를 없앤다.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class UpstreamSceneDetection(SceneDetectionOutput):
+    """`inputs.upstream["sceneDetection"]`. 상류 1단계 산출물이 그대로 돌아온 것이다."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    scenes: Sequence[UpstreamSceneOut] = Field(min_length=1)
+
+
+class FrameExtractionUpstream(WireResponse):
+    """`inputs.upstream` 중 `frame_extraction` 이 쓰는 부분.
+
+    워커는 DB 에 접속하지 않으므로 상류 산출물은 BE 가 되돌려 준다(계약 §4.1). 키가
+    없으면 이 단계는 할 일을 모르는 것이지 빈 결과를 내는 것이 아니다 — 그래서 필수다.
+    """
+
+    scene_detection: UpstreamSceneDetection
+
+
+class KeyframeOut(WireModel):
+    """`keyframe` 행 하나가 될 값. 이 세 필드가 그 테이블의 전부다."""
+
+    scene_index: int = Field(ge=0)
+    #: 저장된 프레임의 정규 시각. `UNIQUE(scene_id, timestamp_ms)` 의 그 값이다.
+    timestamp_ms: int = Field(ge=0)
+    #: 미디어 루트 상대 경로. `artifacts` 의 같은 키로 바이트가 올라가 있다.
+    storage_key: str = Field(min_length=1)
+
+
+class SceneKeyframesOut(WireModel):
+    """scene 하나의 keyframe 묶음.
+
+    **`keyframes[0]` 이 대표 이미지다.** `keyframe` 테이블에 대표를 표시할 컬럼이 없고
+    ERD 주석이 "결과 목록의 대표 이미지는 첫 장을 쓴다" 로 두었기 때문에, 대표는 별도
+    플래그가 아니라 **목록 순서**로 전달한다. BE 는 이 순서대로 INSERT 해야 하고 그래야
+    대표가 그 scene 의 최소 `keyframe_id` 가 된다.
+
+    `representative_timestamp_ms` 를 함께 싣는 이유는 그 규약이 순서 하나에 매달려 있기
+    때문이다. 목록을 정렬해 저장하는 구현 변경이 생기면 대표가 조용히 바뀌는데, 이 필드가
+    있으면 BE 가 저장 직전에 대조해 어긋남을 잡을 수 있다.
+    """
+
+    scene_index: int = Field(ge=0)
+    representative_timestamp_ms: int = Field(ge=0)
+    keyframes: Sequence[KeyframeOut] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _representative_is_first(self) -> "SceneKeyframesOut":
+        head = self.keyframes[0]
+        if head.timestamp_ms != self.representative_timestamp_ms:
+            msg = (
+                "대표 이미지가 목록의 첫 장이 아니다: "
+                f"scene_index={self.scene_index} "
+                f"(첫 장 {head.timestamp_ms}ms, 대표 {self.representative_timestamp_ms}ms)"
+            )
+            raise ValueError(msg)
+        stamps = [keyframe.timestamp_ms for keyframe in self.keyframes]
+        if len(set(stamps)) != len(stamps):
+            # BE 에서 UNIQUE 제약으로 터지면 트랜잭션 하나가 통째로 롤백되고 이미 쓴
+            # 처리 시간이 사라진다. 보내기 전에 걸리는 편이 낫다.
+            msg = f"같은 timestamp_ms 가 두 번 있다: scene_index={self.scene_index}"
+            raise ValueError(msg)
+        if any(keyframe.scene_index != self.scene_index for keyframe in self.keyframes):
+            msg = f"다른 scene 의 keyframe 이 섞였다: scene_index={self.scene_index}"
+            raise ValueError(msg)
+        return self
+
+
+class FrameExtractionOutput(WireModel):
+    """`frame_extraction` 단계의 payload."""
+
+    scenes: Sequence[SceneKeyframesOut] = Field(min_length=1)
+    #: 저장한 이미지의 해상도. **원본 그대로다** — 이 단계는 다운스케일하지 않는다.
+    #: 후속 OCR 의 bounding box 좌표계이므로 payload 에 싣는다.
+    image_width: int = Field(gt=0)
+    image_height: int = Field(gt=0)
+
+    @classmethod
+    def from_result(
+        cls, result: "FrameExtractionResult", storage_keys: Mapping[tuple[int, int], str]
+    ) -> "FrameExtractionOutput":
+        """단계의 순수 산출물을 와이어 모양으로 옮긴다.
+
+        `storage_keys` 는 `(scene_index, timestamp_ms) → storage_key` 다. 단계 구현은
+        파일명만 정하고 접두는 잡 레이어가 붙이므로(계약 §5 의 `outputKeyPrefix`) 키를
+        여기서 받는다. `score`·`frame_number` 는 DB 에 자리가 없어 보내지 않는다 —
+        집계값은 `metrics` 로 간다.
+        """
+        return cls(
+            scenes=[
+                SceneKeyframesOut(
+                    scene_index=scene.scene_index,
+                    representative_timestamp_ms=scene.representative.timestamp_ms,
+                    keyframes=[
+                        KeyframeOut(
+                            scene_index=keyframe.scene_index,
+                            timestamp_ms=keyframe.timestamp_ms,
+                            storage_key=storage_keys[(keyframe.scene_index, keyframe.timestamp_ms)],
+                        )
+                        for keyframe in scene.keyframes
+                    ],
+                )
+                for scene in result.scenes
+            ],
+            image_width=result.image_width,
+            image_height=result.image_height,
         )
