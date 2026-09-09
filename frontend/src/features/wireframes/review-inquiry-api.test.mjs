@@ -21,6 +21,7 @@ const {
   getReviewInquiry,
   parseReviewInquiryDetail,
   parseReviewInquiryList,
+  resolveReviewInquiry,
 } = await import('./review-inquiry-api.ts');
 
 const scene = {
@@ -167,6 +168,7 @@ test('목록·상세·선점 API 경로와 query, 멱등성 키를 계약대로 
   await getReviewInquiries(1, 'open');
   await getReviewInquiry('41');
   await claimReviewInquiry('41', 'claim-key');
+  await resolveReviewInquiry('41', 'no_action', '문제 없음');
 
   const listUrl = new URL(requests[0].input);
   assert.equal(listUrl.pathname, '/api/v1/review/inquiries');
@@ -177,4 +179,10 @@ test('목록·상세·선점 API 경로와 query, 멱등성 키를 계약대로 
   assert.ok(requests[2].input.endsWith('/api/v1/review/inquiries/41/claim'));
   assert.equal(requests[2].init.method, 'POST');
   assert.equal(new Headers(requests[2].init.headers).get('Idempotency-Key'), 'claim-key');
+  assert.ok(requests[3].input.endsWith('/api/v1/review/inquiries/41/resolution'));
+  assert.equal(requests[3].init.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests[3].init.body), {
+    resolution: 'no_action',
+    note: '문제 없음',
+  });
 });
