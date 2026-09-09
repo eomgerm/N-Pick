@@ -69,13 +69,39 @@ DB 테스트는 테스트별로 서로 다른 빈 PostgreSQL DB를 사용한다.
 
 | 환경 변수 접두사 | 대상 |
 | --- | --- |
-| `NPICK_MIGRATION_TEST_` | Flyway baseline |
+| `NPICK_MIGRATION_TEST_` | Flyway baseline. 태그 판정 테스트는 이 접속 정보로 **자기 DB를 따로 만들어** 쓴다 |
 | `NPICK_REGISTRATION_TEST_` | 클립 등록 영속성 |
 | `NPICK_DEDUP_TEST_` | 등록 중복 처리 및 후속 migration |
+| `NPICK_FEEDBACK_DB_TEST_` | 신고 검수 조회와 동시 검수 |
+
+빈 DB 준비:
+
+```bash
+docker compose up -d postgres      # 저장소 루트
+docker exec npick-postgres psql -U npick -d npick \
+  -c "DROP DATABASE IF EXISTS npick_migration_test WITH (FORCE)" \
+  -c "CREATE DATABASE npick_migration_test"
+
+export NPICK_MIGRATION_TEST_URL=jdbc:postgresql://localhost:5432/npick_migration_test
+export NPICK_MIGRATION_TEST_USER=npick
+export NPICK_MIGRATION_TEST_PASSWORD="$POSTGRES_PASSWORD"
+```
+
+`npick` 스키마를 미리 만들지 않는다. Flyway는 `create-schemas=false`로 돌지만 각 테스트가 스스로
+`CREATE SCHEMA npick`을 실행하며, `FlywayBaselineTest`는 **`npick` 스키마가 비어 있을 때만** 실행되도록
+자신을 보호한다. 스키마에 객체가 남아 있으면 이렇게 실패한다.
+
+```
+[비어 있지 않은 npick 스키마에는 테스트를 실행하지 않는다]
+expected: 0 but was: 61
+```
 
 실제 미디어 테스트는 `ffmpeg`와 `ffprobe`를 PATH에 설치하고 `NPICK_MEDIA_TESTS=true`로 활성화한다.
 파일 시스템 테스트에는 심볼릭 링크 생성 권한이 필요하다. 조건을 충족하지 않은 테스트는 생략될 수 있다.
 DB 테스트를 재실행할 때는 새 빈 DB를 준비하며 개발·운영 DB를 사용하지 않는다.
+
+**`BUILD SUCCESSFUL`만으로 통과를 판정하지 않는다.** 환경 변수가 없으면 DB 테스트는 오류 없이 생략된다.
+`build/test-results/test/*.xml`의 `skipped`를 확인한다.
 
 이미 적용된 migration을 수정하거나 checksum을 강제로 repair하지 않는다. 스키마 변경은 후속 migration으로
 관리한다. `vector`·`pg_search` 확장 설치에는 관리자 권한이 필요하다.
