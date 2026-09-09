@@ -14,6 +14,7 @@ import com.npick.feedback.application.query.InquiryListQuery;
 import com.npick.feedback.domain.error.FeedbackErrorCode;
 import com.npick.feedback.domain.error.FeedbackException;
 import com.npick.feedback.domain.model.Feedback;
+import com.npick.feedback.domain.model.FeedbackStatus;
 import com.npick.feedback.domain.repository.FeedbackRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,12 +83,40 @@ class InquiryReviewServiceTest {
     @Test
     @DisplayName("open이면 claim으로 reviewing 전환한다")
     void claimSucceedsOnOpen() {
-        when(repository.findById(1L)).thenReturn(Optional.of(Feedback.open(5L, 20L, null)));
         when(repository.claim(
                         org.mockito.ArgumentMatchers.eq(1L),
                         org.mockito.ArgumentMatchers.eq(9L),
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(1);
-        service.claim(1L, 9L); // 예외 없이 통과
+        service.claim(1L, 9L); // CAS 1행 성공, 재조회 없이 통과
+    }
+
+    private static Feedback reviewingOwnedBy(long reviewerId) {
+        return new Feedback(1L, 5L, 20L, null, FeedbackStatus.REVIEWING, reviewerId, java.time.Instant.EPOCH);
+    }
+
+    @Test
+    @DisplayName("이미 이 검수자가 잡은 문의의 재-claim은 성공 취급한다(소유자 멱등)")
+    void reclaimByOwnerIsIdempotent() {
+        when(repository.findById(1L)).thenReturn(Optional.of(reviewingOwnedBy(9L)));
+        when(repository.claim(
+                        org.mockito.ArgumentMatchers.eq(1L),
+                        org.mockito.ArgumentMatchers.eq(9L),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(0);
+        service.claim(1L, 9L); // 0행이지만 본인 소유라 예외 없이 통과
+    }
+
+    @Test
+    @DisplayName("남이 잡은 문의를 다른 검수자가 claim하면 409(ALREADY_CLAIMED)")
+    void claimByNonOwnerConflicts() {
+        when(repository.findById(1L)).thenReturn(Optional.of(reviewingOwnedBy(7L)));
+        when(repository.claim(
+                        org.mockito.ArgumentMatchers.eq(1L),
+                        org.mockito.ArgumentMatchers.eq(9L),
+                        org.mockito.ArgumentMatchers.any()))
+                .thenReturn(0);
+        FeedbackException ex = catchThrowableOfType(FeedbackException.class, () -> service.claim(1L, 9L));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.ALREADY_CLAIMED);
     }
 }

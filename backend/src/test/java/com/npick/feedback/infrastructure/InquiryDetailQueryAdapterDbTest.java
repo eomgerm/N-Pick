@@ -64,6 +64,11 @@ class InquiryDetailQueryAdapterDbTest {
         assertThat(detail.resolutionNote()).isEqualTo("조치 불필요");
         assertThat(detail.evidence()).anyMatch(e -> "CLIP".equals(e.scope())).anyMatch(e -> "SCENE".equals(e.scope()));
         assertThat(detail.execution().queryText()).isNotBlank();
+        assertThat(detail.sceneId()).isEqualTo(9301L);
+        assertThat(detail.resultRank()).isEqualTo(1);
+        assertThat(detail.execution().explicitFiltersJson()).containsIgnoringWhitespaces("2026-10-29");
+        assertThat(detail.history().reviewerName()).isEqualTo("검수자9002");
+        assertThat(detail.history().reviewerLoginId()).isEqualTo("reviewer-test-9002");
     }
 
     private void seed() {
@@ -116,7 +121,7 @@ class InquiryDetailQueryAdapterDbTest {
                     explicit_filters_json, normalized_filters_json, query_fingerprint, normalization_version,
                     execution_type, status, degraded_reasons_json, applied_excludes_json, search_config_json,
                     config_version, created_at, updated_at)
-                VALUES (9701, 9001, '테스트 질의', '테스트 질의', '{}'::jsonb, '{}'::jsonb, 'fp-9701', 'v1',
+                VALUES (9701, 9001, '테스트 질의', '테스트 질의', '{"date":"2026-10-29"}'::jsonb, '{}'::jsonb, 'fp-9701', 'v1',
                     'original', 'succeeded', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'cfg-v1', now(), now())
                 """);
         exec("""

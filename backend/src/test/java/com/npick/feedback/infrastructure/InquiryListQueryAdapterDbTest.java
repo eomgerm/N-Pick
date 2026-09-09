@@ -79,6 +79,21 @@ class InquiryListQueryAdapterDbTest {
         assertThat(all).extracting(InquiryListItem::feedbackId).containsExactlyInAnyOrder(9901L, 9902L);
     }
 
+    @Test
+    @Transactional
+    @DisplayName("countByStatus는 현재 필터 기준, countGroupedByStatus는 상태별 전체 집계를 반환한다")
+    void countsReflectFilterAndGrouping() {
+        seed();
+
+        assertThat(adapter.countByStatus("OPEN")).isEqualTo(1);
+        assertThat(adapter.countByStatus(null)).isEqualTo(2);
+
+        com.npick.feedback.application.query.StatusCounts counts = adapter.countGroupedByStatus();
+        assertThat(counts.open()).isEqualTo(1);
+        assertThat(counts.reviewing()).isEqualTo(1);
+        assertThat(counts.closed()).isZero();
+    }
+
     private void seed() {
         exec("""
                 INSERT INTO npick.member (member_id, login_id, password_hash, name, role, created_at, updated_at)

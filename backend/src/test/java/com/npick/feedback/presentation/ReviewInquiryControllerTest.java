@@ -68,16 +68,29 @@ class ReviewInquiryControllerTest {
     @Test
     @DisplayName("검수자는 상태별 목록을 조회한다")
     void reviewerListsByStatus() throws Exception {
-        given(reviewService.list(eq("open"), anyInt(), anyInt())).willReturn(java.util.List.of());
+        com.npick.feedback.application.query.InquiryListItem item =
+                new com.npick.feedback.application.query.InquiryListItem(
+                        1L, "OPEN", null, java.time.Instant.parse("2026-09-08T00:00:00Z"), "질의", 42L, true);
+        given(reviewService.list(eq("open"), anyInt(), anyInt()))
+                .willReturn(new com.npick.feedback.application.query.InquiryListPage(
+                        java.util.List.of(item), 6L, new com.npick.feedback.application.query.StatusCounts(3, 2, 1)));
         mockMvc.perform(get("/api/v1/review/inquiries?status=open")
                         .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalElements").value(6))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.statusCounts.open").value(3))
+                .andExpect(jsonPath("$.data.statusCounts.reviewing").value(2))
+                .andExpect(jsonPath("$.data.statusCounts.closed").value(1))
+                .andExpect(jsonPath("$.data.items[0].feedbackId").value(1));
     }
 
     @Test
     @DisplayName("page가 음수여도 500 대신 0으로 보정해 정상 응답한다")
     void negativePageIsClampedToZero() throws Exception {
-        given(reviewService.list(eq("open"), eq(0), anyInt())).willReturn(java.util.List.of());
+        given(reviewService.list(eq("open"), eq(0), anyInt()))
+                .willReturn(new com.npick.feedback.application.query.InquiryListPage(
+                        java.util.List.of(), 0L, new com.npick.feedback.application.query.StatusCounts(0, 0, 0)));
         mockMvc.perform(get("/api/v1/review/inquiries?status=open&page=-1")
                         .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
                 .andExpect(status().isOk());
@@ -96,21 +109,28 @@ class ReviewInquiryControllerTest {
     void reviewerGetsDetail() throws Exception {
         InquiryDetail detail = new InquiryDetail(
                 1L,
-                "OPEN",
+                "REVIEWING",
                 null,
                 null,
                 java.time.Instant.parse("2026-09-08T00:00:00Z"),
                 "이상해요",
+                42L,
+                3,
                 "{\"score\":1}",
-                new ExecutionSnapshot("query", "{}", "{}", "{}", "{}"),
+                new ExecutionSnapshot("query", "{\"date\":\"2026\"}", "{}", "{}", "{}", "{}"),
                 java.util.List.of(new com.npick.feedback.application.query.SceneEvidence(
                         5L, "사건명", "verified", "verified", "SCENE")),
-                new ReviewHistory(null, null, null));
+                new ReviewHistory(200L, "검수자01", "reviewer01", java.time.Instant.parse("2026-09-08T01:00:00Z"), null));
         given(reviewService.detail(1L)).willReturn(detail);
         mockMvc.perform(get("/api/v1/review/inquiries/1")
                         .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.resultExplainJson").value("{\"score\":1}"))
+                .andExpect(jsonPath("$.data.sceneId").value(42))
+                .andExpect(jsonPath("$.data.resultRank").value(3))
+                .andExpect(jsonPath("$.data.execution.explicitFiltersJson").value("{\"date\":\"2026\"}"))
+                .andExpect(jsonPath("$.data.history.reviewerName").value("검수자01"))
+                .andExpect(jsonPath("$.data.history.reviewerLoginId").value("reviewer01"))
                 .andExpect(jsonPath("$.data.evidence[0].scope").value("SCENE"));
     }
 
@@ -130,7 +150,8 @@ class ReviewInquiryControllerTest {
     void reviewerClaimsInquiry() throws Exception {
         mockMvc.perform(post("/api/v1/review/inquiries/1/claim")
                         .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
-                        .with(csrf()))
+                        .with(csrf())
+                        .header("Idempotency-Key", "fe-generated-key-123"))
                 .andExpect(status().isOk());
     }
 
