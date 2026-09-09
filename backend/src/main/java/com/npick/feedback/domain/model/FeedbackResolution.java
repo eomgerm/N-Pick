@@ -5,8 +5,8 @@ import java.util.Locale;
 /**
  * 검수 처리 결과 5종 (FRD v3.1 F-09).
  *
- * <p>{@code terminal} 은 이 판정만으로 신고가 종료(closed)되는지, {@code noteRequired} 는 사유가 필수인지를 뜻한다. no_action·deferred 는
- * 교정 후보 없이 사유만 기록하고 종료된다. 교정 3종은 resolution 만 기록하고 reviewing 을 유지하며, 종료는 F-12·F-13 을 거친다.
+ * <p>{@code terminal} 은 이 판정만으로 신고가 종료(closed)되는지, {@code noteRequired} 는 사유가 필수인지를 뜻한다. no_action·deferred 는 교정 후보 없이
+ * 사유만 기록하고 종료된다. 교정 3종은 resolution 만 기록하고 reviewing 을 유지하며, 종료는 F-12·F-13 을 거친다.
  */
 public enum FeedbackResolution {
     TAG_CORRECTION("tag_correction", false, false),

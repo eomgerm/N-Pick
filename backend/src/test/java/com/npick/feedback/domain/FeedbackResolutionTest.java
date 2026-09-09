@@ -21,10 +21,9 @@ class FeedbackResolutionTest {
     @Test
     @DisplayName("교정 3종은 reviewing 유지(비종료)이며 사유 선택이다")
     void correctionsStayReviewing() {
-        for (FeedbackResolution r :
-                new FeedbackResolution[] {
-                    FeedbackResolution.TAG_CORRECTION, FeedbackResolution.PATCH_PARSE, FeedbackResolution.EXCLUDE_SCENE
-                }) {
+        for (FeedbackResolution r : new FeedbackResolution[] {
+            FeedbackResolution.TAG_CORRECTION, FeedbackResolution.PATCH_PARSE, FeedbackResolution.EXCLUDE_SCENE
+        }) {
             assertThat(r.isTerminal()).isFalse();
             assertThat(r.isNoteRequired()).isFalse();
         }
