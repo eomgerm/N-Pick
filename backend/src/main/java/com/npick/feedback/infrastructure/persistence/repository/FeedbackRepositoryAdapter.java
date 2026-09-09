@@ -6,6 +6,8 @@ import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
 import com.npick.feedback.domain.model.Feedback;
+import com.npick.feedback.domain.model.FeedbackResolution;
+import com.npick.feedback.domain.model.FeedbackStatus;
 import com.npick.feedback.domain.repository.FeedbackRepository;
 import com.npick.feedback.infrastructure.persistence.mapper.FeedbackPersistenceMapper;
 
@@ -53,14 +55,10 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
     }
 
     @Override
-    public int resolve(
-            long feedbackId,
-            long reviewerId,
-            String resolution,
-            String note,
-            String newStatus,
-            Instant closedAt,
-            Instant now) {
-        return jpaRepository.resolve(feedbackId, reviewerId, resolution, note, newStatus, closedAt, now);
+    public int resolve(long feedbackId, long reviewerId, FeedbackResolution resolution, String note, Instant now) {
+        // status·closed_at 파생을 여기서 확정해 잘못된 상태 문자열이 CAS 로 흘러가는 것을 막는다.
+        String newStatus = (resolution.isTerminal() ? FeedbackStatus.CLOSED : FeedbackStatus.REVIEWING).name();
+        Instant closedAt = resolution.isTerminal() ? now : null;
+        return jpaRepository.resolve(feedbackId, reviewerId, resolution.value(), note, newStatus, closedAt, now);
     }
 }

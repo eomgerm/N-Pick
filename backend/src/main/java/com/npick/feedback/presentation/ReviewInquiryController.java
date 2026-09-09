@@ -1,10 +1,12 @@
 package com.npick.feedback.presentation;
 
 import java.util.List;
+import jakarta.validation.Valid;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -52,10 +54,11 @@ public class ReviewInquiryController {
         return ApiResponse.success();
     }
 
-    @PostMapping("/inquiries/{feedbackId}/resolution")
+    // 처리 결과는 reviewing 동안 덮어쓰기 가능한 멱등 단일값이라 PUT 이다.
+    @PutMapping("/inquiries/{feedbackId}/resolution")
     public ApiResponse<Void> resolve(
             @PathVariable long feedbackId,
-            @RequestBody ResolveInquiryRequest request,
+            @Valid @RequestBody ResolveInquiryRequest request,
             @LoginMember CurrentMember member) {
         reviewService.resolve(feedbackId, member.memberId(), request.resolution(), request.note());
         return ApiResponse.success();

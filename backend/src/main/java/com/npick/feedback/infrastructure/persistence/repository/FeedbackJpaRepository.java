@@ -35,9 +35,11 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
             @Param("now") Instant now);
 
     // resolution 은 소문자, closed_at 은 종료성 판정일 때만 채운다. JPA 엔티티에 없는 컬럼(resolution·resolution_note·closed_at)이라 native 로 쓴다.
+    // note 를 생략하면(교정 3종은 선택) 기존 사유를 유지한다 — F-09 "어느 경우에도 이유 확인 가능". 사유를 비우려면 재판정이 아니라 별도 경로가 필요하다.
     @Modifying
     @Query(
-            value = "UPDATE feedback SET resolution = :resolution, resolution_note = :note, status = :newStatus, "
+            value = "UPDATE feedback SET resolution = :resolution, "
+                    + "resolution_note = COALESCE(:note, resolution_note), status = :newStatus, "
                     + "closed_at = :closedAt, updated_at = :now "
                     + "WHERE feedback_id = :id AND status = 'REVIEWING' AND reviewed_by_id = :reviewerId",
             nativeQuery = true)
