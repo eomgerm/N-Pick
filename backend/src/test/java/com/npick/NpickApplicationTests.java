@@ -6,10 +6,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.npick.clip.domain.repository.ClipRegistrationRepository;
 import com.npick.support.NpickPostgres;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -19,13 +17,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class NpickApplicationTests {
+    /** 실 DataSource 로 부퇅한다. 목을 쏘아 넣으려면 이 테스트가 검증하는 배선이 사라진다. */
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry properties) {
         NpickPostgres.datasource(properties);
     }
-
-    @MockitoBean
-    private ClipRegistrationRepository clipRegistrationRepository;
 
     @Autowired
     private MockMvc mockMvc;

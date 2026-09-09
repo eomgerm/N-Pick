@@ -63,36 +63,27 @@ curl http://localhost:8080/actuator/health   # {"status":"UP"}
 ./gradlew test
 ```
 
-### DB 테스트
+### 통합 테스트
 
-DB 를 쓰는 테스트는 [Testcontainers](https://testcontainers.com/) 가 compose 와 같은 `paradedb/paradedb:0.25.6-pg18`
-컨테이너를 띄워 쓴다. 환경 변수도 수동 `docker run` 도 필요 없고, 도커만 돌아가면 된다.
+DB 를 쓰는 테스트는 [Testcontainers](https://testcontainers.com/) 가 compose 와 같은
+`paradedb/paradedb:0.25.6-pg18` 컨테이너를 띄워 쓴다. 환경 변수도 수동 `docker run` 도 필요 없다.
 
-```bash
-./gradlew test
-```
-
-- 컨테이너는 `com.npick.support.NpickPostgres` 가 JVM 당 하나만 띄우고 기동 직후 `npick` 스키마와 baseline 을 한 번 적용한다.
-  종료는 Testcontainers 의 Ryuk 이 처리한다.
-- `FlywayBaselineTest` 만 같은 컨테이너 안에 전용 DB(`npick_baseline`)를 따로 만든다. 빈 DB 에서만 성립하는 단언을 하기 때문이다.
+- 컨테이너는 `com.npick.support.NpickPostgres` 가 JVM 당 하나만 띄우고, 기동 직후 `npick` 스키마와
+  migration 을 한 번 적용한다. 종료는 Testcontainers 의 Ryuk 이 처리한다.
+- 롤백 없이 커밋하는 테스트와 비어 있는 DB 가 필요한 테스트는 같은 컨테이너 안에 전용 DB 를 받는다.
+  `FlywayBaselineTest` 와 `RegistrationDeduplicationIntegrationTest` 는 migration 적용 건수를
+  단언하므로 비어 있는 DB 가 아니면 성립하지 않는다.
 - **도커가 없으면 스킵이 아니라 실패한다.** 의도한 동작이며, 검증되지 않은 것을 초록불로 위장하지 않기 위함이다.
-- 영상 인코딩을 실제로 돌리는 테스트는 로컬에 ffmpeg/ffprobe 가 있을 때만 돌린다(`NPICK_MEDIA_TESTS=true`).
 
-#### Flyway baseline 검증 (S15P21A501-153)
+실제 미디어 테스트는 `ffmpeg` 와 `ffprobe` 를 PATH 에 설치하고 `NPICK_MEDIA_TESTS=true` 로 활성화한다.
+파일 시스템 테스트에는 심볼릭 링크 생성 권한이 필요하다. 이 조건을 충족하지 않은 테스트는 생략된다.
 
-timestamp baseline은 FRD v3.1을 반영한 최종 ERDCloud의 **13개 테이블·134개 컬럼·23개 FK** 기준이다.
-기존 baseline이 적용된 DB에는 그대로 실행하지 않고 별도 이관 방식을 결정한다.
-그런 DB가 발견되면 checksum을 강제로 repair하거나 데이터를 삭제하지 말고 이관을 별도로 결정한다.
-`research/` 원문 반입은 154번 작업이며 저장소의 옛 FRD v2.2와 혼동하지 않는다.
+이미 적용된 migration 을 수정하거나 checksum 을 강제로 repair 하지 않는다. 스키마 변경은 후속
+migration 으로 관리한다. `vector`·`pg_search` 확장 설치에는 관리자 권한이 필요하다.
 
-검증 항목: timestamp baseline 최초 적용·validate·재실행 무변경, ERD 전체 컬럼/주석/FK 대조,
-중복·값 조합 제약, 확장 및 BM25/벡터 검색, 후보 변경의 롤백과 검증 기록 저장 가능 여부.
-검색 서비스의 순위 품질·권한·동시 확정 로직까지 테스트하는 것은 아니다.
-기대 구조 TSV는 2026-09-04 최종 ERD 스냅샷에서 얻은 회귀 테스트 기준이다.
-
-baseline의 확장 설치에는 DB 관리자 권한이 필요하다. 제한된 앱 계정이라면 관리자가 같은 DB의
-public 스키마에 `vector`·`pg_search`를 먼저 설치한다. ANN 인덱스의 거리 연산자·튜닝은
-100번의 임베딩 모델 확정 후에 정하며, 임시 차원은 `vector(1024)`다.
+테스트 설정은 `src/test/resources/application-test.yml` 이며 `test` 프로파일로 활성화된다(`build.gradle`).
+같은 이름의 `application.yml` 을 테스트 클래스패스에 두면 main 의 설정을 통째로 가려 운영 설정이
+검증되지 않으므로, 프로파일 파일로 둔다.
 
 ## 프로파일
 
@@ -147,4 +138,16 @@ com.npick
 
 설계 규약 정본은 [docs/ddd-package-architecture.md](docs/ddd-package-architecture.md)에 있다. **코드를 쓰기 전에 읽는다.**
 
-도메인 모듈은 아직 없다. 정본 §16에 따라 빈 패키지를 미리 만들지 않고, 실제 기능이 생길 때 추가한다.
+필요한 도메인 패키지만 생성하며 빈 패키지를 미리 만들지 않는다.
+
+## 등록 운영
+
+- 영상 검사에 `ffmpeg`·`ffprobe`가 필요하다. 등록용 저장 경로·입력 제한·파이프라인 설정은
+  [환경 변수 예시](.env.example)와 [애플리케이션 설정](src/main/resources/application.yml)을 참고한다.
+- 중복 처리에는 PostgreSQL 세션 advisory lock을 사용하므로 DB 직결 또는 세션 유지형 풀이 필요하다.
+  PgBouncer transaction pooling은 지원하지 않는다. 등록당 연결 2개와 다른 요청의 여유를 고려해 풀을 설정한다.
+- 여러 인스턴스는 등록된 영상에 동일하게 접근할 수 있어야 한다. 저장소 디렉터리는 운영 계정만 변경할 수 있게 한다.
+- 요청 키 기록은 자동 만료되지 않는다. 보관 정책을 변경할 때는 클라이언트의 재전송 기간과 함께 검토한다.
+- 결과가 불명확한 요청은 시간이 지났다는 이유로 재실행하거나 파일을 삭제하지 않는다.
+  재요청으로 결과를 복원할 수 없다면 clip·최초 run·진행 중 DB 트랜잭션·소유 파일을 대조한다.
+  커밋 부재와 파일 소유권을 확인한 경우에만 고아 파일 정리 및 요청 상태의 `failed` 전환으로 재시도를 허용한다.

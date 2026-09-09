@@ -14,6 +14,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RegistrationPersistenceAdapterTest {
     @Test
+    void unclassifiedFailureIsNotAssumedToBeARollback() {
+        RegisterClipUseCase uncertain = command -> {
+            throw new IllegalStateException("private path and SQL");
+        };
+        assertThatThrownBy(() -> new RegistrationPersistenceAdapter(uncertain).register(null))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.errorCode()).isEqualTo(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+                    assertThat(e.getMessage()).doesNotContain("private", "SQL");
+                });
+    }
+
+    @Test
     void distinguishesKnownFailureFromUnknownTransactionOutcome() {
         RegisterClipUseCase failed = command -> {
             throw new DataIntegrityViolationException("private SQL");

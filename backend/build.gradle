@@ -41,6 +41,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-restclient'
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 	implementation 'io.hypersistence:hypersistence-tsid:2.1.4'
 	compileOnly 'org.projectlombok:lombok'
@@ -61,4 +62,6 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// application-test.yml 을 활성화한다. 테스트 설정을 프로파일 파일로 둔 이유는 그 파일 주석에 있다.
+	systemProperty 'spring.profiles.active', 'test'
 }
