@@ -57,7 +57,7 @@ min_luma_std = 8.0
 # Pillow 의 quality 와 혼동하지 않는다.
 #
 # 2 를 기본으로 두는 이유는 이 자산의 1차 소비자가 사람 눈이 아니라 OCR 이기
-# 때문이다. 샘플 클립(800x450) 실측으로 qscale 2 는 프레임당 78 KiB, 3 은 61,
-# 5 는 45 였다(docs/frame-extraction.md §3). 픽셀 수로 환산하면 1080p 에서 약
-# 450 KiB 이고, 작은 글자 인식률을 위해 낼 만한 비용이다.
+# 때문이다. 샘플 클립(800x450) keyframe 23장 평균 실측으로 qscale 2 는 프레임당
+# 73 KiB, 3 은 57, 5 는 42 였다(docs/frame-extraction.md §4). 픽셀 수로 환산하면
+# 1080p 에서 약 420 KiB 이고, 작은 글자 인식률을 위해 낼 만한 비용이다.
 jpeg_qscale = 2

@@ -14,6 +14,7 @@
 import argparse
 import json
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 
@@ -101,12 +102,25 @@ def _load_scenes(args: argparse.Namespace) -> tuple[SceneSpan, ...]:
 def main() -> None:
     args = _parse_args()
     config = load_config(args.config) if args.config is not None else None
+
+    # 경과 시간을 재는 이유는 디코드를 두 번 하는 판단이 FRD §8.2 목표("짧은 영상 분석
+    # 30초")에 걸리는지가 이 숫자 하나에 달려 있기 때문이다(docs/frame-extraction.md §10).
+    # 문서에 적을 값이 손목시계가 아니라 이 출력이어야 다음 사람이 다시 잴 수 있다.
+    started = time.monotonic()
     scenes = _load_scenes(args)
+    prepared = time.monotonic()
 
     args.out.mkdir(parents=True, exist_ok=True)
     result = extract_keyframes(args.video, scenes, args.out, config)
+    finished = time.monotonic()
 
     print(render_table(result))
+    stage = "scene 분할" if args.scenes is None else "구간 읽기"
+    print()
+    print(
+        f"경과 시간: {stage} {prepared - started:.1f}s + keyframe 추출 "
+        f"{finished - prepared:.1f}s = 총 {finished - started:.1f}s"
+    )
 
     payload = args.out / "keyframes.json"
     # sort_keys + 고정 separators: 두 번 돌려 파일을 그대로 비교하면 멱등성이 보인다.

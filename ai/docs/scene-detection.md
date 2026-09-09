@@ -67,7 +67,7 @@ PySceneDetect 는 OpenCV 와 PyAV 백엔드를 모두 지원하고 기본값은 
 | --- | --- | --- |
 | `schema` | 설정 스키마 이름 | `version_id` 앞부분 |
 | `detector` | `content` \| `adaptive` | `adaptive` 는 핸드헬드·빠른 팬 오탐이 적다 |
-| `min_scene_len_ms` | 이보다 짧은 scene 을 만들지 않는다 | 플래시·1~2프레임 튐 흡수 |
+| `min_scene_len_ms` | 컷 사이 간격과 꼬리 scene 의 하한 | 플래시·1~2프레임 튐 흡수. **흡수는 scene 이 2개 이상일 때만 돈다** — 컷이 없는 짧은 영상은 그 길이의 scene 하나가 나온다 |
 | `downscale` | 분석 해상도 배율. `1` = 원본 | `auto` 를 쓰지 않는다 — 해상도마다 값이 달라지면 클립 간 비교가 깨진다 |
 | `frame_skip` | 건너뛸 프레임 수 | `0` 이 아니면 경계가 그 배수로 거칠어진다 |
 | `content.threshold` | HSV 차이 임계값 | 스케일이 `adaptive` 와 다르다 |
