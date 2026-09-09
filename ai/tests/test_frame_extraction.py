@@ -18,6 +18,7 @@ from npick_worker.frame_extraction import (
     SceneSpan,
     ScoredFrame,
     SlotCandidates,
+    SlotPlan,
     WrittenImage,
     extract_keyframes,
     frames_in_span,
@@ -49,6 +50,16 @@ def _cfg(**overrides: object) -> FrameExtractionConfig:
 
 def _span(start_ms: int, end_ms: int, index: int = 0) -> SceneSpan:
     return SceneSpan(scene_index=index, start_time_ms=start_ms, end_time_ms=end_ms)
+
+
+def _plan(
+    span: SceneSpan, config: FrameExtractionConfig | None = None, fps: float = VIDEO_FPS
+) -> tuple[SlotPlan, ...]:
+    """`plan_slots` 호출. 기본 fps 는 conftest 합성 영상과 같은 값이다.
+
+    순수 테스트와 영상 테스트가 같은 fps 를 말하면 두 쪽의 기대 장 수를 함께 읽을 수 있다.
+    """
+    return plan_slots(span, config if config is not None else load_config(), fps)
 
 
 # ── 설정: FRD 가 요구하는 하한 ──────────────────────────────────────────
@@ -113,26 +124,26 @@ def _toml(text: str) -> dict[str, object]:
 
 def test_short_scene_still_gets_multiple_slots() -> None:
     """scene_detection 의 최소 장면 길이(1000ms)에서도 복수 keyframe 이 나와야 한다."""
-    slots = plan_slots(_span(0, 1000), load_config())
+    slots = _plan(_span(0, 1000))
     assert len(slots) == 2
 
 
 def test_slot_count_follows_the_interval() -> None:
     # interval_ms 3000 → 9000ms 짜리 장면은 3장.
-    slots = plan_slots(_span(0, 9000), _cfg(interval_ms=3000))
+    slots = _plan(_span(0, 9000), _cfg(interval_ms=3000))
     assert len(slots) == 3
 
 
 def test_slot_count_is_capped_by_max() -> None:
     # 60초 장면이면 간격상 20장이지만 상한이 이긴다. 상한은 후속 VLM·OCR 의 비용 상한이다.
-    slots = plan_slots(_span(0, 60_000), _cfg(interval_ms=3000, max_keyframes_per_scene=5))
+    slots = _plan(_span(0, 60_000), _cfg(interval_ms=3000, max_keyframes_per_scene=5))
     assert len(slots) == 5
 
 
 def test_slots_stay_inside_the_edge_margin() -> None:
     """컷 직후·직전 프레임은 전환 잔상이 걸리기 쉬우므로 여백 안에 후보를 두지 않는다."""
     config = _cfg(edge_margin_ms=250)
-    slots = plan_slots(_span(10_000, 20_000), config)
+    slots = _plan(_span(10_000, 20_000), config)
     for slot in slots:
         for candidate_ms in slot.candidates_ms:
             assert 10_250 <= candidate_ms < 19_750
@@ -144,7 +155,7 @@ def test_edge_margin_is_dropped_for_a_scene_too_short_to_afford_it() -> None:
     여백을 지키려고 빈 창을 돌려주면 그 scene 의 keyframe 이 0 장이 되는데, 이 단계는
     치명 단계다.
     """
-    slots = plan_slots(_span(0, 400), _cfg(edge_margin_ms=250))
+    slots = _plan(_span(0, 400), _cfg(edge_margin_ms=250))
     assert slots
     for slot in slots:
         for candidate_ms in slot.candidates_ms:
@@ -154,9 +165,7 @@ def test_edge_margin_is_dropped_for_a_scene_too_short_to_afford_it() -> None:
 def test_candidates_are_ordered_from_the_slot_center_outward() -> None:
     """선호 순위가 곧 동점 규칙이다. 같은 점수면 중심에 가까운 쪽이 이겨야 한다."""
     config = _cfg(candidates_per_slot=3, candidate_step_ms=120, edge_margin_ms=0)
-    (slot,) = plan_slots(_span(0, 4000), config.model_copy(update={"max_keyframes_per_scene": 2}))[
-        :1
-    ]
+    (slot,) = _plan(_span(0, 4000), config.model_copy(update={"max_keyframes_per_scene": 2}))[:1]
     center = slot.center_ms
     assert slot.candidates_ms[0] == center
     assert set(slot.candidates_ms[1:]) == {center - 120, center + 120}
@@ -165,19 +174,35 @@ def test_candidates_are_ordered_from_the_slot_center_outward() -> None:
 def test_candidates_are_deduplicated_when_clamped() -> None:
     """창이 좁으면 후보가 같은 ms 로 몰린다. 같은 자리를 두 번 재지 않는다."""
     config = _cfg(candidates_per_slot=5, candidate_step_ms=1000, edge_margin_ms=0)
-    for slot in plan_slots(_span(0, 1000), config):
+    for slot in _plan(_span(0, 1000), config):
         assert len(set(slot.candidates_ms)) == len(slot.candidates_ms)
 
 
-def test_slot_count_cannot_exceed_the_millisecond_budget() -> None:
-    """창이 1ms 면 서로 다른 목표 시각은 1개뿐이다. 없는 프레임을 만들지 않는다."""
-    slots = plan_slots(_span(0, 1), _cfg(edge_margin_ms=0))
+def test_slot_count_cannot_exceed_the_frames_in_the_window() -> None:
+    """창에 프레임이 1장이면 서로 다른 프레임을 받을 슬롯도 1개뿐이다.
+
+    상한이 창의 ms 가 아니라 프레임 수인 것이 `_check_keyframe_count` 의 기대치와 같은
+    단위가 되는 근거다. 10fps 에서 100ms 창은 정규 시각이 0ms 하나만 들어온다.
+    """
+    slots = _plan(_span(0, 100), _cfg(edge_margin_ms=0))
     assert len(slots) == 1
+
+
+def test_plan_rejects_a_scene_with_no_frame_in_it() -> None:
+    """구간이 한 프레임 간격보다 짧으면 계획할 자리가 없다.
+
+    슬롯 0개를 돌려주면 그 scene 의 keyframe 이 조용히 0장이 되고, 1개로 올려 주면 없는
+    프레임을 향해 계획하는 것이다. `frames_in_span` 과 같은 어휘로 거절한다.
+
+    10fps 의 정규 시각은 0·100·200ms 이므로 `[1, 2)` 에는 어느 프레임도 들어오지 않는다.
+    """
+    with pytest.raises(ValueError, match="프레임이 없다"):
+        _plan(_span(1, 2), _cfg(edge_margin_ms=0))
 
 
 def test_plan_rejects_an_empty_scene() -> None:
     with pytest.raises(ValueError, match="길이가 0 이하"):
-        plan_slots(_span(1000, 1000), load_config())
+        _plan(_span(1000, 1000))
 
 
 # ── 선정 ───────────────────────────────────────────────────────────────

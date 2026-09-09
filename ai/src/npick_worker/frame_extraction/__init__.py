@@ -103,7 +103,7 @@ def extract_keyframes(
             scene_index=scene.scene_index,
             slots=tuple(
                 _to_frames(plan, spans[scene.scene_index], profile.frame_rate)
-                for plan in plan_slots(scene, config)
+                for plan in plan_slots(scene, config, profile.frame_rate)
             ),
         )
         for scene in scenes
