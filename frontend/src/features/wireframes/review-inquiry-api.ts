@@ -4,7 +4,7 @@ import type { InquiryResolution, InquiryStatus } from '@/features/wireframes/inq
 export interface ReviewInquiryScene {
   sceneId: string;
   clipId: string;
-  clipTitle: string;
+  clipTitle: string | null;
   startTimeMs: number;
   endTimeMs: number;
   pipelineRunId: string;
@@ -89,6 +89,18 @@ function integer(value: unknown): number {
   return value;
 }
 
+function positiveInteger(value: unknown): number {
+  const parsed = integer(value);
+  if (parsed === 0) fail();
+  return parsed;
+}
+
+function instant(value: unknown): string {
+  const parsed = text(value);
+  if (Number.isNaN(Date.parse(parsed))) fail();
+  return parsed;
+}
+
 function status(value: unknown): InquiryStatus {
   if (typeof value !== 'string') fail();
   const normalized = value.toLowerCase();
@@ -114,14 +126,17 @@ function resolution(value: unknown): InquiryResolution | null {
 
 function scene(value: unknown): ReviewInquiryScene {
   const data = record(value);
+  const startTimeMs = integer(data.startTimeMs);
+  const endTimeMs = integer(data.endTimeMs);
+  if (endTimeMs <= startTimeMs) fail();
   return {
     sceneId: identifier(data.sceneId),
     clipId: identifier(data.clipId),
-    clipTitle: text(data.clipTitle),
-    startTimeMs: integer(data.startTimeMs),
-    endTimeMs: integer(data.endTimeMs),
+    clipTitle: nullableText(data.clipTitle),
+    startTimeMs,
+    endTimeMs,
     pipelineRunId: identifier(data.pipelineRunId),
-    processingNo: integer(data.processingNo),
+    processingNo: positiveInteger(data.processingNo),
   };
 }
 
@@ -134,7 +149,7 @@ function listItem(value: unknown): ReviewInquiryListItem {
     feedbackId: identifier(data.feedbackId),
     status: status(data.status),
     resolution: resolution(data.resolution),
-    createdAt: text(data.createdAt),
+    createdAt: instant(data.createdAt),
     queryText: text(data.queryText),
     sceneId,
     scene: parsedScene,
@@ -173,13 +188,13 @@ export function parseReviewInquiryDetail(value: unknown): ReviewInquiryDetail {
     status: status(data.status),
     resolution: resolution(data.resolution),
     resolutionNote: nullableText(data.resolutionNote),
-    createdAt: text(data.createdAt),
+    createdAt: instant(data.createdAt),
     comment: nullableText(data.comment),
     queryText: text(execution.queryText),
     sceneId,
     scene: parsedScene,
     hasComment: data.comment !== null && data.comment !== undefined,
-    resultRank: integer(data.resultRank),
+    resultRank: positiveInteger(data.resultRank),
     resultExplainJson: nullableText(data.resultExplainJson),
     execution: {
       queryText: text(execution.queryText),

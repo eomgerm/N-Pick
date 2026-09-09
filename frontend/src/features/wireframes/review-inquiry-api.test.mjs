@@ -66,6 +66,20 @@ test('목록 응답은 백엔드 대문자 상태를 프론트 상태로 정규�
   );
 });
 
+test('영상 제목이 없으면 null을 보존하고 유효한 장면 구간은 그대로 읽는다', () => {
+  const parsed = parseReviewInquiryList({
+    items: [{ ...item, scene: { ...scene, clipTitle: null } }],
+    page: 0,
+    size: 10,
+    totalElements: 1,
+    totalPages: 1,
+    statusCounts: { open: 1, reviewing: 0, closed: 0 },
+  });
+  assert.equal(parsed.items[0].scene.clipTitle, null);
+  assert.equal(parsed.items[0].scene.startTimeMs, 42000);
+  assert.equal(parsed.items[0].scene.endTimeMs, 49000);
+});
+
 test('상세 응답은 당시 실행·근거·담당 이력을 보존한다', () => {
   const detail = parseReviewInquiryDetail({
     ...item,
@@ -108,6 +122,9 @@ test('누락·불일치 ID와 모르는 상태는 안전하지 않은 응답으�
     { ...item, feedbackId: 41 },
     { ...item, status: 'PENDING' },
     { ...item, sceneId: '99' },
+    { ...item, createdAt: '잘못된 시각' },
+    { ...item, scene: { ...scene, endTimeMs: scene.startTimeMs } },
+    { ...item, scene: { ...scene, processingNo: 0 } },
   ]) {
     assert.throws(
       () =>
@@ -122,6 +139,36 @@ test('누락·불일치 ID와 모르는 상태는 안전하지 않은 응답으�
       ApiClientError,
     );
   }
+});
+
+test('검색 결과 순위는 1 이상이어야 한다', () => {
+  assert.throws(
+    () =>
+      parseReviewInquiryDetail({
+        ...item,
+        comment: null,
+        resultRank: 0,
+        resultExplainJson: null,
+        execution: {
+          queryText: item.queryText,
+          explicitFiltersJson: null,
+          parsedQueryJson: null,
+          resolverOutputJson: null,
+          appliedRulesJson: null,
+          appliedExcludesJson: null,
+        },
+        evidence: [],
+        history: {
+          reviewedById: null,
+          reviewerName: null,
+          reviewerLoginId: null,
+          reviewStartedAt: null,
+          verifiedByExecutionId: null,
+        },
+        resolutionNote: null,
+      }),
+    ApiClientError,
+  );
 });
 
 test('목록·상세·선점 API 경로와 query, 멱등성 키를 계약대로 보낸다', async (context) => {

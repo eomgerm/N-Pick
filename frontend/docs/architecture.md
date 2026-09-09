@@ -83,7 +83,9 @@ src/
 
 제품 화면 `/search`, `/search/results`, `/review`는 `AppShell`이 공통 헤더와 화면 이동 메뉴를 제공합니다. `SessionBoundary`의 현재 계정으로 역할을 읽고 `SessionControls`가 계정·역할·로그아웃을 표시합니다. 편집기자에게는 장면 검색, 검수자에게는 장면 검색과 검수 메뉴를 제공하며 pathname은 현재 메뉴 표시에만 사용합니다. 검색 입력은 밝은 헤더, 검색 결과·검수는 기존 브랜드 배경을 사용합니다. 공개 랜딩·로그인과 각 page의 서버 접근 검사는 별도로 유지합니다.
 
-검수자는 `/review`에서 Spring의 `GET /review/inquiries`를 통해 최근 접수 순 10개 단위 문의 목록과 전체 상태 건수를 봅니다. 상태는 전체·접수(`open`)·검수 중(`reviewing`)·종료(`closed`)로 서버 필터링하며 `status/page/inquiry`를 URL에 보존합니다. 상세는 `GET /review/inquiries/{feedbackId}`로 문의 당시 검색 실행·필터·근거·처리 이력을 읽고, 접수 상태에서는 `POST /review/inquiries/{feedbackId}/claim`으로 선점합니다. 선점 버튼은 요청 중 중복 입력을 막고 동일 재시도에 같은 멱등성 키를 사용하며 성공 후 목록과 상세를 다시 읽습니다. 종료 여부와 `resolution`은 분리해 표시합니다. 현재 백엔드 목록 계약에 검색·임의 정렬 조건이 없어 해당 조작은 제공하지 않습니다. 페이지는 `useSearchParams`를 위한 Suspense 경계를 제공하고 현재 계정은 `/auth/me`의 `loginId`를 사용합니다.
+검수자는 `/review`에서 Spring의 `GET /review/inquiries`를 통해 최근 접수 순 10개 단위 문의 목록과 전체 상태 건수를 봅니다. 상태는 전체·접수(`open`)·검수 중(`reviewing`)·종료(`closed`)로 서버 필터링하며 `status/page/inquiry`를 URL에 보존합니다. 상세는 `GET /review/inquiries/{feedbackId}`로 문의 당시 검색 실행·필터·근거·처리 이력을 읽고, 접수 상태에서는 `POST /review/inquiries/{feedbackId}/claim`으로 선점합니다. 선점 버튼은 요청 중 중복 입력을 막고 동일 재시도에 같은 멱등성 키를 사용하며 성공 후 목록과 상세를 다시 읽습니다. 선점 충돌·권한·연결 실패는 성공 상태로 바꾸지 않고 최신 상태 확인·목록 복귀·안전한 재시도 중 다음 행동을 안내합니다. 종료 여부와 `resolution`은 분리해 표시합니다. `no_action`과 `deferred`는 수정 완료 색상으로 표현하지 않습니다. 현재 백엔드 목록 계약에 검색·임의 정렬 조건이 없어 해당 조작은 제공하지 않습니다. 페이지는 `useSearchParams`를 위한 Suspense 경계를 제공하고 현재 계정은 `/auth/me`의 `loginId`를 사용합니다.
+
+문의 목록과 상세의 장면 요약은 API의 `clipTitle`, `startTimeMs`, `endTimeMs`를 사용하며 제목이 없으면 `제목 없는 영상`으로 표시합니다. 썸네일·영상 API가 계약에 없으므로 가짜 썸네일이나 재생 기능을 만들지 않습니다. 상세는 문의 당시 검색 결과·필터·해석·적용 기록과 현재 태그를 분리합니다. 과거 JSON과 `resolverOutputJson`은 화면에 원문으로 노출하지 않으며, 현재 근거는 OCR·대사·출처·검증 상태 대신 중복을 제거한 태그명만 보여 줍니다. 과거 검색 기록은 읽기 전용이고 현재 태그로 다시 계산해 덮어쓰지 않습니다.
 
 선점한 검수자는 `PUT /review/inquiries/{feedbackId}/resolution`으로 판정과 최대 2,000자의 사유를 저장합니다. `no_action/deferred`는 사유가 필수이며 즉시 `closed`로 종료됩니다. `tag_correction/patch_parse/exclude_scene`는 판정만 저장하고 후속 교정·검증 API가 완료될 때까지 `reviewing`을 유지합니다. 프론트는 서버 응답 뒤 목록과 상세를 다시 읽어 상태를 확정하고 요청 중 중복 입력과 다른 검수자의 저장을 막습니다.
 
