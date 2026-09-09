@@ -63,6 +63,7 @@ import {
   hasValidResolutionDates,
   normalizeResolution,
 } from '@/features/wireframes/reviewer-resolution-state';
+import { ReviewInquiryWorkspace } from '@/features/wireframes/review-inquiry-workspace';
 
 interface ReviewerShellProps {
   theme: WireframeTheme;
@@ -729,6 +730,10 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       status: 'closed',
     }));
     setLiveMessage(`${selectedInquiry.id} 문의의 수정 결과를 확인하고 종료했습니다.`);
+  }
+
+  if (!isProcessing && !isRegistration) {
+    return <ReviewInquiryWorkspace theme={theme} />;
   }
 
   return (
