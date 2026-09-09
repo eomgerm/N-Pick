@@ -59,11 +59,12 @@ final class QueryResolverExceptionTranslator {
             if (!(current instanceof RestClientResponseException response)) {
                 continue;
             }
-            HttpStatus status = HttpStatus.resolve(response.getStatusCode().value());
+            // 비교는 isSameCodeAs 하나로 통일한다. HttpStatus.resolve 는 표준에 없는 코드에
+            // null 을 주므로 == 비교와 섞으면 판정 기준이 두 가지가 된다.
             if (response.getStatusCode().isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS)) {
                 return QueryResolverErrorCode.RESOLVER_RATE_LIMITED;
             }
-            if (status == HttpStatus.BAD_REQUEST) {
+            if (response.getStatusCode().isSameCodeAs(HttpStatus.BAD_REQUEST)) {
                 return QueryResolverErrorCode.QUERY_NOT_NORMALIZABLE;
             }
             if (response.getStatusCode().is4xxClientError()) {

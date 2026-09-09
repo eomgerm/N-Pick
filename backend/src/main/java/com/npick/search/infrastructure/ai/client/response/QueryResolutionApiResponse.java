@@ -38,8 +38,12 @@ public record QueryResolutionApiResponse(
 
         if (resolution == null) {
             // 해석은 실패했지만 정규화는 살아 있다. 호출부가 이 토큰으로 BM25 로 간다.
-            require(error != null, "resolution 이 없으면 error");
-            return failed(normalized, error.toErrorCode());
+            //
+            // error 까지 없으면 계약 위반이다. 그래도 예외로 던지지 않는다 — 정규화는 이미
+            // 파싱됐고, 여기서 던지면 어댑터가 RESOLVER_SCHEMA_INVALID 로 올려 그 토큰이
+            // 사라진다. 계약을 어긴 쪽을 벌하려다 검색을 같이 죽이는 셈이다 (§6.2).
+            return failed(
+                    normalized, error == null ? QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID : error.toErrorCode());
         }
         try {
             // 둘 다 오면 어느 쪽이 진짜인지 알 수 없다. 성공으로 밀면 error 를 조용히 버린다.
@@ -117,6 +121,15 @@ public record QueryResolutionApiResponse(
 
         QueryResolution toResolution() {
             require(schemaVersion != null, "resolution.schema_version");
+            // 리졸버는 이 배열들을 항상 보낸다 (`schema.py` 의 기본값이 빈 튜플이라 비어도 키는 있다).
+            // null 이면 키가 개명됐거나 계약이 깨진 것이다. 없이 통과시키면 해석이 텅 빈 채로
+            // "성공" 이 되어 검색 품질만 조용히 떨어지고 §7.2 기록에도 아무 흔적이 남지 않는다.
+            require(dateWindows != null, "resolution.date_windows");
+            require(incidentNames != null, "resolution.incident_names");
+            require(entities != null, "resolution.entities");
+            require(locations != null, "resolution.locations");
+            require(classifications != null, "resolution.classifications");
+            require(expandedTerms != null, "resolution.expanded_terms");
             return new QueryResolution(
                     schemaVersion,
                     enumOf(QueryResolution.Intent.class, intent, "resolution.intent"),
@@ -125,7 +138,7 @@ public record QueryResolutionApiResponse(
                     map(entities, Entity::toEntity),
                     map(locations, Location::toLocation),
                     map(classifications, Classification::toClassification),
-                    expandedTerms == null ? List.of() : List.copyOf(expandedTerms),
+                    List.copyOf(expandedTerms),
                     toConfidence(confidence, "resolution"));
         }
     }
