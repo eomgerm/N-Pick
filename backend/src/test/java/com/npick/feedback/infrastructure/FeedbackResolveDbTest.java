@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.npick.feedback.domain.model.FeedbackResolution;
 import com.npick.feedback.infrastructure.persistence.mapper.FeedbackPersistenceMapper;
 import com.npick.feedback.infrastructure.persistence.repository.FeedbackRepositoryAdapter;
 
@@ -62,16 +63,10 @@ class FeedbackResolveDbTest {
     private PlatformTransactionManager transactionManager;
 
     // resolve()는 @Modifying 쿼리라 활성 트랜잭션이 필요하다. 클래스가 NOT_SUPPORTED라 각 호출을 트랜잭션으로 감싼다(claim 동시성 테스트와 동일).
-    private int resolveTx(
-            long feedbackId,
-            long reviewerId,
-            String resolution,
-            String note,
-            String newStatus,
-            Instant closedAt,
-            Instant now) {
+    // status·closed_at 파생을 어댑터가 하므로 여기선 판정 enum과 사유만 넘긴다.
+    private int resolveTx(long feedbackId, long reviewerId, FeedbackResolution resolution, String note) {
         return new TransactionTemplate(transactionManager)
-                .execute(status -> repository.resolve(feedbackId, reviewerId, resolution, note, newStatus, closedAt, now));
+                .execute(status -> repository.resolve(feedbackId, reviewerId, resolution, note, Instant.now()));
     }
 
     @DynamicPropertySource
@@ -100,7 +95,7 @@ class FeedbackResolveDbTest {
     void correctionKeepsReviewing() {
         seed();
 
-        int affected = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, "patch_parse", null, "REVIEWING", null, Instant.now());
+        int affected = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.PATCH_PARSE, null);
 
         assertThat(affected).isEqualTo(1);
         Map<String, Object> row = row();
@@ -114,8 +109,8 @@ class FeedbackResolveDbTest {
     void overwriteWhileReviewing() {
         seed();
 
-        int first = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, "patch_parse", null, "REVIEWING", null, Instant.now());
-        int second = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, "tag_correction", null, "REVIEWING", null, Instant.now());
+        int first = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.PATCH_PARSE, null);
+        int second = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.TAG_CORRECTION, null);
 
         assertThat(first).isEqualTo(1);
         assertThat(second).isEqualTo(1);
@@ -129,8 +124,7 @@ class FeedbackResolveDbTest {
     void terminalClosesFeedback() {
         seed();
 
-        Instant now = Instant.now();
-        int affected = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, "no_action", "문제 없음", "CLOSED", now, now);
+        int affected = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.NO_ACTION, "문제 없음");
 
         assertThat(affected).isEqualTo(1);
         Map<String, Object> row = row();
@@ -140,12 +134,25 @@ class FeedbackResolveDbTest {
     }
 
     @Test
+    @DisplayName("사유 없이 재판정하면 기존 resolution_note를 유지한다(COALESCE)")
+    void noteRetainedWhenOmitted() {
+        seed();
+
+        resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.TAG_CORRECTION, "태그가 잘못됨");
+        resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.PATCH_PARSE, null);
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT resolution, resolution_note FROM npick.feedback WHERE feedback_id = ?", FEEDBACK_ID);
+        assertThat(row.get("resolution")).isEqualTo("patch_parse");
+        assertThat(row.get("resolution_note")).isEqualTo("태그가 잘못됨");
+    }
+
+    @Test
     @DisplayName("claim하지 않은 다른 검수자의 resolve는 0건이며 행은 변하지 않는다")
     void wrongReviewerLocked() {
         seed();
 
-        Instant now = Instant.now();
-        int affected = resolveTx(FEEDBACK_ID, REVIEWER_B_ID, "no_action", "x", "CLOSED", now, now);
+        int affected = resolveTx(FEEDBACK_ID, REVIEWER_B_ID, FeedbackResolution.NO_ACTION, "x");
 
         assertThat(affected).isEqualTo(0);
         Map<String, Object> row = row();
@@ -158,9 +165,8 @@ class FeedbackResolveDbTest {
     void closedIsLocked() {
         seed();
 
-        Instant now = Instant.now();
-        int closed = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, "no_action", "종결", "CLOSED", now, now);
-        int reopen = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, "patch_parse", null, "REVIEWING", null, Instant.now());
+        int closed = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.NO_ACTION, "종결");
+        int reopen = resolveTx(FEEDBACK_ID, REVIEWER_A_ID, FeedbackResolution.PATCH_PARSE, null);
 
         assertThat(closed).isEqualTo(1);
         assertThat(reopen).isEqualTo(0);

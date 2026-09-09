@@ -14,6 +14,7 @@ import com.npick.feedback.application.query.InquiryListQuery;
 import com.npick.feedback.domain.error.FeedbackErrorCode;
 import com.npick.feedback.domain.error.FeedbackException;
 import com.npick.feedback.domain.model.Feedback;
+import com.npick.feedback.domain.model.FeedbackResolution;
 import com.npick.feedback.domain.model.FeedbackStatus;
 import com.npick.feedback.domain.repository.FeedbackRepository;
 
@@ -99,7 +100,8 @@ class InquiryReviewServiceTest {
     @Test
     @DisplayName("모르는 처리 결과는 400(INVALID_RESOLUTION)")
     void rejectsUnknownResolution() {
-        FeedbackException ex = catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "nope", "n"));
+        FeedbackException ex =
+                catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "nope", "n"));
         assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.INVALID_RESOLUTION);
     }
 
@@ -130,28 +132,35 @@ class InquiryReviewServiceTest {
     }
 
     @Test
-    @DisplayName("교정 판정은 reviewing 유지·closed_at 없이 기록한다")
-    void correctionKeepsReviewing() {
-        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
-        given(repository.resolve(
-                        eq(1L), eq(9L), eq("patch_parse"), isNull(), eq("REVIEWING"), isNull(), org.mockito.ArgumentMatchers.any()))
-                .willReturn(1);
-        service.resolve(1L, 9L, "patch_parse", null);
-        verify(repository)
-                .resolve(eq(1L), eq(9L), eq("patch_parse"), isNull(), eq("REVIEWING"), isNull(), org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    @DisplayName("종료성 판정은 closed 상태·closed_at과 함께 기록한다")
-    void terminalClosesFeedback() {
+    @DisplayName("교정 판정은 해당 enum과 사유(없으면 null)로 리포지토리에 위임한다")
+    void correctionDelegatesResolution() {
         given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
         given(repository.resolve(
                         eq(1L),
                         eq(9L),
-                        eq("no_action"),
+                        eq(FeedbackResolution.PATCH_PARSE),
+                        isNull(),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+        service.resolve(1L, 9L, "patch_parse", null);
+        verify(repository)
+                .resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.PATCH_PARSE),
+                        isNull(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("종료성 판정은 해당 enum과 사유로 위임한다(status·closed_at 파생은 어댑터 책임)")
+    void terminalDelegatesResolution() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.NO_ACTION),
                         eq("문제 없음"),
-                        eq("CLOSED"),
-                        org.mockito.ArgumentMatchers.notNull(),
                         org.mockito.ArgumentMatchers.any()))
                 .willReturn(1);
         service.resolve(1L, 9L, "no_action", "문제 없음");
@@ -159,10 +168,29 @@ class InquiryReviewServiceTest {
                 .resolve(
                         eq(1L),
                         eq(9L),
-                        eq("no_action"),
+                        eq(FeedbackResolution.NO_ACTION),
                         eq("문제 없음"),
-                        eq("CLOSED"),
-                        org.mockito.ArgumentMatchers.notNull(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("공백뿐인 사유는 null로 정규화해 위임한다(COALESCE로 기존 사유 유지)")
+    void blankNoteNormalizedToNull() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.TAG_CORRECTION),
+                        isNull(),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+        service.resolve(1L, 9L, "tag_correction", "   ");
+        verify(repository)
+                .resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.TAG_CORRECTION),
+                        isNull(),
                         org.mockito.ArgumentMatchers.any());
     }
 
@@ -173,8 +201,6 @@ class InquiryReviewServiceTest {
         given(repository.resolve(
                         eq(1L),
                         eq(9L),
-                        org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any()))
