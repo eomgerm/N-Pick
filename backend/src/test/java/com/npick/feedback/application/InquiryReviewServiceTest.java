@@ -14,6 +14,7 @@ import com.npick.feedback.application.query.InquiryListQuery;
 import com.npick.feedback.domain.error.FeedbackErrorCode;
 import com.npick.feedback.domain.error.FeedbackException;
 import com.npick.feedback.domain.model.Feedback;
+import com.npick.feedback.domain.model.FeedbackStatus;
 import com.npick.feedback.domain.repository.FeedbackRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -89,5 +90,97 @@ class InquiryReviewServiceTest {
                         org.mockito.ArgumentMatchers.any()))
                 .thenReturn(1);
         service.claim(1L, 9L); // 예외 없이 통과
+    }
+
+    private static Feedback reviewing(long reviewerId) {
+        return new Feedback(1L, 5L, 20L, null, FeedbackStatus.REVIEWING, reviewerId, java.time.Instant.EPOCH);
+    }
+
+    @Test
+    @DisplayName("모르는 처리 결과는 400(INVALID_RESOLUTION)")
+    void rejectsUnknownResolution() {
+        FeedbackException ex = catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "nope", "n"));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.INVALID_RESOLUTION);
+    }
+
+    @Test
+    @DisplayName("no_action·deferred는 사유 없으면 400(NOTE_REQUIRED)")
+    void rejectsTerminalWithoutNote() {
+        FeedbackException ex =
+                catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "no_action", "  "));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOTE_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("reviewing이 아니면 409(NOT_RESOLVABLE)")
+    void rejectsWhenNotReviewing() {
+        given(repository.findById(1L)).willReturn(Optional.of(Feedback.open(5L, 20L, null)));
+        FeedbackException ex =
+                catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "patch_parse", null));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOT_RESOLVABLE);
+    }
+
+    @Test
+    @DisplayName("담당 검수자가 아니면 403(NOT_REVIEWER)")
+    void rejectsWhenNotClaimer() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(7L)));
+        FeedbackException ex =
+                catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "patch_parse", null));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOT_REVIEWER);
+    }
+
+    @Test
+    @DisplayName("교정 판정은 reviewing 유지·closed_at 없이 기록한다")
+    void correctionKeepsReviewing() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L), eq(9L), eq("patch_parse"), isNull(), eq("REVIEWING"), isNull(), org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+        service.resolve(1L, 9L, "patch_parse", null);
+        verify(repository)
+                .resolve(eq(1L), eq(9L), eq("patch_parse"), isNull(), eq("REVIEWING"), isNull(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("종료성 판정은 closed 상태·closed_at과 함께 기록한다")
+    void terminalClosesFeedback() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq("no_action"),
+                        eq("문제 없음"),
+                        eq("CLOSED"),
+                        org.mockito.ArgumentMatchers.notNull(),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+        service.resolve(1L, 9L, "no_action", "문제 없음");
+        verify(repository)
+                .resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq("no_action"),
+                        eq("문제 없음"),
+                        eq("CLOSED"),
+                        org.mockito.ArgumentMatchers.notNull(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("CAS 0행(경합)이면 409(NOT_RESOLVABLE)")
+    void resolveLostRaceConflict() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(0);
+        FeedbackException ex =
+                catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "patch_parse", null));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOT_RESOLVABLE);
     }
 }
