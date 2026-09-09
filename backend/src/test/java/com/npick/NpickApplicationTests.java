@@ -41,6 +41,11 @@ class NpickApplicationTests {
     @MockitoBean
     private org.springframework.data.jpa.mapping.JpaMetamodelMappingContext jpaMappingContext;
 
+    // 태그 판정 어댑터는 NamedParameterJdbcTemplate 을 요구한다. 이 컨텍스트는 DataSource 자동 설정을 빼므로
+    // 포트 타입을 대체해 어댑터 빈 자체를 만들지 않게 한다. 실제 SQL 은 TagJudgmentQueryAdapterTest 가 검증한다.
+    @MockitoBean
+    private com.npick.tag.application.query.FindTagJudgmentsQueryPort findTagJudgmentsQueryPort;
+
     @Autowired
     private MockMvc mockMvc;
 
