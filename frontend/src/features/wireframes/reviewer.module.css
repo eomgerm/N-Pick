@@ -901,18 +901,10 @@
   color: var(--accent-strong);
 }
 
-.itemMeta em[data-status='resolved'],
-.largeStatus[data-status='resolved'] {
+.itemMeta em[data-status='closed'],
+.largeStatus[data-status='closed'] {
   background: var(--positive-soft);
   color: var(--positive);
-}
-
-.itemMeta em[data-status='dismissed'],
-.itemMeta em[data-status='deferred'],
-.largeStatus[data-status='dismissed'],
-.largeStatus[data-status='deferred'] {
-  background: var(--surface-muted);
-  color: var(--muted);
 }
 
 .degradedBadge {

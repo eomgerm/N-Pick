@@ -1,5 +1,6 @@
-export type ReviewStatus = 'pending' | 'reviewing' | 'resolved' | 'dismissed' | 'deferred';
-export type BoardStatus = 'all' | 'pending' | 'reviewing' | 'completed';
+import type { InquiryStatus } from '@/features/wireframes/inquiry-state';
+
+export type BoardStatus = 'all' | InquiryStatus;
 export type BoardSort = 'time' | 'requester' | 'topic';
 
 export interface ReviewBoardItem {
@@ -10,23 +11,17 @@ export interface ReviewBoardItem {
   requester: string;
   topic: string;
   daysAgo: number;
-  status: ReviewStatus;
+  status: InquiryStatus;
   timecode: string;
   thumbnail: 'station' | 'weather' | 'square';
   isDegraded: boolean;
-}
-
-export function getBoardStatus(status: ReviewStatus): Exclude<BoardStatus, 'all'> {
-  return status === 'pending' || status === 'reviewing' ? status : 'completed';
 }
 
 export function selectBoardPage(items: ReviewBoardItem[], params: URLSearchParams) {
   const query = (params.get('q') ?? '').trim().normalize('NFKC').toLocaleLowerCase('ko');
   const rawStatus = params.get('status');
   const status: BoardStatus =
-    rawStatus === 'pending' || rawStatus === 'reviewing' || rawStatus === 'completed'
-      ? rawStatus
-      : 'all';
+    rawStatus === 'open' || rawStatus === 'reviewing' || rawStatus === 'closed' ? rawStatus : 'all';
   const rawSort = params.get('sort');
   const sort: BoardSort = rawSort === 'requester' || rawSort === 'topic' ? rawSort : 'time';
   const matched = items.filter((item) => {
@@ -38,13 +33,11 @@ export function selectBoardPage(items: ReviewBoardItem[], params: URLSearchParam
   });
   const counts = {
     all: matched.length,
-    pending: matched.filter((item) => getBoardStatus(item.status) === 'pending').length,
-    reviewing: matched.filter((item) => getBoardStatus(item.status) === 'reviewing').length,
-    completed: matched.filter((item) => getBoardStatus(item.status) === 'completed').length,
+    open: matched.filter((item) => item.status === 'open').length,
+    reviewing: matched.filter((item) => item.status === 'reviewing').length,
+    closed: matched.filter((item) => item.status === 'closed').length,
   };
-  const filtered = matched.filter(
-    (item) => status === 'all' || getBoardStatus(item.status) === status,
-  );
+  const filtered = matched.filter((item) => status === 'all' || item.status === status);
   filtered.sort((a, b) => {
     const labelOrder = sort === 'time' ? 0 : a[sort].localeCompare(b[sort], 'ko');
     return labelOrder || a.daysAgo - b.daysAgo || a.id.localeCompare(b.id);

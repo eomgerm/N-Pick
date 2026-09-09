@@ -131,25 +131,25 @@ export function ReviewerProgress({
           </div>
           <p>
             <strong>
-              {overview.inquiries.completed}
+              {overview.inquiries.closed}
               <small> / {overview.inquiries.total}</small>
             </strong>{' '}
-            완료
+            종료
           </p>
           <progress
-            aria-label="전체 문의 완료 현황"
+            aria-label="전체 문의 종료 현황"
             max={overview.inquiries.total || 1}
-            value={overview.inquiries.completed}
+            value={overview.inquiries.closed}
           />
           <div className={styles.summaryMeta}>
             <span>
               처리 중 <b>{overview.inquiries.active.length}</b>
             </span>
             <span>
-              대기 <b>{overview.inquiries.pending}</b>
+              접수 <b>{overview.inquiries.open}</b>
             </span>
             <span>
-              완료 <b>{overview.inquiries.completed}</b>
+              종료 <b>{overview.inquiries.closed}</b>
             </span>
           </div>
         </section>

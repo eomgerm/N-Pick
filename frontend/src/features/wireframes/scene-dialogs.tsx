@@ -16,6 +16,11 @@ import {
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { formatTimestamp, type SearchResult } from '@/features/wireframes/demo-scenes';
+import {
+  inquiryResolutionLabels,
+  inquiryStatusLabels,
+  type InquiryResolution,
+} from '@/features/wireframes/inquiry-state';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
@@ -424,13 +429,10 @@ export function ScenePreviewDialog({
 
 export type InquiryDetails = {
   comment: string;
-} & ({ status: 'pending' | 'reviewing' } | { status: 'resolved'; resolution: string });
-
-const inquiryStatusLabels = {
-  pending: '대기',
-  reviewing: '처리 중',
-  resolved: '완료',
-} as const;
+} & (
+  | { status: 'open' | 'reviewing' }
+  | { status: 'closed'; resolution: InquiryResolution; resolutionSummary: string }
+);
 
 interface InquiryDialogProps {
   result: SearchResult;
@@ -452,11 +454,11 @@ export function InquiryDialog({
   const [comment, setComment] = useState(history?.comment ?? '');
   const statusMessage = !history
     ? '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'
-    : history.status === 'pending'
+    : history.status === 'open'
       ? '접수되어 검수자 확인을 기다리고 있습니다.'
       : history.status === 'reviewing'
         ? '검수자가 처리 중인 문의입니다.'
-        : '처리가 완료된 문의입니다. 문의 내용과 처리 내용을 확인하세요.';
+        : '종료된 문의입니다. 문의 내용과 처리 결과를 확인하세요.';
 
   return (
     <SceneDialog
@@ -520,12 +522,15 @@ export function InquiryDialog({
           value={comment}
         />
         <p id="inquiry-status-message">{statusMessage}</p>
-        {history?.status === 'resolved' ? (
+        {history?.status === 'closed' ? (
           <section aria-labelledby="inquiry-resolution-title" className={styles.inquiryResolution}>
             <h3 id="inquiry-resolution-title">
-              <Check aria-hidden="true" /> 처리 내용
+              <Check aria-hidden="true" /> 처리 결과
             </h3>
-            <p>{history.resolution}</p>
+            <p>
+              <strong>{inquiryResolutionLabels[history.resolution]}</strong>
+            </p>
+            <p>{history.resolutionSummary}</p>
           </section>
         ) : null}
         <div className={styles.modalActions}>
