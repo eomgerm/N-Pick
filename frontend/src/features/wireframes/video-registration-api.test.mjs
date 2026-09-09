@@ -139,6 +139,19 @@ test('허용한 validation 필드의 안전한 한국어 문자열만 인라인 
   });
 });
 
+test('403 보안 실패는 입력 변경 없이 같은 요청으로 수동 재시도한다', () => {
+  const error = new ApiClientError('api', 403, {
+    code: 'COMM_403',
+    message: 'Access is denied',
+  });
+
+  assert.deepEqual(getClipRegistrationErrorPresentation(error), {
+    fieldErrors: {},
+    retryMode: 'same-request',
+    showGlobal: true,
+  });
+});
+
 test('등록 API는 POST multipart와 멱등성 키, abort signal을 공통 client에 전달한다', async (t) => {
   const originalFetch = globalThis.fetch;
   let request;

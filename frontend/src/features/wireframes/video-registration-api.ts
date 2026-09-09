@@ -216,7 +216,8 @@ export function getClipRegistrationErrorPresentation(
 
   const retryMode = ['CLIP_409_001', 'CLIP_409_003'].includes(error.code)
     ? 'new-request'
-    : error.kind === 'network' ||
+    : error.status === 403 ||
+        error.kind === 'network' ||
         error.kind === 'aborted' ||
         error.kind === 'invalid-response' ||
         error.status >= 500 ||
