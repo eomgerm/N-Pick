@@ -1,5 +1,7 @@
 'use client';
 
+import { routes } from '@/lib/routes';
+
 import { ArrowRight, Clapperboard, ShieldCheck } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -30,7 +32,7 @@ export function LandingShell() {
         <p>필요한 순간, 정확한 선택.</p>
       </div>
       <header className={styles.header}>
-        <Link aria-label="N-Pick 홈" className={styles.brand} href="/landing">
+        <Link aria-label="N-Pick 홈" className={styles.brand} href={routes.landing}>
           <span className={styles.brandMark} aria-hidden="true">
             N
           </span>
@@ -55,7 +57,7 @@ export function LandingShell() {
           <p className={styles.eyebrow}>LET’S GET STARTED</p>
           <h2 id="role-title">어떤 작업을 시작할까요?</h2>
           <p className={styles.roleDescription}>함께할 역할을 선택해 주세요.</p>
-          <Link className={styles.roleCard} href="/login/shinhan?role=editor">
+          <Link className={styles.roleCard} href={`${routes.login}?role=editor`}>
             <span className={styles.roleIcon}>
               <Clapperboard aria-hidden="true" />
             </span>
@@ -68,7 +70,7 @@ export function LandingShell() {
           </Link>
           <Link
             className={`${styles.roleCard} ${styles.reviewerCard}`}
-            href="/login/shinhan?role=reviewer"
+            href={`${routes.login}?role=reviewer`}
           >
             <span className={styles.roleIcon}>
               <ShieldCheck aria-hidden="true" />

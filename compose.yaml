@@ -72,6 +72,8 @@ services:
       SERVER_PORT: 8080
       NPICK_PROFILES_DIR: /app/config/profiles
       NPICK_MEDIA_ROOT: /srv/npick/media
+      # 원본과 같은 volume에서 검증한 파일을 이동한다.
+      CLIP_UPLOAD_ROOT: /srv/npick/media/.uploads
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
     volumes:
@@ -96,6 +98,9 @@ services:
     env_file:
       - path: ./frontend/.env
         required: true
+    environment:
+      # Server Component의 세션 확인 주소. 브라우저 번들에는 포함하지 않는다.
+      API_INTERNAL_BASE_URL: http://backend:8080/api/v1
     image: npick/frontend:${FRONTEND_TAG:-local}
     container_name: npick-frontend
     restart: unless-stopped
@@ -127,6 +132,11 @@ services:
       NPICK_AI_LOG_LEVEL: ${AI_LOG_LEVEL:-INFO}
       # GPU 단계는 이 스택에 포함하지 않는다(SSAFY GPU 서버 배치)
       NPICK_AI_DEVICE: cpu
+      # backend 와 공유하는 마운트. 이 스택에서는 경로가 고정이라 여기서 준다.
+      # 원본 영상을 HTTP 로 복사하지 않고 바로 읽는다(docs/contracts/job-api.md).
+      NPICK_AI_MEDIA_ROOT: /srv/npick/media
+      # 잡 API 주소·토큰은 여기 두지 않는다. compose 스택과 RunPod 파드가 서로 다른
+      # 값을 쓰므로 하나를 박으면 다른 하나가 닿지 않는다. ai/.env 가 정한다.
     ports:
       - "127.0.0.1:${AI_WORKER_PORT:-8000}:8000"
     volumes:

@@ -1,14 +1,16 @@
 const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8080/api/v1';
 const DEFAULT_APP_MODE = 'demo';
 
-function parseApiBaseUrl(value: string): URL {
+export function parseApiBaseUrl(value: string): string {
+  const baseUrl = value.trim();
+  const isRelative = baseUrl.startsWith('/') && !baseUrl.startsWith('//');
   let url: URL;
 
   try {
-    url = new URL(value);
+    url = new URL(baseUrl, isRelative ? 'http://api.local' : undefined);
   } catch {
     throw new Error(
-      'NEXT_PUBLIC_API_BASE_URL must be an absolute HTTP(S) URL, for example http://127.0.0.1:8080/api/v1.',
+      'NEXT_PUBLIC_API_BASE_URL must be an absolute HTTP(S) URL or a root-relative path such as /api/v1.',
     );
   }
 
@@ -16,7 +18,14 @@ function parseApiBaseUrl(value: string): URL {
     throw new Error('NEXT_PUBLIC_API_BASE_URL must use the http or https protocol.');
   }
 
-  return url;
+  if (url.username || url.password || url.search || url.hash || /[?#\\]/.test(baseUrl)) {
+    throw new Error(
+      'NEXT_PUBLIC_API_BASE_URL must not contain credentials, query, hash or backslashes.',
+    );
+  }
+
+  const pathname = url.pathname.replace(/\/+$/, '');
+  return isRelative ? pathname || '/' : `${url.origin}${pathname}`;
 }
 
 function parseAppMode(value: string): string {

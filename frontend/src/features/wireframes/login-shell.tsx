@@ -9,29 +9,126 @@ import {
   UserRound,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { type FormEvent, useRef, useState, useTransition } from 'react';
+import { type FormEvent, type RefObject, useEffect, useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ApiErrorNotice } from '@/components/api-error-notice';
+import { login } from '@/lib/auth/api';
+import { announceSessionChange, cleanBrowserDrafts, discardQueries } from '@/lib/auth/browser';
+import { postLoginPath } from '@/lib/auth/member';
+import { routes } from '@/lib/routes';
 
 import { EntryHeader, EntryFooter } from '@/features/wireframes/entry-chrome';
+import {
+  getLoginErrorPresentation,
+  type LoginErrorDialogContent,
+} from '@/features/wireframes/login-error';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/entry.module.css';
 
 interface LoginShellProps {
   role: 'editor' | 'reviewer';
   theme: WireframeTheme;
+  returnTo?: string;
+  reason?: string;
 }
 
-export function LoginShell({ role, theme }: LoginShellProps) {
-  const router = useRouter();
+interface LoginErrorDialogProps extends LoginErrorDialogContent {
+  onClose: () => void;
+  returnFocusRef: RefObject<HTMLInputElement | null>;
+}
+
+function LoginErrorDialog({
+  eyebrow,
+  message,
+  onClose,
+  returnFocusRef,
+  title,
+}: LoginErrorDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const returnFocusTarget = returnFocusRef.current;
+    const previousOverflow = document.body.style.overflow;
+    dialog?.showModal();
+    document.body.style.overflow = 'hidden';
+    return () => {
+      dialog?.close();
+      document.body.style.overflow = previousOverflow;
+      returnFocusTarget?.focus({ preventScroll: true });
+    };
+  }, [returnFocusRef]);
+
+  return (
+    <dialog
+      aria-describedby="login-error-message"
+      aria-labelledby="login-error-title"
+      className={styles.loginErrorDialog}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      ref={dialogRef}
+    >
+      <div className={styles.loginErrorPopup}>
+        <span aria-hidden="true" className={styles.loginErrorIcon}>
+          <LockKeyhole />
+        </span>
+        <p className={styles.loginErrorEyebrow}>{eyebrow}</p>
+        <h2 id="login-error-title">{title}</h2>
+        <p id="login-error-message">{message}</p>
+        <button className={styles.primaryButton} onClick={onClose} type="button">
+          확인
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
+export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
+  const client = useQueryClient();
   const [errors, setErrors] = useState<{ userId?: string; password?: string }>({});
-  const [isSubmitting, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const submissionRef = useRef(false);
   const roleLabel = role === 'editor' ? '편집자' : '검수자';
+  const mutation = useMutation({
+    // No credentials in mutation variables/cache or browser storage.
+    mutationFn: () =>
+      login({
+        loginId: inputRef.current?.value.trim() ?? '',
+        password: passwordRef.current?.value ?? '',
+      }),
+    gcTime: 0,
+    onSuccess: async (member) => {
+      cleanBrowserDrafts(member.memberId);
+      await discardQueries(client);
+      announceSessionChange('login');
+      window.location.replace(postLoginPath(member.role, returnTo));
+    },
+    onSettled: () => {
+      submissionRef.current = false;
+      if (passwordRef.current) passwordRef.current.value = '';
+    },
+  });
+  const isSubmitting = mutation.isPending;
+  const loginErrorPresentation = mutation.isError
+    ? getLoginErrorPresentation(mutation.error)
+    : undefined;
+  const isInvalidCredentialsFailure = loginErrorPresentation?.kind === 'invalid-credentials';
+  const loginErrorDialogContent =
+    loginErrorPresentation?.kind === 'dialog' ? loginErrorPresentation.content : undefined;
+  const hasInlineLoginError = loginErrorPresentation?.kind === 'inline';
+
+  useEffect(() => {
+    // A Server Component can redirect an expired session here without a client
+    // query error. Clear the old account's cache on this entry path as well.
+    void discardQueries(client);
+  }, [client]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmitting) return;
+    if (submissionRef.current) return;
     const form = new FormData(event.currentTarget);
     const userId = form.get('userId');
     const password = form.get('password');
@@ -48,15 +145,24 @@ export function LoginShell({ role, theme }: LoginShellProps) {
       (nextErrors.userId ? inputRef : passwordRef).current?.focus();
       return;
     }
-    if (passwordRef.current) passwordRef.current.value = '';
-    startTransition(() => {
-      router.push(role === 'editor' ? `/search/${theme}` : `/review/${theme}`);
-    });
+    submissionRef.current = true;
+    mutation.mutate();
+  }
+
+  function handleLoginErrorClose() {
+    mutation.reset();
   }
 
   return (
     <div className={styles.shell} data-theme={theme}>
       <EntryHeader label={`${roleLabel} 워크스페이스`} />
+      {loginErrorDialogContent && (
+        <LoginErrorDialog
+          {...loginErrorDialogContent}
+          onClose={handleLoginErrorClose}
+          returnFocusRef={passwordRef}
+        />
+      )}
       <main className={styles.loginMain}>
         <section className={styles.welcome} aria-labelledby="welcome-title">
           <p className={styles.eyebrow}>YOUR NEXT SCENE STARTS HERE</p>
@@ -88,8 +194,12 @@ export function LoginShell({ role, theme }: LoginShellProps) {
             <span className={styles.artSpark}>✦</span>
           </div>
         </section>
-        <section className={styles.loginCard} aria-labelledby="login-title">
-          <Link className={styles.backLink} href="/landing">
+        <section
+          aria-labelledby="login-title"
+          className={styles.loginCard}
+          data-invalid-credentials={isInvalidCredentialsFailure}
+        >
+          <Link className={styles.backLink} href={routes.landing}>
             <ArrowLeft aria-hidden="true" />
             역할 다시 선택
           </Link>
@@ -106,6 +216,13 @@ export function LoginShell({ role, theme }: LoginShellProps) {
             <br />
             ID와 비밀번호를 입력하고 작업을 시작하세요.
           </p>
+          {reason === 'expired' && (
+            <p role="status" className={styles.error}>
+              로그인이 만료되었습니다. 다시 로그인해 주세요.
+            </p>
+          )}
+          {reason === 'logout' && <p role="status">로그아웃되었습니다.</p>}
+          {hasInlineLoginError && <ApiErrorNotice id="login-api-error" error={mutation.error} />}
           <form aria-label={`${roleLabel} 로그인`} noValidate onSubmit={handleSubmit}>
             <label className={styles.fieldLabel} htmlFor="login-id">
               아이디
@@ -113,7 +230,13 @@ export function LoginShell({ role, theme }: LoginShellProps) {
             <div className={styles.inputWrap} data-invalid={Boolean(errors.userId)}>
               <UserRound aria-hidden="true" />
               <input
-                aria-describedby={errors.userId ? 'login-id-error' : undefined}
+                aria-describedby={
+                  errors.userId
+                    ? 'login-id-error'
+                    : hasInlineLoginError
+                      ? 'login-api-error'
+                      : undefined
+                }
                 aria-invalid={Boolean(errors.userId)}
                 autoComplete="username"
                 disabled={isSubmitting}
@@ -121,6 +244,7 @@ export function LoginShell({ role, theme }: LoginShellProps) {
                 maxLength={100}
                 name="userId"
                 onChange={() => {
+                  mutation.reset();
                   setErrors((current) => ({ ...current, userId: undefined }));
                 }}
                 placeholder={`${roleLabel} ID 입력하기`}
@@ -138,13 +262,22 @@ export function LoginShell({ role, theme }: LoginShellProps) {
             <div className={styles.inputWrap} data-invalid={Boolean(errors.password)}>
               <LockKeyhole aria-hidden="true" />
               <input
-                aria-describedby={errors.password ? 'login-password-error' : undefined}
+                aria-describedby={
+                  errors.password
+                    ? 'login-password-error'
+                    : hasInlineLoginError
+                      ? 'login-api-error'
+                      : undefined
+                }
                 aria-invalid={Boolean(errors.password)}
                 autoComplete="current-password"
                 disabled={isSubmitting}
                 id="login-password"
                 name="password"
-                onChange={() => setErrors((current) => ({ ...current, password: undefined }))}
+                onChange={() => {
+                  mutation.reset();
+                  setErrors((current) => ({ ...current, password: undefined }));
+                }}
                 placeholder="비밀번호 입력하기"
                 ref={passwordRef}
                 required
@@ -154,12 +287,25 @@ export function LoginShell({ role, theme }: LoginShellProps) {
             <p aria-live="polite" className={styles.error} id="login-password-error">
               {errors.password}
             </p>
-            <button className={styles.primaryButton} disabled={isSubmitting} type="submit">
-              {isSubmitting ? '이동 중…' : '로그인'}
-              <ArrowRight aria-hidden="true" />
+            <button
+              className={styles.primaryButton}
+              data-login-failed={isInvalidCredentialsFailure}
+              disabled={isSubmitting || isInvalidCredentialsFailure}
+              type="submit"
+            >
+              {isInvalidCredentialsFailure
+                ? '아이디 또는 비밀번호가 틀렸습니다.'
+                : isSubmitting
+                  ? '로그인 중…'
+                  : '로그인'}
+              {!isInvalidCredentialsFailure && <ArrowRight aria-hidden="true" />}
             </button>
             <span aria-live="polite" className={styles.srOnly}>
-              {isSubmitting ? `${roleLabel} 화면으로 이동합니다.` : ''}
+              {isInvalidCredentialsFailure
+                ? '아이디 또는 비밀번호를 수정하면 다시 로그인할 수 있습니다.'
+                : isSubmitting
+                  ? '계정을 확인하고 있습니다.'
+                  : ''}
             </span>
           </form>
           <p className={styles.cardFootnote}>좋은 뉴스는, 좋은 장면에서.</p>

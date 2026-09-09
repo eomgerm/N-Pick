@@ -1,5 +1,9 @@
 'use client';
 
+import { routes } from '@/lib/routes';
+import { AppShell } from '@/components/app-shell';
+import { useMember } from '@/components/session-boundary';
+
 import {
   ArrowLeft,
   CheckCircle2,
@@ -10,7 +14,6 @@ import {
   Layers3,
   RefreshCw,
   Search,
-  ShieldCheck,
   Sparkles,
   TriangleAlert,
   UserCheck,
@@ -31,7 +34,7 @@ import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from './reviewer.module.css';
 import { inquiries } from '@/features/wireframes/reviewer-inquiries';
 import { ReviewerBoard } from '@/features/wireframes/reviewer-board';
-import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
 import {
   VideoRegistration,
@@ -322,6 +325,7 @@ function createInitialWork(): Record<string, InquiryWork> {
 }
 
 export function ReviewerShell({ theme }: ReviewerShellProps) {
+  const member = useMember();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -450,11 +454,8 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   function handleTabChange(tab: WorkspaceTab) {
-    handleLocationChange({
-      view: tab === 'processing' ? 'processing' : null,
-      tab: null,
-      clip: null,
-      inquiry: null,
+    startNavigation(() => {
+      router.push(getReviewTabUrl(pathname, searchParams.toString(), tab), { scroll: false });
     });
     setLiveMessage(tab === 'processing' ? '처리 현황을 열었습니다.' : '문의 목록을 열었습니다.');
   }
@@ -744,27 +745,29 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   return (
-    <div className={styles.shell} data-theme={theme}>
-      <header className={styles.appHeader}>
-        <Link className={styles.brand} href="/landing" aria-label="N-Pick 홈">
-          <span className={styles.brandMark} aria-hidden="true">
-            <span />
-            <span />
-          </span>
-          <span>N-Pick</span>
-        </Link>
-        <nav className={styles.primaryNav} aria-label="역할별 화면">
-          <Link href={`/search/${theme}`}>장면 검색</Link>
-          <Link aria-current="page" className={styles.primaryNavActive} href={`/review/${theme}`}>
-            검수자 화면
-          </Link>
-        </nav>
-        <span className={styles.roleBadge}>
-          <ShieldCheck aria-hidden="true" /> 검수자
-        </span>
-      </header>
-
+    <AppShell className={styles.shell} data-theme={theme}>
       <main className={styles.page}>
+        <nav aria-label="검수 화면" className="mb-7 flex gap-2 border-b border-(--line)">
+          {(['inquiries', 'processing'] as const).map((tab) => (
+            <Link
+              key={tab}
+              aria-current={
+                (tab === 'processing') === (isProcessing || isRegistration) ? 'page' : undefined
+              }
+              aria-disabled={isNavigating}
+              className="border-b-3 border-transparent px-5 py-3 text-sm font-bold text-(--muted) aria-disabled:opacity-50 aria-[current=page]:border-(--accent) aria-[current=page]:text-(--accent-strong)"
+              href={getReviewTabUrl(pathname, searchParams.toString(), tab)}
+              onNavigate={(event) => {
+                event.preventDefault();
+                if (!isNavigating) handleTabChange(tab);
+              }}
+              prefetch={false}
+              scroll={false}
+            >
+              {tab === 'inquiries' ? '문의' : '처리'}
+            </Link>
+          ))}
+        </nav>
         {isRegistration ? (
           <VideoRegistration
             isNavigating={isNavigating}
@@ -794,6 +797,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           />
         ) : isBoard ? (
           <ReviewerBoard
+            loginId={member.loginId}
             isNavigating={isNavigating}
             items={inquiries.map((inquiry) => ({
               ...inquiry,
@@ -839,7 +843,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                 </span>
                 <span>
                   <small>현재 검수자</small>
-                  <strong>나현우 · 아카이빙팀</strong>
+                  <strong>{member.loginId} · 검수자</strong>
                 </span>
               </div>
             </section>
@@ -874,7 +878,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                         ) : selectedClip.servingStatus === 'ready' ? (
                           <Link
                             className={styles.primaryButton}
-                            href={`/wireframes/${theme}?q=${encodeURIComponent(selectedClip.title)}`}
+                            href={`${routes.searchResults}?q=${encodeURIComponent(selectedClip.title)}`}
                           >
                             <Search aria-hidden="true" />
                             영상 검색하기
@@ -1248,7 +1252,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                             <SectionHeading
                               eyebrow="2. 수정안 작성"
                               title="어떻게 처리할까요?"
-                              meta="담당 · 나현우"
+                              meta={`담당 · ${member.loginId}`}
                             />
                             <button
                               className={styles.backToResults}
@@ -1600,7 +1604,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                           <dl>
                             <div>
                               <dt>담당자</dt>
-                              <dd>나현우</dd>
+                              <dd>{member.loginId}</dd>
                             </div>
                             <div>
                               <dt>완료 시각</dt>
@@ -1636,7 +1640,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           </>
         )}
       </main>
-    </div>
+    </AppShell>
   );
 }
 

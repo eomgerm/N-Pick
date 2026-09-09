@@ -1,15 +1,9 @@
 'use client';
 
-import {
-  CheckCircle2,
-  ChevronDown,
-  ListFilter,
-  Play,
-  Search,
-  ShieldCheck,
-  Sparkles,
-} from 'lucide-react';
-import Link from 'next/link';
+import { routes } from '@/lib/routes';
+import { AppShell } from '@/components/app-shell';
+
+import { CheckCircle2, ChevronDown, ListFilter, Play, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
   type FormEvent,
@@ -115,7 +109,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
       params.set('filmingTo', filming.to);
     }
     startNavigation(() =>
-      router.push(`/wireframes/shinhan?${params.toString()}`, { scroll: false }),
+      router.push(`${routes.searchResults}?${params.toString()}`, { scroll: false }),
     );
   }
 
@@ -162,32 +156,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   }
 
   return (
-    <div className={styles.shell} data-theme={theme}>
-      <header className={styles.appHeader}>
-        <Link className={styles.brand} href="/landing" aria-label="N-Pick 홈">
-          <span className={styles.brandMark} aria-hidden="true">
-            <span />
-            <span />
-          </span>
-          <span>N-Pick</span>
-        </Link>
-
-        <nav className={styles.primaryNav} aria-label="주요 메뉴">
-          <a className={styles.primaryNavActive} href="#search-results">
-            장면 검색
-          </a>
-          <Link href={`/review/${theme}`}>검수 워크스페이스</Link>
-        </nav>
-
-        <div className={styles.headerActions}>
-          <Link className={styles.reviewerEntry} href={`/review/${theme}`}>
-            <ShieldCheck aria-hidden="true" />
-            <span>검수 화면</span>
-          </Link>
-          <span className={styles.roleBadge}>편집기자</span>
-        </div>
-      </header>
-
+    <AppShell className={styles.shell} data-theme={theme}>
       <div className={`${styles.workspace} ${styles.workspaceNoPreview}`}>
         <aside className={styles.filterRail} aria-label="검색 필터">
           <div className={styles.railHeading}>
@@ -410,6 +379,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           onClose={() => setInquiryResultId(null)}
         />
       ) : null}
-    </div>
+    </AppShell>
   );
 }

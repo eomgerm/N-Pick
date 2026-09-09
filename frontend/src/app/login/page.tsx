@@ -1,11 +1,29 @@
-import { notFound, redirect } from 'next/navigation';
+import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+
+import { LoginShell } from '@/features/wireframes/login-shell';
+import { safeReturnTo } from '@/lib/auth/member';
+
+export const metadata: Metadata = { title: '로그인 | N-Pick' };
 
 interface LoginPageProps {
-  searchParams: Promise<{ role?: string | string[] }>;
+  searchParams: Promise<{
+    role?: string | string[];
+    returnTo?: string | string[];
+    reason?: string | string[];
+  }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { role = 'editor' } = await searchParams;
+  const { role = 'editor', returnTo, reason } = await searchParams;
   if (role !== 'editor' && role !== 'reviewer') notFound();
-  redirect(`/login/shinhan?role=${role}`);
+  return (
+    <LoginShell
+      key={role}
+      role={role}
+      theme="shinhan"
+      returnTo={safeReturnTo(returnTo)}
+      reason={typeof reason === 'string' ? reason : undefined}
+    />
+  );
 }

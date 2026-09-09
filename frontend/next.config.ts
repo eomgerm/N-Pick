@@ -5,12 +5,17 @@ const nextConfig: NextConfig = {
   redirects() {
     return [
       {
-        source: '/:screen(login|search|wireframes|review)/:theme(yeogi|wanted|gmarket|daangn)',
-        destination: '/:screen/shinhan',
+        source: '/:screen(login|search|review)/:theme(shinhan|yeogi|wanted|gmarket|daangn)',
+        destination: '/:screen',
         permanent: false,
       },
       {
-        source: '/landing/:theme(yeogi|wanted|gmarket|daangn)',
+        source: '/wireframes/:theme(shinhan|yeogi|wanted|gmarket|daangn)',
+        destination: '/search/results',
+        permanent: false,
+      },
+      {
+        source: '/landing/:theme(shinhan|yeogi|wanted|gmarket|daangn)',
         destination: '/landing',
         permanent: false,
       },

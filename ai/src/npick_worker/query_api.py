@@ -39,6 +39,16 @@ logger = logging.getLogger(__name__)
 RESOLVER_FAILED = "RESOLVER_FAILED"
 
 
+class QueryNotNormalizableError(ValueError):
+    """정규화 자체가 불가능한 질의. 라우터가 이것만 400 으로 바꾼다.
+
+    맨 `ValueError` 를 쓰지 않는 이유는 그 타입이 너무 넓기 때문이다 — pydantic 의
+    `ValidationError` 와 `ResolverSchemaInvalidError` 가 모두 `ValueError` 라, 라우터가
+    `ValueError` 를 잡으면 설정 오류나 우리 쪽 버그까지 "질의가 잘못됐다" 로 사용자에게
+    돌아간다. 400 을 낼 자격은 정규화 실패에만 준다.
+    """
+
+
 class QueryResolveRequest(BaseModel):
     """사용자가 친 원문 하나. 정규화 질의를 보내면 안 된다."""
 
@@ -121,10 +131,13 @@ def _degraded(
 def resolve(request: QueryResolveRequest) -> QueryResolveResponse:
     """정규화는 반드시, 해석은 되는 만큼.
 
-    정규화가 실패하면 `ValueError` 를 그대로 올린다 — 지문을 만들 수 없어 검색 자체가
-    성립하지 않는다. 라우터가 400 으로 바꾼다.
+    정규화가 실패하면 `QueryNotNormalizableError` 로 올린다 — 지문을 만들 수 없어 검색
+    자체가 성립하지 않는다. 라우터가 그 타입만 400 으로 바꾼다.
     """
-    normalized = normalize(request.query)
+    try:
+        normalized = normalize(request.query)
+    except ValueError as exc:
+        raise QueryNotNormalizableError(str(exc)) from exc
     normalization = Normalization(
         normalized_query=normalized.normalized_query,
         search_tokens=normalized.search_tokens,

@@ -1,0 +1,34 @@
+package com.npick.clip.domain.error;
+
+import com.npick.common.error.ErrorCode;
+import com.npick.common.error.ErrorType;
+
+public enum ClipRegistrationErrorCode implements ErrorCode {
+    INVALID_SOURCE_TYPE("CLIP_400_002", "영상 종류는 broadcast 또는 archive여야 합니다."),
+    ARCHIVE_BROADCAST_DATE("CLIP_400_003", "자료 영상에는 방송일을 입력할 수 없습니다."),
+    TITLE_TOO_LONG("CLIP_400_004", "제목은 500자 이내로 입력해 주세요."),
+    INVALID_DATE("CLIP_400_011", "날짜는 0001년부터 9999년 사이의 실제 날짜여야 합니다.");
+
+    private final String code;
+    private final String message;
+
+    ClipRegistrationErrorCode(String code, String message) {
+        this.code = code;
+        this.message = message;
+    }
+
+    @Override
+    public ErrorType type() {
+        return ErrorType.BAD_REQUEST;
+    }
+
+    @Override
+    public String code() {
+        return code;
+    }
+
+    @Override
+    public String message() {
+        return message;
+    }
+}

@@ -145,7 +145,8 @@ function BackdropTypography({ theme }: Pick<LandingCubeProps, 'theme'>) {
   return (
     <mesh position={[0, 0, -2.35]}>
       <planeGeometry args={[5.8, 2.9]} />
-      <meshBasicMaterial map={texture} toneMapped={false} transparent />
+      {/* Alpha cutout keeps the lettering in Three.js's opaque transmission capture. */}
+      <meshBasicMaterial alphaTest={0.5} alphaToCoverage map={texture} toneMapped={false} />
     </mesh>
   );
 }
@@ -248,6 +249,7 @@ function GlassCube({ onReady, reducedMotion, theme }: GlassCubeProps) {
         onPointerOut={handlePointerOut}
         onPointerOver={handlePointerOver}
       >
+        {/* Use transmission without alpha blending so unrefracted text cannot bleed through. */}
         <meshPhysicalMaterial
           attenuationColor="#ffffff"
           attenuationDistance={10}
@@ -255,20 +257,19 @@ function GlassCube({ onReady, reducedMotion, theme }: GlassCubeProps) {
           clearcoatRoughness={0.035}
           color="#ffffff"
           depthWrite={false}
-          dispersion={0.86}
-          ior={1.47}
-          iridescence={0.48}
+          dispersion={0.45}
+          ior={1.5}
+          iridescence={0.08}
           iridescenceIOR={1.28}
           iridescenceThicknessRange={[120, 720]}
           metalness={0}
           opacity={1}
+          premultipliedAlpha
           roughness={0.025}
-          side={DoubleSide}
           specularColor={palette.highlight}
           specularIntensity={1}
-          thickness={1.25}
+          thickness={2.35}
           transmission={1}
-          transparent
         />
       </mesh>
 

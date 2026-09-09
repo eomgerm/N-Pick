@@ -32,15 +32,31 @@ if [ "$n" != "$total" ]; then
 fi
 
 fail=0
-check() {
-  want=$1; url=$2
-  got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" || echo 000)
-  if [ "$got" = "$want" ]; then
-    printf '%-46s %s\n' "$url" "$got"
+
+report() {
+  if [ "$2" = "$3" ]; then
+    printf '%-44s %s\n' "$1" "$2"
   else
-    printf '%-46s %s (기대 %s)\n' "$url" "$got" "$want" >&2
+    printf '%-44s %s (기대 %s)\n' "$1" "$2" "$3" >&2
     fail=1
   fi
+}
+
+# 응답 코드를 그대로 검사한다.
+# curl 실패를 $( ) 안에서 처리하면 출력이 이어붙어 301000 같은 값이 된다. 대입 뒤에서 처리한다.
+check() {
+  got=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$2") || got=000
+  report "$2" "$got" "$1"
+}
+
+# 리다이렉트를 따라가 최종 코드를 검사한다. web 의 라우팅이 바뀌어도 깨지지 않는다.
+# (지금은 FE 가 / 에서 /landing 으로 307 을 준다)
+#
+# 도메인 주소에만 쓴다. http://nginx/ 는 리다이렉트 대상이 https://nginx/ 가 되어
+# 인증서 이름이 맞지 않아 추적이 실패한다.
+check_final() {
+  got=$(curl -sL -o /dev/null -w '%{http_code}' --max-time 20 "$2") || got=000
+  report "$2 (추적)" "$got" "$1"
 }
 
 check 200 http://backend:8080/actuator/health
@@ -50,10 +66,12 @@ if echo "$services" | grep -qx nginx; then
   check 200 http://nginx/healthz
   check 301 http://nginx/
   check 301 http://nginx/api/v1/
+
+  # TLS 종단까지 확인한다. 도메인으로 나가서 다시 들어오므로 인증서 검증이 포함된다.
   domain=$(grep -E '^NPICK_DOMAIN=' .env 2>/dev/null | cut -d= -f2- || true)
   if [ -n "${domain:-}" ] && [ "$domain" != "localhost" ]; then
     check 200 "https://$domain/healthz"
-    check 200 "https://$domain/"
+    check_final 200 "https://$domain/"
   fi
 fi
 

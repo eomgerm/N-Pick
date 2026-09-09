@@ -1,20 +1,77 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
+
+import { useMember } from '@/components/session-boundary';
+import { SessionControls } from '@/components/session-controls';
+import { routes } from '@/lib/routes';
 
 interface AppShellProps {
   children: ReactNode;
+  className?: string;
+  'data-theme'?: string;
+  headerTone?: 'light' | 'brand';
 }
 
-export function AppShell({ children }: AppShellProps) {
-  return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-10 sm:px-10 lg:py-16">
-      <header className="mb-10 flex items-center justify-between border-b border-slate-200 pb-5">
-        <span className="text-xl font-black tracking-tight text-slate-950">N-Pick</span>
-        <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
-          Initial setup
-        </span>
-      </header>
+export function AppShell({
+  children,
+  className,
+  'data-theme': theme,
+  headerTone = 'brand',
+}: AppShellProps) {
+  const member = useMember();
+  const pathname = usePathname();
+  const isReview = pathname === routes.review;
+  const navigation = [
+    { href: routes.search, label: '장면 검색', isCurrent: !isReview },
+    ...(member.role === 'REVIEWER'
+      ? [{ href: routes.review, label: '검수', isCurrent: isReview }]
+      : []),
+  ];
 
-      <div className="flex flex-1 flex-col gap-6">{children}</div>
-    </main>
+  return (
+    <div className={className} data-theme={theme}>
+      <header
+        className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-6 gap-y-2 px-5 py-3 sm:px-8 lg:grid-cols-[220px_minmax(0,1fr)_auto] ${
+          headerTone === 'light'
+            ? 'mx-auto min-h-25 w-full max-w-7xl text-(--text)'
+            : 'sticky top-0 z-20 min-h-17 bg-(--secondary) text-white'
+        }`}
+      >
+        <Link
+          aria-label="N-Pick 홈"
+          className="inline-flex w-fit items-center gap-2.5 rounded-sm text-xl font-extrabold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-4"
+          href={routes.landing}
+        >
+          <span
+            aria-hidden="true"
+            className="grid size-8 place-items-center rounded-[10px_10px_10px_3px] bg-(--accent) text-2xl text-white italic"
+          >
+            N
+          </span>
+          N-Pick
+        </Link>
+        <nav
+          aria-label="주요 메뉴"
+          className="order-last col-span-2 flex items-stretch gap-7 lg:order-none lg:col-span-1"
+        >
+          {navigation.map(({ href, label, isCurrent }) => (
+            <Link
+              key={href}
+              aria-current={isCurrent ? 'page' : undefined}
+              className="inline-flex items-center border-b-3 border-transparent py-2 text-sm font-semibold opacity-75 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-4 aria-[current=page]:border-current aria-[current=page]:opacity-100"
+              href={href}
+              prefetch={false}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+        <SessionControls className="min-w-0 lg:max-w-md" />
+      </header>
+      {children}
+    </div>
   );
 }

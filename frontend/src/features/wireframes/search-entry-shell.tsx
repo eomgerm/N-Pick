@@ -1,10 +1,13 @@
 'use client';
 
+import { routes } from '@/lib/routes';
+import { AppShell } from '@/components/app-shell';
+
 import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useRef, useState } from 'react';
 
-import { EntryHeader, EntryFooter } from '@/features/wireframes/entry-chrome';
+import { EntryFooter } from '@/features/wireframes/entry-chrome';
 import { SearchHistory } from '@/features/wireframes/search-history';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/entry.module.css';
@@ -20,12 +23,15 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (query.trim()) router.push(`/wireframes/${theme}?q=${encodeURIComponent(query.trim())}`);
+    if (query.trim()) router.push(`${routes.searchResults}?q=${encodeURIComponent(query.trim())}`);
   }
 
   return (
-    <div className={`${styles.shell} ${styles.searchShell}`} data-theme={theme}>
-      <EntryHeader label="편집자 워크스페이스" />
+    <AppShell
+      className={`${styles.shell} ${styles.searchShell}`}
+      data-theme={theme}
+      headerTone="light"
+    >
       <main className={styles.searchMain}>
         <div className={styles.searchHero}>
           <p className={styles.eyebrow}>FIND YOUR NEXT SCENE</p>
@@ -78,6 +84,6 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
         <SearchHistory theme={theme} />
       </main>
       <EntryFooter />
-    </div>
+    </AppShell>
   );
 }
