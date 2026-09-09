@@ -300,7 +300,7 @@ Idempotency-Key: 398021847361024:scene_detection:1
 
 `sceneDetection`이 없으면 워커는 `VALIDATION_ERROR`(영구)로 실패를 신고한다. 이 단계는 상류 없이 빈 결과를 내지 않는다 — 그러면 치명 단계가 성공으로 기록되고 keyframe이 0장인 run이 생긴다. 인라인 상한(1 MiB)을 넘으면 §5의 artifact key로 대체한다. 장면 2,000개가 이 형식으로 약 200 KiB이므로 실제로 넘지 않는다.
 
-**산출물 키** — `outputKeyPrefix` 아래 `s{sceneIndex:04d}/kf-{timestampMs:09d}.jpg`다.
+**산출물 키** — `outputKeyPrefix` 아래 `s{sceneIndex:04d}/kf-{timestampMs:09d}.jpg`다. 업로드 `Content-Type`은 `image/jpeg` 고정이다(§4.4). 이 단계는 mjpeg으로만 인코딩하므로 확장자와 헤더가 갈리지 않는다 — BE가 검증을 붙일 때 이 값을 쓴다.
 
 ```
 runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
@@ -345,11 +345,13 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 }
 ```
 
+위 `metrics`의 수치는 형식을 보이기 위한 예시다. 실제 장당 크기는 기본 `jpeg_qscale = 2`에서 1080p 약 420 KiB이므로(`ai/docs/frame-extraction.md` §4 실측) 214장이면 88 MiB 급이다. 용량을 어림할 때는 예시 숫자가 아니라 그 값을 쓴다.
+
 **대표 이미지는 목록의 첫 원소다. BE는 이 순서대로 INSERT한다.** `keyframe` 테이블에 대표를 표시할 컬럼이 없고(`keyframe_id`·`scene_id`·`timestamp_ms`·`storage_key`가 전부다) ERD 주석이 "결과 목록의 대표 이미지는 첫 장을 쓴다"로 두었기 때문에, 대표는 플래그가 아니라 **순서**로 전달된다. 이 순서대로 넣으면 대표가 그 scene의 최소 `keyframe_id`가 되고, 결과 카드는 `ORDER BY keyframe_id LIMIT 1`로 대표를 얻는다.
 
 `timestamp_ms` 순으로 정렬해 저장하면 이 규약이 조용히 깨진다 — 대표는 선명도로 뽑히므로 시각이 가장 이르지 않다. 그래서 `representativeTimestampMs`를 함께 싣는다. BE는 저장 직전에 `keyframes[0].timestampMs`와 대조해 어긋나면 `JOB_400_001`로 거부한다. 워커도 보내기 전에 같은 검사를 한다.
 
-**장 수** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. 구간이 미디어 끝을 넘으면 뒤쪽 슬롯의 후보가 디코드에 닿지 못해 앞쪽만 살아 한 장이 되는데, 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호이므로 적은 장 수로 통과시키지 않는다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다.
+**장 수** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. 구간이 미디어 끝을 넘으면 뒤쪽 슬롯의 후보가 디코드에 닿지 못해 앞쪽만 살아 한 장이 되는데, 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호이므로 적은 장 수로 통과시키지 않는다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다. 이 보증은 워커가 슬롯 수의 상한을 창의 ms가 아니라 **구간의 프레임 수**로 두는 데 기댄다. 그래서 프레임이 2장 이상인 구간은 항상 2장 이상을 낸다.
 
 **남은 어긋남 — `stages.py`의 "thumbnail"과 축소본의 자리.** 단계 표는 2단계 필수 출력을 "복수 keyframe·thumbnail"로 적고 FRD §3 F-03은 "축소된 대표 이미지 대신 원본 해상도의 프레임"이라 쓰므로 축소본의 존재를 전제한다. 그런데 **축소본 경로를 담을 컬럼이 스키마에 없다.** 이번 구현은 축소본 파일을 만들지 않고 keyframe을 원본 해상도로만 저장한다. 근거는 둘이다 — 작은 글자 OCR이 요구하는 것이 원본 해상도 프레임이고(그것이 이 자산의 1차 소비자다), 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있어 저장이 필요 없다. **컬럼을 새로 만들지 않았으므로 BE는 대표 keyframe을 축소해 카드에 제공한다.** 이 판단을 바꾸려면 스키마가 먼저 바뀌어야 하므로 여기 적어 둔다.
 
@@ -365,10 +367,14 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 GET /api/v1/internal/jobs/{runId}/artifacts?key={storageKey}
   → 200 application/octet-stream (봉투 없음)
 PUT /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
-  Content-Type: image/png
+  Content-Type: <산출물 종류가 정한다 — keyframe 은 image/jpeg>
   X-Content-SHA256: <hex>
   → 201 (봉투 없음, 빈 본문)
 ```
+
+**`Content-Type`은 산출물 종류가 정하고 워커가 종류마다 고정값으로 보낸다.** 지금 올리는 것은
+`keyframe`(`image/jpeg`)뿐이다. 종류가 늘면 이 표에 한 줄을 늘린다 — 워커가 형식을 고르는 것이
+아니므로 BE는 종류별 고정값으로 검증할 수 있다.
 
 `storageKey`는 미디어 루트 상대 경로다. `clip.storage_key`·`keyframe.storage_key`와 같은 어휘를 쓰고 새 식별자를 만들지 않는다.
 
