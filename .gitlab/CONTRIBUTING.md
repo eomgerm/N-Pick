@@ -105,7 +105,7 @@ infra/chore/jenkins-pipeline-S15P21A501-4
   - 신규 기능 → [Feature.md](merge_request_templates/Feature.md)
   - 버그 수정 → [Fix.md](merge_request_templates/Fix.md)
 - **리뷰어**: 최소 1인 이상 지정, 승인(approve) 후 머지
-- **머지 방식**: 일반 머지 커밋, 머지 후 소스 브랜치 삭제. Squash 머지는 프로젝트 설정(`squash_option: never`)에서 막혀 있어 개별 MR에서 켜지 않습니다.
+- **머지 방식**: Squash commit 후 머지, 머지 후 소스 브랜치 삭제
 - **연결된 지라 티켓**: "관련 이슈"에 지라 티켓 링크(또는 키)를 반드시 작성
 
 ## 4. 자동 검사 구조
