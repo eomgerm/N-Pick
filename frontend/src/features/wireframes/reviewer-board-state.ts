@@ -77,3 +77,16 @@ export function getReviewUrl(
   const query = params.toString();
   return `${pathname}${query ? `?${query}` : ''}`;
 }
+
+export function getReviewTabUrl(
+  pathname: string,
+  currentParams: string,
+  tab: 'inquiries' | 'processing',
+) {
+  return getReviewUrl(pathname, currentParams, {
+    view: tab === 'processing' ? 'processing' : null,
+    tab: null,
+    clip: null,
+    inquiry: null,
+  });
+}

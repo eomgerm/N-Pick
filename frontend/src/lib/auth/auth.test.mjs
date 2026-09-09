@@ -20,6 +20,7 @@ const {
   safeReturnTo,
   postLoginPath,
   canAccessPath,
+  isInvalidCredentials,
   isSessionExpired,
   loginPath,
   pageLocation,
@@ -115,12 +116,23 @@ test('세션 변경 알림은 자기 탭을 다시 로드하지 않고 다른 �
 
 test('인증 만료와 자격 증명 실패·권한/CSRF 실패·네트워크 실패는 구분한다', () => {
   assert.equal(isSessionExpired(new ApiClientError('http', 401, { code: 'COMM_401' })), true);
+  assert.equal(
+    isInvalidCredentials(new ApiClientError('http', 401, { code: 'MEMBER_401_001' })),
+    true,
+  );
   for (const error of [
     new ApiClientError('http', 401, { code: 'MEMBER_401_001' }),
     new ApiClientError('http', 403, { code: 'COMM_403' }),
     new ApiClientError('network', 0),
   ]) {
     assert.equal(isSessionExpired(error), false);
+  }
+  for (const error of [
+    new ApiClientError('http', 400, { code: 'MEMBER_401_001' }),
+    new ApiClientError('http', 401, { code: 'COMM_401' }),
+    { status: 401, code: 'MEMBER_401_001' },
+  ]) {
+    assert.equal(isInvalidCredentials(error), false);
   }
 });
 

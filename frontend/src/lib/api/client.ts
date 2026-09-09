@@ -17,6 +17,7 @@ export interface ApiResponse<Data> {
 interface JsonRequestInit extends Omit<RequestInit, 'body' | 'cache'> {
   body?: unknown;
   cache?: RequestCache;
+  idempotencyKey?: string;
   query?: URLSearchParams;
 }
 
@@ -103,9 +104,17 @@ export async function fetchJson<ResponseData>(
   init: JsonRequestInit = {},
   baseUrl = env.apiBaseUrl,
 ): Promise<ResponseData> {
-  const { body, cache = 'no-store', headers, query, ...requestInit } = init;
+  const { body, cache = 'no-store', headers, idempotencyKey, query, ...requestInit } = init;
   const requestHeaders = new Headers(headers);
+  const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(
+    (requestInit.method ?? 'GET').toUpperCase(),
+  );
   const isFormData = body instanceof FormData;
+
+  if (idempotencyKey !== undefined) requestHeaders.set('Idempotency-Key', idempotencyKey);
+  if (!isMutation && requestHeaders.has('Idempotency-Key')) {
+    throw new Error('Idempotency-Key is only supported for mutation requests.');
+  }
 
   if (!requestHeaders.has('accept')) requestHeaders.set('accept', 'application/json');
 
@@ -119,7 +128,7 @@ export async function fetchJson<ResponseData>(
   const url = createApiUrl(path, baseUrl, query);
   if (typeof document !== 'undefined') {
     if (baseUrl !== env.apiBaseUrl) throw new Error('Browser requests must use the public API.');
-    if (!['GET', 'HEAD', 'OPTIONS'].includes((requestInit.method ?? 'GET').toUpperCase())) {
+    if (isMutation) {
       if (requestInit.signal?.aborted) throw new ApiClientError('aborted', 0);
       requestHeaders.set('X-XSRF-TOKEN', await prepareCsrf());
       if (requestInit.signal?.aborted) throw new ApiClientError('aborted', 0);

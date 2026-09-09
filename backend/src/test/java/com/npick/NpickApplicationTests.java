@@ -1,30 +1,27 @@
 package com.npick;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.npick.clip.domain.repository.ClipRegistrationRepository;
-import com.npick.search.application.query.candidate.FindSceneCandidatesQueryPort;
+import com.npick.support.NpickPostgres;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@EnabledIfEnvironmentVariable(named = "NPICK_MIGRATION_TEST_URL", matches = ".+")
 @SpringBootTest
 @AutoConfigureMockMvc
 class NpickApplicationTests {
-    @MockitoBean
-    private ClipRegistrationRepository clipRegistrationRepository;
-
-    /** 단어 검색 어댑터는 DataSource 를 요구한다. 이 컨텍스트는 DB 없이 뜨므로 포트만 대체한다. */
-    @MockitoBean
-    private FindSceneCandidatesQueryPort findSceneCandidatesQueryPort;
+    /** 실 DataSource 로 부퇅한다. 목을 쏘아 넣으려면 이 테스트가 검증하는 배선이 사라진다. */
+    @DynamicPropertySource
+    static void database(DynamicPropertyRegistry properties) {
+        NpickPostgres.datasource(properties);
+    }
 
     @Autowired
     private MockMvc mockMvc;

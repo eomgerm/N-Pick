@@ -23,6 +23,13 @@ _TOO_MANY_REQUESTS: Final[int] = 429
 #: model_version 에 넣을 digest 길이. 전체 sha256 은 varchar(128) 에 모델명과 같이 담기 부담스럽다.
 _DIGEST_LENGTH: Final[int] = 12
 
+#: `/api/show` 는 생성이 아니라 메타데이터 조회다. `timeout_seconds`(생성용)를 그대로 쓰면
+#: 첫 요청이 최악 `timeout_seconds * 2` 가 되어 BE 의 read-timeout 을 넘고, 그러면 정규화
+#: 결과(`search_tokens`)까지 잃어 §6.2 의 원 검색어 BM25 fallback 이 불가능해진다.
+#: `[call]` toml 에 두지 않는 이유는 그 절 전체가 `prompt_version` 해시에 들어가기 때문이다 —
+#: 전송 타임아웃이 바뀌었다고 "프롬프트가 달라졌다" 고 기록되면 §7.2 비교가 망가진다.
+_METADATA_TIMEOUT_SECONDS: Final[float] = 1.0
+
 
 class OllamaResolver:
     """`QueryResolver` Protocol 구현.
@@ -39,6 +46,9 @@ class OllamaResolver:
         self._model = model
         self._params = params
         self._version: str | None = None
+        #: digest 조회를 한 번만 하기 위한 표식. 성공만 캐시하면 조회가 실패하는 동안
+        #: **모든** 요청이 `/api/show` 를 다시 부른다 — 첫 요청만의 비용이 아니게 된다.
+        self._version_resolved = False
 
     @property
     def name(self) -> str:
@@ -51,10 +61,11 @@ class OllamaResolver:
         태그(`llama3.2:3b`)만으로는 부족하다 — 같은 태그를 다시 pull 하면 내용이
         달라질 수 있다. digest 를 조회할 수 없으면 태그만 쓰고, **지어내지 않는다.**
         """
-        if self._version is None:
+        if not self._version_resolved:
             digest = self._fetch_digest()
             self._version = f"{self._model}@{digest}" if digest else self._model
-        return self._version
+            self._version_resolved = True
+        return self._version or self._model
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:
         payload: dict[str, Any] = {
@@ -80,7 +91,7 @@ class OllamaResolver:
     def _fetch_digest(self) -> str | None:
         """`/api/show` 로 모델 digest 를 읽는다. 실패하면 `None` — 호출을 막지 않는다."""
         try:
-            data = self._post("/api/show", {"model": self._model}, self._params.timeout_seconds)
+            data = self._post("/api/show", {"model": self._model}, _METADATA_TIMEOUT_SECONDS)
         except ResolverCallError:
             return None
         digest = data.get("digest")
