@@ -2,17 +2,21 @@
 -- 토큰 칸에는 워커가 Kiwi 로 만든 형태소를 공백으로 이어 넣는다(색인 토크나이저가 pdb.whitespace).
 INSERT INTO member VALUES (1,'editor','test-only-not-a-real-password','편집기자','editor',now(),now());
 
-INSERT INTO clip (clip_id,source_type,storage_key,content_hash,transcript_source,registered_by_id,created_at,updated_at) VALUES
- (10,'broadcast','test/10',repeat('a',64),'provided',1,now(),now()),
- (11,'broadcast','test/11',repeat('b',64),'provided',1,now(),now());
+INSERT INTO clip (clip_id,source_type,storage_key,content_hash,transcript_source,registered_by_id,created_at,updated_at,deleted_at) VALUES
+ (10,'broadcast','test/10',repeat('a',64),'provided',1,now(),now(),NULL),
+ (11,'broadcast','test/11',repeat('b',64),'provided',1,now(),now(),NULL),
+ -- 논리 삭제된 클립. 활성 처리도 있고 색인도 살아 있지만 검색 대상이 아니다 (FRD §6.1)
+ (12,'broadcast','test/12',repeat('c',64),'provided',1,now(),now(),now());
 
 -- clip 10 은 재처리(processing_no 2)를 거쳤고 활성 처리는 21 이다. 20 의 장면은 검색 대상이 아니다.
 INSERT INTO pipeline_run (pipeline_run_id,clip_id,processing_no,pipeline_version,status,stage_states_json,created_at,updated_at) VALUES
  (20,10,1,'test-v1','succeeded','{}',now(),now()),
  (21,10,2,'test-v1','succeeded','{}',now(),now()),
- (22,11,1,'test-v1','succeeded','{}',now(),now());
+ (22,11,1,'test-v1','succeeded','{}',now(),now()),
+ (23,12,1,'test-v1','succeeded','{}',now(),now());
 UPDATE clip SET active_pipeline_run_id=21 WHERE clip_id=10;
 UPDATE clip SET active_pipeline_run_id=22 WHERE clip_id=11;
+UPDATE clip SET active_pipeline_run_id=23 WHERE clip_id=12;
 
 INSERT INTO scene (scene_id,clip_id,pipeline_run_id,start_time_ms,end_time_ms,caption_tokens,transcript_tokens,shot_type,created_at,updated_at) VALUES
  -- 캡션과 대사 양쪽에 '화재'
@@ -25,7 +29,9 @@ INSERT INTO scene (scene_id,clip_id,pipeline_run_id,start_time_ms,end_time_ms,ca
  -- 캡션·대사에 '화재' 가 없고 화면 글자로만 걸린다
  (34,11,22,1000,2000,'거리 인터뷰',NULL,'interview',now(),now()),
  -- '제설' 은 캡션에만 있다
- (35,11,22,2000,3000,'눈 폭탄 제설',NULL,'b_roll',now(),now());
+ (35,11,22,2000,3000,'눈 폭탄 제설',NULL,'b_roll',now(),now()),
+ -- 삭제된 클립의 장면. '화재'·'제설' 을 갖고 있지만 결과에 나오면 안 된다
+ (36,12,23,0,1000,'공장 화재 제설','화재 진압','b_roll',now(),now());
 
 INSERT INTO keyframe VALUES (40,34,0,'test/f40'),(41,34,500,'test/f41'),(42,30,0,'test/f42');
 

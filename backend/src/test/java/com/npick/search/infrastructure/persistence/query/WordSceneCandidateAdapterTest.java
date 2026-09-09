@@ -203,13 +203,58 @@ class WordSceneCandidateAdapterTest {
         assertThat(adapter.findByWords(List.of("  ", ""))).isEmpty();
     }
 
-    /** 토큰에 공백이 있으면 DB 에서 두 토큰으로 쪼개져 검색어가 조용히 달라진다. 왜곡 대신 거부한다. */
+    /** 토큰에 공백이 있으면 DB 에서 두 토큰으로 쪼개져 검색어가 조용히 달라진다. 우리 토크나이저가 만든 값이므로 5xx 로 거부한다. */
     @Test
     void rejectsTokenContainingWhitespace() {
         assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(List.of("공장 화재")))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        failure -> assertThat(failure.errorCode().code()).isEqualTo("SRCH_400_004"));
+                        failure -> assertThat(failure.errorCode().code()).isEqualTo("SRCH_500_001"));
+    }
+
+    /** 논리 삭제된 클립의 장면은 색인에 남아 있어도 후보가 아니다 (FRD §6.1 "active_pipeline_run_id 와 논리 삭제 여부"). */
+    @Test
+    void excludesScenesOfSoftDeletedClip() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재")))).doesNotContain(36L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("제설"))))
+                .as("삭제된 클립만 갖고 있던 토큰이면 결과가 비어야 한다")
+                .containsExactly(35L);
+    }
+
+    /** 화면 글자는 장면당 max 로 모은다. 합으로 모으면 키프레임이 많은 장면이 내용과 무관하게 이긴다. */
+    @Test
+    void aggregatesOcrScoreByMaxNotSum() {
+        // 장면 34 는 키프레임 40·41 이 둘 다 '화재' 에 걸린다. 합이면 한 건짜리의 두 배가 된다.
+        var twoHits = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("화재")), 34L);
+        var oneHit = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("속보")), 34L);
+
+        assertThat(twoHits.ocrScore()).as("같은 토큰이 키프레임 둘에 걸려도 최대값 하나만 쓴다").isEqualTo(twoHits.score());
+        assertThat(twoHits.ocrScore()).isLessThan(oneHit.ocrScore() * 2);
+    }
+
+    /** 가중치 0 인 채널의 점수는 결과에 남지 않는다 — explain·재순위가 끈 채널을 되살리면 안 된다. */
+    @Test
+    void doesNotReportScoreOfDisabledChannel() {
+        // 장면 30 은 캡션('화재')과 화면 글자('단독') 양쪽에 걸린다.
+        var candidate = onlyCandidate(adapter(1, 1, 0, 10).findByWords(List.of("화재", "단독")), 30L);
+
+        assertThat(candidate.textScore()).isPositive();
+        assertThat(candidate.ocrScore()).isZero();
+        assertThat(candidate.score()).isEqualTo(candidate.textScore());
+    }
+
+    /** null 은 빈 목록과 다르다. 호출부 배선 실수를 "결과 없음" 으로 위장하지 않는다. */
+    @Test
+    void rejectsNullTokenList() {
+        assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    private static SceneCandidateResult onlyCandidate(List<SceneCandidateResult> candidates, long sceneId) {
+        var matched = candidates.stream()
+                .filter(candidate -> candidate.sceneId() == sceneId)
+                .toList();
+        assertThat(matched).as("장면 %d 가 후보에 있어야 한다", sceneId).hasSize(1);
+        return matched.getFirst();
     }
 
     private WordSceneCandidateAdapter adapter(double caption, double transcript, double ocr, int poolSize) {
