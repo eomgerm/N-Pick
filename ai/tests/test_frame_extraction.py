@@ -659,3 +659,186 @@ def test_unreached_candidates_are_not_reported_as_fewer_keyframes(tmp_path: Path
         extract_keyframes(
             tmp_path / "missing.mp4", _spans(1), tmp_path / "out", grabber=TruncatedGrabber()
         )
+
+
+# ── 장 수 보증: 어떤 scene 길이도 기대치를 밑돌지 않는다 ──────────────────
+
+#: 방송·웹에서 실제로 만나는 CFR 값 전부와, conftest 합성 영상의 10fps.
+SWEEP_FRAME_RATES = (10.0, 23.976, 24.0, 25.0, 29.97, 30.0, 50.0, 59.94, 60.0, 120.0)
+
+#: scene 시작 시각을 섞는 이유는 `frames_to_ms` 가 반올림이라 프레임 격자와 구간 경계의
+#: 위상차가 결과를 바꾸기 때문이다. 0 만 보면 위상이 어긋난 구간을 놓친다.
+SWEEP_SCENE_STARTS = (0, 1, 7, 13, 499, 997, 60_000, 60_001, 75_533)
+
+#: 이 값까지 훑는다. 계획이 여백 없는 창으로 갈리는 최대 duration 이 기본 설정에서
+#: 653ms(10fps)이므로 두 배 여유를 둔다. `edge_margin_ms` 를 키우면 이 경계도 커진다.
+SWEEP_MAX_DURATION_MS = 1200
+
+
+class _AllCandidatesGrabber:
+    """모든 후보 프레임을 재는 대역. 디코드가 후보 전부에 닿은 최선의 경우다.
+
+    `FakeGrabber` 와 달리 슬롯의 후보를 하나로 줄이지 않는다. 여기서 보려는 것은
+    "디코드가 닿지 못해 슬롯이 사라지는" 경우가 아니라 **계획 자체가 몇 장을 가능하게
+    하는가** 이기 때문이다. 받은 `requests` 를 그대로 들고 있어서 테스트가 실제 슬롯의
+    프레임 집합을 볼 수 있다 — `_to_frames` 를 테스트가 다시 구현하면 프로덕션과 다른
+    규칙을 검증하게 된다.
+    """
+
+    name = "all-candidates-grabber"
+    version = "test-0.0.0"
+
+    def __init__(self, frame_rate: float) -> None:
+        self.frame_rate = frame_rate
+        self.requests: list[SceneRequest] = []
+
+    def profile(self, video_path: Path) -> MediaProfile:
+        return MediaProfile(frame_rate=self.frame_rate, width=64, height=48)
+
+    def measure(
+        self,
+        video_path: Path,
+        requests: Sequence[SceneRequest],
+        cfg: FrameExtractionConfig,
+    ) -> Mapping[int, Mapping[int, ScoredFrame]]:
+        self.requests.extend(requests)
+        return {
+            request.scene_index: {
+                number: ScoredFrame(
+                    frame_number=number,
+                    timestamp_ms=frames_to_ms(number, self.frame_rate),
+                    score=1.0 + number,
+                    luma_std=40.0,
+                )
+                for slot in request.slots
+                for number in slot.frame_numbers
+            }
+            for request in requests
+        }
+
+    def write(
+        self,
+        video_path: Path,
+        targets: Mapping[int, Path],
+        cfg: FrameExtractionConfig,
+    ) -> Mapping[int, WrittenImage]:
+        return {
+            number: WrittenImage(path=path, byte_size=11, content_sha256="a" * 64)
+            for number, path in targets.items()
+        }
+
+
+def _survives_any_score_order(slots: Sequence[SlotCandidates], expected: int) -> bool:
+    """어떤 점수 배치에서도 `expected` 개의 서로 다른 프레임을 고르는가.
+
+    `select` 규칙 3 은 슬롯 순서·점수 순 그리디다. 슬롯마다 남은 후보 중 무엇이든 최고
+    점수가 될 수 있다고 보고 전부 갈라 본다 — 실제로는 하나의 전역 점수 순서만 가능하므로
+    이 탐색이 실패를 못 찾으면 어떤 영상에서도 실패가 없다. 슬롯 <= 5, 후보 <= 3 이라 싸다.
+    """
+
+    def walk(index: int, taken: frozenset[int], picked: int) -> bool:
+        if picked + (len(slots) - index) < expected:
+            return False
+        if index == len(slots):
+            return picked >= expected
+        available = [number for number in slots[index].frame_numbers if number not in taken]
+        if not available:
+            return walk(index + 1, taken, picked)
+        return all(walk(index + 1, taken | {number}, picked + 1) for number in available)
+
+    return walk(0, frozenset(), 0)
+
+
+@pytest.mark.parametrize("frame_rate", SWEEP_FRAME_RATES)
+def test_no_scene_length_yields_fewer_keyframes_than_expected(
+    frame_rate: float, tmp_path: Path
+) -> None:
+    """계약 §4.3.1 의 "장 수가 줄어든 성공은 오지 않는다" 를 전수로 잠근다.
+
+    상한을 창의 ms 로 두면 여백을 뺀 창이 한 프레임 간격보다 좁은 duration 구간에서
+    슬롯 중심과 후보가 같은 프레임으로 모여 1 장이 됐다. 기본 설정 기준 501~599ms 이고
+    fps 가 낮을수록 넓다(10fps 599, 30fps 534, 120fps 508). 치명 단계의 영구 실패였다.
+    """
+    config = load_config()
+    for start in SWEEP_SCENE_STARTS:
+        for duration in range(1, SWEEP_MAX_DURATION_MS + 1):
+            scene = _span(start, start + duration)
+            try:
+                first, last = frames_in_span(scene, frame_rate)
+            except ValueError:
+                continue  # 구간에 프레임이 없는 것은 이 검사의 대상이 아니다
+            grabber = _AllCandidatesGrabber(frame_rate)
+            result = extract_keyframes(
+                Path("sweep.mp4"), (scene,), tmp_path / "sweep", None, grabber
+            )
+            expected = min(config.min_keyframes_per_scene, last - first + 1)
+            (kept,) = result.scenes
+            assert len(kept.keyframes) >= expected, (frame_rate, start, duration)
+            (request,) = grabber.requests
+            assert _survives_any_score_order(request.slots, expected), (
+                frame_rate,
+                start,
+                duration,
+            )
+
+
+@pytest.mark.parametrize(
+    ("frame_rate", "duration_ms"),
+    [(30.0, 501), (30.0, 534), (10.0, 501), (10.0, 599), (120.0, 508)],
+)
+def test_a_scene_just_past_twice_the_edge_margin_gets_the_lower_bound(
+    frame_rate: float, duration_ms: int, tmp_path: Path
+) -> None:
+    """여백을 뺀 창이 한 프레임도 담지 못하는 구간. 각 fps 의 실패 띠 경계다.
+
+    `duration > 2 * edge_margin_ms` 라 여백을 적용하는데 남는 창이 몇 ms 뿐이었고, 그
+    안의 목표 시각이 전부 같은 프레임으로 반올림됐다. 여백을 포기하는 기준이 프레임 수라야
+    이 구간이 하한을 받는다.
+    """
+    grabber = _AllCandidatesGrabber(frame_rate)
+    result = extract_keyframes(
+        Path("edge.mp4"), (_span(0, duration_ms),), tmp_path / "edge", None, grabber
+    )
+
+    (scene,) = result.scenes
+    assert len(scene.keyframes) == load_config().min_keyframes_per_scene
+    assert len({keyframe.timestamp_ms for keyframe in scene.keyframes}) == len(scene.keyframes)
+    assert all(0 <= keyframe.timestamp_ms < duration_ms for keyframe in scene.keyframes)
+
+
+def test_extract_gets_two_keyframes_from_a_narrow_window_scene(
+    make_video: MakeVideo, tmp_path: Path
+) -> None:
+    """위 경계를 실제 디코드·인코드 경로로도 확인한다. 10fps 501ms 는 합성 영상으로 만들 수 있다."""
+    video = make_video("narrow-window", [("bars", BLOCK_FRAMES)])
+    result = extract_keyframes(video, (_span(0, 501),), tmp_path / "out")
+
+    (scene,) = result.scenes
+    assert len(scene.keyframes) == 2
+    assert scene.keyframes[0].timestamp_ms != scene.keyframes[1].timestamp_ms
+    assert all(0 <= keyframe.timestamp_ms < 501 for keyframe in scene.keyframes)
+
+
+@pytest.mark.parametrize("frame_rate", SWEEP_FRAME_RATES)
+def test_normal_scenes_keep_the_margin_and_the_interval_count(frame_rate: float) -> None:
+    """상류 최소 길이(1000ms) 이상인 scene 의 계획은 프레임 상한에 걸리지 않는다.
+
+    프레임 기준으로 옮긴 것이 정상 구간의 계획을 건드리지 않았다는 뜻이다. 옛 계획을
+    스냅샷으로 떠 두는 대신 두 성질로 잠근다 — 여백이 유지되고, 장 수가 간격·상하한만으로
+    정해진다. 스냅샷은 옛 코드가 사라지면 자기 자신을 확인하는 셈이 된다.
+    """
+    config = load_config()
+    for start in SWEEP_SCENE_STARTS:
+        for duration in (1000, 1500, 2999, 3000, 9000, 60_000):
+            slots = _plan(_span(start, start + duration), config, frame_rate)
+            assert len(slots) == min(
+                max(duration // config.interval_ms, config.min_keyframes_per_scene),
+                config.max_keyframes_per_scene,
+            ), (frame_rate, start, duration)
+            for slot in slots:
+                for candidate_ms in slot.candidates_ms:
+                    assert (
+                        start + config.edge_margin_ms
+                        <= candidate_ms
+                        < start + duration - config.edge_margin_ms
+                    ), (frame_rate, start, duration)
