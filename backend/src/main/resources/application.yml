@@ -36,10 +36,13 @@ spring:
       queryResolver:
         base-url: ${QUERY_RESOLVER_BASE_URL:http://localhost:8000}
         connect-timeout: ${QUERY_RESOLVER_CONNECT_TIMEOUT:1s}
-        # read-timeout 은 리졸버의 LLM timeout(ai/.../query_resolver.v1.toml 의
-        # timeout_seconds = 8.0)보다 반드시 커야 한다. 작으면 BE 가 먼저 끊어서
-        # 정규화 결과(search_tokens)를 잃고, FRD v3.1 §6.2 의 원 검색어 BM25 fallback 이
-        # 불가능해진다. 재시도는 하지 않으므로 이 값이 곧 상한이다.
+        # read-timeout 은 리졸버 한 요청의 최악 소요보다 반드시 커야 한다. 작으면 BE 가
+        # 먼저 끊어서 정규화 결과(search_tokens)를 잃고, FRD v3.1 §6.2 의 원 검색어 BM25
+        # fallback 이 불가능해진다. 재시도는 하지 않으므로 이 값이 곧 상한이다.
+        #
+        # 최악 = 생성 8.0s (query_resolver.v1.toml 의 timeout_seconds)
+        #      + 모델 digest 조회 1.0s (ollama_backend.py 의 _METADATA_TIMEOUT_SECONDS, 첫 요청만)
+        #      = 9.0s. LLM timeout 하나만 보고 잡으면 첫 요청에서 그대로 잘린다.
         # 두 값 모두 실측 후 확정 대상이다 (FRD v3.1 §11).
         read-timeout: ${QUERY_RESOLVER_TIMEOUT:10s}
 

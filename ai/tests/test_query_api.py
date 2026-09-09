@@ -60,7 +60,7 @@ def _valid_payload() -> str:
                     "type": "location",
                     "value": "부산",
                     "origin": "explicit_query",
-                    "query_span": {"start": 8, "end": 10},
+                    "query_span": {"start": 7, "end": 9},
                     "confidence": 0.9,
                 }
             ],
@@ -164,10 +164,16 @@ def test_unnormalizable_query_is_400(client: TestClient, stub: StubFactory, quer
     assert response.status_code == 400
 
 
-def test_empty_query_is_rejected_by_validation(client: TestClient) -> None:
-    response = client.post("/query/resolve", json={"query": ""})
+def test_blank_queries_all_get_the_same_status(client: TestClient) -> None:
+    """`""` 와 `"   "` 는 같은 종류의 실패다.
 
-    assert response.status_code == 422
+    pydantic 이 `""` 만 먼저 막으면 422 가 나가고, BE 번역기는 422 를 `RESOLVER_FAILED`(503)
+    로 분류한다. 같은 "정규화 불가" 입력이 한쪽은 서버 장애로, 한쪽은 입력 오류로 보이게 된다.
+    """
+    for query in ("", "   ", "	"):
+        response = client.post("/query/resolve", json={"query": query})
+
+        assert response.status_code == 400, f"{query!r} 가 400 이 아니다"
 
 
 def test_backends_agree_on_categories() -> None:

@@ -17,7 +17,7 @@
 import logging
 from functools import lru_cache
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from npick_worker.query_normalization import normalize
 from npick_worker.query_resolver import (
@@ -50,9 +50,15 @@ class QueryNotNormalizableError(ValueError):
 
 
 class QueryResolveRequest(BaseModel):
-    """사용자가 친 원문 하나. 정규화 질의를 보내면 안 된다."""
+    """사용자가 친 원문 하나. 정규화 질의를 보내면 안 된다.
 
-    query: str = Field(min_length=1)
+    **`min_length` 을 걸지 않는다.** 걸면 `""` 만 pydantic 이 422 로 막고 `"   "` 는 통과해
+    400 이 된다. 둘 다 "정규화할 수 없는 질의" 인데 호출부에서 422→`RESOLVER_FAILED`(503),
+    400→`QUERY_NOT_NORMALIZABLE` 로 갈려 같은 입력이 장애로도 보이고 입력 오류로도 보인다.
+    빈 값 판정은 정규화 한 곳에서만 한다.
+    """
+
+    query: str
 
 
 class Normalization(BaseModel):
