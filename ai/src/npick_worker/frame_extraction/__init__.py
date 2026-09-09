@@ -48,7 +48,7 @@ from npick_worker.frame_extraction.selector import (
     plan_slots,
     select,
 )
-from npick_worker.timecode import frames_to_ms, ms_to_frame
+from npick_worker.timecode import frames_in_range, ms_to_frame
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
@@ -179,23 +179,14 @@ def _validate_scenes(scenes: Sequence[SceneSpan]) -> None:
 
 
 def frames_in_span(scene: SceneSpan, frame_rate: float) -> tuple[int, int]:
-    """`[start, end)` 안에 정규 시각이 들어오는 프레임 번호의 폐구간 `[처음, 마지막]`.
+    """scene 구간 안에 정규 시각이 들어오는 프레임 번호의 폐구간 `[처음, 마지막]`.
 
-    이 계산이 필요한 이유는 `ms_to_frame` 이 **가장 가까운** 프레임을 주기 때문이다.
-    목표 시각이 구간 양 끝에 붙어 있으면 그 프레임의 정규 시각(`frames_to_ms`)이 반
-    프레임만큼 옆 scene 으로 넘어갈 수 있다. 30fps 에서 반 프레임은 17ms 다. 그 상태로
-    저장하면 `keyframe.timestamp_ms` 가 자기 scene 구간 밖을 가리키고, 검수자가 근거
-    프레임을 눌렀을 때 다른 장면이 열린다.
-
-    반올림 오차는 한 프레임을 넘지 않으므로 보정 반복은 각 방향 1회 이하다.
+    세는 규칙은 `timecode.frames_in_range` 다. 여기 있는 것은 **빈 구간을 실패로 번역하는
+    일**뿐이다 — 그 구간이 scene 이라는 것을 아는 쪽이 여기이고, 그래서 오류 메시지에
+    `scene_index` 를 담을 수 있다.
     """
-    first = max(ms_to_frame(scene.start_time_ms, frame_rate), 0)
-    while frames_to_ms(first, frame_rate) < scene.start_time_ms:
-        first += 1
-    last = ms_to_frame(scene.end_time_ms, frame_rate)
-    while last >= 0 and frames_to_ms(last, frame_rate) >= scene.end_time_ms:
-        last -= 1
-    if last < first:
+    span = frames_in_range(scene.start_time_ms, scene.end_time_ms, frame_rate)
+    if span is None:
         # 구간이 한 프레임 간격보다 짧아 정규 시각이 들어오는 프레임이 없다.
         # scene_detection 은 `min_scene_len_ms` 로 이런 구간을 만들지 않지만, 상류가
         # 무엇이든 여기서 조용히 빈 결과를 내지는 않는다.
@@ -204,7 +195,7 @@ def frames_in_span(scene: SceneSpan, frame_rate: float) -> tuple[int, int]:
             f"({scene.start_time_ms}~{scene.end_time_ms}ms, {frame_rate:g}fps)"
         )
         raise ValueError(msg)
-    return first, last
+    return span
 
 
 def _to_frames(plan: SlotPlan, span: tuple[int, int], frame_rate: float) -> SlotCandidates:

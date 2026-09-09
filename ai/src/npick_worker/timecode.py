@@ -5,6 +5,10 @@
 프레임 번호로 되돌리므로, 두 단계가 같은 규칙을 쓰지 않으면 keyframe 이 자기 scene 밖의
 프레임을 가리킬 수 있다.
 
+같은 이유로 **구간 안의 프레임을 세는 규칙도 여기 있다**(`frames_in_range`). "이 구간에서
+몇 장을 뽑을 수 있는가" 를 두 곳에서 따로 세면 한쪽이 ms 로, 다른 쪽이 프레임으로 세는
+어긋남이 생긴다.
+
 한계도 공유한다: 프레임 번호 기반이라 VFR(가변 프레임레이트) 소스에서는 실제 PTS 와
 어긋날 수 있다. 결정론은 유지되지만 정확도가 떨어지므로 샘플 클립은 CFR 을 쓴다
 (`ai/docs/scene-detection.md`).
@@ -30,8 +34,47 @@ def ms_to_frame(timestamp_ms: int, frame_rate: float) -> int:
     **직전 scene 의 마지막 프레임**을 가리킨다.
 
     가장 가까운 프레임이므로 결과의 정규 시각은 목표보다 최대 반 프레임 앞이나 뒤일
-    수 있다. 반열린 구간의 양 끝에서 이 값이 옆 scene 으로 새지 않게 하는 일은
-    호출부가 한다 — 구간을 아는 쪽이 거기이기 때문이다
-    (`frame_extraction` 의 `frames_in_span`).
+    수 있다. 반열린 구간의 양 끝에서 이 값이 옆 구간으로 새지 않게 보정하는 일은
+    `frames_in_range` 가 한다.
     """
     return round(timestamp_ms * frame_rate / 1000)
+
+
+def frames_in_range(start_ms: int, end_ms: int, frame_rate: float) -> tuple[int, int] | None:
+    """반열린 구간 `[start_ms, end_ms)` 안에 정규 시각이 들어오는 프레임 번호의 폐구간.
+
+    보정이 필요한 이유는 `ms_to_frame` 이 **가장 가까운** 프레임을 주기 때문이다. 목표
+    시각이 구간 양 끝에 붙어 있으면 그 프레임의 정규 시각(`frames_to_ms`)이 반 프레임만큼
+    구간 밖으로 넘어갈 수 있다. 30fps 에서 반 프레임은 17ms 다. 그 상태로 저장하면
+    `keyframe.timestamp_ms` 가 자기 scene 구간 밖을 가리키고, 검수자가 근거 프레임을
+    눌렀을 때 다른 장면이 열린다.
+
+    반올림 오차는 한 프레임을 넘지 않으므로 보정 반복은 각 방향 1회 이하다.
+
+    구간이 한 프레임 간격보다 짧아 정규 시각이 들어오는 프레임이 없으면 `None` 이다.
+    그것이 실패인지는 구간의 뜻을 아는 호출부가 정한다 — scene 이면 실패이고
+    (`frame_extraction.frames_in_span`), 후보를 놓을 창이면 창을 넓히면 되는 일이다
+    (`frame_extraction.selector` 의 `_window`).
+    """
+    first = max(ms_to_frame(start_ms, frame_rate), 0)
+    while frames_to_ms(first, frame_rate) < start_ms:
+        first += 1
+    last = ms_to_frame(end_ms, frame_rate)
+    while last >= 0 and frames_to_ms(last, frame_rate) >= end_ms:
+        last -= 1
+    if last < first:
+        return None
+    return first, last
+
+
+def frame_count_in_range(start_ms: int, end_ms: int, frame_rate: float) -> int:
+    """`frames_in_range` 가 담는 프레임 수. 빈 구간은 0 이다.
+
+    개수만 필요한 곳이 `+1` 산술을 반복하지 않게 한다. 그 오프바이원이 갈리면 "이 구간에서
+    몇 장을 뽑을 수 있는가" 의 답이 호출부마다 달라진다.
+    """
+    span = frames_in_range(start_ms, end_ms, frame_rate)
+    if span is None:
+        return 0
+    first, last = span
+    return last - first + 1
