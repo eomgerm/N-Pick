@@ -10,7 +10,7 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import com.npick.tag.application.query.FindTagJudgmentsQueryPort;
-import com.npick.tag.application.query.TagMatchRange;
+import com.npick.tag.application.query.TagCondition;
 import com.npick.tag.domain.model.TagJudgment;
 import com.npick.tag.domain.model.TagType;
 
@@ -65,7 +65,7 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             //
             // 대가는 알고 고른 것이다. 이 판정은 명시 필터 비교·구조화 축 점수·근거 설명이 모두 지나는
             // 길이라, 잘못 쓰인 한 행이 그 장면들을 건드리는 검색 전체를 죽인다. 두 방향이 비대칭이라는
-            // 것도 남긴다 — findByTagRanges 는 알려진 11종으로 tag_type 을 걸러 조회하므로 같은 행에
+            // 것도 남긴다 — findByConditions 는 알려진 11종으로 tag_type 을 걸러 조회하므로 같은 행에
             // 걸리지 않고, findByScenes 만 걸린다. 근본 해결은 스키마에 CHECK 를 넣는 것이고 별 일감이다.
             TagType.from(row.getString("tag_type")),
             row.getString("match_value"),
@@ -96,16 +96,16 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
     }
 
     @Override
-    public List<TagJudgment> findByTagRanges(List<TagMatchRange> ranges) {
-        Objects.requireNonNull(ranges, "ranges");
-        if (ranges.isEmpty()) return List.of();
+    public List<TagJudgment> findByConditions(List<TagCondition> conditions) {
+        Objects.requireNonNull(conditions, "conditions");
+        if (conditions.isEmpty()) return List.of();
 
         // 조건 수만큼 번호 붙인 파라미터를 만든다. 값은 전부 바인딩되고 SQL 에 끼워 넣는 것은 번호뿐이다.
         // 조건은 리졸버 출력에서 나오므로 개수가 한 자릿수다.
         StringBuilder predicate = new StringBuilder();
         MapSqlParameterSource parameters = new MapSqlParameterSource();
-        for (int index = 0; index < ranges.size(); index++) {
-            TagMatchRange range = ranges.get(index);
+        for (int index = 0; index < conditions.size(); index++) {
+            TagCondition condition = conditions.get(index);
             if (index > 0) predicate.append(" OR ");
             predicate
                     .append("(t.tag_type = :type")
@@ -115,9 +115,9 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
                     .append(" AND :to")
                     .append(index)
                     .append(')');
-            parameters.addValue("type" + index, range.type().storedValue());
-            parameters.addValue("from" + index, range.fromInclusive());
-            parameters.addValue("to" + index, range.toInclusive());
+            parameters.addValue("type" + index, condition.type().storedValue());
+            parameters.addValue("from" + index, condition.fromInclusive());
+            parameters.addValue("to" + index, condition.toInclusive());
         }
 
         return query("(" + predicate + ")", parameters);

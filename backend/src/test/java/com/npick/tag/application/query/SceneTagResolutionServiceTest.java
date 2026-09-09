@@ -40,7 +40,7 @@ class SceneTagResolutionServiceTest {
     void sortsMatchedScenesBySceneId() {
         port.rows = List.of(judgment(31L), judgment(30L));
 
-        var matched = service.find(List.of(TagMatchRange.exact(TagType.EVENT, "포항지진")));
+        var matched = service.find(List.of(TagCondition.exact(TagType.EVENT, "포항지진")));
 
         assertThat(matched).extracting(TagMatchedScene::sceneId).containsExactly(30L, 31L);
         assertThat(matched).allSatisfy(scene -> assertThat(scene.clipId()).isEqualTo(10L));
@@ -75,8 +75,8 @@ class SceneTagResolutionServiceTest {
         }
 
         @Override
-        public List<TagJudgment> findByTagRanges(List<TagMatchRange> ranges) {
-            Objects.requireNonNull(ranges, "ranges");
+        public List<TagJudgment> findByConditions(List<TagCondition> conditions) {
+            Objects.requireNonNull(conditions, "conditions");
             calls++;
             return rows;
         }
