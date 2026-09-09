@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import com.npick.feedback.application.query.ExecutionSnapshot;
 import com.npick.feedback.application.query.InquiryDetail;
 import com.npick.feedback.application.query.InquiryDetailQuery;
+import com.npick.feedback.application.query.InquiryScene;
 import com.npick.feedback.application.query.ReviewHistory;
 import com.npick.feedback.application.query.SceneEvidence;
 
@@ -21,6 +22,8 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
             SELECT f.feedback_id, f.status, f.resolution, f.resolution_note, f.created_at, f.comment,
                    f.reviewed_by_id, f.review_started_at, f.verified_by_execution_id,
                    sr.scene_id, sc.clip_id, sr.result_rank,
+                   c.title AS clip_title, sc.start_time_ms, sc.end_time_ms,
+                   sc.pipeline_run_id, pr.processing_no,
                    m.name AS reviewer_name, m.login_id AS reviewer_login_id,
                    CAST(sr.explain_json AS text) AS result_explain_json,
                    se.query_text,
@@ -33,6 +36,8 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
             JOIN search_result sr ON sr.search_result_id = f.search_result_id
             JOIN search_execution se ON se.search_execution_id = sr.search_execution_id
             JOIN scene sc ON sc.scene_id = sr.scene_id
+            JOIN clip c ON c.clip_id = sc.clip_id
+            JOIN pipeline_run pr ON pr.pipeline_run_id = sc.pipeline_run_id
             LEFT JOIN member m ON m.member_id = f.reviewed_by_id
             WHERE f.feedback_id = :feedbackId
             """;
@@ -102,7 +107,14 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
                 (String) row.get("resolution_note"),
                 row.get("created_at", Instant.class),
                 (String) row.get("comment"),
-                ((Number) row.get("scene_id")).longValue(),
+                new InquiryScene(
+                        ((Number) row.get("scene_id")).longValue(),
+                        ((Number) row.get("clip_id")).longValue(),
+                        (String) row.get("clip_title"),
+                        ((Number) row.get("start_time_ms")).longValue(),
+                        ((Number) row.get("end_time_ms")).longValue(),
+                        ((Number) row.get("pipeline_run_id")).longValue(),
+                        ((Number) row.get("processing_no")).intValue()),
                 ((Number) row.get("result_rank")).intValue(),
                 (String) row.get("result_explain_json"),
                 execution,

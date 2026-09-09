@@ -65,6 +65,12 @@ class InquiryListQueryAdapterDbTest {
         assertThat(item.resolution()).isNull();
         assertThat(item.queryText()).isNotBlank();
         assertThat(item.sceneId()).isEqualTo(9301L);
+        assertThat(item.scene().clipId()).isEqualTo(9101L);
+        assertThat(item.scene().clipTitle()).isNull();
+        assertThat(item.scene().startTimeMs()).isEqualTo(42_000L);
+        assertThat(item.scene().endTimeMs()).isEqualTo(49_000L);
+        assertThat(item.scene().pipelineRunId()).isEqualTo(9201L);
+        assertThat(item.scene().processingNo()).isEqualTo(3);
         assertThat(item.hasComment()).isTrue();
     }
 
@@ -109,15 +115,15 @@ class InquiryListQueryAdapterDbTest {
                 """);
         exec("""
                 INSERT INTO npick.pipeline_run (pipeline_run_id, clip_id, processing_no, pipeline_version, status, stage_states_json, created_at, updated_at)
-                VALUES (9201, 9101, 1, 'test-pipeline-v1', 'succeeded', '{}'::jsonb, now(), now())
+                VALUES (9201, 9101, 3, 'test-pipeline-v1', 'succeeded', '{}'::jsonb, now(), now())
                 """);
         exec("""
                 INSERT INTO npick.scene (scene_id, clip_id, pipeline_run_id, start_time_ms, end_time_ms, shot_type, created_at, updated_at)
-                VALUES (9301, 9101, 9201, 0, 1000, 'b_roll', now(), now())
+                VALUES (9301, 9101, 9201, 42000, 49000, 'b_roll', now(), now())
                 """);
         exec("""
                 INSERT INTO npick.scene (scene_id, clip_id, pipeline_run_id, start_time_ms, end_time_ms, shot_type, created_at, updated_at)
-                VALUES (9302, 9101, 9201, 1000, 2000, 'b_roll', now(), now())
+                VALUES (9302, 9101, 9201, 49000, 55000, 'b_roll', now(), now())
                 """);
         exec("""
                 INSERT INTO npick.search_execution (search_execution_id, searched_by_id, query_text, normalized_query,

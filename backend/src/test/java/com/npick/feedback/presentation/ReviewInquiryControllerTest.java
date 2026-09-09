@@ -21,10 +21,12 @@ import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
 import com.npick.feedback.application.InquiryReviewService;
 import com.npick.feedback.application.query.ExecutionSnapshot;
 import com.npick.feedback.application.query.InquiryDetail;
+import com.npick.feedback.application.query.InquiryScene;
 import com.npick.feedback.application.query.ReviewHistory;
 import com.npick.feedback.domain.error.FeedbackErrorCode;
 import com.npick.feedback.domain.error.FeedbackException;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -70,7 +72,13 @@ class ReviewInquiryControllerTest {
     void reviewerListsByStatus() throws Exception {
         com.npick.feedback.application.query.InquiryListItem item =
                 new com.npick.feedback.application.query.InquiryListItem(
-                        1L, "OPEN", null, java.time.Instant.parse("2026-09-08T00:00:00Z"), "질의", 42L, true);
+                        1L,
+                        "OPEN",
+                        null,
+                        java.time.Instant.parse("2026-09-08T00:00:00Z"),
+                        "질의",
+                        new InquiryScene(42L, 123L, "뉴스9 교통 상황", 42_000L, 49_000L, 3001L, 3),
+                        true);
         given(reviewService.list(eq("open"), anyInt(), anyInt()))
                 .willReturn(new com.npick.feedback.application.query.InquiryListPage(
                         java.util.List.of(item), 6L, new com.npick.feedback.application.query.StatusCounts(3, 2, 1)));
@@ -82,7 +90,14 @@ class ReviewInquiryControllerTest {
                 .andExpect(jsonPath("$.data.statusCounts.open").value(3))
                 .andExpect(jsonPath("$.data.statusCounts.reviewing").value(2))
                 .andExpect(jsonPath("$.data.statusCounts.closed").value(1))
-                .andExpect(jsonPath("$.data.items[0].feedbackId").value(1));
+                .andExpect(jsonPath("$.data.items[0].feedbackId").value(1))
+                .andExpect(jsonPath("$.data.items[0].scene.sceneId").value(42))
+                .andExpect(jsonPath("$.data.items[0].scene.clipId").value(123))
+                .andExpect(jsonPath("$.data.items[0].scene.clipTitle").value("뉴스9 교통 상황"))
+                .andExpect(jsonPath("$.data.items[0].scene.startTimeMs").value(42_000))
+                .andExpect(jsonPath("$.data.items[0].scene.endTimeMs").value(49_000))
+                .andExpect(jsonPath("$.data.items[0].scene.pipelineRunId").value(3001))
+                .andExpect(jsonPath("$.data.items[0].scene.processingNo").value(3));
     }
 
     @Test
@@ -114,7 +129,7 @@ class ReviewInquiryControllerTest {
                 null,
                 java.time.Instant.parse("2026-09-08T00:00:00Z"),
                 "이상해요",
-                42L,
+                new InquiryScene(42L, 123L, null, 42_000L, 49_000L, 3001L, 3),
                 3,
                 "{\"score\":1}",
                 new ExecutionSnapshot("query", "{\"date\":\"2026\"}", "{}", "{}", "{}", "{}"),
@@ -127,6 +142,13 @@ class ReviewInquiryControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.resultExplainJson").value("{\"score\":1}"))
                 .andExpect(jsonPath("$.data.sceneId").value(42))
+                .andExpect(jsonPath("$.data.scene.sceneId").value(42))
+                .andExpect(jsonPath("$.data.scene.clipId").value(123))
+                .andExpect(jsonPath("$.data.scene.clipTitle").value(nullValue()))
+                .andExpect(jsonPath("$.data.scene.startTimeMs").value(42_000))
+                .andExpect(jsonPath("$.data.scene.endTimeMs").value(49_000))
+                .andExpect(jsonPath("$.data.scene.pipelineRunId").value(3001))
+                .andExpect(jsonPath("$.data.scene.processingNo").value(3))
                 .andExpect(jsonPath("$.data.resultRank").value(3))
                 .andExpect(jsonPath("$.data.execution.explicitFiltersJson").value("{\"date\":\"2026\"}"))
                 .andExpect(jsonPath("$.data.history.reviewerName").value("검수자01"))

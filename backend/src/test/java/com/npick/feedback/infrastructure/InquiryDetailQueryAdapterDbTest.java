@@ -65,6 +65,12 @@ class InquiryDetailQueryAdapterDbTest {
         assertThat(detail.evidence()).anyMatch(e -> "CLIP".equals(e.scope())).anyMatch(e -> "SCENE".equals(e.scope()));
         assertThat(detail.execution().queryText()).isNotBlank();
         assertThat(detail.sceneId()).isEqualTo(9301L);
+        assertThat(detail.scene().clipId()).isEqualTo(9101L);
+        assertThat(detail.scene().clipTitle()).isEqualTo("뉴스9 교통 상황");
+        assertThat(detail.scene().startTimeMs()).isEqualTo(42_000L);
+        assertThat(detail.scene().endTimeMs()).isEqualTo(49_000L);
+        assertThat(detail.scene().pipelineRunId()).isEqualTo(9201L);
+        assertThat(detail.scene().processingNo()).isEqualTo(3);
         assertThat(detail.resultRank()).isEqualTo(1);
         assertThat(detail.execution().explicitFiltersJson()).containsIgnoringWhitespaces("2026-10-29");
         assertThat(detail.history().reviewerName()).isEqualTo("검수자9002");
@@ -81,16 +87,16 @@ class InquiryDetailQueryAdapterDbTest {
                 VALUES (9002, 'reviewer-test-9002', 'hash', '검수자9002', 'reviewer', now(), now())
                 """);
         exec("""
-                INSERT INTO npick.clip (clip_id, source_type, storage_key, content_hash, transcript_source, registered_by_id, created_at, updated_at)
-                VALUES (9101, 'broadcast', 'clips/9101/original', repeat('a', 64), 'none', 9001, now(), now())
+                INSERT INTO npick.clip (clip_id, source_type, storage_key, content_hash, title, transcript_source, registered_by_id, created_at, updated_at)
+                VALUES (9101, 'broadcast', 'clips/9101/original', repeat('a', 64), '뉴스9 교통 상황', 'none', 9001, now(), now())
                 """);
         exec("""
                 INSERT INTO npick.pipeline_run (pipeline_run_id, clip_id, processing_no, pipeline_version, status, stage_states_json, created_at, updated_at)
-                VALUES (9201, 9101, 1, 'test-pipeline-v1', 'succeeded', '{}'::jsonb, now(), now())
+                VALUES (9201, 9101, 3, 'test-pipeline-v1', 'succeeded', '{}'::jsonb, now(), now())
                 """);
         exec("""
                 INSERT INTO npick.scene (scene_id, clip_id, pipeline_run_id, start_time_ms, end_time_ms, shot_type, created_at, updated_at)
-                VALUES (9301, 9101, 9201, 0, 1000, 'b_roll', now(), now())
+                VALUES (9301, 9101, 9201, 42000, 49000, 'b_roll', now(), now())
                 """);
         exec("""
                 INSERT INTO npick.tag (tag_id, tag_type, match_value, name)

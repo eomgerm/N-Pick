@@ -11,6 +11,7 @@ public record InquiryListItemResponse(
         Instant createdAt,
         String queryText,
         long sceneId,
+        InquirySceneResponse scene,
         boolean hasComment) {
     public static InquiryListItemResponse from(InquiryListItem item) {
         return new InquiryListItemResponse(
@@ -20,6 +21,7 @@ public record InquiryListItemResponse(
                 item.createdAt(),
                 item.queryText(),
                 item.sceneId(),
+                InquirySceneResponse.from(item.scene()),
                 item.hasComment());
     }
 }

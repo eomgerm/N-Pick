@@ -8,5 +8,10 @@ public record InquiryListItem(
         String resolution,
         Instant createdAt,
         String queryText,
-        long sceneId,
-        boolean hasComment) {}
+        InquiryScene scene,
+        boolean hasComment) {
+
+    public long sceneId() {
+        return scene.sceneId();
+    }
+}
