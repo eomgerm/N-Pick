@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import com.npick.feedback.application.query.InquiryListItem;
 import com.npick.feedback.application.query.InquiryListQuery;
+import com.npick.feedback.application.query.StatusCounts;
 
 @Repository
 public class InquiryListQueryAdapter implements InquiryListQuery {
@@ -29,6 +30,11 @@ public class InquiryListQueryAdapter implements InquiryListQuery {
         this.entityManager = entityManager;
     }
 
+    private static final String COUNT_SQL =
+            "SELECT count(*) FROM feedback WHERE (CAST(:status AS varchar) IS NULL OR status = CAST(:status AS varchar))";
+
+    private static final String GROUP_COUNT_SQL = "SELECT status, count(*) FROM feedback GROUP BY status";
+
     @Override
     @SuppressWarnings("unchecked")
     public List<InquiryListItem> findByStatus(String statusOrNull, int page, int size) {
@@ -39,6 +45,35 @@ public class InquiryListQueryAdapter implements InquiryListQuery {
                 .setParameter("offset", page * size)
                 .getResultList();
         return rows.stream().map(this::toItem).toList();
+    }
+
+    @Override
+    public long countByStatus(String statusOrNull) {
+        Object count = entityManager
+                .createNativeQuery(COUNT_SQL)
+                .setParameter("status", statusOrNull)
+                .getSingleResult();
+        return ((Number) count).longValue();
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public StatusCounts countGroupedByStatus() {
+        List<Object[]> rows = entityManager.createNativeQuery(GROUP_COUNT_SQL).getResultList();
+        long open = 0;
+        long reviewing = 0;
+        long closed = 0;
+        for (Object[] row : rows) {
+            String status = (String) row[0];
+            long count = ((Number) row[1]).longValue();
+            switch (status) {
+                case "OPEN" -> open = count;
+                case "REVIEWING" -> reviewing = count;
+                case "CLOSED" -> closed = count;
+                default -> {} // 알 수 없는 상태는 배지 집계에서 제외
+            }
+        }
+        return new StatusCounts(open, reviewing, closed);
     }
 
     private InquiryListItem toItem(Tuple row) {

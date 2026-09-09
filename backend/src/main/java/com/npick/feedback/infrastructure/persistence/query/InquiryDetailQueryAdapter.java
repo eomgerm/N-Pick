@@ -20,9 +20,11 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
     private static final String HEADER_SQL = """
             SELECT f.feedback_id, f.status, f.resolution, f.resolution_note, f.created_at, f.comment,
                    f.reviewed_by_id, f.review_started_at, f.verified_by_execution_id,
-                   sr.scene_id, sc.clip_id,
+                   sr.scene_id, sc.clip_id, sr.result_rank,
+                   m.name AS reviewer_name, m.login_id AS reviewer_login_id,
                    CAST(sr.explain_json AS text) AS result_explain_json,
                    se.query_text,
+                   CAST(se.explicit_filters_json AS text) AS explicit_filters_json,
                    CAST(se.parsed_query_json AS text) AS parsed_query_json,
                    CAST(se.resolver_output_json AS text) AS resolver_output_json,
                    CAST(se.applied_rules_json AS text) AS applied_rules_json,
@@ -31,6 +33,7 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
             JOIN search_result sr ON sr.search_result_id = f.search_result_id
             JOIN search_execution se ON se.search_execution_id = sr.search_execution_id
             JOIN scene sc ON sc.scene_id = sr.scene_id
+            LEFT JOIN member m ON m.member_id = f.reviewed_by_id
             WHERE f.feedback_id = :feedbackId
             """;
 
@@ -81,12 +84,15 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
     private InquiryDetail toDetail(Tuple row, List<SceneEvidence> evidence) {
         ExecutionSnapshot execution = new ExecutionSnapshot(
                 (String) row.get("query_text"),
+                (String) row.get("explicit_filters_json"),
                 (String) row.get("parsed_query_json"),
                 (String) row.get("resolver_output_json"),
                 (String) row.get("applied_rules_json"),
                 (String) row.get("applied_excludes_json"));
         ReviewHistory history = new ReviewHistory(
                 toLong(row.get("reviewed_by_id")),
+                (String) row.get("reviewer_name"),
+                (String) row.get("reviewer_login_id"),
                 row.get("review_started_at", Instant.class),
                 toLong(row.get("verified_by_execution_id")));
         return new InquiryDetail(
@@ -96,6 +102,8 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
                 (String) row.get("resolution_note"),
                 row.get("created_at", Instant.class),
                 (String) row.get("comment"),
+                ((Number) row.get("scene_id")).longValue(),
+                ((Number) row.get("result_rank")).intValue(),
                 (String) row.get("result_explain_json"),
                 execution,
                 evidence,

@@ -15,6 +15,8 @@ public record InquiryDetailResponse(
         String resolutionNote,
         Instant createdAt,
         String comment,
+        long sceneId,
+        int resultRank,
         String resultExplainJson,
         ExecutionSnapshotResponse execution,
         List<SceneEvidenceResponse> evidence,
@@ -28,6 +30,8 @@ public record InquiryDetailResponse(
                 detail.resolutionNote(),
                 detail.createdAt(),
                 detail.comment(),
+                detail.sceneId(),
+                detail.resultRank(),
                 detail.resultExplainJson(),
                 ExecutionSnapshotResponse.from(detail.execution()),
                 detail.evidence().stream().map(SceneEvidenceResponse::from).toList(),
@@ -36,6 +40,7 @@ public record InquiryDetailResponse(
 
     public record ExecutionSnapshotResponse(
             String queryText,
+            String explicitFiltersJson,
             String parsedQueryJson,
             String resolverOutputJson,
             String appliedRulesJson,
@@ -43,6 +48,7 @@ public record InquiryDetailResponse(
         public static ExecutionSnapshotResponse from(ExecutionSnapshot snapshot) {
             return new ExecutionSnapshotResponse(
                     snapshot.queryText(),
+                    snapshot.explicitFiltersJson(),
                     snapshot.parsedQueryJson(),
                     snapshot.resolverOutputJson(),
                     snapshot.appliedRulesJson(),
@@ -62,10 +68,19 @@ public record InquiryDetailResponse(
         }
     }
 
-    public record ReviewHistoryResponse(Long reviewedById, Instant reviewStartedAt, Long verifiedByExecutionId) {
+    public record ReviewHistoryResponse(
+            Long reviewedById,
+            String reviewerName,
+            String reviewerLoginId,
+            Instant reviewStartedAt,
+            Long verifiedByExecutionId) {
         public static ReviewHistoryResponse from(ReviewHistory history) {
             return new ReviewHistoryResponse(
-                    history.reviewedById(), history.reviewStartedAt(), history.verifiedByExecutionId());
+                    history.reviewedById(),
+                    history.reviewerName(),
+                    history.reviewerLoginId(),
+                    history.reviewStartedAt(),
+                    history.verifiedByExecutionId());
         }
     }
 }

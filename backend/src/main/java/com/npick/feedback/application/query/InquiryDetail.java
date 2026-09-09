@@ -10,6 +10,8 @@ public record InquiryDetail(
         String resolutionNote,
         Instant createdAt,
         String comment,
+        long sceneId,
+        int resultRank,
         String resultExplainJson,
         ExecutionSnapshot execution,
         List<SceneEvidence> evidence,
