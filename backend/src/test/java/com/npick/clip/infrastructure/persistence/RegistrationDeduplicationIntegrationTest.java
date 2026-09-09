@@ -926,6 +926,59 @@ class RegistrationDeduplicationIntegrationTest {
         }
     }
 
+    @Test
+    void preservesSqlFailureCause() {
+        long id = IDS.incrementAndGet();
+        var failing = new PostgresRegistrationDeduplicationAdapter(
+                failingStatementDataSource("INSERT INTO npick.registration_request", "executeUpdate"));
+        assertThatThrownBy(() -> failing.register("cause-sql-" + id, 1, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback must not run");
+                }))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.errorCode()).isEqualTo(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+                    assertThat(e.getCause()).isInstanceOf(SQLException.class);
+                });
+    }
+
+    @Test
+    void unlockFailureRetainsTheOriginalOperationFailure() {
+        long id = IDS.incrementAndGet();
+        var original = new AssertionError("private operation failure");
+        var failing = new PostgresRegistrationDeduplicationAdapter(
+                failingStatementDataSource("pg_advisory_unlock(", "execute"));
+        assertThatThrownBy(() -> failing.register("cause-unlock-" + id, 1, hash(id), REQUEST, () -> {
+                    throw original;
+                }))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.getCause()).isInstanceOf(SQLException.class);
+                    // Pool close may append another failure after abort; the operation must still be retained.
+                    assertThat(e.getCause().getSuppressed())
+                            .anySatisfy(secondary ->
+                                    assertThat(secondary.getCause()).isSameAs(original));
+                });
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void preservesCreatorErrorAndSecondaryJournalFailure(boolean journalFails) {
+        long id = IDS.incrementAndGet();
+        var original = new AssertionError("private original failure");
+        var adapter = journalFails
+                ? new PostgresRegistrationDeduplicationAdapter(
+                        failingStatementDataSource("SET state=?,", "executeUpdate"))
+                : deduplication;
+        assertThatThrownBy(() -> adapter.register("cause-error-" + id, 1, hash(id), REQUEST, () -> {
+                    throw original;
+                }))
+                .isInstanceOfSatisfying(BusinessException.class, e -> {
+                    assertThat(e.errorCode()).isEqualTo(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+                    assertThat(e.getCause()).isSameAs(original);
+                    assertThat(e.getSuppressed()).hasSize(journalFails ? 1 : 0);
+                    if (journalFails) assertThat(e.getSuppressed()[0]).isInstanceOf(SQLException.class);
+                });
+        assertState(hash(id), journalFails ? "processing" : "unknown");
+    }
+
     private RegisterClipResult stored(
             com.npick.clip.application.command.prepare.PrepareVideoResult video,
             long id,

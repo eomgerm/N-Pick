@@ -57,10 +57,14 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(true);
             List<Long> attemptedLocks = new ArrayList<>(2);
+            Throwable operationFailure = null;
             try {
                 lock(connection, "registration-key:" + actor + ":" + keyHash, attemptedLocks);
                 lock(connection, "registration-content:" + content, attemptedLocks);
                 return locked(connection, actor, keyHash, content, fingerprint, create);
+            } catch (SQLException | RuntimeException | Error failure) {
+                operationFailure = failure;
+                throw failure;
             } finally {
                 // Include acquisition attempts whose acknowledgement may have been lost.
                 // Release only our locks, never unrelated locks on the session.
@@ -72,12 +76,17 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
                         }
                     }
                 } catch (SQLException failure) {
-                    connection.abort(Runnable::run);
+                    if (operationFailure != null) failure.addSuppressed(operationFailure);
+                    try {
+                        connection.abort(Runnable::run);
+                    } catch (SQLException abortFailure) {
+                        failure.addSuppressed(abortFailure);
+                    }
                     throw failure;
                 }
             }
         } catch (SQLException failure) {
-            throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+            throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN, failure);
         }
     }
 
@@ -140,9 +149,11 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
                 update.setString(3, key);
                 update.executeUpdate();
             } catch (SQLException journalFailure) {
-                throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+                var unknown = new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN, failure);
+                unknown.addSuppressed(journalFailure);
+                throw unknown;
             }
-            if (!knownFailure) throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+            if (!knownFailure) throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN, failure);
             throw failure;
         }
         complete(db, actor, key, result);
@@ -179,6 +190,7 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
     }
 
     private static RegisterClipResult findContent(Connection db, String content) throws SQLException {
+        // Replay the initial registration response, not the mutable pipeline execution status.
         try (var query = db.prepareStatement("""
                 SELECT c.clip_id,r.pipeline_run_id FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id
                 WHERE c.content_hash=? AND c.deleted_at IS NULL AND r.processing_no=1

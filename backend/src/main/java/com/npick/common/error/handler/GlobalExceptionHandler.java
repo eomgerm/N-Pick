@@ -1,5 +1,7 @@
 package com.npick.common.error.handler;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,6 +45,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(
             BusinessException exception, HttpServletRequest request) {
         ErrorCode errorCode = exception.errorCode();
+        if (exception.getCause() != null) {
+            log.warn(
+                    "Business dependency failure: code={}, causeType={}, location={}, secondaryFailures={}",
+                    errorCode.code(),
+                    exception.getCause().getClass().getSimpleName(),
+                    safeLocation(exception),
+                    exception.getSuppressed().length);
+        }
         if (exception.getSuppressed().length > 0) {
             log.warn(
                     "Business failure cleanup requires attention: code={}, cleanupFailures={}",
@@ -153,12 +163,19 @@ public class GlobalExceptionHandler {
     }
 
     private static String safeLocation(Exception exception) {
-        for (var frame : exception.getStackTrace()) {
-            if (frame.getClassName().startsWith("com.npick.")) {
-                // Preserve a diagnostic code location without exception messages or source/OS file paths.
-                return frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber();
+        var visited = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        String location = "external";
+        Throwable current = exception;
+        // Prefer the deepest available application cause; bound malformed/cyclic chains.
+        while (current != null && visited.size() < 32 && visited.add(current)) {
+            for (var frame : current.getStackTrace()) {
+                if (frame.getClassName().startsWith("com.npick.")) {
+                    location = frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber();
+                    break;
+                }
             }
+            current = current.getCause();
         }
-        return "external";
+        return location;
     }
 }
