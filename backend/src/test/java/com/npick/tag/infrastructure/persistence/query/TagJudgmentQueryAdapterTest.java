@@ -7,17 +7,15 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.LongStream;
 
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
+import com.npick.support.NpickPostgres;
 import com.npick.tag.application.query.SceneTagResolutionService;
 import com.npick.tag.application.query.TagMatchRange;
 import com.npick.tag.application.query.TagMatchedScene;
@@ -33,78 +31,30 @@ import static org.assertj.core.api.Assertions.tuple;
  * <p>판정 순서 자체는 {@code TagResolutionPolicyTest} 가 DB 없이 검증한다. 여기서 확인하는 것은 <b>SQL 만 답할 수 있는 것</b> 넷이다 — 클립 태그의 장면 상속, 폐기된
  * 처리의 장면 제외, 논리 삭제된 클립 제외, 날짜 문자열 범위 비교.
  *
- * <p>전용 테스트 DB 환경 변수가 없으면 생략된다. 생략된 것은 통과가 아니다. 컨테이너 실행 방법은 backend README 의 통합 테스트 절을 따른다.
+ * <p>도커가 없으면 생략이 아니라 실패한다 (S15P21A501-166). 검증하지 않은 것을 초록불로 위장하지 않는다.
  *
- * <p>같은 서버에 <b>별도 데이터베이스</b> 를 만들어 쓴다. {@code FlywayBaselineTest} 는 "기존 npick 객체가 하나도 없을 때만" 실행되도록 자신을 보호하는데, 이 테스트가 같은
- * 스키마에 마이그레이션을 걸면 실행 순서에 따라 그 검사가 깨진다.
+ * <p>공유 DB 가 아니라 {@link NpickPostgres#freshDatabase} 로 <b>전용 DB</b> 를 받는다. {@code FlywayBaselineTest} 가 "npick 스키마가 비어
+ * 있을 때만" 돌도록 자신을 보호하는데, 이 테스트가 같은 스키마에 마이그레이션을 걸면 실행 순서에 따라 그 검사가 깨진다.
  *
  * <p>표본은 커밋하지 않고 롤백한다. 어댑터가 커밋 전 데이터를 보게 하려고 같은 커넥션을 {@link SingleConnectionDataSource} 로 감싼다 — 후보 검증 검색(F-12)이 의존하는
  * 성질과 같은 구성이다 (FRD §11).
  */
-@EnabledIfEnvironmentVariable(named = "NPICK_MIGRATION_TEST_URL", matches = ".+")
 class TagJudgmentQueryAdapterTest {
-    private static final String DATABASE = "npick_tag_resolution_test";
 
     private static String url;
-    private static String user;
-    private static String password;
 
     private Connection connection;
     private SingleConnectionDataSource dataSource;
 
     @BeforeAll
-    static void migrateOwnDatabase() throws Exception {
-        String givenUrl = System.getenv("NPICK_MIGRATION_TEST_URL");
-        user = System.getenv("NPICK_MIGRATION_TEST_USER");
-        password = System.getenv("NPICK_MIGRATION_TEST_PASSWORD");
-        assertThat(user).as("전용 테스트 DB 사용자").isNotBlank();
-        assertThat(password).as("전용 테스트 DB 비밀번호").isNotBlank();
-        url = replaceDatabase(givenUrl, DATABASE);
-        // 앞선 실행이 중간에 끊겨 남아 있을 수 있다. 지우고 다시 만든다 — 이 이름의 DB 는 이 테스트만 쓴다.
-        try (var admin = DriverManager.getConnection(givenUrl, user, password);
-                var statement = admin.createStatement()) {
-            statement.execute("DROP DATABASE IF EXISTS " + DATABASE + " WITH (FORCE)");
-            statement.execute("CREATE DATABASE " + DATABASE);
-        }
-        // Flyway 는 create-schemas=false 로 돌므로 npick 스키마를 먼저 만들어야 한다.
-        try (var created = DriverManager.getConnection(url, user, password);
-                var statement = created.createStatement()) {
-            statement.execute("CREATE SCHEMA npick");
-        }
-        Flyway.configure()
-                .dataSource(url, user, password)
-                .defaultSchema("npick")
-                .schemas("npick")
-                .createSchemas(false)
-                .cleanDisabled(true)
-                .validateOnMigrate(true)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
-    }
-
-    @AfterAll
-    static void dropOwnDatabase() throws Exception {
-        String givenUrl = System.getenv("NPICK_MIGRATION_TEST_URL");
-        try (var admin = DriverManager.getConnection(givenUrl, user, password);
-                var statement = admin.createStatement()) {
-            statement.execute("DROP DATABASE IF EXISTS " + DATABASE + " WITH (FORCE)");
-        }
-    }
-
-    /** {@code jdbc:postgresql://host:port/given?params} 의 DB 이름만 바꾼다. */
-    private static String replaceDatabase(String jdbcUrl, String database) {
-        int query = jdbcUrl.indexOf('?');
-        String base = query < 0 ? jdbcUrl : jdbcUrl.substring(0, query);
-        String parameters = query < 0 ? "" : jdbcUrl.substring(query);
-        int lastSlash = base.lastIndexOf('/');
-        assertThat(lastSlash).as("DB 이름이 있는 JDBC URL").isGreaterThan(0);
-        return base.substring(0, lastSlash + 1) + database + parameters;
+    static void migrateOwnDatabase() {
+        url = NpickPostgres.freshDatabase("npick_tag_resolution_test");
+        NpickPostgres.migrate(url);
     }
 
     @BeforeEach
     void loadFixture() throws Exception {
-        connection = DriverManager.getConnection(url, user, password);
+        connection = DriverManager.getConnection(url, NpickPostgres.username(), NpickPostgres.password());
         connection.setAutoCommit(false);
         try (var statement = connection.createStatement()) {
             statement.execute("SET LOCAL search_path = npick, public");

@@ -12,7 +12,6 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
@@ -27,24 +26,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.npick.feedback.infrastructure.persistence.mapper.FeedbackPersistenceMapper;
 import com.npick.feedback.infrastructure.persistence.repository.FeedbackRepositoryAdapter;
+import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// 실 PostgreSQL(paradedb) 컨테이너 대상 통합 테스트. NPICK_FEEDBACK_DB_TEST_URL 이 없으면 스킵된다.
+// 실 PostgreSQL(paradedb) 대상 통합 테스트. Testcontainers 가 컨테이너를 띄운다(NpickPostgres).
 // 동시성 검증이라 커밋된 상태를 다른 스레드가 봐야 하므로 @DataJpaTest 기본 롤백을 끈다(NOT_SUPPORTED).
-@DataJpaTest(
-        properties = {
-            "spring.autoconfigure.exclude=",
-            "spring.flyway.enabled=true",
-            "spring.flyway.schemas=npick",
-            "spring.flyway.default-schema=npick",
-            "spring.flyway.create-schemas=true",
-            "spring.jpa.properties.hibernate.default_schema=npick"
-        })
+@DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({FeedbackRepositoryAdapter.class, FeedbackPersistenceMapper.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@EnabledIfEnvironmentVariable(named = "NPICK_FEEDBACK_DB_TEST_URL", matches = ".+")
 class FeedbackClaimConcurrencyDbTest {
 
     private static final long FEEDBACK_ID = 8901L;
@@ -60,13 +51,12 @@ class FeedbackClaimConcurrencyDbTest {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    /** 이 클래스는 {@code NOT_SUPPORTED} 로 커밋한다. 정리가 한 번이라도 실패하면 공유 DB 를 읽는 다른 클래스가 깨진다. 전용 DB 를 쓴다. */
     @DynamicPropertySource
-    static void datasource(DynamicPropertyRegistry properties) {
-        properties.add("spring.datasource.url", () -> System.getenv("NPICK_FEEDBACK_DB_TEST_URL"));
-        properties.add("spring.datasource.username", () -> System.getenv("NPICK_FEEDBACK_DB_TEST_USER"));
-        properties.add("spring.datasource.password", () -> System.getenv("NPICK_FEEDBACK_DB_TEST_PASSWORD"));
-        // 테스트 DB 계정(npick_test)은 "$user" 스키마 관례를 안 따르므로 세션 search_path를 직접 건다.
-        properties.add("spring.datasource.hikari.connection-init-sql", () -> "SET search_path TO npick, public");
+    static void provisionDatabase(DynamicPropertyRegistry properties) {
+        String url = NpickPostgres.freshDatabase("npick_feedback_claim");
+        NpickPostgres.migrate(url);
+        NpickPostgres.datasource(properties, url);
     }
 
     @AfterEach

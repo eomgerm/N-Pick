@@ -6,6 +6,7 @@ Spring Boot 기반 N-Pick API 서버.
 
 - **JDK 21** (필수). `java -version` 으로 확인.
 - Gradle 은 wrapper(`./gradlew`)를 쓰므로 별도 설치 불필요.
+- **Docker** (필수). 테스트가 Testcontainers 로 DB 를 직접 띄운다. 도커가 없으면 DB 테스트는 스킵이 아니라 **실패**한다.
 - **PostgreSQL 18.6 + pg_search 0.25.6 + pgvector** (필수). compose 기준 이미지는
   `paradedb/paradedb:0.25.6-pg18`이다. 스키마는 `npick` 이고, 기동 시 Flyway 가 `db/migration` 의
   baseline 을 이 스키마에 적용한다. `npick` 스키마 자체는 compose 의
@@ -64,47 +65,25 @@ curl http://localhost:8080/actuator/health   # {"status":"UP"}
 
 ### 통합 테스트
 
-DB 테스트는 테스트별로 서로 다른 빈 PostgreSQL DB를 사용한다. 각 접속 정보는 아래 환경 변수의
-`URL`, `USER`, `PASSWORD` 접미사로 설정한다. URL은 JDBC 형식이다.
+DB 를 쓰는 테스트는 [Testcontainers](https://testcontainers.com/) 가 compose 와 같은
+`paradedb/paradedb:0.25.6-pg18` 컨테이너를 띄워 쓴다. 환경 변수도 수동 `docker run` 도 필요 없다.
 
-| 환경 변수 접두사 | 대상 |
-| --- | --- |
-| `NPICK_MIGRATION_TEST_` | Flyway baseline. 태그 판정 테스트는 이 접속 정보로 **자기 DB를 따로 만들어** 쓴다 |
-| `NPICK_REGISTRATION_TEST_` | 클립 등록 영속성 |
-| `NPICK_DEDUP_TEST_` | 등록 중복 처리 및 후속 migration |
-| `NPICK_FEEDBACK_DB_TEST_` | 신고 검수 조회와 동시 검수 |
+- 컨테이너는 `com.npick.support.NpickPostgres` 가 JVM 당 하나만 띄우고, 기동 직후 `npick` 스키마와
+  migration 을 한 번 적용한다. 종료는 Testcontainers 의 Ryuk 이 처리한다.
+- 롤백 없이 커밋하는 테스트와 비어 있는 DB 가 필요한 테스트는 같은 컨테이너 안에 전용 DB 를 받는다.
+  `FlywayBaselineTest` 와 `RegistrationDeduplicationIntegrationTest` 는 migration 적용 건수를
+  단언하므로 비어 있는 DB 가 아니면 성립하지 않는다.
+- **도커가 없으면 스킵이 아니라 실패한다.** 의도한 동작이며, 검증되지 않은 것을 초록불로 위장하지 않기 위함이다.
 
-빈 DB 준비:
+실제 미디어 테스트는 `ffmpeg` 와 `ffprobe` 를 PATH 에 설치하고 `NPICK_MEDIA_TESTS=true` 로 활성화한다.
+파일 시스템 테스트에는 심볼릭 링크 생성 권한이 필요하다. 이 조건을 충족하지 않은 테스트는 생략된다.
 
-```bash
-docker compose up -d postgres      # 저장소 루트
-docker exec npick-postgres psql -U npick -d npick \
-  -c "DROP DATABASE IF EXISTS npick_migration_test WITH (FORCE)" \
-  -c "CREATE DATABASE npick_migration_test"
+이미 적용된 migration 을 수정하거나 checksum 을 강제로 repair 하지 않는다. 스키마 변경은 후속
+migration 으로 관리한다. `vector`·`pg_search` 확장 설치에는 관리자 권한이 필요하다.
 
-export NPICK_MIGRATION_TEST_URL=jdbc:postgresql://localhost:5432/npick_migration_test
-export NPICK_MIGRATION_TEST_USER=npick
-export NPICK_MIGRATION_TEST_PASSWORD="$POSTGRES_PASSWORD"
-```
-
-`npick` 스키마를 미리 만들지 않는다. Flyway는 `create-schemas=false`로 돌지만 각 테스트가 스스로
-`CREATE SCHEMA npick`을 실행하며, `FlywayBaselineTest`는 **`npick` 스키마가 비어 있을 때만** 실행되도록
-자신을 보호한다. 스키마에 객체가 남아 있으면 이렇게 실패한다.
-
-```
-[비어 있지 않은 npick 스키마에는 테스트를 실행하지 않는다]
-expected: 0 but was: 61
-```
-
-실제 미디어 테스트는 `ffmpeg`와 `ffprobe`를 PATH에 설치하고 `NPICK_MEDIA_TESTS=true`로 활성화한다.
-파일 시스템 테스트에는 심볼릭 링크 생성 권한이 필요하다. 조건을 충족하지 않은 테스트는 생략될 수 있다.
-DB 테스트를 재실행할 때는 새 빈 DB를 준비하며 개발·운영 DB를 사용하지 않는다.
-
-**`BUILD SUCCESSFUL`만으로 통과를 판정하지 않는다.** 환경 변수가 없으면 DB 테스트는 오류 없이 생략된다.
-`build/test-results/test/*.xml`의 `skipped`를 확인한다.
-
-이미 적용된 migration을 수정하거나 checksum을 강제로 repair하지 않는다. 스키마 변경은 후속 migration으로
-관리한다. `vector`·`pg_search` 확장 설치에는 관리자 권한이 필요하다.
+테스트 설정은 `src/test/resources/application-test.yml` 이며 `test` 프로파일로 활성화된다(`build.gradle`).
+같은 이름의 `application.yml` 을 테스트 클래스패스에 두면 main 의 설정을 통째로 가려 운영 설정이
+검증되지 않으므로, 프로파일 파일로 둔다.
 
 ## 프로파일
 
