@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.ResourceAccessException;
@@ -25,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /** mock resolver 로 정상·timeout·schema 오류 경로를 확인한다 (S15P21A501-45 완료 조건). */
@@ -268,6 +270,73 @@ class QueryResolverAdapterTest {
 
         assertThat(result.isResolved()).isFalse();
         assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_FAILED);
+    }
+
+    @Test
+    @DisplayName("리졸버가 400 이면 의존성 장애가 아니라 QUERY_NOT_NORMALIZABLE 이다")
+    void mapsBadRequestToQueryNotNormalizable() {
+        server.expect(requestTo(BASE_URL + "/query/resolve"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).body("{\"detail\":\"정규화 불가\"}"));
+
+        assertThatThrownBy(() -> adapter().resolve("!!!"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(QueryResolverErrorCode.QUERY_NOT_NORMALIZABLE);
+    }
+
+    @Test
+    @DisplayName("429 는 RESOLVER_RATE_LIMITED 로 구분한다")
+    void mapsTooManyRequestsToRateLimited() {
+        server.expect(requestTo(BASE_URL + "/query/resolve")).andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+
+        assertThatThrownBy(() -> adapter().resolve("어제 뉴스"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_RATE_LIMITED);
+    }
+
+    @Test
+    @DisplayName("4xx 중 배선 오류(422)는 사용자 입력 문제와 섞지 않는다")
+    void mapsOtherClientErrorsToResolverFailed() {
+        server.expect(requestTo(BASE_URL + "/query/resolve")).andRespond(withStatus(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        assertThatThrownBy(() -> adapter().resolve("어제 뉴스"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(QueryResolverErrorCode.RESOLVER_FAILED);
+    }
+
+    @Test
+    @DisplayName("resolution 과 error 가 둘 다 없어도 정규화는 살려서 돌려준다")
+    void keepsNormalizationWhenBothResolutionAndErrorAreMissing() {
+        respondWith("""
+                {"normalization": {"normalized_query": "어제 뉴스",
+                 "search_tokens": ["어제", "뉴스"], "normalization_version": "kiwi:v1"}}
+                """);
+
+        var result = adapter().resolve("어제 뉴스");
+
+        assertThat(result.normalization().searchTokens()).containsExactly("어제", "뉴스");
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+    }
+
+    @Test
+    @DisplayName("해석 배열 키가 개명되면 조용히 빈 해석으로 성공하지 않는다")
+    void treatsMissingResolutionArraysAsSchemaInvalid() {
+        respondWith("""
+                {"normalization": {"normalized_query": "어제 뉴스",
+                 "search_tokens": ["어제", "뉴스"], "normalization_version": "kiwi:v1"},
+                 "resolution": {"schema_version": "query-resolution/v1", "intent": "scene_search",
+                  "entity_list": [], "confidence": 0.8},
+                 "resolution_schema_version": "query-resolution/v1",
+                 "prompt_version": "p", "model_version": "m"}
+                """);
+
+        var result = adapter().resolve("어제 뉴스");
+
+        assertThat(result.resolution()).isNull();
+        assertThat(result.failure()).isEqualTo(QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+        assertThat(result.normalization().searchTokens()).containsExactly("어제", "뉴스");
     }
 
     private void respondWith(String body) {

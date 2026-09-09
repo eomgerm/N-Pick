@@ -1,12 +1,16 @@
 package com.npick.search.infrastructure.ai.config;
 
+import java.io.IOException;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.http.client.autoconfigure.service.HttpServiceClientPropertiesAutoConfiguration;
 import org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration;
 import org.springframework.boot.restclient.autoconfigure.service.HttpServiceClientAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.core.io.FileSystemResource;
 
 import com.npick.search.infrastructure.ai.client.QueryResolverClient;
 
@@ -41,10 +45,16 @@ class QueryResolverClientWiringTest {
     }
 
     @Test
-    @DisplayName("설정 키가 참조하는 그룹 이름은 queryResolver 다")
-    void groupNameMatchesConfigurationKey() {
-        // application.yml 의 `spring.http.serviceclient.queryResolver` 와 같아야 한다.
-        // 한쪽만 바꾸면 조용히 미설정 상태가 된다.
-        assertThat(QueryResolverClientConfig.QUERY_RESOLVER_GROUP).isEqualTo("queryResolver");
+    @DisplayName("코드의 그룹 이름이 application.yml 의 키와 실제로 같다")
+    void groupNameMatchesConfigurationKey() throws IOException {
+        // 상수를 리터럴과만 비교하면 정작 yml 쪽 오타를 못 잡는다 — 양쪽이 따로 놀아도
+        // 테스트는 통과하고 실패는 첫 호출 때 상대 URI 오류로만 드러난다. 그래서 실제 파일을 읽는다.
+        var defaults = new YamlPropertySourceLoader()
+                .load("resolver-defaults", new FileSystemResource("src/main/resources/application.yml"))
+                .getFirst();
+
+        assertThat(defaults.getProperty(BASE_URL_KEY))
+                .as("application.yml 에 %s 가 있어야 한다", BASE_URL_KEY)
+                .isNotNull();
     }
 }
