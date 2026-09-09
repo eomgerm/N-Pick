@@ -27,6 +27,7 @@ from npick_worker.frame_extraction.extractor import (
     WrittenImage,
 )
 from npick_worker.frame_extraction.selector import ScoredFrame
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.timecode import frames_to_ms
 
 #: 인코더에 넘기는 픽셀 형식. JPEG 은 full-range 이므로 색 범위를 **명시적으로** 준다.
@@ -145,16 +146,16 @@ def _profile(container: "av.container.InputContainer") -> MediaProfile:
     """
     if not container.streams.video:
         msg = "비디오 스트림이 없는 파일이다"
-        raise ValueError(msg)
+        raise MediaUnreadableError(msg)
     stream = container.streams.video[0]
     if stream.average_rate is None or float(stream.average_rate) <= 0:
         msg = "프레임레이트를 읽을 수 없다"
-        raise ValueError(msg)
+        raise MediaUnreadableError(msg)
     width = stream.codec_context.width
     height = stream.codec_context.height
     if width <= 0 or height <= 0:
         msg = f"해상도를 읽을 수 없다: {width}x{height}"
-        raise ValueError(msg)
+        raise MediaUnreadableError(msg)
     return MediaProfile(frame_rate=float(stream.average_rate), width=width, height=height)
 
 

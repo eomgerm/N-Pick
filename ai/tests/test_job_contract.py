@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from npick_worker.jobs.errors import classify
 from npick_worker.jobs.models import (
     FrameExtractionOutput,
     FrameExtractionUpstream,
@@ -18,6 +19,7 @@ from npick_worker.jobs.models import (
     StageResult,
 )
 from npick_worker.jobs.versions import StageVersion, pipeline_version, stage_version
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.versioning import canonical_json, version_id
 
 #: 계약이 정한 versions 객체의 키. 하나라도 늘거나 줄면 BE 와 어긋난다.
@@ -261,6 +263,43 @@ def test_pipeline_version_matches_recorded_vector() -> None:
         )
         == "npick-pipeline/v1:64960bae4565"
     )
+
+
+# ── 오류 어휘 (계약 §4.3.1·§9.2) ───────────────────────────────────────
+
+
+def test_unreadable_media_is_reported_as_unsupported_media() -> None:
+    """영상을 열었지만 쓸 수 없는 것은 미디어 문제다. 계약 §4.3.1 이 그렇게 둔다.
+
+    `ValueError` 로 두면 `classify` 가 `VALIDATION_ERROR` 로 번역하는데, 그건 "상류
+    산출물·산출물 키가 잘못됐다" 는 다른 사실이다. 둘 다 영구라 재시도를 태우지는 않지만
+    정본에 남는 원인이 달라진다.
+    """
+    code, retryable = classify(
+        MediaUnreadableError("비디오 스트림이 없는 파일이다"), "frame_extraction"
+    )
+
+    assert (code, retryable) == ("UNSUPPORTED_MEDIA", False)
+
+
+def test_unreadable_media_wins_over_the_generic_value_error_branch() -> None:
+    """`MediaUnreadableError` 는 `ValueError` 하위다. 분기 순서가 뒤집히면 조용히 묻힌다."""
+    assert issubclass(MediaUnreadableError, ValueError)
+    assert classify(ValueError("상류 산출물이 계약과 다르다"), "frame_extraction") == (
+        "VALIDATION_ERROR",
+        False,
+    )
+
+
+def test_both_implemented_stages_report_unreadable_media_the_same_way() -> None:
+    """같은 사실이 단계에 따라 다른 코드로 기록되지 않는다.
+
+    두 단계가 각자 프레임레이트를 읽고 각자 실패할 수 있으므로, 번역이 한쪽에만 있으면
+    같은 파일이 단계에 따라 UNSUPPORTED_MEDIA 와 VALIDATION_ERROR 로 갈린다.
+    """
+    failure = MediaUnreadableError("프레임레이트를 읽을 수 없다")
+
+    assert classify(failure, "scene_detection") == classify(failure, "frame_extraction")
 
 
 # ── scene_detection payload ──────────────────────────────────────────

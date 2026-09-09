@@ -6,6 +6,8 @@
 
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -25,9 +27,11 @@ from npick_worker.frame_extraction import (
     load_config,
     order_for_output,
     plan_slots,
+    pyav_backend,
     select,
 )
 from npick_worker.frame_extraction.models import Keyframe, SceneKeyframes
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.timecode import frames_to_ms, ms_to_frame
 
 MakeVideo = Callable[[str, Sequence[tuple[str, int]]], Path]
@@ -842,3 +846,44 @@ def test_normal_scenes_keep_the_margin_and_the_interval_count(frame_rate: float)
                         <= candidate_ms
                         < start + duration - config.edge_margin_ms
                     ), (frame_rate, start, duration)
+
+
+# ── 열었지만 쓸 수 없는 미디어 ──────────────────────────────────────────
+
+
+class _StubStream:
+    def __init__(self, average_rate: float | None, width: int, height: int) -> None:
+        self.average_rate = average_rate
+        self.codec_context = SimpleNamespace(width=width, height=height)
+
+
+class _StubContainer:
+    """`_profile` 이 읽는 것만 흉내낸 컨테이너.
+
+    비디오 스트림·프레임레이트·해상도가 없는 파일을 픽스처로 만들기는 어렵지만, 그
+    판정이 어떤 예외로 나가는지는 계약이 정한다. 스텁으로 세 갈래를 다 지난다.
+    """
+
+    def __init__(self, *streams: _StubStream) -> None:
+        self.streams = SimpleNamespace(video=list(streams))
+
+
+@pytest.mark.parametrize(
+    ("container", "message"),
+    [
+        (_StubContainer(), "비디오 스트림이 없는"),
+        (_StubContainer(_StubStream(None, 320, 240)), "프레임레이트를 읽을 수 없다"),
+        (_StubContainer(_StubStream(0.0, 320, 240)), "프레임레이트를 읽을 수 없다"),
+        (_StubContainer(_StubStream(30.0, 0, 240)), "해상도를 읽을 수 없다"),
+    ],
+)
+def test_profile_reports_unreadable_media_not_a_validation_error(
+    container: _StubContainer, message: str
+) -> None:
+    """영상을 열었지만 디코드에 필요한 것이 없으면 UNSUPPORTED_MEDIA 다(계약 §4.3.1).
+
+    맨 `ValueError` 로 두면 `classify` 가 `VALIDATION_ERROR` 로 번역하고, 정본에는
+    "상류 산출물·키가 잘못됐다" 는 다른 사실이 남는다.
+    """
+    with pytest.raises(MediaUnreadableError, match=message):
+        pyav_backend._profile(cast("Any", container))

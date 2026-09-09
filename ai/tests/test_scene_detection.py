@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.scene_detection import (
     DEFAULT_CONFIG_PATH,
     RawDetection,
@@ -197,7 +198,12 @@ def test_injected_detector_controls_provenance_and_boundaries(tmp_path: Path) ->
 
 @pytest.mark.parametrize("duration_ms", [0, -1])
 def test_injected_detector_rejects_non_positive_duration(tmp_path: Path, duration_ms: int) -> None:
-    with pytest.raises(ValueError, match=rf"duration_ms={duration_ms}"):
+    """길이를 읽을 수 없는 파일은 미디어 문제다 — 잡 레이어가 UNSUPPORTED_MEDIA 로 번역한다.
+
+    맨 `ValueError` 로 두면 "상류 산출물·키가 잘못됐다"(`VALIDATION_ERROR`)로 기록된다.
+    둘 다 영구지만 정본에 남는 원인이 달라진다(계약 §4.3.1).
+    """
+    with pytest.raises(MediaUnreadableError, match=rf"duration_ms={duration_ms}"):
         detect_scenes(tmp_path / "not-opened.mp4", detector=InvalidDurationDetector(duration_ms))
 
 

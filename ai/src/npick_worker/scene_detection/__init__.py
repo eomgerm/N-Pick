@@ -9,6 +9,7 @@ S15P21A501-70 의 몫이다.
 
 from pathlib import Path
 
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.scene_detection.config import (
     DEFAULT_CONFIG_PATH,
     AdaptiveDetectorParams,
@@ -54,7 +55,7 @@ def _to_scenes(detection: RawDetection, min_scene_len_ms: int) -> tuple[Scene, .
     duration_ms = detection.duration_ms
     if duration_ms <= 0:
         msg = f"detector가 유효하지 않은 영상 길이를 반환했다: duration_ms={duration_ms}"
-        raise ValueError(msg)
+        raise MediaUnreadableError(msg)
     # 0 을 강제로 넣고 중복·역순·범위 밖을 걷어낸다. detector 를 믿지 않는다.
     starts = sorted({0, *(b for b in detection.boundaries_ms if 0 < b < duration_ms)})
 

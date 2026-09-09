@@ -15,6 +15,7 @@ from scenedetect import SceneManager
 from scenedetect.backends.pyav import VideoStreamAv
 from scenedetect.detectors import AdaptiveDetector, ContentDetector
 
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.scene_detection.config import SceneDetectionConfig
 from npick_worker.scene_detection.detector import RawDetection
 from npick_worker.timecode import frames_to_ms
@@ -68,12 +69,12 @@ class PySceneDetectDetector:
         frame_rate = float(video.frame_rate)
         if frame_rate <= 0:
             msg = f"프레임레이트를 읽을 수 없다: {video_path}"
-            raise ValueError(msg)
+            raise MediaUnreadableError(msg)
 
         total_frames = video.duration.frame_num if video.duration is not None else 0
         if total_frames <= 0:
             msg = f"프레임이 없는 영상이다: {video_path}"
-            raise ValueError(msg)
+            raise MediaUnreadableError(msg)
 
         manager = SceneManager()
         # auto_downscale 은 해상도에 따라 배율이 달라진다. 설정값을 그대로 쓴다.

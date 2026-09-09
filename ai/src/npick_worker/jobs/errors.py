@@ -12,6 +12,8 @@ HTTP 계층의 `JOB_*` 코드는 워커가 만들지 않으므로 넣지 않는�
 
 from typing import ClassVar, Final, Literal, cast, get_args
 
+from npick_worker.media_errors import MediaUnreadableError
+
 #: 워커가 `complete` 에 실을 수 있는 오류 코드. `stage_states_json` 의 varchar(64) 에 들어간다.
 StageErrorCode = Literal[
     # ── 단계별 실패 ──
@@ -209,9 +211,13 @@ def classify(exc: BaseException, stage: str) -> tuple[StageErrorCode, bool]:
     맨 `ValueError` 를 던진다(`scene_detection/__init__.py`,
     `scene_detection/pyscenedetect_backend.py`). 번역은 경계인 여기서 한다.
 
-    `ValueError` 계열을 영구로 보는 이유: `detect_scenes` 가 그것을 던지는 경우는
-    "프레임이 없는 영상"·"프레임레이트를 읽을 수 없다" 처럼 같은 바이트에 대해 항상 같은
-    결과인 판정뿐이다. 다시 돌려도 같다.
+    `ValueError` 계열을 영구로 보는 이유: 단계가 그것을 던지는 경우는 상류 산출물·설정·
+    미디어에 대한 판정, 즉 같은 바이트에 대해 항상 같은 결과인 판정뿐이다. 다시 돌려도 같다.
+
+    그중 **미디어를 쓸 수 없다** 는 판정만 `MediaUnreadableError` 로 갈라 `UNSUPPORTED_MEDIA`
+    로 번역한다. 둘 다 영구지만 정본에 남는 원인이 달라야 한다 — 계약 §4.3.1 은 영상을 열
+    수 없는 것을 `UNSUPPORTED_MEDIA` 로 두고, `VALIDATION_ERROR` 는 "상류 산출물·산출물
+    키가 잘못됐다" 는 다른 사실이다.
     """
     if isinstance(exc, WorkerError):
         # 잡 API 예외는 단계 어휘가 아니다. 호출부가 걸러야 하지만 방어적으로 막는다.
@@ -228,6 +234,9 @@ def classify(exc: BaseException, stage: str) -> tuple[StageErrorCode, bool]:
         return "STAGE_TIMEOUT", True
     if isinstance(exc, OSError):
         return "MEDIA_UNAVAILABLE", True
+    if isinstance(exc, MediaUnreadableError):
+        # ValueError 하위이므로 아래 분기보다 앞에 있어야 한다.
+        return "UNSUPPORTED_MEDIA", False
     if isinstance(exc, ValueError | TypeError | KeyError):
         return "VALIDATION_ERROR", False
     return _STAGE_DEFAULT_CODE.get(stage, "STAGE_FAILED"), True
