@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,6 +14,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.feedback.application.InquiryReviewService;
+import com.npick.feedback.presentation.request.ResolveInquiryRequest;
 import com.npick.feedback.presentation.response.InquiryDetailResponse;
 import com.npick.feedback.presentation.response.InquiryListItemResponse;
 
@@ -47,6 +49,15 @@ public class ReviewInquiryController {
     @PostMapping("/inquiries/{feedbackId}/claim")
     public ApiResponse<Void> claim(@PathVariable long feedbackId, @LoginMember CurrentMember member) {
         reviewService.claim(feedbackId, member.memberId());
+        return ApiResponse.success();
+    }
+
+    @PostMapping("/inquiries/{feedbackId}/resolution")
+    public ApiResponse<Void> resolve(
+            @PathVariable long feedbackId,
+            @RequestBody ResolveInquiryRequest request,
+            @LoginMember CurrentMember member) {
+        reviewService.resolve(feedbackId, member.memberId(), request.resolution(), request.note());
         return ApiResponse.success();
     }
 }

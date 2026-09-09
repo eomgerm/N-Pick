@@ -51,4 +51,16 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
     public int editComment(long feedbackId, long ownerId, String comment) {
         return jpaRepository.editComment(feedbackId, ownerId, comment, Instant.now());
     }
+
+    @Override
+    public int resolve(
+            long feedbackId,
+            long reviewerId,
+            String resolution,
+            String note,
+            String newStatus,
+            Instant closedAt,
+            Instant now) {
+        return jpaRepository.resolve(feedbackId, reviewerId, resolution, note, newStatus, closedAt, now);
+    }
 }

@@ -33,4 +33,20 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
             @Param("ownerId") long ownerId,
             @Param("comment") String comment,
             @Param("now") Instant now);
+
+    // resolution 은 소문자, closed_at 은 종료성 판정일 때만 채운다. JPA 엔티티에 없는 컬럼(resolution·resolution_note·closed_at)이라 native 로 쓴다.
+    @Modifying
+    @Query(
+            value = "UPDATE feedback SET resolution = :resolution, resolution_note = :note, status = :newStatus, "
+                    + "closed_at = :closedAt, updated_at = :now "
+                    + "WHERE feedback_id = :id AND status = 'REVIEWING' AND reviewed_by_id = :reviewerId",
+            nativeQuery = true)
+    int resolve(
+            @Param("id") long feedbackId,
+            @Param("reviewerId") long reviewerId,
+            @Param("resolution") String resolution,
+            @Param("note") String note,
+            @Param("newStatus") String newStatus,
+            @Param("closedAt") Instant closedAt,
+            @Param("now") Instant now);
 }
