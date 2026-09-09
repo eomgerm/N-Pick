@@ -29,6 +29,8 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 | L2 Container | [docs/architecture/02-container.md](docs/architecture/02-container.md) | 배포 단위와 통신 프로토콜, **기술 스택 정본** |
 | Deployment | [docs/architecture/03-deployment.md](docs/architecture/03-deployment.md) | P0 노드 배치 (EC2 + RunPod GPU 파드) |
 
+요청·응답 스키마와 오류 코드는 C4 문서가 아니라 [docs/contracts/](docs/contracts/README.md)가 정본입니다.
+
 ## 하위 규약
 
 | 범위 | 문서 |

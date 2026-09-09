@@ -1,9 +1,17 @@
-# 엔티티·리포지토리가 0개라 테스트에서 검증할 DB 대상이 없다. 테스트가 Postgres 를
-# 요구하지 않도록 DataSource/JPA 자동설정을 끈다(DataSource 가 없으면 Flyway 도 뜨지 않는다).
-# 엔티티가 생기면 Testcontainers 도입 여부를 정하고 이 파일을 지운다.
+# 일반 컨텍스트 테스트는 Repository를 대체하고 DB 없이 실행한다.
+# 영속성 테스트는 이 제외 설정을 해제하고 명시적으로 제공한 전용 PostgreSQL DB를 사용한다.
 spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
       - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
       - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
+
+  # 이 파일이 메인 application.yml 을 통째로 가린다. base-url 이 없어도 컨텍스트는 뜨지만
+  # 호출할 때 상대 URI 로 실패하므로, 실제로 닿지 않을 주소를 명시해 둔다.
+  # 그룹 이름(queryResolver)이 QueryResolverClientConfig 와 어긋나면 조용히 미설정 상태가
+  # 되므로 QueryResolverClientWiringTest 가 그 이름을 검증한다.
+  http:
+    serviceclient:
+      queryResolver:
+        base-url: http://localhost:1

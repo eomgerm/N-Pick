@@ -5,8 +5,6 @@
 나온 scene 인가" 를 이 문자열 하나로 판정할 수 있어야 한다(FRD §5.3).
 """
 
-import hashlib
-import json
 import re
 import tomllib
 from functools import lru_cache
@@ -15,15 +13,14 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from npick_worker.versioning import version_id
+
 DetectorName = Literal["content", "adaptive"]
 
 #: 패키지에 동봉된 기본 설정. 휠에 포함되도록 src/npick_worker/config/ 아래 둔다.
 DEFAULT_CONFIG_PATH: Final[Path] = (
     Path(__file__).resolve().parent.parent / "config" / "scene_detection.v1.toml"
 )
-
-#: version_id 뒤에 붙는 해시 길이. 충돌 확률보다 로그 가독성을 우선한 값이다.
-_HASH_LENGTH: Final[int] = 8
 
 _VERSIONED_CONFIG_NAME: Final[re.Pattern[str]] = re.compile(
     r"scene_detection\.v(?P<version>\d+)\.toml"
@@ -69,15 +66,11 @@ class SceneDetectionConfig(_Frozen):
         선택되지 않은 detector 의 파라미터까지 해시에 넣는다. 파일 하나가 통째로
         설정 단위이고, detector 를 바꾸면 당연히 다른 version 이어야 하기 때문이다.
 
-        이 값은 scene detection **단계의 몫**이다. FRD `pipeline_run.pipeline_version`
-        은 파이프라인 전체 값이므로, 여러 단계의 version_id 를 묶는 일은
-        S15P21A501-70 에서 한다.
+        이 값은 scene detection **단계의 몫**이다. 단계 하나의 재현 식별자를
+        `stageVersion` 으로 묶는 일은 `npick_worker.jobs.versions` 가, 파이프라인 전체의
+        `pipeline_run.pipeline_version` 은 BE 가 한다(`docs/contracts/job-api.md`).
         """
-        payload = self.model_dump(by_alias=True, mode="json")
-        # sort_keys + 고정 separators: 같은 값이면 항상 같은 바이트열이어야 한다.
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        return f"{self.schema_}:{digest[:_HASH_LENGTH]}"
+        return version_id(self.schema_, self.model_dump(by_alias=True, mode="json"))
 
 
 def load_config(path: Path | None = None) -> SceneDetectionConfig:

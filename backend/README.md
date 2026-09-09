@@ -62,46 +62,23 @@ curl http://localhost:8080/actuator/health   # {"status":"UP"}
 ./gradlew test
 ```
 
-### Flyway baseline 검증 (S15P21A501-153)
+### 통합 테스트
 
-timestamp baseline은 FRD v3.1을 반영한 최종 ERDCloud의 **13개 테이블·134개 컬럼·23개 FK** 기준이다.
-기존 baseline이 적용된 DB에는 그대로 실행하지 않고 별도 이관 방식을 결정한다.
-그런 DB가 발견되면 checksum을 강제로 repair하거나 데이터를 삭제하지 말고 이관을 별도로 결정한다.
-`research/` 원문 반입은 154번 작업이며 저장소의 옛 FRD v2.2와 혼동하지 않는다.
+DB 테스트는 테스트별로 서로 다른 빈 PostgreSQL DB를 사용한다. 각 접속 정보는 아래 환경 변수의
+`URL`, `USER`, `PASSWORD` 접미사로 설정한다. URL은 JDBC 형식이다.
 
-`FlywayBaselineTest`는 전용 테스트 DB 환경 변수가 있을 때만 실행된다. 일반 `test`에서
-이 테스트가 생략된 것은 DB 검증 성공을 의미하지 않는다. 기존 npick 객체가 하나라도 있으면
-수정 전에 실패하며, Flyway clean은 사용하지 않는다. 기존 컨텍스트 테스트는 DB 없이 유지한다.
+| 환경 변수 접두사 | 대상 |
+| --- | --- |
+| `NPICK_MIGRATION_TEST_` | Flyway baseline |
+| `NPICK_REGISTRATION_TEST_` | 클립 등록 영속성 |
+| `NPICK_DEDUP_TEST_` | 등록 중복 처리 및 후속 migration |
 
-Windows PowerShell에서 아래처럼 **새 일회용 컨테이너**를 사용한다(backend 디렉터리 기준).
-테스트용 비밀번호이며 실제 개발·운영 DB의 자격증명을 사용하지 않는다.
+실제 미디어 테스트는 `ffmpeg`와 `ffprobe`를 PATH에 설치하고 `NPICK_MEDIA_TESTS=true`로 활성화한다.
+파일 시스템 테스트에는 심볼릭 링크 생성 권한이 필요하다. 조건을 충족하지 않은 테스트는 생략될 수 있다.
+DB 테스트를 재실행할 때는 새 빈 DB를 준비하며 개발·운영 DB를 사용하지 않는다.
 
-```powershell
-docker run -d --rm --name npick-flyway-test -p 127.0.0.1::5432 `
-  -e POSTGRES_USER=npick_test -e POSTGRES_PASSWORD=disposable_test_only `
-  -e POSTGRES_DB=npick_schema_test paradedb/paradedb:0.25.6-pg18
-docker exec npick-flyway-test pg_isready -U npick_test -d npick_schema_test
-# accepting connections 확인 후 진행한다.
-$migrationPort = (docker port npick-flyway-test 5432/tcp).Split(':')[-1]
-$env:NPICK_MIGRATION_TEST_URL = "jdbc:postgresql://127.0.0.1:${migrationPort}/npick_schema_test"
-$env:NPICK_MIGRATION_TEST_USER = 'npick_test'
-$env:NPICK_MIGRATION_TEST_PASSWORD = 'disposable_test_only'
-try {
-  .\gradlew.bat clean build --console=plain
-} finally {
-  Remove-Item Env:NPICK_MIGRATION_TEST_URL, Env:NPICK_MIGRATION_TEST_USER, Env:NPICK_MIGRATION_TEST_PASSWORD
-  docker stop npick-flyway-test
-}
-```
-
-검증 항목: timestamp baseline 최초 적용·validate·재실행 무변경, ERD 전체 컬럼/주석/FK 대조,
-중복·값 조합 제약, 확장 및 BM25/벡터 검색, 후보 변경의 롤백과 검증 기록 저장 가능 여부.
-검색 서비스의 순위 품질·권한·동시 확정 로직까지 테스트하는 것은 아니다.
-기대 구조 TSV는 2026-09-04 최종 ERD 스냅샷에서 얻은 회귀 테스트 기준이다.
-
-baseline의 확장 설치에는 DB 관리자 권한이 필요하다. 제한된 앱 계정이라면 관리자가 같은 DB의
-public 스키마에 `vector`·`pg_search`를 먼저 설치한다. ANN 인덱스의 거리 연산자·튜닝은
-100번의 임베딩 모델 확정 후 정하며, 임시 차원은 `vector(1024)`다.
+이미 적용된 migration을 수정하거나 checksum을 강제로 repair하지 않는다. 스키마 변경은 후속 migration으로
+관리한다. `vector`·`pg_search` 확장 설치에는 관리자 권한이 필요하다.
 
 ## 프로파일
 
@@ -156,4 +133,16 @@ com.npick
 
 설계 규약 정본은 [docs/ddd-package-architecture.md](docs/ddd-package-architecture.md)에 있다. **코드를 쓰기 전에 읽는다.**
 
-도메인 모듈은 아직 없다. 정본 §16에 따라 빈 패키지를 미리 만들지 않고, 실제 기능이 생길 때 추가한다.
+필요한 도메인 패키지만 생성하며 빈 패키지를 미리 만들지 않는다.
+
+## 등록 운영
+
+- 영상 검사에 `ffmpeg`·`ffprobe`가 필요하다. 등록용 저장 경로·입력 제한·파이프라인 설정은
+  [환경 변수 예시](.env.example)와 [애플리케이션 설정](src/main/resources/application.yml)을 참고한다.
+- 중복 처리에는 PostgreSQL 세션 advisory lock을 사용하므로 DB 직결 또는 세션 유지형 풀이 필요하다.
+  PgBouncer transaction pooling은 지원하지 않는다. 등록당 연결 2개와 다른 요청의 여유를 고려해 풀을 설정한다.
+- 여러 인스턴스는 등록된 영상에 동일하게 접근할 수 있어야 한다. 저장소 디렉터리는 운영 계정만 변경할 수 있게 한다.
+- 요청 키 기록은 자동 만료되지 않는다. 보관 정책을 변경할 때는 클라이언트의 재전송 기간과 함께 검토한다.
+- 결과가 불명확한 요청은 시간이 지났다는 이유로 재실행하거나 파일을 삭제하지 않는다.
+  재요청으로 결과를 복원할 수 없다면 clip·최초 run·진행 중 DB 트랜잭션·소유 파일을 대조한다.
+  커밋 부재와 파일 소유권을 확인한 경우에만 고아 파일 정리 및 요청 상태의 `failed` 전환으로 재시도를 허용한다.

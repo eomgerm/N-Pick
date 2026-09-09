@@ -52,6 +52,9 @@ class FlywayBaselineTest {
                 .cleanDisabled(true)
                 .validateOnMigrate(true)
                 .locations("classpath:db/migration")
+                // This test pins the published ERD snapshot; later technical migrations have separate integration
+                // tests.
+                .target("20260907092019")
                 .load();
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
     }
