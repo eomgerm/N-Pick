@@ -1,8 +1,12 @@
 package com.npick.feedback.presentation;
 
+import jakarta.validation.Valid;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -12,6 +16,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.feedback.application.InquiryReviewService;
+import com.npick.feedback.presentation.request.ResolveInquiryRequest;
 import com.npick.feedback.presentation.response.InquiryDetailResponse;
 import com.npick.feedback.presentation.response.InquiryListResponse;
 
@@ -49,6 +54,16 @@ public class ReviewInquiryController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @LoginMember CurrentMember member) {
         reviewService.claim(feedbackId, member.memberId());
+        return ApiResponse.success();
+    }
+
+    // 처리 결과는 reviewing 동안 덮어쓰기 가능한 멱등 단일값이라 PUT 이다.
+    @PutMapping("/inquiries/{feedbackId}/resolution")
+    public ApiResponse<Void> resolve(
+            @PathVariable long feedbackId,
+            @Valid @RequestBody ResolveInquiryRequest request,
+            @LoginMember CurrentMember member) {
+        reviewService.resolve(feedbackId, member.memberId(), request.resolution(), request.note());
         return ApiResponse.success();
     }
 }

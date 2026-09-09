@@ -36,8 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 인가·수용 기준(AC) 통합 검증: 역할 거부, 로그아웃 무효화, 비밀번호 해시.
  *
- * <p>Ruling B(web-test-override.md)에 따라 {@code @WebMvcTest} 웹+보안 슬라이스로 검증한다. {@code @SpringBootTest} 는 테스트 환경에서
- * DataSource/JPA 자동설정이 꺼져 있어 부팅에 실패하므로 사용하지 않는다.
+ * <p>Ruling B(web-test-override.md)에 따라 {@code @WebMvcTest} 웹+보안 슬라이스로 검증한다. 인가 규칙만 보는 테스트라 DB 를 띄우지 않는다.
  *
  * <p>ID 위조 불가는 {@code AuthControllerTest#meReturnsSessionUser} 가 이미 커버하므로 여기서는 재검증하지 않는다.
  */
