@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -25,6 +26,7 @@ import com.npick.feedback.application.query.ReviewHistory;
 import com.npick.feedback.domain.error.FeedbackErrorCode;
 import com.npick.feedback.domain.error.FeedbackException;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -34,6 +36,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -153,5 +156,74 @@ class ReviewInquiryControllerTest {
                         .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
                         .with(csrf()))
                 .andExpect(status().isForbidden());
+    }
+
+    private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder resolvePut(String body) {
+        return put("/api/v1/review/inquiries/1/resolution")
+                .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
+    @Test
+    @DisplayName("검수자는 처리 결과를 기록한다(200)")
+    void reviewerResolves() throws Exception {
+        mockMvc.perform(resolvePut("{\"resolution\":\"patch_parse\"}")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("편집기자는 처리 결과 기록이 403")
+    void editorForbiddenOnResolve() throws Exception {
+        mockMvc.perform(put("/api/v1/review/inquiries/1/resolution")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resolution\":\"no_action\",\"note\":\"x\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("사유 없는 종료성 판정은 400(NOTE_REQUIRED)")
+    void noteRequiredIs400() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.NOTE_REQUIRED))
+                .given(reviewService)
+                .resolve(anyLong(), anyLong(), any(), any());
+        mockMvc.perform(resolvePut("{\"resolution\":\"no_action\"}")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("모르는 처리 결과는 400(INVALID_RESOLUTION)")
+    void invalidResolutionIs400() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.INVALID_RESOLUTION))
+                .given(reviewService)
+                .resolve(anyLong(), anyLong(), any(), any());
+        mockMvc.perform(resolvePut("{\"resolution\":\"nope\"}")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("담당 검수자가 아니면 403(NOT_REVIEWER)")
+    void notReviewerIs403() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.NOT_REVIEWER))
+                .given(reviewService)
+                .resolve(anyLong(), anyLong(), any(), any());
+        mockMvc.perform(resolvePut("{\"resolution\":\"patch_parse\"}")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("reviewing이 아니면 409(NOT_RESOLVABLE)")
+    void notResolvableIs409() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.NOT_RESOLVABLE))
+                .given(reviewService)
+                .resolve(anyLong(), anyLong(), any(), any());
+        mockMvc.perform(resolvePut("{\"resolution\":\"patch_parse\"}")).andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("사유가 2000자를 넘으면 400(@Size)")
+    void noteTooLongIs400() throws Exception {
+        String bigNote = "a".repeat(2001);
+        mockMvc.perform(resolvePut("{\"resolution\":\"patch_parse\",\"note\":\"" + bigNote + "\"}"))
+                .andExpect(status().isBadRequest());
     }
 }

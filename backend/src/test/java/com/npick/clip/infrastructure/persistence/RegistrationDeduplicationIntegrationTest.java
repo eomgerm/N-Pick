@@ -67,6 +67,7 @@ import com.npick.common.error.ErrorCode;
 import com.npick.common.error.handler.ErrorTypeHttpStatusMapper;
 import com.npick.common.error.handler.GlobalExceptionHandler;
 import com.npick.common.security.AuthenticatedMember;
+import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -78,15 +79,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Real PostgreSQL/Flyway/JPA and filesystem; only media decoding is replaced in this class. */
-@DataJpaTest(
-        properties = {
-            "spring.autoconfigure.exclude=",
-            "spring.flyway.enabled=false",
-            "spring.jpa.hibernate.ddl-auto=validate",
-            "spring.jpa.properties.hibernate.default_schema=npick",
-            "spring.jpa.show-sql=false",
-            "logging.level.org.hibernate.orm.jdbc.error=OFF"
-        })
+// migration 적용은 이 테스트가 직접 단언하며 하므로 컨테스트의 Flyway 는 끕다.
+@DataJpaTest(properties = {"spring.flyway.enabled=false", "logging.level.org.hibernate.orm.jdbc.error=OFF"})
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({
     ClipRegistrationService.class,
@@ -95,7 +89,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     ClipRegistrationPersistenceTest.JsonConfig.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@EnabledIfEnvironmentVariable(named = "NPICK_DEDUP_TEST_URL", matches = ".+")
 class RegistrationDeduplicationIntegrationTest {
     private static final AtomicLong IDS = new AtomicLong(10000);
     private static final RequestData REQUEST =
@@ -120,20 +113,18 @@ class RegistrationDeduplicationIntegrationTest {
     private Path uploads;
     private LocalVideoInspectionAdapter inspection;
 
+    /**
+     * 이 클래스는 baseline 만 적용한 상태에서 후속 migration 이 맞게 얽힐지를 보므로 빈 DB 가 필요하다. 공유 DB 는 이밌 전체 migration 이 적용된 상태다. 같은 컨테이너 안에
+     * 전용 DB 를 받는다. 롤백 없이 커밋하는 테스트라 공유 DB 를 오염시키지 않기 위해서도 그렇게 한다.
+     */
+    /** 회상 프로버젬닝이 만든 전용 DB. 큰션 푸하리 별로 푸을 만드는 테스트가 이 값을 쓴다. */
+    private static String url;
+
     @DynamicPropertySource
-    static void database(DynamicPropertyRegistry properties) throws Exception {
-        String url = System.getenv("NPICK_DEDUP_TEST_URL");
-        String user = System.getenv("NPICK_DEDUP_TEST_USER");
-        String password = System.getenv("NPICK_DEDUP_TEST_PASSWORD");
-        try (var c = DriverManager.getConnection(url, user, password);
-                var s = c.createStatement()) {
-            try (var r = s.executeQuery(
-                    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='npick'")) {
-                r.next();
-                if (r.getLong(1) != 0) throw new IllegalStateException("빈 전용 테스트 DB가 필요합니다.");
-            }
-            s.execute("CREATE SCHEMA npick");
-        }
+    static void provisionDatabase(DynamicPropertyRegistry properties) throws Exception {
+        url = NpickPostgres.freshDatabase("npick_dedup");
+        String user = NpickPostgres.username();
+        String password = NpickPostgres.password();
         // Verify the additive upgrade from the unchanged published baseline, not only a fresh combined install.
         assertThat(Flyway.configure()
                         .dataSource(url, user, password)
@@ -162,9 +153,7 @@ class RegistrationDeduplicationIntegrationTest {
                 var s = c.createStatement()) {
             s.execute("INSERT INTO npick.member VALUES (1,'dedup-test','test-only','검수자','reviewer',now(),now())");
         }
-        properties.add("spring.datasource.url", () -> url);
-        properties.add("spring.datasource.username", () -> user);
-        properties.add("spring.datasource.password", () -> password);
+        NpickPostgres.datasource(properties, url);
     }
 
     @BeforeEach
@@ -674,9 +663,9 @@ class RegistrationDeduplicationIntegrationTest {
     void exhaustedConnectionPoolDoesNotAcceptOrExecuteARequest() throws Exception {
         long id = IDS.incrementAndGet();
         var config = new com.zaxxer.hikari.HikariConfig();
-        config.setJdbcUrl(System.getenv("NPICK_DEDUP_TEST_URL"));
-        config.setUsername(System.getenv("NPICK_DEDUP_TEST_USER"));
-        config.setPassword(System.getenv("NPICK_DEDUP_TEST_PASSWORD"));
+        config.setJdbcUrl(url);
+        config.setUsername(NpickPostgres.username());
+        config.setPassword(NpickPostgres.password());
         config.setMaximumPoolSize(1);
         config.setConnectionTimeout(300);
         try (var limited = new com.zaxxer.hikari.HikariDataSource(config)) {
