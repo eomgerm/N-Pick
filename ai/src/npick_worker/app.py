@@ -1,9 +1,13 @@
 """FastAPI 앱.
 
-**HTTP 표면은 헬스·운영용이다.** 잡 수신은 반대 방향이다 — 워커가 BE 의
-claim/heartbeat/complete/artifacts 를 호출한다(`docs/contracts/job-api.md`).
+**HTTP 표면은 헬스·운영용과 검색 시점 질의 해석뿐이다.** 잡 수신은 반대 방향이다 —
+워커가 BE 의 claim/heartbeat/complete/artifacts 를 호출한다(`docs/contracts/job-api.md`).
 그래서 잡 루프는 라우트가 아니라 lifespan 태스크로 돈다. 인바운드 잡 엔드포인트를
 추가하지 않는다.
+
+질의 해석 엔드포인트(S15P21A501-45)는 잡 수신이 아니라 검색이 동기로 부르는 표면이라
+위 금지에 걸리지 않는다. 이 프로세스는 폴링을 켜지 않고 뜨는 쪽(질의 리졸버 배포 단위)
+이며, 같은 이미지가 환경 변수로 파이프라인 워커가 되기도 한다.
 """
 
 import asyncio
@@ -12,12 +16,18 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException, status
 
 from npick_worker.device import detect_device
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.registry import WarmupReport, warm_up
 from npick_worker.jobs.runner import JobRunner, generate_worker_id
+from npick_worker.query_api import (
+    QueryNotNormalizableError,
+    QueryResolveRequest,
+    QueryResolveResponse,
+    resolve,
+)
 from npick_worker.schemas import (
     DeviceStatus,
     HealthResponse,
@@ -67,6 +77,28 @@ def health() -> HealthResponse:
         warmup=_warmup,
         polling=_polling_status(),
     )
+
+
+@router.post(
+    "/query/resolve",
+    response_model=QueryResolveResponse,
+    summary="검색어 정규화와 AI 해석",
+)
+def resolve_query_endpoint(request: QueryResolveRequest) -> QueryResolveResponse:
+    """정규화는 항상, 해석은 되는 만큼 돌려준다.
+
+    해석 실패는 200 이고 `error` 에 사유가 담긴다 — 호출부는 그 응답의
+    `search_tokens` 로 원 검색어 BM25 를 이어간다 (FRD v3.1 §6.2). 400 은 정규화가
+    불가능한 질의(빈 값·기호만·불용어만)일 때만 난다.
+
+    잡는 예외를 `QueryNotNormalizableError` 하나로 좁혀 둔 이유는 `ValueError` 를
+    통째로 잡으면 설정 오류나 우리 쪽 버그까지 "질의가 잘못됐다" 로 사용자에게 돌아가기
+    때문이다. 분류되지 않은 실패는 500 으로 두어 눈에 띄게 한다.
+    """
+    try:
+        return resolve(request)
+    except QueryNotNormalizableError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 def _to_status(report: WarmupReport) -> WarmupStatus:
@@ -138,7 +170,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="N-Pick AI Worker",
         version=service_version(),
-        description="파이프라인 워커. HTTP 표면은 헬스·운영용이고 잡은 BE 에서 받아 온다.",
+        description="파이프라인 워커와 검색 시점 질의 해석 표면. 잡은 BE 에서 받아 온다.",
         lifespan=lifespan,
     )
     app.include_router(router)
