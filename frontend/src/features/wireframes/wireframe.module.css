@@ -533,6 +533,7 @@
 }
 
 .resultCard {
+  position: relative;
   min-width: 0;
   cursor: pointer;
   overflow: hidden;
@@ -551,9 +552,20 @@
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
 
-.resultCard:focus-visible {
+.cardSelectButton {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  padding: 0;
+  cursor: pointer;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+}
+
+.cardSelectButton:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 72%, white);
-  outline-offset: 3px;
+  outline-offset: -3px;
 }
 
 .selectedCard {
@@ -666,7 +678,7 @@
 }
 
 .resultCard:hover .keyframePreview,
-.resultCard:focus-visible .keyframePreview {
+.resultCard:focus-within .keyframePreview {
   opacity: 1;
 }
 
@@ -757,7 +769,7 @@
 }
 
 .resultCard:hover .keyframe,
-.resultCard:focus-visible .keyframe {
+.resultCard:focus-within .keyframe {
   animation-play-state: running;
 }
 
@@ -826,6 +838,13 @@
   gap: 10px;
 }
 
+.cardTopline > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  text-align: right;
+}
+
 .score {
   display: inline-flex;
   min-height: 24px;
@@ -842,11 +861,18 @@
   color: var(--accent-strong);
 }
 
+.cardDisplayName {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .cardTitle {
-  display: -webkit-box;
   min-width: 0;
-  margin: 0 0 0 auto;
-  overflow: hidden;
+  margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -855,46 +881,55 @@
   font-weight: 800;
   line-height: 1.4;
   text-align: right;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .cardMetadata {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
   margin: 14px 0 0;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+}
+
+.cardMetadataItem {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.cardMetadataItem dt {
   color: var(--muted);
   font-size: 10px;
   font-weight: 700;
 }
 
-.filmingDate {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
+.cardMetadataItem dd {
   margin: 0;
-}
-
-.filmingDate strong {
   color: var(--text);
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.cardMetadataWide {
+  grid-column: 1 / -1;
 }
 
 .matchedKeywords {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 4px;
   min-width: 0;
   min-height: 24px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .keywordChip {
