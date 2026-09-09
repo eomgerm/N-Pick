@@ -33,8 +33,10 @@ public class SceneTagResolutionService implements ResolveSceneTagsUseCase, FindT
 
     @Override
     public Map<Long, List<EffectiveTag>> resolve(Collection<Long> sceneIds) {
-        // 장면이 없으면 DB 를 부르지 않는다. 빈 IN 목록은 SQL 문법 오류가 된다.
-        if (sceneIds == null || sceneIds.isEmpty()) {
+        // 빈 목록은 DB 를 부르지 않는다. null 은 통과시켜 포트의 requireNonNull 이 터지게 한다 —
+        // 여기서 Map.of() 로 삼키면 아래 두 계층이 일부러 세운 널 가드가 무력해지고,
+        // 호출부 배선 실수가 "태그 없음" 으로 위장된다.
+        if (sceneIds != null && sceneIds.isEmpty()) {
             return Map.of();
         }
         return policy.resolve(judgments.findByScenes(sceneIds));
@@ -42,7 +44,7 @@ public class SceneTagResolutionService implements ResolveSceneTagsUseCase, FindT
 
     @Override
     public List<TagMatchedScene> find(List<TagMatchRange> ranges) {
-        if (ranges == null || ranges.isEmpty()) {
+        if (ranges != null && ranges.isEmpty()) {
             return List.of();
         }
         // 조회가 조건에 맞는 태그만 가져오므로, 판정을 통과한 태그는 모두 조건에 맞는 태그다.

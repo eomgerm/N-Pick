@@ -62,6 +62,11 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             row.getLong("tag_id"),
             // 11종에 없는 값이면 여기서 5xx 로 실패한다. tag_type 에는 값을 제한하는 CHECK 가 없어
             // 실제로 가능한 상황이고, 조용히 버리면 태그가 검색에서 사라지는데 신호가 남지 않는다.
+            //
+            // 대가는 알고 고른 것이다. 이 판정은 명시 필터 비교·구조화 축 점수·근거 설명이 모두 지나는
+            // 길이라, 잘못 쓰인 한 행이 그 장면들을 건드리는 검색 전체를 죽인다. 두 방향이 비대칭이라는
+            // 것도 남긴다 — findByTagRanges 는 알려진 11종으로 tag_type 을 걸러 조회하므로 같은 행에
+            // 걸리지 않고, findByScenes 만 걸린다. 근본 해결은 스키마에 CHECK 를 넣는 것이고 별 일감이다.
             TagType.from(row.getString("tag_type")),
             row.getString("match_value"),
             row.getString("name"),
@@ -82,7 +87,12 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
         Objects.requireNonNull(sceneIds, "sceneIds");
         if (sceneIds.isEmpty()) return List.of();
 
-        return query("s.scene_id IN (:sceneIds)", new MapSqlParameterSource("sceneIds", sceneIds));
+        // IN (:sceneIds) 이 아니라 = ANY(배열) 이다. 앞의 형태는 id 하나당 바인딩 파라미터 하나로 펼쳐지는데,
+        // PostgreSQL 확장 질의 프로토콜의 파라미터 상한은 65535(int16) 다. 태그 채널은 후보 개수를 일부러
+        // 제한하지 않으므로(FindTagMatchedScenesUseCase) 그 후보가 그대로 넘어오면 상한을 넘길 수 있고,
+        // 그러면 태그가 빠지는 것이 아니라 질의가 죽는다. 배열은 파라미터 하나이고 실행 계획도 같다.
+        return query(
+                "s.scene_id = ANY(:sceneIds)", new MapSqlParameterSource("sceneIds", sceneIds.toArray(Long[]::new)));
     }
 
     @Override

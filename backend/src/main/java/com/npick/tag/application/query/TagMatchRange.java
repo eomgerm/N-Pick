@@ -34,7 +34,13 @@ public record TagMatchRange(TagType type, String fromInclusive, String toInclusi
         }
     }
 
-    /** 개체·사건명·분류를 정규화값으로 정확히 맞춘다. 리졸버가 낸 값을 그대로 넣는다. */
+    /**
+     * 개체·사건명·분류를 정규화값으로 정확히 맞춘다. 리졸버가 낸 값을 그대로 넣는다.
+     *
+     * <p><b>호출자가 빈 값을 걸러야 한다.</b> 여기 오는 값은 리졸버의 정규화 출력이고, 그것은 사용자가 친 검색어에서 파생된다 — LLM 이 정규화하지 못한 이름에 빈 문자열을 낼 수 있다. 그런
+     * 값을 그대로 넣으면 {@link TagErrorCode#INVALID_TAG_MATCH_RANGE} 5xx 가 되어, 사용자 질의에서 비롯된 일을 서버 결함으로 집계한다. 옳은 동작은 그 조건 하나를
+     * 빼고 나머지로 검색하는 것이다(F-05 의 축소 동작). 이 생성자의 거부는 그 필터가 빠졌을 때의 마지막 방어선이다.
+     */
     public static TagMatchRange exact(TagType type, String matchValue) {
         return new TagMatchRange(type, matchValue, matchValue);
     }

@@ -5,6 +5,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.stream.LongStream;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
@@ -214,6 +215,21 @@ class TagJudgmentQueryAdapterTest {
                 .allSatisfy(tag -> assertThat(tag.verification())
                         .isEqualTo(EffectiveTag.Verification.VERIFIED)
                         .matches(verification -> verification.trustedForConflict(), "F-06 충돌 판정에 쓸 수 있다"));
+    }
+
+    @Test
+    @DisplayName("장면 번호가 6만 개를 넘어도 질의가 죽지 않는다 - 바인딩 파라미터 상한 65535")
+    void survivesMoreSceneIdsThanBindParameterLimit() {
+        // IN (:sceneIds) 는 id 하나당 파라미터 하나로 펼쳐져 65535 에서 터진다.
+        // 태그 채널은 후보 개수를 제한하지 않으므로 그 후보가 그대로 넘어올 수 있다.
+        var manyIds = new java.util.ArrayList<Long>(
+                LongStream.rangeClosed(1_000, 71_000).boxed().toList());
+        manyIds.add(30L);
+
+        var resolved = service().resolve(manyIds);
+
+        assertThat(manyIds).hasSizeGreaterThan(65_535);
+        assertThat(resolved).as("표본에 있는 장면만 걸린다").containsOnlyKeys(30L);
     }
 
     @Test
