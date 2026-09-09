@@ -1,19 +1,16 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import Link from 'next/link';
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { useMember } from '@/components/session-boundary';
 import { logout } from '@/lib/auth/api';
 import { announceSessionChange, leaveSession } from '@/lib/auth/browser';
-import { routes } from '@/lib/routes';
 
 interface SessionControlsProps {
-  showReviewLink?: boolean;
   className?: string;
 }
 
-export function SessionControls({ showReviewLink = true, className = '' }: SessionControlsProps) {
+export function SessionControls({ className = '' }: SessionControlsProps) {
   const member = useMember();
   const client = useQueryClient();
   const mutation = useMutation({
@@ -26,16 +23,14 @@ export function SessionControls({ showReviewLink = true, className = '' }: Sessi
 
   return (
     <div className={`flex flex-wrap items-center justify-end gap-3 text-sm ${className}`}>
-      {showReviewLink && member.role === 'REVIEWER' && (
-        <Link href={routes.review} prefetch={false}>
-          검수
-        </Link>
-      )}
-      <span className="max-w-48 truncate" title={member.loginId}>
-        {member.loginId} · {member.role === 'REVIEWER' ? '검수자' : '편집기자'}
+      <span className="flex min-w-0 flex-wrap justify-end gap-x-1">
+        <span className="max-w-48 break-all">{member.loginId}</span>
+        <span className="whitespace-nowrap">
+          · {member.role === 'REVIEWER' ? '검수자' : '편집기자'}
+        </span>
       </span>
       <button
-        className="rounded-lg border border-current px-3 py-2 disabled:opacity-50"
+        className="shrink-0 rounded-lg border border-current px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-4 disabled:opacity-50"
         disabled={mutation.isPending}
         onClick={() => mutation.mutate()}
         type="button"
