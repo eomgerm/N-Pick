@@ -30,5 +30,5 @@ public interface FindTagJudgmentsQueryPort {
      *
      * <p>후보 추출이 쓰는 방향이다. 조건에 맞는 태그 하나에 대해 <b>장면 태깅과 클립 태깅의 근거를 모두</b> 돌려줘야 한다 — 판정기가 두 범위를 함께 봐야 하기 때문이다.
      */
-    List<TagJudgment> findByTagRanges(List<TagMatchRange> ranges);
+    List<TagJudgment> findByConditions(List<TagCondition> conditions);
 }

@@ -17,7 +17,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import com.npick.support.NpickPostgres;
 import com.npick.tag.application.query.SceneTagResolutionService;
-import com.npick.tag.application.query.TagMatchRange;
+import com.npick.tag.application.query.TagCondition;
 import com.npick.tag.application.query.TagMatchedScene;
 import com.npick.tag.domain.model.EffectiveTag;
 import com.npick.tag.domain.model.TagType;
@@ -78,7 +78,7 @@ class TagJudgmentQueryAdapterTest {
     @Test
     @DisplayName("클립 태그는 활성 처리의 장면에만 상속되고, 장면별 반려는 그 장면만 끊는다")
     void inheritsClipTagToActiveScenesOnly() {
-        var matched = service().find(List.of(TagMatchRange.exact(TagType.EVENT, "포항지진")));
+        var matched = service().find(List.of(TagCondition.exact(TagType.EVENT, "포항지진")));
 
         // 30 상속 · 31 장면 반려 · 32 폐기된 처리 · 34 논리 삭제된 클립
         assertThat(matched).extracting(TagMatchedScene::sceneId).containsExactly(30L);
@@ -96,7 +96,7 @@ class TagJudgmentQueryAdapterTest {
     @DisplayName("날짜 태그는 문자열 범위 비교로 찾는다 - 끝날짜는 포함이다")
     void findsDateTagByStringRange() {
         var march = service()
-                .find(List.of(TagMatchRange.dates(
+                .find(List.of(TagCondition.dates(
                         TagType.BROADCAST_DATE, LocalDate.parse("2026-03-01"), LocalDate.parse("2026-04-01"))));
 
         assertThat(march).extracting(TagMatchedScene::sceneId).containsExactly(33L);
@@ -105,7 +105,7 @@ class TagJudgmentQueryAdapterTest {
                 .satisfies(tag -> assertThat(tag.matchValue()).isEqualTo("2026-03-15"));
 
         var singleDay = service()
-                .find(List.of(TagMatchRange.dates(
+                .find(List.of(TagCondition.dates(
                         TagType.BROADCAST_DATE, LocalDate.parse("2026-03-15"), LocalDate.parse("2026-03-16"))));
 
         assertThat(singleDay)
@@ -118,7 +118,7 @@ class TagJudgmentQueryAdapterTest {
     @DisplayName("범위 밖의 날짜 태그는 걸리지 않는다")
     void excludesDateTagOutsideRange() {
         var matched = service()
-                .find(List.of(TagMatchRange.dates(
+                .find(List.of(TagCondition.dates(
                         TagType.BROADCAST_DATE, LocalDate.parse("2026-03-01"), LocalDate.parse("2026-03-15"))));
 
         assertThat(matched).as("2026-03-15 는 반열린 구간의 끝이라 제외된다").isEmpty();

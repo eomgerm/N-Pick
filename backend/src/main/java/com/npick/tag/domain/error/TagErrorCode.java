@@ -32,7 +32,7 @@ public enum TagErrorCode implements ErrorCode {
      *
      * <p>이 값은 질의 리졸버의 구조화 출력을 우리 코드가 옮겨 만든 것이다. 뒤집힌 범위는 조용히 0건이 되므로 "검색 결과 없음" 으로 위장된다.
      */
-    INVALID_TAG_MATCH_RANGE(ErrorType.INTERNAL_SERVER_ERROR, "TAG_500_002", "태그 조회 조건을 만드는 과정이 잘못됐다");
+    INVALID_TAG_CONDITION(ErrorType.INTERNAL_SERVER_ERROR, "TAG_500_002", "태그 조회 조건을 만드는 과정이 잘못됐다");
 
     private final ErrorType type;
     private final String code;

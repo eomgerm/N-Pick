@@ -43,13 +43,13 @@ public class SceneTagResolutionService implements ResolveSceneTagsUseCase, FindT
     }
 
     @Override
-    public List<TagMatchedScene> find(List<TagMatchRange> ranges) {
-        if (ranges != null && ranges.isEmpty()) {
+    public List<TagMatchedScene> find(List<TagCondition> conditions) {
+        if (conditions != null && conditions.isEmpty()) {
             return List.of();
         }
         // 조회가 조건에 맞는 태그만 가져오므로, 판정을 통과한 태그는 모두 조건에 맞는 태그다.
         // 반려·해제로 죽은 태그는 판정에서 빠지고, 그 태그뿐이던 장면은 키 자체가 사라진다.
-        return policy.resolve(judgments.findByTagRanges(ranges)).entrySet().stream()
+        return policy.resolve(judgments.findByConditions(conditions)).entrySet().stream()
                 .map(scene -> new TagMatchedScene(
                         scene.getKey(), scene.getValue().getFirst().clipId(), scene.getValue()))
                 .sorted(Comparator.comparingLong(TagMatchedScene::sceneId))
