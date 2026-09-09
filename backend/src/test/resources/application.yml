@@ -1,8 +1,0 @@
-# 일반 컨텍스트 테스트는 Repository를 대체하고 DB 없이 실행한다.
-# 영속성 테스트는 이 제외 설정을 해제하고 명시적으로 제공한 전용 PostgreSQL DB를 사용한다.
-spring:
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
-      - org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration
-      - org.springframework.boot.data.jpa.autoconfigure.DataJpaRepositoriesAutoConfiguration
