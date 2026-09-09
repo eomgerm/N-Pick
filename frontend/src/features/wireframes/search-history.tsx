@@ -228,19 +228,6 @@ export function SearchHistory({ theme }: SearchHistoryProps) {
     setSelectedHistory({ kind, id: item.id });
   }
 
-  function handleInquirySave(comment: string) {
-    if (!selectedItem || selectedItem.inquiry?.status !== 'open') return;
-    setInquiries((current) =>
-      current.map((item) =>
-        item.id === selectedItem.id && item.inquiry?.status === 'open'
-          ? { ...item, inquiry: { ...item.inquiry, comment } }
-          : item,
-      ),
-    );
-    setNotice('문의 내용을 수정했습니다.');
-    handleClose();
-  }
-
   function handleInquiryCreate(comment: string) {
     if (!selectedItem || !selectedScene) return;
     setInquiries((current) => [
@@ -301,7 +288,7 @@ export function SearchHistory({ theme }: SearchHistoryProps) {
           theme={theme}
           query={selectedItem.query}
           history={selectedItem.inquiry}
-          onSubmit={isCreatingInquiry ? handleInquiryCreate : handleInquirySave}
+          onSubmit={handleInquiryCreate}
           onClose={handleClose}
         />
       ) : null}

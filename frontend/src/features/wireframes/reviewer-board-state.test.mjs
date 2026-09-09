@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getReviewUrl, selectBoardPage } from './reviewer-board-state.ts';
+import {
+  getReviewTabUrl,
+  getReviewUrl,
+  selectBoardPage,
+} from './reviewer-board-state.ts';
 
 const items = Array.from({ length: 23 }, (_, index) => ({
   id: `inquiry-${index}`,
@@ -30,6 +34,35 @@ test('상세 진입·복귀는 검색·필터·정렬·페이지 조건을 유�
   assert.equal(next.get('status'), 'closed');
   assert.equal(next.get('q'), '서울역');
   assert.equal(next.get('page'), null);
+});
+
+test('처리·문의 전환은 상세·하위 탭을 해제하고 목록 조건과 다른 query를 보존한다', () => {
+  const filters = 'q=서울역&status=reviewing&sort=requester&page=2&extra=one&extra=two';
+  for (const current of [
+    `${filters}&inquiry=INQ-1042`,
+    `${filters}&view=processing&tab=completed&clip=clip-1`,
+    `${filters}&view=upload`,
+  ]) {
+    for (const tab of ['inquiries', 'processing']) {
+      const url = new URL(getReviewTabUrl('/review', current, tab), 'https://example.test');
+      assert.equal(url.pathname, '/review');
+      assert.equal(url.searchParams.get('view'), tab === 'processing' ? 'processing' : null);
+      for (const key of ['tab', 'clip', 'inquiry']) assert.equal(url.searchParams.has(key), false);
+      url.searchParams.delete('view');
+      assert.equal(url.searchParams.toString(), new URLSearchParams(filters).toString());
+    }
+  }
+  assert.equal(getReviewTabUrl('/review', '', 'inquiries'), '/review');
+  assert.equal(getReviewTabUrl('/review', '', 'processing'), '/review?view=processing');
+});
+
+test('처리 상세를 열고 복귀해도 선택한 하위 탭과 목록 조건이 유지된다', () => {
+  for (const tab of ['uploads', 'completed']) {
+    const original = new URLSearchParams({ view: 'processing', tab, q: '서울역', page: '2' });
+    const detail = getReviewUrl('/review', original.toString(), { clip: 'clip-1' });
+    const restored = getReviewUrl('/review', detail.split('?')[1], { clip: null });
+    assert.equal(restored, `/review?${original}`);
+  }
 });
 
 test('23 문의를 10, 10, 3개로 중복 없이 페이지네이션한다', () => {

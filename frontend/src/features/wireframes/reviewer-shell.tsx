@@ -1,7 +1,7 @@
 'use client';
 
 import { routes } from '@/lib/routes';
-import { SessionControls } from '@/components/session-controls';
+import { AppShell } from '@/components/app-shell';
 import { useMember } from '@/components/session-boundary';
 
 import {
@@ -39,7 +39,7 @@ import {
   type InquiryStatus,
 } from '@/features/wireframes/inquiry-state';
 import { ReviewerBoard } from '@/features/wireframes/reviewer-board';
-import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
 import {
   VideoRegistration,
@@ -443,11 +443,8 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   function handleTabChange(tab: WorkspaceTab) {
-    handleLocationChange({
-      view: tab === 'processing' ? 'processing' : null,
-      tab: null,
-      clip: null,
-      inquiry: null,
+    startNavigation(() => {
+      router.push(getReviewTabUrl(pathname, searchParams.toString(), tab), { scroll: false });
     });
     setLiveMessage(tab === 'processing' ? '처리 현황을 열었습니다.' : '문의 목록을 열었습니다.');
   }
@@ -735,25 +732,29 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   return (
-    <div className={styles.shell} data-theme={theme}>
-      <header className={styles.appHeader}>
-        <Link className={styles.brand} href={routes.landing} aria-label="N-Pick 홈">
-          <span className={styles.brandMark} aria-hidden="true">
-            <span />
-            <span />
-          </span>
-          <span>N-Pick</span>
-        </Link>
-        <nav className={styles.primaryNav} aria-label="역할별 화면">
-          <Link href={routes.search}>장면 검색</Link>
-          <Link aria-current="page" className={styles.primaryNavActive} href={routes.review}>
-            검수자 화면
-          </Link>
-        </nav>
-        <SessionControls className="text-white" showReviewLink={false} />
-      </header>
-
+    <AppShell className={styles.shell} data-theme={theme}>
       <main className={styles.page}>
+        <nav aria-label="검수 화면" className="mb-7 flex gap-2 border-b border-(--line)">
+          {(['inquiries', 'processing'] as const).map((tab) => (
+            <Link
+              key={tab}
+              aria-current={
+                (tab === 'processing') === (isProcessing || isRegistration) ? 'page' : undefined
+              }
+              aria-disabled={isNavigating}
+              className="border-b-3 border-transparent px-5 py-3 text-sm font-bold text-(--muted) aria-disabled:opacity-50 aria-[current=page]:border-(--accent) aria-[current=page]:text-(--accent-strong)"
+              href={getReviewTabUrl(pathname, searchParams.toString(), tab)}
+              onNavigate={(event) => {
+                event.preventDefault();
+                if (!isNavigating) handleTabChange(tab);
+              }}
+              prefetch={false}
+              scroll={false}
+            >
+              {tab === 'inquiries' ? '문의' : '처리'}
+            </Link>
+          ))}
+        </nav>
         {isRegistration ? (
           <VideoRegistration
             isNavigating={isNavigating}
@@ -1626,7 +1627,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           </>
         )}
       </main>
-    </div>
+    </AppShell>
   );
 }
 

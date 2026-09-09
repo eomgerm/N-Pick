@@ -28,5 +28,4 @@ FRD F01과 현재 Spring Security 구현은 사전 등록 계정의 세션 로�
 
 - 서버 주소와 브라우저 API 주소가 별도로 필요하다. 브라우저와 백엔드 쿠키는 같은 호스트를 사용해야 하며 운영에서는 HTTPS가 필요하다. 로컬 HTTP는 백엔드의 개발 환경에서만 Secure 쿠키 설정을 조정하거나 HTTPS를 사용한다.
 - 클라이언트 접근 검사는 사용자 경험을 위한 보조 장치이며 서버 인가를 대신하지 않는다. 페이지 이동·창 복귀 시 세션을 다시 확인한다.
-- `[미정]` 문의 내용 수정의 소유자·동시 수정·endpoint 계약은 이번 인증 구현으로 확정하지 않는다. 실제 이름은 API가 제공하지 않으므로 loginId를 표시한다.
 - 근거: `backend/.../SecurityConfig.java`, `AuthController.java`, FRD F01, 설치된 Next.js authentication/cookies 가이드, [TanStack Query SSR 가이드](https://tanstack.com/query/v5/docs/framework/react/guides/advanced-ssr), [Spring Security CSRF 가이드](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html).

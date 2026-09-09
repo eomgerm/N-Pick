@@ -1,5 +1,7 @@
 package com.npick.common.error.handler;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,6 +45,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(
             BusinessException exception, HttpServletRequest request) {
         ErrorCode errorCode = exception.errorCode();
+        if (exception.getCause() != null) {
+            log.warn(
+                    "Business dependency failure: code={}, causeType={}, location={}, secondaryFailures={}",
+                    errorCode.code(),
+                    exception.getCause().getClass().getSimpleName(),
+                    safeLocation(exception),
+                    exception.getSuppressed().length);
+        }
         if (exception.getSuppressed().length > 0) {
             log.warn(
                     "Business failure cleanup requires attention: code={}, cleanupFailures={}",
@@ -122,7 +132,7 @@ public class GlobalExceptionHandler {
         HttpMessageNotReadableException.class
     })
     public ResponseEntity<ApiResponse<Void>> handleBadRequest(Exception exception, HttpServletRequest request) {
-        log.debug("Invalid request", exception);
+        log.debug("Invalid request: type={}", exception.getClass().getSimpleName());
         return failure(CommonErrorCode.BAD_REQUEST, request, null);
     }
 
@@ -136,7 +146,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpected(Exception exception, HttpServletRequest request) {
-        log.error("Unexpected exception", exception);
+        log.error(
+                "Unexpected exception: type={}, location={}",
+                exception.getClass().getSimpleName(),
+                safeLocation(exception));
         return failure(CommonErrorCode.INTERNAL_SERVER_ERROR, request, null);
     }
 
@@ -146,7 +159,23 @@ public class GlobalExceptionHandler {
     }
 
     private String requestPath(HttpServletRequest request) {
-        String query = request.getQueryString();
-        return request.getMethod() + " " + request.getRequestURI() + (query == null ? "" : "?" + query);
+        return request.getMethod() + " " + request.getRequestURI();
+    }
+
+    private static String safeLocation(Exception exception) {
+        var visited = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        String location = "external";
+        Throwable current = exception;
+        // Prefer the deepest available application cause; bound malformed/cyclic chains.
+        while (current != null && visited.size() < 32 && visited.add(current)) {
+            for (var frame : current.getStackTrace()) {
+                if (frame.getClassName().startsWith("com.npick.")) {
+                    location = frame.getClassName() + "." + frame.getMethodName() + ":" + frame.getLineNumber();
+                    break;
+                }
+            }
+            current = current.getCause();
+        }
+        return location;
     }
 }

@@ -452,13 +452,12 @@ export function InquiryDialog({
   onClose,
 }: InquiryDialogProps) {
   const [comment, setComment] = useState(history?.comment ?? '');
-  const canEdit = !history || history.status === 'open';
   const statusMessage = !history
     ? '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'
     : history.status === 'open'
-      ? '검수자가 확인하기 전까지 문의 내용을 수정할 수 있어요.'
+      ? '접수되어 검수자 확인을 기다리고 있습니다.'
       : history.status === 'reviewing'
-        ? '검수자가 처리 중인 문의입니다. 문의 내용을 수정할 수 없어요.'
+        ? '검수자가 처리 중인 문의입니다.'
         : '종료된 문의입니다. 문의 내용과 처리 결과를 확인하세요.';
 
   return (
@@ -503,7 +502,7 @@ export function InquiryDialog({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (canEdit) onSubmit(comment);
+          if (!history) onSubmit(comment);
         }}
       >
         <label htmlFor="inquiry-comment">{history ? '문의 내용' : '설명 (선택)'}</label>
@@ -511,14 +510,14 @@ export function InquiryDialog({
           aria-describedby="inquiry-status-message"
           id="inquiry-comment"
           onChange={(event) => {
-            if (canEdit) setComment(event.target.value);
+            if (!history) setComment(event.target.value);
           }}
           placeholder={
-            canEdit
+            !history
               ? '무엇이 이상했는지 알려주세요. 비워두어도 접수할 수 있어요.'
               : '작성한 설명이 없습니다.'
           }
-          readOnly={!canEdit}
+          readOnly={Boolean(history)}
           rows={4}
           value={comment}
         />
@@ -536,12 +535,12 @@ export function InquiryDialog({
         ) : null}
         <div className={styles.modalActions}>
           <button onClick={onClose} type="button">
-            {canEdit ? '취소' : '닫기'}
+            {history ? '닫기' : '취소'}
           </button>
-          {canEdit ? (
+          {!history ? (
             <button className={styles.submitInquiry} type="submit">
-              {history ? <Check aria-hidden="true" /> : <Flag aria-hidden="true" />}
-              {history ? '수정 내용 저장' : '문의 접수'}
+              <Flag aria-hidden="true" />
+              문의 접수
             </button>
           ) : null}
         </div>

@@ -1,8 +1,9 @@
 package com.npick.clip.infrastructure.persistence.repository;
 
-import org.springframework.dao.DataAccessException;
-import org.springframework.transaction.TransactionException;
-import org.springframework.transaction.TransactionSystemException;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.UnexpectedRollbackException;
 
 import com.npick.clip.application.command.register.RegisterClipCommand;
 import com.npick.clip.application.command.register.RegisterClipResult;
@@ -21,10 +22,16 @@ public final class RegistrationPersistenceAdapter implements RegisterClipUseCase
     public RegisterClipResult register(RegisterClipCommand command) {
         try {
             return transaction.register(command);
-        } catch (TransactionSystemException failure) {
-            throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN, failure);
-        } catch (DataAccessException | TransactionException failure) {
+        } catch (BusinessException failure) {
+            throw failure;
+        } catch (DataIntegrityViolationException
+                | ConstraintViolationException
+                | CannotCreateTransactionException
+                | UnexpectedRollbackException failure) {
             throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_FAILED, failure);
+        } catch (RuntimeException | Error failure) {
+            // Connection/commit errors without a proven rollback must retain the owned files.
+            throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN, failure);
         }
     }
 }
