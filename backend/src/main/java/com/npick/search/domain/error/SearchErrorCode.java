@@ -21,8 +21,7 @@ import com.npick.common.error.ErrorType;
 public enum SearchErrorCode implements ErrorCode {
     NORMALIZED_QUERY_BLANK(ErrorType.BAD_REQUEST, "SRCH_400_001", "정규화된 질의가 비어 있다"),
     NORMALIZATION_VERSION_BLANK(ErrorType.BAD_REQUEST, "SRCH_400_002", "정규화 버전이 비어 있다"),
-    FILTER_CONTAINS_NULL(ErrorType.BAD_REQUEST, "SRCH_400_003", "필터에 널 값이 들어 있다"),
-    SEARCH_TOKEN_CONTAINS_WHITESPACE(ErrorType.BAD_REQUEST, "SRCH_400_004", "검색 토큰 하나에 공백이 들어 있다");
+    FILTER_CONTAINS_NULL(ErrorType.BAD_REQUEST, "SRCH_400_003", "필터에 널 값이 들어 있다");
 
     private final ErrorType type;
     private final String code;

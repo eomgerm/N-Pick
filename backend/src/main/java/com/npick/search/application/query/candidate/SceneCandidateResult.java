@@ -8,8 +8,8 @@ package com.npick.search.application.query.candidate;
  *
  * @param sceneId 정본 {@code scene} 의 식별자. 클립의 활성 처리에 속한 장면만 들어온다
  * @param clipId 그 장면이 속한 클립. 결과 카드와 클립 단위 태그 조회에 쓴다
- * @param score 실제 순위를 정한 값. {@code textScore + ocrWeight * ocrScore}
+ * @param score 실제 순위를 정한 값. {@code textScore + ocrScore}
  * @param textScore 캡션·대사 인덱스의 BM25 점수. 필드 가중치가 이미 반영된 값이다
- * @param ocrScore 화면 글자 인덱스의 BM25 점수. 가중치를 곱하기 <b>전</b> 값이다
+ * @param ocrScore 화면 글자 인덱스의 BM25 점수. <b>가중치를 곱한 뒤</b> 값이라 그 채널을 끄면 0 이다 — 끈 채널이 설명이나 재순위에 되살아나지 않게 한다
  */
 public record SceneCandidateResult(long sceneId, long clipId, double score, double textScore, double ocrScore) {}
