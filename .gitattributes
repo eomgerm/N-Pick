@@ -1,7 +1,0 @@
-# 줄바꿈 정본은 LF. Windows 체크아웃에서도 LF로 떨어져야 prettier·ruff·spotless 가
-# 플랫폼마다 다른 결과를 내지 않는다. core.autocrlf 설정과 무관하게 이 파일이 이긴다.
-* text=auto eol=lf
-
-# Gradle wrapper 예외
-*.bat text eol=crlf
-*.jar binary
