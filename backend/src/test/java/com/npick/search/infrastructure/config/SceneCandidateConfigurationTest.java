@@ -36,6 +36,17 @@ class SceneCandidateConfigurationTest {
                 .run(context -> assertThat(context).hasFailed());
     }
 
+    /** 상한을 넘는 pool 은 설정 오타다. 한 요청이 수십만 행을 메모리로 올리는 것을 부팅에서 막는다. */
+    @Test
+    void refusesPoolSizeAboveSanityCap() {
+        runnerWithApplicationYaml()
+                .withPropertyValues("npick.search.candidate.pool-size=10001")
+                .run(context -> assertThat(context).hasFailed());
+        runnerWithApplicationYaml()
+                .withPropertyValues("npick.search.candidate.pool-size=10000")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
     /** 전 필드 가중치가 0 이면 검색 실패가 결과 0건으로 위장된다 (F-06 완료 기준). */
     @Test
     void refusesAllFieldWeightsZero() {

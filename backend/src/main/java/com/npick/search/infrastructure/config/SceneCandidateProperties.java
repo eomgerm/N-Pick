@@ -1,6 +1,7 @@
 package com.npick.search.infrastructure.config;
 
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
@@ -27,7 +28,9 @@ import org.springframework.validation.annotation.Validated;
  * @param captionWeight {@code scene.caption_tokens} 가중치. 0 이면 장면 설명을 검색하지 않는다
  * @param transcriptWeight {@code scene.transcript_tokens} 가중치. 0 이면 대사를 검색하지 않는다
  * @param ocrWeight {@code ocr_observation.tokens} 가중치. 0 이면 화면 글자를 검색하지 않는다
- * @param poolSize 다음 단계로 넘길 후보 상한. 최종 반환 10개(F-05 6항)가 아니라 재순위·제외 전의 pool 크기다
+ * @param poolSize 다음 단계로 넘길 후보 상한. 최종 반환 10개(F-05 6항)가 아니라 재순위·제외 전의 pool 크기다. {@code @Max} 는 실측으로 정한 운영값이 아니라 <b>설정
+ *     오타를 잡는 선</b>이다 — 0 을 하나 더 찍으면 한 요청이 수십만 행을 메모리로 올리는데, 부팅도 되고 검색도 되어 아무 신호가 없다. 이보다 큰 pool 이 필요해지면 왜 필요한지를 함께 적고 이
+ *     값을 올린다
  */
 @Validated
 @ConfigurationProperties("npick.search.candidate")
@@ -36,7 +39,7 @@ public record SceneCandidateProperties(
         @NotNull @PositiveOrZero Double captionWeight,
         @NotNull @PositiveOrZero Double transcriptWeight,
         @NotNull @PositiveOrZero Double ocrWeight,
-        @NotNull @Positive Integer poolSize) {
+        @NotNull @Positive @Max(10_000) Integer poolSize) {
 
     /** 전 필드가 0 이면 어떤 질의든 결과가 0건이 된다. 검색 실패를 결과 0건으로 위장하는 상태(F-06 완료 기준)라 부팅 단계에서 막는다. */
     @AssertTrue(message = "단어 검색 대상 필드가 하나도 없다. caption/transcript/ocr 가중치 중 하나는 0보다 커야 한다") public boolean isAnyFieldSearched() {
