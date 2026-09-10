@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.ObjectMapper;
 
@@ -113,6 +114,89 @@ class MovTextExtractorIntegrationTest {
         Path corrupt = Files.writeString(root.resolve("corrupt.mp4"), "invalid media");
         assertThat(extractor.extract(corrupt, BigDecimal.TEN).inspection().status())
                 .isEqualTo(EmbeddedStatus.EXTRACTION_FAILED);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"mp4,3600", "mov,3600", "mp4,3600.5", "mov,3600.5"})
+    void preservesHourBoundaryThroughActualMovTextExtraction(String extension, BigDecimal duration) throws Exception {
+        Path subtitle = root.resolve("hour.srt");
+        String text =
+                "1\n00:00:00,000 --> 00:00:00,100\n시작 기준\n\n2\n00:30:00,000 --> 00:30:00,100\n중간 기준\n\n3\n00:59:59,500 --> 01:00:00,000\n한 시간 경계\n";
+        if (duration.compareTo(new BigDecimal("3600")) > 0) {
+            text += "\n4\n01:00:00,100 --> 01:00:00,500\n한 시간 이후\n";
+        }
+        Files.writeString(subtitle, text);
+        Path video = root.resolve("hour." + extension);
+        // 30분 중간 cue는 일부 muxer에서 단일 긴 무자막 구간이 축소되는 현상을 피한다.
+        // 저프레임률 합성 영상: 실제 타임라인을 유지하며 파일 크기와 생성 비용을 제한한다.
+        process.run(
+                List.of(
+                        "ffmpeg",
+                        "-v",
+                        "error",
+                        "-nostdin",
+                        "-copyts",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        "color=c=black:s=64x64:r=2:d=" + duration.toPlainString(),
+                        "-i",
+                        subtitle.toString(),
+                        "-map",
+                        "0:v",
+                        "-map",
+                        "1:s",
+                        "-c:v",
+                        "mpeg4",
+                        "-c:s",
+                        "mov_text",
+                        "-metadata:s:s:0",
+                        "language=kor",
+                        video.toString()),
+                Duration.ofSeconds(20),
+                1024 * 1024);
+        var probe = mapper.readTree(process.run(
+                List.of(
+                        "ffprobe",
+                        "-v",
+                        "error",
+                        "-show_entries",
+                        "format=duration:stream=codec_name",
+                        "-of",
+                        "json",
+                        video.toString()),
+                Duration.ofSeconds(20),
+                1024 * 1024));
+        assertThat(new BigDecimal(probe.path("format").path("duration").asText()))
+                .isEqualByComparingTo(duration);
+        assertThat(probe.path("streams").get(1).path("codec_name").asText()).isEqualTo("mov_text");
+        byte[] raw = process.run(
+                List.of(
+                        "ffmpeg",
+                        "-v",
+                        "error",
+                        "-copyts",
+                        "-i",
+                        video.toString(),
+                        "-map",
+                        "0:1",
+                        "-c:s",
+                        "webvtt",
+                        "-f",
+                        "webvtt",
+                        "pipe:1"),
+                Duration.ofSeconds(20),
+                1024 * 1024);
+        assertThat(new String(raw, java.nio.charset.StandardCharsets.UTF_8)).containsPattern("0?1:00:00\\.000");
+        var result = extractor.extract(video, duration);
+        assertThat(result.inspection().status()).isEqualTo(EmbeddedStatus.EXTRACTED);
+        assertThat(result.cues().get(2)).isEqualTo(new SubtitleParser.Cue(2, 3599500, 3600000, "한 시간 경계"));
+        if (duration.compareTo(new BigDecimal("3600")) > 0) {
+            assertThat(result.cues()).hasSize(4);
+            assertThat(result.cues().get(3)).isEqualTo(new SubtitleParser.Cue(3, 3600100, 3600500, "한 시간 이후"));
+        } else {
+            assertThat(result.cues()).hasSize(3);
+        }
     }
 
     private Path mux(String extension, List<String> languages, List<Boolean> defaults, boolean firstEmpty)
