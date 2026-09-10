@@ -10,7 +10,14 @@ public record InquiryDetail(
         String resolutionNote,
         Instant createdAt,
         String comment,
+        InquiryScene scene,
+        int resultRank,
         String resultExplainJson,
         ExecutionSnapshot execution,
         List<SceneEvidence> evidence,
-        ReviewHistory history) {}
+        ReviewHistory history) {
+
+    public long sceneId() {
+        return scene.sceneId();
+    }
+}

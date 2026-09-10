@@ -29,6 +29,23 @@ spring:
     validate-on-migrate: true
     clean-disabled: true
 
+  http:
+    serviceclient:
+      # 질의 리졸버(FastAPI) 호출 설정. 이 값만 바꿔 local 리졸버와 승인된 GMS 를 교체한다
+      # (S15P21A501-45, 02-container 요소 표).
+      queryResolver:
+        base-url: ${QUERY_RESOLVER_BASE_URL:http://localhost:8000}
+        connect-timeout: ${QUERY_RESOLVER_CONNECT_TIMEOUT:1s}
+        # read-timeout 은 리졸버 한 요청의 최악 소요보다 반드시 커야 한다. 작으면 BE 가
+        # 먼저 끊어서 정규화 결과(search_tokens)를 잃고, FRD v3.1 §6.2 의 원 검색어 BM25
+        # fallback 이 불가능해진다. 재시도는 하지 않으므로 이 값이 곧 상한이다.
+        #
+        # 최악 = 생성 8.0s (query_resolver.v1.toml 의 timeout_seconds)
+        #      + 모델 digest 조회 1.0s (ollama_backend.py 의 _METADATA_TIMEOUT_SECONDS, 첫 요청만)
+        #      = 9.0s. LLM timeout 하나만 보고 잡으면 첫 요청에서 그대로 잘린다.
+        # 두 값 모두 실측 후 확정 대상이다 (FRD v3.1 §11).
+        read-timeout: ${QUERY_RESOLVER_TIMEOUT:10s}
+
 server:
   port: ${SERVER_PORT:8080}
   servlet:
@@ -66,6 +83,14 @@ npick:
     # 로컬·테스트에는 nginx 가 없으므로 기본은 애플리케이션 직접 전송이다.
     nginx-accel: ${CLIP_MEDIA_NGINX_ACCEL:false}
     internal-location: ${CLIP_MEDIA_INTERNAL_LOCATION:/internal-media/}
+
+# PostgreSQL error details may include the failing row (script, paths, secrets).
+# API failures are reported through safe application error codes instead.
+logging:
+  level:
+    org.hibernate.orm.jdbc.error: OFF
+    org.hibernate.orm.jdbc.bind: OFF
+    org.hibernate.orm.jdbc.extract: OFF
 
 management:
   endpoints:

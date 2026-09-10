@@ -1,0 +1,21 @@
+# 테스트 전용 오버라이드. 프로파일 파일이라 main 의 application.yml 을 가리지 않고 그 위에 덮는다.
+# 활성화는 build.gradle 의 test 태스크가 한다(spring.profiles.active=test).
+#
+# 이전에는 이 자리에 application.yml 이 있었는데, 클래스패스에서 main 의 같은 이름 파일을
+# 통째로 가려 운영 Flyway·JPA 설정이 테스트에서 한 번도 검증되지 않았다. 그래서 이름을 바꿨다.
+#
+# DB 는 Testcontainers 가 띄운 일회용 PostgreSQL 이다(com.npick.support.NpickPostgres).
+# 접속 정보는 각 테스트의 @DynamicPropertySource 가 넣는다. 도커가 없으면 스킵이 아니라 실패한다.
+spring:
+  jpa:
+    hibernate:
+      # local·prod 프로파일과 같은 값. 엔티티 매핑이 baseline 과 어긋나면 부팅에서 잡는다.
+      ddl-auto: validate
+  http:
+    serviceclient:
+      # 테스트가 실제 리졸버에 닿지 않게 못 닿는 주소를 명시한다. base-url 이 비면 컨텍스트는
+      # 떠도 호출할 때 상대 URI 로 실패한다.
+      # 그룹 이름(queryResolver)이 QueryResolverClientConfig 와 어긋나면 조용히 미설정 상태가
+      # 되므로 QueryResolverClientWiringTest 가 그 이름을 검증한다.
+      queryResolver:
+        base-url: http://localhost:1

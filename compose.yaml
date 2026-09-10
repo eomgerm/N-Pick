@@ -49,6 +49,11 @@ services:
       - path: ./backend/.env
         required: true
     environment:
+      # 질의 리졸버 주소. ai-worker 컨테이너를 가리켜야 한다 — 기본값 localhost 는
+      # backend 컨테이너 자신이라 연결이 거부된다 (S15P21A501-45).
+      # 포트는 컨테이너 내부 값(NPICK_AI_PORT)이라 8000 고정이다. AI_WORKER_PORT 는
+      # 호스트 퍼블리시 포트이므로 여기 쓰면 안 된다.
+      QUERY_RESOLVER_BASE_URL: http://ai-worker:8000
       SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
       # local·prod 두 프로필의 변수를 모두 넘긴다. BACKEND_PROFILE 만 바꿔 고를 수 있다.
       # prod 는 기본값 없이 요구하므로 여기서 주지 않으면 기동에 실패한다.
