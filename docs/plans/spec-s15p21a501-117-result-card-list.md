@@ -120,6 +120,8 @@ Then 기존 ID 1~3 참조와 Preview 입력 계약이 깨지지 않는다.
 
 검증 결과: 테스트 93/93, format/lint/typecheck/build, `git diff --check` 통과. 로컬 브라우저에서 클릭·Enter·Space Preview 진입, 닫기 후 포커스 복귀, 1440/900/700px의 3/2/1열을 확인했다. 리뷰 후 카드 의미 구조, 10개 상한, 화면 순번, 혼합 날짜 정렬과 Preview 메타데이터를 보강했다.
 
+상세 시나리오와 개발·프로덕션 환경별 결과는 [`S15P21A501-117-e2e.md`](S15P21A501-117-e2e.md)에 기록했다.
+
 ## Suggested Review Order
 
 **카드 구성과 화면 연결**
