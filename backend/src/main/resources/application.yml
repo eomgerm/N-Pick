@@ -60,6 +60,11 @@ server:
 npick:
   pipeline:
     profile: ${NPICK_PIPELINE_PROFILE:classpath:pipeline-profile.yml}
+  worker-jobs:
+    enabled: ${NPICK_WORKER_JOBS_ENABLED:false}
+    tokens: ${NPICK_WORKER_JOBS_TOKENS:}
+    fleet: ${NPICK_WORKER_JOBS_FLEET:local}
+    shared-media-volume: ${NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME:false}
   clip-registration:
     # 파서 메모리 보호용 운영 한도(byte). 시간 허용 오차와 무관하다.
     subtitle-max-bytes: ${CLIP_SUBTITLE_MAX_BYTES:10485760}

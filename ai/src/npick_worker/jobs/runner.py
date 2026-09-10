@@ -9,6 +9,7 @@
 """
 
 import asyncio
+import hashlib
 import logging
 import tempfile
 import time
@@ -258,6 +259,7 @@ class JobRunner:
         """
         while True:
             control = _JobControl(abandoned=asyncio.Event())
+            self._client.bind_artifact_lease(job.pipeline_run_id, lease.lease_id)
             heartbeat = asyncio.create_task(
                 self._heartbeat_loop(job, lease, control), name=f"heartbeat:{job.pipeline_run_id}"
             )
@@ -291,6 +293,7 @@ class JobRunner:
                 )
                 return
             finally:
+                self._client.release_artifact_lease(job.pipeline_run_id)
                 heartbeat.cancel()
                 # `gather` 가 예외를 값으로 돌려주므로 finally 에서 되던지지 않는다.
                 # `suppress(CancelledError)` 로는 부족했다 — heartbeat 태스크가 다른
@@ -432,6 +435,17 @@ class JobRunner:
             return ()
 
         refs: list[ArtifactRef] = []
+        # Validate the entire upload set before transmitting the first artifact.
+        for upload in outcome.uploads:
+            self._check_output_key(job, upload.ref.storage_key)
+            if not upload.local_path.resolve().is_relative_to(work_dir.resolve()):
+                raise ArtifactKeyRejectedError("upload source is outside stage work directory")
+            body = upload.local_path.read_bytes()
+            if (
+                len(body) != upload.ref.byte_size
+                or hashlib.sha256(body).hexdigest() != upload.ref.content_hash
+            ):
+                raise ArtifactKeyRejectedError("artifact size or hash differs from reported output")
         for upload in outcome.uploads:
             if control.abandoned.is_set():
                 logger.warning(
@@ -478,11 +492,19 @@ class JobRunner:
         버그를 네트워크 왕복 없이 여기서 잡는다. 접두 밖 키는 재시도가 고치지 못하는
         **워커의 문제**이므로 권한 오류가 아니라 단계 실패로 신고한다.
         """
+        from npick_worker.jobs.artifacts import validate_key
+
+        try:
+            validate_key(storage_key)
+        except ValueError as exc:
+            raise ArtifactKeyRejectedError("invalid artifact storageKey") from exc
         if not storage_key.startswith(job.output_key_prefix.rstrip("/") + "/"):
             msg = f"산출물 키가 배정이 준 접두 밖이다: {storage_key} (접두 {job.output_key_prefix})"
             raise ArtifactKeyRejectedError(msg)
 
     async def _run_stage(self, job: JobAssignment, work_dir: Path) -> StageOutcome:
+        from npick_worker.jobs.artifacts import resolve_transcripts
+
         if job.inputs.config:
             # 계약 §4.1 이 `"config": {}` 이므로 지금 오는 일이 없다. 실제로 쓰는
             # 단계가 생길 때까지는 조용히 무시하는 것보다 거절하는 편이 정직하다 —
@@ -501,6 +523,7 @@ class JobRunner:
             raise StageUnavailableError(msg)
 
         async with self._media.resolve(job.pipeline_run_id, job.inputs.media) as resolved:
+            documents = await resolve_transcripts(job, self._media)
             context = StageContext(
                 stage=job.stage,
                 video_path=resolved.path,
@@ -509,6 +532,7 @@ class JobRunner:
                 output_key_prefix=job.output_key_prefix,
                 upstream=job.inputs.upstream,
                 params=job.inputs.config,
+                artifact_documents=documents,
             )
             # 단계는 블로킹 CPU 작업이다. 스레드로 넘겨야 heartbeat 가 계속 뛴다.
             return await asyncio.to_thread(handler.run, context)

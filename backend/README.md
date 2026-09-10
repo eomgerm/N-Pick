@@ -1,5 +1,22 @@
 # N-Pick Backend
 
+## 내부 워커 잡 API
+
+`NPICK_WORKER_JOBS_ENABLED`는 기본 `false`다. 활성화하면 기존 실행기의 배정·heartbeat·완료 UseCase에
+HTTP 전송을 연결한다. 단계 정본 저장 어댑터는 실행기의 fencing·멱등성 검사가 끝난 완료 트랜잭션
+안에서 호출된다. 미지원 출력 스키마는 성공으로 저장하지 않고 거절한다.
+
+`NPICK_WORKER_JOBS_TOKENS`는 쉼표로 구분한 32바이트 이상 Bearer 토큰 목록이며 회전 중 두 토큰을
+함께 둘 수 있다. `NPICK_WORKER_JOBS_FLEET`는 기본 `local`이다. 운영에는 운영 토큰만 설정한다.
+HTTP 전송이 기본이며 `NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME=true`와 워커의 공유 볼륨 선언이
+모두 참일 때만 공유 경로를 배정한다. artifact GET·PUT은 `X-Job-Lease-Id`를 함께 보낸다.
+상세 입출력은 [잡 계약](../docs/contracts/job-api.md)을 따른다.
+
+HTTP 왕복 테스트는 `ffmpeg`·`ffprobe`가 PATH에 있고 AI 테스트 의존성이 설치되어 있어야 한다.
+`NPICK_TEST_PYTHON`으로 해당 Python 실행 파일을 지정한다(기본: Windows `../ai/.venv/Scripts/python.exe`,
+Linux `../ai/.venv/bin/python`).
+이 테스트는 실제 실행기·DB와 Python 워커를 연결하고 AI 단계 함수만 테스트 대역으로 실행한다.
+
 Spring Boot 기반 N-Pick API 서버.
 
 ## 요구 사항

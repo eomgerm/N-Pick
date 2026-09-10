@@ -77,6 +77,7 @@ class JobApiClient:
         self._max_backoff_seconds = max_backoff_seconds
         self._max_attempts = max_attempts
         self._worker_id = worker_id
+        self._artifact_leases: dict[str, str] = {}
         self._default_timeout = httpx2.Timeout(
             connect=connect_timeout,
             read=read_timeout,
@@ -102,6 +103,16 @@ class JobApiClient:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    def bind_artifact_lease(self, run_id: str, lease_id: str) -> None:
+        self._artifact_leases[run_id] = lease_id
+
+    def release_artifact_lease(self, run_id: str) -> None:
+        self._artifact_leases.pop(run_id, None)
+
+    def _artifact_headers(self, run_id: str) -> dict[str, str]:
+        lease = self._artifact_leases.get(run_id)
+        return {"X-Job-Lease-Id": lease} if lease is not None else {}
 
     # ── 엔드포인트 ───────────────────────────────────────────────────
 
@@ -147,6 +158,7 @@ class JobApiClient:
             "GET",
             f"{JOB_API_PREFIX}/{run_id}/artifacts",
             params={"key": storage_key},
+            headers=self._artifact_headers(run_id),
         )
         try:
             response = await self._client.send(request, stream=True)
@@ -204,7 +216,11 @@ class JobApiClient:
                 "PUT",
                 f"{JOB_API_PREFIX}/{run_id}/artifacts/{safe_key}",
                 content=body,
-                headers={"Content-Type": content_type, "X-Content-SHA256": content_sha256},
+                headers={
+                    **self._artifact_headers(run_id),
+                    "Content-Type": content_type,
+                    "X-Content-SHA256": content_sha256,
+                },
             )
         except JobApiUnavailableError as exc:
             # 일시 실패만 업로드 실패로 감싼다. ArtifactKeyRejectedError 같은 영구

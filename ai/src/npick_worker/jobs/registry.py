@@ -52,6 +52,8 @@ class StageContext:
     #: 상류 단계 산출물. BE 가 `inputs.upstream` 으로 되돌려 준 그대로다.
     upstream: Mapping[str, Any] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
+    #: Integrity-checked upstream JSON, indexed by the original storageKey.
+    artifact_documents: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
