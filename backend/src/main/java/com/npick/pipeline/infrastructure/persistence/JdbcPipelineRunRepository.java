@@ -28,14 +28,38 @@ public class JdbcPipelineRunRepository implements PipelineRunRepository {
         this.mapper = mapper;
     }
 
-    public List<PipelineRun> lockCandidates() {
-        return jdbc.query("""
+    public List<Candidate> candidates(Cursor after, Map<String, String> capabilities) {
+        if (capabilities.isEmpty()) return List.of();
+        return jdbc.query(
+                """
             SELECT r.* FROM npick.pipeline_run r JOIN npick.clip c USING (clip_id)
             WHERE r.status IN ('queued','running') AND r.lease_id IS NULL AND c.deleted_at IS NULL
-            ORDER BY r.created_at, r.pipeline_run_id FOR UPDATE OF r SKIP LOCKED
-            """, this::readCandidate).stream()
+              AND (r.created_at, r.pipeline_run_id) > (?, ?)
+              AND EXISTS (
+                SELECT 1 FROM jsonb_each_text(?::jsonb) capability
+                WHERE capability.value <> 'unknown'
+                  AND (CASE WHEN jsonb_exists(r.stage_states_json, 'schemaVersion')
+                       THEN r.stage_states_json->'stages' ELSE r.stage_states_json END)
+                       ->capability.key->>'status' = 'pending')
+            ORDER BY r.created_at, r.pipeline_run_id LIMIT 64
+            """,
+                (row, index) -> new Candidate(
+                        new Cursor(instant(row, "created_at"), row.getLong("pipeline_run_id")),
+                        readCandidate(row, index)),
+                Timestamp.from(after == null ? Instant.parse("0001-01-01T00:00:00Z") : after.createdAt()),
+                after == null ? 0L : after.id(),
+                mapper.writeValueAsString(capabilities));
+    }
+
+    public Optional<PipelineRun> tryLockCandidate(long runId) {
+        return jdbc.query("""
+            SELECT r.* FROM npick.pipeline_run r JOIN npick.clip c USING (clip_id)
+            WHERE r.pipeline_run_id=? AND r.status IN ('queued','running')
+              AND r.lease_id IS NULL AND c.deleted_at IS NULL
+            FOR UPDATE OF r SKIP LOCKED
+            """, this::readCandidate, runId).stream()
                 .filter(java.util.Objects::nonNull)
-                .toList();
+                .findFirst();
     }
 
     public Optional<PipelineRun> lock(long id) {

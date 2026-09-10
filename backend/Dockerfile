@@ -1,12 +1,13 @@
 FROM eclipse-temurin:21-jdk-noble AS build
-WORKDIR /workspace
+WORKDIR /workspace/backend
 
 # 의존성 레이어를 소스와 분리해 캐시가 살도록 한다
-COPY gradlew settings.gradle build.gradle ./
-COPY gradle ./gradle
+COPY backend/gradlew backend/settings.gradle backend/build.gradle ./
+COPY backend/gradle ./gradle
 RUN chmod +x gradlew && ./gradlew dependencies --no-daemon
 
-COPY src ./src
+COPY backend/src ./src
+COPY infra/compose/profiles/pipeline.yml /workspace/infra/compose/profiles/pipeline.yml
 RUN ./gradlew bootJar --no-daemon -x test
 
 FROM eclipse-temurin:21-jre-noble
@@ -17,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ffmpeg && 
 
 RUN groupadd --gid 10001 npick && useradd --uid 10001 --gid npick --create-home npick
 
-COPY --from=build /workspace/build/libs/*.jar app.jar
+COPY --from=build /workspace/backend/build/libs/*.jar app.jar
 RUN chown npick:npick app.jar
 
 # media root 를 이미지에 미리 만들어 둔다. named volume 은 최초 마운트 때 이 경로의

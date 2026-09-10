@@ -325,6 +325,58 @@ class StageExecutionIntegrationTest {
         assertThat(sceneCount(run)).isEqualTo(1);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void independentRunsRemainClaimableBeforeFirstClaimCommits(boolean differentCapabilities) throws Exception {
+        long older = createRun(null, 1, true);
+        if (differentCapabilities) complete(older, "scene_detection", success(claim()));
+        long newer = createRun(null, 1, true);
+        var reserved = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var sceneWorker = new ClaimStageCommand(
+                "scene-worker", Map.of("scene_detection", VERSIONS.get("scene_detection")), Map.of());
+        String otherStage = differentCapabilities ? "frame_extraction" : "scene_detection";
+        var otherWorker = new ClaimStageCommand("other-worker", Map.of(otherStage, VERSIONS.get(otherStage)), Map.of());
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var first = pool.submit(() -> new org.springframework.transaction.support.TransactionTemplate(transactions)
+                    .execute(status -> {
+                        var assignment = executor.reserve(sceneWorker).orElseThrow();
+                        reserved.countDown();
+                        try {
+                            if (!release.await(10, TimeUnit.SECONDS))
+                                throw new AssertionError("second claim did not finish");
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(e);
+                        }
+                        return assignment;
+                    }));
+            try {
+                assertThat(reserved.await(10, TimeUnit.SECONDS)).isTrue();
+                var second = executor.reserve(otherWorker).orElseThrow();
+                assertThat(object(second.get("job")).get("pipelineRunId"))
+                        .isEqualTo("" + (differentCapabilities ? older : newer));
+                assertThat(object(second.get("job")).get("stage")).isEqualTo(otherStage);
+            } finally {
+                release.countDown();
+            }
+            assertThat(object(first.get(10, TimeUnit.SECONDS).get("job")).get("pipelineRunId"))
+                    .isEqualTo("" + (differentCapabilities ? newer : older));
+        }
+    }
+
+    @Test
+    void candidatesBeyondFirstBatchAreNotStarvedByIncompatibleVersions() throws Exception {
+        for (int i = 0; i < 65; i++) {
+            long incompatible = createRun(null, 1, true);
+            jdbc.update(
+                    "UPDATE npick.pipeline_run SET pipeline_version='incompatible-pipeline' WHERE pipeline_run_id=?",
+                    incompatible);
+        }
+        long compatible = createRun(null, 1, true);
+        assertThat(object(claim().get("job")).get("pipelineRunId")).isEqualTo("" + compatible);
+    }
+
     @Test
     void legacyFlatStatesAreWrappedWithoutLosingMetadataAndUnknownVersionsAreNotClaimed() throws Exception {
         long run = createRun(null, 1, true);

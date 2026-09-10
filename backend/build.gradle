@@ -20,6 +20,11 @@ repositories {
 }
 
 tasks.named('processResources') {
+    doFirst {
+        if (!file('../infra/compose/profiles/pipeline.yml').isFile()) {
+            throw new GradleException('Missing canonical pipeline profile: ../infra/compose/profiles/pipeline.yml')
+        }
+    }
     from('../infra/compose/profiles/pipeline.yml') { rename { 'pipeline-profile.yml' } }
 }
 

@@ -62,25 +62,49 @@ public class StageExecutionService
     @Transactional
     public Optional<Map<String, Object>> reserve(ClaimStageCommand command) {
         var definition = definitions.get();
-        for (PipelineRun run : runs.lockCandidates()) {
-            var snapshot = run.snapshot();
-            // 구 버전을 현재 모델 조합으로 조용히 바꾸지 않는다.
-            Map<String, String> expected = run.expectedVersions();
-            if (expected.isEmpty()) {
-                if (!definition.version().equals(snapshot.pipelineVersion())) continue;
-                expected = definition.stageVersions();
+        PipelineRunRepository.Cursor cursor = null;
+        while (true) {
+            var candidates = runs.candidates(cursor, command.capabilities());
+            if (candidates.isEmpty()) return Optional.empty();
+            for (var candidate : candidates) {
+                cursor = candidate.cursor();
+                if (candidate.run() == null || !matches(candidate.run(), command, definition)) continue;
+                var locked = runs.tryLockCandidate(cursor.id());
+                if (locked.isEmpty()) continue;
+                PipelineRun run = locked.orElseThrow();
+                if (!matches(run, command, definition)) continue;
+                var snapshot = run.snapshot();
+                // 구 버전을 현재 모델 조합으로 조용히 바꾸지 않는다.
+                Map<String, String> expected = run.expectedVersions();
+                if (expected.isEmpty()) {
+                    if (!definition.version().equals(snapshot.pipelineVersion())) continue;
+                    expected = definition.stageVersions();
+                }
+                String stage = run.nextStage();
+                if (stage == null
+                        || !expected.get(stage).equals(command.capabilities().get(stage))
+                        || "unknown".equals(command.capabilities().get(stage))) continue;
+                run.bindExpectedVersions(snapshot.pipelineVersion(), expected);
+                Instant now = clock.instant();
+                run.claim(stage, command.workerId(), UUID.randomUUID(), command.device(), now);
+                runs.save(run, now);
+                return Optional.of(assignment(run, stage));
             }
-            String stage = run.nextStage();
-            if (stage == null
-                    || !expected.get(stage).equals(command.capabilities().get(stage))
-                    || "unknown".equals(command.capabilities().get(stage))) continue;
-            run.bindExpectedVersions(snapshot.pipelineVersion(), expected);
-            Instant now = clock.instant();
-            run.claim(stage, command.workerId(), UUID.randomUUID(), command.device(), now);
-            runs.save(run, now);
-            return Optional.of(assignment(run, stage));
         }
-        return Optional.empty();
+    }
+
+    private boolean matches(
+            PipelineRun run, ClaimStageCommand command, GetPipelineDefinitionUseCase.Definition definition) {
+        var expected = run.expectedVersions();
+        if (expected.isEmpty()) {
+            if (!definition.version().equals(run.snapshot().pipelineVersion())) return false;
+            expected = definition.stageVersions();
+        }
+        String stage = run.nextStage();
+        return stage != null
+                && !"unknown".equals(command.capabilities().get(stage))
+                && java.util.Objects.equals(
+                        expected.get(stage), command.capabilities().get(stage));
     }
 
     private Map<String, Object> assignment(PipelineRun run, String stage) {
