@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class TranscriptRegistrationLifecycleTest {
     @TempDir
     Path root;
@@ -65,7 +66,8 @@ class TranscriptRegistrationLifecycleTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void preservesPrimaryFailureOrReportsCleanupFailureOnSuccessfulReplay(boolean replay) throws Exception {
+    void preservesPrimaryFailureButKeepsSuccessfulReplayWhenSubtitleCleanupFails(
+            boolean replay, org.springframework.boot.test.system.CapturedOutput output) throws Exception {
         var adapter = new LocalTranscriptIntakeAdapter(root, 1024, new SubtitleParser());
         var existing = adapter.receive(TranscriptIntakeTest.subtitle(), BigDecimal.TEN, 1);
         existing.retain();
@@ -93,24 +95,42 @@ class TranscriptRegistrationLifecycleTest {
                     candidate.set(intake.storageKey());
                     return intake;
                 });
-        assertThatThrownBy(() -> service.upload(command())).isInstanceOfSatisfying(BusinessException.class, failure -> {
-            if (replay) {
-                assertThat(failure.errorCode())
-                        .isEqualTo(com.npick.clip.application.error.TranscriptErrorCode.CLEANUP_FAILED);
-                assertThat(failure.getSuppressed()).isEmpty();
-            } else {
-                assertThat(failure).isSameAs(primary);
-                assertThat(failure.getSuppressed())
-                        .singleElement()
-                        .isInstanceOfSatisfying(
-                                BusinessException.class,
-                                cleanup -> assertThat(cleanup.errorCode())
-                                        .isEqualTo(
-                                                com.npick.clip.application.error.TranscriptErrorCode.CLEANUP_FAILED));
-            }
-        });
+        if (replay) {
+            assertThat(service.upload(command())).isEqualTo(new RegisterClipResult(1, 3, "queued"));
+            assertThat(output.getOut())
+                    .contains("Duplicate registration subtitle cleanup failed", "CLIP_500_003")
+                    .doesNotContain("외부 변경", "한글 원본");
+        } else {
+            assertThatThrownBy(() -> service.upload(command()))
+                    .isSameAs(primary)
+                    .satisfies(failure -> assertThat(failure.getSuppressed())
+                            .singleElement()
+                            .isInstanceOfSatisfying(
+                                    BusinessException.class,
+                                    cleanup -> assertThat(cleanup.errorCode())
+                                            .isEqualTo(
+                                                    com.npick.clip.application.error.TranscriptErrorCode
+                                                            .CLEANUP_FAILED)));
+        }
         assertThat(Files.readString(root.resolve(candidate.get()))).isEqualTo("외부 변경");
         assertThat(Files.readAllBytes(root.resolve(existing.storageKey()))).isEqualTo(TranscriptIntakeTest.BYTES);
+    }
+
+    @Test
+    void doesNotSuppressOtherResourceFailuresEvenAfterSuccessfulReplay() {
+        var video = mock(PrepareVideoResult.class);
+        when(video.metadata()).thenReturn(new PrepareVideoResult.Metadata("mp4", BigDecimal.TEN, List.of(), List.of()));
+        var failure = new BusinessException(com.npick.clip.application.error.VideoPreparationErrorCode.CLEANUP_FAILED);
+        org.mockito.Mockito.doThrow(failure).when(video).close();
+        var service = new ClipUploadService(
+                () -> new ClipRegistrationContextPort.Context(1, 2, 3, "v1", List.of("transcript_selection"), false),
+                command -> video,
+                command -> {
+                    throw new AssertionError("Duplicate must not register again");
+                },
+                (key, actor, hash, request, create) -> new RegisterClipResult(1, 3, "queued"),
+                new LocalTranscriptIntakeAdapter(root, 1024, new SubtitleParser()));
+        assertThatThrownBy(() -> service.upload(command())).isSameAs(failure);
     }
 
     @Test
