@@ -14,6 +14,8 @@ from npick_worker.jobs.errors import classify
 from npick_worker.jobs.models import (
     FrameExtractionOutput,
     FrameExtractionUpstream,
+    OcrOutput,
+    OcrUpstream,
     SceneDetectionOutput,
     StageError,
     StageResult,
@@ -463,4 +465,191 @@ def test_pipeline_version_of_the_two_implemented_stages() -> None:
             }
         )
         == "npick-pipeline/v1:32d2389f906a"
+    )
+
+
+# ── ocr (계약 §4.3.2) ───────────────────────────────────────────────
+
+
+def _upstream_keyframe(timestamp_ms: int, scene_index: int = 0) -> dict[str, object]:
+    return {
+        "sceneIndex": scene_index,
+        "timestampMs": timestamp_ms,
+        "storageKey": f"runs/1/frame_extraction/a1/s{scene_index:04d}/kf-{timestamp_ms:09d}.jpg",
+    }
+
+
+def _ocr_upstream(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "scenes": [{"sceneIndex": 0, "keyframes": [_upstream_keyframe(4200)]}],
+        "imageWidth": 1920,
+        "imageHeight": 1080,
+    }
+    payload.update(overrides)
+    return {"frameExtraction": payload}
+
+
+def test_ocr_upstream_requires_frame_extraction() -> None:
+    """읽을 대상이 없으면 이 단계는 할 일을 모른다.
+
+    빈 결과를 성공으로 반납하면 "이 영상에는 화면 글자가 없다" 는 거짓이 정본에 남는다.
+    """
+    with pytest.raises(ValidationError):
+        OcrUpstream.model_validate({})
+
+
+def test_ocr_upstream_tolerates_fields_it_does_not_know() -> None:
+    upstream = OcrUpstream.model_validate(
+        {
+            "frameExtraction": {
+                "scenes": [
+                    {
+                        "sceneIndex": 0,
+                        "representativeTimestampMs": 4200,
+                        "keyframes": [{**_upstream_keyframe(4200), "future": 1}],
+                    }
+                ],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+                "alsoFuture": True,
+            }
+        }
+    )
+    assert upstream.frame_extraction.scenes[0].keyframes[0].timestamp_ms == 4200
+
+
+def test_ocr_upstream_does_not_require_the_representative_to_be_first() -> None:
+    """대표 규약은 `frame_extraction` 이 보낼 때의 자기 검사다.
+
+    여기서 같은 검사를 다시 하면 BE 가 순서를 바꿔 보낸 경우에 OCR 이
+    `VALIDATION_ERROR` 로 죽는다. OCR 은 모든 keyframe 을 읽으므로 대표가 어느
+    장인지 알 필요가 없다 — 남의 규약을 이 단계의 실패 사유로 삼지 않는다.
+    """
+    upstream = OcrUpstream.model_validate(
+        _ocr_upstream(
+            scenes=[
+                {
+                    "sceneIndex": 0,
+                    "representativeTimestampMs": 7300,
+                    "keyframes": [_upstream_keyframe(4200), _upstream_keyframe(7300)],
+                }
+            ]
+        )
+    )
+    assert len(upstream.frame_extraction.scenes[0].keyframes) == 2
+
+
+def test_ocr_output_flattens_observations() -> None:
+    """`ocr_observation` 이 `keyframe_id` 만 참조한다. scene 으로 묶어 봐야 BE 가 편다."""
+    from npick_worker.ocr import KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    box = ((0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0))
+    keyframes = tuple(
+        to_observations(
+            KeyframeRef(
+                scene_index=0,
+                timestamp_ms=timestamp,
+                storage_key=f"runs/1/frame_extraction/a1/s0000/kf-{timestamp:09d}.jpg",
+            ),
+            [TextDetection(text="강원도", confidence=0.99, points=box)],
+            min_confidence=0.7,
+        )
+        for timestamp in (4200, 7300)
+    )
+    result = OcrResult(
+        keyframes=keyframes,
+        config_version="ocr/v1:daaf4c83",
+        engine="rapidocr",
+        engine_version="test",
+        tokenizer="query-norm/v1:test",
+        min_confidence=0.7,
+    )
+
+    payload = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
+
+    assert payload["keyframesRead"] == 2
+    assert payload["minConfidence"] == 0.7
+    assert len(payload["observations"]) == 2
+    observation = payload["observations"][0]
+    # keyframe 은 ID 가 아니라 이 쌍으로 가리킨다 — BE 가
+    # `UNIQUE(scene_id, timestamp_ms)` 로 행을 찾는다.
+    assert observation["sceneIndex"] == 0
+    assert observation["timestampMs"] == 4200
+    assert observation["rawText"] == "강원도"
+    assert observation["unverified"] is False
+    assert observation["boundingBox"]["points"] == [
+        [0.0, 0.0],
+        [10.0, 0.0],
+        [10.0, 4.0],
+        [0.0, 4.0],
+    ]
+    assert observation["boundingBox"]["width"] == 10.0
+
+
+def test_wire_bounding_box_is_the_same_shape_the_column_gets() -> None:
+    """와이어 payload 와 `bounding_box_json` 이 갈라지면 안 된다.
+
+    `BoundingBox.to_json()` 이 `ocr_observation.bounding_box_json` 의 모양 정본이고
+    `ocr/report.py` 도 그것을 쓴다. `OcrOutput.from_result` 가 같은 모양을 손으로 다시
+    조립하면 두 벌이 되고, 언젠가 한쪽만 바뀌어 report 출력과 payload 가 조용히
+    달라진다. 여기서 두 벌이 아님을 고정한다.
+    """
+    from npick_worker.ocr import BoundingBox, KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    box = BoundingBox(points=((3.0, 1.0), (13.0, 1.0), (13.0, 5.0), (3.0, 5.0)))
+    keyframes = (
+        to_observations(
+            KeyframeRef(
+                scene_index=0,
+                timestamp_ms=4200,
+                storage_key="runs/1/frame_extraction/a1/s0000/kf-000004200.jpg",
+            ),
+            [TextDetection(text="강원도", confidence=0.99, points=box.points)],
+            min_confidence=0.7,
+        ),
+    )
+    result = OcrResult(
+        keyframes=keyframes,
+        config_version="ocr/v1:daaf4c83",
+        engine="rapidocr",
+        engine_version="test",
+        tokenizer="query-norm/v1:test",
+        min_confidence=0.7,
+    )
+
+    payload = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
+
+    assert payload["observations"][0]["boundingBox"] == box.to_json()
+
+
+def test_ocr_config_version_matches_recorded_vector() -> None:
+    """`ocr.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
+    from npick_worker.ocr import get_default_config
+
+    assert get_default_config().version_id == "ocr/v1:daaf4c83"
+
+
+def test_ocr_stage_version_matches_recorded_vector() -> None:
+    """재현 튜플은 `{configVersion, engine, engineVersion, tokenizer}` 다.
+
+    앞의 두 단계와 달리 축이 넷이다. `tokenizer` 가 있는 이유는
+    `ocr_observation.tokens` 가 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면
+    읽은 글자가 같아도 색인이 달라지고, 그건 검색이 0 건이 되는 종류의 변화다
+    (`docs/architecture/02-container.md:110`).
+
+    이 값이 바뀌면 계약 문서의 벡터도 함께 고쳐야 한다.
+    """
+    assert (
+        stage_version(
+            "ocr",
+            {
+                "configVersion": "ocr/v1:daaf4c83",
+                "engine": "rapidocr",
+                "engineVersion": "rapidocr3.9.2+onnxruntime1.29.0",
+                "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0",
+            },
+        )
+        == "npick.stage.ocr/v1:449d6928"
     )

@@ -361,6 +361,104 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 **재처리** — 재시도(attempt N+1)는 새 `outputKeyPrefix`를 받으므로 실패한 attempt N의 JPEG이 성공 결과와 섞이지 않는다. 같은 attempt의 중복 반납은 §8의 세 겹이 막는다. 워커 쪽 몫은 결정론이다 — 같은 입력과 같은 재현 튜플이면 같은 프레임을 고르고 같은 바이트를 쓴다.
 
+### 4.3.2 `ocr` — 화면 글자 관측
+
+`frame_extraction`과 달리 이 단계는 **파일을 읽는다.** 올리지 않고 받는다.
+
+**입력** — `inputs.upstream`에 상류 2단계 산출물을 인라인한다. 키 이름은 스테이지 이름의 camelCase다.
+
+```json
+"inputs": {
+  "media": { "storageKey": "clips/398021840012345/source.mp4", "transport": "shared-volume" },
+  "upstream": {
+    "frameExtraction": {
+      "scenes": [
+        { "sceneIndex": 0, "representativeTimestampMs": 4200,
+          "keyframes": [ { "sceneIndex": 0, "timestampMs": 4200,
+                           "storageKey": "runs/…/frame_extraction/a1/s0000/kf-000004200.jpg" } ] }
+      ],
+      "imageWidth": 1920, "imageHeight": 1080
+    }
+  },
+  "config": {}
+}
+```
+
+`frameExtraction`이 없으면 워커는 `VALIDATION_ERROR`(영구)로 실패를 신고한다. 이 단계는 상류 없이 빈 결과를 내지 않는다 — 그러면 "이 영상에는 화면 글자가 없다"는 거짓이 정본에 기록된다. keyframe 214장이 이 형식으로 약 40 KiB이므로 인라인 상한(1 MiB)에 걸리지 않는다.
+
+**`representativeTimestampMs`를 검사하지 않는다.** 그것은 `frame_extraction`이 보낼 때의 자기 검사이고 BE의 저장 규약이다(§4.3.1). OCR은 모든 keyframe을 읽으므로 대표가 어느 장인지 알 필요가 없고, 여기서 같은 검사를 다시 하면 남의 규약이 이 단계의 실패 사유가 된다.
+
+**바이트를 어떻게 받는가** — `inputs.media.transport`가 그대로 적용된다(§5). `shared-volume`이면 마운트에서 바로 열고 복사하지 않는다. `http`면 §4.4의 `GET …/artifacts?key=`로 keyframe마다 한 번씩 받는다. 워커는 **읽는 동안에도 heartbeat를 계속 친다** — 다운로드는 lease를 연장하지 않는다(§4.2).
+
+**`inputs.media`의 원본 영상은 받지 않는다.** 이 단계가 여는 것은 상류 keyframe뿐이다. `storageKey`는 오류 메시지와 기록에만 쓴다. BE는 이 단계에도 `inputs.media`를 평소대로 실어 보내면 되고(§4.1의 모양은 단계마다 같다), 달라지는 것은 워커가 `http`에서 원본을 내려받지 않는다는 것뿐이다.
+
+**빈 구멍** — `keyframes[]` 항목에는 `contentHash`도 `sizeBytes`도 없다(§4.3.1의 출력 모양). 그래서 이 단계는 §4.1의 미디어처럼 잘린 다운로드를 걸러내지 못한다. 깨진 JPEG은 이미지로 열리지 않아 `UNSUPPORTED_MEDIA`로 드러나는 데 그친다. BE가 상류 산출물에 해시를 실어 주면 막을 수 있고, 그때 이 문단을 지운다.
+
+**결과** — 이 단계는 `artifacts`를 만들지 않는다. 관측은 전부 `output`으로 간다.
+
+```json
+{
+  "stage": "ocr",
+  "status": "succeeded",
+  "versions": {
+    "stageVersion": "npick.stage.ocr/v1:449d6928",
+    "outputSchemaVersion": "npick.stage.ocr.output/v1",
+    "configVersion": "ocr/v1:daaf4c83",
+    "modelVersion": "rapidocr/rapidocr3.9.2+onnxruntime1.29.0",
+    "promptVersion": null,
+    "detail": {
+      "engine": "rapidocr",
+      "engineVersion": "rapidocr3.9.2+onnxruntime1.29.0",
+      "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0"
+    },
+    "runtime": { "worker": "0.1.0", "python": "3.12.14", "torch": null, "cuda": null }
+  },
+  "metrics": {
+    "keyframes": 23, "observations": 44,
+    "unverifiedObservations": 12, "textGroups": 35, "minConfidence": 0.7
+  },
+  "output": {
+    "observations": [
+      {
+        "sceneIndex": 8,
+        "timestampMs": 71833,
+        "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg",
+        "rawText": "강원도 대표 볼거리관",
+        "tokens": "강원도 대표 볼거리 관",
+        "confidence": 0.9981,
+        "unverified": false,
+        "textKey": "3f1ea70c9b21",
+        "boundingBox": {
+          "points": [[262, 96], [531, 96], [531, 176], [262, 176]],
+          "x": 262, "y": 96, "width": 269, "height": 80
+        }
+      }
+    ],
+    "keyframesRead": 23,
+    "minConfidence": 0.7
+  },
+  "artifacts": []
+}
+```
+
+**keyframe은 `(sceneIndex, timestampMs)`로 가리킨다.** `ocr_observation.keyframe_id`는 TSID이고 그것을 발급하는 쪽은 BE인데, `complete` 응답의 `assignedIds`는 scene만 돌려준다(§4.3). `keyframe`에 `UNIQUE(scene_id, timestamp_ms)`가 있으므로 이 쌍이 곧 그 행이다 — **스키마도 `assignedIds`도 늘리지 않고 닫힌다.** `storageKey`는 어느 파일을 읽었는지의 근거로 함께 싣는 값이지 참조 키가 아니다(`keyframe.storage_key`에 인덱스가 없다).
+
+**`tokens`는 워커가 만든다.** BE에 Kiwi가 없고 [02-container.md](../architecture/02-container.md)가 "워커가 Kiwi로 토큰화한 결과를 별도 컬럼에 넣고 `pdb.whitespace` 토크나이저로 색인한다"로 정했다. 공백으로 이어진 문자열이 그대로 `ocr_observation.tokens`가 된다. **빈 문자열이 정상일 수 있다** — 기호만 읽은 관측에는 내용어가 없다. 색인과 질의가 같은 Kiwi 설정을 써야 하므로 `versions.detail.tokenizer`가 그 설정의 식별자를 싣는다.
+
+**`confidence`는 넷째 자리까지다.** `ocr_observation.confidence`가 `numeric(5,4)`이고, 워커가 보내기 전에 반올림한다. 다섯째 자리를 보내면 DB가 반올림해 워커 기록과 저장된 값이 갈린다.
+
+**`unverified`는 담을 컬럼이 없다.** `ocr_observation`에 검증 상태 칸이 없고 컬럼 주석이 "이 값(confidence)의 임계값으로 검증 상태를 판정한다"로 둔다. 그래서 이 필드는 저장 대상이 아니라 **BE가 `tag_evidence.verification_status`를 정할 때 쓰는 값**이고, `output.minConfidence`가 그 판정에 쓴 임계값을 함께 알려 준다. 임계값은 실측으로 정했다(`ai/docs/ocr.md` §5).
+
+**미달 관측도 전부 온다.** FRD F-04가 "AI의 높은 신뢰도만으로 검증된 사실로 올리지 않는다"([docs/frd.md](../frd.md) §3)이고, 반대로 미달이라고 버리지도 않는다 — 검색 후보로는 쓸 수 있어야 한다. **BE는 `unverified: true`인 행을 거절하면 안 된다.**
+
+**병합하지 않는다.** 프레임 사이의 같은 문구도 각자 관측으로 온다. `textKey`가 같으면 같은 문구이므로 소비자가 묶을 수 있고, 묶어도 원본 관측과 keyframe이 그대로 남는다("중복 글자를 묶어도 원본 관측과 프레임으로 돌아갈 수 있어야 한다", [docs/frd.md](../frd.md) §3 F-03). `ocr_observation`에 그룹 컬럼이 없으므로 **BE는 `textKey`를 저장하지 않는다.**
+
+**`observations`가 빈 배열일 수 있다.** 화면에 글자가 없는 영상이 있고 그건 실패가 아니다. `keyframesRead`가 함께 오므로 "0장을 읽고 0건"과 "23장을 읽고 0건"이 구분된다. `status: succeeded`인데 `output`이 비었다고 거절하는 규칙(§4.3의 거부 조건 4)은 **`output` 객체 자체가 없는 경우**를 말하며, `observations: []`는 정상 payload다.
+
+**오류 코드** — 이 단계 전용 코드를 만들지 않는다. §9.2의 어휘로 충분하다: 상류 산출물이 잘못됐으면 `VALIDATION_ERROR`(영구), keyframe JPEG을 열 수 없으면 `UNSUPPORTED_MEDIA`(영구), 모델 가중치를 준비하지 못하면 `MODEL_UNAVAILABLE`(일시), 나머지는 `OCR_FAILED`(일시)다.
+
+**비치명이다.** `stages.py`가 이 단계를 `fatal=False`로 둔다. 실패해도 run은 계속 가고 그 사실이 `stage_states_json`에 남는다("VLM·OCR·음성인식 중 하나가 실패해도 나머지 결과를 사용할 수 있으면 처리를 계속한다", [docs/frd.md](../frd.md) §3 F-03).
+
 ### 4.4 artifacts — 입력 내려받기 / 산출물 올리기
 
 ```
@@ -434,6 +532,8 @@ compose에서는 backend와 ai-worker가 `media:/srv/npick/media`를 함께 마�
 
 입력은 그 단계의 **재현 튜플 전체**다. `scene_detection`이면 `{configVersion, detector, engine, engineVersion}`, `frame_extraction`이면 `{configVersion, engine, engineVersion}`다 — 후자에 `detector` 같은 축이 없는 것은 고를 구현이 하나뿐이어서다. 항상 같은 값인 축을 넣으면 해시에 아무 정보도 들어가지 않는다.
 
+`ocr`은 축이 넷이다 — `{configVersion, engine, engineVersion, tokenizer}`. `tokenizer`가 있는 이유는 `ocr_observation.tokens`가 그 단계의 산출물이기 때문이다. Kiwi 설정이 바뀌면 화면에서 읽은 글자가 같아도 색인이 달라지고, 그건 검색이 0건이 되는 종류의 변화다([02-container.md](../architecture/02-container.md)).
+
 설정 해시만으로는 부족하다. 그 값은 설정 파일만 해시하므로 **라이브러리가 바뀌면 값이 그대로인데 경계는 달라질 수 있다**. 원본 튜플은 `versions.detail`에 그대로 남겨 조사할 수 있게 한다.
 
 schema 접두를 `configVersion`과 다르게 둔 이유는 로그에 두 값이 나란히 찍히기 때문이다. 접두가 같으면 사람이 반드시 헷갈린다.
@@ -456,6 +556,8 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | `{configVersion: scene-detect/v1:20dfc0a6, detector: content, engine: pyscenedetect, engineVersion: 0.7.1}` | `stageVersion` = `npick.stage.scene_detection/v1:3ab4bebe` |
 | `frame_extraction.v1.toml` 기본 설정 | `configVersion` = `frame-extract/v1:5b266b10` |
 | `{configVersion: frame-extract/v1:5b266b10, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:595427d7` |
+| `ocr.v1.toml` 기본 설정 | `configVersion` = `ocr/v1:daaf4c83` |
+| `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.ocr/v1:449d6928` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, ocr: npick.stage.ocr/v1:bbbbbbbb}` | `pipelineVersion` = `npick-pipeline/v1:64960bae4565` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, frame_extraction: npick.stage.frame_extraction/v1:cccccccc}` | `pipelineVersion` = `npick-pipeline/v1:32d2389f906a` |
 
@@ -581,6 +683,8 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
 
 `ai/src/npick_worker/jobs/` — 파이프라인 워커 전용. `client.py`(4개 엔드포인트), `runner.py`(claim→실행→heartbeat→complete), `registry.py`(단계 디스패치·워밍업), `media.py`(입력 해석·경로 보호), `versions.py`·`errors.py`(이 문서의 §7·§9).
 
+단계가 상류 산출물의 **바이트**를 필요로 하면(`ocr`의 keyframe JPEG) `StageHandler.required_inputs`로 키를 선언하고 러너가 heartbeat가 도는 동안 받아 넘긴다. 단계 구현은 잡 API를 모르므로 직접 받지 않는다 — 업로드를 러너가 하는 것과 같은 이유다(§4.2).
+
 잡 루프는 라우트가 아니라 FastAPI lifespan 태스크로 돈다. **워커에 인바운드 잡 엔드포인트가 생기지 않는다.**
 
 `NPICK_AI_JOB_POLL_ENABLED`가 배포 단위 둘을 가른다 — 같은 이미지가 이 값 하나로 "잡을 도는 파이프라인 워커"와 "폴링하지 않는 질의 리졸버"가 된다. 컨테이너를 실제로 쪼갤 때 바뀌는 것은 이 값과 `NPICK_AI_JOB_API_BASE_URL`뿐이다.
@@ -591,6 +695,6 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 9단계 | 각 단계 티켓. 그동안 워커는 `NO_ADAPTER`로 생략을 보고한다 |
+| 미구현 7단계 | 각 단계 티켓. 그동안 워커는 `NO_ADAPTER`로 생략을 보고한다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |

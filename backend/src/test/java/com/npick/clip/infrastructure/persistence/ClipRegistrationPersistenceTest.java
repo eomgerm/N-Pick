@@ -101,7 +101,9 @@ class ClipRegistrationPersistenceTest {
                         throw new java.io.UncheckedIOException(failure);
                     }
                 })
-                .withUserConfiguration(com.npick.clip.infrastructure.config.ClipRegistrationConfiguration.class)
+                .withUserConfiguration(
+                        com.npick.clip.infrastructure.config.ClipRegistrationConfiguration.class,
+                        com.npick.pipeline.infrastructure.config.PipelineDefinitionConfiguration.class)
                 .withPropertyValues(
                         "npick.clip-registration.media-root=" + media, "npick.clip-registration.upload-root=" + uploads)
                 .withBean(tools.jackson.databind.ObjectMapper.class, tools.jackson.databind.ObjectMapper::new)
@@ -154,9 +156,9 @@ class ClipRegistrationPersistenceTest {
                                     "SELECT pipeline_version FROM npick.pipeline_run WHERE pipeline_run_id=?",
                                     String.class,
                                     runId))
-                            .isEqualTo("pipeline-v1");
+                            .startsWith("npick-pipeline/v1:");
                     assertThat(jdbc.queryForObject(
-                                    "SELECT count(*) FROM jsonb_object_keys((SELECT stage_states_json FROM npick.pipeline_run WHERE pipeline_run_id=?))",
+                                    "SELECT count(*) FROM jsonb_object_keys((SELECT stage_states_json->'stages' FROM npick.pipeline_run WHERE pipeline_run_id=?))",
                                     Integer.class,
                                     runId))
                             .isEqualTo(10);
@@ -269,7 +271,8 @@ class ClipRegistrationPersistenceTest {
                 .containsEntry("error_code", null);
         var states = JsonMapper.builder()
                 .build()
-                .readTree(run.get("stage_states_json").toString());
+                .readTree(run.get("stage_states_json").toString())
+                .path("stages");
         assertThat(states.size()).isEqualTo(2);
         STAGES.forEach(stage -> {
             assertThat(states.path(stage).path("status").asText()).isEqualTo("pending");

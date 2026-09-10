@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     #: compose 는 /srv/npick/media 를 준다. RunPod 파드에는 공유 볼륨이 없다.
     media_root: Path | None = None
 
+    #: OCR 모델 가중치를 둘 곳. 비우면 rapidocr 기본값(site-packages 안)을 쓴다.
+    #: 컨테이너에서는 반드시 준다 — 기본값은 이미지 레이어라 컨테이너를 다시 만들
+    #: 때마다 모델을 새로 받는다. Dockerfile 이 /var/cache/npick/models 를 잡아 둔다.
+    #: 품질을 바꾸는 값이 아니라 경로이므로 버전이 붙는 설정 파일이 아니라 여기 있다.
+    ocr_model_dir: Path | None = None
+
     # ── Query Resolver LLM (local 또는 승인된 GMS) ──
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만
     # 난다(ai/AGENTS.md — GPU 없이도 기동하는 성질을 깨지 않는다).
