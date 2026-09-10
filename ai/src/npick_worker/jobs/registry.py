@@ -15,12 +15,16 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel, ValidationError
 
 from npick_worker.device import detect_device
-from npick_worker.jobs.errors import UnsupportedMediaError, UpstreamOutputInvalidError
+from npick_worker.jobs.errors import (
+    ModelUnavailableError,
+    UnsupportedMediaError,
+    UpstreamOutputInvalidError,
+)
 from npick_worker.jobs.models import ArtifactRef
 from npick_worker.jobs.versions import (
     StageRuntime,
@@ -30,6 +34,9 @@ from npick_worker.jobs.versions import (
 )
 from npick_worker.settings import get_settings
 from npick_worker.versioning import service_version
+
+if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(ocr 은 onnxruntime 이 딸려 온다).
+    from npick_worker.ocr.models import KeyframeRef
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +58,11 @@ class StageContext:
     output_key_prefix: str
     #: 상류 단계 산출물. BE 가 `inputs.upstream` 으로 되돌려 준 그대로다.
     upstream: Mapping[str, Any] = field(default_factory=dict)
+    #: `storage_key` → 로컬 파일. 러너가 `StageHandler.required_inputs` 가 부른 키만
+    #: 미리 받아 둔다. 단계가 직접 받지 않는 이유는 업로드와 같다 — 단계는 순수
+    #: 함수이고 잡 API 를 모르며(`ai/AGENTS.md`), 내려받는 동안 heartbeat 가 돌아야
+    #: 한다(계약 §4.2 — 연장하는 것은 heartbeat 뿐이다).
+    upstream_files: Mapping[str, Path] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -86,6 +98,10 @@ class StageHandler:
     run: Callable[[StageContext], StageOutcome]
     #: 첫 잡 전에 미리 치를 비용. 없으면 None.
     warm: Callable[[], str] | None = None
+    #: `inputs.upstream` 을 받아 **미리 받아 둬야 할 산출물 키**를 돌려준다.
+    #: 없으면 이 단계는 배정의 입력 미디어만 쓴다. 러너가 이 목록을 heartbeat 가
+    #: 도는 동안 받아 `StageContext.upstream_files` 로 넘긴다.
+    required_inputs: Callable[[Mapping[str, Any]], tuple[str, ...]] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,6 +296,130 @@ def _run_frame_extraction(ctx: StageContext) -> StageOutcome:
     )
 
 
+def _ocr_keyframes(upstream: Mapping[str, Any]) -> tuple["KeyframeRef", ...]:
+    """상류 `frameExtraction` 산출물을 읽을 대상 목록으로 옮긴다.
+
+    `required_inputs` 와 `_run_ocr` 이 둘 다 부른다. 한 번은 어떤 파일을 받아야 하는지
+    알려고, 한 번은 실제로 읽으려고다. 두 곳에서 따로 파싱하면 받아 온 파일과 읽는
+    대상이 어긋날 수 있으므로 조립은 이 함수 하나다.
+    """
+    from npick_worker.jobs.models import OcrUpstream
+    from npick_worker.ocr import KeyframeRef
+
+    upstream_model = _parse_upstream(OcrUpstream, upstream)
+    return tuple(
+        KeyframeRef(
+            scene_index=keyframe.scene_index,
+            timestamp_ms=keyframe.timestamp_ms,
+            storage_key=keyframe.storage_key,
+        )
+        for scene in upstream_model.frame_extraction.scenes
+        for keyframe in scene.keyframes
+    )
+
+
+def _ocr_required_inputs(upstream: Mapping[str, Any]) -> tuple[str, ...]:
+    """읽으려면 있어야 하는 keyframe 이미지들.
+
+    같은 키가 두 번 오지 않게 순서를 지키며 중복을 없앤다 — `UNIQUE(scene_id,
+    timestamp_ms)` 가 있으니 정상 입력에서는 없을 일이지만, 있으면 같은 파일을 두 번
+    받게 된다.
+    """
+    seen: dict[str, None] = {}
+    for keyframe in _ocr_keyframes(upstream):
+        seen.setdefault(keyframe.storage_key, None)
+    return tuple(seen)
+
+
+def _run_ocr(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. rapidocr 는 onnxruntime·cv2 를 끌어온다(scene_detection 과 같은 이유).
+    from npick_worker.jobs.models import OcrOutput
+    from npick_worker.ocr import OcrModelUnavailableError, OcrReadError, read_keyframes
+
+    keyframes = _ocr_keyframes(ctx.upstream)
+
+    missing = [kf.storage_key for kf in keyframes if kf.storage_key not in ctx.upstream_files]
+    if missing:
+        # 러너가 `required_inputs` 로 받아 왔어야 하는 파일이다. 일부만 읽고 성공으로
+        # 반납하면 "그 프레임에는 글자가 없었다" 는 거짓이 정본에 남는다.
+        msg = f"keyframe 이미지를 받지 못했다: {len(missing)}건"
+        raise UpstreamOutputInvalidError(msg)
+
+    try:
+        result = read_keyframes(keyframes, ctx.upstream_files)
+    except OcrModelUnavailableError as exc:
+        # 어댑터 경계에서 번역한다. 가중치를 못 받은 것은 이 클립의 문제가 아니므로
+        # 다른 파드나 다음 시도에서 성공할 수 있다 — 계약 §9.2 의 일시 오류다.
+        raise ModelUnavailableError(str(exc)) from exc
+    except OcrReadError as exc:
+        # 상류가 올린 JPEG 을 열지 못했다. 같은 파일은 다시 읽어도 안 열린다.
+        raise UnsupportedMediaError(str(exc)) from exc
+
+    identity = _ocr_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+        tokenizer=result.tokenizer,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        output=OcrOutput.from_result(result).model_dump(by_alias=True, mode="json"),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            # 가중치를 쓰는 첫 단계다. 프롬프트는 없으므로 키만 남기고 값을 비운다.
+            model_version=f"{result.engine}/{result.engine_version}",
+            prompt_version=None,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "keyframes": len(result.keyframes),
+            "observations": result.observation_count,
+            # 임계값 미달로 unverified 가 된 수. 이 비율이 튀면 그 클립의 화면 글자
+            # 품질이나 임계값을 사람이 한 번 봐야 한다는 신호다.
+            "unverifiedObservations": result.unverified_count,
+            # 서로 다른 문구의 수. 관측 수보다 작으면 프레임 사이에 같은 문구가 있다.
+            # **합치지 않았다는 뜻이기도 하다** — 관측은 전부 남아 있다.
+            "textGroups": result.text_group_count,
+            "minConfidence": result.min_confidence,
+        },
+    )
+
+
+def _ocr_identity(
+    *, config_version: str, engine: str, engine_version: str, tokenizer: str
+) -> dict[str, str]:
+    """ocr 의 재현 튜플.
+
+    앞의 두 단계와 달리 축이 넷이다. `tokenizer` 가 있는 이유는 `ocr_observation.tokens`
+    가 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면 화면에서 읽은 글자가 같아도
+    색인이 달라진다. 검색이 0 건이 되는 종류의 변화라 재현 식별자에 들어가야 한다
+    (`docs/architecture/02-container.md:110`).
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+        "tokenizer": tokenizer,
+    }
+
+
+def _warm_ocr() -> str:
+    """설정을 미리 읽고 모델을 미리 올린다.
+
+    이 단계는 앞의 둘과 달리 **가중치를 쓴다.** 첫 잡에서 모델을 내려받으면 그 시간이
+    통째로 그 잡의 처리 시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다.
+    기동 때 하면 `/health` 로 드러난다.
+    """
+    from npick_worker.ocr import RapidOcrEngine, get_default_config
+
+    config = get_default_config()
+    engine = RapidOcrEngine(config)
+    return f"config={config.version_id} engine={engine.name} {engine.version}"
+
+
 def _parse_upstream[T: BaseModel](model: type[T], payload: Mapping[str, Any]) -> T:
     """`inputs.upstream` 을 단계가 기대하는 모양으로 검증한다.
 
@@ -367,6 +507,12 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
         for handler in (
             StageHandler("scene_detection", _run_scene_detection, _warm_scene_detection),
             StageHandler("frame_extraction", _run_frame_extraction, _warm_frame_extraction),
+            StageHandler(
+                "ocr",
+                _run_ocr,
+                _warm_ocr,
+                required_inputs=_ocr_required_inputs,
+            ),
         )
     }
 )
@@ -458,6 +604,27 @@ def _declared_version(stage: str) -> str:
                 config_version=frame_config.version_id,
                 engine=grabber.name,
                 engine_version=grabber.version,
+            ),
+        )
+    if stage == "ocr":
+        from npick_worker import korean_tokens
+        from npick_worker.ocr import RapidOcrEngine
+        from npick_worker.ocr import get_default_config as get_ocr_config
+
+        ocr_config = get_ocr_config()
+        # **엔진을 만든다.** 앞의 두 단계는 버전을 물어보는 데 비용이 없지만 이 단계는
+        # 모델을 올려야 버전을 안다. `_warm_ocr` 이 이미 만들어 뒀다면 rapidocr 가
+        # 캐시된 가중치를 다시 읽을 뿐이고, 워밍업이 실패한 워커라면 여기서도 실패해
+        # `capability_versions` 가 ocr 를 목록에서 뺀다 — 배정받지 못하는 편이
+        # 배정받아 매번 죽는 것보다 낫다.
+        ocr_engine = RapidOcrEngine(ocr_config)
+        return stage_version(
+            stage,
+            _ocr_identity(
+                config_version=ocr_config.version_id,
+                engine=ocr_engine.name,
+                engine_version=ocr_engine.version,
+                tokenizer=korean_tokens.tokenizer_version(),
             ),
         )
     msg = f"버전을 선언할 수 없는 단계다: {stage}"
