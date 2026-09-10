@@ -19,6 +19,10 @@ repositories {
 	mavenCentral()
 }
 
+tasks.named('processResources') {
+    from('../infra/compose/profiles/pipeline.yml') { rename { 'pipeline-profile.yml' } }
+}
+
 spotless {
 	java {
 		targetExclude(

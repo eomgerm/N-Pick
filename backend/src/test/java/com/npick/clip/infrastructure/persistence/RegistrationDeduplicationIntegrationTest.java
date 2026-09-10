@@ -146,7 +146,7 @@ class RegistrationDeduplicationIntegrationTest {
                 .cleanDisabled(true)
                 .locations("classpath:db/migration")
                 .load();
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(2);
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (var c = DriverManager.getConnection(url, user, password);
@@ -869,7 +869,9 @@ class RegistrationDeduplicationIntegrationTest {
             context.registerBean(
                     tools.jackson.databind.json.JsonMapper.class,
                     () -> tools.jackson.databind.json.JsonMapper.builder().build());
-            context.register(com.npick.clip.infrastructure.config.ClipRegistrationConfiguration.class);
+            context.register(
+                    com.npick.clip.infrastructure.config.ClipRegistrationConfiguration.class,
+                    com.npick.pipeline.infrastructure.config.PipelineDefinitionConfiguration.class);
             context.refresh();
             var flow = context.getBean(com.npick.clip.application.command.register.UploadClipUseCase.class);
             var mvc = MockMvcBuilders.standaloneSetup(new ClipRegistrationController(flow))
