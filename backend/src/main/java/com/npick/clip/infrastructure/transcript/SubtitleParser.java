@@ -37,6 +37,15 @@ public final class SubtitleParser {
     }
 
     public List<Cue> parse(byte[] bytes, String format, BigDecimal duration) {
+        return parse(bytes, format, duration, false);
+    }
+
+    /** FFmpeg 추출 출력의 한 자리 hour도 허용한다. 업로드 형식·시간 경계 정책은 바꾸지 않는다. */
+    List<Cue> parseExtractedVtt(byte[] bytes, BigDecimal duration) {
+        return parse(bytes, "vtt", duration, true);
+    }
+
+    private List<Cue> parse(byte[] bytes, String format, BigDecimal duration, boolean extracted) {
         if (duration == null || duration.signum() <= 0) {
             throw TranscriptErrorCode.invalid("subtitle", "실제 영상 길이가 필요합니다.");
         }
@@ -55,7 +64,7 @@ public final class SubtitleParser {
         List<Cue> cues =
                 switch (format) {
                     case "json" -> json(text, duration);
-                    case "srt", "vtt" -> timedText(text, format.equals("vtt"), duration);
+                    case "srt", "vtt" -> timedText(text, format.equals("vtt"), duration, extracted);
                     default -> throw TranscriptErrorCode.invalid("subtitle", "지원하지 않는 형식입니다.");
                 };
         if (cues.isEmpty()) throw TranscriptErrorCode.invalid("segments", "자막 구간이 하나 이상 필요합니다.");
@@ -109,7 +118,7 @@ public final class SubtitleParser {
         return node.longValue();
     }
 
-    private List<Cue> timedText(String text, boolean vtt, BigDecimal duration) {
+    private List<Cue> timedText(String text, boolean vtt, BigDecimal duration, boolean extracted) {
         String[] lines = text.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
         int line = 0;
         if (vtt) {
@@ -164,8 +173,8 @@ public final class SubtitleParser {
                 throw TranscriptErrorCode.invalid(location, "자막 사이 빈 줄 또는 시간 표기를 확인해 주세요.");
             result.add(cue(
                     result.size(),
-                    timestamp(match.group(1), vtt, location + ".s"),
-                    timestamp(match.group(2), vtt, location + ".e"),
+                    timestamp(match.group(1), vtt, extracted, location + ".s"),
+                    timestamp(match.group(2), vtt, extracted, location + ".e"),
                     payload,
                     duration,
                     location));
@@ -173,9 +182,10 @@ public final class SubtitleParser {
         return result;
     }
 
-    private long timestamp(String value, boolean vtt, String location) {
+    private long timestamp(String value, boolean vtt, boolean extracted, String location) {
+        String hourPattern = extracted ? "\\d+" : "\\d{2,}";
         String expression = vtt
-                ? "(?:(\\d{2,}):)?([0-5][0-9]):([0-5][0-9])\\.([0-9]{3})"
+                ? "(?:(" + hourPattern + "):)?([0-5][0-9]):([0-5][0-9])\\.([0-9]{3})"
                 : "(\\d{2,}):([0-5][0-9]):([0-5][0-9]),([0-9]{3})";
         var match = Pattern.compile(expression).matcher(value);
         if (!match.matches()) throw TranscriptErrorCode.invalid(location, "시간 표기가 올바르지 않습니다.");

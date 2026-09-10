@@ -97,6 +97,25 @@ class SubtitleParserTest {
         assertThat(within).isEqualTo(exact);
     }
 
+    @Test
+    void extractedHourCompatibilityDoesNotRelaxUploadSyntaxOrTimeValidation() {
+        byte[] vtt = "WEBVTT\n\n1:00:00.100 --> 1:00:00.500\n한글\n".getBytes(StandardCharsets.UTF_8);
+        assertThatThrownBy(() -> parser.parse(vtt, "vtt", new BigDecimal("3601")))
+                .hasMessageContaining("시간 표기");
+        assertThatThrownBy(() -> parser.parse(
+                        "1\n1:00:00,100 --> 1:00:00,500\n한글".getBytes(StandardCharsets.UTF_8),
+                        "srt",
+                        new BigDecimal("3601")))
+                .hasMessageContaining("시간 표기");
+        assertThatThrownBy(() -> parser.parseExtractedVtt(vtt, new BigDecimal("3600.499999")))
+                .hasMessageContaining("0.001 ms 초과");
+        for (String invalid : new String[] {"1:60:00.100", "1:00:60.100", "1:00:00.1"}) {
+            byte[] text = ("WEBVTT\n\n" + invalid + " --> 1:00:00.500\n한글").getBytes(StandardCharsets.UTF_8);
+            assertThatThrownBy(() -> parser.parseExtractedVtt(text, new BigDecimal("7200")))
+                    .hasMessageContaining("시간 표기");
+        }
+    }
+
     static Stream<String> invalidJson() {
         return Stream.of(
                 "{}",

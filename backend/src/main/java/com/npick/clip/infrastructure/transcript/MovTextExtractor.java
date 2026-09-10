@@ -123,7 +123,7 @@ public final class MovTextExtractor {
                                     "pipe:1"),
                             timeout,
                             maxBytes);
-                    var cues = parser.parse(bytes, "vtt", duration);
+                    var cues = parser.parseExtractedVtt(bytes, duration);
                     attempts.add(new TrackAttempt(track.index(), "EXTRACTED"));
                     return new Extraction(
                             cues, new EmbeddedInspection(EmbeddedStatus.EXTRACTED, track.index(), attempts, false));

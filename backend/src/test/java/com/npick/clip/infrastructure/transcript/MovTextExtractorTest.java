@@ -43,6 +43,22 @@ class MovTextExtractorTest {
                 .containsExactly("EXTRACTION_FAILED");
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"1", "01", "10"})
+    void acceptsPaddedAndUnpaddedHoursFromExtractionWithoutMediaTestGate(String hours) throws Exception {
+        var process = mock(SubtitleProcess.class);
+        String vtt = "WEBVTT\n\n" + hours + ":00:00.100 --> " + hours + ":00:00.500\n한글 경계\n";
+        when(process.run(any(), any(), anyInt()))
+                .thenReturn(probe("[{\"index\":1,\"codec_type\":\"subtitle\",\"codec_name\":\"mov_text\"}]"))
+                .thenReturn(vtt.getBytes(StandardCharsets.UTF_8));
+        var extractor =
+                new MovTextExtractor(process, new SubtitleParser(), new ObjectMapper(), Duration.ofSeconds(2), 1024);
+        long start = Long.parseLong(hours) * 3600000 + 100;
+        var result = extractor.extract(Path.of("server.mp4"), BigDecimal.valueOf(start + 400, 3));
+        assertThat(result.inspection().status()).isEqualTo(EmbeddedStatus.EXTRACTED);
+        assertThat(result.cues()).containsExactly(new SubtitleParser.Cue(0, start, start + 400, "한글 경계"));
+    }
+
     private byte[] probe(String streams) {
         return ("{\"format\":{\"format_name\":\"mov,mp4\"},\"streams\":" + streams + "}")
                 .getBytes(StandardCharsets.UTF_8);
