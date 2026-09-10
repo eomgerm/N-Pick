@@ -130,5 +130,5 @@ search_rule	source_feedback_id	bigint	true	원인 피드백. NOT NULL 유지. �
 search_rule	active	boolean	true	일반 검색에서 사용 가능한 승인 규칙 여부. 검증 트랜잭션 안에 후보를 false로 임시 저장하고 검증 집합에 명시적으로 포함한 뒤 ROLLBACK한다. 검증·검수자 확인 후 승인 규칙을 저장·활성화하며 교체 대상 비활성화도 함께 확정한다. 독립 patch_parse 규칙은 복수 적용 가능.
 search_rule	created_at	timestamptz	true	만든 시각
 search_rule	updated_at	timestamptz	true	마지막 규칙 상태 변경 시각. 본문 변경은 새 규칙 ID로 처리한다. 이 컬럼으로 전체 활성·비활성 사건의 변경자·사유·시각을 복원할 수는 없다.
-search_rule	condition_json	jsonb	false	resolver 원본 출력에서 판정할 조건과 문법·출력 계약의 호환성 정보. patch_parse에서 필수. 질의 fingerprint와 별도로 매칭한다. 실제 JSON 키·형식은 S15P21A501-101에서 확정한다.
-search_rule	patch_json	jsonb	false	해석에 적용할 허용된 변경 연산 목록. patch_parse에서 필수. 명시적 사용자 필터·출처를 보호하고 실행 코드는 허용하지 않는다. 실제 JSON 키·형식은 S15P21A501-101에서 확정한다.
+search_rule	condition_json	jsonb	false	resolver 원본 출력에서 판정할 조건과 문법·출력 계약의 호환성 정보. patch_parse에서 필수. 질의 fingerprint와 별도로 매칭한다. JSON 키·형식과 허용 조건 어휘의 정본은 com.npick.search.domain.model.ParseRule 이다 (S15P21A501-49). 조건이 거는 출력 키는 ai/src/npick_worker/query_resolver/schema.py 기준이다.
+search_rule	patch_json	jsonb	false	해석에 적용할 허용된 변경 연산 목록. patch_parse에서 필수. 명시적 사용자 필터·출처를 보호하고 실행 코드는 허용하지 않는다. JSON 키·형식과 허용 연산 어휘의 정본은 com.npick.search.domain.model.ParseRule 이다 (S15P21A501-49). 연산은 값 설정·해제와 목록 항목 추가·제거뿐이고 정규식·스크립트·JSON 경로는 문법에 없다.
