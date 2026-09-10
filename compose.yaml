@@ -72,6 +72,11 @@ services:
       SERVER_PORT: 8080
       NPICK_PROFILES_DIR: /app/config/profiles
       NPICK_MEDIA_ROOT: /srv/npick/media
+      # Preview 바이트 전송을 nginx 의 internal location 에 위임할지. nginx 는 proxy
+      # 프로필 뒤에 있어 기본 up 에는 없으므로 기본값은 직접 전송이다. true 인데 nginx 가
+      # 없으면 X-Accel-Redirect 헤더만 나가고 본문이 비어 재생되지 않는다.
+      # COMPOSE_PROFILES=proxy 를 켜는 환경에서 .env 에 함께 넣는다.
+      CLIP_MEDIA_NGINX_ACCEL: ${CLIP_MEDIA_NGINX_ACCEL:-false}
       # 원본과 같은 volume에서 검증한 파일을 이동한다.
       CLIP_UPLOAD_ROOT: /srv/npick/media/.uploads
     ports:

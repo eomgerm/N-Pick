@@ -78,6 +78,13 @@ npick:
       allowed-containers: ${CLIP_ALLOWED_CONTAINERS:mp4,mov}
       allowed-video-codecs: ${CLIP_ALLOWED_VIDEO_CODECS:h264,hevc}
       allowed-audio-codecs: ${CLIP_ALLOWED_AUDIO_CODECS:aac,mp3}
+  clip-media:
+    # 등록과 같은 media root 를 같은 환경 변수 순서로 읽는다. 재생은 등록 실행 설정에 묶이지 않는다.
+    media-root: ${CLIP_MEDIA_ROOT:${NPICK_MEDIA_ROOT:}}
+    # true 면 바이트 전송을 nginx 의 location /internal-media/ 에 위임한다 (03-deployment.md §31).
+    # 로컬·테스트에는 nginx 가 없으므로 기본은 애플리케이션 직접 전송이다.
+    nginx-accel: ${CLIP_MEDIA_NGINX_ACCEL:false}
+    internal-location: ${CLIP_MEDIA_INTERNAL_LOCATION:/internal-media/}
   search:
     # 단어 검색(BM25) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
     # 값을 바꿀 때는 config-version 도 함께 올린다 — 그러지 않으면 다른 설정으로 돌린

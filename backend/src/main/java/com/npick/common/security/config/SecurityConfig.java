@@ -44,7 +44,8 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers("/api/v1/review/**", "/api/v1/clips/**")
                         .hasRole("REVIEWER")
-                        .requestMatchers("/api/v1/search/**")
+                        // 검색 결과의 Preview 는 검수자 전용이 아니다 (FRD F-07).
+                        .requestMatchers("/api/v1/search/**", "/api/v1/media/**")
                         .authenticated()
                         .anyRequest()
                         .authenticated())

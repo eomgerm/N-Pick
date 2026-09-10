@@ -18,8 +18,10 @@ public class WebConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(
-                List.of("Authorization", "Content-Type", "X-Requested-With", "X-XSRF-TOKEN", "Idempotency-Key"));
+        configuration.setAllowedHeaders(List.of(
+                "Authorization", "Content-Type", "X-Requested-With", "X-XSRF-TOKEN", "Idempotency-Key", "Range"));
+        // 구간 재생 응답을 브라우저 스크립트가 읽을 수 있어야 한다 (FR-RES-014).
+        configuration.setExposedHeaders(List.of("Accept-Ranges", "Content-Range", "Content-Length"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
