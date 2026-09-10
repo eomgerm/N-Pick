@@ -6,21 +6,45 @@ import { getProgressOverview } from './reviewer-progress-state.ts';
 
 test('새 등록 상세는 입력 메타데이터를 보존하며 완료·검색 가능으로 표시하지 않는다', () => {
   const registration = {
-    id: 'local-1',
+    id: '398021840012345',
+    pipelineRunId: '398021847361024',
+    status: 'queued',
+    title: '',
     fileName: '시연.mp4',
     fileSize: 2048,
-    attachments: ['시연.srt'],
     sourceType: 'broadcast',
     broadcastDate: '',
+    filmedDate: '2026-09-07',
+    subtitleFileName: '시연.srt',
+    scriptFileName: '대본.txt',
   };
   const clip = getRegisteredClip(registration);
   assert.equal(clip.id, registration.id);
+  assert.equal(clip.pipelineRunId, registration.pipelineRunId);
   assert.deepEqual(clip.registration, registration);
+  assert.equal(clip.title, `표시 이름(파일명) · ${registration.fileName}`);
   assert.equal(clip.latestRun, 'queued');
   assert.equal(clip.servingStatus, 'queued');
   assert.ok(clip.stages.every((stage) => stage.status === 'pending'));
   assert.equal(clip.retryable, false);
   assert.equal(clip.scenes, undefined);
+});
+
+test('사용자가 입력한 제목은 표시 제목으로 사용하고 파일명 fallback과 구분한다', () => {
+  const registration = {
+    id: 'clip-2',
+    pipelineRunId: 'run-2',
+    status: 'queued',
+    title: '사용자가 확인한 제목',
+    fileName: '사실성미확인.mp4',
+    fileSize: 2048,
+    sourceType: 'archive',
+    broadcastDate: '',
+    filmedDate: '',
+  };
+  const clip = getRegisteredClip(registration);
+  assert.equal(clip.title, registration.title);
+  assert.equal(clip.fileName, registration.fileName);
 });
 
 test('완료 영상의 전체 구간이 처음부터 끝까지 시간순으로 연결된다', () => {

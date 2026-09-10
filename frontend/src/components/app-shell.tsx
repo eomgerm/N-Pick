@@ -13,6 +13,7 @@ interface AppShellProps {
   className?: string;
   'data-theme'?: string;
   headerTone?: 'light' | 'brand';
+  isInteractionLocked?: boolean;
 }
 
 export function AppShell({
@@ -20,6 +21,7 @@ export function AppShell({
   className,
   'data-theme': theme,
   headerTone = 'brand',
+  isInteractionLocked = false,
 }: AppShellProps) {
   const member = useMember();
   const pathname = usePathname();
@@ -41,9 +43,13 @@ export function AppShell({
         }`}
       >
         <Link
+          aria-disabled={isInteractionLocked}
           aria-label="N-Pick 홈"
           className="inline-flex w-fit items-center gap-2.5 rounded-sm text-xl font-extrabold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-4"
           href={routes.landing}
+          onClick={(event) => {
+            if (isInteractionLocked) event.preventDefault();
+          }}
         >
           <span
             aria-hidden="true"
@@ -61,15 +67,19 @@ export function AppShell({
             <Link
               key={href}
               aria-current={isCurrent ? 'page' : undefined}
+              aria-disabled={isInteractionLocked}
               className="inline-flex items-center border-b-3 border-transparent py-2 text-sm font-semibold opacity-75 hover:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-4 aria-[current=page]:border-current aria-[current=page]:opacity-100"
               href={href}
+              onClick={(event) => {
+                if (isInteractionLocked) event.preventDefault();
+              }}
               prefetch={false}
             >
               {label}
             </Link>
           ))}
         </nav>
-        <SessionControls className="min-w-0 lg:max-w-md" />
+        <SessionControls className="min-w-0 lg:max-w-md" isDisabled={isInteractionLocked} />
       </header>
       {children}
     </div>

@@ -8,9 +8,10 @@ import { announceSessionChange, leaveSession } from '@/lib/auth/browser';
 
 interface SessionControlsProps {
   className?: string;
+  isDisabled?: boolean;
 }
 
-export function SessionControls({ className = '' }: SessionControlsProps) {
+export function SessionControls({ className = '', isDisabled = false }: SessionControlsProps) {
   const member = useMember();
   const client = useQueryClient();
   const mutation = useMutation({
@@ -31,8 +32,10 @@ export function SessionControls({ className = '' }: SessionControlsProps) {
       </span>
       <button
         className="shrink-0 rounded-lg border border-current px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-4 disabled:opacity-50"
-        disabled={mutation.isPending}
-        onClick={() => mutation.mutate()}
+        disabled={isDisabled || mutation.isPending}
+        onClick={() => {
+          if (!isDisabled) mutation.mutate();
+        }}
         type="button"
       >
         {mutation.isPending ? '로그아웃 중…' : '로그아웃'}

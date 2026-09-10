@@ -17,6 +17,7 @@ export interface RegisteredScene {
 
 export interface ProcessingClip {
   id: string;
+  pipelineRunId?: string;
   title: string;
   fileName: string;
   servingStatus: 'queued' | 'ready' | 'failed';
@@ -40,12 +41,13 @@ export interface ProcessingClip {
 export function getRegisteredClip(video: RegisteredVideo): ProcessingClip {
   return {
     id: video.id,
-    title: video.fileName,
+    pipelineRunId: video.pipelineRunId,
+    title: video.title || `표시 이름(파일명) · ${video.fileName}`,
     fileName: video.fileName,
     servingStatus: 'queued',
     servingSummary: '등록 내용을 확인했어요. 영상 처리가 끝나면 검색할 수 있어요.',
     latestRun: 'queued',
-    latestRunLabel: '영상 처리를 기다리고 있어요',
+    latestRunLabel: '서버가 등록을 접수해 영상 처리를 기다리고 있어요',
     activeVersion: '처리 전',
     indexVersion: '검색 반영 전',
     missingChannels: [],

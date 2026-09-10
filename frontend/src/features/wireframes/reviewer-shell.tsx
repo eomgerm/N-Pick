@@ -36,11 +36,7 @@ import { inquiries } from '@/features/wireframes/reviewer-inquiries';
 import { ReviewerBoard } from '@/features/wireframes/reviewer-board';
 import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
-import {
-  VideoRegistration,
-  type RegisteredVideo,
-  type VideoRegistrationDraft,
-} from '@/features/wireframes/video-registration';
+import { VideoRegistration, type RegisteredVideo } from '@/features/wireframes/video-registration';
 import { ReviewerProgress } from '@/features/wireframes/reviewer-progress';
 import type { ProgressTab, ProgressVideo } from '@/features/wireframes/reviewer-progress-state';
 import { ResolutionEditor, ResolutionSummary } from '@/features/wireframes/reviewer-resolution';
@@ -234,7 +230,7 @@ const statusLabels: Record<InquiryStatus, string> = {
 };
 
 const stageLabels: Record<PipelineStage['status'] | 'queued', string> = {
-  queued: '대기',
+  queued: '처리 대기',
   succeeded: '완료',
   running: '진행 중',
   failed: '실패',
@@ -330,6 +326,9 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isNavigating, startNavigation] = useTransition();
+  const registrationBusyRef = useRef(false);
+  const [isRegistrationBusy, setIsRegistrationBusy] = useState(false);
+  const isInteractionLocked = isNavigating || isRegistrationBusy;
   const diagnosisRef = useRef<HTMLElement | null>(null);
   const inspectionRef = useRef<HTMLElement | null>(null);
   const verificationRef = useRef<HTMLElement | null>(null);
@@ -448,12 +447,14 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   function handleLocationChange(updates: Record<string, string | null>) {
+    if (registrationBusyRef.current) return;
     startNavigation(() => {
       router.push(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
     });
   }
 
   function handleTabChange(tab: WorkspaceTab) {
+    if (registrationBusyRef.current) return;
     startNavigation(() => {
       router.push(getReviewTabUrl(pathname, searchParams.toString(), tab), { scroll: false });
     });
@@ -473,20 +474,25 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     handleLocationChange({ view: 'upload', inquiry: null, clip: null });
   }
 
-  function handleRegister(draft: VideoRegistrationDraft) {
-    const record: RegisteredVideo = {
-      id: crypto.randomUUID(),
-      fileName: draft.video.name,
-      fileSize: draft.video.size,
-      sourceType: draft.sourceType,
-      broadcastDate: draft.broadcastDate,
-      attachments: draft.attachments.map((file) => file.name),
-    };
+  function handleRegistrationBusyChange(isBusy: boolean) {
+    registrationBusyRef.current = isBusy;
+    setIsRegistrationBusy(isBusy);
+  }
+
+  function handleRegister(record: RegisteredVideo) {
     setRegisteredVideos((current) => [record, ...current]);
-    handleProgressTabChange('uploads');
-    setLiveMessage(
-      `${record.fileName} 등록 내용을 데모 대기 목록에 추가했습니다. 실제 파일은 전송되지 않았습니다.`,
-    );
+    startNavigation(() => {
+      router.push(
+        getReviewUrl(pathname, searchParams.toString(), {
+          view: 'processing',
+          tab: 'uploads',
+          clip: record.id,
+          inquiry: null,
+        }),
+        { scroll: false },
+      );
+    });
+    setLiveMessage(`${record.fileName} 등록을 접수했습니다. 처리 대기 상세를 열었습니다.`);
   }
 
   function handleClipSelect(clipId: string) {
@@ -745,7 +751,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   return (
-    <AppShell className={styles.shell} data-theme={theme}>
+    <AppShell className={styles.shell} data-theme={theme} isInteractionLocked={isInteractionLocked}>
       <main className={styles.page}>
         <nav aria-label="검수 화면" className="mb-7 flex gap-2 border-b border-(--line)">
           {(['inquiries', 'processing'] as const).map((tab) => (
@@ -754,12 +760,12 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
               aria-current={
                 (tab === 'processing') === (isProcessing || isRegistration) ? 'page' : undefined
               }
-              aria-disabled={isNavigating}
+              aria-disabled={isInteractionLocked}
               className="border-b-3 border-transparent px-5 py-3 text-sm font-bold text-(--muted) aria-disabled:opacity-50 aria-[current=page]:border-(--accent) aria-[current=page]:text-(--accent-strong)"
               href={getReviewTabUrl(pathname, searchParams.toString(), tab)}
               onNavigate={(event) => {
                 event.preventDefault();
-                if (!isNavigating) handleTabChange(tab);
+                if (!isInteractionLocked) handleTabChange(tab);
               }}
               prefetch={false}
               scroll={false}
@@ -771,6 +777,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
         {isRegistration ? (
           <VideoRegistration
             isNavigating={isNavigating}
+            onBusyChange={handleRegistrationBusyChange}
             onCancel={() => handleTabChange('inquiries')}
             onRegister={handleRegister}
           />
@@ -787,7 +794,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                   ? '수정 내용 저장됨 · 결과 확인 대기'
                   : '문의 내용과 검색 결과 검수 중',
             }))}
-            isNavigating={isNavigating}
+            isNavigating={isInteractionLocked}
             onBack={() => handleTabChange('inquiries')}
             onInquirySelect={handleInquirySelect}
             onRegistrationOpen={handleRegistrationOpen}
@@ -798,7 +805,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
         ) : isBoard ? (
           <ReviewerBoard
             loginId={member.loginId}
-            isNavigating={isNavigating}
+            isNavigating={isInteractionLocked}
             items={inquiries.map((inquiry) => ({
               ...inquiry,
               status: inquiryWork[inquiry.id].status,
@@ -812,7 +819,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           <>
             <button
               className={boardStyles.backButton}
-              disabled={isNavigating}
+              disabled={isInteractionLocked}
               onClick={() =>
                 isProcessing ? handleProgressTabChange(progressTab) : handleTabChange('inquiries')
               }
@@ -947,6 +954,13 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                         <h3>등록한 파일 정보</h3>
                         <dl>
                           <div>
+                            <dt>제목</dt>
+                            <dd>
+                              {selectedClip.registration.title ||
+                                `표시 이름(파일명) · ${selectedClip.registration.fileName}`}
+                            </dd>
+                          </div>
+                          <div>
                             <dt>파일 이름</dt>
                             <dd>{selectedClip.registration.fileName}</dd>
                           </div>
@@ -958,17 +972,25 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                             <dt>영상 형식</dt>
                             <dd>
                               {selectedClip.registration.sourceType === 'broadcast'
-                                ? '방영본'
-                                : '원본'}
+                                ? '방송분'
+                                : '자료 영상'}
                             </dd>
                           </div>
                           <div>
-                            <dt>방영일</dt>
+                            <dt>방송일</dt>
                             <dd>{selectedClip.registration.broadcastDate || '미입력'}</dd>
                           </div>
                           <div>
-                            <dt>첨부 파일</dt>
-                            <dd>{selectedClip.registration.attachments.join(', ') || '없음'}</dd>
+                            <dt>촬영일</dt>
+                            <dd>{selectedClip.registration.filmedDate || '미입력'}</dd>
+                          </div>
+                          <div>
+                            <dt>시간 정보 자막</dt>
+                            <dd>{selectedClip.registration.subtitleFileName || '없음'}</dd>
+                          </div>
+                          <div>
+                            <dt>일반 대본</dt>
+                            <dd>{selectedClip.registration.scriptFileName || '없음'}</dd>
                           </div>
                         </dl>
                       </section>
@@ -1037,6 +1059,16 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                       <summary>처리 정보 확인</summary>
                       <dl>
                         <div>
+                          <dt>영상 ID</dt>
+                          <dd>{selectedClip.id}</dd>
+                        </div>
+                        {selectedClip.pipelineRunId ? (
+                          <div>
+                            <dt>처리 ID</dt>
+                            <dd>{selectedClip.pipelineRunId}</dd>
+                          </div>
+                        ) : null}
+                        <div>
                           <dt>현재 제공하는 처리 버전</dt>
                           <dd>{selectedClip.activeVersion}</dd>
                         </div>
@@ -1054,7 +1086,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                     </details>
                     <p className={registrationStyles.demo}>
                       {selectedClip.registration
-                        ? '이 화면에서 등록한 데모 영상입니다. 실제 파일 전송과 처리는 연결 전이며, 새로고침하면 등록 내용이 초기화돼요.'
+                        ? '실제 등록 API 응답을 이 화면에 임시로 합성했습니다. 처리 목록 조회 API 연결 전에는 새로고침하면 등록 상세가 초기화돼요.'
                         : '화면 확인을 위한 예시 처리 내역입니다.'}
                     </p>
                   </article>
