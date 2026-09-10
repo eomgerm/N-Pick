@@ -43,7 +43,7 @@ function renderCard(result, isSelected = false, position = result.rank) {
   );
 }
 
-test('결과 카드는 제목, 썸네일 구간, 키워드와 일치도만 렌더한다', () => {
+test('결과 카드는 핵심 장면 정보와 일치 근거·검증 상태를 함께 렌더한다', () => {
   const result = results[0];
   const html = renderCard(result);
 
@@ -53,6 +53,12 @@ test('결과 카드는 제목, 썸네일 구간, 키워드와 일치도만 렌�
     '00:42 – 00:49',
     `일치도 ${result.score}%`,
     ...result.matchedKeywords,
+    '일치 근거',
+    result.matchEvidence.field,
+    result.matchEvidence.value,
+    result.matchEvidence.source,
+    '검증됨',
+    '촬영일 검증됨',
   ]) {
     assert.ok(html.includes(value));
   }
@@ -73,9 +79,9 @@ test('결과 카드는 제목, 썸네일 구간, 키워드와 일치도만 렌�
   assert.match(html, new RegExp(`aria-label="${result.imageLabel}"`));
 });
 
-test('백엔드 메타데이터가 없어도 카드에 미상 값을 노출하지 않는다', () => {
+test('촬영일 값이 없으면 카드에서 미상 상태를 텍스트로 구분한다', () => {
   const html = renderCard({ ...results[0], broadcastDate: null, filmedDate: null }, true);
-  assert.ok(!html.includes('미상'));
+  assert.ok(html.includes('촬영일 미상'));
   assert.match(html, /aria-expanded="true"/);
 });
 

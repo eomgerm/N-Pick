@@ -14,6 +14,7 @@
   --line: #e6e6e6;
   --success: #00a981;
   --warning: #a46500;
+  --danger: #bf3640;
   --warning-soft: #fff4d8;
   --radius-card: 20px;
   --radius-control: 12px;
@@ -45,6 +46,7 @@
   --line: #dfe3e8;
   --success: #00866d;
   --warning: #8a5b00;
+  --danger: #b4232c;
   --warning-soft: #fff7df;
   --radius-card: 8px;
   --radius-control: 6px;
@@ -891,6 +893,99 @@
   overflow-wrap: anywhere;
 }
 
+.matchEvidence {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.matchEvidenceHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.matchEvidenceHeading strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.statusBadge[data-status='verified'] {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--line));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: var(--success);
+}
+
+.statusBadge[data-status='unverified'] {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--line));
+  background: color-mix(in srgb, var(--warning) 11%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 72%, var(--text));
+}
+
+.statusBadge[data-status='unknown'],
+.statusBadge[data-status='withdrawn'] {
+  background: var(--background);
+  color: var(--muted);
+}
+
+.statusBadge[data-status='rejected'] {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  color: var(--danger);
+}
+
+.matchEvidenceDetails {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+}
+
+.matchEvidenceDetails > div {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.matchEvidenceDetails dt {
+  color: var(--subtle);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.matchEvidenceDetails dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.informationStatus {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .previewPane {
   position: sticky;
   top: 160px;
@@ -1402,6 +1497,13 @@
   border: 1px solid color-mix(in srgb, var(--secondary) 22%, var(--line));
   border-radius: var(--radius-small);
   background: var(--surface);
+}
+
+.previewEvidenceHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .previewEvidence span {

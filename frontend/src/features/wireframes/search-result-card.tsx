@@ -2,6 +2,7 @@ import { Play } from 'lucide-react';
 
 import {
   formatTimestamp,
+  getVerificationStatusLabel,
   getKeyframeTimes,
   type SearchResult,
 } from '@/features/wireframes/demo-scenes';
@@ -21,6 +22,7 @@ export function SearchResultCard({
   onSelect,
 }: SearchResultCardProps) {
   const keyframeTimes = getKeyframeTimes(result);
+  const filmingStatus = result.filmedDate ? result.filmingState : 'unknown';
 
   return (
     <article className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}>
@@ -63,6 +65,35 @@ export function SearchResultCard({
               {keyword}
             </span>
           ))}
+        </div>
+
+        <section aria-label="일치 근거" className={styles.matchEvidence}>
+          <div className={styles.matchEvidenceHeading}>
+            <strong>일치 근거</strong>
+            <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
+              {getVerificationStatusLabel(result.matchEvidence.status)}
+            </span>
+          </div>
+          <dl className={styles.matchEvidenceDetails}>
+            <div>
+              <dt>필드</dt>
+              <dd>{result.matchEvidence.field}</dd>
+            </div>
+            <div>
+              <dt>값</dt>
+              <dd>{result.matchEvidence.value}</dd>
+            </div>
+            <div>
+              <dt>출처</dt>
+              <dd>{result.matchEvidence.source}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <div className={styles.informationStatus} aria-label="정보 상태">
+          <span className={styles.statusBadge} data-status={filmingStatus}>
+            촬영일 {getVerificationStatusLabel(filmingStatus)}
+          </span>
         </div>
       </div>
       <button

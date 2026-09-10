@@ -15,7 +15,11 @@ import {
 } from 'lucide-react';
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
-import { formatTimestamp, type SearchResult } from '@/features/wireframes/demo-scenes';
+import {
+  formatTimestamp,
+  getVerificationStatusLabel,
+  type SearchResult,
+} from '@/features/wireframes/demo-scenes';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
@@ -93,6 +97,7 @@ type ScenePreviewResult = Pick<
       | 'broadcastDate'
       | 'filmedDate'
       | 'filmingState'
+      | 'matchEvidence'
       | 'shotType'
       | 'sceneType'
     >
@@ -128,6 +133,10 @@ export function ScenePreviewDialog({
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
+  const filmingStatus = result.filmedDate ? (result.filmingState ?? 'unknown') : 'unknown';
+  const evidenceField = result.matchEvidence?.field ?? result.evidenceType;
+  const evidenceValue = result.matchEvidence?.value ?? result.evidence;
+  const evidenceSource = result.matchEvidence?.source ?? result.source;
   const selectedSceneIndex = scenes?.findIndex((scene) => scene.id === result.id) ?? -1;
   const [loadedSceneId, setLoadedSceneId] = useState<string | number | null>(null);
   const isLoading = keepLoading || loadedSceneId !== result.id;
@@ -378,18 +387,9 @@ export function ScenePreviewDialog({
               <div>
                 <dt>촬영일</dt>
                 <dd>
-                  {result.filmedDate ? (
-                    <>
-                      {result.filmedDate} ·{' '}
-                      {result.filmingState === 'verified'
-                        ? '검증됨'
-                        : result.filmingState === 'unknown'
-                          ? '정보 없음'
-                          : '미검증'}
-                    </>
-                  ) : (
-                    '미상'
-                  )}
+                  {result.filmedDate
+                    ? `${result.filmedDate} · ${getVerificationStatusLabel(filmingStatus)}`
+                    : getVerificationStatusLabel(filmingStatus)}
                 </dd>
               </div>
               <div>
@@ -402,16 +402,23 @@ export function ScenePreviewDialog({
               </div>
               <div>
                 <dt>근거</dt>
-                <dd>{result.evidenceType}</dd>
+                <dd>{evidenceField}</dd>
               </div>
             </dl>
             <div className={styles.previewEvidence}>
-              <span>
-                {result.evidenceType}
-                {onInquiry ? ' 일치' : ''}
-              </span>
-              <strong>{result.evidence}</strong>
-              <p>{result.source}</p>
+              <div className={styles.previewEvidenceHeading}>
+                <span>
+                  {evidenceField}
+                  {onInquiry ? ' 일치' : ''}
+                </span>
+                {result.matchEvidence ? (
+                  <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
+                    {getVerificationStatusLabel(result.matchEvidence.status)}
+                  </span>
+                ) : null}
+              </div>
+              <strong>{evidenceValue}</strong>
+              <p>출처 · {evidenceSource}</p>
             </div>
           </div>
           <div className={styles.safetyNotice}>
