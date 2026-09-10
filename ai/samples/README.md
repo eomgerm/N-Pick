@@ -37,6 +37,21 @@ uv run --directory ai python -m npick_worker.frame_extraction.report \
   30초 이상 고정 샷은 여전히 없으므로 구해지면 다시 본다.
 - 4·5·6·7·8 번은 그대로 필요하다.
 
+## OCR ground truth
+
+`ocr-ground-truth.<클립명>.json` 은 그 클립의 keyframe 에 실제로 보이는 화면 글자를
+사람이 직접 적은 것이다. **이 파일은 커밋한다** — 영상이 아니라 라벨이고, 없으면
+[../docs/ocr.md](../docs/ocr.md) §2·§5 의 재현율·임계값 표를 아무도 다시 잴 수 없다.
+
+문구마다 `legibility` 를 셋 중 하나로 적는다.
+
+- `legible` — 사람이 확실히 읽을 수 있다. **재현율의 분모**다.
+- `partial` — 가려지거나 잘려 일부만 보인다. 재현율에서 빼고 오탐으로도 세지 않는다.
+- `illegible` — 글자가 있는 것은 보이지만 사람도 못 읽는다. 프레임 단위
+  `hasIllegibleText` 로 적고, 그런 프레임의 OCR 출력은 환각으로 세지 않는다.
+
+새 클립을 넣으면 같은 형식으로 라벨을 만들고 `docs/ocr.md` 의 표를 다시 잰다.
+
 ## 파일 형식
 
 - mp4 / H.264. **원본 fps·해상도를 유지한다** — 재인코딩하면 컷 경계가 흐려져 판단이 오염된다.
