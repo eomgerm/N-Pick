@@ -14,10 +14,6 @@ interface SearchResultCardProps {
   onSelect: (resultId: number) => void;
 }
 
-function formatResultDate(value: string | null): string {
-  return value ?? '미상';
-}
-
 export function SearchResultCard({
   result,
   position,
@@ -57,30 +53,11 @@ export function SearchResultCard({
       <div className={styles.cardBody}>
         <div className={styles.cardTopline}>
           <span className={styles.score}>일치도 {result.score}%</span>
-          <div>
-            <p className={styles.cardDisplayName}>{result.displayName}</p>
-            <h3 className={styles.cardTitle}>{result.title}</h3>
-          </div>
+          <h3 className={styles.cardTitle}>{result.title}</h3>
         </div>
 
         <dl className={styles.cardMetadata}>
           <div className={styles.cardMetadataItem}>
-            <dt>방송일</dt>
-            <dd>{formatResultDate(result.broadcastDate)}</dd>
-          </div>
-          <div className={styles.cardMetadataItem}>
-            <dt>촬영일</dt>
-            <dd>{formatResultDate(result.filmedDate)}</dd>
-          </div>
-          <div className={styles.cardMetadataItem}>
-            <dt>샷 유형</dt>
-            <dd>{result.shotType}</dd>
-          </div>
-          <div className={styles.cardMetadataItem}>
-            <dt>장면 유형</dt>
-            <dd>{result.sceneType}</dd>
-          </div>
-          <div className={`${styles.cardMetadataItem} ${styles.cardMetadataWide}`}>
             <dt>장면 구간</dt>
             <dd>
               {formatTimestamp(result.sceneStart)} – {formatTimestamp(result.sceneEnd)}
@@ -100,7 +77,7 @@ export function SearchResultCard({
       <button
         aria-expanded={isSelected}
         aria-haspopup="dialog"
-        aria-label={`${position}위 ${result.displayName}, ${result.title} Preview 열기`}
+        aria-label={`${position}위 ${result.title} Preview 열기`}
         className={styles.cardSelectButton}
         onClick={() => onSelect(result.id)}
         type="button"

@@ -838,13 +838,6 @@
   gap: 10px;
 }
 
-.cardTopline > div {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-  text-align: right;
-}
-
 .score {
   display: inline-flex;
   min-height: 24px;
@@ -859,15 +852,6 @@
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-strong);
-}
-
-.cardDisplayName {
-  margin: 0;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
 }
 
 .cardTitle {
@@ -886,8 +870,6 @@
 
 .cardMetadata {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
   margin: 14px 0 0;
   padding-top: 12px;
   border-top: 1px solid var(--line);
@@ -912,10 +894,6 @@
   font-weight: 800;
   line-height: 1.45;
   overflow-wrap: anywhere;
-}
-
-.cardMetadataWide {
-  grid-column: 1 / -1;
 }
 
 .matchedKeywords {

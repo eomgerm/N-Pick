@@ -43,21 +43,27 @@ function renderCard(result, isSelected = false, position = result.rank) {
   );
 }
 
-test('결과 카드는 순위와 필수 장면 메타데이터를 모두 렌더한다', () => {
+test('결과 카드는 제목, 장면 구간, 키워드와 일치도만 렌더한다', () => {
   const result = results[0];
   const html = renderCard(result);
 
   for (const value of [
     '1위',
-    result.displayName,
     result.title,
+    '00:42 – 00:49',
+    `일치도 ${result.score}%`,
+    ...result.matchedKeywords,
+  ]) {
+    assert.ok(html.includes(value));
+  }
+  for (const value of [
+    result.displayName,
     result.broadcastDate,
     result.filmedDate,
     result.shotType,
     result.sceneType,
-    '00:42 – 00:49',
   ]) {
-    assert.ok(html.includes(value));
+    assert.ok(!html.includes(value));
   }
   assert.match(html, /<button [^>]*type="button"/);
   assert.match(html, /aria-haspopup="dialog"/);
@@ -65,19 +71,19 @@ test('결과 카드는 순위와 필수 장면 메타데이터를 모두 렌더�
   assert.match(html, new RegExp(`aria-label="${result.imageLabel}"`));
 });
 
-test('날짜가 없으면 각 날짜를 미상으로 표시하고 선택 상태를 노출한다', () => {
+test('백엔드 메타데이터가 없어도 카드에 미상 값을 노출하지 않는다', () => {
   const html = renderCard({ ...results[0], broadcastDate: null, filmedDate: null }, true);
-  assert.equal((html.match(/미상/g) ?? []).length, 2);
+  assert.ok(!html.includes('미상'));
   assert.match(html, /aria-expanded="true"/);
 });
 
 test('정렬된 목록의 화면 순번을 원본 정확도 순위와 분리해 표시한다', () => {
   const html = renderCard(results[3], false, 1);
   assert.match(html, /검색 결과 1번째/);
-  assert.match(html, /aria-label="1위 KBC 뉴스9 · 귀성길 현장/);
+  assert.match(html, /aria-label="1위 톨게이트로 이어지는 귀성 차량 행렬/);
 });
 
-test('긴 표시명과 유형 문자열을 DOM에서 생략하지 않는다', () => {
+test('긴 백엔드 메타데이터도 카드 DOM에 노출하지 않는다', () => {
   const longValue = '긴한국어표시값'.repeat(20);
   const html = renderCard({
     ...results[0],
@@ -85,5 +91,5 @@ test('긴 표시명과 유형 문자열을 DOM에서 생략하지 않는다', ()
     shotType: longValue,
     sceneType: longValue,
   });
-  assert.ok((html.match(new RegExp(longValue, 'g')) ?? []).length >= 3);
+  assert.ok(!html.includes(longValue));
 });
