@@ -458,6 +458,10 @@
   width: 15px;
 }
 
+.searchHealth[data-status='degraded'] {
+  color: var(--warning);
+}
+
 .resultsSection {
   padding: 34px 0 60px;
 }
@@ -1482,10 +1486,19 @@
 }
 
 .previewReportButton:disabled {
-  cursor: default;
+  cursor: not-allowed;
+}
+
+.previewReportButton[data-state='submitted']:disabled {
   border-color: color-mix(in srgb, var(--success) 25%, var(--line));
   background: color-mix(in srgb, var(--secondary-soft) 45%, var(--surface));
   color: var(--success);
+}
+
+.previewReportButton[data-state='unavailable']:disabled {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--line));
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 .previewReportButton svg {
@@ -1571,34 +1584,130 @@
   font-weight: 800;
 }
 
-.safetyNotice {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
+.searchResultNotices {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.searchResultNotices[data-variant='preview'] {
   margin: 0 16px 16px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
+}
+
+.degradedNotice,
+.reviewRuleNotice,
+.resultSafetyNotice {
   border-radius: var(--radius-small);
+}
+
+.degradedNotice {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--line));
   background: var(--warning-soft);
   color: var(--warning);
 }
 
-.safetyNotice svg {
+.degradedNoticeHeading,
+.reviewRuleNotice,
+.resultSafetyNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.degradedNoticeHeading > svg,
+.reviewRuleNotice > svg,
+.resultSafetyNotice > svg {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
 }
 
-.safetyNotice p {
+.degradedNoticeHeading span {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.degradedNoticeHeading strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.degradedReasonList {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--warning) 22%, var(--line));
+  list-style: none;
+}
+
+.degradedReasonList li {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.32fr) minmax(0, 1fr);
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.degradedReasonList strong {
+  color: var(--text);
+}
+
+.degradedReasonList span {
+  color: var(--muted);
+}
+
+.reviewRuleNotice {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface));
+  color: var(--success);
+}
+
+.reviewRuleNotice div {
+  display: grid;
+  gap: 2px;
+}
+
+.reviewRuleNotice strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.reviewRuleNotice span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.resultSafetyNotice {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.resultSafetyNotice p {
   margin: 0;
   font-size: 10px;
   line-height: 1.55;
 }
 
-.safetyNotice strong {
+.resultSafetyNotice strong {
   display: block;
   color: var(--text);
   font-size: 11px;
+}
+
+.searchResultNotices[data-variant='preview'] .degradedReasonList li {
+  grid-template-columns: 1fr;
+  gap: 2px;
 }
 
 .dialog {
