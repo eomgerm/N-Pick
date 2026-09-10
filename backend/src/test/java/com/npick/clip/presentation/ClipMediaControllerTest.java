@@ -68,6 +68,7 @@ class ClipMediaControllerTest {
 
     private static final byte[] CONTENT = "0123456789".repeat(10).getBytes(StandardCharsets.UTF_8);
     private static final String URL = "/api/v1/media/42";
+    private static final String ALLOWED_ORIGIN = "https://npick.test";
 
     @Autowired
     MockMvc mvc;
@@ -173,7 +174,7 @@ class ClipMediaControllerTest {
                         "video/mp4", CONTENT.length, offset, length, partial, null, target -> {
                             throw new BusinessException(ClipMediaErrorCode.MEDIA_READ_FAILED);
                         }));
-        var request = get(URL).session(login("editor"));
+        var request = get(URL).session(login("editor")).header("Origin", ALLOWED_ORIGIN);
         if (partial) {
             request.header("Range", "bytes=10-19");
         }
@@ -182,6 +183,9 @@ class ClipMediaControllerTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("CLIP_503_010"))
                 .andExpect(header().doesNotExist("Content-Range"))
+                // 오류 본문을 브라우저 스크립트가 읽어야 사용자에게 실패를 안내할 수 있다 (FRD F-07).
+                .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"))
                 .andReturn()
                 .getResponse();
 

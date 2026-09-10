@@ -1,6 +1,9 @@
 package com.npick.clip.presentation.controller;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -44,6 +47,8 @@ public class ClipMediaController {
             HttpServletResponse response)
             throws IOException {
         long startedAt = System.nanoTime();
+        // 전송이 실패해 오류 Envelope 로 돌아갈 때 되살릴 값이다. 필터가 붙인 CORS·CSRF 헤더가 여기 있다.
+        Map<String, List<String>> beforeStreaming = copyHeaders(response);
         ClipMediaStreamResult media = stream.stream(new StreamClipMediaQuery(clipId, range));
 
         response.setHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
@@ -73,12 +78,24 @@ public class ClipMediaController {
         } catch (BusinessException failure) {
             if (!response.isCommitted()) {
                 // 오류 Envelope 로 바뀐다. 영상용 길이·구간 헤더가 남으면 컨테이너가 JSON 본문을 그 길이에서 잘라낸다.
+                // reset 은 필터가 붙인 헤더까지 지우므로 진입 시점 값을 되돌린다 — CORS 헤더가 빠지면
+                // 다른 출처의 브라우저가 오류 본문을 읽지 못해 실패를 안내할 수 없다 (FRD F-07).
                 response.reset();
+                beforeStreaming.forEach((name, values) -> values.forEach(value -> response.addHeader(name, value)));
                 throw failure;
             }
             // 응답이 시작된 뒤에는 상태 코드를 바꿀 수 없다. seek 로 인한 클라이언트 중단이 대부분이다.
             log.debug("Preview 전송이 중단되었습니다. clipId={}", clipId, failure);
         }
+    }
+
+    /** 응답이 시작되기 전이라면 여기 담긴 값으로 되돌릴 수 있다. 영상용으로 우리가 붙인 헤더는 담기지 않는다. */
+    private static Map<String, List<String>> copyHeaders(HttpServletResponse response) {
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        for (String name : response.getHeaderNames()) {
+            headers.put(name, List.copyOf(response.getHeaders(name)));
+        }
+        return headers;
     }
 
     /**
