@@ -110,6 +110,20 @@ def test_raw_text_is_kept_verbatim() -> None:
     assert observation.tokens_text == "life style"
 
 
+def test_raw_text_keeps_the_engine_whitespace() -> None:
+    """앞뒤 공백을 떼는 것도 원문을 고치는 것이다.
+
+    `strip()` 은 **빈 원문 판정에만** 쓴다. 값에 쓰면 엔진이 준 것과 저장된 것이
+    갈리고, 그 순간 `raw_text` 가 "엔진이 읽은 그대로" 가 아니게 된다.
+    """
+    result = to_observations(_keyframe(), [_detection("  Life Style ")], min_confidence=0.7)
+    observation = result.observations[0]
+    assert observation.raw_text == "  Life Style "
+    # 정규화가 필요한 값들은 각자 처리하므로 공백에 흔들리지 않는다.
+    assert observation.tokens_text == "life style"
+    assert observation.text_key == text_key("Life Style", observation.tokens)
+
+
 def test_confidence_is_rounded_to_the_column_precision() -> None:
     """`numeric(5,4)`. 다섯째 자리를 보내면 저장된 값과 워커 로그가 갈린다."""
     result = to_observations(_keyframe(), [_detection("강원도", 0.987654321)], min_confidence=0.7)
@@ -304,3 +318,54 @@ def test_real_engine_reads_the_sample_keyframe() -> None:
         assert 0 <= observation.confidence <= 1
         assert observation.box.width > 0
         assert observation.keyframe.timestamp_ms == 71833
+
+
+# ── 원본 해상도 (FRD docs/frd.md:131) ────────────────────────────────
+
+
+def test_engine_params_turn_off_the_whole_image_downscale() -> None:
+    """`Det.limit_side_len` 과 **다른 축**이 하나 더 있다.
+
+    rapidocr 는 검출기 리사이즈 앞에 전체 이미지 전처리를 돌리고(기본
+    `max_side_len=2000`), 인식 조각을 그 줄인 이미지에서 잘라낸다. 그대로 두면 1440p
+    이상에서 FRD 의 "원본 해상도의 프레임" 이 깨진다 — 상자 좌표는 복원되지만 인식에
+    들어간 픽셀은 돌아오지 않는다.
+    """
+    from npick_worker.ocr.rapidocr_backend import _engine_params
+
+    params = _engine_params(get_default_config())
+    assert params["Global.use_preprocess_img"] is False
+
+
+def test_the_downscale_we_turn_off_is_real() -> None:
+    """왜 저 플래그가 필요한지를 벤더 동작으로 고정한다.
+
+    이 테스트가 깨지면 rapidocr 가 전처리를 바꾼 것이다. 그때 위 플래그가 여전히
+    필요한지 다시 판단해야 하므로, 근거를 문서가 아니라 여기에도 남긴다.
+    """
+    import numpy as np
+    from rapidocr.utils.process_img import resize_image_within_bounds
+
+    frame = np.zeros((2160, 3840, 3), dtype=np.uint8)
+    shrunk, _, _ = resize_image_within_bounds(frame, 30, 2000)
+    assert shrunk.shape[:2] != frame.shape[:2], "전처리가 4K 를 줄이지 않는다면 플래그가 불필요하다"
+
+
+@pytest.mark.smoke
+def test_real_engine_does_not_shrink_a_4k_frame() -> None:
+    """설정한 엔진에서 전처리가 실제로 항등인지 본다. `-m smoke` 로만 돈다.
+
+    위의 `_engine_params` 테스트는 우리가 무엇을 넘겼는지만 보고, 이 테스트는
+    **넘긴 값이 먹혔는지**를 본다. 키 이름이 바뀌면 생성자가 이미 거절하지만
+    (`ParseParams.update_batch`), 기본값이 바뀌는 종류의 회귀는 여기서만 잡힌다.
+    """
+    import numpy as np
+
+    from npick_worker.ocr import RapidOcrEngine
+
+    engine = RapidOcrEngine()
+    frame = np.zeros((2160, 3840, 3), dtype=np.uint8)
+    # 어댑터 내부를 들여다본다. 이 테스트의 관심사가 **rapidocr 가 실제로 무엇을
+    # 하는가** 라 우리 타입만 봐서는 확인할 수 없다.
+    prepared, _ = engine._engine.preprocess_img(frame)
+    assert prepared.shape == frame.shape

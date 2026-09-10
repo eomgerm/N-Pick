@@ -75,11 +75,14 @@ def to_observations(
     """한 장의 엔진 출력을 그 장의 관측 묶음으로 만든다."""
     observations: list[OcrObservation] = []
     for detection in detections:
-        raw_text = detection.text.strip()
-        if not raw_text:
+        if not detection.text.strip():
             # 상자는 잡았는데 읽어 낸 글자가 없다. `raw_text` 가 NOT NULL 이고,
             # 빈 문자열 행은 검색에도 근거 표시에도 쓸 수 없다.
             continue
+        # **엔진이 준 그대로 담는다.** 판정에만 `strip()` 을 쓰고 값에는 쓰지 않는다 —
+        # 앞뒤 공백을 떼는 것도 원문을 고치는 것이고, 컬럼 주석이 "절대 덮어쓰지
+        # 않는다" 이다. 정규화가 필요한 곳(`tokens`·`text_key`)은 각자 한다.
+        raw_text = detection.text
         tokens = korean_tokens.index_tokens(raw_text)
         confidence = round(detection.confidence, CONFIDENCE_DECIMALS)
         observations.append(

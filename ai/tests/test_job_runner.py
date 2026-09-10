@@ -1149,6 +1149,9 @@ def _recording_handler(
         "ocr",
         run,
         required_inputs=registry.HANDLERS["ocr"].required_inputs,
+        # 실제 등록과 같아야 한다. 여기서 어긋나면 러너가 영상을 받는지 여부를
+        # 테스트가 다르게 보게 된다.
+        needs_video=registry.HANDLERS["ocr"].needs_video,
     )
 
 
@@ -1195,8 +1198,6 @@ async def test_upstream_artifacts_are_downloaded_when_there_is_no_mount(
         "transport": "http",
     }
     fake_backend.enqueue_claim(job)
-    # 순서대로 배정의 입력 미디어, 그다음 상류 keyframe 이다.
-    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"fake mp4"))
     fake_backend.enqueue("artifact_get", httpx2.Response(200, content=JPEG_MAGIC))
 
     await _runner(job_client, None).run_once()
@@ -1207,3 +1208,33 @@ async def test_upstream_artifacts_are_downloaded_when_there_is_no_mount(
     # 잡이 끝나면 작업 디렉터리와 함께 지워진다 — 파드 디스크는 휘발성인데 한 파드가
     # 잡을 여러 개 처리하므로 keyframe 수백 장이 남으면 금방 찬다.
     assert not seen[KEYFRAME_KEY].exists()
+
+
+@pytest.mark.asyncio
+async def test_a_stage_that_does_not_need_the_video_never_fetches_it(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`ocr` 은 상류 keyframe 만 읽는다. 원본 영상을 받는 것은 순수한 낭비다.
+
+    `transport: "http"` 에서 이것이 드러난다 — 공유 볼륨이면 어차피 복사가 없지만
+    RunPod 파드는 http 이고(계약 §5), 거기서는 700MB 를 받아서 열지도 않고 버린다.
+    """
+    seen: dict[str, Path] = {}
+    monkeypatch.setattr(registry, "HANDLERS", {"ocr": _recording_handler(seen)})
+
+    job = _ocr_job()
+    inputs = job["inputs"]
+    assert isinstance(inputs, dict)
+    media_key = "clips/398021840012345/source.mp4"
+    inputs["media"] = {"storageKey": media_key, "transport": "http"}
+    fake_backend.enqueue_claim(job)
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=JPEG_MAGIC))
+
+    await _runner(job_client, None).run_once()
+
+    downloaded = [request.url.params.get("key") for request in fake_backend.calls("artifact_get")]
+    assert downloaded == [KEYFRAME_KEY]
+    assert media_key not in downloaded
+    assert _complete_body(fake_backend)["status"] == "succeeded"

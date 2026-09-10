@@ -324,6 +324,32 @@ def _ocr_upstream(*keyframes: tuple[int, int]) -> dict[str, object]:
     }
 
 
+def test_only_ocr_skips_the_source_video() -> None:
+    """`needs_video` 는 러너가 원본 영상을 받을지를 정한다.
+
+    `ocr` 은 상류 keyframe 만 읽으므로 False 다. 나머지 둘은 영상을 열어야 하고,
+    거기서 False 가 되면 `require_video()` 가 실행 중에 터진다.
+    """
+    assert {name: handler.needs_video for name, handler in HANDLERS.items()} == {
+        "scene_detection": True,
+        "frame_extraction": True,
+        "ocr": False,
+    }
+
+
+def test_require_video_refuses_when_the_stage_declared_it_needs_none(tmp_path: Path) -> None:
+    """등록과 구현이 어긋난 것이다. None 을 그대로 넘기면 벤더 라이브러리에서 터진다."""
+    context = StageContext(
+        stage="ocr",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/ocr/a1/",
+    )
+    with pytest.raises(AssertionError, match="needs_video"):
+        context.require_video()
+
+
 def test_ocr_declares_the_keyframes_it_must_read() -> None:
     """러너가 이 목록만 받아 온다. 빠지면 그 프레임을 읽지 못한다."""
     handler = resolve("ocr")
@@ -361,7 +387,8 @@ def test_ocr_refuses_to_read_when_an_image_was_not_fetched(tmp_path: Path) -> No
     assert handler is not None
     context = StageContext(
         stage="ocr",
-        video_path=tmp_path / "source.mp4",
+        # 러너가 `needs_video=False` 를 보고 영상을 해석하지 않는다.
+        video_path=None,
         storage_key="clips/1/source.mp4",
         work_dir=tmp_path,
         output_key_prefix="runs/1/ocr/a1/",
@@ -413,7 +440,7 @@ def test_ocr_reports_counts_and_versions(tmp_path: Path, monkeypatch: pytest.Mon
     outcome = handler.run(
         StageContext(
             stage="ocr",
-            video_path=tmp_path / "source.mp4",
+            video_path=None,
             storage_key="clips/1/source.mp4",
             work_dir=tmp_path,
             output_key_prefix="runs/1/ocr/a1/",

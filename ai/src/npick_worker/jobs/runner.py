@@ -14,6 +14,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import Mapping
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -505,7 +506,17 @@ class JobRunner:
             msg = f"이 워커에 구현이 없다: {job.stage}"
             raise StageUnavailableError(msg)
 
-        async with self._media.resolve(job.pipeline_run_id, job.inputs.media) as resolved:
+        async with AsyncExitStack() as stack:
+            # **쓰지 않을 영상을 받지 않는다.** `transport: "http"` 에서 `resolve` 는
+            # 원본 전체를 내려받는데, `ocr` 은 상류가 올린 keyframe 만 읽는다.
+            # shared-volume 이면 어차피 복사가 없지만 RunPod 는 http 다(계약 §5).
+            video_path: Path | None = None
+            if handler.needs_video:
+                resolved = await stack.enter_async_context(
+                    self._media.resolve(job.pipeline_run_id, job.inputs.media)
+                )
+                video_path = resolved.path
+
             # 상류 산출물이 필요한 단계(`ocr`)는 여기서 받는다. `_execute` 가
             # heartbeat 태스크가 도는 동안 이 함수를 부르므로, keyframe 수백 장을
             # 받아도 lease 가 살아 있다 — 업로드를 여기 둔 것과 같은 이유다(계약 §4.2).
@@ -522,7 +533,7 @@ class JobRunner:
 
             context = StageContext(
                 stage=job.stage,
-                video_path=resolved.path,
+                video_path=video_path,
                 storage_key=job.inputs.media.storage_key,
                 work_dir=work_dir,
                 output_key_prefix=job.output_key_prefix,

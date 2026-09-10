@@ -49,7 +49,10 @@ class StageContext:
     """단계 하나를 실행하는 데 필요한 전부. 잡 API 타입이 단계로 새지 않게 한다."""
 
     stage: str
-    video_path: Path
+    #: 입력 영상의 로컬 경로. **`StageHandler.needs_video` 가 False 인 단계에서는
+    #: None 이다** — 러너가 쓰지 않을 영상을 받지 않는다(`ocr`). 읽는 쪽은
+    #: `require_video()` 를 쓴다.
+    video_path: Path | None
     storage_key: str
     #: 단계가 파일을 쓸 수 있는 디렉터리. 러너가 잡마다 만들고 잡이 끝나면 지운다.
     #: 단계 구현은 여기 밖에 쓰지 않는다 — 미디어 루트도 최종 저장소도 모른다.
@@ -64,6 +67,17 @@ class StageContext:
     #: 한다(계약 §4.2 — 연장하는 것은 heartbeat 뿐이다).
     upstream_files: Mapping[str, Path] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
+
+    def require_video(self) -> Path:
+        """영상을 쓰는 단계가 경로를 꺼내는 자리.
+
+        `needs_video=True` 로 등록한 단계에서는 언제나 값이 있다. 여기서 걸리면
+        등록과 구현이 어긋난 것이므로 조용히 넘기지 않는다.
+        """
+        if self.video_path is None:
+            msg = f"이 단계는 needs_video=False 로 등록돼 있다: {self.stage}"
+            raise AssertionError(msg)
+        return self.video_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +116,10 @@ class StageHandler:
     #: 없으면 이 단계는 배정의 입력 미디어만 쓴다. 러너가 이 목록을 heartbeat 가
     #: 도는 동안 받아 `StageContext.upstream_files` 로 넘긴다.
     required_inputs: Callable[[Mapping[str, Any]], tuple[str, ...]] | None = None
+    #: 입력 영상이 필요한가. False 면 러너가 **영상을 해석하지 않는다** —
+    #: `transport: "http"` 에서 원본 전체를 내려받는 비용이 그대로 없어진다.
+    #: `ocr` 은 상류가 올린 keyframe 만 읽으므로 False 다.
+    needs_video: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,7 +156,7 @@ def _run_scene_detection(ctx: StageContext) -> StageOutcome:
     from npick_worker.scene_detection import detect_scenes
 
     try:
-        result = detect_scenes(ctx.video_path)
+        result = detect_scenes(ctx.require_video())
     except VideoOpenFailure as exc:
         # 어댑터 경계에서 벤더 예외를 번역한다. 이걸 그냥 통과시키면 잡 레이어가
         # scenedetect 를 알아야 하고(ai/AGENTS.md 가 금지한다), 분류를 못 해
@@ -221,7 +239,7 @@ def _run_frame_extraction(ctx: StageContext) -> StageOutcome:
 
     try:
         result = extract_keyframes(
-            ctx.video_path,
+            ctx.require_video(),
             scenes,
             ctx.work_dir,
             expected_frame_rate=detection.frame_rate,
@@ -512,6 +530,8 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
                 _run_ocr,
                 _warm_ocr,
                 required_inputs=_ocr_required_inputs,
+                # 이 단계는 영상을 열지 않는다. 상류가 올린 keyframe JPEG 만 읽는다.
+                needs_video=False,
             ),
         )
     }

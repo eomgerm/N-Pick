@@ -28,6 +28,23 @@ ENGINE_NAME: Final[str] = "rapidocr"
 #: 설정 키로 열지 않는 이유가 이것이다 — toml 한 줄로 관측이 사라져서는 안 된다.
 _KEEP_EVERY_DETECTION: Final[float] = 0.0
 
+#: **원본 해상도로 읽기 위한 값.** `Det.limit_side_len` 과 다른 축이다.
+#:
+#: rapidocr 는 검출기 리사이즈 **앞에** 전체 이미지 전처리를 한 번 더 돌린다
+#: (`rapidocr/main.py` 의 `preprocess_img`). 기본값이 `max_side_len=2000` 이라 긴 변이
+#: 그보다 크면 이미지 자체를 줄이고, **인식 조각을 그 줄인 이미지에서 잘라낸다**
+#: (같은 파일의 `detect_and_crop` → `crop_text_regions`). 상자 좌표는 원본으로
+#: 복원되지만 인식에 들어간 픽셀은 돌아오지 않는다.
+#:
+#: 실측: 3840x2160 → 1984x1120, 2560x1440 → 1984x1120. 1920x1080 은 그대로다.
+#: FRD `docs/frd.md:131` 의 "축소된 대표 이미지 대신 원본 해상도의 프레임" 은
+#: 해상도에 조건이 붙지 않으므로 이 전처리를 끈다.
+#:
+#: `_KEEP_EVERY_DETECTION` 과 같은 이유로 설정 키가 아니다 — toml 한 줄로 FRD 요구가
+#: 깨지는 길을 두지 않는다. 검출 입력 크기를 조절하고 싶으면 `det_limit_side_len`
+#: 이 그 자리다(그것은 "찾아내는가" 만 바꾸고 읽는 픽셀은 안 바꾼다).
+_READ_AT_ORIGINAL_RESOLUTION: Final[bool] = False
+
 
 class OcrModelUnavailableError(RuntimeError):
     """가중치를 준비하지 못했다. 일시 오류다 — 다른 파드나 다음 시도에서 성공할 수 있다.
@@ -82,6 +99,7 @@ def _engine_params(config: OcrConfig) -> dict[str, Any]:
         # 모델이 하나 더 붙어 장당 시간이 늘면서 잘못 뒤집는 경우가 생긴다.
         "Global.use_cls": False,
         "Global.text_score": _KEEP_EVERY_DETECTION,
+        "Global.use_preprocess_img": _READ_AT_ORIGINAL_RESOLUTION,
     }
     model_dir = get_settings().ocr_model_dir
     if model_dir is not None:

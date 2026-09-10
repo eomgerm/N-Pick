@@ -390,6 +390,8 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 **바이트를 어떻게 받는가** — `inputs.media.transport`가 그대로 적용된다(§5). `shared-volume`이면 마운트에서 바로 열고 복사하지 않는다. `http`면 §4.4의 `GET …/artifacts?key=`로 keyframe마다 한 번씩 받는다. 워커는 **읽는 동안에도 heartbeat를 계속 친다** — 다운로드는 lease를 연장하지 않는다(§4.2).
 
+**`inputs.media`의 원본 영상은 받지 않는다.** 이 단계가 여는 것은 상류 keyframe뿐이다. `storageKey`는 오류 메시지와 기록에만 쓴다. BE는 이 단계에도 `inputs.media`를 평소대로 실어 보내면 되고(§4.1의 모양은 단계마다 같다), 달라지는 것은 워커가 `http`에서 원본을 내려받지 않는다는 것뿐이다.
+
 **빈 구멍** — `keyframes[]` 항목에는 `contentHash`도 `sizeBytes`도 없다(§4.3.1의 출력 모양). 그래서 이 단계는 §4.1의 미디어처럼 잘린 다운로드를 걸러내지 못한다. 깨진 JPEG은 이미지로 열리지 않아 `UNSUPPORTED_MEDIA`로 드러나는 데 그친다. BE가 상류 산출물에 해시를 실어 주면 막을 수 있고, 그때 이 문단을 지운다.
 
 **결과** — 이 단계는 `artifacts`를 만들지 않는다. 관측은 전부 `output`으로 간다.
