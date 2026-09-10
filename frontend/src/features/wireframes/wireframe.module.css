@@ -893,25 +893,6 @@
   overflow-wrap: anywhere;
 }
 
-.matchEvidence {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.matchEvidenceHeading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.matchEvidenceHeading strong {
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 900;
-}
-
 .statusBadge {
   display: inline-flex;
   align-items: center;
@@ -951,39 +932,60 @@
   color: var(--danger);
 }
 
-.matchEvidenceDetails {
+.evidenceTooltip {
+  position: relative;
+  z-index: 6;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.evidenceTooltipTrigger {
+  cursor: help;
+}
+
+.evidenceTooltipTrigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.evidenceTooltipContent {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
   display: grid;
-  gap: 7px;
-  margin: 10px 0 0;
-}
-
-.matchEvidenceDetails > div {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 8px;
-}
-
-.matchEvidenceDetails dt {
-  color: var(--subtle);
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.matchEvidenceDetails dd {
-  min-width: 0;
-  margin: 0;
-  color: var(--text);
+  gap: 5px;
+  width: max-content;
+  min-width: 168px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--text);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+  color: var(--surface);
   font-size: 10px;
-  font-weight: 700;
   line-height: 1.45;
+  opacity: 0;
   overflow-wrap: anywhere;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 120ms ease;
+  visibility: hidden;
 }
 
-.informationStatus {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
+.evidenceTooltipContent strong {
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.evidenceTooltip:hover .evidenceTooltipContent,
+.evidenceTooltip:focus-within .evidenceTooltipContent {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
 }
 
 .previewPane {

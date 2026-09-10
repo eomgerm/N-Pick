@@ -15,6 +15,14 @@ interface SearchResultCardProps {
   onSelect: (resultId: number) => void;
 }
 
+function getEvidenceFieldLabel(field: SearchResult['matchEvidence']['field']) {
+  return field === '화면 속 글자 (OCR)' ? '화면 속 글자' : field;
+}
+
+function getEvidenceValueLabel(value: string) {
+  return value.replaceAll(' · ', ', ');
+}
+
 export function SearchResultCard({
   result,
   position,
@@ -22,7 +30,7 @@ export function SearchResultCard({
   onSelect,
 }: SearchResultCardProps) {
   const keyframeTimes = getKeyframeTimes(result);
-  const filmingStatus = result.filmedDate ? result.filmingState : 'unknown';
+  const evidenceTooltipId = `match-evidence-${result.id}`;
 
   return (
     <article className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}>
@@ -65,34 +73,19 @@ export function SearchResultCard({
               {keyword}
             </span>
           ))}
-        </div>
-
-        <section aria-label="일치 근거" className={styles.matchEvidence}>
-          <div className={styles.matchEvidenceHeading}>
-            <strong>일치 근거</strong>
-            <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
+          <span className={styles.evidenceTooltip}>
+            <span
+              aria-describedby={evidenceTooltipId}
+              className={`${styles.statusBadge} ${styles.evidenceTooltipTrigger}`}
+              data-status={result.matchEvidence.status}
+              tabIndex={0}
+            >
               {getVerificationStatusLabel(result.matchEvidence.status)}
             </span>
-          </div>
-          <dl className={styles.matchEvidenceDetails}>
-            <div>
-              <dt>필드</dt>
-              <dd>{result.matchEvidence.field}</dd>
-            </div>
-            <div>
-              <dt>값</dt>
-              <dd>{result.matchEvidence.value}</dd>
-            </div>
-            <div>
-              <dt>출처</dt>
-              <dd>{result.matchEvidence.source}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <div className={styles.informationStatus} aria-label="정보 상태">
-          <span className={styles.statusBadge} data-status={filmingStatus}>
-            촬영일 {getVerificationStatusLabel(filmingStatus)}
+            <span className={styles.evidenceTooltipContent} id={evidenceTooltipId} role="tooltip">
+              <strong>{getEvidenceFieldLabel(result.matchEvidence.field)}</strong>
+              <span>{getEvidenceValueLabel(result.matchEvidence.value)}</span>
+            </span>
           </span>
         </div>
       </div>
