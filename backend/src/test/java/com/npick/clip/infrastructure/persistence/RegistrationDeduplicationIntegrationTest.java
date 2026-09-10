@@ -876,12 +876,17 @@ class RegistrationDeduplicationIntegrationTest {
                     .setControllerAdvice(new GlobalExceptionHandler(new ErrorTypeHttpStatusMapper()))
                     .build();
             byte[] bytes = Files.readAllBytes(input);
+            byte[] subtitleBytes = "\uFEFF1\r\n00:00:00,123 --> 00:00:00,987\r\n한글 원본\r\n"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
             String first = null;
             for (String key : List.of("actual-video", "actual-video", "actual-video-other")) {
                 var response = mvc.perform(multipart("/api/v1/clips")
                                 .file(new MockMultipartFile("video", "../../fixture.mp4", "video/mp4", bytes))
+                                .file(new MockMultipartFile(
+                                        "subtitle", "../../provided.srt", "text/plain", subtitleBytes))
                                 .header("Idempotency-Key", key)
                                 .param("source_type", "archive")
+                                .param("script_text", "영상 전체 참고 대본")
                                 .param("rights_confirmed", "true"))
                         .andExpect(status().isCreated())
                         .andReturn()
@@ -893,6 +898,11 @@ class RegistrationDeduplicationIntegrationTest {
             var json = tools.jackson.databind.json.JsonMapper.builder().build().readTree(first);
             long clipId = Long.parseLong(json.path("data").path("clip_id").asText());
             assertThat(media.resolve("clips/" + clipId + "/original")).hasBinaryContent(bytes);
+            String subtitleKey = jdbc.queryForObject(
+                    "SELECT transcript_file_key FROM npick.clip WHERE clip_id=?", String.class, clipId);
+            assertThat(media.resolve(subtitleKey)).hasBinaryContent(subtitleBytes);
+            assertThat(jdbc.queryForObject("SELECT script_text FROM npick.clip WHERE clip_id=?", String.class, clipId))
+                    .isEqualTo("영상 전체 참고 대본");
             assertThat(jdbc.queryForObject(
                             "SELECT registered_by_id FROM npick.clip WHERE clip_id=?", Long.class, clipId))
                     .isEqualTo(1);
@@ -900,18 +910,37 @@ class RegistrationDeduplicationIntegrationTest {
                             "SELECT count(*) FROM npick.pipeline_run WHERE clip_id=?", Long.class, clipId))
                     .isEqualTo(1);
             try (var files = Files.walk(media)) {
-                assertThat(files.filter(Files::isRegularFile).count()).isEqualTo(1);
+                assertThat(files.filter(Files::isRegularFile).count()).isEqualTo(2);
             }
             assertThat(uploads).isEmptyDirectory();
-            // #35 has no production intake bean: do not claim subtitle parsing works.
             mvc.perform(multipart("/api/v1/clips")
                             .file(new MockMultipartFile("video", "fixture.mp4", "video/mp4", bytes))
                             .file(new MockMultipartFile("subtitle", "provided.srt", "text/plain", new byte[] {1}))
                             .header("Idempotency-Key", "actual-subtitle")
                             .param("source_type", "archive")
                             .param("rights_confirmed", "true"))
-                    .andExpect(status().isServiceUnavailable())
-                    .andExpect(jsonPath("$.code").value("CLIP_503_009"));
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("CLIP_400_012"))
+                    .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("line 1")));
+            assertThat(media.resolve(subtitleKey)).hasBinaryContent(subtitleBytes);
+            // 같은 요청 키의 원본 바이트 차이는 정규화된 내용이 같아도 충돌이다.
+            mvc.perform(multipart("/api/v1/clips")
+                            .file(new MockMultipartFile("video", "fixture.mp4", "video/mp4", bytes))
+                            .file(new MockMultipartFile(
+                                    "subtitle",
+                                    "provided.srt",
+                                    "text/plain",
+                                    new String(subtitleBytes, java.nio.charset.StandardCharsets.UTF_8)
+                                            .replace("\r\n", "\n")
+                                            .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                            .header("Idempotency-Key", "actual-video")
+                            .param("source_type", "archive")
+                            .param("script_text", "영상 전체 참고 대본")
+                            .param("rights_confirmed", "true"))
+                    .andExpect(status().isConflict());
+            try (var files = Files.walk(media)) {
+                assertThat(files.filter(Files::isRegularFile).count()).isEqualTo(2);
+            }
         }
     }
 

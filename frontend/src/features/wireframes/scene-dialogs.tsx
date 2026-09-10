@@ -91,9 +91,10 @@ type ScenePreviewResult = Pick<
       | 'totalSeconds'
       | 'totalDuration'
       | 'broadcastDate'
-      | 'filmingDate'
+      | 'filmedDate'
       | 'filmingState'
       | 'shotType'
+      | 'sceneType'
     >
   > & {
     id: string | number;
@@ -372,14 +373,14 @@ export function ScenePreviewDialog({
             <dl>
               <div>
                 <dt>방송일</dt>
-                <dd>{result.broadcastDate ?? '정보 없음'}</dd>
+                <dd>{result.broadcastDate ?? '미상'}</dd>
               </div>
               <div>
                 <dt>촬영일</dt>
                 <dd>
-                  {result.filmingDate ? (
+                  {result.filmedDate ? (
                     <>
-                      {result.filmingDate} ·{' '}
+                      {result.filmedDate} ·{' '}
                       {result.filmingState === 'verified'
                         ? '검증됨'
                         : result.filmingState === 'unknown'
@@ -387,13 +388,17 @@ export function ScenePreviewDialog({
                           : '미검증'}
                     </>
                   ) : (
-                    '정보 없음'
+                    '미상'
                   )}
                 </dd>
               </div>
               <div>
-                <dt>장면 유형</dt>
+                <dt>샷 유형</dt>
                 <dd>{result.shotType ?? '정보 없음'}</dd>
+              </div>
+              <div>
+                <dt>장면 유형</dt>
+                <dd>{result.sceneType ?? '정보 없음'}</dd>
               </div>
               <div>
                 <dt>근거</dt>

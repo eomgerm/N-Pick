@@ -6,6 +6,10 @@ scene 분할 품질을 눈으로 확인하기 위한 로컬 전용 폴더다. **
 ```bash
 uv run --directory ai python -m npick_worker.scene_detection.report \
     samples/01-standard-report.mp4 --out samples/out/01
+
+# 같은 클립의 keyframe·대표 이미지 (scene 분할을 안에서 함께 돈다)
+uv run --directory ai python -m npick_worker.frame_extraction.report \
+    samples/01-standard-report.mp4 --out samples/out/01-frames
 ```
 
 ## 어떤 클립이 필요한가

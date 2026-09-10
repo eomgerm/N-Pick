@@ -10,8 +10,16 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from npick_worker.jobs.models import SceneDetectionOutput, StageError, StageResult
+from npick_worker.jobs.errors import classify
+from npick_worker.jobs.models import (
+    FrameExtractionOutput,
+    FrameExtractionUpstream,
+    SceneDetectionOutput,
+    StageError,
+    StageResult,
+)
 from npick_worker.jobs.versions import StageVersion, pipeline_version, stage_version
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.versioning import canonical_json, version_id
 
 #: 계약이 정한 versions 객체의 키. 하나라도 늘거나 줄면 BE 와 어긋난다.
@@ -257,6 +265,43 @@ def test_pipeline_version_matches_recorded_vector() -> None:
     )
 
 
+# ── 오류 어휘 (계약 §4.3.1·§9.2) ───────────────────────────────────────
+
+
+def test_unreadable_media_is_reported_as_unsupported_media() -> None:
+    """영상을 열었지만 쓸 수 없는 것은 미디어 문제다. 계약 §4.3.1 이 그렇게 둔다.
+
+    `ValueError` 로 두면 `classify` 가 `VALIDATION_ERROR` 로 번역하는데, 그건 "상류
+    산출물·산출물 키가 잘못됐다" 는 다른 사실이다. 둘 다 영구라 재시도를 태우지는 않지만
+    정본에 남는 원인이 달라진다.
+    """
+    code, retryable = classify(
+        MediaUnreadableError("비디오 스트림이 없는 파일이다"), "frame_extraction"
+    )
+
+    assert (code, retryable) == ("UNSUPPORTED_MEDIA", False)
+
+
+def test_unreadable_media_wins_over_the_generic_value_error_branch() -> None:
+    """`MediaUnreadableError` 는 `ValueError` 하위다. 분기 순서가 뒤집히면 조용히 묻힌다."""
+    assert issubclass(MediaUnreadableError, ValueError)
+    assert classify(ValueError("상류 산출물이 계약과 다르다"), "frame_extraction") == (
+        "VALIDATION_ERROR",
+        False,
+    )
+
+
+def test_both_implemented_stages_report_unreadable_media_the_same_way() -> None:
+    """같은 사실이 단계에 따라 다른 코드로 기록되지 않는다.
+
+    두 단계가 각자 프레임레이트를 읽고 각자 실패할 수 있으므로, 번역이 한쪽에만 있으면
+    같은 파일이 단계에 따라 UNSUPPORTED_MEDIA 와 VALIDATION_ERROR 로 갈린다.
+    """
+    failure = MediaUnreadableError("프레임레이트를 읽을 수 없다")
+
+    assert classify(failure, "scene_detection") == classify(failure, "frame_extraction")
+
+
 # ── scene_detection payload ──────────────────────────────────────────
 
 
@@ -266,3 +311,156 @@ def test_scene_output_separates_media_duration_from_processing_time() -> None:
     dumped = output.model_dump(by_alias=True, mode="json")
     assert dumped["mediaDurationMs"] == 76067
     assert "durationMs" not in dumped
+
+
+# ── frame_extraction payload ─────────────────────────────────────────
+
+
+def _keyframe(timestamp_ms: int, scene_index: int = 0) -> dict[str, object]:
+    return {
+        "sceneIndex": scene_index,
+        "timestampMs": timestamp_ms,
+        "storageKey": (
+            f"runs/398021847361024/frame_extraction/a1/s{scene_index:04d}/kf-{timestamp_ms:09d}.jpg"
+        ),
+    }
+
+
+def _scene_keyframes(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "sceneIndex": 0,
+        "representativeTimestampMs": 4200,
+        "keyframes": [_keyframe(4200), _keyframe(1100), _keyframe(7300)],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_frame_output_accepts_the_contract_example() -> None:
+    output = FrameExtractionOutput.model_validate(
+        {"scenes": [_scene_keyframes()], "imageWidth": 1920, "imageHeight": 1080}
+    )
+    dumped = output.model_dump(by_alias=True, mode="json")
+    assert dumped["scenes"][0]["representativeTimestampMs"] == 4200
+    assert dumped["scenes"][0]["keyframes"][0]["timestampMs"] == 4200
+    assert dumped["imageWidth"] == 1920
+
+
+def test_frame_output_requires_the_representative_to_be_first() -> None:
+    """`keyframe` 에 대표 표시 컬럼이 없어 순서가 곧 표시다.
+
+    BE 는 이 순서대로 INSERT 하므로 대표가 그 scene 의 최소 `keyframe_id` 가 된다.
+    목록을 정렬해 저장하는 구현 변경이 생기면 여기서 걸린다.
+    """
+    with pytest.raises(ValidationError, match="대표 이미지"):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [_scene_keyframes(representativeTimestampMs=7300)],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_output_rejects_duplicate_timestamps() -> None:
+    """UNIQUE(scene_id, timestamp_ms) 를 BE 에서 터지기 전에 잡는다."""
+    with pytest.raises(ValidationError, match="timestamp_ms"):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [
+                    _scene_keyframes(keyframes=[_keyframe(4200), _keyframe(4200)]),
+                ],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_output_rejects_a_scene_without_keyframes() -> None:
+    """FRD §3 은 대표 이미지 없이 검색 가능으로 표시하지 않도록 요구한다."""
+    with pytest.raises(ValidationError):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [_scene_keyframes(keyframes=[])],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_output_rejects_keyframes_from_another_scene() -> None:
+    with pytest.raises(ValidationError, match="다른 scene"):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [
+                    _scene_keyframes(keyframes=[_keyframe(4200), _keyframe(7300, scene_index=1)])
+                ],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_upstream_requires_scene_detection() -> None:
+    """상류 산출물이 없으면 이 단계는 할 일을 모른다. 빈 결과를 내지 않는다."""
+    with pytest.raises(ValidationError):
+        FrameExtractionUpstream.model_validate({})
+
+
+def test_frame_upstream_tolerates_fields_it_does_not_know() -> None:
+    """계약 §3 — 받는 모델은 BE 가 필드를 늘려도 죽지 않아야 한다.
+
+    같은 payload 를 보낼 때는 `extra="forbid"` 다. 방향에 따라 정책이 반대인 곳이다.
+    """
+    upstream = FrameExtractionUpstream.model_validate(
+        {
+            "sceneDetection": {
+                "scenes": [{"sceneIndex": 0, "startTimeMs": 0, "endTimeMs": 2000, "future": 1}],
+                "mediaDurationMs": 2000,
+                "frameRate": 30.0,
+                "alsoFuture": True,
+            },
+            "ocr": {"observations": []},
+        }
+    )
+    assert [scene.scene_index for scene in upstream.scene_detection.scenes] == [0]
+
+
+def test_frame_extraction_config_version_matches_recorded_vector() -> None:
+    """`frame_extraction.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
+    from npick_worker.frame_extraction import get_default_config
+
+    assert get_default_config().version_id == "frame-extract/v1:5b266b10"
+
+
+def test_frame_extraction_stage_version_matches_recorded_vector() -> None:
+    """재현 튜플은 `{configVersion, engine, engineVersion}` 이다.
+
+    `scene_detection` 의 `detector` 에 대응하는 항목이 없다 — 이 단계에는 고를 구현이
+    하나뿐이고, 없는 축을 만들면 그 축이 항상 같은 값이어서 해시에 아무 정보도 넣지
+    않는다. 이 값이 바뀌면 계약 문서의 벡터도 함께 고쳐야 한다.
+    """
+    assert (
+        stage_version(
+            "frame_extraction",
+            {
+                "configVersion": "frame-extract/v1:5b266b10",
+                "engine": "pyav",
+                "engineVersion": "18.1.0+numpy2.5.2",
+            },
+        )
+        == "npick.stage.frame_extraction/v1:595427d7"
+    )
+
+
+def test_pipeline_version_of_the_two_implemented_stages() -> None:
+    """구현된 두 단계만으로 만든 롤업. BE 의 Java 포팅과 대조할 두 번째 벡터다."""
+    assert (
+        pipeline_version(
+            {
+                "scene_detection": "npick.stage.scene_detection/v1:aaaaaaaa",
+                "frame_extraction": "npick.stage.frame_extraction/v1:cccccccc",
+            }
+        )
+        == "npick-pipeline/v1:32d2389f906a"
+    )

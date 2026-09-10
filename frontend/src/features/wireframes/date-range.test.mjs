@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  compareNullableDatesDescending,
   emptyDateRange,
   matchesDateRange,
   readDateRange,
@@ -40,7 +41,14 @@ test('잘못된 날짜·역순 입력·한쪽 누락은 거부하고 URL 입력�
 
 test('정보 없음과 미검증 날짜는 필터 범위 밖이어도 제외하지 않는다', () => {
   const range = { from: '2026-01-01', to: '2026-12-31' };
+  assert.equal(matchesDateRange(null, range), true);
   assert.equal(matchesDateRange('미상', range), true);
   assert.equal(matchesDateRange('2025.01.01', range, false), true);
   assert.equal(matchesDateRange('2025.01.01', range, true), false);
+});
+
+test('최신순 날짜 비교는 정보 없음 항목을 마지막에 두고 예외를 내지 않는다', () => {
+  const dates = ['2025.10.02', null, '2026-02-14', '2025.09.30'];
+  dates.sort(compareNullableDatesDescending);
+  assert.deepEqual(dates, ['2026-02-14', '2025.10.02', '2025.09.30', null]);
 });
