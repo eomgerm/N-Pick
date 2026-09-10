@@ -3,24 +3,19 @@
 import { routes } from '@/lib/routes';
 import { AppShell } from '@/components/app-shell';
 
-import { CheckCircle2, ChevronDown, ListFilter, Play, Search, Sparkles } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ListFilter, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import {
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from 'react';
+import { type FormEvent, useMemo, useRef, useState, useTransition } from 'react';
 
-import { getKeyframeTimes, results } from '@/features/wireframes/demo-scenes';
+import { results } from '@/features/wireframes/demo-scenes';
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
+import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
 import {
   type DateRange,
+  compareNullableDatesDescending,
   emptyDateRange,
   matchesDateRange,
   readDateRange,
@@ -69,7 +64,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const filteredResults = results.filter(
     (result) =>
       matchesDateRange(result.broadcastDate, broadcastRange) &&
-      matchesDateRange(result.filmingDate, filmingRange, result.filmingState === 'verified'),
+      matchesDateRange(result.filmedDate, filmingRange, result.filmingState === 'verified'),
   );
   const displayedResults = demoState === 'empty' ? [] : filteredResults;
   const resultState = isNavigating
@@ -82,7 +77,10 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const sortedResults =
     sortOrder === 'accuracy'
       ? displayedResults
-      : [...displayedResults].sort((a, b) => b.broadcastDate.localeCompare(a.broadcastDate));
+      : [...displayedResults].sort((a, b) =>
+          compareNullableDatesDescending(a.broadcastDate, b.broadcastDate),
+        );
+  const topResults = sortedResults.slice(0, 10);
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
     [submittedQuery],
@@ -244,7 +242,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                     ? '검색을 완료하지 못했어요'
                     : resultState === 'loading'
                       ? '검색 중'
-                      : `관련 장면 ${displayedResults.length}개`}
+                      : `관련 장면 ${topResults.length}개`}
                 </h2>
               </div>
               <div className={styles.resultsMeta}>
@@ -284,68 +282,15 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
               />
             ) : (
               <div className={styles.resultsGrid}>
-                {sortedResults.map((result, index) => {
-                  const isSelected = isPreviewOpen && selectedResultId === result.id;
-                  const keyframeTimes = getKeyframeTimes(result);
-
-                  return (
-                    <article
-                      aria-label={`${result.title} Preview 열기`}
-                      className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}
-                      key={result.id}
-                      onClick={() => handlePreviewSelect(result.id)}
-                      onKeyDown={(event: ReactKeyboardEvent<HTMLElement>) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        handlePreviewSelect(result.id);
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div
-                        aria-hidden="true"
-                        className={`${styles.thumbnail} ${result.imageClass}`}
-                      >
-                        <span className={styles.rank}>{index + 1}</span>
-                        <span className={styles.playButton}>
-                          <Play aria-hidden="true" fill="currentColor" />
-                        </span>
-                        <span className={styles.timecode}>{result.time}</span>
-                        <span className={styles.keyframePreview}>
-                          {keyframeTimes.map((keyframeTime) => (
-                            <span
-                              className={`${styles.keyframe} ${result.imageClass}`}
-                              key={`${result.id}-${keyframeTime}`}
-                            >
-                              <span className={styles.keyframeTime}>{keyframeTime}</span>
-                            </span>
-                          ))}
-                        </span>
-                      </div>
-
-                      <div className={styles.cardBody}>
-                        <div className={styles.cardTopline}>
-                          <span className={styles.score}>일치도 {result.score}%</span>
-                          <h3 className={styles.cardTitle}>{result.title}</h3>
-                        </div>
-                        <div className={styles.cardMetadata}>
-                          <p className={styles.filmingDate}>
-                            <span>촬영일</span>
-                            <strong>{result.filmingDate}</strong>
-                          </p>
-                          <div className={styles.matchedKeywords}>
-                            <span>키워드</span>
-                            {result.matchedKeywords.map((keyword) => (
-                              <span className={styles.keywordChip} key={keyword}>
-                                {keyword}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
+                {topResults.map((result, index) => (
+                  <SearchResultCard
+                    result={result}
+                    position={index + 1}
+                    isSelected={isPreviewOpen && selectedResultId === result.id}
+                    key={result.id}
+                    onSelect={handlePreviewSelect}
+                  />
+                ))}
               </div>
             )}
           </section>
@@ -357,7 +302,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           ? '검색에 실패했습니다.'
           : resultState === 'loading'
             ? '검색 중입니다.'
-            : `${submittedQuery} 검색 결과 ${displayedResults.length}개`}
+            : `${submittedQuery} 검색 결과 ${topResults.length}개`}
       </div>
 
       {isPreviewOpen ? (
