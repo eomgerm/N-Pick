@@ -2,7 +2,7 @@
 title: 'S15P21A501-118 매칭 근거·검증 상태 표시'
 type: 'feature'
 created: '2026-09-10'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_commit: '30f9890bc48dde4553922be78b209b8fb8edb655'
 context:
@@ -53,11 +53,11 @@ context:
 
 **Execution:**
 
-- [ ] `frontend/src/features/wireframes/demo-scenes.ts` -- 출처 문자열에 섞인 상태를 분리하고 근거 field/value/source/status 및 상태 라벨을 타입으로 모델링한다.
-- [ ] `frontend/src/features/wireframes/search-result-card.tsx` -- 일치 근거와 정보 상태를 텍스트 기반으로 표시하되 기존 카드 선택 오버레이와 접근성 이름을 보존한다.
-- [ ] `frontend/src/features/wireframes/scene-dialogs.tsx` -- Preview 근거와 날짜 상태를 같은 라벨 규칙으로 렌더링한다.
-- [ ] `frontend/src/features/wireframes/wireframe.module.css` -- 긴 값이 줄바꿈되고 3열·2열·1열 카드에서 겹치지 않는 근거/상태 레이아웃을 추가한다.
-- [ ] 관련 테스트와 `frontend/docs/architecture.md`를 갱신해 데이터 계약과 화면 책임을 고정한다.
+- [x] `frontend/src/features/wireframes/demo-scenes.ts` -- 출처 문자열에 섞인 상태를 분리하고 근거 field/value/source/status 및 상태 라벨을 타입으로 모델링한다.
+- [x] `frontend/src/features/wireframes/search-result-card.tsx` -- 일치 근거와 정보 상태를 텍스트 기반으로 표시하되 기존 카드 선택 오버레이와 접근성 이름을 보존한다.
+- [x] `frontend/src/features/wireframes/scene-dialogs.tsx` -- Preview 근거와 날짜 상태를 같은 라벨 규칙으로 렌더링한다.
+- [x] `frontend/src/features/wireframes/wireframe.module.css` -- 긴 값이 줄바꿈되고 3열·2열·1열 카드에서 겹치지 않는 근거/상태 레이아웃을 추가한다.
+- [x] 관련 테스트와 `frontend/docs/architecture.md`를 갱신해 데이터 계약과 화면 책임을 고정한다.
 
 **Acceptance Criteria:**
 
@@ -84,3 +84,5 @@ context:
 
 - 기본 결과 화면에서 검증됨·미검증·미상 문구, 긴 근거 줄바꿈, 카드 클릭/Enter/Space Preview 진입과 닫기 후 포커스 복귀를 확인한다.
 - 1440px, 900px, 700px에서 근거 영역이 카드 선택 오버레이·상태 배지와 겹치지 않는지 확인한다.
+
+**Result:** 2026-09-10 기준 테스트 95/95와 format/lint/typecheck/production build가 통과했다. 격리 브라우저에서 카드 10개와 근거 10개, `검증됨` 4건·`미검증` 6건, 촬영일 `검증됨/미검증/미상`, 마우스·Enter·Space Preview 진입과 포커스 복귀를 확인했다. 1440/900/700px에서 3/2/1열이며 페이지·근거·배지의 가로 넘침이 없었고 개발·프로덕션 브라우저 warning/error도 없었다. 상세 기록은 `S15P21A501-118-e2e.md`에 남겼다.
