@@ -587,6 +587,43 @@ def test_ocr_output_flattens_observations() -> None:
     assert observation["boundingBox"]["width"] == 10.0
 
 
+def test_wire_bounding_box_is_the_same_shape_the_column_gets() -> None:
+    """와이어 payload 와 `bounding_box_json` 이 갈라지면 안 된다.
+
+    `BoundingBox.to_json()` 이 `ocr_observation.bounding_box_json` 의 모양 정본이고
+    `ocr/report.py` 도 그것을 쓴다. `OcrOutput.from_result` 가 같은 모양을 손으로 다시
+    조립하면 두 벌이 되고, 언젠가 한쪽만 바뀌어 report 출력과 payload 가 조용히
+    달라진다. 여기서 두 벌이 아님을 고정한다.
+    """
+    from npick_worker.ocr import BoundingBox, KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    box = BoundingBox(points=((3.0, 1.0), (13.0, 1.0), (13.0, 5.0), (3.0, 5.0)))
+    keyframes = (
+        to_observations(
+            KeyframeRef(
+                scene_index=0,
+                timestamp_ms=4200,
+                storage_key="runs/1/frame_extraction/a1/s0000/kf-000004200.jpg",
+            ),
+            [TextDetection(text="강원도", confidence=0.99, points=box.points)],
+            min_confidence=0.7,
+        ),
+    )
+    result = OcrResult(
+        keyframes=keyframes,
+        config_version="ocr/v1:daaf4c83",
+        engine="rapidocr",
+        engine_version="test",
+        tokenizer="query-norm/v1:test",
+        min_confidence=0.7,
+    )
+
+    payload = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
+
+    assert payload["observations"][0]["boundingBox"] == box.to_json()
+
+
 def test_ocr_config_version_matches_recorded_vector() -> None:
     """`ocr.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
     from npick_worker.ocr import get_default_config

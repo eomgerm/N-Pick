@@ -105,12 +105,17 @@ class MediaResolver:
           출력 모양). 잘린 파일은 단계가 이미지로 열지 못해 실패로 드러나는 데
           그친다 — BE 가 상류 산출물에 해시를 실어 주면 여기서 막을 수 있다.
         """
+        # **중복은 여기서 한 번 없앤다.** 아래 두 갈래(마운트·다운로드)가 각자 막으면
+        # 한쪽만 걸린다 — `resolved` 를 보는 가드는 마운트에서 이미 푼 키만 걸러서,
+        # http 갈래의 중복 키는 `to_download` 에 두 번 들어가 같은 파일을 두 번 받는다.
+        # `_ocr_required_inputs` 가 먼저 없애 주므로 정상 입력에서는 도달하지 않지만,
+        # 가드가 여기 있는 이상 여기서 맞아야 한다.
+        unique_keys = list(dict.fromkeys(storage_keys))
+
         resolved: dict[str, Path] = {}
         to_download: list[str] = []
 
-        for key in storage_keys:
-            if key in resolved:
-                continue
+        for key in unique_keys:
             if transport == "shared-volume":
                 mounted = self._shared_path(MediaRef(storage_key=key, transport=transport))
                 if mounted is not None:

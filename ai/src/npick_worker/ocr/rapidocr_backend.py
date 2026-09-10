@@ -95,8 +95,12 @@ def _engine_params(config: OcrConfig) -> dict[str, Any]:
         "Det.box_thresh": config.det_box_thresh,
         "Det.unclip_ratio": config.det_unclip_ratio,
         "Det.use_dilation": config.det_use_dilation,
-        # 방향 분류기를 쓰지 않는다. 뉴스 화면의 글자는 뒤집혀 있지 않고, 켜면
-        # 모델이 하나 더 붙어 장당 시간이 늘면서 잘못 뒤집는 경우가 생긴다.
+        # 방향 분류기로 **추론하지 않는다.** 뉴스 화면의 글자는 뒤집혀 있지 않고,
+        # 돌리면 장당 시간이 늘면서 잘못 뒤집는 경우가 생긴다.
+        #
+        # 모델이 안 붙는다는 뜻은 아니다 — rapidocr 는 이 값과 무관하게
+        # `ch_ppocr_mobile_v2.0_cls_mobile.onnx` 를 기동 때 올린다(기동 로그에 보인다).
+        # 세션 하나만큼의 메모리와 준비 시간이 들 뿐 장당 시간에는 영향이 없다.
         "Global.use_cls": False,
         "Global.text_score": _KEEP_EVERY_DETECTION,
         "Global.use_preprocess_img": _READ_AT_ORIGINAL_RESOLUTION,

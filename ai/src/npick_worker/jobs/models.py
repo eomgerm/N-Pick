@@ -528,13 +528,11 @@ class OcrOutput(WireModel):
                     confidence=observation.confidence,
                     unverified=observation.unverified,
                     text_key=observation.text_key,
-                    bounding_box=BoundingBoxOut(
-                        points=[[x, y] for x, y in observation.box.points],
-                        x=observation.box.x,
-                        y=observation.box.y,
-                        width=observation.box.width,
-                        height=observation.box.height,
-                    ),
+                    # 상자 모양을 여기서 다시 조립하지 않는다. `to_json()` 이
+                    # `ocr_observation.bounding_box_json` 의 컬럼 모양 정본이고
+                    # `ocr/report.py` 도 그것을 쓴다. 두 벌이면 언젠가 갈라지고,
+                    # 그때 report 출력과 와이어 payload 가 조용히 달라진다.
+                    bounding_box=BoundingBoxOut(**observation.box.to_json()),
                 )
                 for keyframe in result.keyframes
                 for observation in keyframe.observations
