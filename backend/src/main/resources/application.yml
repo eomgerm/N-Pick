@@ -59,6 +59,8 @@ server:
 # 저장 경로 등 필수 설정이 비면 등록을 거부한다.
 npick:
   clip-registration:
+    # 파서 메모리 보호용 운영 한도(byte). 시간 허용 오차와 무관하다.
+    subtitle-max-bytes: ${CLIP_SUBTITLE_MAX_BYTES:10485760}
     media-root: ${CLIP_MEDIA_ROOT:${NPICK_MEDIA_ROOT:}}
     upload-root: ${CLIP_UPLOAD_ROOT:}
     probe-timeout: ${CLIP_PROBE_TIMEOUT:60s}
