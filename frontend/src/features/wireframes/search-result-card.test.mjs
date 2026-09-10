@@ -51,7 +51,6 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
     '1위',
     result.title,
     '00:42 – 00:49',
-    `일치도 ${result.score}%`,
     ...result.matchedKeywords,
     '검증됨',
     '화면 속 글자',
@@ -68,6 +67,7 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
     'Keyframe OCR',
     '서울역 · 설 연휴 귀성객',
     '촬영일',
+    `일치도 ${result.score}%`,
   ]) {
     assert.ok(!html.includes(value));
   }
@@ -103,7 +103,7 @@ test('촬영일 값이 없어도 카드에는 근거 검증 칩만 표시한다'
   assert.match(html, /aria-expanded="true"/);
 });
 
-test('정렬된 목록의 화면 순번을 원본 정확도 순위와 분리해 표시한다', () => {
+test('서버 응답 목록의 화면 순번을 원본 순위와 분리해 표시한다', () => {
   const html = renderCard(results[3], false, 1);
   assert.match(html, /검색 결과 1번째/);
   assert.match(html, /aria-label="1위 톨게이트로 이어지는 귀성 차량 행렬/);

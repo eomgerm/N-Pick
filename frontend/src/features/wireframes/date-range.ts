@@ -31,24 +31,6 @@ export function formatDateRange(range: DateRange): string {
     : '전체 기간';
 }
 
-export function matchesDateRange(
-  value: string | null,
-  range: DateRange,
-  isVerified = true,
-): boolean {
-  const date = value?.replaceAll('.', '-') ?? '';
-  // 정보 없음·미검증은 검증된 날짜 충돌로 취급하지 않습니다.
-  if (!isVerified || !isCalendarDate(date) || !range.from || !range.to) return true;
-  return date >= range.from && date <= range.to;
-}
-
-export function compareNullableDatesDescending(left: string | null, right: string | null): number {
-  if (left === right) return 0;
-  if (left === null) return 1;
-  if (right === null) return -1;
-  return right.replaceAll('.', '-').localeCompare(left.replaceAll('.', '-'));
-}
-
 export function readDateRange(from?: string, to?: string): DateRange {
   const range = { from: from ?? '', to: to ?? '' };
   return validateDateRange(range) ? emptyDateRange : range;
