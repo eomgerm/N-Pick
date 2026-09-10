@@ -10,6 +10,10 @@ dependencies = [
     "pydantic>=2.12,<3",
     "pydantic-settings>=2.15,<3",
     "av>=18,<19",
+    # frame_extraction 이 선명도·휘도를 잰다. scenedetect-headless 가 opencv 를 통해
+    # 이미 끌어오지만 전이 의존에 기대지 않는다 — 치명 단계(stages.py 2단계)의 필수
+    # 의존이고, scene detection 을 모델 기반 detector 로 바꾸면 그 경로가 사라진다.
+    "numpy>=2,<3",
     "scenedetect-headless>=0.7.1,<0.8",
     # query_normalization 이 형태소 분석에 쓴다. 토큰 경계를 정하는 것은
     # kiwipiepy 가 아니라 kiwipiepy-model 이라 둘 다 정확히 핀한다 — 올라가면
@@ -37,7 +41,6 @@ packages = ["src/npick_worker"]
 # dev 는 기본 설치, gpu 는 opt-in. `uv sync` 만 하면 torch 를 받지 않는다.
 [dependency-groups]
 dev = [
-    "numpy>=2,<3",
     "ruff>=0.16,<0.17",
     "mypy>=2.3,<3",
     "pytest>=9,<10",

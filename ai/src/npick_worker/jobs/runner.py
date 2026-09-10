@@ -10,6 +10,7 @@
 
 import asyncio
 import logging
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -20,6 +21,8 @@ from typing import Final
 from npick_worker.jobs import registry
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.errors import (
+    ArtifactKeyRejectedError,
+    ArtifactUploadError,
     JobApiConflictError,
     JobApiError,
     JobApiUnauthorizedError,
@@ -34,6 +37,7 @@ from npick_worker.jobs.errors import (
 )
 from npick_worker.jobs.media import MediaResolver, redact
 from npick_worker.jobs.models import (
+    ArtifactRef,
     ClaimRequest,
     HeartbeatRequest,
     JobAssignment,
@@ -258,7 +262,7 @@ class JobRunner:
                 self._heartbeat_loop(job, lease, control), name=f"heartbeat:{job.pipeline_run_id}"
             )
             try:
-                result = await self._execute(job, lease)
+                result = await self._execute(job, lease, control)
 
                 if control.abandoned.is_set():
                     logger.warning(
@@ -359,16 +363,30 @@ class JobRunner:
 
     # ── 단계 실행 ────────────────────────────────────────────────────
 
-    async def _execute(self, job: JobAssignment, lease: LeaseGrant) -> StageResult:
-        """단계를 돌리고 결과를 봉투로 만든다. 이 함수는 예외를 올리지 않는다.
+    async def _execute(
+        self, job: JobAssignment, lease: LeaseGrant, control: _JobControl
+    ) -> StageResult:
+        """단계를 돌리고 산출물을 올린 뒤 결과를 봉투로 만든다. 예외를 올리지 않는다.
 
         실패도 결과다. 예외로 빠져나가면 BE 는 lease 가 만료될 때까지 아무것도 모른다.
+
+        업로드가 여기 있는 이유는 계약 §4.2 다 — "연장하는 것은 heartbeat 뿐" 이고
+        artifacts 업로드는 lease 를 연장하지 않는다. 이 함수는 heartbeat 태스크가 도는
+        동안 호출되므로 업로드가 오래 걸려도 lease 가 살아 있다. 반납(`complete`) 뒤로
+        미루면 BE 가 이미 keyframe 행을 만든 뒤에 파일이 올라가고, 그 사이 조회는 없는
+        파일을 가리킨다.
         """
         started_at = datetime.now(UTC)
         started = time.monotonic()
 
         try:
-            outcome = await self._run_stage(job)
+            # 단계가 파일을 쓸 자리. 잡마다 새로 만들고 나갈 때 지운다 — 파드 디스크는
+            # 휘발성이지만 한 파드가 잡을 여러 개 처리하므로 남겨 두면 금방 찬다
+            # (media.py 의 입력 임시 디렉터리와 같은 이유).
+            with tempfile.TemporaryDirectory(prefix="npick-stage-") as work:
+                work_dir = Path(work)
+                outcome = await self._run_stage(job, work_dir)
+                uploaded = await self._upload(job, outcome, control, work_dir)
         except (LeaseLostError, JobApiUnauthorizedError):
             # 단계의 실패가 아니라 제어 흐름이다. 결과 봉투로 바꾸면 "이 단계가
             # 실패했다" 는 잘못된 기록이 정본에 남는다.
@@ -389,10 +407,82 @@ class JobRunner:
             versions=outcome.versions,
             metrics=outcome.metrics,
             output=outcome.output,
-            artifacts=outcome.artifacts,
+            artifacts=(*outcome.artifacts, *uploaded),
         )
 
-    async def _run_stage(self, job: JobAssignment) -> StageOutcome:
+    async def _upload(
+        self,
+        job: JobAssignment,
+        outcome: StageOutcome,
+        control: _JobControl,
+        work_dir: Path,
+    ) -> tuple[ArtifactRef, ...]:
+        """단계가 만든 파일을 올리고 그 참조를 돌려준다.
+
+        중단된 작업이면 올리지 않는다. 파일 자체는 attempt 가 접두에 들어 있어
+        (`runs/{runId}/{stage}/a{attempt}/`) 재배정된 워커의 것과 섞이지 않지만, 버릴
+        결과의 바이트를 굳이 네트워크로 보낼 이유가 없다.
+
+        **파일마다 다시 본다.** 중단은 첫 파일을 보내는 동안에도 온다 — heartbeat 는
+        별도 태스크이고 업로드마다 await 가 있으므로 그 사이에 알린다. 진입 전에 한 번만
+        보면 그 신호를 놓쳐 장면 수백 장을 끝까지 올리고, 결과는 어차피 버려지므로
+        그 전송은 전부 헛일이며 그동안 이 워커는 다음 잡을 잡지 못한다.
+        """
+        if not outcome.uploads:
+            return ()
+
+        refs: list[ArtifactRef] = []
+        for upload in outcome.uploads:
+            if control.abandoned.is_set():
+                logger.warning(
+                    "중단된 작업의 산출물 %d개를 올리지 않는다 (%s): %s/%s",
+                    len(outcome.uploads) - len(refs),
+                    control.reason,
+                    job.pipeline_run_id,
+                    job.stage,
+                )
+                return ()
+            self._check_output_key(job, upload.ref.storage_key)
+            try:
+                body = upload.local_path.read_bytes()
+            except OSError as exc:
+                # 단계가 만들었다고 보고한 파일이 없다. 반쯤 올라간 산출물로 성공을
+                # 보고하면 BE 는 keyframe 이 원래 그만큼인 줄 안다.
+                msg = redact(
+                    f"올릴 산출물을 읽지 못했다: {upload.ref.storage_key} ({exc.strerror})",
+                    media_root=self._media_root,
+                    extra=work_dir,
+                )
+                raise ArtifactUploadError(msg) from exc
+            await self._client.upload_artifact(
+                job.pipeline_run_id,
+                upload.ref.storage_key,
+                body,
+                content_type=upload.content_type,
+                content_sha256=upload.ref.content_hash,
+            )
+            # 올린 파일은 여기서 지운다. **피크를 낮추지는 못한다** — 단계가 그 클립의
+            # keyframe 전부를 쓴 뒤에야 이 반복이 시작하므로 최대 사용량은 그대로다.
+            # 줄어드는 것은 점유 시간이고, 뒤쪽 파일을 올리는 동안 앞쪽이 디스크를 잡고
+            # 있지 않게 된다. 실패해도 attempt N+1 은 새 접두를 받으므로 부작용이 없다.
+            upload.local_path.unlink(missing_ok=True)
+            refs.append(upload.ref)
+        logger.info("산출물 %d개를 올렸다: %s/%s", len(refs), job.pipeline_run_id, job.stage)
+        return tuple(refs)
+
+    @staticmethod
+    def _check_output_key(job: JobAssignment, storage_key: str) -> None:
+        """키가 배정이 준 접두 안인지 본다.
+
+        BE 도 `JOB_403_001` 로 막지만(계약 §5), 그건 첫 파일을 이미 보낸 뒤다. 워커
+        버그를 네트워크 왕복 없이 여기서 잡는다. 접두 밖 키는 재시도가 고치지 못하는
+        **워커의 문제**이므로 권한 오류가 아니라 단계 실패로 신고한다.
+        """
+        if not storage_key.startswith(job.output_key_prefix.rstrip("/") + "/"):
+            msg = f"산출물 키가 배정이 준 접두 밖이다: {storage_key} (접두 {job.output_key_prefix})"
+            raise ArtifactKeyRejectedError(msg)
+
+    async def _run_stage(self, job: JobAssignment, work_dir: Path) -> StageOutcome:
         if job.inputs.config:
             # 계약 §4.1 이 `"config": {}` 이므로 지금 오는 일이 없다. 실제로 쓰는
             # 단계가 생길 때까지는 조용히 무시하는 것보다 거절하는 편이 정직하다 —
@@ -415,6 +505,9 @@ class JobRunner:
                 stage=job.stage,
                 video_path=resolved.path,
                 storage_key=job.inputs.media.storage_key,
+                work_dir=work_dir,
+                output_key_prefix=job.output_key_prefix,
+                upstream=job.inputs.upstream,
                 params=job.inputs.config,
             )
             # 단계는 블로킹 CPU 작업이다. 스레드로 넘겨야 heartbeat 가 계속 뛴다.
