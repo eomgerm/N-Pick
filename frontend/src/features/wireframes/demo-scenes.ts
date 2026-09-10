@@ -29,6 +29,7 @@ export function getVerificationStatusLabel(status: VerificationStatus) {
 
 export interface SearchResult {
   id: number;
+  resultId: string;
   rank: number;
   displayName: string;
   title: string;
@@ -57,6 +58,7 @@ export interface SearchResult {
 export const results: SearchResult[] = [
   {
     id: 1,
+    resultId: '1',
     rank: 1,
     displayName: 'KBC 뉴스9 · 설 연휴 교통',
     title: '설 연휴 첫날, 서울역 귀성 인파',
@@ -88,6 +90,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 2,
+    resultId: '2',
     rank: 2,
     displayName: 'KBC 추석 교통특보',
     title: '경부고속도로 양방향 정체',
@@ -119,6 +122,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 3,
+    resultId: '3',
     rank: 3,
     displayName: 'KBC 뉴스특보 · 도로공사',
     title: '한국도로공사 교통상황실',
@@ -150,6 +154,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 4,
+    resultId: '4',
     rank: 4,
     displayName: 'KBC 뉴스9 · 귀성길 현장',
     title: '톨게이트로 이어지는 귀성 차량 행렬',
@@ -181,6 +186,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 5,
+    resultId: '5',
     rank: 5,
     displayName: 'KBC 추석 연휴 뉴스',
     title: '고속도로 휴게소에 몰린 이용객',
@@ -212,6 +218,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 6,
+    resultId: '6',
     rank: 6,
     displayName: 'KBC 뉴스와이드 · 연휴 이동',
     title: '고속버스터미널 승차장 대기 행렬',
@@ -243,6 +250,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 7,
+    resultId: '7',
     rank: 7,
     displayName: 'KBC 교통정보센터',
     title: '정체 구간을 안내하는 도로 전광판',
@@ -274,6 +282,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 8,
+    resultId: '8',
     rank: 8,
     displayName: 'KBC 교통 자료영상',
     title: '명절 고속도로 정체 자료화면',
@@ -305,6 +314,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 9,
+    resultId: '9',
     rank: 9,
     displayName: 'KBC 뉴스9 · 도로 통제',
     title: '사고 수습으로 통제된 고속도로 차로',
@@ -336,6 +346,7 @@ export const results: SearchResult[] = [
   },
   {
     id: 10,
+    resultId: '10',
     rank: 10,
     displayName: 'KBC 아침뉴스 · 교통 점검',
     title: '새벽 경부고속도로의 원활한 차량 흐름',
