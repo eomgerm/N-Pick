@@ -11,6 +11,10 @@ import java.util.concurrent.TimeoutException;
 /** 셸 없이 실행하고 표준출력 크기·실행 시간을 제한한다. stderr의 미디어 원문/경로는 유출하지 않는다. */
 public final class SubtitleProcess {
     public byte[] run(List<String> command, Duration timeout, int maxBytes) throws IOException, InterruptedException {
+        SubtitleLimits.requireValid(maxBytes);
+        if (timeout.isZero() || timeout.isNegative()) throw new IllegalArgumentException("양수 타임아웃이 필요합니다.");
+        long budget = timeout.toNanos();
+        long started = System.nanoTime();
         Process process = new ProcessBuilder(command)
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start();
@@ -22,8 +26,9 @@ public final class SubtitleProcess {
                 return bytes;
             });
             try {
-                byte[] bytes = output.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-                if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS) || process.exitValue() != 0) {
+                byte[] bytes = output.get(Math.max(0, budget - (System.nanoTime() - started)), TimeUnit.NANOSECONDS);
+                if (!process.waitFor(Math.max(0, budget - (System.nanoTime() - started)), TimeUnit.NANOSECONDS)
+                        || process.exitValue() != 0) {
                     throw new IOException("자막 프로세스 실행 실패");
                 }
                 return bytes;

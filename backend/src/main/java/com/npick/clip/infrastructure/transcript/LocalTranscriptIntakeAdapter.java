@@ -16,9 +16,8 @@ public final class LocalTranscriptIntakeAdapter implements TranscriptIntakePort 
     private final SubtitleParser parser;
 
     public LocalTranscriptIntakeAdapter(Path mediaRoot, int maxBytes, SubtitleParser parser) {
-        if (maxBytes <= 0 || maxBytes == Integer.MAX_VALUE) throw new IllegalArgumentException("자막 크기 제한이 필요합니다.");
         this.mediaRoot = mediaRoot;
-        this.maxBytes = maxBytes;
+        this.maxBytes = SubtitleLimits.requireValid(maxBytes);
         this.parser = parser;
     }
 

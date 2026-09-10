@@ -63,6 +63,56 @@ class TranscriptRegistrationLifecycleTest {
         assertThat(Files.readAllBytes(root.resolve(original.storageKey()))).isEqualTo(TranscriptIntakeTest.BYTES);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preservesPrimaryFailureOrReportsCleanupFailureOnSuccessfulReplay(boolean replay) throws Exception {
+        var adapter = new LocalTranscriptIntakeAdapter(root, 1024, new SubtitleParser());
+        var existing = adapter.receive(TranscriptIntakeTest.subtitle(), BigDecimal.TEN, 1);
+        existing.retain();
+        existing.close();
+        var candidate = new AtomicReference<String>();
+        var video = mock(PrepareVideoResult.class);
+        when(video.metadata()).thenReturn(new PrepareVideoResult.Metadata("mp4", BigDecimal.TEN, List.of(), List.of()));
+        var primary = new BusinessException(ClipRuntimeErrorCode.REGISTRATION_FAILED);
+        var service = new ClipUploadService(
+                () -> new ClipRegistrationContextPort.Context(1, 2, 3, "v1", List.of("transcript_selection"), false),
+                command -> video,
+                command -> {
+                    throw primary;
+                },
+                (key, actor, hash, request, create) -> {
+                    try {
+                        Files.writeString(root.resolve(candidate.get()), "외부 변경");
+                    } catch (java.io.IOException failure) {
+                        throw new java.io.UncheckedIOException(failure);
+                    }
+                    return replay ? new RegisterClipResult(1, 3, "queued") : create.get();
+                },
+                (subtitle, duration, id) -> {
+                    var intake = adapter.receive(subtitle, duration, id);
+                    candidate.set(intake.storageKey());
+                    return intake;
+                });
+        assertThatThrownBy(() -> service.upload(command())).isInstanceOfSatisfying(BusinessException.class, failure -> {
+            if (replay) {
+                assertThat(failure.errorCode())
+                        .isEqualTo(com.npick.clip.application.error.TranscriptErrorCode.CLEANUP_FAILED);
+                assertThat(failure.getSuppressed()).isEmpty();
+            } else {
+                assertThat(failure).isSameAs(primary);
+                assertThat(failure.getSuppressed())
+                        .singleElement()
+                        .isInstanceOfSatisfying(
+                                BusinessException.class,
+                                cleanup -> assertThat(cleanup.errorCode())
+                                        .isEqualTo(
+                                                com.npick.clip.application.error.TranscriptErrorCode.CLEANUP_FAILED));
+            }
+        });
+        assertThat(Files.readString(root.resolve(candidate.get()))).isEqualTo("외부 변경");
+        assertThat(Files.readAllBytes(root.resolve(existing.storageKey()))).isEqualTo(TranscriptIntakeTest.BYTES);
+    }
+
     @Test
     void scriptOnlyDoesNotInvokeSubtitleIntakeOrGenerateSceneText() {
         var video = mock(PrepareVideoResult.class);

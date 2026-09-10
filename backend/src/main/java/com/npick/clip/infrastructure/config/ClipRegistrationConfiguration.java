@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,27 +38,25 @@ import com.npick.common.persistence.TsidGenerator;
 @EnableConfigurationProperties(ClipRegistrationProperties.class)
 public class ClipRegistrationConfiguration {
     @Bean
-    TranscriptIntakePort transcriptIntakePort(
-            ClipRegistrationProperties properties,
-            @Value("${npick.clip-registration.subtitle-max-bytes:10485760}") int maxBytes) {
+    TranscriptIntakePort transcriptIntakePort(ClipRegistrationProperties properties) {
         return (subtitle, duration, clipId) -> {
             ready(properties);
-            return new LocalTranscriptIntakeAdapter(properties.mediaRoot(), maxBytes, new SubtitleParser())
+            return new LocalTranscriptIntakeAdapter(
+                            properties.mediaRoot(), properties.subtitleMaxBytes(), new SubtitleParser())
                     .receive(subtitle, duration, clipId);
         };
     }
 
     @Bean
     PrepareTranscriptInputUseCase prepareTranscriptInputUseCase(
-            ClipRegistrationProperties properties,
-            ObjectMapper mapper,
-            @Value("${npick.clip-registration.subtitle-max-bytes:10485760}") int maxBytes) {
+            ClipRegistrationProperties properties, ObjectMapper mapper) {
         return command -> {
             ready(properties);
             var parser = new SubtitleParser();
-            var extractor =
-                    new MovTextExtractor(new SubtitleProcess(), parser, mapper, properties.probeTimeout(), maxBytes);
-            return new LocalTranscriptInputPreparation(properties.mediaRoot(), maxBytes, parser, extractor, mapper)
+            var extractor = new MovTextExtractor(
+                    new SubtitleProcess(), parser, mapper, properties.probeTimeout(), properties.subtitleMaxBytes());
+            return new LocalTranscriptInputPreparation(
+                            properties.mediaRoot(), properties.subtitleMaxBytes(), parser, extractor, mapper)
                     .prepare(command);
         };
     }

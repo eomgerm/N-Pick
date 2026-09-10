@@ -32,7 +32,7 @@ public final class MovTextExtractor {
         this.parser = parser;
         this.mapper = mapper;
         this.timeout = timeout;
-        this.maxBytes = maxBytes;
+        this.maxBytes = SubtitleLimits.requireValid(maxBytes);
     }
 
     public record Extraction(List<SubtitleParser.Cue> cues, EmbeddedInspection inspection) {

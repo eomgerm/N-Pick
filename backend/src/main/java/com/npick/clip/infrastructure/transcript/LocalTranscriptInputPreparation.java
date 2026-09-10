@@ -24,7 +24,7 @@ public final class LocalTranscriptInputPreparation implements PrepareTranscriptI
     public LocalTranscriptInputPreparation(
             Path mediaRoot, int maxBytes, SubtitleParser parser, MovTextExtractor extractor, ObjectMapper mapper) {
         this.mediaRoot = mediaRoot;
-        this.maxBytes = maxBytes;
+        this.maxBytes = SubtitleLimits.requireValid(maxBytes);
         this.parser = parser;
         this.extractor = extractor;
         this.mapper = mapper;

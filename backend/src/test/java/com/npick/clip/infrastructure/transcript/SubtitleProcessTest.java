@@ -32,6 +32,16 @@ class SubtitleProcessTest {
         verifyDead(pid);
     }
 
+    @Test
+    void usesRemainingBudgetAfterDelayedOutputEof() throws Exception {
+        Path pid = root.resolve("delayed-eof.pid");
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> new SubtitleProcess().run(command("delayed-eof", pid), Duration.ofSeconds(2), 1024))
+                .isInstanceOf(IOException.class);
+        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(3));
+        verifyDead(pid);
+    }
+
     private void verifyDead(Path pid) throws Exception {
         long processId = Long.parseLong(Files.readString(pid));
         var handle = ProcessHandle.of(processId);
@@ -65,6 +75,10 @@ class SubtitleProcessTest {
                     System.out.write(new byte[4096]);
                     System.out.flush();
                 }
+            }
+            if (args[0].equals("delayed-eof")) {
+                Thread.sleep(1500);
+                System.out.close();
             }
             Thread.sleep(30000);
         }

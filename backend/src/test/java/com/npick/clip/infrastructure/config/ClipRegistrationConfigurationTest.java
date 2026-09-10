@@ -34,7 +34,7 @@ class ClipRegistrationConfigurationTest {
     void refusesMissingSettingsAfterAuthentication() {
         var beans = new StaticListableBeanFactory();
         beans.addBean("actor", (RegistrationActorPort) () -> 7);
-        var settings = new ClipRegistrationProperties(null, null, null, null, null, null, null, null);
+        var settings = new ClipRegistrationProperties(null, null, null, null, null, null, null, null, 10485760);
         var context = new ClipRegistrationConfiguration()
                 .clipRegistrationContext(settings, beans.getBeanProvider(RegistrationActorPort.class));
         assertThatThrownBy(context::requireAuthorizedContext)
@@ -71,6 +71,7 @@ class ClipRegistrationConfigurationTest {
                             context.getBean(com.npick.clip.infrastructure.config.ClipRegistrationProperties.class);
                     assertThat(settings.inputLimits().maxFileBytes()).isEqualTo(10L * 1024 * 1024 * 1024);
                     assertThat(settings.inputLimits().maxDurationSeconds()).isEqualByComparingTo("3600");
+                    assertThat(settings.subtitleMaxBytes()).isEqualTo(10485760);
                     assertThat(settings.probeTimeout()).isEqualTo(java.time.Duration.ofSeconds(60));
                     assertThat(settings.decodeTimeout()).isEqualTo(java.time.Duration.ofMinutes(30));
                     assertThat(settings.inputLimits().allowedContainers()).containsExactlyInAnyOrder("mp4", "mov");
@@ -138,6 +139,7 @@ class ClipRegistrationConfigurationTest {
                         java.util.Set.of("mp4"),
                         java.util.Set.of("h264"),
                         java.util.Set.of("aac")),
-                true);
+                true,
+                10485760);
     }
 }
