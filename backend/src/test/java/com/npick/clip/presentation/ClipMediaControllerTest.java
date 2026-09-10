@@ -6,10 +6,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -158,6 +160,36 @@ class ClipMediaControllerTest {
                 .getContentAsString();
 
         assertThat(body).doesNotContain("/srv/", "media-root", "original");
+    }
+
+    /** 전송 중 실패는 오류 Envelope 로 바뀐다. 앞서 붙인 영상용 길이·구간 헤더가 남으면 컨테이너가 JSON 본문을 그 길이에서 잘라낸다. */
+    @ParameterizedTest(name = "partial={0}")
+    @ValueSource(booleans = {true, false})
+    void dropsVideoHeadersWhenTheBodyFailsBeforeTheResponseIsCommitted(boolean partial) throws Exception {
+        int offset = partial ? 10 : 0;
+        int length = partial ? 10 : CONTENT.length;
+        when(stream.stream(any()))
+                .thenReturn(new ClipMediaStreamResult(
+                        "video/mp4", CONTENT.length, offset, length, partial, null, target -> {
+                            throw new BusinessException(ClipMediaErrorCode.MEDIA_READ_FAILED);
+                        }));
+        var request = get(URL).session(login("editor"));
+        if (partial) {
+            request.header("Range", "bytes=10-19");
+        }
+
+        MockHttpServletResponse response = mvc.perform(request)
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("CLIP_503_010"))
+                .andExpect(header().doesNotExist("Content-Range"))
+                .andReturn()
+                .getResponse();
+
+        assertThat(response.getHeader("Content-Length"))
+                .satisfiesAnyOf(
+                        declared -> assertThat(declared).isNull(),
+                        declared -> assertThat(declared)
+                                .isEqualTo(String.valueOf(response.getContentAsByteArray().length)));
     }
 
     @Test

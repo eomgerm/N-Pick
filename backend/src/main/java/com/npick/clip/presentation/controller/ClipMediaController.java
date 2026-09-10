@@ -72,6 +72,8 @@ public class ClipMediaController {
             media.body().writeTo(response.getOutputStream());
         } catch (BusinessException failure) {
             if (!response.isCommitted()) {
+                // 오류 Envelope 로 바뀐다. 영상용 길이·구간 헤더가 남으면 컨테이너가 JSON 본문을 그 길이에서 잘라낸다.
+                response.reset();
                 throw failure;
             }
             // 응답이 시작된 뒤에는 상태 코드를 바꿀 수 없다. seek 로 인한 클라이언트 중단이 대부분이다.
