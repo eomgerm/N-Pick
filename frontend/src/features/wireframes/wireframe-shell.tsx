@@ -266,6 +266,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
           keepLoading={initialParams.preview === 'loading'}
+          showSafetyNotice={false}
         />
       ) : null}
       {inquiryResult ? (

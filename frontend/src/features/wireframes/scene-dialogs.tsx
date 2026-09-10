@@ -115,6 +115,7 @@ interface ScenePreviewDialogProps {
   contextLabel?: string;
   notice?: string;
   autoPlay?: boolean;
+  showSafetyNotice?: boolean;
   onClose: () => void;
   keepLoading?: boolean;
 }
@@ -130,6 +131,7 @@ export function ScenePreviewDialog({
   contextLabel,
   notice,
   autoPlay = false,
+  showSafetyNotice = true,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
@@ -418,16 +420,18 @@ export function ScenePreviewDialog({
                 ) : null}
               </div>
               <strong>{evidenceValue}</strong>
-              <p>출처 · {evidenceSource}</p>
+              <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
           </div>
-          <div className={styles.safetyNotice}>
-            <AlertTriangle aria-hidden="true" />
-            <p>
-              <strong>송출 전 최종 확인</strong>
-              내용·최신성·권리·사용 적합성을 확인하세요.
-            </p>
-          </div>
+          {showSafetyNotice ? (
+            <div className={styles.safetyNotice}>
+              <AlertTriangle aria-hidden="true" />
+              <p>
+                <strong>송출 전 최종 확인</strong>
+                내용·최신성·권리·사용 적합성을 확인하세요.
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
     </SceneDialog>
