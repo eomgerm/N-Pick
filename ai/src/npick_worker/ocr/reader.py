@@ -60,7 +60,12 @@ def read_keyframes(
 
 
 def _default_engine(config: OcrConfig) -> OcrEngine:
-    """기본 backend. 지연 임포트로 rapidocr 비용을 호출 시점까지 미룬다."""
-    from npick_worker.ocr.rapidocr_backend import RapidOcrEngine
+    """기본 backend. 지연 임포트로 rapidocr 비용을 호출 시점까지 미룬다.
 
-    return RapidOcrEngine(config)
+    **프로세스가 공유하는 인스턴스를 받는다**(`shared_engine`). 잡마다 새로 만들면
+    ONNX 세션 생성 비용을 잡마다 내고, 그러면 기동 때 하는 워밍업이 실제로는 가중치
+    내려받기만 앞당기게 된다.
+    """
+    from npick_worker.ocr.rapidocr_backend import shared_engine
+
+    return shared_engine(config)

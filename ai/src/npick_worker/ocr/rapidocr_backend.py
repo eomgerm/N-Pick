@@ -139,6 +139,16 @@ class RapidOcrEngine:
         result: Any
         try:
             result = self._engine(str(image_path))
+        except (MemoryError, OSError):
+            # **감싸지 않고 그대로 올린다.** 이 둘은 이미지의 결함이 아니라 실행 환경의
+            # 사정이다. `OcrReadError` 로 감싸면 `jobs/registry` 가
+            # `UnsupportedMediaError` 로 옮기고 계약 §9.2 의 `UNSUPPORTED_MEDIA`(영구)가
+            # 되어 attempts 가 동결된다 — 더 큰 파드에서는 성공했을 잡이 "이 JPEG 을 열
+            # 수 없다" 로 기록되는 것이다. 그대로 올리면 `jobs/errors.classify` 가
+            # MemoryError → OUT_OF_MEMORY(재시도 가능), OSError → MEDIA_UNAVAILABLE 로
+            # 옮긴다. 깨진 이미지는 여기 오지 않는다 — rapidocr 는 그 경우
+            # `LoadImageError`(맨 Exception 하위)를 던지므로 아래 분기가 받는다.
+            raise
         except Exception as exc:
             msg = f"이미지를 읽지 못했다: {image_path.name}"
             raise OcrReadError(msg) from exc
@@ -156,3 +166,30 @@ class RapidOcrEngine:
             )
             for index, text in enumerate(result.txts)
         )
+
+
+@lru_cache(maxsize=1)
+def shared_engine(config: OcrConfig) -> RapidOcrEngine:
+    """프로세스 하나에 엔진 하나. **엔진이 필요한 곳은 전부 이것을 쓴다.**
+
+    det+rec ONNX 세션 생성이 실측 0.4초(개발 장비)~15초(22코어 CPU, 폴링 부하 시)다.
+    가중치가 캐시돼 있어도 세션은 매번 새로 만들어지므로, 캐시하지 않으면 부르는 쪽마다
+    그 비용을 낸다 — 잡마다
+    (`reader._default_engine`), 그리고 claim long-poll 한 바퀴마다
+    (`jobs/registry._declared_version`). 뒤엣것은 OCR 잡을 한 건도 받지 않는 워커도
+    영구히 내고, 동기 호출이라 이벤트 루프를 그대로 막는다.
+
+    캐시가 있어야 `jobs/registry._warm_ocr` 의 "모델을 미리 올린다" 가 성립한다. 그것이
+    만든 인스턴스를 첫 잡이 그대로 받기 때문이다. 캐시가 없으면 워밍업으로 앞당겨지는
+    것은 가중치 내려받기뿐이고 세션 생성은 모든 잡이 낸다.
+
+    **실패는 캐시되지 않는다**(`lru_cache` 의 동작). 가중치를 준비하지 못한 워커는 다음
+    호출에서 다시 시도하고, 그동안 `capability_versions` 가 ocr 를 목록에서 뺀다.
+
+    `maxsize=1`: 워커는 동봉 설정 하나로만 돈다. 임계값 실험이 다른 설정을 주면 새로
+    만들고 앞엣것을 버린다 — 느릴 뿐 틀리지 않는다.
+
+    **공유 인스턴스다.** `maxConcurrentStages=1` 이고 `read_keyframes` 가 동기라 지금은
+    한 번에 하나만 쓴다. 동시 실행을 열 때 rapidocr 세션의 스레드 안전성을 먼저 확인할 것.
+    """
+    return RapidOcrEngine(config)

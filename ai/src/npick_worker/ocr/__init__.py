@@ -44,6 +44,7 @@ from npick_worker.ocr.rapidocr_backend import (
     OcrModelUnavailableError,
     OcrReadError,
     RapidOcrEngine,
+    shared_engine,
 )
 from npick_worker.ocr.reader import read_keyframes
 
@@ -64,6 +65,7 @@ __all__ = [
     "get_default_config",
     "load_config",
     "read_keyframes",
+    "shared_engine",
     "text_key",
     "to_observations",
 ]

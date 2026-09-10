@@ -183,6 +183,37 @@ def test_capability_versions_cover_exactly_the_implemented_stages() -> None:
     assert set(capability_versions()) == set(HANDLERS)
 
 
+def test_capability_versions_do_not_build_an_ocr_engine_per_poll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """이 함수는 claim long-poll 한 바퀴마다, 그리고 실패마다 불린다.
+
+    `runner._claim_request` 와 `runner._failure_versions` 가 호출부다. 여기서 엔진을
+    새로 만들면 ONNX 세션 생성 비용을 폴링 주기로 내고, 동기 호출이라 이벤트 루프가
+    그동안 멈춘다 — OCR 잡을 한 건도 받지 않는 워커도 그 비용을 영구히 낸다.
+    선언에 쓰는 값(`name` 은 상수, `version` 은 importlib.metadata)은 인스턴스와
+    무관하므로 두 번째 호출부터는 만들 이유가 없다.
+    """
+    from npick_worker.ocr import rapidocr_backend
+
+    built = [0]
+
+    class _Counted:
+        name = "rapidocr"
+        version = "counted"
+
+        def __init__(self, config: object | None = None) -> None:
+            built[0] += 1
+
+    monkeypatch.setattr(rapidocr_backend, "RapidOcrEngine", _Counted)
+    rapidocr_backend.shared_engine.cache_clear()
+    try:
+        assert capability_versions()["ocr"] == capability_versions()["ocr"]
+        assert built[0] == 1
+    finally:
+        rapidocr_backend.shared_engine.cache_clear()
+
+
 def test_capability_version_matches_what_the_run_reports(
     make_video: object, tmp_path: Path
 ) -> None:

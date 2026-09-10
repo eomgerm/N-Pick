@@ -6,11 +6,13 @@
 검증하는 것과 같은 판단).
 """
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from npick_worker import korean_tokens
+from npick_worker.jobs.errors import classify
 from npick_worker.ocr import (
     BoundingBox,
     KeyframeRef,
@@ -369,3 +371,125 @@ def test_real_engine_does_not_shrink_a_4k_frame() -> None:
     # 하는가** 라 우리 타입만 봐서는 확인할 수 없다.
     prepared, _ = engine._engine.preprocess_img(frame)
     assert prepared.shape == frame.shape
+
+
+# ── 엔진 재사용 ─────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def engine_build_count(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[int]]:
+    """`RapidOcrEngine` 을 몇 번 만들었는지 센다. 진짜 모델은 올리지 않는다."""
+    from npick_worker.ocr import rapidocr_backend
+
+    count = [0]
+
+    class _Counted:
+        name = "rapidocr"
+        version = "counted"
+
+        def __init__(self, config: OcrConfig | None = None) -> None:
+            count[0] += 1
+
+        def read(self, image_path: Path) -> tuple[TextDetection, ...]:
+            return ()
+
+    monkeypatch.setattr(rapidocr_backend, "RapidOcrEngine", _Counted)
+    rapidocr_backend.shared_engine.cache_clear()
+    yield count
+    rapidocr_backend.shared_engine.cache_clear()
+
+
+def test_shared_engine_builds_once_per_process(engine_build_count: list[int]) -> None:
+    """세션 생성은 비싸고 인스턴스는 상태가 없다. 한 번만 만든다."""
+    from npick_worker.ocr import rapidocr_backend
+
+    config = get_default_config()
+    first = rapidocr_backend.shared_engine(config)
+    second = rapidocr_backend.shared_engine(config)
+
+    assert first is second
+    assert engine_build_count[0] == 1
+
+
+def test_read_keyframes_does_not_build_an_engine_per_job(engine_build_count: list[int]) -> None:
+    """잡마다 엔진을 만들면 워밍업이 앞당기는 것이 가중치 내려받기뿐이 된다."""
+    read_keyframes([], {})
+    read_keyframes([], {})
+
+    assert engine_build_count[0] == 1
+
+
+def test_a_failed_build_is_not_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """가중치를 못 받은 워커가 영원히 못 받는 워커가 되면 안 된다.
+
+    `capability_versions` 가 ocr 를 빼는 근거가 "지금 만들어 보니 실패한다" 이므로,
+    실패를 캐시하면 캐시 볼륨이 늦게 붙은 워커가 되살아나지 못한다.
+    """
+    from npick_worker.ocr import rapidocr_backend
+
+    attempts = [0]
+
+    def _fail_once(config: OcrConfig | None = None) -> object:
+        attempts[0] += 1
+        if attempts[0] == 1:
+            raise rapidocr_backend.OcrModelUnavailableError("가중치 없음")
+        return object()
+
+    monkeypatch.setattr(rapidocr_backend, "RapidOcrEngine", _fail_once)
+    rapidocr_backend.shared_engine.cache_clear()
+    try:
+        with pytest.raises(rapidocr_backend.OcrModelUnavailableError):
+            rapidocr_backend.shared_engine(get_default_config())
+        assert rapidocr_backend.shared_engine(get_default_config()) is not None
+        assert attempts[0] == 2
+    finally:
+        rapidocr_backend.shared_engine.cache_clear()
+
+
+# ── 실패 분류 (계약 §9.2) ───────────────────────────────────────────
+
+
+def _engine_raising(exc: BaseException) -> object:
+    """모델을 올리지 않고 `read()` 만 시험한다. 생성자는 진짜 세션을 만들기 때문이다."""
+    from npick_worker.ocr.rapidocr_backend import RapidOcrEngine
+
+    def _raise(_: str) -> None:
+        raise exc
+
+    engine = object.__new__(RapidOcrEngine)
+    # 진짜 `RapidOCR` 자리에 던지는 것을 끼운다. 타입은 다르지만 `read()` 가 부르는
+    # 것은 `__call__` 하나다.
+    engine._engine = _raise  # type: ignore[assignment]
+    return engine
+
+
+@pytest.mark.parametrize("exc", [MemoryError(), OSError("입출력 오류")])
+def test_environment_failures_are_not_disguised_as_a_broken_image(exc: BaseException) -> None:
+    """`OcrReadError` 로 감싸면 `UNSUPPORTED_MEDIA`(영구)가 되어 attempts 가 동결된다.
+
+    작은 파드에서 난 OOM 은 더 큰 워커에서 성공할 수 있는 잡이다. 그대로 올려야
+    `jobs/errors.classify` 가 재시도 가능한 코드로 옮긴다.
+    """
+    from npick_worker.ocr import OcrReadError
+
+    engine = _engine_raising(exc)
+    with pytest.raises(type(exc)):
+        engine.read(Path("kf.jpg"))  # type: ignore[attr-defined]
+
+    code, retryable = classify(exc, "ocr")
+    assert (code, retryable) != ("UNSUPPORTED_MEDIA", False)
+    assert retryable is True
+    # 감쌌다면 이 단언이 깨진다.
+    assert not isinstance(exc, OcrReadError)
+
+
+def test_an_unreadable_image_is_still_a_permanent_failure() -> None:
+    """되던지기가 "깨진 JPEG" 까지 통과시키면 안 된다.
+
+    rapidocr 는 열 수 없는 파일에 `LoadImageError`(맨 `Exception` 하위)를 던진다.
+    """
+    from npick_worker.ocr import OcrReadError
+
+    engine = _engine_raising(ValueError("cannot identify image file"))
+    with pytest.raises(OcrReadError):
+        engine.read(Path("kf.jpg"))  # type: ignore[attr-defined]

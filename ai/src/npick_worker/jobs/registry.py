@@ -430,11 +430,16 @@ def _warm_ocr() -> str:
     이 단계는 앞의 둘과 달리 **가중치를 쓴다.** 첫 잡에서 모델을 내려받으면 그 시간이
     통째로 그 잡의 처리 시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다.
     기동 때 하면 `/health` 로 드러난다.
+
+    `shared_engine` 으로 만드는 것이 요점이다. 여기서 만들고 버리면 앞당겨지는 것이
+    가중치 내려받기뿐이고, ONNX 세션 생성 비용은 첫 잡이 아니라 **모든 잡이** 낸다.
+    캐시된 인스턴스를 잡과 `_declared_version` 이 그대로 받아야 이 docstring 이
+    사실이 된다.
     """
-    from npick_worker.ocr import RapidOcrEngine, get_default_config
+    from npick_worker.ocr import get_default_config, shared_engine
 
     config = get_default_config()
-    engine = RapidOcrEngine(config)
+    engine = shared_engine(config)
     return f"config={config.version_id} engine={engine.name} {engine.version}"
 
 
@@ -628,16 +633,21 @@ def _declared_version(stage: str) -> str:
         )
     if stage == "ocr":
         from npick_worker import korean_tokens
-        from npick_worker.ocr import RapidOcrEngine
         from npick_worker.ocr import get_default_config as get_ocr_config
+        from npick_worker.ocr import shared_engine
 
         ocr_config = get_ocr_config()
-        # **엔진을 만든다.** 앞의 두 단계는 버전을 물어보는 데 비용이 없지만 이 단계는
-        # 모델을 올려야 버전을 안다. `_warm_ocr` 이 이미 만들어 뒀다면 rapidocr 가
-        # 캐시된 가중치를 다시 읽을 뿐이고, 워밍업이 실패한 워커라면 여기서도 실패해
-        # `capability_versions` 가 ocr 를 목록에서 뺀다 — 배정받지 못하는 편이
-        # 배정받아 매번 죽는 것보다 낫다.
-        ocr_engine = RapidOcrEngine(ocr_config)
+        # **엔진을 만들어 본다.** 여기서 읽는 값(`name` 은 상수, `version` 은
+        # importlib.metadata)은 인스턴스와 무관하지만, 가중치를 준비하지 못한 워커가
+        # 여기서 걸려 `capability_versions` 가 ocr 를 목록에서 빼야 한다 — 배정받지
+        # 못하는 편이 배정받아 매번 죽는 것보다 낫다.
+        #
+        # **반드시 `shared_engine` 이어야 한다.** 이 함수는 claim long-poll 한 바퀴마다
+        # (`runner._claim_request`), 그리고 실패마다(`runner._failure_versions`) 불린다.
+        # 매번 새로 만들면 ONNX 세션 생성 비용을 그 주기로 내고, 동기 호출이라 그동안
+        # 이벤트 루프가 멈춘다(실패 경로에서는 lease 를 든 채 heartbeat 가 못 뛴다).
+        # 캐시는 성공만 담으므로 위의 "실패하면 목록에서 뺀다" 는 그대로 산다.
+        ocr_engine = shared_engine(ocr_config)
         return stage_version(
             stage,
             _ocr_identity(
