@@ -508,6 +508,50 @@ class ParseRulePolicyTest {
         assertThat(removed.resolution().dateWindows()).isEmpty();
     }
 
+    @Test
+    @DisplayName("인물 항목을 사건명으로 옮긴다")
+    void movesAnEntityToTheIncidentName() {
+        // F-11 예시의 변형. entities 축은 유형이 필수라 유형 대조까지 함께 지난다.
+        QueryResolution original = new QueryResolution(
+                SCHEMA,
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(),
+                List.of(new QueryResolution.Entity(
+                        QueryResolution.EntityType.ORGANIZATION,
+                        "○○청 화재",
+                        QueryResolution.Origin.EXPLICIT_QUERY,
+                        span(0, 6),
+                        0.9)),
+                List.of(),
+                List.of(),
+                List.of(),
+                0.8);
+
+        ParseRule move = rule(
+                10L,
+                List.of(new ParseRule.Condition.Predicate(
+                        ResolutionAxis.ENTITIES, ParseRule.Condition.Op.HAS_TYPE, "organization", null)),
+                List.of(
+                        operation(ParseRule.Patch.Op.REMOVE_ITEM, ResolutionAxis.ENTITIES, "organization", "○○청 화재"),
+                        new ParseRule.Patch.Operation(
+                                ParseRule.Patch.Op.ADD_ITEM,
+                                ResolutionAxis.INCIDENT_NAMES,
+                                new ParseRule.Patch.Target(null, null, null, null),
+                                new ParseRule.Patch.ValueRef(ResolutionAxis.ENTITIES, "organization", "○○청 화재"))));
+
+        ParseRulePolicy.Result result = policy.apply(original, List.of(move));
+
+        assertThat(result.outcomes().getFirst().status()).isEqualTo(ParseRuleOutcome.Status.APPLIED);
+        assertThat(result.resolution().entities()).isEmpty();
+        assertThat(result.resolution().incidentNames()).singleElement().satisfies(name -> {
+            assertThat(name.value()).isEqualTo("○○청 화재");
+            // 원본 항목의 값을 옮긴 것이므로 출처와 원문 구간을 승계한다 (F-05).
+            assertThat(name.origin()).isEqualTo(QueryResolution.Origin.EXPLICIT_QUERY);
+            assertThat(name.querySpan()).isEqualTo(span(0, 6));
+        });
+    }
+
     // ── 성립할 수 없는 규칙은 조건 불일치로 위장되지 않는다 ─────────────────
 
     @Test

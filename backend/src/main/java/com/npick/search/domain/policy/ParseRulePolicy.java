@@ -185,10 +185,15 @@ public final class ParseRulePolicy {
             String writeKey,
             String effect) {}
 
-    /** 규칙을 적용할 수 없다. 조건 불일치가 아니라 규칙 쪽 문제이므로 {@code failed} 로 기록한다. */
+    /**
+     * 규칙을 적용할 수 없다. 조건 불일치가 아니라 규칙 쪽 문제이므로 {@code failed} 로 기록한다.
+     *
+     * <p>예외인 이유는 연산 해석이 중첩 호출이라 중간에서 빠져나올 길이 필요하기 때문이다. 오류 상황이 아니라 <b>제어 흐름</b>이므로 스택트레이스를 만들지 않는다 — 사유 문장만
+     * {@code applied_rules_json} 에 들어가고 추적할 코드 경로는 없다.
+     */
     private static final class UnapplicableRule extends RuntimeException {
         UnapplicableRule(String message) {
-            super(message);
+            super(message, null, false, false);
         }
     }
 
