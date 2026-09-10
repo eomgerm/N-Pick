@@ -1,27 +1,36 @@
 .shell,
 .dialogTheme {
-  --accent: #f94239;
-  --accent-strong: #ea2013;
-  --accent-soft: #fff5f5;
-  --secondary: #1d8bff;
-  --secondary-soft: #e3f0ff;
-  --background: #fafafa;
+  --accent: #f5307e;
+  --accent-strong: #c81e63;
+  --accent-soft: #fdeef4;
+  --secondary: #2e2a26;
+  --secondary-soft: #f1ece4;
+  --background: #efeae3;
   --surface: #ffffff;
-  --surface-subtle: #f5f5f5;
-  --text: #222222;
-  --muted: #707070;
-  --subtle: #999999;
-  --line: #e6e6e6;
-  --success: #00a981;
-  --warning: #a46500;
-  --warning-soft: #fff4d8;
-  --radius-card: 20px;
-  --radius-control: 12px;
-  --radius-small: 8px;
-  --shadow: 0 12px 30px rgb(34 34 34 / 8%);
+  --surface-subtle: #f4f0ea;
+  --text: #2a2521;
+  --muted: #5f574e;
+  --subtle: #6d645a;
+  --line: #e4ded4;
+  --success: #2f7d62;
+  --warning: #9a6b2f;
+  --warning-soft: #fbf1e2;
+  --glass: rgb(255 255 255 / 66%);
+  --glass-strong: rgb(255 255 255 / 84%);
+  --glass-line: rgb(255 255 255 / 74%);
+  --radius-card: 24px;
+  --radius-control: 14px;
+  --radius-small: 10px;
+  --shadow: 0 18px 44px rgb(74 56 40 / 10%);
   background: var(--background);
   color: var(--text);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Apple SD Gothic Neo',
+    'Noto Sans KR',
+    sans-serif;
   letter-spacing: 0;
 }
 
@@ -31,26 +40,32 @@
 
 .shell[data-theme='shinhan'],
 .dialogTheme[data-theme='shinhan'] {
-  --accent: #0471e9;
-  --accent-strong: #1749c7;
-  --accent-soft: #eef6ff;
-  --secondary: #1f2473;
-  --secondary-soft: #ededff;
-  --background: #f6f8fb;
+  --accent: #f5307e;
+  --accent-strong: #c81e63;
+  --accent-soft: #fdeef4;
+  --secondary: #2e2a26;
+  --secondary-soft: #f1ece4;
+  --background: #efeae3;
   --surface: #ffffff;
-  --surface-subtle: #f4f6f9;
-  --text: #191919;
-  --muted: #5d6470;
-  --subtle: #8d939d;
-  --line: #dfe3e8;
-  --success: #00866d;
-  --warning: #8a5b00;
-  --warning-soft: #fff7df;
-  --radius-card: 8px;
-  --radius-control: 6px;
-  --radius-small: 4px;
-  --shadow: 0 8px 22px rgb(16 40 90 / 8%);
-  font-family: 'DM Sans', 'Segoe UI', Arial, sans-serif;
+  --surface-subtle: #f4f0ea;
+  --text: #26211d;
+  --muted: #5f574e;
+  --subtle: #6d645a;
+  --line: #e4ded4;
+  --success: #2f7d62;
+  --warning: #9a6b2f;
+  --warning-soft: #fbf1e2;
+  --radius-card: 26px;
+  --radius-control: 16px;
+  --radius-small: 12px;
+  --shadow: 0 20px 50px rgb(74 56 40 / 11%);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Apple SD Gothic Neo',
+    'Noto Sans KR',
+    sans-serif;
 }
 
 .appHeader {
@@ -202,6 +217,8 @@
 
 .filterRail {
   position: sticky;
+  /* 기간 선택 드롭다운이 결과 카드 위에 그려지도록 레일을 한 단 올립니다. */
+  z-index: 4;
   top: 100px;
   grid-area: rail;
   min-width: 0;
@@ -222,53 +239,6 @@
   width: 18px;
 }
 
-.filterGroup {
-  display: grid;
-  gap: 12px;
-  margin: 0;
-  padding: 22px 0;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.filterGroup legend {
-  margin-bottom: 14px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.filterGroup label {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.filterGroup input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-.railNote {
-  display: flex;
-  gap: 8px;
-  margin-top: 20px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.railNote svg {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 auto;
-  color: var(--success);
-}
-
 .mainContent {
   min-width: 0;
   grid-area: main;
@@ -278,37 +248,8 @@
   padding: 18px 0 28px;
 }
 
-.titleBlock {
-  max-width: 760px;
-}
-
-.eyebrow {
-  margin: 0 0 10px;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0;
-}
-
-.titleBlock h1 {
-  max-width: 720px;
-  margin: 0;
-  font-size: clamp(30px, 3.2vw, 46px);
-  line-height: 1.18;
-}
-
-.titleBlock > p:last-child {
-  margin: 13px 0 0;
-  color: var(--muted);
-  font-size: 15px;
-  line-height: 1.65;
-}
-
 .searchForm {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 9px;
-  margin-top: 26px;
+  display: block;
 }
 
 .searchField {
@@ -317,7 +258,7 @@
   height: 56px;
   align-items: center;
   gap: 12px;
-  padding: 0 18px;
+  padding: 0 8px 0 18px;
   border: 2px solid var(--text);
   border-radius: var(--radius-control);
   background: var(--surface);
@@ -328,7 +269,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-.searchField svg {
+.searchFieldIcon {
   width: 21px;
   height: 21px;
   flex: 0 0 auto;
@@ -350,8 +291,9 @@
 
 .searchButton {
   display: inline-flex;
-  min-width: 96px;
-  height: 56px;
+  min-width: 88px;
+  height: 44px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   gap: 8px;
@@ -1073,57 +1015,69 @@
   box-shadow: 0 28px 90px rgb(0 0 0 / 34%);
 }
 
-.previewModalHeader {
+.previewDetailsHeading {
   display: flex;
-  min-height: 88px;
-  align-items: flex-start;
+  min-height: 32px;
+  align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--line);
+  gap: 12px;
 }
 
-.previewModalHeader > div {
-  min-width: 0;
-}
-
-.previewModalHeader span {
+.previewContextLabel {
+  display: block;
+  margin-top: 12px;
   color: var(--accent);
   font-size: 9px;
   font-weight: 900;
 }
 
-.previewModalHeader h2 {
-  margin: 5px 0 0;
-  font-size: 21px;
+.previewSceneTitle {
+  margin: 10px 0 0;
+  font-size: 18px;
   line-height: 1.35;
 }
 
-.previewModalHeader p {
+.previewSceneClip {
   overflow: hidden;
-  margin: 4px 0 0;
+  margin: 5px 0 0;
   color: var(--subtle);
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.previewHeaderActions {
+.previewNotice {
+  margin: 6px 0 0;
+  color: var(--subtle);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.previewDetailsActions {
   display: flex;
+  margin: 0 16px 16px;
+}
+
+.previewDetailsActions .previewReportButton {
+  width: 100%;
+}
+
+.previewCloseButton {
   flex: 0 0 auto;
-  align-items: center;
-  gap: 7px;
+  margin-right: -8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.previewCloseButton:hover {
+  background: none;
+  color: var(--text);
 }
 
 .previewModalBody {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(250px, 0.75fr);
-}
-
-.previewModalHeader .previewNotice {
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
 }
 
 .previewPlayer {
@@ -1261,9 +1215,9 @@
 }
 
 .sceneBrowser {
-  margin: 0 16px 18px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--line);
+  margin: 4px 16px 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 
 .sceneBrowserHeading,
@@ -1442,21 +1396,11 @@
   padding: 16px;
 }
 
-.previewDetails > p {
+.previewDetailsHeading > p {
   margin: 0;
   font-size: 16px;
   font-weight: 800;
   line-height: 1.45;
-}
-
-.previewDetails > span {
-  display: block;
-  overflow: hidden;
-  margin-top: 5px;
-  color: var(--subtle);
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .previewDetails dl {
@@ -1785,13 +1729,9 @@
 }
 
 .shell[data-theme='shinhan'] .searchIntro {
-  margin: -32px -28px 0;
-  padding: 42px 28px 30px;
-  background: var(--surface);
-}
-
-.shell[data-theme='shinhan'] .titleBlock h1 {
-  font-size: clamp(30px, 2.7vw, 40px);
+  margin: 0;
+  padding: 20px 0 26px;
+  background: transparent;
 }
 
 .shell[data-theme='shinhan'] .searchField {
@@ -1819,6 +1759,354 @@
 .shell[data-theme='shinhan'] .workspace.workspaceNoPreview {
   grid-template-areas: 'rail main';
   grid-template-columns: 220px minmax(640px, 1fr);
+}
+
+/* Soft glass tone — 따뜻한 뉴트럴 배경 + 반투명 유리 패널 + 차콜 대비 + 핑크 포인트 */
+.shell {
+  /* 사진 배경이 비치도록 반투명하게 덮습니다. */
+  background:
+    radial-gradient(1100px 620px at 82% -14%, rgb(255 250 243 / 46%), transparent 62%),
+    radial-gradient(900px 540px at 2% 0%, rgb(246 239 230 / 42%), transparent 58%),
+    rgb(239 234 227 / 40%);
+}
+
+.shell > header {
+  background: color-mix(in srgb, var(--secondary) 93%, transparent);
+  box-shadow: 0 12px 34px rgb(46 38 30 / 12%);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.shell[data-theme='shinhan'] .searchIntro {
+  border-bottom: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.searchField {
+  height: 62px;
+  padding: 0 8px 0 22px;
+  border-width: 1px;
+  border-color: var(--line);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  box-shadow: 0 10px 26px rgb(74 56 40 / 6%);
+  backdrop-filter: blur(16px);
+}
+
+.shell[data-theme='shinhan'] .searchField {
+  border-width: 1px;
+  border-color: var(--line);
+}
+
+.searchField:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.searchButton {
+  height: 46px;
+  min-width: 104px;
+  border-radius: 999px;
+  background: var(--secondary);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 8px 18px rgb(46 38 30 / 18%);
+}
+
+.searchButton:hover {
+  background: color-mix(in srgb, var(--secondary) 86%, var(--accent));
+}
+
+.filterRail {
+  /* 검색바 하단선에 상단을 맞춥니다: .searchIntro 상단 패딩 20px + .searchField 높이 62px */
+  margin-top: 82px;
+  padding: 22px 20px 2px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius-card);
+  background: var(--glass);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px) saturate(1.1);
+}
+
+.railHeading {
+  font-weight: 600;
+}
+
+.resolution {
+  border-color: var(--line);
+  border-radius: var(--radius-control);
+  background: var(--glass);
+  backdrop-filter: blur(18px);
+}
+
+.shell[data-theme='shinhan'] .resolution {
+  border-left: 3px solid var(--accent);
+}
+
+.resolutionIcon {
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--secondary);
+}
+
+.resolutionTokens span {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.resultsHeading h2 {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.sortControl select {
+  height: 38px;
+  padding: 0 34px 0 15px;
+  border-color: var(--line);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+}
+
+.sortControl select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  color: var(--text);
+}
+
+.sortControl svg {
+  color: var(--muted);
+  transition: transform 140ms;
+}
+
+/*
+ * 네이티브 select 팝업은 OS가 그려서 톤을 맞출 수 없다.
+ * base-select는 키보드 조작과 accessible name을 그대로 둔 채 팝업까지 CSS로 그리게 해준다.
+ * 미지원 브라우저는 위의 닫힌 상태 스타일 + 기본 팝업으로 자연스럽게 폴백된다.
+ */
+@supports (appearance: base-select) {
+  .sortControl select,
+  .sortControl select::picker(select) {
+    appearance: base-select;
+  }
+
+  /* base-select 버튼은 기본 정렬이 달라 라벨이 위로 붙는다. */
+  .sortControl select {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* 기존 ChevronDown 아이콘을 계속 쓰므로 내장 아이콘은 숨긴다. */
+  .sortControl select::picker-icon {
+    display: none;
+  }
+
+  .sortControl select:open + svg {
+    transform: translateY(-50%) rotate(180deg);
+  }
+
+  .sortControl select::picker(select) {
+    /* 컨트롤이 본문 오른쪽 끝에 있어, 넘치지 않도록 오른쪽 모서리를 기준으로 편다. */
+    position-area: bottom span-left;
+    min-width: anchor-size(width);
+    margin-top: 8px;
+    padding: 6px;
+    border: 1px solid var(--glass-line);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(20px) saturate(1.1);
+    opacity: 0;
+    translate: 0 -6px;
+    transition:
+      opacity 140ms,
+      translate 140ms,
+      overlay 140ms allow-discrete,
+      display 140ms allow-discrete;
+  }
+
+  .sortControl select:open::picker(select) {
+    opacity: 1;
+    translate: 0 0;
+  }
+
+  @starting-style {
+    .sortControl select:open::picker(select) {
+      opacity: 0;
+      translate: 0 -6px;
+    }
+  }
+
+  .sortControl option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: var(--radius-small);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .sortControl option:hover,
+  .sortControl option:focus {
+    background: var(--surface-subtle);
+    color: var(--text);
+    outline: 0;
+  }
+
+  .sortControl option:checked {
+    color: var(--text);
+  }
+
+  /* 선택 상태는 색만이 아니라 체크 표시로도 구분된다. */
+  .sortControl option::checkmark {
+    order: 1;
+    margin-left: auto;
+    color: var(--accent);
+    content: '\2713';
+  }
+}
+
+.resultsGrid {
+  gap: 18px;
+}
+
+.resultCard,
+.shell[data-theme='shinhan'] .resultCard {
+  border-color: var(--glass-line);
+  background: var(--glass-strong);
+  box-shadow: 0 14px 34px rgb(74 56 40 / 8%);
+  backdrop-filter: blur(18px);
+}
+
+.resultCard:hover,
+.shell[data-theme='shinhan'] .resultCard:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--glass-line));
+  box-shadow: 0 24px 48px rgb(74 56 40 / 13%);
+}
+
+.selectedCard,
+.shell[data-theme='shinhan'] .selectedCard {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--glass-line));
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 24px 52px rgb(74 56 40 / 14%);
+}
+
+.thumbnail,
+.previewMedia {
+  background-color: #2e2a26;
+}
+
+.rank {
+  background: rgb(255 255 255 / 88%);
+  backdrop-filter: blur(6px);
+}
+
+.playButton,
+.previewPlay {
+  border-color: rgb(255 255 255 / 45%);
+  background: rgb(46 42 38 / 52%);
+}
+
+.cardBody {
+  padding: 16px 18px 18px;
+}
+
+.cardTitle {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.score {
+  padding: 0 10px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.keywordChip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.previewPane {
+  border-color: var(--glass-line);
+  background: var(--glass-strong);
+  backdrop-filter: blur(20px);
+}
+
+.previewModal {
+  border-color: var(--glass-line);
+  border-radius: var(--radius-card);
+  box-shadow: 0 40px 90px rgb(46 38 30 / 26%);
+}
+
+.dialog::backdrop {
+  background: rgb(46 38 30 / 42%);
+  backdrop-filter: blur(6px);
+}
+
+.modal {
+  border-radius: var(--radius-card);
+  box-shadow: 0 34px 74px rgb(46 38 30 / 22%);
+}
+
+.modalHeader h2,
+.previewSceneTitle {
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.modalHeader span,
+.previewContextLabel,
+.previewHeader span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.modalActions button {
+  min-height: 44px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.modalActions .submitInquiry {
+  border-color: var(--secondary);
+  background: var(--secondary);
+  color: #ffffff;
+}
+
+.previewControls .playbackButton {
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.sceneNavigation button,
+.previewReportButton {
+  border-radius: 999px;
+  border-color: var(--line);
+}
+
+.inquiryStatus[data-status='resolved'] {
+  background: #e9f2ec;
+  color: #2f7d62;
+}
+
+.timelinePanel,
+.inquiryResolution,
+.previewEvidence {
+  border-color: var(--line);
+  border-radius: var(--radius-control);
 }
 
 @media (max-width: 1320px) {
@@ -1860,6 +2148,7 @@
   .filterRail {
     position: static;
     display: grid;
+    margin-top: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 16px;
     padding: 0 0 24px;
@@ -1867,15 +2156,8 @@
     border-bottom: 1px solid var(--line);
   }
 
-  .railHeading,
-  .filterGroup,
-  .railNote {
+  .railHeading {
     grid-column: 1 / -1;
-  }
-
-  .filterGroup {
-    display: flex;
-    flex-wrap: wrap;
   }
 
   .shell[data-theme='shinhan'] .appHeader {
@@ -1883,8 +2165,8 @@
   }
 
   .shell[data-theme='shinhan'] .searchIntro {
-    margin: -24px -20px 0;
-    padding: 34px 20px 26px;
+    margin: 0;
+    padding: 16px 0 24px;
   }
 
   .shell[data-theme='shinhan'] .workspace.workspaceNoPreview {
@@ -1918,26 +2200,17 @@
   }
 
   .shell[data-theme='shinhan'] .searchIntro {
-    margin: -18px -14px 0;
-    padding: 26px 14px;
-  }
-
-  .titleBlock h1 {
-    font-size: 29px;
-    line-height: 1.18;
-  }
-
-  .searchForm {
-    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 14px 0 22px;
   }
 
   .searchField {
-    grid-column: 1 / -1;
+    padding-left: 16px;
   }
 
   .searchButton {
-    width: 100%;
     min-width: 0;
+    padding: 0 14px;
   }
 
   .resolution {
@@ -1979,13 +2252,8 @@
     max-height: calc(100vh - 20px);
   }
 
-  .previewModalHeader {
-    min-height: 80px;
-    padding: 15px 16px;
-  }
-
-  .previewModalHeader h2 {
-    font-size: 18px;
+  .previewSceneTitle {
+    font-size: 17px;
   }
 
   .previewModalBody {
@@ -2008,6 +2276,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .sortControl svg {
+    transition: none;
+  }
+
+  @supports (appearance: base-select) {
+    .sortControl select::picker(select) {
+      transition: none;
+    }
+  }
+
   .resultCard,
   .keyframe,
   .playingBadge > span,
@@ -2032,5 +2310,12 @@
 
   .timelinePlayhead {
     left: calc(100% - 3px);
+  }
+}
+
+@media (max-width: 980px) {
+  .filterRail {
+    padding: 18px 18px 0;
+    border: 1px solid var(--glass-line);
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
-import { ChevronUp, Clock3, History, MessageSquareText } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { ArrowLeft, ArrowRight, Clock3, History, MessageSquareText } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import { results } from '@/features/wireframes/demo-scenes';
 import {
@@ -91,107 +91,96 @@ const statusLabels: Record<InquiryStatus, string> = {
   resolved: '완료',
 };
 
-interface HistorySheetProps {
+// 펼친 시트에서 기록을 시기별로 묶어 보여 줍니다.
+function groupByRecency(items: HistoryItem[]) {
+  return [
+    { label: '오늘', items: items.filter(({ daysAgo }) => daysAgo === 0) },
+    { label: '이번 주', items: items.filter(({ daysAgo }) => daysAgo > 0 && daysAgo <= 7) },
+    { label: '지난 기록', items: items.filter(({ daysAgo }) => daysAgo > 7) },
+  ].filter((group) => group.items.length > 0);
+}
+
+interface HistorySectionProps {
   kind: HistoryKind;
   title: string;
   items: HistoryItem[];
-  isExpanded: boolean;
-  onToggle: () => void;
   onSelect: (item: HistoryItem) => void;
 }
 
-function HistorySheet({ kind, title, items, isExpanded, onToggle, onSelect }: HistorySheetProps) {
-  const toggleRef = useRef<HTMLButtonElement>(null);
-
+function HistorySection({ kind, title, items, onSelect }: HistorySectionProps) {
   return (
-    <section
-      aria-labelledby={`${kind}-history-title`}
-      className={styles.sheet}
-      data-expanded={isExpanded}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape' && isExpanded) {
-          onToggle();
-          toggleRef.current?.focus();
-        }
-      }}
-    >
-      <span aria-hidden="true" className={styles.handle} />
-      <h2 className={styles.heading} id={`${kind}-history-title`}>
-        <button
-          aria-controls={`${kind}-history-list`}
-          aria-expanded={isExpanded}
-          aria-label={`${title} ${isExpanded ? '접기' : '펼치기'}`}
-          className={styles.toggle}
-          onClick={onToggle}
-          ref={toggleRef}
-          type="button"
-        >
-          {kind === 'search' ? (
-            <History aria-hidden="true" />
-          ) : (
-            <MessageSquareText aria-hidden="true" />
-          )}
-          <span>{title}</span>
-          <small>{items.length}</small>
-          <ChevronUp aria-hidden="true" className={styles.chevron} />
-        </button>
+    <section aria-labelledby={`${kind}-history-title`} className={styles.section}>
+      <h2 className={styles.sectionHeading} id={`${kind}-history-title`}>
+        {kind === 'search' ? (
+          <History aria-hidden="true" />
+        ) : (
+          <MessageSquareText aria-hidden="true" />
+        )}
+        <span>{title}</span>
+        <small>{items.length}</small>
       </h2>
       <div
         aria-label={`${title} 목록`}
         className={styles.listViewport}
         id={`${kind}-history-list`}
         role="region"
-        tabIndex={isExpanded ? 0 : -1}
+        tabIndex={0}
       >
-        <ul className={styles.list}>
-          {items.map((item) => {
-            const scene = results.find(({ id }) => id === item.sceneId)!;
-            const text =
-              item.inquiry?.comment || (item.inquiry ? '설명 없이 접수한 문의' : scene.title);
-            return (
-              <li key={item.id}>
-                <button
-                  aria-haspopup="dialog"
-                  className={styles.row}
-                  data-kind={kind}
-                  onClick={() => onSelect(item)}
-                  onFocus={(event) => {
-                    if (!isExpanded && event.currentTarget.matches(':focus-visible')) onToggle();
-                  }}
-                  type="button"
-                >
-                  <span
-                    aria-label={`${scene.title} 구간 썸네일`}
-                    className={styles.thumbnail}
-                    data-scene={scene.id}
-                    role="img"
-                  >
-                    <span aria-hidden="true">{scene.time}</span>
-                  </span>
-                  <span className={styles.rowCopy}>
-                    <span className={styles.rowTitle} title={text}>
-                      {text}
-                    </span>
-                    <span className={styles.rowSubtitle}>
-                      {kind === 'search' ? `시청한 구간 · ${scene.time}` : scene.title}
-                    </span>
-                  </span>
-                  {item.inquiry ? (
-                    <span className={styles.status} data-status={item.inquiry.status}>
-                      {statusLabels[item.inquiry.status]}
-                    </span>
-                  ) : null}
-                  <span className={styles.age}>
-                    <Clock3 aria-hidden="true" />
-                    {item.daysAgo === 0 ? '오늘' : `${item.daysAgo}일 전`}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        {groupByRecency(items).map((group) => (
+          <div key={group.label}>
+            <p aria-hidden="true" className={styles.groupLabel}>
+              {group.label}
+              <b>{group.items.length}</b>
+            </p>
+            <ul aria-label={group.label} className={styles.list}>
+              {group.items.map((item) => {
+                const scene = results.find(({ id }) => id === item.sceneId)!;
+                const text =
+                  item.inquiry?.comment || (item.inquiry ? '설명 없이 접수한 문의' : scene.title);
+                return (
+                  <li key={item.id}>
+                    <button
+                      aria-haspopup="dialog"
+                      className={styles.row}
+                      data-kind={kind}
+                      onClick={() => onSelect(item)}
+                      type="button"
+                    >
+                      <span
+                        aria-label={`${scene.title} 구간 썸네일`}
+                        className={styles.thumbnail}
+                        data-scene={scene.id}
+                        role="img"
+                      >
+                        <span aria-hidden="true">{scene.time}</span>
+                      </span>
+                      <span className={styles.rowCopy}>
+                        <span className={styles.rowTitle} title={text}>
+                          {text}
+                        </span>
+                        <span className={styles.rowSubtitle}>
+                          {kind === 'search' ? `시청한 구간 · ${scene.time}` : scene.title}
+                        </span>
+                      </span>
+                      <span className={styles.rowMeta}>
+                        {item.inquiry ? (
+                          <span className={styles.status} data-status={item.inquiry.status}>
+                            {statusLabels[item.inquiry.status]}
+                          </span>
+                        ) : null}
+                        <span className={styles.age}>
+                          <Clock3 aria-hidden="true" />
+                          {item.daysAgo === 0 ? '오늘' : `${item.daysAgo}일 전`}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </div>
-      <div aria-hidden="true" className={styles.fade} />
     </section>
   );
 }
@@ -201,7 +190,7 @@ interface SearchHistoryProps {
 }
 
 export function SearchHistory({ theme }: SearchHistoryProps) {
-  const [expandedSheet, setExpandedSheet] = useState<HistoryKind | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [inquiries, setInquiries] = useState(inquiryHistory);
   const [selectedHistory, setSelectedHistory] = useState<{ kind: HistoryKind; id: string } | null>(
     null,
@@ -209,6 +198,7 @@ export function SearchHistory({ theme }: SearchHistoryProps) {
   const [isCreatingInquiry, setIsCreatingInquiry] = useState(false);
   const [submittedSceneIds, setSubmittedSceneIds] = useState<number[]>([]);
   const [notice, setNotice] = useState('');
+  const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const selectedItem = selectedHistory
     ? (selectedHistory.kind === 'search' ? searchHistory : inquiries).find(
         ({ id }) => id === selectedHistory.id,
@@ -216,8 +206,26 @@ export function SearchHistory({ theme }: SearchHistoryProps) {
     : undefined;
   const selectedScene = results.find(({ id }) => id === selectedItem?.sceneId);
 
-  function handleToggle(kind: HistoryKind) {
-    setExpandedSheet((current) => (current === kind ? null : kind));
+  useEffect(() => {
+    if (!isSidebarOpen) return;
+    const body = document.body;
+    const previousOverflow = body.style.overflow;
+    const previousPaddingRight = body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) {
+      const currentPadding = Number.parseFloat(window.getComputedStyle(body).paddingRight) || 0;
+      body.style.paddingRight = `${currentPadding + scrollbarWidth}px`;
+    }
+    return () => {
+      body.style.overflow = previousOverflow;
+      body.style.paddingRight = previousPaddingRight;
+    };
+  }, [isSidebarOpen]);
+
+  function closeSidebar() {
+    setIsSidebarOpen(false);
+    requestAnimationFrame(() => sidebarToggleRef.current?.focus());
   }
 
   function handleClose() {
@@ -250,27 +258,58 @@ export function SearchHistory({ theme }: SearchHistoryProps) {
 
   return (
     <>
-      <div className={styles.dock}>
-        <div className={styles.slot}>
-          <HistorySheet
+      <button
+        aria-hidden={!isSidebarOpen}
+        aria-label="검색 기록 사이드바 닫기"
+        className={styles.pageBackdrop}
+        data-open={isSidebarOpen}
+        onClick={closeSidebar}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') closeSidebar();
+        }}
+        tabIndex={isSidebarOpen ? 0 : -1}
+        type="button"
+      />
+      <div
+        className={styles.sidebarDock}
+        data-open={isSidebarOpen}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && isSidebarOpen) {
+            closeSidebar();
+          }
+        }}
+      >
+        <aside
+          aria-hidden={!isSidebarOpen}
+          className={styles.sidebar}
+          id="search-history-sidebar"
+          inert={!isSidebarOpen}
+        >
+          <HistorySection
             kind="search"
             title="이전 검색 기록"
             items={searchHistory}
-            isExpanded={expandedSheet === 'search'}
-            onToggle={() => handleToggle('search')}
             onSelect={(item) => handleSelect('search', item)}
           />
-        </div>
-        <div className={styles.slot}>
-          <HistorySheet
+          <HistorySection
             kind="inquiry"
             title="문의 기록"
             items={inquiries}
-            isExpanded={expandedSheet === 'inquiry'}
-            onToggle={() => handleToggle('inquiry')}
             onSelect={(item) => handleSelect('inquiry', item)}
           />
-        </div>
+        </aside>
+        <button
+          aria-controls="search-history-sidebar"
+          aria-expanded={isSidebarOpen}
+          aria-label={isSidebarOpen ? '검색 기록 사이드바 접기' : '검색 기록 사이드바 펼치기'}
+          className={styles.sidebarToggle}
+          onClick={() => (isSidebarOpen ? closeSidebar() : setIsSidebarOpen(true))}
+          ref={sidebarToggleRef}
+          type="button"
+        >
+          <span>{isSidebarOpen ? '기록 접기' : '기록 열기'}</span>
+          {isSidebarOpen ? <ArrowLeft aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
+        </button>
       </div>
       <p className={styles.notice} role="status">
         {notice}

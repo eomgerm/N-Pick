@@ -1,6 +1,6 @@
 # Frontend Architecture
 
-이 문서는 N-Pick 프론트엔드의 구조, 책임 경계와 데이터 흐름을 설명합니다. 반드시 지켜야 하는 작업 규칙은 [`../AGENTS.md`](../AGENTS.md), 설치와 실행 방법은 [`../README.md`](../README.md)를 기준으로 합니다.
+이 문서는 N-Pick 프론트엔드의 구조, 책임 경계와 데이터 흐름을 설명합니다. 반드시 지켜야 하는 작업 규칙은 [`../AGENTS.md`](../AGENTS.md), 설치와 실행 방법은 [`../README.md`](../README.md)를 기준으로 합니다. 로그인 글래스 UI의 시각 정본은 [`DESIGN.md`](design-system/DESIGN.md), 동작·상태·접근성 정본은 [`EXPERIENCE.md`](design-system/EXPERIENCE.md)입니다.
 
 ## 목표
 
@@ -80,7 +80,7 @@ src/
 
 랜딩의 Three.js 유리 큐브는 `landing-shell.tsx`의 Client Component 경계에서 `next/dynamic({ ssr: false })`로 지연 로드합니다. Three.js physical material과 rounded box geometry로 굴절·두께·분산·무지갯빛 테두리를 표현하며, 투명 Canvas texture의 N-Pick 타이포그래피를 큐브 뒤에 배치합니다. 글자는 알파 컷아웃으로 불투명 렌더 패스에 포함해 유리의 굴절 대상이 되며, 큐브는 알파 블렌딩 없이 앞면의 transmission으로 글자를 굴절시킵니다. `Need? Pick!`의 글자 폭을 줄여 `N-Pick`으로 합치는 CSS 인트로 뒤에 큐브와 역할 카드가 나타납니다. 인트로는 WebGL 준비 여부와 무관하게 끝나고 CSS 유리 큐브는 로딩·WebGL 실패 fallback으로 유지합니다. WebGL render loop와 CSS animation은 `prefers-reduced-motion`에서 정지하고 Canvas의 DPR을 제한합니다.
 
-편집자 검색 입력 화면 하단에는 `이전 검색 기록`과 `문의 기록` 시트를 일부만 노출합니다. 제목 버튼으로 한 시트씩 위로 펼치고 접을 수 있으며 Escape로도 접습니다. 기존 검색 결과의 뉴스 썸네일을 재사용하고 구간·내용·경과일을 표시합니다. 검색 기록 항목은 검색 결과와 동일한 `ScenePreviewDialog`를 열고, 문의 기록 항목은 `InquiryDialog`에서 당시 검색어·구간·문의 내용을 읽기 전용으로 보여 줍니다. 문의의 `pending/reviewing/resolved` 예시 상태는 `대기/처리 중/완료` 칩으로 표현하고 완료에는 처리 내용도 표시합니다. native dialog로 배경 조작을 막고 키보드 포커스를 가두며 Escape·닫기로 복귀합니다. 새로 접수한 문의는 `SearchHistory` 메모리에서 유지하며 새로고침·페이지 이동 시 초기화됩니다. 실제 검색·문의 이력 API는 연결하지 않은 디자인 시안입니다.
+편집자 검색 입력 화면 왼쪽에는 `이전 검색 기록`과 `문의 기록`을 화면 가장자리에 밀착된 오프캔버스 사이드바로 제공합니다. 닫힌 상태에서는 좌측 상단의 기록 열기 버튼으로 펼치며, 열린 동안에는 본문 위에 고정된 레이어와 어두운 backdrop을 사용하고 본문 스크롤을 잠급니다. backdrop 클릭이나 Escape로 닫을 수 있습니다. 기존 검색 결과의 뉴스 썸네일을 재사용하고 구간·내용·경과일을 표시합니다. 검색 기록 항목은 검색 결과와 동일한 `ScenePreviewDialog`를 열고, 문의 기록 항목은 `이상해요` 접수와 같은 `InquiryDialog`에서 당시 검색어·구간·문의 내용을 보여 줍니다. 문의의 `pending/reviewing/resolved` 예시 상태는 `대기/처리 중/완료` 칩으로 표현합니다. 이번 와이어프레임 요청에 따라 대기는 문의 설명만 수정·저장할 수 있고, 처리 중과 완료는 읽기 전용이며 완료에는 처리 내용도 표시합니다. native dialog로 배경 조작을 막고 키보드 포커스를 가두며 Escape·닫기로 복귀합니다. 기록에서 새로 접수하거나 수정한 문의는 `SearchHistory` 메모리에서 유지하며 새로고침·페이지 이동 시 초기화됩니다. 실제 검색·문의 이력 API나 제품 FRD의 문의 수정 계약은 연결하지 않은 디자인 시안입니다.
 
 제품 화면 `/search`, `/search/results`, `/review`는 `AppShell`이 공통 헤더와 화면 이동 메뉴를 제공합니다. `SessionBoundary`의 현재 계정으로 역할을 읽고 `SessionControls`가 계정·역할·로그아웃을 표시합니다. 편집기자에게는 장면 검색, 검수자에게는 장면 검색과 검수 메뉴를 제공하며 pathname은 현재 메뉴 표시에만 사용합니다. 검색 입력은 밝은 헤더, 검색 결과·검수는 기존 브랜드 배경을 사용합니다. 공개 랜딩·로그인과 각 page의 서버 접근 검사는 별도로 유지합니다.
 

@@ -180,37 +180,6 @@ export function ScenePreviewDialog({
       labelledBy="preview-title"
       onClose={onClose}
     >
-      <div className={styles.previewModalHeader}>
-        <div>
-          <span>{contextLabel ?? `구간 영상 정보 · 장면 #${result.id}`}</span>
-          <h2 id="preview-title">{result.title}</h2>
-          {result.clip ? <p>{result.clip}</p> : null}
-          {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
-        </div>
-        <div className={styles.previewHeaderActions}>
-          {onInquiry ? (
-            <button
-              className={styles.previewReportButton}
-              disabled={isSubmitted}
-              onClick={onInquiry}
-              type="button"
-            >
-              {isSubmitted ? <Check aria-hidden="true" /> : <Flag aria-hidden="true" />}
-              {isSubmitted ? '접수됨' : '이상해요'}
-            </button>
-          ) : null}
-          <button
-            aria-label="Preview 닫기"
-            className={styles.iconButton}
-            onClick={onClose}
-            title="Preview 닫기"
-            type="button"
-          >
-            <X aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
       <div className={styles.previewModalBody}>
         <div className={styles.previewPlayer}>
           {isLoading ? (
@@ -312,6 +281,67 @@ export function ScenePreviewDialog({
         </div>
 
         <div className={styles.previewSidebar}>
+          <div className={styles.previewDetails}>
+            <div className={styles.previewDetailsHeading}>
+              <p>장면 정보</p>
+              <button
+                aria-label="Preview 닫기"
+                className={`${styles.iconButton} ${styles.previewCloseButton}`}
+                onClick={onClose}
+                title="Preview 닫기"
+                type="button"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+            {contextLabel ? (
+              <span className={styles.previewContextLabel}>{contextLabel}</span>
+            ) : null}
+            <h2 className={styles.previewSceneTitle} id="preview-title">
+              {result.title}
+            </h2>
+            {result.clip ? <p className={styles.previewSceneClip}>{result.clip}</p> : null}
+            {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
+            <dl>
+              <div>
+                <dt>방송일</dt>
+                <dd>{result.broadcastDate ?? '정보 없음'}</dd>
+              </div>
+              <div>
+                <dt>촬영일</dt>
+                <dd>
+                  {result.filmingDate ? (
+                    <>
+                      {result.filmingDate} ·{' '}
+                      {result.filmingState === 'verified'
+                        ? '검증됨'
+                        : result.filmingState === 'unknown'
+                          ? '정보 없음'
+                          : '미검증'}
+                    </>
+                  ) : (
+                    '정보 없음'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>장면 유형</dt>
+                <dd>{result.shotType ?? '정보 없음'}</dd>
+              </div>
+              <div>
+                <dt>근거</dt>
+                <dd>{result.evidenceType}</dd>
+              </div>
+            </dl>
+            <div className={styles.previewEvidence}>
+              <span>
+                {result.evidenceType}
+                {onInquiry ? ' 일치' : ''}
+              </span>
+              <strong>{result.evidence}</strong>
+              <p>{result.source}</p>
+            </div>
+          </div>
           {scenes && scenes.length > 0 ? (
             <section className={styles.sceneBrowser} aria-labelledby="all-scenes-title">
               <div className={styles.sceneBrowserHeading}>
@@ -367,48 +397,6 @@ export function ScenePreviewDialog({
               </ol>
             </section>
           ) : null}
-          <div className={styles.previewDetails}>
-            <p>장면 정보</p>
-            <dl>
-              <div>
-                <dt>방송일</dt>
-                <dd>{result.broadcastDate ?? '정보 없음'}</dd>
-              </div>
-              <div>
-                <dt>촬영일</dt>
-                <dd>
-                  {result.filmingDate ? (
-                    <>
-                      {result.filmingDate} ·{' '}
-                      {result.filmingState === 'verified'
-                        ? '검증됨'
-                        : result.filmingState === 'unknown'
-                          ? '정보 없음'
-                          : '미검증'}
-                    </>
-                  ) : (
-                    '정보 없음'
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt>장면 유형</dt>
-                <dd>{result.shotType ?? '정보 없음'}</dd>
-              </div>
-              <div>
-                <dt>근거</dt>
-                <dd>{result.evidenceType}</dd>
-              </div>
-            </dl>
-            <div className={styles.previewEvidence}>
-              <span>
-                {result.evidenceType}
-                {onInquiry ? ' 일치' : ''}
-              </span>
-              <strong>{result.evidence}</strong>
-              <p>{result.source}</p>
-            </div>
-          </div>
           <div className={styles.safetyNotice}>
             <AlertTriangle aria-hidden="true" />
             <p>
@@ -416,6 +404,19 @@ export function ScenePreviewDialog({
               내용·최신성·권리·사용 적합성을 확인하세요.
             </p>
           </div>
+          {onInquiry ? (
+            <div className={styles.previewDetailsActions}>
+              <button
+                className={styles.previewReportButton}
+                disabled={isSubmitted}
+                onClick={onInquiry}
+                type="button"
+              >
+                {isSubmitted ? <Check aria-hidden="true" /> : <Flag aria-hidden="true" />}
+                {isSubmitted ? '접수됨' : '이상해요'}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </SceneDialog>

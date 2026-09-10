@@ -156,7 +156,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   }
 
   return (
-    <AppShell className={styles.shell} data-theme={theme}>
+    <AppShell backdropTone="muted" className={styles.shell} data-theme={theme}>
       <div className={`${styles.workspace} ${styles.workspaceNoPreview}`}>
         <aside className={styles.filterRail} aria-label="검색 필터">
           <div className={styles.railHeading}>
@@ -164,33 +164,13 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
             <strong>상세 필터</strong>
           </div>
           {rangeFields}
-          <fieldset className={styles.filterGroup}>
-            <legend>검색할 내용</legend>
-            {['장면 설명', '화면 속 글자', '음성 내용'].map((label) => (
-              <label key={label}>
-                <input defaultChecked type="checkbox" />
-                <span>{label}</span>
-              </label>
-            ))}
-          </fieldset>
-          <div className={styles.railNote}>
-            <CheckCircle2 aria-hidden="true" />
-            <span>검증된 날짜 충돌만 결과에서 제외됩니다.</span>
-          </div>
         </aside>
 
         <main className={styles.mainContent}>
           <section className={styles.searchIntro}>
-            <div className={styles.titleBlock}>
-              <p className={styles.eyebrow}>SCENE SEARCH</p>
-              <h1>필요한 뉴스 장면을 바로 찾으세요</h1>
-              <p>원고 문장이나 장면의 특징을 입력하면 영상 속 몇 초까지 찾아드립니다.</p>
-            </div>
-
-            <form className={styles.searchForm} onSubmit={handleSearch}>
-              <label className={styles.searchField}>
-                <Search aria-hidden="true" />
-                <span className={styles.visuallyHidden}>검색어</span>
+            <form className={styles.searchForm} onSubmit={handleSearch} role="search">
+              <div className={styles.searchField}>
+                <Search aria-hidden="true" className={styles.searchFieldIcon} />
                 <input
                   aria-label="뉴스 장면 검색어"
                   onChange={(event) => setQuery(event.target.value)}
@@ -198,15 +178,15 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                   value={query}
                   ref={searchInputRef}
                 />
-              </label>
-              <button
-                className={styles.searchButton}
-                disabled={!query.trim() || isNavigating}
-                type="submit"
-              >
-                <Search aria-hidden="true" />
-                <span>{isNavigating ? '검색 중' : '검색'}</span>
-              </button>
+                <button
+                  className={styles.searchButton}
+                  disabled={!query.trim() || isNavigating}
+                  type="submit"
+                >
+                  <Search aria-hidden="true" />
+                  <span>{isNavigating ? '검색 중' : '검색'}</span>
+                </button>
+              </div>
             </form>
           </section>
 
