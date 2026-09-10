@@ -32,6 +32,34 @@ class TagMatchValueTest {
     }
 
     @Test
+    @DisplayName("공백을 지운 뒤 성립하는 결합까지 접는다 - 공백 제거 다음의 두 번째 NFKC 가 하는 일")
+    void foldsCompositionsUnblockedByWhitespaceRemoval() {
+        // 공백이 막고 있던 결합이 공백 제거로 성립한다. 다시 접지 않으면 같은 값이 두 표기로 UNIQUE 를 통과한다.
+        assertThat(TagMatchValue.normalize("ㄱ ㅏ")).isEqualTo(TagMatchValue.normalize("ㄱㅏ"));
+        // 호환문자가 공백을 만들어내기도 한다 — U+00A8 은 NFKC 에서 공백 + 결합 분음이 된다.
+        assertThat(TagMatchValue.normalize("a¨")).isEqualTo(TagMatchValue.normalize("ä"));
+    }
+
+    @Test
+    @DisplayName("멱등하다 - 저장된 값에 다시 걸어도 값이 바뀌지 않는다")
+    void isIdempotent() {
+        for (String raw : new String[] {"ㄱ ㅏ", "a¨", "이태원 참사", "㈜한국", "2026-03-15"}) {
+            String once = TagMatchValue.normalize(raw);
+
+            assertThat(TagMatchValue.normalize(once)).isEqualTo(once);
+        }
+    }
+
+    @Test
+    @DisplayName("NFKC 가 안 건드리는 공백도 지운다 - \\s 가 아니라 \\p{IsWhite_Space} 를 쓰는 이유")
+    void stripsWhitespaceUntouchedByNfkc() {
+        // U+2028 LINE SEPARATOR. NFKC 가 안 건드리므로 \s 였다면 살아남는다. 리터럴은 눈에 안 보여 코드포인트로 만든다.
+        String withLineSeparator = "이태원" + Character.toString(0x2028) + "참사";
+
+        assertThat(TagMatchValue.normalize(withLineSeparator)).isEqualTo("이태원참사");
+    }
+
+    @Test
     @DisplayName("호환문자를 접는다 - NFC 로는 남는 차이다")
     void foldsCompatibilityCharacters() {
         assertThat(TagMatchValue.normalize("ＫＢＳ")).isEqualTo("KBS");

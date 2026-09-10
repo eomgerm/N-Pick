@@ -62,6 +62,14 @@ class TagMatchValueConstraintTest {
     }
 
     @Test
+    @DisplayName("빈 match_value 를 거부한다 - normalize() 가 널·공백만 있는 입력을 접어 내는 값이다")
+    void rejectsEmptyMatchValue() throws Exception {
+        // 저장 경로가 빈 값 검사를 빠뜨리면 이름 없는 태그 한 행이 생기고, UNIQUE 때문에 이후 모든 빈 값이 그 행에 붙는다.
+        rejects("INSERT INTO tag VALUES (63,'event','','뭔가')");
+        rejects("INSERT INTO tag VALUES (63,'keyword','" + TagMatchValue.normalize("   ") + "','공백만')");
+    }
+
+    @Test
     @DisplayName("normalize() 를 거친 값은 통과한다 - 표시값의 띄어쓰기는 name 이 그대로 들고 있다")
     void acceptsNormalizedValue() throws Exception {
         execute("INSERT INTO tag VALUES (63,'event','" + TagMatchValue.normalize("이태원 참사") + "','이태원 참사')");
