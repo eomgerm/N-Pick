@@ -59,6 +59,8 @@ server:
 # 저장 경로 등 필수 설정이 비면 등록을 거부한다.
 npick:
   clip-registration:
+    # 파서 메모리 보호용 운영 한도(byte). 시간 허용 오차와 무관하다.
+    subtitle-max-bytes: ${CLIP_SUBTITLE_MAX_BYTES:10485760}
     media-root: ${CLIP_MEDIA_ROOT:${NPICK_MEDIA_ROOT:}}
     upload-root: ${CLIP_UPLOAD_ROOT:}
     probe-timeout: ${CLIP_PROBE_TIMEOUT:60s}
@@ -76,6 +78,18 @@ npick:
       allowed-containers: ${CLIP_ALLOWED_CONTAINERS:mp4,mov}
       allowed-video-codecs: ${CLIP_ALLOWED_VIDEO_CODECS:h264,hevc}
       allowed-audio-codecs: ${CLIP_ALLOWED_AUDIO_CODECS:aac,mp3}
+  search:
+    # 단어 검색(BM25) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
+    # 값을 바꿀 때는 config-version 도 함께 올린다 — 그러지 않으면 다른 설정으로 돌린
+    # 두 실행이 search_execution 에서 같은 설정으로 보인다.
+    candidate:
+      config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v1}
+      # 가중치 0 은 그 필드를 검색 대상에서 제외한다는 뜻이다. 실측 전까지 세 채널을 동일 가중으로 둔다.
+      caption-weight: ${SEARCH_CANDIDATE_CAPTION_WEIGHT:1.0}
+      transcript-weight: ${SEARCH_CANDIDATE_TRANSCRIPT_WEIGHT:1.0}
+      ocr-weight: ${SEARCH_CANDIDATE_OCR_WEIGHT:1.0}
+      # 재순위·제외 전의 후보 상한. 최종 반환 10개(F-05)와 다른 값이며 실측으로 조정한다.
+      pool-size: ${SEARCH_CANDIDATE_POOL_SIZE:200}
 
 # PostgreSQL error details may include the failing row (script, paths, secrets).
 # API failures are reported through safe application error codes instead.

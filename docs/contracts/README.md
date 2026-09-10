@@ -11,7 +11,7 @@ C4 문서 세 종([docs/architecture/](../architecture/))은 배포 단위와 �
 | 잡 API | [job-api.md](job-api.md) | 서비스 서버 ↔ 파이프라인 워커 | 워커가 발신자, long-poll |
 | 리졸버 API | *(미작성)* | 서비스 서버 ↔ 질의 리졸버 | 서비스 서버가 발신자, 동기 호출 전용 |
 
-리졸버 계약은 아직 쓰지 않는다. 출력 JSON 키와 schema가 `S15P21A501-101`에서 확정되므로 지금 적으면 다시 쓴다.
+출력 JSON 키와 schema는 확정됐다. 정본은 `ai/src/npick_worker/query_resolver/schema.py`이고 버전은 `query-resolver/v2`다([docs/frd.md](../frd.md) §11). 그 파일이 스스로 정본임을 적고 있으므로 여기에 옮겨 적지 않는다. HTTP 계층의 계약 문서(주소·오류 코드·요청 형식)는 아직 쓰지 않았고, 작성 여부는 별건으로 판단한다.
 
 ## 왜 문서를 나누는가
 

@@ -18,8 +18,12 @@ public record ClipRegistrationProperties(
         String pipelineVersion,
         List<String> stageNames,
         Input input,
-        Boolean externalProcessingRequired) {
+        Boolean externalProcessingRequired,
+
+        @org.springframework.boot.context.properties.bind.DefaultValue("10485760")
+        int subtitleMaxBytes) {
     public ClipRegistrationProperties {
+        com.npick.clip.infrastructure.transcript.SubtitleLimits.requireValid(subtitleMaxBytes);
         stageNames = stageNames == null ? List.of() : List.copyOf(stageNames);
     }
 

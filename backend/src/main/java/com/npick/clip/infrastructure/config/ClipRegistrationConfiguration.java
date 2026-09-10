@@ -12,6 +12,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.npick.clip.application.command.ClipUploadService;
 import com.npick.clip.application.command.StoredClipRegistrationService;
 import com.npick.clip.application.command.VideoPreparationService;
+import com.npick.clip.application.command.prepare.PrepareTranscriptInputUseCase;
 import com.npick.clip.application.command.prepare.PrepareVideoUseCase;
 import com.npick.clip.application.command.register.RegisterClipUseCase;
 import com.npick.clip.application.command.register.UploadClipUseCase;
@@ -25,12 +26,41 @@ import com.npick.clip.infrastructure.media.FfprobeVideoReader;
 import com.npick.clip.infrastructure.media.LocalVideoInspectionAdapter;
 import com.npick.clip.infrastructure.media.LocalVideoStorageAdapter;
 import com.npick.clip.infrastructure.media.UploadedVideoValidator;
+import com.npick.clip.infrastructure.transcript.LocalTranscriptInputPreparation;
+import com.npick.clip.infrastructure.transcript.LocalTranscriptIntakeAdapter;
+import com.npick.clip.infrastructure.transcript.MovTextExtractor;
+import com.npick.clip.infrastructure.transcript.SubtitleParser;
+import com.npick.clip.infrastructure.transcript.SubtitleProcess;
 import com.npick.common.error.BusinessException;
 import com.npick.common.persistence.TsidGenerator;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ClipRegistrationProperties.class)
 public class ClipRegistrationConfiguration {
+    @Bean
+    TranscriptIntakePort transcriptIntakePort(ClipRegistrationProperties properties) {
+        return (subtitle, duration, clipId) -> {
+            ready(properties);
+            return new LocalTranscriptIntakeAdapter(
+                            properties.mediaRoot(), properties.subtitleMaxBytes(), new SubtitleParser())
+                    .receive(subtitle, duration, clipId);
+        };
+    }
+
+    @Bean
+    PrepareTranscriptInputUseCase prepareTranscriptInputUseCase(
+            ClipRegistrationProperties properties, ObjectMapper mapper) {
+        return command -> {
+            ready(properties);
+            var parser = new SubtitleParser();
+            var extractor = new MovTextExtractor(
+                    new SubtitleProcess(), parser, mapper, properties.probeTimeout(), properties.subtitleMaxBytes());
+            return new LocalTranscriptInputPreparation(
+                            properties.mediaRoot(), properties.subtitleMaxBytes(), parser, extractor, mapper)
+                    .prepare(command);
+        };
+    }
+
     @Bean
     ClipRegistrationContextPort clipRegistrationContext(
             ClipRegistrationProperties properties, ObjectProvider<RegistrationActorPort> actors) {

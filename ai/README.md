@@ -1,6 +1,6 @@
 # N-Pick AI Worker
 
-헬스체크, `scene_detection`, Query Resolver 프롬프트·출력 계약(FRD v3.1 F-04~06)이 구현되어 있다.
+헬스체크, `scene_detection`, `frame_extraction`, Query Resolver 프롬프트·출력 계약(FRD v3.1 F-04~06)이 구현되어 있다.
 
 Query Resolver는 검색 시점에 쓰이며 파이프라인 단계가 아니다. 배포 경계는
 [Container 요소 표](../docs/architecture/02-container.md#요소)를 따른다. 이 모듈은
@@ -53,10 +53,15 @@ Invoke-RestMethod http://127.0.0.1:8000/health | ConvertTo-Json -Depth 5
   },
   "pipeline": {
     "stage_count": 10,
-    "stages": [{ "order": 1, "name": "scene_detection", "fatal": true }]
+    "stages": [
+      { "order": 1, "name": "scene_detection", "fatal": true },
+      { "order": 2, "name": "frame_extraction", "fatal": true }
+    ]
   }
 }
 ```
+
+`pipeline.stages` 는 FRD 단계 표 10개를 전부 싣는다 (위 예시는 앞 둘만 옮겼다).
 
 `gpu` 그룹을 설치하지 않은 환경에서는 `torch_available: false`, `resolved: "cpu"` 로 응답한다. GPU 부재는 오류가 아니다.
 
@@ -88,6 +93,52 @@ uv run --directory ai python -m npick_worker.scene_detection.report     samples/
 scene 표를 출력하고 `--out` 에 `scenes.json` 과 경계 프레임 PNG 를 남긴다.
 필요한 샘플 클립 종류는 [samples/README.md](samples/README.md), 선정 근거와 설정 키는
 [docs/scene-detection.md](docs/scene-detection.md).
+
+## keyframe 추출 (FRD F-03)
+
+scene 마다 **복수 keyframe** 을 뽑고 그중 **결과 카드에 쓸 대표 이미지 1개** 를 고른다.
+구간은 상류 `scene_detection` 산출물에서 받는다 — 실제 파이프라인에서 이 단계에 scene 이
+도착하는 경로가 BE 가 되돌려 주는 JSON 이기 때문이다.
+
+```python
+from pathlib import Path
+from npick_worker.frame_extraction import SceneSpan, extract_keyframes
+
+result = extract_keyframes(
+    Path("clip.mp4"),
+    [SceneSpan(scene_index=0, start_time_ms=0, end_time_ms=4200)],
+    Path("out"),
+)
+scene = result.scenes[0]
+scene.representative  # Keyframe(...) ← 결과 카드에 쓸 한 장
+scene.keyframes[0]  # 같은 객체. 대표는 **목록의 첫 원소**다
+len(scene.keyframes)  # 2 이상 (FRD 의 "복수 키프레임")
+result.image_width  # 원본 해상도. 다운스케일하지 않는다
+result.config_version  # 'frame-extract/v1:5b266b10'
+result.engine_version  # '18.1.0+numpy2.5.2'  ← PyAV + numpy (둘 다 결과를 바꾼다)
+```
+
+`keyframe` 테이블에 대표를 표시할 컬럼이 없어서 **대표는 순서로 전달된다.** BE 는 이 순서대로
+INSERT 하고 대표가 그 scene 의 최소 `keyframe_id` 가 된다. 규약 정본은
+[../docs/contracts/job-api.md](../docs/contracts/job-api.md) §4.3.1.
+
+**작은 글자 OCR 을 위해 원본 해상도를 유지한다**(FRD §3 F-03). 축소본 파일은 만들지 않는다 —
+담을 컬럼이 없고, 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있다. 원본 영상 자체도
+`clip.storage_key` 로 계속 접근할 수 있으므로 필요하면 프레임을 다시 뽑을 수 있다.
+
+같은 입력 + 같은 `(config_version, engine, engine_version)` 이면 **같은 프레임을 고르고 같은
+바이트를 쓴다.** 샘플 클립 23장이 두 실행에서 sha256 까지 동일했다.
+
+샘플 클립 육안 확인:
+
+```bash
+uv run --directory ai python -m npick_worker.frame_extraction.report \
+    samples/KNI_02205.mp4 --out samples/out/KNI_02205-frames
+```
+
+scene 마다 대표(`*`)와 전체 keyframe 시각을 표로 출력하고 `--out` 에 `keyframes.json` 과 JPEG 을
+남긴다. `--scenes` 로 `scene_detection.report` 가 만든 `scenes.json` 을 주면 분할을 다시 돌리지
+않는다. 선정 근거·인코딩 실측·설정 키는 [docs/frame-extraction.md](docs/frame-extraction.md).
 
 ## Query Resolver (FRD F-04~06)
 
