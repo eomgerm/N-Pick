@@ -32,6 +32,7 @@ src/
 │  └─ session-controls.tsx 현재 계정과 로그아웃
 ├─ features/               기능 단위 UI와 로직
 │  ├─ search/
+│  │  ├─ inquiry-api.ts          문의 snapshot·응답 검증·접수 API
 │  │  └─ search-placeholder.tsx
 │  └─ wireframes/
 │     ├─ landing-shell.tsx        브랜드 인트로와 역할 선택
@@ -79,7 +80,7 @@ src/
       └─ error.ts          안전한 ApiClientError와 개발용 진단 정보 분리
 ```
 
-현재 와이어프레임 UI를 제품 화면으로 사용하며 디자인은 신한(`shinhan`)을 유지합니다. `/`는 `/landing`으로 이동하고 역할 카드는 `/login?role=editor|reviewer`로 연결합니다. 로그인 후 실제 계정의 역할에 따라 편집자는 `/search`, 검수자는 `/review`로 이동합니다. 권한이 있는 내부 `returnTo`가 있으면 우선 복귀합니다. 검색 결과는 `/search/results`에서 표시합니다. 화면 경로 상수는 `src/lib/routes.ts`가 소유합니다. 기존 테마 주소는 `next.config.ts`의 307 redirect로 새 화면에 연결하고 query를 보존하며 알 수 없는 테마는 404로 처리합니다. 인증과 영상 등록 POST API는 연결되어 있으며 검색·문의·처리 조회·검수는 아직 로컬 데모입니다. 비밀번호와 세션 토큰은 프론트 저장소에 저장하지 않습니다.
+현재 와이어프레임 UI를 제품 화면으로 사용하며 디자인은 신한(`shinhan`)을 유지합니다. `/`는 `/landing`으로 이동하고 역할 카드는 `/login?role=editor|reviewer`로 연결합니다. 로그인 후 실제 계정의 역할에 따라 편집자는 `/search`, 검수자는 `/review`로 이동합니다. 권한이 있는 내부 `returnTo`가 있으면 우선 복귀합니다. 검색 결과는 `/search/results`에서 표시합니다. 화면 경로 상수는 `src/lib/routes.ts`가 소유합니다. 기존 테마 주소는 `next.config.ts`의 307 redirect로 새 화면에 연결하고 query를 보존하며 알 수 없는 테마는 404로 처리합니다. 인증·영상 등록·결과 문의 POST API는 연결되어 있으며 검색·문의/처리 조회·검수는 아직 로컬 데모입니다. 비밀번호와 세션 토큰은 프론트 저장소에 저장하지 않습니다.
 
 랜딩의 Three.js 유리 큐브는 `landing-shell.tsx`의 Client Component 경계에서 `next/dynamic({ ssr: false })`로 지연 로드합니다. Three.js physical material과 rounded box geometry로 굴절·두께·분산·무지갯빛 테두리를 표현하며, 투명 Canvas texture의 N-Pick 타이포그래피를 큐브 뒤에 배치합니다. 글자는 알파 컷아웃으로 불투명 렌더 패스에 포함해 유리의 굴절 대상이 되며, 큐브는 알파 블렌딩 없이 앞면의 transmission으로 글자를 굴절시킵니다. `Need? Pick!`의 글자 폭을 줄여 `N-Pick`으로 합치는 CSS 인트로 뒤에 큐브와 역할 카드가 나타납니다. 인트로는 WebGL 준비 여부와 무관하게 끝나고 CSS 유리 큐브는 로딩·WebGL 실패 fallback으로 유지합니다. WebGL render loop와 CSS animation은 `prefers-reduced-motion`에서 정지하고 Canvas의 DPR을 제한합니다.
 
@@ -106,6 +107,8 @@ src/
 다른 디자인 시스템의 전용 스타일과 화면 분기는 제거하고 신한(`shinhan`) 구현만 유지합니다. 신한 검색 결과는 방송일·촬영일별 Date Range Picker를 제공하며, 달력의 시작일·종료일 선택과 직접 입력, 취소·초기화, 키보드 방향 이동을 지원합니다. 선택한 기간은 양 끝 날짜를 포함하고 `broadcastFrom/broadcastTo/filmingFrom/filmingTo` URL에 검색 요청 상태로 보존합니다. 실제 검색 API를 연결할 때 이 값은 백엔드 요청 필드로 전달하며, 백엔드가 필터링·정렬한 응답 순서를 클라이언트가 다시 필터링하거나 정렬하지 않습니다. `state=empty`와 `state=failed`는 디자인 확인용 상태 URL이며, 실패 화면의 재시도는 검색어·기간을 보존하고 실패 시연 상태를 해제합니다. 현재 실제 검색 API는 연결하지 않았습니다. 결과 그리드는 `SearchResultCard`가 제목·썸네일 우하단 장면 구간·키워드와 키워드 행 우측의 텍스트 검증 칩을 맡고, 칩의 hover·focus 툴팁에는 사용자용 근거 필드와 값만 표시합니다. 출처와 OCR·VLM 같은 기술명은 카드에서 숨깁니다. 결과 카드에는 백엔드 내부 점수를 퍼센트 일치도로 변환해 노출하지 않으며 검색 채널 선택과 클라이언트 재정렬 UI를 제공하지 않습니다. `WireframeShell`은 날짜 요청 상태와 선택한 Preview 상태를 소유하고, Preview는 전체 근거와 상태 모델을 유지합니다. 표시명·방송일·촬영일·샷 유형·장면 유형은 이후 검색 API 응답 모델에 보존하되 결과 카드에는 노출하지 않습니다. `demo-scenes.ts`의 10개 장면은 검색 결과와 검색·문의 기록이 공유합니다. 자동 생성 근거에는 `verified/unverified`만 사용하고, 정보 부재는 `unknown`, 사람의 판단은 `rejected/withdrawn`으로 분리합니다.
 
 검색 실행의 정상·degraded 상태와 사람 검수 규칙 적용 여부는 개별 장면이 아니라 `WireframeShell`이 한 번 소유합니다. `SearchResultNotices`가 결과 상단과 Preview에 같은 누락 사유·검수 규칙·송출 전 확인 문구를 제공하며, `state=degraded-resolver`, `degraded-dense`, `degraded-snapshot`, `review-rule`은 실제 API 연결 전의 화면 검증용 상태입니다. snapshot 저장 실패 결과는 볼 수 있지만 저장된 검색 식별자가 필요한 문의는 이유와 함께 비활성화합니다. 실제 응답 key와 adapter는 검색 API 연동 작업에서 확정합니다.
+
+결과 카드와 Preview는 결과마다 하나의 `이상해요` 동작을 공유하고 선택 설명을 `POST /api/v1/search/results/{resultId}/inquiries`로 보냅니다. 화면 장면 ID와 저장된 결과 ID를 분리하며 `SearchResult.resultId`만 API 경로에 사용합니다. 현재 예시 결과는 별도 `resultId` 필드를 제공하고 실제 검색 adapter가 이를 서버 응답 값으로 교체해야 합니다. 문의 제출은 trim한 설명과 frozen snapshot, UUID 멱등성 키를 함께 보존하고 자동 재시도하지 않습니다. 실패 후 설명을 바꾸지 않은 수동 재시도만 같은 snapshot/key를 사용하며 입력 변경 시 새 요청으로 바꿉니다. 제출 중에는 중복 제출과 dialog 닫기를 잠급니다. 응답의 양의 `feedbackId`와 `OPEN`을 모두 확인한 뒤에만 `접수됨`으로 표시하고, 접수 자체가 현재 결과를 숨기거나 즉시 개선하지 않는다고 안내합니다. `feedbackId`는 `long` 정밀도를 보존하도록 공통 client에서 십진 문자열로 읽습니다.
 
 신한 Preview는 진입 시 로딩 안내와 비활성 재생 제어를 보여준 뒤 예시 준비 화면으로 전환합니다. `/search/results?preview=loading`은 로딩 상태를 유지해 디자인을 확인하는 주소입니다. 실제 미디어 로딩 성공을 뜻하지 않으며 화면 안에 데모임을 안내합니다. 신한 처리 현황에는 `tab=completed`의 `등록 완료` 탭이 추가됩니다. 고정 완료 예시의 장면 수·완료 시각·누락 정보·단계·검색 이동을 확인할 수 있고, 새로 등록한 영상도 같은 처리 상세에서 파일 정보와 0단계 대기를 확인할 수 있습니다. 신규 영상은 시간이 지났다는 이유로 완료 처리하지 않습니다. 새로고침 시 로컬 등록 메모리는 초기화됩니다. 처리 상태 변환은 `registration-processing.ts`, 날짜 검증은 `date-range.ts`가 담당합니다.
 

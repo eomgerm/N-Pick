@@ -10,6 +10,13 @@ import { type FormEvent, useMemo, useRef, useState, useTransition } from 'react'
 import { results } from '@/features/wireframes/demo-scenes';
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
+import type { InquiryButtonState } from '@/features/wireframes/search-result-card';
+import {
+  createInquirySubmission,
+  isSameInquiryRequest,
+  submitInquiry,
+  type InquirySubmission,
+} from '@/features/search/inquiry-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
@@ -56,6 +63,11 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const [isPreviewOpen, setIsPreviewOpen] = useState(initialParams.preview === 'loading');
   const [inquiryResultId, setInquiryResultId] = useState<number | null>(null);
   const [submittedInquiryIds, setSubmittedInquiryIds] = useState<number[]>([]);
+  const [inquirySubmission, setInquirySubmission] = useState<InquirySubmission | null>(null);
+  const [inquiryError, setInquiryError] = useState<unknown>();
+  const [isInquirySubmitting, setIsInquirySubmitting] = useState(false);
+  const [inquirySuccessNotice, setInquirySuccessNotice] = useState('');
+  const inquirySubmittingRef = useRef(false);
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
@@ -119,15 +131,63 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
     </>
   );
 
-  function handleInquirySubmit() {
-    if (inquiryResultId === null || !canCreateInquiry(searchExecution)) {
+  async function handleInquirySubmit(comment: string) {
+    if (
+      inquirySubmittingRef.current ||
+      inquiryResultId === null ||
+      !inquiryResult ||
+      !canCreateInquiry(searchExecution)
+    ) {
       return;
     }
 
-    setSubmittedInquiryIds((current) =>
-      current.includes(inquiryResultId) ? current : [...current, inquiryResultId],
-    );
+    const submission =
+      inquirySubmission && isSameInquiryRequest(inquirySubmission, inquiryResult.resultId, comment)
+        ? inquirySubmission
+        : createInquirySubmission(inquiryResult.resultId, comment);
+
+    inquirySubmittingRef.current = true;
+    setInquirySubmission(submission);
+    setInquiryError(undefined);
+    setIsInquirySubmitting(true);
+
+    try {
+      const response = await submitInquiry(submission);
+      setSubmittedInquiryIds((current) =>
+        current.includes(inquiryResultId) ? current : [...current, inquiryResultId],
+      );
+      setInquirySuccessNotice(
+        `문의 #${response.inquiryId}가 접수되었습니다. 검수 후 반영되며 현재 검색 결과는 즉시 변경되지 않습니다.`,
+      );
+      setInquirySubmission(null);
+      setInquiryResultId(null);
+    } catch (error) {
+      setInquiryError(error);
+    } finally {
+      inquirySubmittingRef.current = false;
+      setIsInquirySubmitting(false);
+    }
+  }
+
+  function getInquiryState(resultId: number): InquiryButtonState {
+    if (submittedInquiryIds.includes(resultId)) return 'submitted';
+    if (!canCreateInquiry(searchExecution)) return 'unavailable';
+    if (isInquirySubmitting && inquiryResultId === resultId) return 'submitting';
+    return 'ready';
+  }
+
+  function handleInquiryOpen(resultId: number) {
+    if (!canCreateInquiry(searchExecution) || submittedInquiryIds.includes(resultId)) return;
+    setInquiryResultId(resultId);
+    setInquirySubmission(null);
+    setInquiryError(undefined);
+  }
+
+  function handleInquiryClose() {
+    if (inquirySubmittingRef.current) return;
     setInquiryResultId(null);
+    setInquirySubmission(null);
+    setInquiryError(undefined);
   }
 
   function handlePreviewSelect(resultId: number) {
@@ -142,7 +202,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   function handlePreviewInquiry() {
     if (!canCreateInquiry(searchExecution)) return;
     setIsPreviewOpen(false);
-    setInquiryResultId(selectedResult.id);
+    handleInquiryOpen(selectedResult.id);
   }
 
   return (
@@ -238,6 +298,12 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
               </div>
             </div>
 
+            {inquirySuccessNotice ? (
+              <p className={styles.inquirySuccessNotice} role="status">
+                {inquirySuccessNotice}
+              </p>
+            ) : null}
+
             {resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
@@ -262,7 +328,10 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                       result={result}
                       position={index + 1}
                       isSelected={isPreviewOpen && selectedResultId === result.id}
+                      inquiryState={getInquiryState(result.id)}
+                      inquiryUnavailableReason="검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다."
                       key={result.id}
+                      onInquiry={handleInquiryOpen}
                       onSelect={handlePreviewSelect}
                     />
                   ))}
@@ -286,6 +355,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           result={selectedResult}
           theme={theme}
           isSubmitted={submittedInquiryIds.includes(selectedResult.id)}
+          isSubmitting={isInquirySubmitting && inquiryResultId === selectedResult.id}
           searchExecution={searchExecution}
           onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
@@ -297,8 +367,14 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           result={inquiryResult}
           theme={theme}
           query={submittedQuery}
+          error={inquiryError}
+          isSubmitting={isInquirySubmitting}
+          onCommentChange={() => {
+            setInquirySubmission(null);
+            setInquiryError(undefined);
+          }}
           onSubmit={handleInquirySubmit}
-          onClose={() => setInquiryResultId(null)}
+          onClose={handleInquiryClose}
         />
       ) : null}
     </AppShell>

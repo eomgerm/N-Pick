@@ -258,6 +258,22 @@ test('백엔드 bigint memberId를 정밀도 손실 없이 십진 문자열로 �
   assert.equal(data.page, 2);
 });
 
+test('문의 feedbackId도 정밀도 손실 없이 십진 문자열로 보존한다', async (context) => {
+  context.mock.method(
+    globalThis,
+    'fetch',
+    async () =>
+      new Response(
+        '{"isSuccess":true,"code":"COMM_200","message":"OK","data":{"feedbackId":9223372036854775807,"status":"OPEN"}}',
+      ),
+  );
+
+  const data = await fetchJson('/search/results/1/inquiries', { method: 'POST', body: {} });
+
+  assert.equal(data.feedbackId, '9223372036854775807');
+  assert.equal(data.status, 'OPEN');
+});
+
 test('reviver source를 지원하지 않는 엔진도 safe integer memberId를 문자열로 보존한다', async (context) => {
   const nativeParse = JSON.parse;
   context.mock.method(JSON, 'parse', (text, reviver) =>
