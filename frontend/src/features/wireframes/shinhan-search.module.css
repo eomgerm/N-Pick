@@ -1,4 +1,5 @@
 .dateField {
+  position: relative;
   display: grid;
   gap: 10px;
   min-width: 0;
@@ -14,7 +15,7 @@
   width: 100%;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: white;
   color: var(--text);
   text-align: left;
@@ -28,109 +29,126 @@
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  color: #0046ff;
+  color: #c81e63;
 }
-.calendarDialog {
-  position: fixed;
-  inset: 0;
-  width: min(720px, calc(100vw - 32px));
-  max-height: calc(100dvh - 32px);
-  margin: auto;
-  padding: 28px;
-  border: 1px solid #e3e8f2;
-  border-radius: 20px;
-  box-shadow: 0 24px 90px #142a5840;
-  background: white;
-  color: #15284b;
+.dateField[data-compact='true'] {
+  display: block;
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+.dateField[data-compact='true'] > span:first-child {
+  display: none;
+}
+.dateField[data-compact='true'] .rangeTrigger {
+  justify-content: center;
+  width: 52px;
+  max-width: none;
+  min-height: 52px;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 28px;
+  background: rgb(255 255 255 / 95%);
+  box-shadow:
+    0 2px 8px rgb(8 14 24 / 16%),
+    inset 0 0 0 1px rgb(255 255 255 / 72%);
+  white-space: nowrap;
+}
+.dateField[data-compact='true'] .rangeTrigger span {
+  display: none;
+}
+.dateField[data-compact='true'] .rangeTrigger svg {
+  color: var(--accent);
+}
+/* 트리거 아래에 붙는 작은 기간 선택 패널. 화면을 덮지 않습니다. */
+.calendarPopover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 10px);
+  left: 0;
+  width: 296px;
+  max-width: calc(100vw - 32px);
+  padding: 16px;
+  border: 1px solid rgb(255 255 255 / 74%);
+  border-radius: 18px;
+  box-shadow: 0 20px 48px rgb(74 56 40 / 22%);
+  background: rgb(255 255 255 / 96%);
+  backdrop-filter: blur(24px) saturate(1.1);
+  color: #2a2521;
   font:
-    14px Arial,
+    13px Arial,
     'Noto Sans KR',
     sans-serif;
-  overflow-y: auto;
+  text-align: left;
 }
-.calendarDialog::backdrop {
-  background: #12244680;
+.dateField[data-compact='true'] .calendarPopover {
+  left: auto;
+  right: 0;
 }
-.calendarDialog button {
+.calendarPopover[data-placement='above'] {
+  top: auto;
+  bottom: calc(100% + 10px);
+}
+.calendarPopover button {
   font: inherit;
   cursor: pointer;
 }
-.calendarDialog button:focus-visible,
-.calendarDialog input:focus-visible {
-  outline: 3px solid #759bff;
-  outline-offset: 3px;
+.calendarPopover button:focus-visible {
+  outline: 2px solid #c81e63;
+  outline-offset: 2px;
 }
-.calendarHeader,
-.calendarFooter,
+.popoverHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.popoverHeader h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.resetButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #7a7067;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.resetButton:hover {
+  color: #2a2521;
+}
 .monthNavigation {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px;
+  margin: 14px 0 6px;
+  color: #2a2521;
+  font-size: 13px;
+  font-weight: 700;
 }
-.calendarHeader p {
-  margin: 0 0 8px;
-  color: #0046ff;
-  font-size: 12px;
-}
-.calendarHeader h2 {
-  margin: 0;
-  font-size: 23px;
-}
-.calendarHeader button,
 .monthNavigation button {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e4ded4;
+  border-radius: 9px;
   background: white;
+  color: #5f564e;
 }
-.calendarHeader svg,
+.monthNavigation button:hover {
+  background: #f6f1ea;
+}
 .monthNavigation svg {
-  width: 18px;
-  height: 18px;
-}
-.calendarHint {
-  margin: 14px 0 20px;
-  color: #69788f;
-  line-height: 1.7;
-}
-.dateInputs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.dateInputs label {
-  display: grid;
-  gap: 8px;
-  font-size: 12px;
-}
-.dateInputs input {
-  min-width: 0;
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dce3ef;
-  border-radius: 8px;
-  background: #f7f9fd;
-  color: #15284b;
-  font: inherit;
-}
-.monthNavigation {
-  margin: 20px 0 4px;
-  color: #69788f;
-  font-size: 12px;
-}
-.months {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 28px;
-}
-.months h3 {
-  text-align: center;
-  font-size: 15px;
-  margin: 12px 0 18px;
+  width: 15px;
+  height: 15px;
 }
 .days {
   display: grid;
@@ -138,71 +156,77 @@
   gap: 4px 0;
 }
 .weekday {
-  padding-block: 8px;
+  padding-block: 6px;
   text-align: center;
-  color: #7e899c;
+  color: #8e8379;
   font-size: 11px;
 }
 .day {
   position: relative;
-  min-height: 36px;
-  padding: 6px 0;
+  min-height: 32px;
+  padding: 4px 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
-  color: #243754;
-  font-size: 13px;
+  color: #2a2521;
+  font-size: 12px;
 }
 .day:hover {
-  background: #f0f4ff;
+  background: #f6f1ea;
 }
 .day[data-within='true'] {
   border-radius: 0;
-  background: #edf2ff;
-  color: #0046ff;
+  background: #fdeef4;
+  color: #c81e63;
 }
 .day[data-boundary='true'] {
-  border-radius: 8px;
-  background: #0046ff;
+  border-radius: 10px;
+  background: #c81e63;
   color: white;
   font-weight: 700;
 }
 .rangeSummary {
-  min-height: 22px;
-  padding: 12px;
-  margin: 20px 0 0;
-  border-radius: 8px;
-  background: #f5f8ff;
-  color: #0046ff;
+  min-height: 20px;
+  padding: 9px;
+  margin: 12px 0 0;
+  border-radius: 10px;
+  background: #fdf3f7;
+  color: #c81e63;
   text-align: center;
-  font-size: 13px;
+  font-size: 12px;
 }
 .fieldError {
-  color: #b7283d;
-  font-size: 13px;
+  margin: 8px 0 0;
+  color: #c0453f;
+  font-size: 12px;
 }
-.calendarFooter {
-  margin-top: 20px;
-  padding-top: 18px;
-  border-top: 1px solid #e3e8f2;
-}
-.calendarFooter > div {
+.popoverFooter {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
+  margin-top: 12px;
 }
-.calendarFooter button,
 .stateActions button {
   min-height: 42px;
   padding: 10px 16px;
-  border: 1px solid #dce3ef;
-  border-radius: 8px;
+  border: 1px solid #e4ded4;
+  border-radius: 12px;
   background: white;
-  color: #465770;
+  color: #5f564e;
 }
-.calendarFooter .primaryButton,
+.popoverFooter button {
+  min-height: 36px;
+  padding: 8px 14px;
+  border: 1px solid #e4ded4;
+  border-radius: 10px;
+  background: white;
+  color: #5f564e;
+  font-size: 12px;
+}
+.popoverFooter .primaryButton,
 .stateActions .primaryButton {
-  border-color: #0046ff;
-  background: #0046ff;
+  border-color: #2e2a26;
+  background: #2e2a26;
   color: white;
 }
 .filterFields {
@@ -218,9 +242,11 @@
   display: grid;
   justify-items: center;
   padding: clamp(32px, 6vw, 72px) 24px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: white;
+  border: 1px solid rgb(255 255 255 / 74%);
+  border-radius: 22px;
+  background: rgb(255 255 255 / 84%);
+  box-shadow: 0 18px 44px rgb(74 56 40 / 8%);
+  backdrop-filter: blur(20px);
   text-align: center;
 }
 .stateIcon {
@@ -229,17 +255,17 @@
   width: 76px;
   height: 76px;
   margin-bottom: 24px;
-  border-radius: 24px;
-  background: #edf3ff;
-  color: #0046ff;
+  border-radius: 26px;
+  background: #fdeef4;
+  color: #c81e63;
 }
 .stateIcon svg {
   width: 34px;
   height: 34px;
 }
 .statePanel[data-state='failed'] .stateIcon {
-  background: #fff3ed;
-  color: #b95a19;
+  background: #fbf1e2;
+  color: #9a6b2f;
 }
 .statePanel h3 {
   margin: 0 0 12px;
@@ -249,7 +275,7 @@
 .statePanel > p {
   max-width: 480px;
   margin: 0;
-  color: #64748b;
+  color: #7a7067;
   line-height: 1.8;
   word-break: keep-all;
 }
@@ -259,8 +285,8 @@
   width: min(100%, 460px);
   padding: 20px;
   margin: 26px 0;
-  border-radius: 10px;
-  background: #f7f9fc;
+  border-radius: 16px;
+  background: #f7f3ed;
   text-align: left;
   font-size: 13px;
 }
@@ -270,7 +296,7 @@
   gap: 12px;
 }
 .searchConditions dt {
-  color: #738199;
+  color: #8e8379;
 }
 .searchConditions dd {
   margin: 0;
@@ -289,7 +315,7 @@
 }
 .demoNote {
   margin: 16px 0;
-  color: #78859a;
+  color: #8e8379;
   font-size: 12px;
   line-height: 1.7;
 }
@@ -302,7 +328,7 @@
   aspect-ratio: 16 / 9;
   padding: 28px;
   border-radius: 12px;
-  background: radial-gradient(ellipse at 50% 20%, #1c3976, #0d1b38 75%);
+  background: radial-gradient(ellipse at 50% 20%, #3c342c, #211d19 75%);
   color: white;
   text-align: center;
 }
@@ -311,7 +337,7 @@
 }
 .previewLoading p {
   margin: 0;
-  color: #b7c8e8;
+  color: #d3c8bc;
   font-size: 13px;
   line-height: 1.7;
 }
@@ -337,8 +363,8 @@
 }
 .loadingBars span {
   height: 12px;
-  border-radius: 8px;
-  background: #eaf0fa;
+  border-radius: 12px;
+  background: #ece5db;
   animation: pulse 1.3s ease-in-out infinite alternate;
 }
 .loadingBars span:last-child {
@@ -356,19 +382,14 @@
   }
 }
 @media (max-width: 620px) {
-  .calendarDialog {
-    padding: 20px;
+  .dateField[data-compact='true'] .rangeTrigger {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
   }
-  .months {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  .calendarFooter {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .calendarFooter > div {
-    justify-content: flex-end;
+  .calendarPopover {
+    width: 280px;
+    padding: 14px;
   }
   .filterFields {
     grid-template-columns: 1fr;

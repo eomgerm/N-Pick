@@ -71,7 +71,7 @@
   inset: 0 0 auto;
   z-index: 5;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
   padding: clamp(22px, 3vh, 34px) var(--edge);
@@ -90,8 +90,29 @@
 }
 
 .headerNote {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 40px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-align: right;
+  word-break: keep-all;
+}
+
+/* 아래 두 줄은 히어로 헤드라인과 같은 진행도로 사라져, 역할 카드 구간에서는 남지 않는다.
+   --hero-fade는 landing-shell이 .shell에 스크롤에 맞춰 갱신한다. */
+.headerNoteSub {
+  opacity: var(--hero-fade, 1);
+}
+
+/* 첫 줄(태그라인)만 밝게 두고, 아래 두 줄은 보조 문구로 한 단계 물러난다. */
+.headerNoteLead {
+  margin-bottom: 10px;
   color: rgba(255, 255, 255, 0.62);
-  font-size: 12px;
+  font-size: 18px;
   letter-spacing: 0.02em;
 }
 
@@ -179,17 +200,24 @@
   animation-delay: 1300ms;
 }
 
-.accent,
-.accentMint {
+/* 헤드라인 글자는 흰색으로 통일한다.
+   (--accent / --accent-mint는 로고 하이픈·역할 카드 등 다른 요소에서 계속 쓴다.) */
+.heroWord {
+  color: #ffffff;
   font-style: normal;
 }
 
-.accent {
-  color: var(--accent);
+/* 인트로가 끝나면 'EED'·'?'·'!'가 사라지고 좌하단에 'N / PICK' 워드마크만 남는다.
+   opacity와 함께 font-size를 0으로 줄여, 글자가 차지하던 폭까지 접는다. */
+.heroTrim {
+  transition:
+    font-size 900ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 420ms ease;
 }
 
-.accentMint {
-  color: var(--accent-mint);
+.shell[data-intro='done'] .heroTrim {
+  font-size: 0;
+  opacity: 0;
 }
 
 /* ── 스크롤 안내 ─────────────────────────────────────────────────── */
@@ -233,7 +261,7 @@
 .roles {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
   grid-template-rows: 1fr auto;
   align-items: center;
   column-gap: clamp(40px, 6vw, 110px);
@@ -300,101 +328,148 @@
 .roleList {
   grid-column: 2;
   grid-row: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(14px, 1.4vw, 20px);
 }
 
+/* 카드 = 사진이 전면을 채우고, 하단만 blur 패널로 덮어 글자를 얹는다 */
 .roleCard {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  min-height: 148px;
-  padding: 26px 28px;
+  --card-rise: 24px;
+  --card-scale: 1;
+
+  position: relative;
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  /* 세로가 짧은 화면에서 카드가 한 화면을 넘지 않도록 묶어 둔다. */
+  max-height: min(520px, 62vh);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 20px;
+  border-radius: 26px;
   color: #ffffff;
   background: rgba(14, 17, 22, 0.5);
-  backdrop-filter: blur(18px) saturate(1.15);
   text-decoration: none;
-  transform: translate3d(0, calc((1 - var(--roles-fade, 1)) * 24px), 0);
+  /* 사진과 글자를 함께 흑백으로 묶고, hover에서만 색을 되돌린다. */
+  filter: grayscale(1);
+  transform: translate3d(0, calc((1 - var(--roles-fade, 1)) * var(--card-rise)), 0)
+    scale(var(--card-scale));
   transition:
-    border-color 200ms,
-    background-color 200ms;
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 340ms ease,
+    box-shadow 260ms ease,
+    border-color 200ms;
 }
 
 .roleCard:nth-child(2) {
-  transform: translate3d(0, calc((1 - var(--roles-fade, 1)) * 40px), 0);
+  --card-rise: 40px;
 }
 
-.roleCard:hover {
-  border-color: var(--accent);
-  background: rgba(20, 24, 31, 0.62);
+.roleCard:hover,
+.roleCard:focus-visible {
+  --card-scale: 1.04;
+
+  z-index: 1;
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.5);
+  filter: grayscale(0);
 }
 
-.reviewerCard:hover {
-  border-color: var(--accent-mint);
+.cardMedia {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: rgba(255, 255, 255, 0.06);
 }
 
-.roleIcon {
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  width: 58px;
-  height: 58px;
-  border-radius: 16px;
-  color: var(--accent);
-  background: rgba(53, 207, 255, 0.14);
+/* 사진 아래쪽을 살짝 눌러 글자 대비를 확보한다. 짙은 부분은 유리 패널이 맡는다. */
+.cardMedia::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0) 55%, rgba(8, 10, 14, 0.4) 100%);
 }
 
-.roleIcon svg {
-  width: 26px;
-  height: 26px;
-  stroke-width: 1.6;
+.cardImage {
+  object-fit: cover;
 }
 
-.cardCopy {
+/* 카드 중간에서 시작해 아래로 갈수록 짙어지는 프로스티드 글래스.
+   mask로 blur 자체를 서서히 켜기 때문에 패널 위쪽에 경계선이 생기지 않는다. */
+.cardBody {
+  /* 램프 구간을 위쪽 여백으로 확보해, 카드 높이가 달라져도 글자는 항상 마스크가
+     완전히 켜진 자리에서 시작한다. */
+  --glass-ramp: 104px;
+
+  position: absolute;
+  inset: auto 0 0;
   display: flex;
-  flex: 1;
   flex-direction: column;
-  min-width: 0;
+  padding: calc(var(--glass-ramp) + 12px) clamp(16px, 1.4vw, 20px) clamp(16px, 1.4vw, 18px);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.05) 58%,
+      rgba(255, 255, 255, 0.09) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(8, 10, 14, 0) 0%,
+      rgba(8, 10, 14, 0.34) 46%,
+      rgba(8, 10, 14, 0.62) 100%
+    );
+  backdrop-filter: blur(22px) saturate(1.25);
+  /* -webkit- 접두사는 직접 쓰지 않는다. Next(Lightning CSS)가 타깃에 맞춰 붙여 주는데,
+     손으로 같이 적으면 표준 속성 쪽이 통째로 빠져 최신 크롬에서 효과가 죽는다. */
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) var(--glass-ramp));
 }
 
-.cardCopy small {
-  margin-bottom: 9px;
-  color: var(--accent);
-  font-size: 10px;
+.cardTitle {
+  font-size: clamp(17px, 1.4vw, 21px);
   font-weight: 750;
-  letter-spacing: 0.16em;
-}
-
-.cardCopy strong {
-  font-size: 21px;
-  font-weight: 750;
+  line-height: 1.2;
   letter-spacing: -0.035em;
 }
 
-.cardCopy > span {
+/* 참고 시안의 이탤릭 세리프 한 줄. 한글은 이탤릭이 없어 영문 카피로 둔다.
+   칩을 뺀 뒤로는 이 줄 색이 두 역할을 구분하는 유일한 단서다. */
+.cardTagline {
+  margin-top: 3px;
+  color: var(--accent);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(16px, 1.35vw, 20px);
+  font-style: italic;
+  letter-spacing: -0.01em;
+}
+
+.reviewerCard .cardTagline {
+  color: var(--accent-mint);
+}
+
+.cardText {
   margin-top: 9px;
-  color: rgba(255, 255, 255, 0.74);
+  color: rgba(255, 255, 255, 0.76);
   font-size: 12.5px;
   line-height: 1.55;
   word-break: keep-all;
 }
 
-.arrow {
-  flex-shrink: 0;
-  width: 20px;
-  color: rgba(255, 255, 255, 0.55);
+.cardCta {
+  display: grid;
+  place-items: center;
+  height: 46px;
+  margin-top: 16px;
+  border-radius: 999px;
+  color: #0b0f14;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  transition: background-color 200ms;
 }
 
-.reviewerCard .roleIcon {
-  color: var(--accent-mint);
-  background: rgba(79, 227, 189, 0.14);
-}
-
-.reviewerCard .cardCopy small {
-  color: var(--accent-mint);
+.roleCard:hover .cardCta {
+  background: rgba(255, 255, 255, 0.86);
 }
 
 .footer {
@@ -439,6 +514,12 @@
 /* ── 반응형 ──────────────────────────────────────────────────────── */
 
 @media (max-width: 1000px) {
+  .headerNote {
+    font-size: 26px;
+  }
+  .headerNoteLead {
+    font-size: 14px;
+  }
   .roles {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
@@ -476,13 +557,33 @@
   .scrollCue {
     bottom: clamp(28px, 5vh, 48px);
   }
-  .roleCard {
-    min-height: 124px;
-    gap: 16px;
-    padding: 20px;
+  .roleList {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .cardCopy strong {
-    font-size: 18px;
+  /* 세로로 쌓이므로 카드를 가로로 눕혀 두 장이 한 화면에 들어가게 한다. */
+  .roleCard {
+    aspect-ratio: 16 / 11;
+    border-radius: 22px;
+  }
+  .cardBody {
+    --glass-ramp: 56px;
+
+    padding: calc(var(--glass-ramp) + 10px) 16px 14px;
+  }
+  /* 카드가 낮아 유리 패널이 화면을 다 덮어 버리므로 설명 한 줄은 접는다. */
+  .cardText {
+    display: none;
+  }
+  .cardCta {
+    height: 42px;
+    margin-top: 12px;
+  }
+  .rolesDescription {
+    display: none;
+  }
+  .roles {
+    padding-top: 66px;
+    row-gap: 20px;
   }
   .footer {
     flex-direction: column;
@@ -495,6 +596,9 @@
   .heroLine {
     animation: none;
     transform: none;
+    transition: none;
+  }
+  .heroTrim {
     transition: none;
   }
   .heroTitle {
@@ -515,6 +619,10 @@
   .rolesBrand,
   .roleCard,
   .roleCard:nth-child(2) {
+    transform: none;
+  }
+  .roleCard:hover,
+  .roleCard:focus-visible {
     transform: none;
   }
   .roleCard {

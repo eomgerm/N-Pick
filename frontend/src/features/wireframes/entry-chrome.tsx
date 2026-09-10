@@ -5,7 +5,7 @@ import { routes } from '@/lib/routes';
 import styles from '@/features/wireframes/entry.module.css';
 
 interface EntryHeaderProps {
-  label: string;
+  label?: string;
   actions?: ReactNode;
 }
 
@@ -18,7 +18,7 @@ export function EntryHeader({ label, actions }: EntryHeaderProps) {
         </span>
         N-Pick
       </Link>
-      {actions ?? <span className={styles.headerLabel}>{label}</span>}
+      {actions ?? (label ? <span className={styles.headerLabel}>{label}</span> : null)}
     </header>
   );
 }

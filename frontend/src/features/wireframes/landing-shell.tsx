@@ -2,7 +2,8 @@
 
 import '@fontsource/black-han-sans/400.css';
 
-import { ArrowDown, ArrowRight, Clapperboard, ShieldCheck } from 'lucide-react';
+import { ArrowDown } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 
@@ -16,11 +17,12 @@ const ROLES_FADE_END = 0.85;
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
-// 헤드라인 wipe가 끝나는 시점. 이후 문구가 좌하단으로 내려가고 배경이 드러난다.
+// 헤드라인 wipe가 끝나는 시점. 이후 'EED?'·'!'가 접히며 'N / PICK'만 좌하단에 남고 배경이 드러난다.
 // (landing.module.css의 .heroLine 애니메이션 delay + duration과 맞춘다.)
 const INTRO_SETTLE_MS = 2400;
 
 export function LandingShell() {
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const heroRef = useRef<HTMLElement | null>(null);
   const rolesRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
@@ -66,9 +68,10 @@ export function LandingShell() {
 
   // 두 섹션 모두 sticky로 같은 자리에 고정된 채, 스크롤 진행도로 서로 교차 페이드한다.
   useEffect(() => {
+    const shell = shellRef.current;
     const hero = heroRef.current;
     const roles = rolesRef.current;
-    if (!hero || !roles) return;
+    if (!shell || !hero || !roles) return;
 
     let frame = 0;
     const update = () => {
@@ -80,7 +83,7 @@ export function LandingShell() {
       );
 
       if (window.scrollY > 0) setIsIntroDone(true);
-      hero.style.setProperty('--hero-fade', String(heroFade));
+      shell.style.setProperty('--hero-fade', String(heroFade));
       hero.dataset.faded = String(heroFade <= 0);
       roles.style.setProperty('--roles-fade', String(rolesFade));
       roles.dataset.revealed = String(rolesFade > 0);
@@ -123,7 +126,7 @@ export function LandingShell() {
   }, []);
 
   return (
-    <div className={styles.shell} data-intro={isIntroDone ? 'done' : 'running'}>
+    <div className={styles.shell} data-intro={isIntroDone ? 'done' : 'running'} ref={shellRef}>
       <div aria-hidden="true" className={styles.backdrop}>
         <video
           className={styles.video}
@@ -144,17 +147,25 @@ export function LandingShell() {
         <Link aria-label="N-Pick 홈" className={styles.brand} href={routes.landing}>
           N<span className={styles.brandHyphen}>-</span>Pick
         </Link>
-        <span className={styles.headerNote}>필요한 순간, 정확한 선택.</span>
+        <div className={styles.headerNote}>
+          <span className={styles.headerNoteLead}>필요한 순간, 정확한 선택.</span>
+          <span className={styles.headerNoteSub}>영상 검색 시간을 줄이고</span>
+          <span className={styles.headerNoteSub}>편집과 창작에 집중할 수 있도록</span>
+        </div>
       </header>
 
       <main className={styles.main}>
         <section aria-labelledby="landing-title" className={styles.hero} ref={heroRef}>
           <h1 className={styles.heroTitle} id="landing-title" ref={titleRef}>
             <span className={styles.heroLine}>
-              WHAT YOU <em className={styles.accent}>NEED</em>?
+              <em className={styles.heroWord}>
+                N<span className={styles.heroTrim}>EED</span>
+              </em>
+              <span className={styles.heroTrim}>?</span>
             </span>
             <span className={styles.heroLine}>
-              I WILL <em className={styles.accentMint}>PICK</em>!
+              <em className={styles.heroWord}>PICK</em>
+              <span className={styles.heroTrim}>!</span>
             </span>
           </h1>
           <button className={styles.scrollCue} onClick={handleScrollCue} type="button">
@@ -183,29 +194,41 @@ export function LandingShell() {
 
           <div className={styles.roleList}>
             <Link className={styles.roleCard} href={`${routes.login}?role=editor`}>
-              <span className={styles.roleIcon}>
-                <Clapperboard aria-hidden="true" />
+              <span className={styles.cardMedia}>
+                <Image
+                  alt=""
+                  className={styles.cardImage}
+                  fill
+                  sizes="(max-width: 740px) 92vw, (max-width: 1000px) 46vw, 26vw"
+                  src="/images/role-editor.jpg"
+                />
               </span>
-              <span className={styles.cardCopy}>
-                <small>EDITOR</small>
-                <strong>편집자로 시작하기</strong>
-                <span>필요한 뉴스 장면을 빠르게 찾아보세요.</span>
+              <span className={styles.cardBody}>
+                <strong className={styles.cardTitle}>편집자로 시작하기</strong>
+                <em className={styles.cardTagline}>Find the scene</em>
+                <span className={styles.cardText}>필요한 뉴스 장면을 빠르게 찾아보세요.</span>
+                <span className={styles.cardCta}>편집 시작하기</span>
               </span>
-              <ArrowRight aria-hidden="true" className={styles.arrow} />
             </Link>
             <Link
               className={`${styles.roleCard} ${styles.reviewerCard}`}
               href={`${routes.login}?role=reviewer`}
             >
-              <span className={styles.roleIcon}>
-                <ShieldCheck aria-hidden="true" />
+              <span className={styles.cardMedia}>
+                <Image
+                  alt=""
+                  className={styles.cardImage}
+                  fill
+                  sizes="(max-width: 740px) 92vw, (max-width: 1000px) 46vw, 26vw"
+                  src="/images/role-reviewer.jpg"
+                />
               </span>
-              <span className={styles.cardCopy}>
-                <small>REVIEWER</small>
-                <strong>검수자로 시작하기</strong>
-                <span>검수가 필요한 장면을 확인해 주세요.</span>
+              <span className={styles.cardBody}>
+                <strong className={styles.cardTitle}>검수자로 시작하기</strong>
+                <em className={styles.cardTagline}>Review the cut</em>
+                <span className={styles.cardText}>검수가 필요한 장면을 확인해 주세요.</span>
+                <span className={styles.cardCta}>검수 시작하기</span>
               </span>
-              <ArrowRight aria-hidden="true" className={styles.arrow} />
             </Link>
           </div>
 
