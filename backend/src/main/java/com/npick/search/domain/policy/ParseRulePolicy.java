@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.npick.search.domain.model.ParseRule;
 import com.npick.search.domain.model.ParseRuleOutcome;
@@ -95,6 +97,9 @@ public final class ParseRulePolicy {
                 candidates.add(new Candidate(rule, resolveOperations(rule, original)));
             } catch (UnapplicableRule ex) {
                 settled.put(rule.ruleId(), ParseRuleOutcome.failed(rule, ex.getMessage()));
+            } catch (RuntimeException ex) {
+                // 규칙 하나 때문에 검색 전체가 실패하면 안 된다. F-14 는 그 실행에서 건너뛰고 이유를 남기라고 한다.
+                settled.put(rule.ruleId(), ParseRuleOutcome.failed(rule, unexpected(ex)));
             }
         }
 
@@ -106,8 +111,15 @@ public final class ParseRulePolicy {
             if (settled.containsKey(candidate.rule().ruleId())) {
                 continue; // 충돌 그룹에서 걸러졌다
             }
-            QueryResolution attempt = applyAll(working, candidate.operations());
-            String invalid = validate(attempt, original);
+            QueryResolution attempt;
+            String invalid;
+            try {
+                attempt = applyAll(working, candidate.operations());
+                invalid = validate(attempt, working, candidate.touchedAxes());
+            } catch (RuntimeException ex) {
+                settled.put(candidate.rule().ruleId(), ParseRuleOutcome.failed(candidate.rule(), unexpected(ex)));
+                continue;
+            }
             if (invalid != null) {
                 // 복사본을 버린다. working 은 마지막 유효 상태 그대로다 (F-11).
                 settled.put(candidate.rule().ruleId(), ParseRuleOutcome.failed(candidate.rule(), invalid));
@@ -151,7 +163,13 @@ public final class ParseRulePolicy {
 
     // ── 연산 해석: 무엇을 어떻게 바꿀지 원본 기준으로 확정한다 ──────────────
 
-    private record Candidate(ParseRule rule, List<ResolvedOperation> operations) {}
+    private record Candidate(ParseRule rule, List<ResolvedOperation> operations) {
+
+        /** 이 규칙이 실제로 쓰는 축. 유효성 검사를 여기로 좁힌다. */
+        Set<ResolutionAxis> touchedAxes() {
+            return operations.stream().map(ResolvedOperation::axis).collect(Collectors.toUnmodifiableSet());
+        }
+    }
 
     /**
      * 적용 준비가 끝난 연산 하나.
@@ -160,7 +178,12 @@ public final class ParseRulePolicy {
      * @param effect 그 자리를 어떻게 바꾸는가. 같은 키에 효과가 다르면 충돌이고, 같으면 멱등이라 충돌이 아니다
      */
     private record ResolvedOperation(
-            ParseRule.Patch.Op op, ResolutionAxis axis, ResolutionAxis.Item item, String writeKey, String effect) {}
+            ParseRule.Patch.Op op,
+            ResolutionAxis axis,
+            ResolutionAxis.Item item,
+            QueryResolution.Intent intent,
+            String writeKey,
+            String effect) {}
 
     /** 규칙을 적용할 수 없다. 조건 불일치가 아니라 규칙 쪽 문제이므로 {@code failed} 로 기록한다. */
     private static final class UnapplicableRule extends RuntimeException {
@@ -191,6 +214,7 @@ public final class ParseRulePolicy {
         ResolutionAxis axis = operation.axis();
         return switch (operation.op()) {
             case SET -> {
+                // 어휘 대조는 ParseRule.incompatibleReason 이 이미 했다. 여기 도달하면 값은 유효하다.
                 QueryResolution.Intent intent = ResolutionAxis.intentFrom(
                                 operation.target().value())
                         .orElseThrow(() -> new UnapplicableRule(
@@ -199,24 +223,22 @@ public final class ParseRulePolicy {
                         ParseRule.Patch.Op.SET,
                         axis,
                         null,
+                        intent,
                         axis.jsonName(),
                         "set:" + ResolutionAxis.intentJson(intent));
             }
             case UNSET ->
                 new ResolvedOperation(
-                        ParseRule.Patch.Op.SET,
+                        ParseRule.Patch.Op.UNSET,
                         axis,
                         null,
+                        QueryResolution.Intent.UNKNOWN,
                         axis.jsonName(),
                         "set:" + ResolutionAxis.intentJson(QueryResolution.Intent.UNKNOWN));
             case ADD_ITEM -> {
                 ResolutionAxis.Item item = added(operation, original);
                 yield new ResolvedOperation(
-                        ParseRule.Patch.Op.ADD_ITEM,
-                        axis,
-                        item,
-                        writeKey(axis, item),
-                        "add:%s:%s".formatted(item.origin(), item.querySpan()));
+                        ParseRule.Patch.Op.ADD_ITEM, axis, item, null, writeKey(axis, item), addEffect(axis, item));
             }
             case REMOVE_ITEM -> {
                 ResolutionAxis.Item target = operation.target().asItem(QueryResolution.Origin.INFERRED, null);
@@ -228,9 +250,19 @@ public final class ParseRulePolicy {
                     throw new UnapplicableRule("명시적 사용자 필터는 규칙이 제거할 수 없다");
                 }
                 yield new ResolvedOperation(
-                        ParseRule.Patch.Op.REMOVE_ITEM, axis, existing, writeKey(axis, existing), "remove");
+                        ParseRule.Patch.Op.REMOVE_ITEM, axis, existing, null, writeKey(axis, existing), "remove");
             }
         };
+    }
+
+    /**
+     * 추가 연산의 효과.
+     *
+     * <p><b>축이 저장하지 않는 것은 효과에 넣지 않는다.</b> {@code expanded_terms} 는 문자열만 저장하므로 출처가 달라도 결과가 같다. 출처를 효과에 넣으면 같은 단어를 리터럴로
+     * 넣는 규칙과 원본 값으로 넣는 규칙이 충돌로 묶여 <b>둘 다 건너뛰어진다</b> — 결과가 같은데도. F-11 「독립 규칙은 함께 적용한다」 위반이다.
+     */
+    private static String addEffect(ResolutionAxis axis, ResolutionAxis.Item item) {
+        return axis.carriesOrigin() ? "add:%s:%s".formatted(item.origin(), item.querySpan()) : "add";
     }
 
     /**
@@ -365,11 +397,7 @@ public final class ParseRulePolicy {
         for (ResolvedOperation operation : operations) {
             ResolutionAxis axis = operation.axis();
             working = switch (operation.op()) {
-                case SET, UNSET ->
-                    ResolutionAxis.writeIntent(
-                            working,
-                            ResolutionAxis.intentFrom(operation.effect().substring("set:".length()))
-                                    .orElse(QueryResolution.Intent.UNKNOWN));
+                case SET, UNSET -> ResolutionAxis.writeIntent(working, operation.intent());
                 case ADD_ITEM -> axis.write(working, ResolutionAxis.plus(axis.read(working), operation.item()));
                 // 대상이 이미 없으면 그대로 둔다. 원본 기준 검증은 resolve 단계에서 끝났고, 적용은 멱등이어야
                 // 같은 항목을 지우는 독립 규칙 둘이 서로를 실패시키지 않는다.
@@ -389,44 +417,63 @@ public final class ParseRulePolicy {
      * 적용 후 해석이 검색에 쓸 수 있는 상태인가. 사유를 반환하면 그 규칙은 되돌려진다.
      *
      * <p>리졸버 쪽 {@code validator.py} 가 지키는 불변식과 같은 것을 본다. 규칙이 그 불변식을 깨뜨릴 수 있는 경로가 여기라서 같은 검사가 두 번 필요하다.
+     *
+     * <p><b>규칙이 건드린 축만 본다. 그리고 적용 전에도 있던 위반은 그 규칙 탓으로 돌리지 않는다.</b> 해석 전체를 보면 리졸버가 낸 흠 하나가 무관한 규칙까지 전부 {@code failed} 로
+     * 만든다 — 예를 들어 리졸버가 {@code expanded_terms} 에 같은 단어를 두 번 넣으면({@code validator.py} 는 이 축을 중복 제거하지 않는다)
+     * {@code locations} 만 고치는 규칙까지 그 사유로 실패한다. 승인된 교정이 전부 사라지고 원인은 규칙으로 기록된다.
+     *
+     * @param base 이 규칙을 적용하기 직전의 상태. 여기서 이미 성립하던 위반은 무시한다
      */
-    private String validate(QueryResolution attempt, QueryResolution original) {
-        for (ResolutionAxis axis : ResolutionAxis.values()) {
+    private String validate(QueryResolution attempt, QueryResolution base, Set<ResolutionAxis> touched) {
+        for (ResolutionAxis axis : touched) {
             if (!axis.list()) {
                 continue;
             }
-            List<ResolutionAxis.Item> items = axis.read(attempt);
-            List<String> identities =
-                    items.stream().map(ResolutionAxis.Item::identity).toList();
-            if (identities.stream().distinct().count() != identities.size()) {
-                return "%s 에 같은 항목이 중복된다".formatted(axis.jsonName());
-            }
-            for (ResolutionAxis.Item item : items) {
-                if (axis == ResolutionAxis.DATE_WINDOWS) {
-                    if (item.start() == null
-                            || item.endExclusive() == null
-                            || !item.start().isBefore(item.endExclusive())) {
-                        return "date_windows 구간이 유효하지 않다";
-                    }
-                } else if (item.value() == null || item.value().isBlank()) {
-                    return "%s 에 빈 값이 있다".formatted(axis.jsonName());
-                }
-                if (item.origin() == QueryResolution.Origin.EXPLICIT_QUERY && item.querySpan() == null) {
-                    return "%s 의 explicit_query 항목에 원문 구간이 없다".formatted(axis.jsonName());
-                }
+            String problem = axisProblem(attempt, axis);
+            if (problem != null && !problem.equals(axisProblem(base, axis))) {
+                return problem;
             }
             // 명시적 사용자 필터는 규칙이 바꿀 수 없다 (F-11). resolve 단계에서도 막지만 결과로 한 번 더 확인한다.
-            List<String> keptFilters = items.stream()
+            List<String> kept = axis.read(attempt).stream()
                     .filter(i -> i.origin() == QueryResolution.Origin.EXPLICIT_FILTER)
                     .map(ResolutionAxis.Item::identity)
                     .toList();
-            for (ResolutionAxis.Item before : axis.read(original)) {
-                if (before.origin() == QueryResolution.Origin.EXPLICIT_FILTER
-                        && !keptFilters.contains(before.identity())) {
+            for (ResolutionAxis.Item item : axis.read(base)) {
+                if (item.origin() == QueryResolution.Origin.EXPLICIT_FILTER && !kept.contains(item.identity())) {
                     return "%s 의 명시적 사용자 필터가 사라졌다".formatted(axis.jsonName());
                 }
             }
         }
         return null;
+    }
+
+    /** 한 축의 불변식 위반 사유. 없으면 {@code null}. */
+    private String axisProblem(QueryResolution resolution, ResolutionAxis axis) {
+        List<ResolutionAxis.Item> items = axis.read(resolution);
+        List<String> identities =
+                items.stream().map(ResolutionAxis.Item::identity).toList();
+        if (identities.stream().distinct().count() != identities.size()) {
+            return "%s 에 같은 항목이 중복된다".formatted(axis.jsonName());
+        }
+        for (ResolutionAxis.Item item : items) {
+            if (axis == ResolutionAxis.DATE_WINDOWS) {
+                if (item.start() == null
+                        || item.endExclusive() == null
+                        || !item.start().isBefore(item.endExclusive())) {
+                    return "date_windows 구간이 유효하지 않다";
+                }
+            } else if (item.value() == null || item.value().isBlank()) {
+                return "%s 에 빈 값이 있다".formatted(axis.jsonName());
+            }
+            if (item.origin() == QueryResolution.Origin.EXPLICIT_QUERY && item.querySpan() == null) {
+                return "%s 의 explicit_query 항목에 원문 구간이 없다".formatted(axis.jsonName());
+            }
+        }
+        return null;
+    }
+
+    /** 예상하지 못한 예외의 사유 문구. 규칙 문제와 코드 버그를 기록에서 구분할 수 있게 예외 종류를 남긴다. */
+    private static String unexpected(RuntimeException ex) {
+        return "적용 중 예외 %s: %s".formatted(ex.getClass().getSimpleName(), ex.getMessage());
     }
 }

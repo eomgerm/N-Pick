@@ -2,9 +2,11 @@ package com.npick.search.domain.model;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.domain.error.SearchErrorCode;
@@ -54,6 +56,45 @@ public enum ResolutionAxis {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * 이 축이 받는 하위 유형. 유형이 없는 축은 빈 집합이다.
+     *
+     * <p>enum 에서 뽑는다. 문자열을 손으로 적으면 {@code QueryResolution} 의 유형이 늘 때 여기가 조용히 뒤처진다.
+     *
+     * <p><b>이 집합이 규칙 문법 검사의 근거다.</b> 없는 유형이 통과하면 적용 단계의 {@code valueOf} 가 던지고, 그 예외는 규칙 하나 때문에 검색 전체를 실패시킨다.
+     */
+    public Set<String> types() {
+        return switch (this) {
+            case DATE_WINDOWS -> jsonNames(QueryResolution.DateField.values());
+            case ENTITIES -> jsonNames(QueryResolution.EntityType.values());
+            case LOCATIONS -> jsonNames(QueryResolution.LocationType.values());
+            case INTENT, INCIDENT_NAMES, EXPANDED_TERMS -> Set.of();
+        };
+    }
+
+    /** 항목이 값 문자열을 갖는가. {@code date_windows} 는 값이 아니라 구간으로 표현된다. */
+    public boolean valued() {
+        return list() && this != DATE_WINDOWS;
+    }
+
+    /**
+     * 항목이 출처를 저장하는가.
+     *
+     * <p>{@code expanded_terms} 는 문자열만 저장해 출처를 잃는다. 그래서 이 축에서는 출처가 달라도 <b>결과가 같다</b> — 충돌 판정이 출처를 보면 결과가 같은 독립 규칙 둘을
+     * 충돌로 잘못 묶는다.
+     */
+    public boolean carriesOrigin() {
+        return list() && this != EXPANDED_TERMS;
+    }
+
+    private static Set<String> jsonNames(Enum<?>[] values) {
+        Set<String> names = new LinkedHashSet<>();
+        for (Enum<?> value : values) {
+            names.add(lower(value.name()));
+        }
+        return Set.copyOf(names);
     }
 
     /**

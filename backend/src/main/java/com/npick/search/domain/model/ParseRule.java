@@ -73,6 +73,10 @@ public record ParseRule(
         }
     }
 
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
     /** 읽지 못한 규칙. 목록에서 빼지 않고 이 모양으로 들고 와 비호환으로 기록한다. */
     public static ParseRule unparsed(long ruleId, String bodySnapshot, String reason) {
         return new ParseRule(ruleId, null, null, null, null, bodySnapshot, reason);
@@ -136,15 +140,49 @@ public record ParseRule(
 
             /** 축과 연산의 조합이 성립하지 않는 사유. 성립하면 {@code null}. */
             String problem() {
-                if (axis.list() == (op == Op.EQUALS)) {
-                    return "%s 축에 %s 는 쓸 수 없다".formatted(axis.jsonName(), op.jsonName());
+                if (axis.list() && op == Op.EQUALS) {
+                    return "목록 축 %s 에 equals 는 쓸 수 없다".formatted(axis.jsonName());
+                }
+                if (!axis.list() && op != Op.EQUALS) {
+                    return "스칼라 축 %s 에 %s 는 쓸 수 없다".formatted(axis.jsonName(), op.jsonName());
                 }
                 return switch (op) {
-                    case EQUALS, HAS_VALUE ->
-                        value == null || value.isBlank() ? "%s 에 값이 없다".formatted(op.jsonName()) : null;
-                    case HAS_TYPE -> type == null || type.isBlank() ? "has_type 에 유형이 없다" : null;
+                    case EQUALS -> intentProblem();
+                    case HAS_VALUE -> {
+                        // date_windows 항목은 값 문자열이 없어 이 조건이 영원히 거짓이 된다.
+                        if (!axis.valued()) {
+                            yield "%s 항목에는 값이 없어 has_value 로 판정할 수 없다".formatted(axis.jsonName());
+                        }
+                        yield blank(value) ? "has_value 에 값이 없다" : null;
+                    }
+                    case HAS_TYPE -> typeProblem();
                     case IS_EMPTY, IS_NOT_EMPTY -> null;
                 };
+            }
+
+            /**
+             * {@code intent} 어휘 대조.
+             *
+             * <p>없는 값이면 조건이 <b>영원히 거짓</b>이 된다. 그것을 조건 불일치로 기록하면 오류가 아니어서 degraded 에도 안 남고, 검수자는 자기 규칙이 절대 안 걸린다는 사실을 알
+             * 방법이 없다 — FRD §11 이 경계한 「오류 없이 조용히 안 걸린다」가 그대로 재현된다.
+             */
+            private String intentProblem() {
+                if (blank(value)) {
+                    return "equals 에 값이 없다";
+                }
+                return ResolutionAxis.intentFrom(value).isPresent() ? null : "모르는 intent 값 %s".formatted(value);
+            }
+
+            private String typeProblem() {
+                if (axis.types().isEmpty()) {
+                    return "%s 항목에는 유형이 없어 has_type 으로 판정할 수 없다".formatted(axis.jsonName());
+                }
+                if (blank(type)) {
+                    return "has_type 에 유형이 없다";
+                }
+                return axis.types().contains(type)
+                        ? null
+                        : "%s 에 없는 유형 %s (허용: %s)".formatted(axis.jsonName(), type, axis.types());
             }
         }
 
@@ -198,20 +236,9 @@ public record ParseRule(
                     return "%s 축에 %s 는 쓸 수 없다".formatted(axis.jsonName(), op.jsonName());
                 }
                 if (valueFrom != null) {
-                    if (op != Op.ADD_ITEM) {
-                        return "value_from 은 add_item 에만 쓴다";
-                    }
-                    if (axis == ResolutionAxis.DATE_WINDOWS) {
-                        // 날짜 구간은 재사용할 값 문자열이 없다. 옮길 대상이 아니라 새로 적을 대상이다.
-                        return "date_windows 에는 value_from 을 쓸 수 없다";
-                    }
-                    if (valueFrom.axis() == ResolutionAxis.DATE_WINDOWS
-                            || !valueFrom.axis().list()) {
-                        return "value_from 이 %s 를 가리킨다"
-                                .formatted(valueFrom.axis().jsonName());
-                    }
-                    if (valueFrom.value() == null || valueFrom.value().isBlank()) {
-                        return "value_from 에 값이 없다";
+                    String problem = valueFromProblem();
+                    if (problem != null) {
+                        return problem;
                     }
                 }
                 return switch (op) {
@@ -221,20 +248,56 @@ public record ParseRule(
                 };
             }
 
+            private String valueFromProblem() {
+                if (op != Op.ADD_ITEM) {
+                    return "value_from 은 add_item 에만 쓴다";
+                }
+                if (!axis.valued()) {
+                    // 날짜 구간은 재사용할 값 문자열이 없다. 옮길 대상이 아니라 새로 적을 대상이다.
+                    return "%s 에는 value_from 을 쓸 수 없다".formatted(axis.jsonName());
+                }
+                if (!valueFrom.axis().valued()) {
+                    return "value_from 이 %s 를 가리킨다".formatted(valueFrom.axis().jsonName());
+                }
+                if (blank(valueFrom.value())) {
+                    return "value_from 에 값이 없다";
+                }
+                // 둘 다 적으면 리터럴이 조용히 버려진다. 적은 사람은 원한 값을 얻지 못하고 오류도 못 본다.
+                if (!blank(target.value())) {
+                    return "value 와 value_from 을 함께 쓸 수 없다";
+                }
+                return typeOf(valueFrom.axis(), valueFrom.type(), "value_from");
+            }
+
             private String targetProblem() {
-                boolean typeRequired = axis == ResolutionAxis.ENTITIES
-                        || axis == ResolutionAxis.LOCATIONS
-                        || axis == ResolutionAxis.DATE_WINDOWS;
-                if (typeRequired == (target.type() == null || target.type().isBlank())) {
-                    return typeRequired
-                            ? "%s 대상에 유형이 없다".formatted(axis.jsonName())
-                            : "%s 대상에는 유형을 쓰지 않는다".formatted(axis.jsonName());
+                String typeProblem = typeOf(axis, target.type(), "대상");
+                if (typeProblem != null) {
+                    return typeProblem;
                 }
                 if (axis == ResolutionAxis.DATE_WINDOWS) {
+                    // 값을 함께 적으면 항목 식별이 구간 대신 값으로 바뀌어 원본과 절대 매칭되지 않는다.
+                    if (target.value() != null) {
+                        return "date_windows 대상에는 값을 쓰지 않는다";
+                    }
                     return target.start() == null || target.endExclusive() == null ? "date_windows 대상에 구간이 없다" : null;
                 }
-                boolean hasValue = target.value() != null && !target.value().isBlank();
-                return hasValue || valueFrom != null ? null : "%s 대상에 값이 없다".formatted(axis.jsonName());
+                if (target.start() != null || target.endExclusive() != null) {
+                    return "%s 대상에는 구간을 쓰지 않는다".formatted(axis.jsonName());
+                }
+                return blank(target.value()) && valueFrom == null ? "%s 대상에 값이 없다".formatted(axis.jsonName()) : null;
+            }
+
+            /** 축이 받는 유형인지 본다. 없는 유형이 통과하면 적용 단계의 {@code valueOf} 가 던진다. */
+            private static String typeOf(ResolutionAxis axis, String type, String where) {
+                if (axis.types().isEmpty()) {
+                    return type == null ? null : "%s %s 에는 유형을 쓰지 않는다".formatted(axis.jsonName(), where);
+                }
+                if (blank(type)) {
+                    return "%s %s 에 유형이 없다".formatted(axis.jsonName(), where);
+                }
+                return axis.types().contains(type)
+                        ? null
+                        : "%s 에 없는 유형 %s (허용: %s)".formatted(axis.jsonName(), type, axis.types());
             }
         }
 

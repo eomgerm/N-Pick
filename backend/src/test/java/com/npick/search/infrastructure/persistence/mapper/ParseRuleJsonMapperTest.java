@@ -70,14 +70,28 @@ class ParseRuleJsonMapperTest {
     }
 
     @Test
-    @DisplayName("본문 스냅샷에 두 컬럼이 그대로 담긴다")
-    void keepsBothColumnsInTheSnapshot() {
+    @DisplayName("본문 스냅샷이 두 컬럼을 중첩 객체로 담는다")
+    void keepsBothColumnsInTheSnapshot() throws Exception {
         ParseRule rule = mapper.toDomain(10L, CONDITION_JSON, PATCH_JSON);
 
-        assertThat(rule.bodySnapshot())
-                .contains("condition_json")
-                .contains("patch_json")
-                .contains("has_value");
+        // 문자열로 담기면 applied_rules_json 안에서 이스케이프된 JSON 이 되어 jsonb 연산자로 조회할 수 없다.
+        com.fasterxml.jackson.databind.JsonNode snapshot =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(rule.bodySnapshot());
+        assertThat(snapshot.get("condition_json").isObject()).isTrue();
+        assertThat(snapshot.get("patch_json").isObject()).isTrue();
+        assertThat(snapshot.at("/condition_json/all/0/op").asText()).isEqualTo("has_value");
+        assertThat(snapshot.at("/patch_json/operations/0/op").asText()).isEqualTo("remove_item");
+    }
+
+    @Test
+    @DisplayName("읽을 수 없는 원문은 문자열로라도 보존한다")
+    void keepsUnreadableBodyAsText() throws Exception {
+        ParseRule rule = mapper.toDomain(10L, "{망가진", PATCH_JSON);
+
+        com.fasterxml.jackson.databind.JsonNode snapshot =
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(rule.bodySnapshot());
+        assertThat(snapshot.get("condition_json").isTextual()).isTrue();
+        assertThat(snapshot.get("condition_json").asText()).isEqualTo("{망가진");
     }
 
     @Test

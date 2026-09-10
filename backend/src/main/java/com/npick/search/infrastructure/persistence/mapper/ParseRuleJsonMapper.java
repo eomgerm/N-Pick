@@ -6,8 +6,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import org.springframework.stereotype.Component;
 
 import com.npick.search.domain.model.ParseRule;
@@ -52,18 +55,34 @@ public class ParseRuleJsonMapper {
         String snapshot = snapshot(conditionJson, patchJson);
         try {
             return parse(ruleId, conditionJson, patchJson, snapshot);
-        } catch (RuntimeException ex) {
+        } catch (IllegalArgumentException ex) {
+            // 형식 위반만 잡는다. 다른 RuntimeException 을 여기서 삼키면 코드 버그가 데이터 오류로 위장된다.
             return ParseRule.unparsed(ruleId, snapshot, "규칙 JSON 을 읽을 수 없다: " + ex.getMessage());
         }
     }
 
-    /** {@code applied_rules_json} 에 남길 본문. 두 컬럼을 그대로 담는다 — 축약하지 않는다 (§7.2). */
+    /**
+     * {@code applied_rules_json} 에 남길 본문. 두 컬럼을 그대로 담는다 — 축약하지 않는다 (§7.2).
+     *
+     * <p>중첩 객체로 넣는다. 문자열로 넣으면 {@code applied_rules_json} 안에서 본문이 이스케이프된 JSON 문자열이 되어 jsonb 연산자로 조회할 수 없다. 읽을 수 없는 원문만
+     * 문자열로 남긴다 — 그때는 보존이 조회 가능성보다 중요하다.
+     */
     private String snapshot(String conditionJson, String patchJson) {
-        return objectMapper
-                .createObjectNode()
-                .put("condition_json", conditionJson)
-                .put("patch_json", patchJson)
-                .toString();
+        ObjectNode node = objectMapper.createObjectNode();
+        node.set("condition_json", embed(conditionJson));
+        node.set("patch_json", embed(patchJson));
+        return node.toString();
+    }
+
+    private JsonNode embed(String json) {
+        if (json == null) {
+            return objectMapper.nullNode();
+        }
+        try {
+            return objectMapper.readTree(json);
+        } catch (JacksonException ex) {
+            return TextNode.valueOf(json);
+        }
     }
 
     private ParseRule parse(long ruleId, String conditionJson, String patchJson, String snapshot) {
@@ -163,7 +182,7 @@ public class ParseRuleJsonMapper {
                 throw new IllegalArgumentException(where + " 이 객체가 아니다");
             }
             return node;
-        } catch (com.fasterxml.jackson.core.JacksonException ex) {
+        } catch (JacksonException ex) {
             throw new IllegalArgumentException(where + " 이 올바른 JSON 이 아니다", ex);
         }
     }

@@ -343,6 +343,227 @@ class ParseRulePolicyTest {
         assertThat(policy.apply(original, null).outcomes()).isEmpty();
     }
 
+    // ── 규칙 하나가 검색 전체를 죽이지 못한다 ──────────────────────────────
+
+    @Test
+    @DisplayName("모르는 유형은 검색을 죽이지 않고 비호환으로 기록된다")
+    void unknownTypeIsRecordedNotThrown() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        // locations 의 유형은 location·facility 뿐이다. factory 가 통과하면 적용 단계의 valueOf 가 던져
+        // 규칙 하나 때문에 검색 요청 전체가 실패한다.
+        ParseRule badType = rule(
+                10L,
+                List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)),
+                List.of(operation(ParseRule.Patch.Op.ADD_ITEM, ResolutionAxis.LOCATIONS, "factory", "△△공장")));
+
+        ParseRulePolicy.Result result = policy.apply(original, List.of(badType));
+
+        assertThat(result.outcomes().getFirst().status()).isEqualTo(ParseRuleOutcome.Status.SKIPPED_INCOMPATIBLE);
+        assertThat(result.outcomes().getFirst().reason()).contains("없는 유형 factory");
+        assertThat(result.resolution()).isEqualTo(original);
+    }
+
+    @Test
+    @DisplayName("리졸버 원본에 이미 있던 흠은 무관한 규칙을 실패시키지 않는다")
+    void preExistingResolverFlawsDoNotFailUnrelatedRules() {
+        // validator.py 는 expanded_terms 를 중복 제거하지 않는다. 해석 전체를 검사하면 이 중복 하나가
+        // locations 만 고치는 규칙까지 failed 로 만들어 승인된 교정이 전부 사라진다.
+        QueryResolution original = new QueryResolution(
+                SCHEMA,
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new QueryResolution.Location(
+                        QueryResolution.LocationType.LOCATION,
+                        FACTORY,
+                        QueryResolution.Origin.EXPLICIT_QUERY,
+                        span(0, 4),
+                        0.9)),
+                List.of(),
+                List.of("화재", "화재"),
+                0.8);
+
+        ParseRulePolicy.Result result = policy.apply(original, List.of(removeFactory(10L)));
+
+        assertThat(result.outcomes().getFirst().status()).isEqualTo(ParseRuleOutcome.Status.APPLIED);
+        assertThat(result.resolution().locations()).isEmpty();
+        assertThat(result.degradedReasons()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("모르는 intent 값은 조건 불일치가 아니라 비호환이다")
+    void unknownIntentLiteralIsIncompatibleNotAMissedCondition() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        ParseRule typo = rule(
+                10L,
+                List.of(new ParseRule.Condition.Predicate(
+                        ResolutionAxis.INTENT, ParseRule.Condition.Op.EQUALS, null, "scene")),
+                List.of(operation(ParseRule.Patch.Op.REMOVE_ITEM, ResolutionAxis.LOCATIONS, "location", FACTORY)));
+
+        ParseRulePolicy.Result result = policy.apply(original, List.of(typo));
+
+        // 조건 불일치로 기록하면 degraded 에도 안 남아 검수자는 자기 규칙이 절대 안 걸린다는 것을 모른다 (§11).
+        assertThat(result.outcomes().getFirst().status()).isEqualTo(ParseRuleOutcome.Status.SKIPPED_INCOMPATIBLE);
+        assertThat(result.outcomes().getFirst().reason()).contains("모르는 intent 값 scene");
+        assertThat(result.degradedReasons()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("출처를 저장하지 않는 축에서는 출처가 달라도 충돌이 아니다")
+    void originDoesNotCauseConflictOnAxesThatDiscardIt() {
+        QueryResolution original = new QueryResolution(
+                SCHEMA,
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(new QueryResolution.IncidentName("화재", QueryResolution.Origin.EXPLICIT_QUERY, span(0, 2), 0.9)),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                0.8);
+
+        ParseRule.Condition.Predicate incidentPresent = new ParseRule.Condition.Predicate(
+                ResolutionAxis.INCIDENT_NAMES, ParseRule.Condition.Op.IS_NOT_EMPTY, null, null);
+        // 같은 단어를 리터럴로 넣는 규칙과 원본 값으로 넣는 규칙. expanded_terms 는 출처를 버리므로 결과가 같다.
+        ParseRule literal = rule(
+                10L,
+                List.of(incidentPresent),
+                List.of(operation(ParseRule.Patch.Op.ADD_ITEM, ResolutionAxis.EXPANDED_TERMS, null, "화재")));
+        ParseRule reused = rule(
+                20L,
+                List.of(incidentPresent),
+                List.of(new ParseRule.Patch.Operation(
+                        ParseRule.Patch.Op.ADD_ITEM,
+                        ResolutionAxis.EXPANDED_TERMS,
+                        new ParseRule.Patch.Target(null, null, null, null),
+                        new ParseRule.Patch.ValueRef(ResolutionAxis.INCIDENT_NAMES, null, "화재"))));
+
+        ParseRulePolicy.Result result = policy.apply(original, List.of(literal, reused));
+
+        assertThat(result.outcomes())
+                .extracting(ParseRuleOutcome::status)
+                .containsExactly(ParseRuleOutcome.Status.APPLIED, ParseRuleOutcome.Status.APPLIED);
+        assertThat(result.resolution().expandedTerms()).containsExactly("화재");
+    }
+
+    // ── 닫힌 어휘 나머지 ─────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("unset 은 검색 의도를 unknown 으로 돌린다")
+    void unsetResetsTheIntent() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        ParseRule reset = rule(
+                10L,
+                List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)),
+                List.of(operation(ParseRule.Patch.Op.UNSET, ResolutionAxis.INTENT, null, null)));
+
+        ParseRulePolicy.Result result = policy.apply(original, List.of(reset));
+
+        assertThat(result.outcomes().getFirst().status()).isEqualTo(ParseRuleOutcome.Status.APPLIED);
+        assertThat(result.resolution().intent()).isEqualTo(QueryResolution.Intent.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("has_type 은 저장된 유형에만 맞는다")
+    void hasTypeMatchesOnlyTheStoredType() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+
+        assertThat(statusOf(original, typeRule(10L, "location"))).isEqualTo(ParseRuleOutcome.Status.APPLIED);
+        assertThat(statusOf(original, typeRule(20L, "facility")))
+                .isEqualTo(ParseRuleOutcome.Status.SKIPPED_CONDITION_UNMET);
+    }
+
+    @Test
+    @DisplayName("날짜 조건을 추가하고 제거한다")
+    void addsAndRemovesADateWindow() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        ParseRule.Patch.Target window =
+                new ParseRule.Patch.Target("broadcast_date", null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 2, 1));
+
+        ParseRulePolicy.Result added = policy.apply(
+                original,
+                List.of(rule(
+                        10L,
+                        List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)),
+                        List.of(new ParseRule.Patch.Operation(
+                                ParseRule.Patch.Op.ADD_ITEM, ResolutionAxis.DATE_WINDOWS, window, null)))));
+
+        assertThat(added.outcomes().getFirst().status()).isEqualTo(ParseRuleOutcome.Status.APPLIED);
+        assertThat(added.resolution().dateWindows()).singleElement().satisfies(w -> {
+            assertThat(w.field()).isEqualTo(QueryResolution.DateField.BROADCAST_DATE);
+            assertThat(w.origin()).isEqualTo(QueryResolution.Origin.INFERRED);
+        });
+
+        ParseRulePolicy.Result removed = policy.apply(
+                added.resolution(),
+                List.of(rule(
+                        10L,
+                        List.of(new ParseRule.Condition.Predicate(
+                                ResolutionAxis.DATE_WINDOWS, ParseRule.Condition.Op.IS_NOT_EMPTY, null, null)),
+                        List.of(new ParseRule.Patch.Operation(
+                                ParseRule.Patch.Op.REMOVE_ITEM, ResolutionAxis.DATE_WINDOWS, window, null)))));
+
+        assertThat(removed.outcomes().getFirst().status()).isEqualTo(ParseRuleOutcome.Status.APPLIED);
+        assertThat(removed.resolution().dateWindows()).isEmpty();
+    }
+
+    // ── 성립할 수 없는 규칙은 조건 불일치로 위장되지 않는다 ─────────────────
+
+    @Test
+    @DisplayName("영원히 맞을 수 없는 조건·연산 조합은 비호환이다")
+    void impossibleShapesAreIncompatible() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        ParseRule.Patch.Operation harmless =
+                operation(ParseRule.Patch.Op.REMOVE_ITEM, ResolutionAxis.LOCATIONS, "location", FACTORY);
+
+        // 유형이 없는 축에 has_type
+        assertThat(reasonOf(
+                        original,
+                        rule(
+                                10L,
+                                List.of(new ParseRule.Condition.Predicate(
+                                        ResolutionAxis.INCIDENT_NAMES,
+                                        ParseRule.Condition.Op.HAS_TYPE,
+                                        "person",
+                                        null)),
+                                List.of(harmless))))
+                .contains("유형이 없어");
+        // 값이 없는 축에 has_value
+        assertThat(reasonOf(
+                        original,
+                        rule(20L, List.of(hasValue(ResolutionAxis.DATE_WINDOWS, "2026-01-01")), List.of(harmless))))
+                .contains("값이 없어");
+        // 리터럴과 원본 값 참조를 함께 적으면 리터럴이 조용히 버려진다
+        assertThat(reasonOf(
+                        original,
+                        rule(
+                                30L,
+                                List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)),
+                                List.of(new ParseRule.Patch.Operation(
+                                        ParseRule.Patch.Op.ADD_ITEM,
+                                        ResolutionAxis.INCIDENT_NAMES,
+                                        new ParseRule.Patch.Target(null, "직접 적은 값", null, null),
+                                        new ParseRule.Patch.ValueRef(ResolutionAxis.LOCATIONS, "location", FACTORY))))))
+                .contains("함께 쓸 수 없다");
+        // date_windows 대상에 값을 적으면 원본과 절대 매칭되지 않는다
+        assertThat(reasonOf(
+                        original,
+                        rule(
+                                40L,
+                                List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)),
+                                List.of(new ParseRule.Patch.Operation(
+                                        ParseRule.Patch.Op.REMOVE_ITEM,
+                                        ResolutionAxis.DATE_WINDOWS,
+                                        new ParseRule.Patch.Target(
+                                                "broadcast_date",
+                                                "아무값",
+                                                LocalDate.of(2026, 1, 1),
+                                                LocalDate.of(2026, 2, 1)),
+                                        null)))))
+                .contains("값을 쓰지 않는다");
+    }
+
     // ── 시나리오 조립 도구 ───────────────────────────────────────────────
 
     private static QueryResolution.QuerySpan span(int start, int end) {
@@ -362,6 +583,26 @@ class ParseRulePolicyTest {
                 List.of(),
                 List.of(),
                 0.8);
+    }
+
+    private ParseRuleOutcome.Status statusOf(QueryResolution original, ParseRule rule) {
+        return policy.apply(original, List.of(rule)).outcomes().getFirst().status();
+    }
+
+    private String reasonOf(QueryResolution original, ParseRule rule) {
+        ParseRuleOutcome outcome =
+                policy.apply(original, List.of(rule)).outcomes().getFirst();
+        assertThat(outcome.status()).isEqualTo(ParseRuleOutcome.Status.SKIPPED_INCOMPATIBLE);
+        return outcome.reason();
+    }
+
+    /** locations 유형으로 판정하는 규칙. 패치는 검색 의도만 건드려 조건 판정만 드러나게 한다. */
+    private static ParseRule typeRule(long ruleId, String type) {
+        return rule(
+                ruleId,
+                List.of(new ParseRule.Condition.Predicate(
+                        ResolutionAxis.LOCATIONS, ParseRule.Condition.Op.HAS_TYPE, type, null)),
+                List.of(operation(ParseRule.Patch.Op.SET, ResolutionAxis.INTENT, null, "recent_scene")));
     }
 
     private static ParseRule.Condition.Predicate hasValue(ResolutionAxis axis, String value) {
