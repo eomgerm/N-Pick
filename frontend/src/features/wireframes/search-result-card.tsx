@@ -61,10 +61,7 @@ export function SearchResultCard({
       </div>
 
       <div className={styles.cardBody}>
-        <div className={styles.cardTopline}>
-          <span className={styles.score}>일치도 {result.score}%</span>
-          <h3 className={styles.cardTitle}>{result.title}</h3>
-        </div>
+        <h3 className={styles.cardTitle}>{result.title}</h3>
 
         <div className={styles.matchedKeywords}>
           <span>키워드</span>
