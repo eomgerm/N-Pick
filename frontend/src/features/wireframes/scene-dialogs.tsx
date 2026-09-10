@@ -210,51 +210,6 @@ export function ScenePreviewDialog({
       labelledBy="preview-title"
       onClose={onClose}
     >
-      <div className={styles.previewModalHeader}>
-        <div>
-          <span>{contextLabel ?? `구간 영상 정보 · 장면 #${result.id}`}</span>
-          <h2 id="preview-title">{result.title}</h2>
-          {result.clip ? <p>{result.clip}</p> : null}
-          {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
-        </div>
-        <div className={styles.previewHeaderActions}>
-          {onInquiry ? (
-            <button
-              className={styles.previewReportButton}
-              data-state={
-                isSubmitted ? 'submitted' : isInquiryUnavailable ? 'unavailable' : 'ready'
-              }
-              disabled={isSubmitted || isInquiryUnavailable}
-              onClick={onInquiry}
-              type="button"
-            >
-              {isSubmitted ? (
-                <Check aria-hidden="true" />
-              ) : isInquiryUnavailable ? (
-                <AlertTriangle aria-hidden="true" />
-              ) : (
-                <Flag aria-hidden="true" />
-              )}
-              {isSubmitted ? '접수됨' : isInquiryUnavailable ? '문의 불가' : '이상해요'}
-            </button>
-          ) : null}
-          {onInquiry && isInquiryUnavailable ? (
-            <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
-              검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.
-            </p>
-          ) : null}
-          <button
-            aria-label="Preview 닫기"
-            className={styles.iconButton}
-            onClick={onClose}
-            title="Preview 닫기"
-            type="button"
-          >
-            <X aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-
       <div className={styles.previewModalBody}>
         <div className={styles.previewPlayer}>
           {isLoading ? (
@@ -356,6 +311,74 @@ export function ScenePreviewDialog({
         </div>
 
         <div className={styles.previewSidebar}>
+          <div className={styles.previewDetails}>
+            <div className={styles.previewDetailsHeading}>
+              <p>장면 정보</p>
+              <button
+                aria-label="Preview 닫기"
+                className={`${styles.iconButton} ${styles.previewCloseButton}`}
+                onClick={onClose}
+                title="Preview 닫기"
+                type="button"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+            <span className={styles.previewContextLabel}>
+              {contextLabel ?? `구간 영상 정보 · 장면 #${result.id}`}
+            </span>
+            <h2 className={styles.previewSceneTitle} id="preview-title">
+              {result.title}
+            </h2>
+            {result.clip ? <p className={styles.previewSceneClip}>{result.clip}</p> : null}
+            {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
+            <dl>
+              <div>
+                <dt>방송일</dt>
+                <dd>{result.broadcastDate ?? '미상'}</dd>
+              </div>
+              <div>
+                <dt>촬영일</dt>
+                <dd>
+                  {result.filmedDate
+                    ? `${result.filmedDate} · ${getVerificationStatusLabel(filmingStatus)}`
+                    : getVerificationStatusLabel(filmingStatus)}
+                </dd>
+              </div>
+              <div>
+                <dt>샷 유형</dt>
+                <dd>{result.shotType ?? '정보 없음'}</dd>
+              </div>
+              <div>
+                <dt>장면 유형</dt>
+                <dd>{result.sceneType ?? '정보 없음'}</dd>
+              </div>
+              <div>
+                <dt>근거</dt>
+                <dd>{evidenceField}</dd>
+              </div>
+            </dl>
+            <div className={styles.previewEvidence}>
+              <div className={styles.previewEvidenceHeading}>
+                <span>
+                  {evidenceField}
+                  {onInquiry ? ' 일치' : ''}
+                </span>
+                {result.matchEvidence ? (
+                  <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
+                    {getVerificationStatusLabel(result.matchEvidence.status)}
+                  </span>
+                ) : null}
+              </div>
+              <strong>{evidenceValue}</strong>
+              <p>출처 · {evidenceSource}</p>
+            </div>
+            {onInquiry && isInquiryUnavailable ? (
+              <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
+                검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.
+              </p>
+            ) : null}
+          </div>
           {scenes && scenes.length > 0 ? (
             <section className={styles.sceneBrowser} aria-labelledby="all-scenes-title">
               <div className={styles.sceneBrowserHeading}>
@@ -411,51 +434,29 @@ export function ScenePreviewDialog({
               </ol>
             </section>
           ) : null}
-          <div className={styles.previewDetails}>
-            <p>장면 정보</p>
-            <dl>
-              <div>
-                <dt>방송일</dt>
-                <dd>{result.broadcastDate ?? '미상'}</dd>
-              </div>
-              <div>
-                <dt>촬영일</dt>
-                <dd>
-                  {result.filmedDate
-                    ? `${result.filmedDate} · ${getVerificationStatusLabel(filmingStatus)}`
-                    : getVerificationStatusLabel(filmingStatus)}
-                </dd>
-              </div>
-              <div>
-                <dt>샷 유형</dt>
-                <dd>{result.shotType ?? '정보 없음'}</dd>
-              </div>
-              <div>
-                <dt>장면 유형</dt>
-                <dd>{result.sceneType ?? '정보 없음'}</dd>
-              </div>
-              <div>
-                <dt>근거</dt>
-                <dd>{evidenceField}</dd>
-              </div>
-            </dl>
-            <div className={styles.previewEvidence}>
-              <div className={styles.previewEvidenceHeading}>
-                <span>
-                  {evidenceField}
-                  {onInquiry ? ' 일치' : ''}
-                </span>
-                {result.matchEvidence ? (
-                  <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
-                    {getVerificationStatusLabel(result.matchEvidence.status)}
-                  </span>
-                ) : null}
-              </div>
-              <strong>{evidenceValue}</strong>
-              <p>출처 · {evidenceSource}</p>
-            </div>
-          </div>
           <SearchResultNotices execution={searchExecution} variant="preview" />
+          {onInquiry ? (
+            <div className={styles.previewDetailsActions}>
+              <button
+                className={styles.previewReportButton}
+                data-state={
+                  isSubmitted ? 'submitted' : isInquiryUnavailable ? 'unavailable' : 'ready'
+                }
+                disabled={isSubmitted || isInquiryUnavailable}
+                onClick={onInquiry}
+                type="button"
+              >
+                {isSubmitted ? (
+                  <Check aria-hidden="true" />
+                ) : isInquiryUnavailable ? (
+                  <AlertTriangle aria-hidden="true" />
+                ) : (
+                  <Flag aria-hidden="true" />
+                )}
+                {isSubmitted ? '접수됨' : isInquiryUnavailable ? '문의 불가' : '이상해요'}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </SceneDialog>

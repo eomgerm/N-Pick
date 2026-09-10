@@ -1,28 +1,37 @@
 .shell {
-  --accent: #ff5a5f;
-  --accent-strong: #d83e48;
-  --accent-soft: #fff0f1;
-  --secondary: #282638;
-  --page: #f7f7fa;
+  --accent: #f5307e;
+  --accent-strong: #c81e63;
+  --accent-soft: #fdeef4;
+  --secondary: #2e2a26;
+  --page: #efeae3;
   --surface: #fff;
-  --surface-muted: #f3f3f6;
-  --text: #201f28;
-  --muted: #6f6d78;
-  --line: #e4e3e9;
-  --positive: #16845b;
-  --positive-soft: #e9f8f1;
-  --warning: #a95a00;
-  --warning-soft: #fff4e5;
-  --danger: #bf3640;
-  --danger-soft: #fff0f0;
-  --radius-sm: 10px;
-  --radius-md: 16px;
-  --radius-lg: 24px;
+  --surface-muted: #f4f0ea;
+  --text: #2a2521;
+  --muted: #5f574e;
+  --line: #e4ded4;
+  --positive: #2f7d62;
+  --positive-soft: #e9f2ec;
+  --warning: #9a6b2f;
+  --warning-soft: #fbf1e2;
+  --danger: #c0453f;
+  --danger-soft: #fbeeec;
+  --glass: rgb(255 255 255 / 66%);
+  --glass-strong: rgb(255 255 255 / 84%);
+  --glass-line: rgb(255 255 255 / 74%);
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
   min-height: 100vh;
   overflow-x: clip;
   background: var(--page);
   color: var(--text);
-  font-family: Arial, 'Noto Sans KR', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Apple SD Gothic Neo',
+    'Noto Sans KR',
+    sans-serif;
 }
 
 .shell *,
@@ -863,7 +872,7 @@
   place-items: center;
   min-height: 66px;
   border-radius: 11px;
-  background: linear-gradient(135deg, #2f3848, #a8b2bd);
+  background: linear-gradient(135deg, #3b352e, #bdb3a6);
   color: #fff;
 }
 
@@ -972,7 +981,7 @@
   gap: 7px;
   min-height: 70px;
   border-radius: 11px;
-  background: linear-gradient(135deg, #253143, #8293a3);
+  background: linear-gradient(135deg, #332e28, #a39a8e);
   color: #fff;
 }
 
@@ -999,14 +1008,14 @@
 }
 
 .scenestation.scenestation {
-  background: #233044 url('/images/news-scenes-triptych.png') 0 50% / 300% auto no-repeat;
+  background: #2e2a26 url('/images/news-scenes-triptych.png') 0 50% / 300% auto no-repeat;
 }
 
 .sceneweather.sceneweather {
-  background: linear-gradient(155deg, #7d96ad, #1f354b 65%, #668995);
+  background: linear-gradient(155deg, #a3968a, #332d27 65%, #8a7f70);
 }
 .scenesquare.scenesquare {
-  background: linear-gradient(160deg, #a1b6c6, #4b665d 65%, #263c39);
+  background: linear-gradient(160deg, #c0b4a5, #5f564a 65%, #332e27);
 }
 
 .commentCard p {
@@ -1534,15 +1543,15 @@
 
 /* Shinhan SOLID */
 .shell[data-theme='shinhan'] {
-  --accent: #2b7de9;
-  --accent-strong: #145dbd;
-  --accent-soft: #eaf3ff;
-  --secondary: #123f76;
-  --page: #f4f7fb;
-  --surface-muted: #f2f6fb;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --accent: #f5307e;
+  --accent-strong: #c81e63;
+  --accent-soft: #fdeef4;
+  --secondary: #2e2a26;
+  --page: #efeae3;
+  --surface-muted: #f4f0ea;
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
 }
 
 .shell[data-theme='shinhan'] .appHeader {
@@ -1566,6 +1575,169 @@
 
 .shell[data-theme='shinhan'] .primaryNav {
   justify-content: flex-start;
+}
+
+/* Soft glass tone — 따뜻한 뉴트럴 배경 + 반투명 유리 패널 + 차콜 대비 + 핑크 포인트 */
+.shell {
+  /* 사진 배경이 비치도록 반투명하게 덮습니다. */
+  background:
+    radial-gradient(1100px 620px at 82% -14%, rgb(255 250 243 / 46%), transparent 62%),
+    radial-gradient(900px 540px at 2% 0%, rgb(246 239 230 / 42%), transparent 58%),
+    rgb(239 234 227 / 40%);
+}
+
+.shell > header {
+  background: color-mix(in srgb, var(--secondary) 93%, transparent);
+  box-shadow: 0 12px 34px rgb(46 38 30 / 12%);
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+
+.hero h1 {
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.eyebrow,
+.panelHeading p,
+.sectionHeading p,
+.replayHeading p,
+.registrationNotice > div > p {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.operatorCard {
+  border-color: var(--glass-line);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  box-shadow: 0 10px 26px rgb(74 56 40 / 8%);
+  backdrop-filter: blur(18px);
+}
+
+.operatorAvatar {
+  background: var(--secondary);
+}
+
+.roleBadge {
+  font-weight: 700;
+}
+
+.workspaceTabs {
+  border-color: var(--glass-line);
+  border-radius: 999px;
+  background: var(--glass-strong);
+  backdrop-filter: blur(18px);
+}
+
+.workspaceTabs button {
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.workspaceTabs .activeWorkspaceTab {
+  background: var(--secondary);
+  box-shadow: 0 10px 22px rgb(46 38 30 / 20%);
+}
+
+.registrationNotice {
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface));
+}
+
+.metricGrid {
+  gap: 14px;
+}
+
+.metricGrid article {
+  padding: 17px;
+  border-color: var(--glass-line);
+  background: var(--glass-strong);
+  box-shadow: 0 10px 26px rgb(74 56 40 / 6%);
+  backdrop-filter: blur(16px);
+}
+
+.metricGrid strong {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.metricIcon {
+  border-radius: 14px;
+}
+
+.splitPane {
+  border-color: var(--glass-line);
+  background: var(--glass-strong);
+  box-shadow: 0 26px 62px rgb(74 56 40 / 10%);
+  backdrop-filter: blur(24px) saturate(1.1);
+}
+
+.listPanel {
+  border-right-color: var(--line);
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+}
+
+.panelHeading {
+  border-bottom-color: var(--line);
+}
+
+.panelHeading h2,
+.detailHeading h2,
+.sectionHeading h3,
+.replayHeading h4 {
+  font-weight: 600;
+}
+
+.detailHeading h2 {
+  letter-spacing: -0.035em;
+}
+
+.listItem,
+.inquiryItem {
+  border-bottom-color: var(--line);
+}
+
+.listItem:hover,
+.inquiryItem:hover {
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.selectedListItem {
+  background: var(--surface);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    0 10px 26px rgb(74 56 40 / 6%);
+}
+
+.primaryButton,
+.secondaryButton {
+  min-height: 42px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.primaryButton {
+  box-shadow: 0 10px 24px rgb(46 38 30 / 18%);
+}
+
+.secondaryButton {
+  border-color: var(--line);
+  background: var(--glass-strong);
+  backdrop-filter: blur(12px);
+}
+
+.actionPicker span {
+  border-color: var(--line);
+  border-radius: var(--radius-md);
+  font-weight: 700;
+}
+
+.actionPicker input:checked + span {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  box-shadow: 0 10px 24px rgb(200 30 99 / 10%);
 }
 
 @media (max-width: 1080px) {
