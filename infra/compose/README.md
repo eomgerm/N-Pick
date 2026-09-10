@@ -64,6 +64,7 @@ docker compose ps
 | `NPICK_DOMAIN` | 실제 도메인 | nginx `server_name` 과 인증서 경로 |
 | `BACKEND_PROFILE` | `prod` | `local` 은 SQL echo 와 DEBUG 로깅이 켜져 로그가 과하다 |
 | `COMPOSE_PROFILES` | `proxy` | nginx 를 띄운다. 인증서 발급 후에 넣는다 |
+| `CLIP_MEDIA_NGINX_ACCEL` | `true` | Preview 바이트 전송을 nginx 에 위임한다. `COMPOSE_PROFILES=proxy` 와 항상 같이 켠다 |
 | `CORS_ALLOWED_ORIGINS` | `https://<도메인>` | 아래 「CORS」 참고 |
 
 `BACKEND_PORT` 는 **8080** 이다. EC2 의 8080 을 점유하던 Jenkins 를 **18080** 으로 옮겨 충돌을
@@ -161,8 +162,13 @@ docker compose run --rm -p 80:80 certbot certonly --standalone -d <도메인> --
 
 ```
 COMPOSE_PROFILES=proxy
+CLIP_MEDIA_NGINX_ACCEL=true
 CORS_ALLOWED_ORIGINS=https://<도메인>
 ```
+
+`CLIP_MEDIA_NGINX_ACCEL` 은 `COMPOSE_PROFILES` 와 짝이다. nginx 없이 `true` 로 두면
+`/api/v1/media/{clip_id}` 가 `X-Accel-Redirect` 헤더만 내리고 본문이 비어 재생되지 않는다.
+반대로 nginx 가 있는데 `false` 면 애플리케이션이 직접 바이트를 쓸 뿐 동작은 한다.
 
 ```bash
 docker compose up -d

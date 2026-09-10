@@ -142,7 +142,8 @@ SERVER_PORT=8081 ./gradlew bootRun
 바이트 전송 경로는 둘이다. `CLIP_MEDIA_NGINX_ACCEL=true` 면 `X-Accel-Redirect` 로
 `/internal-media/` 에 위임하고(`docs/architecture/03-deployment.md` §31), 기본값 `false` 면
 애플리케이션이 직접 쓴다. **어느 쪽이든 clip 조회·경로 이탈 차단·Range 검증은 API 가 한다.**
-compose 스택은 nginx 가 있어 `true`, 로컬 `bootRun` 은 `false` 다.
+nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본값은 `false` 다.
+`COMPOSE_PROFILES=proxy` 를 켜는 배포 환경에서만 `.env` 에 `true` 를 넣는다.
 
 첫 프레임 예산의 서버 몫(NFR-PERF-002)은 `com.npick` DEBUG 로그의
 `preview first-byte ... elapsedMs=` 로 측정한다. 요청 진입부터 본문 첫 바이트 직전까지, 즉 clip
