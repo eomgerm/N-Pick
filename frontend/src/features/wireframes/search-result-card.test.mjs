@@ -43,7 +43,7 @@ function renderCard(result, isSelected = false, position = result.rank) {
   );
 }
 
-test('결과 카드는 제목, 장면 구간, 키워드와 일치도만 렌더한다', () => {
+test('결과 카드는 제목, 썸네일 구간, 키워드와 일치도만 렌더한다', () => {
   const result = results[0];
   const html = renderCard(result);
 
@@ -56,6 +56,8 @@ test('결과 카드는 제목, 장면 구간, 키워드와 일치도만 렌더�
   ]) {
     assert.ok(html.includes(value));
   }
+  assert.equal((html.match(/00:42 – 00:49/g) ?? []).length, 1);
+  assert.ok(!html.includes('장면 구간'));
   for (const value of [
     result.displayName,
     result.broadcastDate,

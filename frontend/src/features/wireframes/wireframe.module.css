@@ -868,34 +868,6 @@
   overflow-wrap: anywhere;
 }
 
-.cardMetadata {
-  display: grid;
-  margin: 14px 0 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.cardMetadataItem {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.cardMetadataItem dt {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.cardMetadataItem dd {
-  margin: 0;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
-
 .matchedKeywords {
   display: flex;
   flex-wrap: wrap;

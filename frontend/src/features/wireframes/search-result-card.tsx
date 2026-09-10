@@ -56,15 +56,6 @@ export function SearchResultCard({
           <h3 className={styles.cardTitle}>{result.title}</h3>
         </div>
 
-        <dl className={styles.cardMetadata}>
-          <div className={styles.cardMetadataItem}>
-            <dt>장면 구간</dt>
-            <dd>
-              {formatTimestamp(result.sceneStart)} – {formatTimestamp(result.sceneEnd)}
-            </dd>
-          </div>
-        </dl>
-
         <div className={styles.matchedKeywords}>
           <span>키워드</span>
           {result.matchedKeywords.map((keyword) => (
