@@ -1,0 +1,13 @@
+**
+!backend/
+!backend/gradlew
+!backend/settings.gradle
+!backend/build.gradle
+!backend/gradle/
+!backend/gradle/**
+!backend/src/
+!backend/src/**
+!infra/
+!infra/compose/
+!infra/compose/profiles/
+!infra/compose/profiles/pipeline.yml

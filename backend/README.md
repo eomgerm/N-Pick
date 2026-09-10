@@ -170,6 +170,21 @@ com.npick
 
 ## 등록 운영
 
+- 실행 버전은 빌드에 포함한 `infra/compose/profiles/pipeline.yml`의 `stage_versions`로 계산한다.
+  외부 파일은 `NPICK_PIPELINE_PROFILE=file:/absolute/path/pipeline.yml`로 지정한다.
+  기대 버전이 없는 단계는 `unknown`으로 남고 배정되지 않는다. 기존 `CLIP_PIPELINE_VERSION`·
+  `CLIP_STAGE_NAMES` 설정 대신 이 프로파일을 사용한다.
+- 실행기는 내부 claim/heartbeat/complete 유스케이스를 제공한다. 성공 결과 수락에는
+  `StageOutputPort`의 단계별 형식 검사·정본 저장 어댑터가 필요하며, 없으면 성공을 기록하지 않는다.
+  워커 HTTP·artifact 전송 연결과 실제 AI 실행은 별도 연동이 필요하다.
+- `transcript_selection` 배정은 보관 영상의 ffprobe 길이와 DB 자막 키로 입력을 준비한 뒤
+  `inputs.upstream.transcript`를 전달한다. 준비 중에는 DB 트랜잭션을 열지 않고 lease를 갱신한다.
+  준비 산출물은 배정 기록 성공 또는 커밋 결과 불명확 시 보존하며, 회수된 lease의 입력은 반영하지 않는다.
+- 기존 10개 단계의 평면 JSON은 실행 시 버전 봉투로 읽고 저장한다. 단계나 기대 버전을 확인할 수 없는
+  과거 run은 임의로 현재 버전으로 바꾸지 않는다. 현재 프로파일과 일치하는 기존 run만 버전을 보완한다.
+- mock 전체 흐름은 `./gradlew test --tests 'com.npick.pipeline.*'`로 검증한다.
+  PostgreSQL은 Testcontainers를 사용하고 mock 단계는 실제 AI를 호출하지 않는다.
+
 - 영상 검사에 `ffmpeg`·`ffprobe`가 필요하다. 등록용 저장 경로·입력 제한·파이프라인 설정은
   [환경 변수 예시](.env.example)와 [애플리케이션 설정](src/main/resources/application.yml)을 참고한다.
 - 중복 처리에는 PostgreSQL 세션 advisory lock을 사용하므로 DB 직결 또는 세션 유지형 풀이 필요하다.
