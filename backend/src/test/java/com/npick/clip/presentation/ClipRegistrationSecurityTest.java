@@ -79,6 +79,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     ApiErrorResponseWriter.class,
     ErrorTypeHttpStatusMapper.class,
     SessionRegistrationActorAdapter.class,
+    com.npick.pipeline.infrastructure.config.PipelineDefinitionConfiguration.class,
     ClipRegistrationConfiguration.class
 })
 class ClipRegistrationSecurityTest {

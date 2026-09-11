@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # 품질 수치인 단계 재시도 횟수와 단계 타임아웃은 워커가 구현하지 않는다 —
     # infra/compose/profiles/pipeline.yml 에서 null 로 남아 있고 BE 가 소유한다.
     #: claim 요청에 싣는 서버 대기 상한.
-    job_poll_wait_seconds: int = Field(default=25, ge=0)
+    job_poll_wait_seconds: int = Field(default=25, ge=0, le=25)
     job_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     #: claim 이외 요청의 read timeout. claim 은 대기 시간만큼 따로 늘린다.
     job_read_timeout_seconds: float = Field(default=30.0, gt=0)
@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     #: backend 와 공유하는 미디어 마운트. 없으면 입력을 HTTP 로 받는다.
     #: compose 는 /srv/npick/media 를 준다. RunPod 파드에는 공유 볼륨이 없다.
     media_root: Path | None = None
+
+    #: OCR 모델 가중치를 둘 곳. 비우면 rapidocr 기본값(site-packages 안)을 쓴다.
+    #: 컨테이너에서는 반드시 준다 — 기본값은 이미지 레이어라 컨테이너를 다시 만들
+    #: 때마다 모델을 새로 받는다. Dockerfile 이 /var/cache/npick/models 를 잡아 둔다.
+    #: 품질을 바꾸는 값이 아니라 경로이므로 버전이 붙는 설정 파일이 아니라 여기 있다.
+    ocr_model_dir: Path | None = None
 
     # ── Query Resolver LLM (local 또는 승인된 GMS) ──
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만

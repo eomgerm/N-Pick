@@ -1,31 +1,30 @@
 'use client';
 
-import { routes } from '@/lib/routes';
 import { AppShell } from '@/components/app-shell';
 
-import { CheckCircle2, ChevronDown, ListFilter, Play, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import {
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
-import { getKeyframeTimes, results } from '@/features/wireframes/demo-scenes';
+import { results } from '@/features/wireframes/demo-scenes';
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
+import { SearchResultCard } from '@/features/wireframes/search-result-card';
+import {
+  createSearchResultsHref,
+  isSameSearchDestination,
+} from '@/features/wireframes/search-navigation';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
-import {
-  type DateRange,
-  emptyDateRange,
-  matchesDateRange,
-  readDateRange,
-} from '@/features/wireframes/date-range';
+import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
+import {
+  canCreateInquiry,
+  getDemoSearchExecution,
+  getSearchExecutionAnnouncement,
+  successfulSearchExecution,
+} from '@/features/wireframes/search-execution-status';
+import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
 
 export interface SearchScreenParams {
   q?: string;
@@ -47,9 +46,12 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const navigationLockRef = useRef(false);
+  const hasObservedNavigationRef = useRef(false);
   const broadcastRange = readDateRange(initialParams.broadcastFrom, initialParams.broadcastTo);
   const filmingRange = readDateRange(initialParams.filmingFrom, initialParams.filmingTo);
   const demoState = initialParams.state;
+  const demoSearchExecution = getDemoSearchExecution(demoState);
   const [query, setQuery] = useState(
     (typeof initialQuery === 'string' && initialQuery.trim()) ||
       '2025년 추석 경부고속도로 귀성길 정체',
@@ -59,19 +61,24 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const [isPreviewOpen, setIsPreviewOpen] = useState(initialParams.preview === 'loading');
   const [inquiryResultId, setInquiryResultId] = useState<number | null>(null);
   const [submittedInquiryIds, setSubmittedInquiryIds] = useState<number[]>([]);
-  const [sortOrder, setSortOrder] = useState<'accuracy' | 'latest'>('accuracy');
+
+  useEffect(() => {
+    if (isNavigating) {
+      hasObservedNavigationRef.current = true;
+      return;
+    }
+    if (hasObservedNavigationRef.current) {
+      navigationLockRef.current = false;
+      hasObservedNavigationRef.current = false;
+    }
+  }, [isNavigating]);
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
     [selectedResultId],
   );
   const inquiryResult = results.find(({ id }) => id === inquiryResultId);
-  const filteredResults = results.filter(
-    (result) =>
-      matchesDateRange(result.broadcastDate, broadcastRange) &&
-      matchesDateRange(result.filmingDate, filmingRange, result.filmingState === 'verified'),
-  );
-  const displayedResults = demoState === 'empty' ? [] : filteredResults;
+  const displayedResults = demoState === 'empty' ? [] : results;
   const resultState = isNavigating
     ? 'loading'
     : demoState === 'failed'
@@ -79,10 +86,8 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
       : displayedResults.length === 0
         ? 'empty'
         : 'populated';
-  const sortedResults =
-    sortOrder === 'accuracy'
-      ? displayedResults
-      : [...displayedResults].sort((a, b) => b.broadcastDate.localeCompare(a.broadcastDate));
+  const searchExecution =
+    resultState === 'populated' ? demoSearchExecution : successfulSearchExecution;
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
     [submittedQuery],
@@ -98,19 +103,23 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   }
 
   function handleSearchNavigation(nextQuery: string, broadcast: DateRange, filming: DateRange) {
-    if (isNavigating) return;
-    const params = new URLSearchParams({ q: nextQuery });
-    if (broadcast.from && broadcast.to) {
-      params.set('broadcastFrom', broadcast.from);
-      params.set('broadcastTo', broadcast.to);
+    if (navigationLockRef.current || isNavigating) return;
+
+    const href = createSearchResultsHref({ query: nextQuery, broadcast, filming });
+    if (!href) return;
+    if (
+      typeof window !== 'undefined' &&
+      isSameSearchDestination(`${window.location.pathname}${window.location.search}`, href)
+    )
+      return;
+
+    navigationLockRef.current = true;
+    try {
+      startNavigation(() => router.push(href, { scroll: false }));
+    } catch (error) {
+      navigationLockRef.current = false;
+      throw error;
     }
-    if (filming.from && filming.to) {
-      params.set('filmingFrom', filming.from);
-      params.set('filmingTo', filming.to);
-    }
-    startNavigation(() =>
-      router.push(`${routes.searchResults}?${params.toString()}`, { scroll: false }),
-    );
   }
 
   const rangeFields = (
@@ -131,7 +140,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   );
 
   function handleInquirySubmit() {
-    if (inquiryResultId === null) {
+    if (inquiryResultId === null || !canCreateInquiry(searchExecution)) {
       return;
     }
 
@@ -151,6 +160,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   }
 
   function handlePreviewInquiry() {
+    if (!canCreateInquiry(searchExecution)) return;
     setIsPreviewOpen(false);
     setInquiryResultId(selectedResult.id);
   }
@@ -164,19 +174,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
             <strong>상세 필터</strong>
           </div>
           {rangeFields}
-          <fieldset className={styles.filterGroup}>
-            <legend>검색할 내용</legend>
-            {['장면 설명', '화면 속 글자', '음성 내용'].map((label) => (
-              <label key={label}>
-                <input defaultChecked type="checkbox" />
-                <span>{label}</span>
-              </label>
-            ))}
-          </fieldset>
-          <div className={styles.railNote}>
-            <CheckCircle2 aria-hidden="true" />
-            <span>검증된 날짜 충돌만 결과에서 제외됩니다.</span>
-          </div>
         </aside>
 
         <main className={styles.mainContent}>
@@ -193,6 +190,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 <span className={styles.visuallyHidden}>검색어</span>
                 <input
                   aria-label="뉴스 장면 검색어"
+                  disabled={isNavigating}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
                   value={query}
@@ -223,15 +221,24 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 <span key={`${token}-${index}`}>{token}</span>
               ))}
             </div>
-            <span className={styles.searchHealth}>
+            <span
+              className={styles.searchHealth}
+              data-status={searchExecution.status === 'degraded' ? 'degraded' : resultState}
+            >
               {resultState === 'populated' || resultState === 'empty' ? (
-                <CheckCircle2 aria-hidden="true" />
+                searchExecution.status === 'degraded' ? (
+                  <AlertTriangle aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 aria-hidden="true" />
+                )
               ) : null}
               {resultState === 'failed'
                 ? '검색 연결 실패'
                 : resultState === 'loading'
                   ? '검색 중'
-                  : '정상 검색'}
+                  : searchExecution.status === 'degraded'
+                    ? '일부 기능 누락'
+                    : '정상 검색'}
             </span>
           </section>
 
@@ -249,20 +256,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
               </div>
               <div className={styles.resultsMeta}>
                 <span>화면 미리보기 · 예시 데이터</span>
-                <label className={styles.sortControl}>
-                  <span className={styles.visuallyHidden}>검색 결과 정렬</span>
-                  <select
-                    value={sortOrder}
-                    onChange={(event) =>
-                      setSortOrder(event.target.value === 'latest' ? 'latest' : 'accuracy')
-                    }
-                    disabled={resultState !== 'populated'}
-                  >
-                    <option value="accuracy">정확도순</option>
-                    <option value="latest">최신순</option>
-                  </select>
-                  <ChevronDown aria-hidden="true" />
-                </label>
               </div>
             </div>
 
@@ -272,7 +265,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 query={submittedQuery}
                 broadcastRange={broadcastRange}
                 filmingRange={filmingRange}
-                excludedCount={results.length - filteredResults.length}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
@@ -283,70 +275,20 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 }}
               />
             ) : (
-              <div className={styles.resultsGrid}>
-                {sortedResults.map((result, index) => {
-                  const isSelected = isPreviewOpen && selectedResultId === result.id;
-                  const keyframeTimes = getKeyframeTimes(result);
-
-                  return (
-                    <article
-                      aria-label={`${result.title} Preview 열기`}
-                      className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}
+              <>
+                <SearchResultNotices execution={searchExecution} variant="results" />
+                <div className={styles.resultsGrid}>
+                  {displayedResults.map((result, index) => (
+                    <SearchResultCard
+                      result={result}
+                      position={index + 1}
+                      isSelected={isPreviewOpen && selectedResultId === result.id}
                       key={result.id}
-                      onClick={() => handlePreviewSelect(result.id)}
-                      onKeyDown={(event: ReactKeyboardEvent<HTMLElement>) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        handlePreviewSelect(result.id);
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div
-                        aria-hidden="true"
-                        className={`${styles.thumbnail} ${result.imageClass}`}
-                      >
-                        <span className={styles.rank}>{index + 1}</span>
-                        <span className={styles.playButton}>
-                          <Play aria-hidden="true" fill="currentColor" />
-                        </span>
-                        <span className={styles.timecode}>{result.time}</span>
-                        <span className={styles.keyframePreview}>
-                          {keyframeTimes.map((keyframeTime) => (
-                            <span
-                              className={`${styles.keyframe} ${result.imageClass}`}
-                              key={`${result.id}-${keyframeTime}`}
-                            >
-                              <span className={styles.keyframeTime}>{keyframeTime}</span>
-                            </span>
-                          ))}
-                        </span>
-                      </div>
-
-                      <div className={styles.cardBody}>
-                        <div className={styles.cardTopline}>
-                          <span className={styles.score}>일치도 {result.score}%</span>
-                          <h3 className={styles.cardTitle}>{result.title}</h3>
-                        </div>
-                        <div className={styles.cardMetadata}>
-                          <p className={styles.filmingDate}>
-                            <span>촬영일</span>
-                            <strong>{result.filmingDate}</strong>
-                          </p>
-                          <div className={styles.matchedKeywords}>
-                            <span>키워드</span>
-                            {result.matchedKeywords.map((keyword) => (
-                              <span className={styles.keywordChip} key={keyword}>
-                                {keyword}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+                      onSelect={handlePreviewSelect}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </section>
         </main>
@@ -357,7 +299,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           ? '검색에 실패했습니다.'
           : resultState === 'loading'
             ? '검색 중입니다.'
-            : `${submittedQuery} 검색 결과 ${displayedResults.length}개`}
+            : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
 
       {isPreviewOpen ? (
@@ -365,6 +307,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           result={selectedResult}
           theme={theme}
           isSubmitted={submittedInquiryIds.includes(selectedResult.id)}
+          searchExecution={searchExecution}
           onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
           keepLoading={initialParams.preview === 'loading'}

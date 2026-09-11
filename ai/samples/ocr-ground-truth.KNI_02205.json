@@ -1,0 +1,132 @@
+{
+  "clip": "KNI_02205",
+  "source": "samples/out/KNI_02205-frames (frame_extraction v1 기본 설정, 800x450)",
+  "labeledBy": "사람이 keyframe 23장을 직접 보고 적었다",
+  "legibility": {
+    "legible": "사람이 확실히 읽을 수 있다. 재현율 분모가 되는 문구",
+    "partial": "가려지거나 프레임 밖으로 잘려 일부만 보인다. 재현율에서 제외하고 오탐으로도 세지 않는다",
+    "illegible": "글자가 있는 것은 보이지만 사람도 못 읽는다. 이 프레임의 OCR 출력은 환각으로 세지 않는다"
+  },
+  "note": [
+    "이 클립은 800x450 이다. 원본 해상도 그대로지만 1080p 방송분보다 작은 글자에 불리하다.",
+    "뉴스 하단 자막바(슈퍼)가 없는 클립이라 배너·현판·전시 안내판이 주 대상이다.",
+    "s0004 의 LED 화면 한국어 자막이 이 클립의 유일한 '작은 글자' 사례이고 사람도 못 읽는다."
+  ],
+  "frames": [
+    {
+      "key": "s0000/kf-000004133",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "KBS", "kind": "logo", "legibility": "legible" },
+        { "text": "올림픽 G-1년 페스티벌", "kind": "banner", "legibility": "legible" },
+        { "text": "2018", "kind": "banner", "legibility": "partial" }
+      ]
+    },
+    {
+      "key": "s0000/kf-000011933",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "KBS", "kind": "logo", "legibility": "legible" },
+        { "text": "올림픽 G-1년 페스티벌", "kind": "banner", "legibility": "legible" },
+        { "text": "2018", "kind": "banner", "legibility": "partial" }
+      ]
+    },
+    {
+      "key": "s0000/kf-000019867",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "Biathlon", "kind": "signage", "legibility": "legible" },
+        { "text": "바이애슬론", "kind": "signage", "legibility": "legible" },
+        { "text": "PyeongChang 2018", "kind": "signage", "legibility": "legible" },
+        { "text": "경기방식", "kind": "signage", "legibility": "legible" },
+        { "text": "평창동계올림픽 G-1", "kind": "banner", "legibility": "partial" },
+        { "text": "론", "kind": "banner", "legibility": "partial" }
+      ]
+    },
+    {
+      "key": "s0000/kf-000027633",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "컬링", "kind": "signage", "legibility": "legible" },
+        { "text": "Curling", "kind": "signage", "legibility": "legible" },
+        { "text": "홍보영상 상영관", "kind": "signage", "legibility": "legible" },
+        { "text": "경기 종목", "kind": "signage", "legibility": "legible" },
+        { "text": "대한장애인컬링협회", "kind": "signage", "legibility": "legible" },
+        { "text": "대한컬링경기연맹", "kind": "signage", "legibility": "legible" },
+        { "text": "2018평창동계올림픽 G-1년 페스티벌", "kind": "banner", "legibility": "legible" }
+      ]
+    },
+    {
+      "key": "s0000/kf-000035200",
+      "hasIllegibleText": true,
+      "lines": [{ "text": "당신", "kind": "signage", "legibility": "partial" }]
+    },
+    { "key": "s0001/kf-000041267", "hasIllegibleText": false, "lines": [] },
+    { "key": "s0001/kf-000044033", "hasIllegibleText": false, "lines": [] },
+    { "key": "s0002/kf-000046467", "hasIllegibleText": true, "lines": [] },
+    { "key": "s0002/kf-000047867", "hasIllegibleText": true, "lines": [] },
+    { "key": "s0003/kf-000049667", "hasIllegibleText": false, "lines": [] },
+    { "key": "s0003/kf-000051433", "hasIllegibleText": false, "lines": [] },
+    { "key": "s0004/kf-000053567", "hasIllegibleText": true, "lines": [] },
+    { "key": "s0004/kf-000054933", "hasIllegibleText": true, "lines": [] },
+    {
+      "key": "s0005/kf-000056967",
+      "hasIllegibleText": true,
+      "lines": [{ "text": "ACELITES", "kind": "signage", "legibility": "legible" }]
+    },
+    {
+      "key": "s0005/kf-000058133",
+      "hasIllegibleText": true,
+      "lines": [{ "text": "ACELITES", "kind": "signage", "legibility": "legible" }]
+    },
+    { "key": "s0006/kf-000060067", "hasIllegibleText": true, "lines": [] },
+    { "key": "s0006/kf-000061800", "hasIllegibleText": true, "lines": [] },
+    { "key": "s0007/kf-000065167", "hasIllegibleText": false, "lines": [] },
+    { "key": "s0007/kf-000069033", "hasIllegibleText": false, "lines": [] },
+    {
+      "key": "s0008/kf-000071833",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "강원도", "kind": "signage", "legibility": "legible" },
+        { "text": "대표 볼거리관", "kind": "signage", "legibility": "legible" },
+        { "text": "강원도 대표", "kind": "signage", "legibility": "legible" },
+        { "text": "볼 거 리 관", "kind": "signage", "legibility": "legible" },
+        { "text": "강원도", "kind": "logo", "legibility": "legible" },
+        { "text": "GANGWON PROVINCE", "kind": "logo", "legibility": "legible" }
+      ]
+    },
+    {
+      "key": "s0008/kf-000072600",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "강원도", "kind": "signage", "legibility": "legible" },
+        { "text": "대표 볼거리관", "kind": "signage", "legibility": "legible" },
+        { "text": "강원도 대표", "kind": "signage", "legibility": "legible" },
+        { "text": "볼 거 리 관", "kind": "signage", "legibility": "legible" },
+        { "text": "강원도", "kind": "logo", "legibility": "legible" },
+        { "text": "GANGWON PROVINCE", "kind": "logo", "legibility": "legible" }
+      ]
+    },
+    {
+      "key": "s0009/kf-000073833",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "Life Style", "kind": "signage", "legibility": "legible" },
+        { "text": "우수상품관", "kind": "signage", "legibility": "legible" },
+        { "text": "Best Product pavilion", "kind": "signage", "legibility": "legible" },
+        { "text": "Beauty Style", "kind": "signage", "legibility": "legible" },
+        { "text": "Life Style", "kind": "signage", "legibility": "partial" }
+      ]
+    },
+    {
+      "key": "s0009/kf-000075067",
+      "hasIllegibleText": true,
+      "lines": [
+        { "text": "Life Style", "kind": "signage", "legibility": "legible" },
+        { "text": "우수상품관", "kind": "signage", "legibility": "legible" },
+        { "text": "Beauty Style", "kind": "signage", "legibility": "legible" },
+        { "text": "Best Product pavilion", "kind": "signage", "legibility": "legible" }
+      ]
+    }
+  ]
+}

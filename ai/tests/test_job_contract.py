@@ -10,8 +10,18 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from npick_worker.jobs.models import SceneDetectionOutput, StageError, StageResult
+from npick_worker.jobs.errors import classify
+from npick_worker.jobs.models import (
+    FrameExtractionOutput,
+    FrameExtractionUpstream,
+    OcrOutput,
+    OcrUpstream,
+    SceneDetectionOutput,
+    StageError,
+    StageResult,
+)
 from npick_worker.jobs.versions import StageVersion, pipeline_version, stage_version
+from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.versioning import canonical_json, version_id
 
 #: 계약이 정한 versions 객체의 키. 하나라도 늘거나 줄면 BE 와 어긋난다.
@@ -257,6 +267,43 @@ def test_pipeline_version_matches_recorded_vector() -> None:
     )
 
 
+# ── 오류 어휘 (계약 §4.3.1·§9.2) ───────────────────────────────────────
+
+
+def test_unreadable_media_is_reported_as_unsupported_media() -> None:
+    """영상을 열었지만 쓸 수 없는 것은 미디어 문제다. 계약 §4.3.1 이 그렇게 둔다.
+
+    `ValueError` 로 두면 `classify` 가 `VALIDATION_ERROR` 로 번역하는데, 그건 "상류
+    산출물·산출물 키가 잘못됐다" 는 다른 사실이다. 둘 다 영구라 재시도를 태우지는 않지만
+    정본에 남는 원인이 달라진다.
+    """
+    code, retryable = classify(
+        MediaUnreadableError("비디오 스트림이 없는 파일이다"), "frame_extraction"
+    )
+
+    assert (code, retryable) == ("UNSUPPORTED_MEDIA", False)
+
+
+def test_unreadable_media_wins_over_the_generic_value_error_branch() -> None:
+    """`MediaUnreadableError` 는 `ValueError` 하위다. 분기 순서가 뒤집히면 조용히 묻힌다."""
+    assert issubclass(MediaUnreadableError, ValueError)
+    assert classify(ValueError("상류 산출물이 계약과 다르다"), "frame_extraction") == (
+        "VALIDATION_ERROR",
+        False,
+    )
+
+
+def test_both_implemented_stages_report_unreadable_media_the_same_way() -> None:
+    """같은 사실이 단계에 따라 다른 코드로 기록되지 않는다.
+
+    두 단계가 각자 프레임레이트를 읽고 각자 실패할 수 있으므로, 번역이 한쪽에만 있으면
+    같은 파일이 단계에 따라 UNSUPPORTED_MEDIA 와 VALIDATION_ERROR 로 갈린다.
+    """
+    failure = MediaUnreadableError("프레임레이트를 읽을 수 없다")
+
+    assert classify(failure, "scene_detection") == classify(failure, "frame_extraction")
+
+
 # ── scene_detection payload ──────────────────────────────────────────
 
 
@@ -266,3 +313,343 @@ def test_scene_output_separates_media_duration_from_processing_time() -> None:
     dumped = output.model_dump(by_alias=True, mode="json")
     assert dumped["mediaDurationMs"] == 76067
     assert "durationMs" not in dumped
+
+
+# ── frame_extraction payload ─────────────────────────────────────────
+
+
+def _keyframe(timestamp_ms: int, scene_index: int = 0) -> dict[str, object]:
+    return {
+        "sceneIndex": scene_index,
+        "timestampMs": timestamp_ms,
+        "storageKey": (
+            f"runs/398021847361024/frame_extraction/a1/s{scene_index:04d}/kf-{timestamp_ms:09d}.jpg"
+        ),
+    }
+
+
+def _scene_keyframes(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "sceneIndex": 0,
+        "representativeTimestampMs": 4200,
+        "keyframes": [_keyframe(4200), _keyframe(1100), _keyframe(7300)],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_frame_output_accepts_the_contract_example() -> None:
+    output = FrameExtractionOutput.model_validate(
+        {"scenes": [_scene_keyframes()], "imageWidth": 1920, "imageHeight": 1080}
+    )
+    dumped = output.model_dump(by_alias=True, mode="json")
+    assert dumped["scenes"][0]["representativeTimestampMs"] == 4200
+    assert dumped["scenes"][0]["keyframes"][0]["timestampMs"] == 4200
+    assert dumped["imageWidth"] == 1920
+
+
+def test_frame_output_requires_the_representative_to_be_first() -> None:
+    """`keyframe` 에 대표 표시 컬럼이 없어 순서가 곧 표시다.
+
+    BE 는 이 순서대로 INSERT 하므로 대표가 그 scene 의 최소 `keyframe_id` 가 된다.
+    목록을 정렬해 저장하는 구현 변경이 생기면 여기서 걸린다.
+    """
+    with pytest.raises(ValidationError, match="대표 이미지"):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [_scene_keyframes(representativeTimestampMs=7300)],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_output_rejects_duplicate_timestamps() -> None:
+    """UNIQUE(scene_id, timestamp_ms) 를 BE 에서 터지기 전에 잡는다."""
+    with pytest.raises(ValidationError, match="timestamp_ms"):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [
+                    _scene_keyframes(keyframes=[_keyframe(4200), _keyframe(4200)]),
+                ],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_output_rejects_a_scene_without_keyframes() -> None:
+    """FRD §3 은 대표 이미지 없이 검색 가능으로 표시하지 않도록 요구한다."""
+    with pytest.raises(ValidationError):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [_scene_keyframes(keyframes=[])],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_output_rejects_keyframes_from_another_scene() -> None:
+    with pytest.raises(ValidationError, match="다른 scene"):
+        FrameExtractionOutput.model_validate(
+            {
+                "scenes": [
+                    _scene_keyframes(keyframes=[_keyframe(4200), _keyframe(7300, scene_index=1)])
+                ],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        )
+
+
+def test_frame_upstream_requires_scene_detection() -> None:
+    """상류 산출물이 없으면 이 단계는 할 일을 모른다. 빈 결과를 내지 않는다."""
+    with pytest.raises(ValidationError):
+        FrameExtractionUpstream.model_validate({})
+
+
+def test_frame_upstream_tolerates_fields_it_does_not_know() -> None:
+    """계약 §3 — 받는 모델은 BE 가 필드를 늘려도 죽지 않아야 한다.
+
+    같은 payload 를 보낼 때는 `extra="forbid"` 다. 방향에 따라 정책이 반대인 곳이다.
+    """
+    upstream = FrameExtractionUpstream.model_validate(
+        {
+            "sceneDetection": {
+                "scenes": [{"sceneIndex": 0, "startTimeMs": 0, "endTimeMs": 2000, "future": 1}],
+                "mediaDurationMs": 2000,
+                "frameRate": 30.0,
+                "alsoFuture": True,
+            },
+            "ocr": {"observations": []},
+        }
+    )
+    assert [scene.scene_index for scene in upstream.scene_detection.scenes] == [0]
+
+
+def test_frame_extraction_config_version_matches_recorded_vector() -> None:
+    """`frame_extraction.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
+    from npick_worker.frame_extraction import get_default_config
+
+    assert get_default_config().version_id == "frame-extract/v1:5b266b10"
+
+
+def test_frame_extraction_stage_version_matches_recorded_vector() -> None:
+    """재현 튜플은 `{configVersion, engine, engineVersion}` 이다.
+
+    `scene_detection` 의 `detector` 에 대응하는 항목이 없다 — 이 단계에는 고를 구현이
+    하나뿐이고, 없는 축을 만들면 그 축이 항상 같은 값이어서 해시에 아무 정보도 넣지
+    않는다. 이 값이 바뀌면 계약 문서의 벡터도 함께 고쳐야 한다.
+    """
+    assert (
+        stage_version(
+            "frame_extraction",
+            {
+                "configVersion": "frame-extract/v1:5b266b10",
+                "engine": "pyav",
+                "engineVersion": "18.1.0+numpy2.5.2",
+            },
+        )
+        == "npick.stage.frame_extraction/v1:595427d7"
+    )
+
+
+def test_pipeline_version_of_the_two_implemented_stages() -> None:
+    """구현된 두 단계만으로 만든 롤업. BE 의 Java 포팅과 대조할 두 번째 벡터다."""
+    assert (
+        pipeline_version(
+            {
+                "scene_detection": "npick.stage.scene_detection/v1:aaaaaaaa",
+                "frame_extraction": "npick.stage.frame_extraction/v1:cccccccc",
+            }
+        )
+        == "npick-pipeline/v1:32d2389f906a"
+    )
+
+
+# ── ocr (계약 §4.3.2) ───────────────────────────────────────────────
+
+
+def _upstream_keyframe(timestamp_ms: int, scene_index: int = 0) -> dict[str, object]:
+    return {
+        "sceneIndex": scene_index,
+        "timestampMs": timestamp_ms,
+        "storageKey": f"runs/1/frame_extraction/a1/s{scene_index:04d}/kf-{timestamp_ms:09d}.jpg",
+    }
+
+
+def _ocr_upstream(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "scenes": [{"sceneIndex": 0, "keyframes": [_upstream_keyframe(4200)]}],
+        "imageWidth": 1920,
+        "imageHeight": 1080,
+    }
+    payload.update(overrides)
+    return {"frameExtraction": payload}
+
+
+def test_ocr_upstream_requires_frame_extraction() -> None:
+    """읽을 대상이 없으면 이 단계는 할 일을 모른다.
+
+    빈 결과를 성공으로 반납하면 "이 영상에는 화면 글자가 없다" 는 거짓이 정본에 남는다.
+    """
+    with pytest.raises(ValidationError):
+        OcrUpstream.model_validate({})
+
+
+def test_ocr_upstream_tolerates_fields_it_does_not_know() -> None:
+    upstream = OcrUpstream.model_validate(
+        {
+            "frameExtraction": {
+                "scenes": [
+                    {
+                        "sceneIndex": 0,
+                        "representativeTimestampMs": 4200,
+                        "keyframes": [{**_upstream_keyframe(4200), "future": 1}],
+                    }
+                ],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+                "alsoFuture": True,
+            }
+        }
+    )
+    assert upstream.frame_extraction.scenes[0].keyframes[0].timestamp_ms == 4200
+
+
+def test_ocr_upstream_does_not_require_the_representative_to_be_first() -> None:
+    """대표 규약은 `frame_extraction` 이 보낼 때의 자기 검사다.
+
+    여기서 같은 검사를 다시 하면 BE 가 순서를 바꿔 보낸 경우에 OCR 이
+    `VALIDATION_ERROR` 로 죽는다. OCR 은 모든 keyframe 을 읽으므로 대표가 어느
+    장인지 알 필요가 없다 — 남의 규약을 이 단계의 실패 사유로 삼지 않는다.
+    """
+    upstream = OcrUpstream.model_validate(
+        _ocr_upstream(
+            scenes=[
+                {
+                    "sceneIndex": 0,
+                    "representativeTimestampMs": 7300,
+                    "keyframes": [_upstream_keyframe(4200), _upstream_keyframe(7300)],
+                }
+            ]
+        )
+    )
+    assert len(upstream.frame_extraction.scenes[0].keyframes) == 2
+
+
+def test_ocr_output_flattens_observations() -> None:
+    """`ocr_observation` 이 `keyframe_id` 만 참조한다. scene 으로 묶어 봐야 BE 가 편다."""
+    from npick_worker.ocr import KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    box = ((0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0))
+    keyframes = tuple(
+        to_observations(
+            KeyframeRef(
+                scene_index=0,
+                timestamp_ms=timestamp,
+                storage_key=f"runs/1/frame_extraction/a1/s0000/kf-{timestamp:09d}.jpg",
+            ),
+            [TextDetection(text="강원도", confidence=0.99, points=box)],
+            min_confidence=0.7,
+        )
+        for timestamp in (4200, 7300)
+    )
+    result = OcrResult(
+        keyframes=keyframes,
+        config_version="ocr/v1:daaf4c83",
+        engine="rapidocr",
+        engine_version="test",
+        tokenizer="query-norm/v1:test",
+        min_confidence=0.7,
+    )
+
+    payload = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
+
+    assert payload["keyframesRead"] == 2
+    assert payload["minConfidence"] == 0.7
+    assert len(payload["observations"]) == 2
+    observation = payload["observations"][0]
+    # keyframe 은 ID 가 아니라 이 쌍으로 가리킨다 — BE 가
+    # `UNIQUE(scene_id, timestamp_ms)` 로 행을 찾는다.
+    assert observation["sceneIndex"] == 0
+    assert observation["timestampMs"] == 4200
+    assert observation["rawText"] == "강원도"
+    assert observation["unverified"] is False
+    assert observation["boundingBox"]["points"] == [
+        [0.0, 0.0],
+        [10.0, 0.0],
+        [10.0, 4.0],
+        [0.0, 4.0],
+    ]
+    assert observation["boundingBox"]["width"] == 10.0
+
+
+def test_wire_bounding_box_is_the_same_shape_the_column_gets() -> None:
+    """와이어 payload 와 `bounding_box_json` 이 갈라지면 안 된다.
+
+    `BoundingBox.to_json()` 이 `ocr_observation.bounding_box_json` 의 모양 정본이고
+    `ocr/report.py` 도 그것을 쓴다. `OcrOutput.from_result` 가 같은 모양을 손으로 다시
+    조립하면 두 벌이 되고, 언젠가 한쪽만 바뀌어 report 출력과 payload 가 조용히
+    달라진다. 여기서 두 벌이 아님을 고정한다.
+    """
+    from npick_worker.ocr import BoundingBox, KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    box = BoundingBox(points=((3.0, 1.0), (13.0, 1.0), (13.0, 5.0), (3.0, 5.0)))
+    keyframes = (
+        to_observations(
+            KeyframeRef(
+                scene_index=0,
+                timestamp_ms=4200,
+                storage_key="runs/1/frame_extraction/a1/s0000/kf-000004200.jpg",
+            ),
+            [TextDetection(text="강원도", confidence=0.99, points=box.points)],
+            min_confidence=0.7,
+        ),
+    )
+    result = OcrResult(
+        keyframes=keyframes,
+        config_version="ocr/v1:daaf4c83",
+        engine="rapidocr",
+        engine_version="test",
+        tokenizer="query-norm/v1:test",
+        min_confidence=0.7,
+    )
+
+    payload = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
+
+    assert payload["observations"][0]["boundingBox"] == box.to_json()
+
+
+def test_ocr_config_version_matches_recorded_vector() -> None:
+    """`ocr.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
+    from npick_worker.ocr import get_default_config
+
+    assert get_default_config().version_id == "ocr/v1:daaf4c83"
+
+
+def test_ocr_stage_version_matches_recorded_vector() -> None:
+    """재현 튜플은 `{configVersion, engine, engineVersion, tokenizer}` 다.
+
+    앞의 두 단계와 달리 축이 넷이다. `tokenizer` 가 있는 이유는
+    `ocr_observation.tokens` 가 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면
+    읽은 글자가 같아도 색인이 달라지고, 그건 검색이 0 건이 되는 종류의 변화다
+    (`docs/architecture/02-container.md:110`).
+
+    이 값이 바뀌면 계약 문서의 벡터도 함께 고쳐야 한다.
+    """
+    assert (
+        stage_version(
+            "ocr",
+            {
+                "configVersion": "ocr/v1:daaf4c83",
+                "engine": "rapidocr",
+                "engineVersion": "rapidocr3.9.2+onnxruntime1.29.0",
+                "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0",
+            },
+        )
+        == "npick.stage.ocr/v1:449d6928"
+    )

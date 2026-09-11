@@ -28,6 +28,13 @@ public class ClipRegistrationController {
     }
 
     @PostMapping(value = "/api/v1/clips", consumes = "multipart/form-data")
+    @io.swagger.v3.oas.annotations.Operation(
+            description = "subtitle: UTF-8(BOM 허용) SRT, VTT, JSON. JSON은 "
+                    + "{schemaVersion: npick.subtitle/v1, segments: [{s: 정수 ms, e: 정수 ms, t: 문자열}]}만 지원. "
+                    + "정의되지 않은 JSON 추가 필드는 거절. 빈 구간·음수·소수·시작 이하인 종료·영상 길이 초과·빈 텍스트는 위치/사유와 함께 파일 전체 거절(CLIP_400_012). "
+                    + "종료가 검사 기준 영상 길이를 조금이라도 초과하면 문제 구간·비교한 영상 길이·초과량(ms)을 안내. "
+                    + "시작→종료 순 정렬, 동일 파일 겹침·원문 보존. 시간 보정 없음. MIME은 힌트이며 실제 내용을 검사. "
+                    + "script_text는 영상 전체 참고 자료이며 장면 발화가 아님.")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ClipRegistrationResponse> register(
             @Valid @ModelAttribute ClipUploadRequest request,
