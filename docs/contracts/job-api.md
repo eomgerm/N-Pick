@@ -2,7 +2,7 @@
 
 > **문서 유형** 인터페이스 계약 · **상태** 초안 (S15P21A501-70)
 > **소유** BE·AI 공동. 바꾸려면 양쪽 티켓이 함께 필요하다.
-> **기준 문서** [docs/frd.md](../frd.md) (FRD v3.1, 정본) · [docs/prd.md](../prd.md) · [02-container.md](../architecture/02-container.md) · [03-deployment.md](../architecture/03-deployment.md)
+> **기준 문서** [docs/frd.md](../frd.md) (FRD v3.2, 정본) · [docs/prd.md](../prd.md) · [02-container.md](../architecture/02-container.md) · [03-deployment.md](../architecture/03-deployment.md)
 > **단계 목록 정본** `ai/src/npick_worker/stages.py` — 이 문서는 단계 이름·순서·치명 여부를 다시 정의하지 않는다.
 > **공용 규약** [README.md](README.md) — 버전 필드 형식과 오류 코드 접두.
 
@@ -102,6 +102,11 @@ PUT  /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 - `capabilities`는 **워커가 실행할 수 있는 단계와 그 단계의 실제 버전**이다. BE는 이 목록에 없는 단계를 배정하지 않는다. 이것이 `infra/compose/profiles/pipeline.yml`의 `placement.cpu_worker_stages` / `gpu_server_stages`를 채우는 방식이다 — 정적 목록 대신 워커가 선언한다. CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 배치는 설정이 아니라 능력의 문제다.
 - `device.gpuModel`은 **필수**다. 성능 수치에 GPU 모델을 기록하지 않으면 benchmark profile이 성립하지 않는다([03-deployment.md](../architecture/03-deployment.md)).
 - `heldLeases`는 워커가 아직 살아 있다고 믿는 lease다. BE는 이미 회수한 것을 `revokedLeases`로 알려 준다 — 파드가 네트워크 단절에서 복귀했을 때 좀비 작업을 즉시 끊는다.
+
+- `waitSeconds`는 0~25 정수다. BE와 워커 설정 모두 이 범위를 검사한다.
+- BE가 모르는 capability와 정본 저장 어댑터가 지원하지 않는 단계는 배정 후보에서 제외한다.
+  나머지 capability는 계속 사용할 수 있다. 빈 이름·버전과 중복 단계 선언은 잘못된 요청이다.
+  저장 어댑터의 `StageOutputPort.supports`와 `validateAndStore`를 함께 구현해야 해당 단계가 배정된다.
 
 응답 (배정 있음, 200):
 
@@ -463,18 +468,63 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 ```
 GET /api/v1/internal/jobs/{runId}/artifacts?key={storageKey}
+  X-Job-Lease-Id: <현재 배정의 leaseId>
   → 200 application/octet-stream (봉투 없음)
 PUT /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
+  X-Job-Lease-Id: <현재 배정의 leaseId>
   Content-Type: <산출물 종류가 정한다 — keyframe 은 image/jpeg>
   X-Content-SHA256: <hex>
   → 201 (봉투 없음, 빈 본문)
 ```
 
 **`Content-Type`은 산출물 종류가 정하고 워커가 종류마다 고정값으로 보낸다.** 지금 올리는 것은
-`keyframe`(`image/jpeg`)뿐이다. 종류가 늘면 이 표에 한 줄을 늘린다 — 워커가 형식을 고르는 것이
+`keyframe`과 자막 JSON이며 아래 표를 따른다. 종류가 늘면 표에 한 줄을 늘린다 — 워커가 형식을 고르는 것이
 아니므로 BE는 종류별 고정값으로 검증할 수 있다.
 
 `storageKey`는 미디어 루트 상대 경로다. `clip.storage_key`·`keyframe.storage_key`와 같은 어휘를 쓰고 새 식별자를 만들지 않는다.
+
+GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 시각과 함께 검사한다.
+워커 ID만 일치하는 이전 프로세스의 요청은 허용하지 않는다. GET은 배정에 보관된 미디어·상류·입력 준비
+참조의 키만 읽을 수 있고, 같은 run의 임의 파일을 읽는 권한을 주지 않는다. PUT은 현재 attempt 접두만
+허용하며 필수 `Content-Length`와 실제 바이트 수, SHA-256을 대조한다. 헤더 없는 chunked PUT은
+`JOB_411_001`로 거절한다. 산출물 발신 해시는 접두 없는 소문자 64자리 hex다. 같은 키의 동일 바이트 재전송은
+수용하되 다른 바이트로 기존 파일을 덮어쓰지 않는다. 업로드된 파일은 정본 저장 성공과 별개다.
+업로드 바이트는 DB 잠금 밖에서 임시 파일로 수신·검증하고, 공개 직전에 lease를 다시 검사한다.
+이 동안 heartbeat가 진행될 수 있으며 만료·회수된 lease의 임시 파일은 공개하지 않는다.
+
+| artifact kind | Content-Type |
+| --- | --- |
+| `keyframe` | `image/jpeg` |
+| `transcript_segments`, `transcript_decisions` | `application/json` |
+
+### 4.5 자막 입력·산출물
+
+`PrepareTranscriptInputUseCase.Prepared.transcript()`는 `inputs.upstream.transcript`로 전달한다.
+`segmentsArtifact`는 `npick.transcript.segments/v1`의 `segments`를 가리킨다.
+각 구간은 `segmentId`, 정수 ms `s/e`, 원문 `t`, `sourceDetail(uploaded/embedded/asr)`를 가진다.
+`segmentId`는 해당 스냅샷 안에서 유일하며 이후 스냅샷에서도 기존 구간 ID를 보존한다.
+
+`decisionsArtifact`는 `npick.transcript.decisions/v1`을 가리킨다. 파일 안의 `segmentsArtifact`는
+대응 원본 ArtifactRef 전체와 같아야 한다. `decisions`는 모든 원본 ID에 정확히 하나씩 존재하며
+`segmentId`, `selected`, `reasonCode`, `conflictsWith`를 가진다. 채택 사유는
+`PREFERRED_SUBTITLE` 또는 `ASR_SUPPLEMENT`, 제외 사유는 `OVERLAPS_HIGHER_PRIORITY`다.
+제외 근거는 같은 스냅샷의 상위 출처 원본을 참조한다. 겹친 하위 구간은 원문 전체를 보관하고
+검색·기본 표시에서 구간 전체를 제외한다. 시간만 잘라 원문을 부분 발화로 만들지 않는다.
+
+단계 결과는 `output.transcript.segmentsArtifact/decisionsArtifact`를 쓰고 두 참조를 `artifacts`에도
+등록한다. 선택 단계는 `asrRequired`, `candidateRanges(s/e)`, `reasonCode`를 함께 반환한다.
+사유는 `SUBTITLE_COVERED`, `UNCOVERED_RANGES`, `NO_VALID_SUBTITLE`이다. 원본·선택 정책은
+워커 소유이며 BE 검증·저장이 선택 알고리즘을 대신하지 않는다.
+
+워커는 참조 파일의 크기·해시·원본/채택 ID 관계를 검증한 JSON을
+`StageContext.artifact_documents[storageKey]`로 실제 단계 함수에 제공한다. 원래 `upstream`도 유지한다.
+설정을 처리하지 않는 단계에는 비어 있지 않은 `inputs.config`를 배정하지 않는다. 워커는 그 설정을
+무시하지 않고 `VALIDATION_ERROR`로 거부하며, 실제 단계별 설정 지원은 해당 어댑터에서 연결한다.
+
+ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정상이다. 실제 발화 미감지 판정에만
+`NO_SPEECH_DETECTED`를 기록한다. ASR 미배정과 실행 후 빈 결과, 실패 및 `NO_ADAPTER`는 구분한다.
+최종 선택은 워커 `scene_transcript_mapping` 직전에 수행하며 기존 단계 목록·순서를 유지한다.
+장면별 출력 봉투가 확정되기 전에는 해당 단계의 성공 정본 저장을 수락하지 않는다.
 
 **PUT의 키는 경로 세그먼트로 들어가므로 워커가 퍼센트 인코딩한다** — 구분자 `/`는 남기고 `?`·`#`는 인코딩한다. 인코딩하지 않으면 `?`가 질의로 갈려 경로가 잘리고, BE의 접두 검사(`JOB_403_001`)가 의도한 경로에 대해 돌지 않는다. `..`나 절대 경로가 든 키는 인코딩으로 막히지 않으므로(구분자를 남기는 한 정규화된다) **워커가 보내기 전에 거절한다.** GET은 `?key=`로 실으므로 이 문제가 없다.
 
@@ -583,18 +633,22 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 3. **한 트랜잭션** — `scene`/`keyframe`/`ocr_observation` INSERT와 `stage_states_json` 갱신이 하나의 트랜잭션이다. 반쯤 들어간 산출물이 남지 않는다.
 
 재시도(attempt N+1)는 새 키와 새 `outputKeyPrefix`를 받으므로 실패한 attempt N의 파일이 성공 결과와 섞이지 않는다.
+lease 회수만으로 attempt가 증가하지는 않는다. 같은 attempt의 재배정은 기존 키에 동일 바이트만
+재전송할 수 있으며, 다른 바이트로 충돌하면 덮어쓰지 않고 거절한다. 기대 `stageVersion` 일치는
+재배정에도 필수다. 다른 결과를 저장할 새 attempt의 발급·예산은 재시도 정책의 책임이며 워커가 임의로 올리지 않는다.
 
 ## 9. 오류 코드
 
 ### 9.1 HTTP 계층 — `JOB_` 접두
 
-BE의 실제 `ErrorType`(`BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `SERVICE_UNAVAILABLE`, `INTERNAL_SERVER_ERROR`)에 맞춘다.
+BE의 실제 `ErrorType`(`BAD_REQUEST`, `LENGTH_REQUIRED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `SERVICE_UNAVAILABLE`, `INTERNAL_SERVER_ERROR`)에 맞춘다.
 
 | code | HTTP | 의미 | 워커의 정해진 반응 |
 | --- | --- | --- | --- |
 | `JOB_400` | 400 | 요청 형식 오류 | 버그. 재시도 금지 |
 | `JOB_400_001` | 400 | 결과 봉투가 §4.3의 거부 조건에 걸림 | 재시도 금지 |
-| `JOB_400_002` | 400 | 산출물 sha256 불일치 | 1회 재시도 후 `ARTIFACT_UPLOAD_FAILED` |
+| `JOB_400_002` | 400 | 산출물 sha256 불일치 | PUT만 1회 재전송 후 `ARTIFACT_UPLOAD_FAILED`, `retryable=false`. 단계 자동 재실행과 구분 |
+| `JOB_411_001` | 411 | PUT의 Content-Length 없음 | 버그. 재시도 금지 |
 | `JOB_401` | 401 | 토큰 없음·불일치 | **루프 중단** |
 | `JOB_403_001` | 403 | `outputKeyPrefix` 밖의 키 | **해당 단계만 실패로 보고. 워커 루프는 계속** |
 | `JOB_403_002` | 403 | fleet 불일치 | **루프 중단** (프로세스는 살려 둔다) |
@@ -695,6 +749,19 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 7단계 | 각 단계 티켓. 그동안 워커는 `NO_ADAPTER`로 생략을 보고한다 |
+| 미구현 7단계 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
+
+## 14. 오프라인 산출물 반입
+
+오프라인 결과도 같은 `JobAssignment`, `StageResult`, artifact 전송과 `complete`를 사용한다.
+`ai/src/npick_worker/jobs/offline.py`의 `import_result`는 배정·lease·stage·attempt·멱등성 키·출력 스키마와
+모든 파일의 경로·크기·해시를 대조하고 반입 중 heartbeat를 유지한다. bundle 디렉터리 안에서
+`storageKey`와 같은 상대 경로로 파일을 찾는다. 별도 DB 쓰기·새 성공 봉투를 만들지 않는다.
+
+오프라인 실행 중에도 배정 lease는 유효하게 유지되어야 한다. 만료된 bundle의 lease나 attempt를
+새 값으로 바꿔 반입하지 않는다. lease가 이미 회수됐다면 실행기의 재배정·재실행 절차를 따른다.
+완료된 동일 결과의 응답 확인은 원래 봉투를 `complete`에 재전송한다. 완료된 lease는 artifact 재업로드나
+heartbeat 권한을 주지 않으므로 완료 후 `import_result` 전체를 다시 실행하는 방식과 구분한다.
+오프라인 GPU 패키지 실행 자체와 모델 구현은 각 AI 단계 담당 범위다.

@@ -376,7 +376,7 @@ export function ScenePreviewDialog({
                 ) : null}
               </div>
               <strong>{evidenceValue}</strong>
-              <p>출처 · {evidenceSource}</p>
+              <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
             {onInquiry && isInquiryUnavailable ? (
               <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">

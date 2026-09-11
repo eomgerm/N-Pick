@@ -104,10 +104,22 @@ test('snapshot 실패 Preview는 통합 경로에서도 문의를 비활성화�
   assert.match(html, /<dialog aria-describedby="[^"]+"/);
 });
 
-test('결과가 없으면 degraded 상태를 빈 결과 상태와 섞어 표시하지 않는다', () => {
+test('빈 결과 demo는 degraded 상태와 섞어 표시하지 않는다', () => {
   const html = renderShell({ state: 'empty' });
 
   assert.ok(html.includes('관련 장면 0개'));
   assert.ok(!html.includes('검색 기록 저장 실패'));
   assert.ok(!html.includes('일부 기능 누락'));
+});
+
+test('결과 URL의 방송일과 촬영일 범위를 각각 복원한다', () => {
+  const html = renderShell({
+    broadcastFrom: '2026-09-01',
+    broadcastTo: '2026-09-03',
+    filmingFrom: '2026-08-28',
+    filmingTo: '2026-08-29',
+  });
+
+  assert.match(html, /방송일 기간 선택: 2026\.09\.01 – 2026\.09\.03/);
+  assert.match(html, /촬영일 기간 선택: 2026\.08\.28 – 2026\.08\.29/);
 });

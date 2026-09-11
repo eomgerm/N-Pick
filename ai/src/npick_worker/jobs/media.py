@@ -53,9 +53,22 @@ class MediaResolver:
         내려받은 파일은 블록을 빠져나갈 때 지운다. 원본은 기가바이트급이고 파드 디스크는
         휘발성이지만 한 파드가 잡을 여러 개 처리하므로, 남겨 두면 금방 찬다.
         """
+        for key in (ref.storage_key, ref.local_path):
+            if key is not None and (
+                not key
+                or _is_absolute_anywhere(key)
+                or PureWindowsPath(key).drive
+                or "\\" in key
+                or ":" in key
+                or any(part in {"", ".", ".."} for part in key.split("/"))
+            ):
+                raise InputUnavailableError(
+                    "잘못된 형식·절대 경로·루트를 벗어난 미디어 키는 허용하지 않는다"
+                )
         if ref.transport == "shared-volume":
             mounted = self._shared_path(ref)
             if mounted is not None:
+                _verify_input(mounted, ref)
                 yield ResolvedInput(path=mounted, source="shared_mount")
                 return
             # 마운트가 안 붙었거나 파일이 없다. 계약 §5 는 http 를 필수, shared-volume

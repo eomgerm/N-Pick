@@ -67,6 +67,8 @@ class StageContext:
     #: 한다(계약 §4.2 — 연장하는 것은 heartbeat 뿐이다).
     upstream_files: Mapping[str, Path] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
+    #: Integrity-checked upstream JSON, indexed by the original storageKey.
+    artifact_documents: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def require_video(self) -> Path:
         """영상을 쓰는 단계가 경로를 꺼내는 자리.

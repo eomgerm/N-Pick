@@ -148,6 +148,12 @@ class ArtifactKeyRejectedError(PermanentStageError):
     error_code: ClassVar[str] = "VALIDATION_ERROR"
 
 
+class ArtifactHashMismatchError(PermanentStageError):
+    """The server rejected artifact integrity, including after one bounded upload retry."""
+
+    error_code: ClassVar[str] = "ARTIFACT_UPLOAD_FAILED"
+
+
 class JobApiError(WorkerError):
     """잡 API 호출 자체의 실패. 단계 실행과 무관하므로 `complete` 에 실리지 않는다."""
 
@@ -188,6 +194,10 @@ class JobApiConflictError(JobApiError):
 
     error_code: ClassVar[str] = "JOB_API_CONFLICT"
     retryable: ClassVar[bool] = False
+
+
+class JobApiInvalidRequestError(JobApiConflictError):
+    """Invalid request/output contract (JOB_400_001/411_001); sending it again cannot help."""
 
 
 class LeaseLostError(JobApiError):

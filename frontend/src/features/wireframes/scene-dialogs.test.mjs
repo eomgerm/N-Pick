@@ -48,10 +48,15 @@ const { InquiryDialog, ScenePreviewDialog } = await import('./scene-dialogs.tsx'
 const { getDemoSearchExecution } = await import('./search-execution-status.ts');
 const { results } = await import('./demo-scenes.ts');
 
-function renderPreview({ isSubmitted = false, isSubmitting = false, state } = {}) {
+function renderPreview({
+  isSubmitted = false,
+  isSubmitting = false,
+  result = results[0],
+  state,
+} = {}) {
   return renderToStaticMarkup(
     createElement(ScenePreviewDialog, {
-      result: results[0],
+      result,
       theme: 'shinhan',
       isSubmitted,
       isSubmitting,
@@ -62,6 +67,21 @@ function renderPreview({ isSubmitted = false, isSubmitting = false, state } = {}
     }),
   );
 }
+
+test('출처 접두사는 matchEvidence가 있는 결과에만 표시한다', () => {
+  const withEvidence = renderPreview();
+  const withoutEvidence = renderPreview({
+    result: {
+      ...results[0],
+      matchEvidence: undefined,
+      source: '장소가 정확한지 아직 확인되지 않았어요.',
+    },
+  });
+
+  assert.ok(withEvidence.includes('출처 · Keyframe OCR'));
+  assert.ok(withoutEvidence.includes('장소가 정확한지 아직 확인되지 않았어요.'));
+  assert.ok(!withoutEvidence.includes('출처 · 장소가 정확한지 아직 확인되지 않았어요.'));
+});
 
 test('정상 Preview는 문의를 허용하고 공용 송출 전 고지를 표시한다', () => {
   const html = renderPreview();

@@ -513,6 +513,11 @@
   margin: 10px 0 0;
   font-size: 15px;
 }
+.searchPanel {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+}
 .searchForm {
   display: flex;
   gap: 10px;
@@ -571,6 +576,9 @@
 .searchForm input::placeholder {
   color: rgb(255 255 255 / 68%);
 }
+.searchForm input:disabled {
+  cursor: wait;
+}
 .searchForm input::-webkit-search-cancel-button {
   appearance: none;
 }
@@ -598,6 +606,39 @@
 }
 .clearButton:disabled {
   visibility: hidden;
+}
+.searchFilters {
+  min-width: 0;
+  margin: 0;
+  padding: 12px 18px 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, white);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, white 92%, var(--soft));
+  text-align: left;
+}
+.searchFilters legend {
+  padding: 0 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+}
+.searchFilters legend span {
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.searchFilterGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.searchFilterGrid > div {
+  margin-bottom: 0;
+}
+.searchFilters:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 @keyframes loginFailureShake {
   0%,
@@ -705,6 +746,9 @@
   .searchInputSurface {
     min-height: 44px;
     padding-left: 15px;
+  }
+  .searchFilterGrid {
+    grid-template-columns: 1fr;
   }
   .searchDescription {
     font-size: 13px;

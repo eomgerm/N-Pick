@@ -84,7 +84,7 @@ class ClaimRequest(WireModel):
     worker: WorkerIdentity
     capabilities: Sequence[StageCapability]
     device: WorkerDevice
-    wait_seconds: int = Field(ge=0)
+    wait_seconds: int = Field(ge=0, le=25)
     held_leases: Sequence[HeldLease] = ()
 
 
