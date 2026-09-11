@@ -624,7 +624,14 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 
 > 같은 `Idempotency-Key`로 도착한 `complete`는 **최초 1회만** 정본을 바꾼다. 두 번째부터는 최초에 저장한 결과를 그대로 돌려주며 `duplicate: true`를 붙인다(200, 오류가 아니다). 본문이 최초와 다르면 — 정규화 JSON의 sha256 비교 — 정본을 바꾸지 않고 `JOB_409_003`으로 거절한다.
 
-별도 멱등성 테이블을 만들지 않는다. `stage_states_json`의 `lastIdempotencyKey` + `lastRequestSha256`에 넣고, `complete` 처리를 `SELECT … FOR UPDATE` 안의 조건부 UPDATE로 한다. 행 하나가 잠기므로 원자성이 공짜다.
+별도 멱등성 테이블을 만들지 않는다. 단계별 `completions`에 멱등성 키를 인덱스로 하여
+수락된 요청의 `requestSha256`·`leaseId`·`workerId`·`response`를 보존한다.
+`lastIdempotencyKey`·`lastRequestSha256`·`completedLeaseId`·`completedWorkerId`·`completion`은
+마지막 완료 정보로 유지한다. 구 기록은 다음 배정에서 worker를 덮기 전에 보존한다.
+`complete` 처리는 `SELECT … FOR UPDATE` 안에서 정본 저장과 같은 트랜잭션으로 수행한다.
+다음 attempt의 배정·완료나 프로세스 재기동 이후에도 이미 수락한 원래 lease·worker의 동일 요청은
+원래 응답을 반환한다. 다른 worker·lease는 `JOB_409_002`, 같은 키의 다른 본문은 `JOB_409_003`이다.
+아직 수락하지 않은 회수된 lease 결과는 완료 이력이 없으므로 fencing으로 거절한다.
 
 "재시도가 성공 산출물을 중복 생성하지 않는다"([docs/frd.md](../frd.md) §3 F-03)가 성립하는 이유는 세 겹이다.
 
@@ -693,6 +700,32 @@ BE의 실제 `ErrorType`(`BAD_REQUEST`, `LENGTH_REQUIRED`, `UNAUTHORIZED`, `FORB
 v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념이 없고 `JOB_401`/`JOB_403_002`가 같은 사실을 더 정확히 말한다.
 
 **재시도 정책** — 영구는 `attempts`를 동결하고 재claim하지 않는다. 일시는 `attempts < maxAttempts`일 때만 재claim한다. 치명 단계(`stages.py`의 `fatal=True`: `scene_detection`·`frame_extraction`·`indexing`)의 최종 실패는 run을 `failed`로 만들고, 비치명 단계 실패는 run을 계속 진행시킨다([docs/frd.md](../frd.md) §3 F-03).
+
+BE는 `pipeline.yml`의 `defaults.retry_count`와 단계별 `stage_overrides.<stage>.retry_count`를 읽는다.
+`null`은 추가 시도 0회, 정수 N은 최초 시도를 포함한 `maxAttempts=N+1`이다.
+`transient_errors`는 횟수와 별도의 허용 목록이며, 위 오류 계약상 일시 오류이면서
+워커가 `retryable=true`로 신고한 `failed` 결과만 예산 안에서 재시도한다.
+영구·미등록 코드와 `skipped`는 설정으로 재시도할 수 없다. `MEDIA_UNAVAILABLE`의 파일 부재와
+`ARTIFACT_UPLOAD_FAILED`의 해시 불일치처럼 `retryable=false`인 상세 분류도 재시도하지 않는다.
+
+재시도 수락 시 해당 단계만 `pending`이 되고 `retryScheduled=true`를 기록한다.
+`attempts`는 완료한 시도 번호를 유지하며 다음 claim에서 한 번 증가한다. 이때 멱등성 키와
+`outputKeyPrefix`도 새 attempt 값으로 바뀐다. lease 회수는 같은 attempt를 재배정한다.
+이전 실패는 같은 단계의 `failedAttempts`에 attempt·오류·종료 시각·멱등성 키로 보존한다.
+최종 실패·누락은 기존 단계 `status`·`error`·`errorCode`에 남고 성공 결과만 upstream으로 전달된다.
+`retryScheduled`는 BE 판단이며 기존 `errorRetryable`은 워커 신고 의미를 유지한다.
+
+각 단계의 최초 배정에서 `retryPolicy`에 `maxAttempts`와 `transientErrors`를 저장한다.
+배정 응답·완료 판정·lease 재배정은 이 정책을 사용한다. 프로파일 변경은 아직 배정하지 않은
+단계부터 적용되며, 이미 시작한 단계의 예산이나 일시 오류 목록을 재기동 시 바꾸지 않는다.
+정책 기록 전에 시작한 구 단계는 기존 시도(이미 예약된 다음 시도가 있으면 그 1회)까지만
+보존하고 추가 자동 재시도를 새로 허용하지 않는다.
+
+BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 오류로 감싼 내부 원인까지 확인하여
+잘못된 자막은 `INVALID_TRANSCRIPT`·`retryable=false`, 영구 입력·권한 오류와 파일 부재도
+`retryable=false`로 기록한다. 서비스 일시 불가·시간 초과는 설정된 예산 안에서 재시도할 수 있다.
+일시 여부가 확인되지 않은 오류는 재시도하지 않는다. 원본 예외 메시지 대신 기존 오류 코드만
+`error.detail.sourceErrorCode`에 남기며 준비 실패라는 사실은 `phase=input_preparation`으로 구분한다.
 
 ## 10. 시간 수치
 
