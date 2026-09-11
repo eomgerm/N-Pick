@@ -2,6 +2,7 @@ package com.npick.common.error;
 
 public enum ErrorType {
     BAD_REQUEST,
+    LENGTH_REQUIRED,
     UNAUTHORIZED,
     FORBIDDEN,
     NOT_FOUND,

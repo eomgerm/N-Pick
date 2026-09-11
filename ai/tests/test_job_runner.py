@@ -313,11 +313,16 @@ async def test_lease_lost_during_complete_is_swallowed(
 
 
 @pytest.mark.asyncio
-async def test_run_stops_on_unauthorized(
-    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+@pytest.mark.parametrize("status,code", [(401, "JOB_401"), (400, "JOB_400_001")])
+async def test_run_stops_on_permanent_claim_rejection(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    status: int,
+    code: str,
 ) -> None:
-    """토큰이 거절되는데 계속 두드려도 열리지 않는다."""
-    fake_backend.enqueue_status("claim", 401, code="JOB_401")
+    """A rejected token or malformed claim must not start an endless polling loop."""
+    fake_backend.enqueue_status("claim", status, code=code)
 
     await asyncio.wait_for(_runner(job_client, media_root).run(), timeout=5)
 

@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # 품질 수치인 단계 재시도 횟수와 단계 타임아웃은 워커가 구현하지 않는다 —
     # infra/compose/profiles/pipeline.yml 에서 null 로 남아 있고 BE 가 소유한다.
     #: claim 요청에 싣는 서버 대기 상한.
-    job_poll_wait_seconds: int = Field(default=25, ge=0)
+    job_poll_wait_seconds: int = Field(default=25, ge=0, le=25)
     job_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     #: claim 이외 요청의 read timeout. claim 은 대기 시간만큼 따로 늘린다.
     job_read_timeout_seconds: float = Field(default=30.0, gt=0)
