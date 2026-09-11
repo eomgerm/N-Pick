@@ -16,7 +16,7 @@ registerHooks({
   },
 });
 
-const { formatTimestamp, results } = await import('./demo-scenes.ts');
+const { formatTimestamp, getVerificationStatusLabel, results } = await import('./demo-scenes.ts');
 
 test('기본 검색 결과는 고유 ID와 순위 1~10을 가진 유효한 장면 10개다', () => {
   assert.equal(results.length, 10);
@@ -41,6 +41,27 @@ test('기본 검색 결과는 고유 ID와 순위 1~10을 가진 유효한 장�
 test('방송일과 촬영일 정보 없음 경로를 각각 제공한다', () => {
   assert.ok(results.some(({ broadcastDate }) => broadcastDate === null));
   assert.ok(results.some(({ filmedDate }) => filmedDate === null));
+});
+
+test('모든 검색 결과는 필드·값·출처와 자동 근거 검증 상태를 명시한다', () => {
+  const statuses = new Set();
+
+  for (const { matchEvidence } of results) {
+    assert.ok(matchEvidence.field.length > 0);
+    assert.ok(matchEvidence.value.length > 0);
+    assert.ok(matchEvidence.source.length > 0);
+    assert.ok(['verified', 'unverified'].includes(matchEvidence.status));
+    statuses.add(matchEvidence.status);
+  }
+
+  assert.deepEqual(statuses, new Set(['verified', 'unverified']));
+});
+
+test('검증 상태는 색상 없이도 구분되는 한국어 텍스트를 제공한다', () => {
+  assert.deepEqual(
+    ['verified', 'unverified', 'unknown', 'rejected', 'withdrawn'].map(getVerificationStatusLabel),
+    ['검증됨', '미검증', '미상', '반려됨', '개입 해제'],
+  );
 });
 
 test('검색 기록과 Preview가 참조하는 기존 장면 1~3의 값은 보존한다', () => {

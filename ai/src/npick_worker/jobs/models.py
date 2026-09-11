@@ -16,6 +16,7 @@ from npick_worker.jobs.versions import StageVersion, WireModel
 
 if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(scene_detection 은 cv2 가 딸려 온다).
     from npick_worker.frame_extraction.models import FrameExtractionResult
+    from npick_worker.ocr.models import OcrResult
     from npick_worker.scene_detection.models import SceneDetectionResult
 
 #: 결과 봉투의 형식 버전. BE 는 모르는 값을 받으면 400 으로 거절한다.
@@ -412,4 +413,130 @@ class FrameExtractionOutput(WireModel):
             ],
             image_width=result.image_width,
             image_height=result.image_height,
+        )
+
+
+class UpstreamKeyframeOut(KeyframeOut):
+    """수신용 `KeyframeOut`. 값의 뜻은 같고 미지의 키 정책만 반대다.
+
+    `UpstreamSceneOut` 과 같은 이유다 — 워커가 만든 `frame_extraction` 산출물을 BE 가
+    `inputs.upstream` 으로 되돌려 주므로 같은 payload 가 방향에 따라 두 정책을 쓴다.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class UpstreamSceneKeyframes(WireResponse):
+    """상류가 돌려준 scene 하나의 keyframe 묶음.
+
+    `SceneKeyframesOut` 을 상속하지 않는다. 그쪽의 `_representative_is_first` 는
+    **보내기 전 자기 검사**이고, 여기서 같은 검사를 다시 하면 BE 가 순서를 바꿔 보낸
+    경우에 이 단계가 `VALIDATION_ERROR` 로 죽는다. OCR 은 대표가 어느 장인지 알 필요가
+    없다 — 모든 keyframe 을 읽기 때문이다. 남의 규약을 이 단계의 실패 사유로 삼지 않는다.
+    """
+
+    scene_index: int = Field(ge=0)
+    keyframes: Sequence[UpstreamKeyframeOut] = Field(min_length=1)
+
+
+class UpstreamFrameExtraction(WireResponse):
+    """`inputs.upstream["frameExtraction"]`. 상류 2단계 산출물이 그대로 돌아온 것이다."""
+
+    scenes: Sequence[UpstreamSceneKeyframes] = Field(min_length=1)
+    image_width: int = Field(gt=0)
+    image_height: int = Field(gt=0)
+
+
+class OcrUpstream(WireResponse):
+    """`inputs.upstream` 중 `ocr` 이 쓰는 부분.
+
+    `frameExtraction` 이 없으면 이 단계는 무엇을 읽을지 모른다. 빈 결과를 성공으로
+    반납하면 "이 영상에는 화면 글자가 없다" 는 거짓이 정본에 남으므로 필수로 둔다
+    (`frame_extraction` 이 `sceneDetection` 을 필수로 두는 것과 같은 판단).
+    """
+
+    frame_extraction: UpstreamFrameExtraction
+
+
+class BoundingBoxOut(WireModel):
+    """`ocr_observation.bounding_box_json` 에 그대로 들어가는 값.
+
+    **원본 해상도 픽셀 좌표**다. 정규화 좌표(0~1)로 보내지 않는 이유는 이 값의 용도가
+    근거 이미지 위에 상자를 그리는 것이고(컬럼 주석), 그 이미지가 곧 `keyframe` 의
+    원본 해상도 JPEG 이기 때문이다. 좌표계를 바꾸면 소비자마다 되돌리는 코드를 갖게 된다.
+    """
+
+    #: 네 점 다각형. 검출기가 준 순서를 유지한다 — 기울어진 현판·배너에서 축에 나란한
+    #: 사각형으로 펴면 실제보다 넓은 영역을 가리킨다.
+    points: Sequence[Sequence[float]] = Field(min_length=3)
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(ge=0)
+    height: float = Field(ge=0)
+
+
+class OcrObservationOut(WireModel):
+    """`ocr_observation` 행 하나가 될 값."""
+
+    #: 어느 프레임에서 읽었나. `keyframe_id` 가 아니라 이 쌍으로 말한다 — BE 가
+    #: `UNIQUE(scene_id, timestamp_ms)` 로 행을 찾는다(계약 §4.3.2).
+    scene_index: int = Field(ge=0)
+    timestamp_ms: int = Field(ge=0)
+    #: 어느 파일을 읽었는지의 근거. 상류가 준 `keyframe.storage_key` 그대로다.
+    storage_key: str = Field(min_length=1)
+    #: 읽은 그대로. 교정하거나 정규화한 문자열을 넣지 않는다.
+    raw_text: str = Field(min_length=1)
+    #: Kiwi 색인 토큰을 공백으로 이은 것. 빈 문자열이 정상일 수 있다(기호만 읽은 경우).
+    tokens: str
+    #: `numeric(5,4)` 에 맞춰 넷째 자리까지다.
+    confidence: float = Field(ge=0, le=1)
+    #: `confidence < minConfidence`. 담을 컬럼이 없으므로 BE 는 이 값을 저장하지 않고
+    #: `tag_evidence.verification_status` 를 정할 때 쓴다(계약 §4.3.2).
+    unverified: bool
+    #: 같은 문구를 가리키는 관측이 공유하는 키. 병합을 **하지 않고** 병합 가능성만
+    #: 알려 준다 — 관측은 프레임마다 따로 남는다.
+    text_key: str = Field(min_length=1)
+    bounding_box: BoundingBoxOut
+
+
+class OcrOutput(WireModel):
+    """`ocr` 단계의 payload.
+
+    scene 으로 묶지 않고 관측을 평평하게 싣는다. `ocr_observation` 이 `keyframe_id` 만
+    참조하고 scene 을 거치지 않으므로(FK 가 keyframe 하나다) 묶어 봐야 BE 가 다시
+    펴야 한다.
+    """
+
+    observations: Sequence[OcrObservationOut]
+    #: 읽은 keyframe 수. `observations` 가 비어도 "몇 장을 읽었는지" 는 남아야 한다 —
+    #: 0 장을 읽고 0 건을 낸 것과 23 장을 읽고 0 건을 낸 것은 다른 사실이다.
+    keyframes_read: int = Field(ge=0)
+    #: 판정에 쓴 임계값. 이 값이 없으면 나중에 `unverified` 를 재현할 수 없다.
+    min_confidence: float = Field(ge=0, le=1)
+
+    @classmethod
+    def from_result(cls, result: "OcrResult") -> "OcrOutput":
+        """단계의 순수 산출물을 와이어 모양으로 옮긴다."""
+        return cls(
+            observations=[
+                OcrObservationOut(
+                    scene_index=observation.keyframe.scene_index,
+                    timestamp_ms=observation.keyframe.timestamp_ms,
+                    storage_key=observation.keyframe.storage_key,
+                    raw_text=observation.raw_text,
+                    tokens=observation.tokens_text,
+                    confidence=observation.confidence,
+                    unverified=observation.unverified,
+                    text_key=observation.text_key,
+                    # 상자 모양을 여기서 다시 조립하지 않는다. `to_json()` 이
+                    # `ocr_observation.bounding_box_json` 의 컬럼 모양 정본이고
+                    # `ocr/report.py` 도 그것을 쓴다. 두 벌이면 언젠가 갈라지고,
+                    # 그때 report 출력과 와이어 payload 가 조용히 달라진다.
+                    bounding_box=BoundingBoxOut(**observation.box.to_json()),
+                )
+                for keyframe in result.keyframes
+                for observation in keyframe.observations
+            ],
+            keyframes_read=len(result.keyframes),
+            min_confidence=result.min_confidence,
         )

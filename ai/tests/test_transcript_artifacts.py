@@ -107,11 +107,13 @@ def test_snapshot_keeps_full_excluded_original_and_validates_conflicts() -> None
 
 
 @pytest.mark.asyncio
-async def test_asr_handler_consumes_candidate_ranges_and_original_snapshot(
+@pytest.mark.parametrize("needs_video", [True, False])
+async def test_handler_consumes_transcript_independently_of_video_requirement(
     job_client: JobApiClient,
     fake_backend: FakeBackend,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    needs_video: bool,
 ) -> None:
     transcript = {
         "segmentsArtifact": reference().model_dump(by_alias=True),
@@ -129,14 +131,19 @@ async def test_asr_handler_consumes_candidate_ranges_and_original_snapshot(
             },
         )
     )
-    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"test-media"))
+    if needs_video:
+        fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"test-media"))
     fake_backend.enqueue(
         "artifact_get", httpx2.Response(200, content=json.dumps(original()).encode())
     )
     consumed: list[int] = []
 
     def mock_asr(context: StageContext) -> StageOutcome:
-        assert context.video_path.read_bytes() == b"test-media"
+        if needs_video:
+            assert context.video_path is not None
+            assert context.video_path.read_bytes() == b"test-media"
+        else:
+            assert context.video_path is None
         candidates = context.upstream["transcript"]["candidateRanges"]
         consumed.extend(candidate["e"] - candidate["s"] for candidate in candidates)
         assert context.artifact_documents[reference().storage_key] == original()
@@ -150,7 +157,8 @@ async def test_asr_handler_consumes_candidate_ranges_and_original_snapshot(
         )
 
     monkeypatch.setattr(
-        "npick_worker.jobs.registry.resolve", lambda _: StageHandler("asr", mock_asr)
+        "npick_worker.jobs.registry.resolve",
+        lambda _: StageHandler("asr", mock_asr, needs_video=needs_video),
     )
     runner = JobRunner(
         client=job_client,

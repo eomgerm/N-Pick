@@ -45,6 +45,7 @@ async def exercise(url: str, bundle: Path) -> None:
         upstream = context.upstream["transcript"]
         document = context.artifact_documents[upstream["segmentsArtifact"]["storageKey"]]
         assert document["segments"][0]["t"] == "실제 단계 입력"
+        assert context.video_path is not None
         assert context.video_path.read_bytes() == (bundle / "clips/802/source.mp4").read_bytes()
         # A predetermined mock result, not a transcript selection implementation.
         uploads: list[PendingUpload] = []

@@ -10,7 +10,7 @@
 import hashlib
 import logging
 import tempfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -90,6 +90,73 @@ class MediaResolver:
             await self._client.download_input(run_id, ref.storage_key, dest)
             _verify_input(dest, ref)
             yield ResolvedInput(path=dest, source="download")
+
+    async def fetch_artifacts(
+        self,
+        run_id: str,
+        storage_keys: Sequence[str],
+        dest_dir: Path,
+        *,
+        transport: Literal["http", "shared-volume"],
+    ) -> dict[str, Path]:
+        """상류 단계가 올려 둔 산출물을 열 수 있는 경로로 바꾼다.
+
+        `resolve()` 가 배정의 **입력 미디어** 하나를 푸는 것과 달리 이쪽은 상류
+        산출물 여럿이다. 필요한 단계는 `ocr` 이다 — 읽을 대상이 영상이 아니라
+        `frame_extraction` 이 올린 keyframe JPEG 이기 때문이다(FRD `docs/frd.md:131`
+        "OCR 은 추출한 키프레임을 대상으로 수행한다").
+
+        공유 마운트가 붙어 있으면 **복사하지 않는다.** keyframe 은 장면 수백 개에
+        장 수를 곱한 만큼이고 compose 에서는 그 파일들이 이미 같은 볼륨에 있다.
+
+        `resolve()` 와 다른 점이 둘이다.
+
+        - **정리를 여기서 하지 않는다.** 호출부(`runner._run_stage`)가 잡마다 만드는
+          작업 디렉터리 안에 받으므로 그 디렉터리와 함께 지워진다.
+        - **크기·해시를 대조하지 않는다.** `inputs.upstream` 이 돌려주는
+          `keyframe` 항목에는 `contentHash` 도 `sizeBytes` 도 없다(계약 §4.3.1 의
+          출력 모양). 잘린 파일은 단계가 이미지로 열지 못해 실패로 드러나는 데
+          그친다 — BE 가 상류 산출물에 해시를 실어 주면 여기서 막을 수 있다.
+        """
+        # **중복은 여기서 한 번 없앤다.** 아래 두 갈래(마운트·다운로드)가 각자 막으면
+        # 한쪽만 걸린다 — `resolved` 를 보는 가드는 마운트에서 이미 푼 키만 걸러서,
+        # http 갈래의 중복 키는 `to_download` 에 두 번 들어가 같은 파일을 두 번 받는다.
+        # `_ocr_required_inputs` 가 먼저 없애 주므로 정상 입력에서는 도달하지 않지만,
+        # 가드가 여기 있는 이상 여기서 맞아야 한다.
+        unique_keys = list(dict.fromkeys(storage_keys))
+
+        resolved: dict[str, Path] = {}
+        to_download: list[str] = []
+
+        for key in unique_keys:
+            if transport == "shared-volume":
+                mounted = self._shared_path(MediaRef(storage_key=key, transport=transport))
+                if mounted is not None:
+                    resolved[key] = mounted
+                    continue
+            to_download.append(key)
+
+        if not to_download:
+            return resolved
+
+        if self._client is None:
+            msg = f"상류 산출물을 내려받을 수단이 없다: {len(to_download)}건"
+            raise InputUnavailableError(msg)
+        if transport == "shared-volume":
+            logger.warning(
+                "공유 마운트에서 상류 산출물 %d건을 찾지 못했다. HTTP 로 내려받는다",
+                len(to_download),
+            )
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for index, key in enumerate(to_download):
+            # 키를 파일 이름으로 쓰지 않는다. 두 scene 의 파일 이름이 같을 수 있고
+            # (`kf-000004133.jpg`), 키를 그대로 경로로 이으면 BE 가 준 문자열이
+            # 로컬 경로를 만드는 통로가 된다. 순번이면 둘 다 없다.
+            dest = dest_dir / f"{index:05d}{Path(key).suffix}"
+            await self._client.download_input(run_id, key, dest)
+            resolved[key] = dest
+        return resolved
 
     def _shared_path(self, ref: MediaRef) -> Path | None:
         """공유 마운트에서 파일을 찾는다. 마운트나 파일이 없으면 `None`.
