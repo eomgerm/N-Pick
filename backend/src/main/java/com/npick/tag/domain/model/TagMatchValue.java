@@ -63,7 +63,7 @@ public final class TagMatchValue {
      * 그래서 결과는 <b>멱등</b> 하다. 저장된 값에 이 함수를 다시 걸어도 값이 바뀌지 않아야 재정규화 배치가 태그를 옮기지 않는다.
      *
      * <p><b>빈 값 검사는 호출자 몫이다.</b> 보이지 않는 문자만 있는 입력은 여기서 빈 문자열이 되고, 그 판정은 호출자가 이미 가진 빈 값 경로가 한다 — 순서가 「정규화 → 빈 값 검사」 여야
-     * 그런 입력과 처음부터 빈 입력이 같은 곳에서 걸린다. 널도 같은 이유로 빈 문자열로 접는다. DB 쪽은 {@code ck_tag_match_value_no_whitespace} 가 같이 막는다.
+     * 그런 입력과 처음부터 빈 입력이 같은 곳에서 걸린다. 널도 같은 이유로 빈 문자열로 접는다. DB 쪽은 {@code ck_tag_match_value_invisible_chars} 가 같이 막는다.
      */
     public static String normalize(String raw) {
         if (raw == null) {

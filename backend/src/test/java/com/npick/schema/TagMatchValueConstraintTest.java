@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * {@code ck_tag_match_value_no_whitespace} 가 정규화를 안 거친 저장을 막는지 검증한다 (S15P21A501-169).
+ * {@code ck_tag_match_value_invisible_chars} 가 정규화를 안 거친 저장을 막는지 검증한다 (S15P21A501-169).
  *
  * <p>{@code FlywayBaselineTest} 는 발행된 ERD 스냅샷({@code 20260907092019})에 자신을 고정해 두었으므로 이후 기술 마이그레이션은 여기처럼 따로 검증한다.
  *

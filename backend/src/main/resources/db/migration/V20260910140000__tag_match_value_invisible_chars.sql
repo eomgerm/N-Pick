@@ -21,7 +21,7 @@
 -- tag_type 을 11종으로 제한하는 CHECK 는 여기 넣지 않는다. TagErrorCode.UNKNOWN_TAG_TYPE 이 그 CHECK 가 없다는
 -- 전제로 존재하므로 별도 판단이 필요하다.
 ALTER TABLE npick.tag
-    ADD CONSTRAINT ck_tag_match_value_no_whitespace
+    ADD CONSTRAINT ck_tag_match_value_invisible_chars
         CHECK (
             match_value <> ''
             AND match_value !~ '[[:space:]]'
