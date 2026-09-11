@@ -103,6 +103,11 @@ PUT  /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 - `device.gpuModel`은 **필수**다. 성능 수치에 GPU 모델을 기록하지 않으면 benchmark profile이 성립하지 않는다([03-deployment.md](../architecture/03-deployment.md)).
 - `heldLeases`는 워커가 아직 살아 있다고 믿는 lease다. BE는 이미 회수한 것을 `revokedLeases`로 알려 준다 — 파드가 네트워크 단절에서 복귀했을 때 좀비 작업을 즉시 끊는다.
 
+- `waitSeconds`는 0~25 정수다. BE와 워커 설정 모두 이 범위를 검사한다.
+- BE가 모르는 capability와 정본 저장 어댑터가 지원하지 않는 단계는 배정 후보에서 제외한다.
+  나머지 capability는 계속 사용할 수 있다. 빈 이름·버전과 중복 단계 선언은 잘못된 요청이다.
+  저장 어댑터의 `StageOutputPort.supports`와 `validateAndStore`를 함께 구현해야 해당 단계가 배정된다.
+
 응답 (배정 있음, 200):
 
 ```json
@@ -481,7 +486,8 @@ PUT /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 시각과 함께 검사한다.
 워커 ID만 일치하는 이전 프로세스의 요청은 허용하지 않는다. GET은 배정에 보관된 미디어·상류·입력 준비
 참조의 키만 읽을 수 있고, 같은 run의 임의 파일을 읽는 권한을 주지 않는다. PUT은 현재 attempt 접두만
-허용하며 `Content-Length`와 실제 바이트 수, SHA-256을 대조한다. 같은 키의 동일 바이트 재전송은
+허용하며 필수 `Content-Length`와 실제 바이트 수, SHA-256을 대조한다. 헤더 없는 chunked PUT은
+`JOB_411_001`로 거절한다. 산출물 발신 해시는 접두 없는 소문자 64자리 hex다. 같은 키의 동일 바이트 재전송은
 수용하되 다른 바이트로 기존 파일을 덮어쓰지 않는다. 업로드된 파일은 정본 저장 성공과 별개다.
 업로드 바이트는 DB 잠금 밖에서 임시 파일로 수신·검증하고, 공개 직전에 lease를 다시 검사한다.
 이 동안 heartbeat가 진행될 수 있으며 만료·회수된 lease의 임시 파일은 공개하지 않는다.
@@ -627,18 +633,22 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 3. **한 트랜잭션** — `scene`/`keyframe`/`ocr_observation` INSERT와 `stage_states_json` 갱신이 하나의 트랜잭션이다. 반쯤 들어간 산출물이 남지 않는다.
 
 재시도(attempt N+1)는 새 키와 새 `outputKeyPrefix`를 받으므로 실패한 attempt N의 파일이 성공 결과와 섞이지 않는다.
+lease 회수만으로 attempt가 증가하지는 않는다. 같은 attempt의 재배정은 기존 키에 동일 바이트만
+재전송할 수 있으며, 다른 바이트로 충돌하면 덮어쓰지 않고 거절한다. 기대 `stageVersion` 일치는
+재배정에도 필수다. 다른 결과를 저장할 새 attempt의 발급·예산은 재시도 정책의 책임이며 워커가 임의로 올리지 않는다.
 
 ## 9. 오류 코드
 
 ### 9.1 HTTP 계층 — `JOB_` 접두
 
-BE의 실제 `ErrorType`(`BAD_REQUEST`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `SERVICE_UNAVAILABLE`, `INTERNAL_SERVER_ERROR`)에 맞춘다.
+BE의 실제 `ErrorType`(`BAD_REQUEST`, `LENGTH_REQUIRED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `SERVICE_UNAVAILABLE`, `INTERNAL_SERVER_ERROR`)에 맞춘다.
 
 | code | HTTP | 의미 | 워커의 정해진 반응 |
 | --- | --- | --- | --- |
 | `JOB_400` | 400 | 요청 형식 오류 | 버그. 재시도 금지 |
 | `JOB_400_001` | 400 | 결과 봉투가 §4.3의 거부 조건에 걸림 | 재시도 금지 |
-| `JOB_400_002` | 400 | 산출물 sha256 불일치 | 1회 재시도 후 `ARTIFACT_UPLOAD_FAILED` |
+| `JOB_400_002` | 400 | 산출물 sha256 불일치 | PUT만 1회 재전송 후 `ARTIFACT_UPLOAD_FAILED`, `retryable=false`. 단계 자동 재실행과 구분 |
+| `JOB_411_001` | 411 | PUT의 Content-Length 없음 | 버그. 재시도 금지 |
 | `JOB_401` | 401 | 토큰 없음·불일치 | **루프 중단** |
 | `JOB_403_001` | 403 | `outputKeyPrefix` 밖의 키 | **해당 단계만 실패로 보고. 워커 루프는 계속** |
 | `JOB_403_002` | 403 | fleet 불일치 | **루프 중단** (프로세스는 살려 둔다) |

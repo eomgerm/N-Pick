@@ -34,6 +34,7 @@ public class WorkerExecutionBinding implements WorkerExecutionPort {
     private final PipelineRunRepository runs;
     private final GetWorkerMediaInputUseCase media;
     private final TransactionTemplate transaction;
+    private final com.npick.pipeline.application.port.StageOutputPort outputs;
 
     public WorkerExecutionBinding(
             ClaimStageUseCase claims,
@@ -41,13 +42,15 @@ public class WorkerExecutionBinding implements WorkerExecutionPort {
             CompleteStageUseCase completions,
             PipelineRunRepository runs,
             GetWorkerMediaInputUseCase media,
-            TransactionTemplate transaction) {
+            TransactionTemplate transaction,
+            com.npick.pipeline.application.port.StageOutputPort outputs) {
         this.claims = claims;
         this.heartbeats = heartbeats;
         this.completions = completions;
         this.runs = runs;
         this.media = media;
         this.transaction = transaction;
+        this.outputs = outputs;
     }
 
     public Map<String, Object> claim(String worker, Map<String, Object> request) {
@@ -56,11 +59,13 @@ public class WorkerExecutionBinding implements WorkerExecutionPort {
         for (Object item : items) {
             var capability = JsonValues.object(item);
             if (!(capability.get("stage") instanceof String stage)
-                    || !PipelineStages.NAMES.contains(stage)
+                    || stage.isBlank()
                     || !(capability.get("stageVersion") instanceof String version)
                     || version.isBlank()
                     || capabilities.putIfAbsent(stage, version) != null) throw invalid();
         }
+        // Independent deployments may advertise stages the BE cannot yet persist.
+        capabilities.keySet().removeIf(stage -> !PipelineStages.NAMES.contains(stage) || !outputs.supports(stage));
         List<String> revoked = new ArrayList<>();
         Object held = request.getOrDefault("heldLeases", List.of());
         if (!(held instanceof List<?> leases)) throw invalid();
@@ -119,12 +124,13 @@ public class WorkerExecutionBinding implements WorkerExecutionPort {
     }
 
     private static void references(Object value, Set<String> keys) {
-        if (value instanceof Map<?, ?> map) {
-            if (map.get("storageKey") instanceof String key
+        if (!(value instanceof List<?> list)) return;
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> map
+                    && map.get("storageKey") instanceof String key
                     && map.containsKey("contentHash")
                     && map.containsKey("byteSize")) keys.add(key);
-            map.values().forEach(item -> references(item, keys));
-        } else if (value instanceof List<?> list) list.forEach(item -> references(item, keys));
+        }
     }
 
     private static UUID uuid(Object value) {

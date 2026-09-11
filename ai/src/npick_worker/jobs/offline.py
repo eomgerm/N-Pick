@@ -80,6 +80,8 @@ async def import_result(
     upload = asyncio.create_task(transfer())
     try:
         done, _ = await asyncio.wait({heartbeat, upload}, return_when=asyncio.FIRST_COMPLETED)
+        if upload in done:
+            return await upload
         if heartbeat in done:
             await heartbeat
         return await upload

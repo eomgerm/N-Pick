@@ -87,6 +87,8 @@ class WorkerHttpIntegrationTest {
                 .withFailMessage(Files.readString(ffmpegLog))
                 .isZero();
         Files.writeString(ROOT.resolve("clips/802/subtitle.srt"), "1\n00:00:00,000 --> 00:00:01,000\n실제 단계 입력\n");
+        Files.createDirectories(ROOT.resolve("clips/999"));
+        Files.writeString(ROOT.resolve("clips/999/source.mp4"), "another clip");
         jdbc.update("INSERT INTO npick.member VALUES (801, 'worker-http', 'unused', 'test', 'reviewer', now(), now())");
         jdbc.update("""
             INSERT INTO npick.clip (clip_id, source_type, storage_key, content_hash, transcript_file_key,
@@ -107,6 +109,34 @@ class WorkerHttpIntegrationTest {
                                 "expectedStageVersion",
                                 "npick.stage." + stage + "/v1:aaaaaaaa"));
             }
+            // Accepted top-level fields do not grant the permissions claimed by extra nested fields.
+            states.put(
+                    "frame_extraction",
+                    Map.of(
+                            "status",
+                            "succeeded",
+                            "attempts",
+                            1,
+                            "expectedStageVersion",
+                            "npick.stage.frame_extraction/v1:aaaaaaaa",
+                            "artifacts",
+                            java.util.List.of(Map.of(
+                                    "kind",
+                                    "keyframe",
+                                    "storageKey",
+                                    "runs/" + run + "/frame_extraction/a1/frame.jpg",
+                                    "byteSize",
+                                    0,
+                                    "contentHash",
+                                    "0".repeat(64),
+                                    "z",
+                                    Map.of(
+                                            "storageKey",
+                                            "clips/999/source.mp4",
+                                            "byteSize",
+                                            1,
+                                            "contentHash",
+                                            "0".repeat(64))))));
             jdbc.update(
                     """
                 INSERT INTO npick.pipeline_run (pipeline_run_id, clip_id, processing_no, pipeline_version,
@@ -200,7 +230,50 @@ class WorkerHttpIntegrationTest {
                         Map.of())),
                 Map.of());
         assertThat(claim.statusCode()).isEqualTo(200);
+        assertThat(mapper.readTree(claim.body()).path("data").path("assigned").asBoolean())
+                .isFalse();
+        // Unsupported stages remain unassigned. Use a separate supported assignment for fencing tests.
+        Map<String, Object> freshStates = new LinkedHashMap<>();
+        for (String stage : PipelineStages.NAMES)
+            freshStates.put(
+                    stage,
+                    Map.of(
+                            "status",
+                            "pending",
+                            "attempts",
+                            0,
+                            "expectedStageVersion",
+                            "npick.stage." + stage + "/v1:aaaaaaaa"));
+        jdbc.update(
+                """
+                INSERT INTO npick.pipeline_run (pipeline_run_id, clip_id, processing_no, pipeline_version,
+                    status, stage_states_json, created_at, updated_at)
+                VALUES (805, 802, 3, 'pipeline-test', 'queued', ?::jsonb, now(), now())
+                """,
+                mapper.writeValueAsString(Map.of("schemaVersion", "npick.stage_states/v1", "stages", freshStates)));
+        claim = request(
+                base,
+                "/claim",
+                "POST",
+                mapper.writeValueAsString(Map.of(
+                        "worker",
+                        Map.of("workerId", "http-test", "fleet", "local"),
+                        "waitSeconds",
+                        0,
+                        "capabilities",
+                        java.util.List.of(
+                                Map.of(
+                                        "stage",
+                                        "scene_detection",
+                                        "stageVersion",
+                                        "npick.stage.scene_detection/v1:aaaaaaaa"),
+                                Map.of("stage", "future_stage", "stageVersion", "v1")),
+                        "device",
+                        Map.of())),
+                Map.of());
+        assertThat(claim.statusCode()).isEqualTo(200);
         var assignment = mapper.readTree(claim.body()).path("data");
+        assertThat(assignment.path("assigned").asBoolean()).isTrue();
         String run = assignment.path("job").path("pipelineRunId").asText();
         String lease = assignment.path("lease").path("leaseId").asText();
         String prefix = assignment.path("job").path("outputKeyPrefix").asText();
@@ -208,7 +281,7 @@ class WorkerHttpIntegrationTest {
         var result = new LinkedHashMap<String, Object>(mapper.readValue(
                 Files.readString(ROOT.resolve("live-result.json")),
                 new tools.jackson.core.type.TypeReference<Map<String, Object>>() {}));
-        result.put("stage", "scene_transcript_mapping");
+        result.put("stage", "scene_detection");
         result.put("leaseId", lease);
         result.put("idempotencyKey", idempotency);
         result.put("output", Map.of("unimplemented", true));
@@ -217,14 +290,14 @@ class WorkerHttpIntegrationTest {
                 "versions",
                 Map.of(
                         "stageVersion",
-                        "npick.stage.scene_transcript_mapping/v1:aaaaaaaa",
+                        "npick.stage.scene_detection/v1:aaaaaaaa",
                         "outputSchemaVersion",
-                        "npick.stage.scene_transcript_mapping.output/v1",
+                        "npick.stage.scene_detection.output/v1",
                         "modelVersion",
                         "mock",
                         "promptVersion",
                         "mock"));
-        String completionPath = "/" + run + "/stages/scene_transcript_mapping/complete";
+        String completionPath = "/" + run + "/stages/scene_detection/complete";
         var invalid = request(
                 base,
                 completionPath,
@@ -234,7 +307,7 @@ class WorkerHttpIntegrationTest {
         assertThat(invalid.statusCode()).isEqualTo(400);
         // The domain changed in memory before validation; persistence must roll back together.
         assertThat(jdbc.queryForObject(
-                        "SELECT stage_states_json->'stages'->'scene_transcript_mapping'->>'status' FROM npick.pipeline_run WHERE pipeline_run_id=?",
+                        "SELECT stage_states_json->'stages'->'scene_detection'->>'status' FROM npick.pipeline_run WHERE pipeline_run_id=?",
                         String.class,
                         Long.parseLong(run)))
                 .isEqualTo("running");
@@ -245,7 +318,7 @@ class WorkerHttpIntegrationTest {
                 .isEqualTo(lease);
         var otherWorker = request(
                 base,
-                "/" + run + "/stages/scene_transcript_mapping/heartbeat",
+                "/" + run + "/stages/scene_detection/heartbeat",
                 "POST",
                 mapper.writeValueAsString(Map.of("leaseId", lease)),
                 Map.of("X-Worker-Id", "other-worker"));

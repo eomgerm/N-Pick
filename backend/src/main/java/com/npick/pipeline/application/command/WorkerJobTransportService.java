@@ -48,7 +48,7 @@ public final class WorkerJobTransportService
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0 || Thread.currentThread().isInterrupted()) return response;
             // This service holds no DB transaction; the short execution-port call has returned.
-            java.util.concurrent.locks.LockSupport.parkNanos(Math.min(remaining, 100_000_000L));
+            java.util.concurrent.locks.LockSupport.parkNanos(Math.min(remaining, 500_000_000L));
         }
     }
 

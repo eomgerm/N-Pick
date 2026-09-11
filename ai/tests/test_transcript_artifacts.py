@@ -1,10 +1,12 @@
 """Artifact integrity, snapshot references and offline fencing preflight."""
 
+import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx2
 import pytest
@@ -20,6 +22,8 @@ from npick_worker.jobs.errors import (
 from npick_worker.jobs.media import MediaResolver
 from npick_worker.jobs.models import (
     ArtifactRef,
+    CompleteAck,
+    HeartbeatAck,
     JobAssignment,
     LeaseGrant,
     StageResult,
@@ -212,6 +216,30 @@ async def test_bad_artifacts_never_reach_stage(
 
 
 @pytest.mark.asyncio
+async def test_received_transcript_hash_uses_media_normalization(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+) -> None:
+    ref = reference().model_dump(by_alias=True)
+    ref["contentHash"] = " sha256:" + reference().content_hash.upper() + " "
+    job = JobAssignment.model_validate(
+        make_job(
+            stage="transcript_selection",
+            outputKeyPrefix="runs/398021847361024/transcript_selection/a1/",
+            inputs={
+                "media": {"storageKey": "clips/1/source.mp4"},
+                "upstream": {"transcript": {"segmentsArtifact": ref}},
+            },
+        )
+    )
+    fake_backend.enqueue(
+        "artifact_get", httpx2.Response(200, content=json.dumps(original()).encode())
+    )
+    documents = await resolve_transcripts(job, MediaResolver(None, job_client))
+    assert documents[reference().storage_key] == original()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["attempt", "lease", "run", "expired"])
 async def test_offline_rejects_stale_assignment_before_upload_or_complete(
     job_client: JobApiClient, fake_backend: FakeBackend, tmp_path: Path, failure: str
@@ -242,3 +270,52 @@ async def test_offline_rejects_stale_assignment_before_upload_or_complete(
         await import_result(job_client, job, lease, result, tmp_path)
     assert not fake_backend.calls("artifact_put")
     assert not fake_backend.calls("complete")
+
+
+@pytest.mark.asyncio
+async def test_offline_keeps_accepted_ack_when_heartbeat_also_loses_lease(
+    job_client: JobApiClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job = JobAssignment.model_validate(
+        make_job(outputSchemaVersion="npick.stage.scene_detection.output/v1")
+    )
+    lease = LeaseGrant.model_validate(make_lease())
+    now = datetime.now(UTC)
+    result = StageResult(
+        lease_id=lease.lease_id,
+        idempotency_key=job.idempotency_key,
+        stage=job.stage,
+        attempt=job.attempt,
+        status="succeeded",
+        started_at=now,
+        finished_at=now,
+        duration_ms=0,
+        versions=StageVersion(
+            stage_version="npick.stage.scene_detection/v1:aaaaaaaa",
+            output_schema_version="npick.stage.scene_detection.output/v1",
+        ),
+        output={"scenes": []},
+    )
+    ack = CompleteAck(accepted=True, duplicate=False)
+    monkeypatch.setattr(
+        job_client,
+        "heartbeat",
+        AsyncMock(
+            side_effect=[
+                HeartbeatAck(command="continue", lease_until=now),
+                LeaseLostError("completed lease"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(job_client, "complete", AsyncMock(return_value=ack))
+    original_wait = asyncio.wait
+
+    async def both_done(
+        tasks: set[asyncio.Task[Any]], **kwargs: Any
+    ) -> tuple[set[asyncio.Task[Any]], set[asyncio.Task[Any]]]:
+        return await original_wait(tasks, return_when=asyncio.ALL_COMPLETED)
+
+    monkeypatch.setattr(asyncio, "wait", both_done)
+    assert await import_result(job_client, job, lease, result, tmp_path) == ack

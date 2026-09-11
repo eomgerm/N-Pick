@@ -27,6 +27,12 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
     private final ObjectMapper mapper;
     private final WorkerArtifactPort artifacts;
 
+    @Override
+    public boolean supports(String stage) {
+        return java.util.Set.of("scene_detection", "frame_extraction", "transcript_selection", "asr")
+                .contains(stage);
+    }
+
     public JdbcWorkerStageOutputAdapter(JdbcTemplate jdbc, ObjectMapper mapper, WorkerArtifactPort artifacts) {
         this.jdbc = jdbc;
         this.mapper = mapper;
@@ -61,7 +67,11 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                 yield Map.of();
             }
             case "asr" -> {
-                for (JsonNode segment : array(output, "segments")) validateSegment(segment);
+                var ids = new HashSet<String>();
+                for (JsonNode segment : array(output, "segments")) {
+                    validateSegment(segment);
+                    if (!"asr".equals(text(segment, "sourceDetail")) || !ids.add(text(segment, "segmentId"))) invalid();
+                }
                 yield Map.of();
             }
             // No unimplemented schema/storage adapter may accept a successful result.
@@ -76,7 +86,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             Ref ref = ref(value);
             LocalWorkerArtifactAdapter.validateKey(ref.storageKey());
             if (!ref.storageKey().startsWith(prefix) || refs.put(ref.storageKey(), ref) != null) invalid();
-            artifacts.verified(ref);
+            artifacts.verify(ref);
         }
         return refs;
     }
@@ -173,9 +183,12 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
         if (prepared == null) invalid();
         JsonNode input = artifactJson(ref(mapper.readTree(prepared)));
         // Verify preservation, without choosing sources or recomputing selection policy.
+        var inputIds = new HashSet<String>();
         for (JsonNode original : array(input, "segments")) {
+            if (!inputIds.add(text(original, "segmentId"))) invalid();
             if (!original.equals(originals.get(text(original, "segmentId")))) invalid();
         }
+        if (!originals.keySet().equals(inputIds)) invalid();
         var seen = new HashSet<String>();
         for (JsonNode decision : array(decisions, "decisions")) {
             String id = text(decision, "segmentId");

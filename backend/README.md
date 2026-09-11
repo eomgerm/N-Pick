@@ -4,7 +4,8 @@
 
 `NPICK_WORKER_JOBS_ENABLED`는 기본 `false`다. 활성화하면 기존 실행기의 배정·heartbeat·완료 UseCase에
 HTTP 전송을 연결한다. 단계 정본 저장 어댑터는 실행기의 fencing·멱등성 검사가 끝난 완료 트랜잭션
-안에서 호출된다. 미지원 출력 스키마는 성공으로 저장하지 않고 거절한다.
+안에서 호출된다. 저장 어댑터는 HTTP 활성화와 독립적으로 제공된다. 저장 미지원 단계는 HTTP 배정에서
+제외하며, 내부 호출로 들어온 미지원 출력도 성공으로 저장하지 않는다.
 
 `NPICK_WORKER_JOBS_TOKENS`는 쉼표로 구분한 32바이트 이상 Bearer 토큰 목록이며 회전 중 두 토큰을
 함께 둘 수 있다. `NPICK_WORKER_JOBS_FLEET`는 기본 `local`이다. 운영에는 운영 토큰만 설정한다.
@@ -193,7 +194,7 @@ com.npick
   `CLIP_STAGE_NAMES` 설정 대신 이 프로파일을 사용한다.
 - 실행기는 내부 claim/heartbeat/complete 유스케이스를 제공한다. 성공 결과 수락에는
   `StageOutputPort`의 단계별 형식 검사·정본 저장 어댑터가 필요하며, 없으면 성공을 기록하지 않는다.
-  워커 HTTP·artifact 전송 연결과 실제 AI 실행은 별도 연동이 필요하다.
+  HTTP·artifact 전송은 위 설정으로 활성화한다. 실제 AI 단계와 해당 출력 저장 지원은 함께 연결한다.
 - `transcript_selection` 배정은 보관 영상의 ffprobe 길이와 DB 자막 키로 입력을 준비한 뒤
   `inputs.upstream.transcript`를 전달한다. 준비 중에는 DB 트랜잭션을 열지 않고 lease를 갱신한다.
   준비 산출물은 배정 기록 성공 또는 커밋 결과 불명확 시 보존하며, 회수된 lease의 입력은 반영하지 않는다.

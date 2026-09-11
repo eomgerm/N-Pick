@@ -31,9 +31,13 @@ public class WorkerJobSecurityConfiguration {
     @Bean
     @Order(1)
     SecurityFilterChain workerJobSecurity(
-            HttpSecurity http, ObjectMapper mapper, @Value("${npick.worker-jobs.tokens:}") String tokens)
+            HttpSecurity http,
+            ObjectMapper mapper,
+            @Value("${npick.worker-jobs.tokens:}") String tokens,
+            @Value("${npick.worker-jobs.enabled:false}") boolean enabled)
             throws Exception {
-        List<byte[]> allowed = Arrays.stream(tokens.split(","))
+        // Keep the internal route denied when disabled; ignore inactive token configuration.
+        List<byte[]> allowed = Arrays.stream((enabled ? tokens : "").split(","))
                 .map(String::trim)
                 .filter(token -> !token.isEmpty())
                 .map(token -> token.getBytes(StandardCharsets.UTF_8))

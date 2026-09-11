@@ -133,7 +133,10 @@ class WorkerOutputDatabaseTest {
                 .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(image));
         List<Map<String, Object>> refs = new java.util.ArrayList<>();
         for (String name : List.of("representative.jpg", "earlier.jpg")) {
-            store.upload(prefix, prefix + name, image.length, hash, new java.io.ByteArrayInputStream(image));
+            try (var upload = store.prepareUpload(
+                    prefix, prefix + name, image.length, hash, new java.io.ByteArrayInputStream(image))) {
+                upload.publish();
+            }
             refs.add(Map.of(
                     "kind", "keyframe", "storageKey", prefix + name, "byteSize", image.length, "contentHash", hash));
         }
@@ -206,5 +209,19 @@ class WorkerOutputDatabaseTest {
                         body("scene_transcript_mapping", Map.of("scenes", List.of()))))
                 .isInstanceOf(BusinessException.class);
         adapter.validateAndStore(703, 702, "asr", "runs/703/asr/a1/", body("asr", Map.of("segments", List.of())));
+    }
+
+    @Test
+    void asrRejectsWrongSourceAndDuplicateSegmentIds() {
+        var valid = Map.of("segmentId", "asr-1", "sourceDetail", "asr", "s", 0, "e", 100, "t", "speech");
+        var wrong = Map.of("segmentId", "asr-2", "sourceDetail", "uploaded", "s", 100, "e", 200, "t", "subtitle");
+        for (var segments : List.of(List.of(valid, valid), List.of(valid, wrong))) {
+            assertThatThrownBy(() -> adapter.validateAndStore(
+                            703, 702, "asr", "runs/703/asr/a1/", body("asr", Map.of("segments", segments))))
+                    .isInstanceOfSatisfying(
+                            BusinessException.class,
+                            e -> assertThat(e.errorCode().code()).isEqualTo("JOB_400_001"));
+        }
+        adapter.validateAndStore(703, 702, "asr", "runs/703/asr/a1/", body("asr", Map.of("segments", List.of(valid))));
     }
 }

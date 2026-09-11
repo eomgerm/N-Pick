@@ -16,10 +16,22 @@ import com.npick.pipeline.application.port.WorkerArtifactPort;
 
 /** Immutable attempt files. Authorization/fencing belongs to the execution boundary, before I/O. */
 public final class LocalWorkerArtifactAdapter implements WorkerArtifactPort {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LocalWorkerArtifactAdapter.class);
     private final Path root;
 
     public LocalWorkerArtifactAdapter(Path root) {
-        this.root = root.toAbsolutePath().normalize();
+        // HTTP-disabled installations may not configure media storage at all.
+        // Keep the adapter present, but never interpret an empty root as the working directory.
+        if (root == null || root.toString().isBlank()) {
+            this.root = null;
+            return;
+        }
+        try {
+            Files.createDirectories(root);
+            this.root = root.toRealPath();
+        } catch (IOException failure) {
+            throw new BusinessException(WorkerIntegrationErrorCode.STORAGE_UNAVAILABLE, failure);
+        }
     }
 
     public static void validateKey(String key) {
@@ -32,6 +44,7 @@ public final class LocalWorkerArtifactAdapter implements WorkerArtifactPort {
     }
 
     private Path path(String key) throws IOException {
+        if (root == null) reject(WorkerIntegrationErrorCode.STORAGE_UNAVAILABLE);
         validateKey(key);
         Path path = root.resolve(key);
         // Refuse links even if they currently point inside the root: their target can change.
@@ -42,13 +55,6 @@ public final class LocalWorkerArtifactAdapter implements WorkerArtifactPort {
             if (Files.isSymbolicLink(cursor)) reject(WorkerIntegrationErrorCode.PATH_FORBIDDEN);
         }
         return path;
-    }
-
-    @Override
-    public void upload(String prefix, String key, long size, String hash, InputStream source) {
-        try (var upload = prepareUpload(prefix, key, size, hash, source)) {
-            upload.publish();
-        }
     }
 
     @Override
@@ -102,23 +108,33 @@ public final class LocalWorkerArtifactAdapter implements WorkerArtifactPort {
                 }
 
                 public void close() {
-                    try {
-                        Files.deleteIfExists(staged);
-                    } catch (IOException failure) {
-                        throw new BusinessException(WorkerIntegrationErrorCode.STORAGE_UNAVAILABLE, failure);
-                    }
+                    cleanup(staged);
                 }
             };
         } catch (IOException failure) {
             throw new BusinessException(WorkerIntegrationErrorCode.STORAGE_UNAVAILABLE, failure);
         } finally {
-            if (temporary != null) {
-                try {
-                    Files.deleteIfExists(temporary);
-                } catch (IOException failure) {
-                    throw new BusinessException(WorkerIntegrationErrorCode.STORAGE_UNAVAILABLE, failure);
-                }
-            }
+            if (temporary != null) cleanup(temporary);
+        }
+    }
+
+    private static void cleanup(Path temporary) {
+        try {
+            Files.deleteIfExists(temporary);
+        } catch (IOException failure) {
+            log.warn("Could not remove staged artifact {}", temporary, failure);
+        }
+    }
+
+    @Override
+    public void verify(Ref reference) {
+        if (reference.byteSize() < 0
+                || reference.contentHash() == null
+                || !reference.contentHash().matches("[0-9a-f]{64}")) reject(WorkerIntegrationErrorCode.INVALID_OUTPUT);
+        try {
+            verifyFile(existing(reference.storageKey()), reference.byteSize(), reference.contentHash());
+        } catch (IOException failure) {
+            throw new BusinessException(WorkerIntegrationErrorCode.STORAGE_UNAVAILABLE, failure);
         }
     }
 

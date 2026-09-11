@@ -19,11 +19,13 @@ from urllib.parse import quote
 import httpx2
 
 from npick_worker.jobs.errors import (
+    ArtifactHashMismatchError,
     ArtifactKeyRejectedError,
     ArtifactUploadError,
     InputDownloadError,
     InputUnavailableError,
     JobApiConflictError,
+    JobApiInvalidRequestError,
     JobApiUnauthorizedError,
     JobApiUnavailableError,
     LeaseLostError,
@@ -212,16 +214,22 @@ class JobApiClient:
         """산출물을 올린다. 계약이 교환하는 것은 언제나 storage key 이고 바이트는 여기로 흐른다."""
         safe_key = _safe_artifact_key(storage_key)
         try:
-            await self._send(
-                "PUT",
-                f"{JOB_API_PREFIX}/{run_id}/artifacts/{safe_key}",
-                content=body,
-                headers={
-                    **self._artifact_headers(run_id),
-                    "Content-Type": content_type,
-                    "X-Content-SHA256": content_sha256,
-                },
-            )
+            for attempt in range(2):
+                try:
+                    await self._send(
+                        "PUT",
+                        f"{JOB_API_PREFIX}/{run_id}/artifacts/{safe_key}",
+                        content=body,
+                        headers={
+                            **self._artifact_headers(run_id),
+                            "Content-Type": content_type,
+                            "X-Content-SHA256": content_sha256,
+                        },
+                    )
+                    return
+                except ArtifactHashMismatchError:
+                    if attempt == 1:
+                        raise
         except JobApiUnavailableError as exc:
             # 일시 실패만 업로드 실패로 감싼다. ArtifactKeyRejectedError 같은 영구
             # 오류를 여기서 삼키면 재시도 가능으로 둔갑한다.
@@ -365,6 +373,9 @@ def _unwrap(response: httpx2.Response) -> Any:
 #: 409 하나에 "이미 성공했다"(폐기가 정상)·"lease 를 잃었다"·"워커를 고쳐야 한다" 가
 #: 함께 들어 있고, 403 에는 "이 단계만 실패" 와 "이 서버에서 일하면 안 된다" 가 있다.
 _ERROR_BY_CODE: Final[Mapping[str, type[WorkerError]]] = {
+    "JOB_400_001": JobApiInvalidRequestError,
+    "JOB_400_002": ArtifactHashMismatchError,
+    "JOB_411_001": JobApiInvalidRequestError,
     "JOB_403_001": ArtifactKeyRejectedError,
     "JOB_403_002": JobApiUnauthorizedError,
     "JOB_404_001": JobApiConflictError,
@@ -378,6 +389,8 @@ _ERROR_BY_CODE: Final[Mapping[str, type[WorkerError]]] = {
 #: 코드가 없거나 모를 때의 폴백. 보수적으로 잡는다 — 이해하지 못하는 충돌에서
 #: 쓰기를 밀어붙이는 것보다 버리는 쪽이 안전하다.
 _ERROR_BY_STATUS: Final[Mapping[int, type[WorkerError]]] = {
+    400: JobApiInvalidRequestError,
+    411: JobApiInvalidRequestError,
     401: JobApiUnauthorizedError,
     403: JobApiUnauthorizedError,
     409: JobApiConflictError,

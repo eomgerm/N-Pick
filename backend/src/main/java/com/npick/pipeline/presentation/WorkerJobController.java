@@ -93,6 +93,12 @@ public class WorkerJobController {
             @RequestHeader("X-Content-SHA256") String hash,
             HttpServletRequest request)
             throws java.io.IOException {
+        if (key == null || !key.startsWith("/") || key.length() <= 1)
+            throw new com.npick.common.error.BusinessException(
+                    com.npick.pipeline.application.error.WorkerIntegrationErrorCode.PATH_FORBIDDEN);
+        if (request.getContentLengthLong() < 0)
+            throw new com.npick.common.error.BusinessException(
+                    com.npick.pipeline.application.error.WorkerIntegrationErrorCode.LENGTH_REQUIRED);
         uploads.upload(
                 run, worker, lease, key.substring(1), request.getContentLengthLong(), hash, request.getInputStream());
     }

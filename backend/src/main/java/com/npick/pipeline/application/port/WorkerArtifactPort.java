@@ -6,8 +6,6 @@ import java.io.OutputStream;
 public interface WorkerArtifactPort {
     record Ref(String kind, String storageKey, long byteSize, String contentHash) {}
 
-    void upload(String outputKeyPrefix, String key, long size, String hash, InputStream source);
-
     PreparedUpload prepareUpload(String outputKeyPrefix, String key, long size, String hash, InputStream source);
 
     interface PreparedUpload extends AutoCloseable {
@@ -19,4 +17,6 @@ public interface WorkerArtifactPort {
     void download(String key, OutputStream destination);
 
     byte[] verified(Ref reference);
+
+    void verify(Ref reference);
 }

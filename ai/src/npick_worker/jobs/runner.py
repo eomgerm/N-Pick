@@ -28,6 +28,7 @@ from npick_worker.jobs.errors import (
     ArtifactUploadError,
     JobApiConflictError,
     JobApiError,
+    JobApiInvalidRequestError,
     JobApiUnauthorizedError,
     JobApiUnavailableError,
     LeaseLostError,
@@ -200,6 +201,9 @@ class JobRunner:
                 await self.run_once()
             except JobApiUnauthorizedError:
                 logger.error("잡 API 인증이 거절됐다. 폴링을 멈춘다.")
+                return
+            except JobApiInvalidRequestError:
+                logger.exception("잡 API 요청 계약이 거절됐다. 워커 수정 전까지 폴링을 멈춘다.")
                 return
             except JobApiUnavailableError as exc:
                 # `_send` 소진 경로는 이미 백오프했으니 여기서 오래 자지 않는다.

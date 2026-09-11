@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import sys
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -170,6 +171,27 @@ async def exercise(url: str, bundle: Path) -> None:
                 prefix + "/artifacts", params={"key": "../outside"}, headers=headers
             )
             assert response.status_code == 403, response.text
+            # A nested extra field in an accepted upstream artifact is not a grant.
+            response = await client._client.get(
+                prefix + "/artifacts", params={"key": "clips/999/source.mp4"}, headers=headers
+            )
+            assert response.status_code == 403, response.text
+            response = await client._client.put(
+                prefix + "/artifacts", content=b"{}", headers=headers
+            )
+            assert response.status_code == 403, response.text
+
+            async def chunks() -> AsyncIterator[bytes]:
+                yield b"{}"
+
+            response = await client._client.put(
+                prefix + "/artifacts/" + job.output_key_prefix + "chunked.json",
+                content=chunks(),
+                headers=headers,
+            )
+            assert response.status_code == 411 and response.json()["code"] == "JOB_411_001", (
+                response.text
+            )
             bad = result.model_dump(by_alias=True, mode="json")
             bad["attempt"] = 2
             response = await client._client.post(
@@ -210,6 +232,58 @@ async def exercise(url: str, bundle: Path) -> None:
             response = await client._client.post(
                 prefix + "/stages/transcript_selection/complete",
                 json=dropped,
+                headers={"Idempotency-Key": result.idempotency_key},
+            )
+            assert response.status_code == 400, response.text
+            # Keeping the supplied original but adding a fabricated selected segment is invalid too.
+            added_refs: list[dict[str, object]] = []
+            for upload in outcome.uploads:
+                added_payload = json.loads(upload.local_path.read_bytes())
+                if upload.ref.kind == "transcript_segments":
+                    added_payload["segments"].append(
+                        {
+                            "segmentId": "fabricated",
+                            "s": 0,
+                            "e": 1000,
+                            "t": "not in the supplied input",
+                            "sourceDetail": "uploaded",
+                        }
+                    )
+                else:
+                    added_payload["segmentsArtifact"] = added_refs[0]
+                    added_payload["decisions"].append(
+                        {
+                            "segmentId": "fabricated",
+                            "selected": True,
+                            "reasonCode": "PREFERRED_SUBTITLE",
+                            "conflictsWith": [],
+                        }
+                    )
+                body = json.dumps(added_payload).encode()
+                key = job.output_key_prefix + "added-" + upload.ref.kind + ".json"
+                digest = hashlib.sha256(body).hexdigest()
+                await client.upload_artifact(
+                    job.pipeline_run_id,
+                    key,
+                    body,
+                    content_type="application/json",
+                    content_sha256=digest,
+                )
+                added_refs.append(
+                    {
+                        "kind": upload.ref.kind,
+                        "storageKey": key,
+                        "byteSize": len(body),
+                        "contentHash": digest,
+                    }
+                )
+            added = result.model_dump(by_alias=True, mode="json")
+            added["artifacts"] = added_refs
+            added["output"]["transcript"]["segmentsArtifact"] = added_refs[0]
+            added["output"]["transcript"]["decisionsArtifact"] = added_refs[1]
+            response = await client._client.post(
+                prefix + "/stages/transcript_selection/complete",
+                json=added,
                 headers={"Idempotency-Key": result.idempotency_key},
             )
             assert response.status_code == 400, response.text

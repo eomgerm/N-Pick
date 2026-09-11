@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from npick_worker.jobs.errors import UpstreamOutputInvalidError
-from npick_worker.jobs.media import MediaResolver
+from npick_worker.jobs.media import MediaResolver, _normalize_hash
 from npick_worker.jobs.models import JobAssignment, MediaRef
 from npick_worker.jobs.transcripts import (
     TranscriptDecisions,
@@ -51,16 +51,15 @@ async def resolve_transcripts(
                 job.output_key_prefix
             ):
                 raise ValueError("prepared transcript belongs to another attempt")
-            if len(ref.content_hash) != 64 or any(
-                c not in "0123456789abcdef" for c in ref.content_hash
-            ):
+            content_hash = _normalize_hash(ref.content_hash)
+            if len(content_hash) != 64 or any(c not in "0123456789abcdef" for c in content_hash):
                 raise ValueError("invalid artifact SHA-256")
             # Artifact transport is always authenticated HTTP, even with shared source media.
             async with media.resolve(
                 job.pipeline_run_id,
                 MediaRef(
                     storage_key=ref.storage_key,
-                    content_hash=ref.content_hash,
+                    content_hash=content_hash,
                     size_bytes=ref.byte_size,
                     transport="http",
                 ),

@@ -1,7 +1,5 @@
 package com.npick.pipeline.infrastructure.config;
 
-import java.nio.file.Path;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +22,7 @@ public class WorkerJobConfiguration {
             com.npick.pipeline.application.command.complete.CompleteStageUseCase completions,
             com.npick.pipeline.domain.repository.PipelineRunRepository runs,
             GetWorkerMediaInputUseCase media,
+            com.npick.pipeline.application.port.StageOutputPort outputs,
             org.springframework.transaction.PlatformTransactionManager transactions) {
         return new com.npick.pipeline.application.command.WorkerExecutionBinding(
                 claims,
@@ -31,20 +30,8 @@ public class WorkerJobConfiguration {
                 completions,
                 runs,
                 media,
-                new org.springframework.transaction.support.TransactionTemplate(transactions));
-    }
-
-    @Bean
-    com.npick.pipeline.infrastructure.persistence.JdbcWorkerStageOutputAdapter workerStageOutput(
-            org.springframework.jdbc.core.JdbcTemplate jdbc,
-            tools.jackson.databind.ObjectMapper mapper,
-            LocalWorkerArtifactAdapter artifacts) {
-        return new com.npick.pipeline.infrastructure.persistence.JdbcWorkerStageOutputAdapter(jdbc, mapper, artifacts);
-    }
-
-    @Bean
-    LocalWorkerArtifactAdapter workerArtifacts(@Value("${npick.clip-registration.media-root}") Path root) {
-        return new LocalWorkerArtifactAdapter(root);
+                new org.springframework.transaction.support.TransactionTemplate(transactions),
+                outputs);
     }
 
     @Bean
