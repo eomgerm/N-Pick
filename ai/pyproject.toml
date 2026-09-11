@@ -60,6 +60,14 @@ gpu = [
     "torch>=2.13,<3",
     "faster-whisper>=1.2,<2",
 ]
+# 임베딩 모델 비교(S15P21A501-175) 전용. eval/ 만 쓰고 워커 런타임은 건드리지 않는다 —
+# Dockerfile 의 `uv sync --no-dev` 에도, gpu 그룹에도 들어가지 않으므로 배포 이미지가
+# mlflow·sentence-transformers 를 받지 않는다.
+eval = [
+    "mlflow>=3.15,<4",
+    "sentence-transformers>=5,<6",
+    "torch>=2.13,<3",
+]
 
 [tool.uv]
 required-version = ">=0.12"
