@@ -38,9 +38,13 @@ import com.npick.search.application.port.QueryResolutionResult;
  * 인덱스로는 가리킬 수 없다 — §7.2 기록을 읽을 때 두 출처를 섞어 세지 않는다. 강등 여부 자체는 인덱스가 아니라 anchor 의 {@link Origin} 에 남으므로 guard 판정은 이 어긋남의
  * 영향을 받지 않는다.
  *
- * <p><b>span 단위:</b> 여기서 내는 {@link QuerySpan} 은 Java 문자열 인덱스(UTF-16 단위)다. 리졸버의 span 은 Python 기준이라 코드 포인트 단위이고, 원문에 BMP
- * 밖 문자(이모지 등)가 있으면 그 뒤의 좌표가 서로 어긋난다. 값으로 찾아 다시 계산하므로 강등이 잘못 일어나지는 않지만 {@code span_corrected} 가 불필요하게 남는다. 출력 계약의 단위 표기는
- * {@code query_resolver/schema.py} 가 정본이므로 여기서 임의로 맞추지 않는다 ({@code S15P21A501-101} 확인 대상).
+ * <h2>{@code query_span} 의 좌표 단위</h2>
+ *
+ * <b>들어오는 span 은 코드 포인트 단위, 나가는 span 은 Java 문자열 인덱스(UTF-16 단위)다.</b> 리졸버는 Python 이라 코드 포인트로 세고, 원문에 BMP 밖 문자(이모지 등)가
+ * 있으면 그 뒤 좌표가 두 단위에서 갈린다. 그래서 범위 검사는 들어온 단위로 하고, 통과한 span 만 {@link #toJavaIndices} 로 옮겨 내보낸다.
+ *
+ * <p>날짜 구간처럼 span 을 그대로 통과시키는 자리에도 이 변환을 건다. 한 {@link QueryResolution} 안에서 날짜 span 만 코드 포인트로 남으면 그 결과를 어느 단위로 읽어도 절반이
+ * 틀린다 — 원문 근거를 일관되게 잘라낼 수 없게 된다.
  *
  * <p>설계 정본 §7 의 Policy 다 — 무상태 순수 Java 이고 Spring 을 모른다. 쓰는 쪽이 필드로 직접 생성해 보유한다.
  */
@@ -49,6 +53,11 @@ public final class AnchorVerifier {
     private static final String DEMOTED = "demoted_to_inferred";
     private static final String DROPPED = "dropped";
     private static final String SPAN_CORRECTED = "span_corrected";
+
+    /** 숫자 없이 날짜를 가리키는 표현. {@link #looksLikeDateExpression} 참조 — 이 목록은 날짜 어휘의 정본이 아니라 최소 바닥이다. */
+    private static final List<String> RELATIVE_DATE_WORDS = List.of(
+            "작년", "재작년", "지난해", "올해", "금년", "내년", "지난달", "이번달", "지난주", "이번주", "그제", "어제", "오늘", "최근", "연초", "연말", "상반기",
+            "하반기");
 
     /**
      * 해석 안의 모든 anchor 를 {@code rawQuery} 와 대조해 출처를 확정한다.
@@ -181,35 +190,64 @@ public final class AnchorVerifier {
             return keepNonExplicit(origin, claimed, rawQuery, path, findings);
         }
 
-        QuerySpan located = locate(value, rawQuery, claimed);
+        // 힌트도 Java 인덱스로 옮겨 쓴다. 범위 밖 좌표는 힌트로도 못 쓰므로 버린다.
+        QuerySpan hint = claimed != null && inRange(claimed, rawQuery) ? toJavaIndices(claimed, rawQuery) : null;
+        QuerySpan located = locate(value, rawQuery, hint);
         if (located == null) {
             // 창작 anchor 가 걸러지는 자리다 (F-05 "원문에서 확인되지 않는 인물·사건·날짜를
             // 사용자의 명시 조건으로 표시하지 않는다").
             findings.add(new AnchorFinding(path, DEMOTED, "원문에 없는 값을 explicit_query 로 주장했다: '%s'".formatted(value)));
             return Checked.demoted();
         }
-        if (!located.equals(claimed)) {
+        if (!located.equals(hint)) {
             // 값은 원문에 있는데 좌표만 틀렸다. 주장 자체는 살아 있으므로 강등하지 않고 고친다.
             findings.add(new AnchorFinding(
                     path,
                     SPAN_CORRECTED,
-                    "모델 span %s 을 원문에서 찾은 [%d, %d) 로 고쳤다"
-                            .formatted(describe(claimed), located.start(), located.end())));
+                    "모델 span %s 을 원문에서 찾은 [%d, %d) 로 고쳤다".formatted(describe(hint), located.start(), located.end())));
         }
         return new Checked(Origin.EXPLICIT_QUERY, located);
     }
 
     private Checked checkSpanOnly(
-            Origin origin, QuerySpan span, String rawQuery, String path, List<AnchorFinding> findings) {
+            Origin origin, QuerySpan claimed, String rawQuery, String path, List<AnchorFinding> findings) {
         if (origin != Origin.EXPLICIT_FILTER && origin != Origin.EXPLICIT_QUERY) {
-            return keepNonExplicit(origin, span, rawQuery, path, findings);
+            return keepNonExplicit(origin, claimed, rawQuery, path, findings);
         }
-        String problem = spanProblem(origin, span, rawQuery);
-        if (problem == null) {
-            return new Checked(origin, span);
+        String problem = spanProblem(origin, claimed, rawQuery);
+        if (problem != null) {
+            findings.add(new AnchorFinding(path, DEMOTED, problem));
+            return Checked.demoted();
         }
-        findings.add(new AnchorFinding(path, DEMOTED, problem));
-        return Checked.demoted();
+
+        // 범위 검사를 통과했으니 옮기는 것이 안전하다.
+        QuerySpan span = toJavaIndices(claimed, rawQuery);
+        String claimedText = rawQuery.substring(span.start(), span.end());
+        if (!looksLikeDateExpression(claimedText)) {
+            // 좌표가 원문 안에 있다는 것만으로는 사용자가 그 날짜를 말했다는 근거가 되지 않는다.
+            // "태풍 피해 현장" 의 [0,2) 를 근거로 2023년 한 해를 explicit 로 주장하는 출력이 여기서 걸린다.
+            findings.add(new AnchorFinding(
+                    path, DEMOTED, "날짜로 읽히지 않는 구간을 날짜의 explicit_query 근거로 주장했다: '%s'".formatted(claimedText)));
+            return Checked.demoted();
+        }
+        return new Checked(origin, span);
+    }
+
+    /**
+     * 이 원문 조각이 날짜 표현으로 읽히는가.
+     *
+     * <p>날짜 구간에는 대조할 값 문자열이 없다 — {@code 2023-01-01~2024-01-01} 은 사용자가 그렇게 쓴 문자열이 아니라 리졸버가 해석해 만든 값이다. 그래서 좌표가 가리키는 원문
+     * 조각이 날짜로 읽히기라도 하는지 본다.
+     *
+     * <p>ponytail: 숫자나 상대 날짜어가 있는지만 보는 어림짐작이다. {@code "2023년"}·{@code "작년 여름"} 은 통과하고 {@code "태풍"} 은 걸린다. 제대로 하려면 리졸버가
+     * 날짜 구간과 함께 그 근거가 된 원문 조각을 내려줘야 하고({@code S15P21A501-101}), 그러면 값 anchor 와 똑같이 대조로 바꾼다. 그때까지는 틀리는 방향이 안전한 쪽이다 — 못
+     * 알아본 날짜 표현은 강등되어 hard 제외 권한만 잃고 결과에서 사라지지는 않는다 (F-06 "불확실한 정보를 모두 제거하는 것이 아니다").
+     */
+    private boolean looksLikeDateExpression(String text) {
+        if (text.codePoints().anyMatch(Character::isDigit)) {
+            return true;
+        }
+        return RELATIVE_DATE_WORDS.stream().anyMatch(text::contains);
     }
 
     /**
@@ -218,17 +256,37 @@ public final class AnchorVerifier {
      * <p>원문 밖을 가리키는 좌표를 그대로 넘기면 이 span 으로 원문을 잘라 읽는 쪽이 깨진다. 출처는 그대로 두고 좌표만 버린다.
      */
     private Checked keepNonExplicit(
-            Origin origin, QuerySpan span, String rawQuery, String path, List<AnchorFinding> findings) {
-        if (span == null || inRange(span, rawQuery)) {
-            return new Checked(origin, span);
+            Origin origin, QuerySpan claimed, String rawQuery, String path, List<AnchorFinding> findings) {
+        if (claimed == null || inRange(claimed, rawQuery)) {
+            // 강등할 것은 없어도 단위는 맞춰 내보낸다 — 한 결과 안에서 span 단위가 갈리면 안 된다.
+            return new Checked(origin, toJavaIndices(claimed, rawQuery));
         }
-        findings.add(
-                new AnchorFinding(path, SPAN_CORRECTED, "원문 범위를 벗어난 query_span 을 버렸다: %s".formatted(describe(span))));
+        findings.add(new AnchorFinding(
+                path, SPAN_CORRECTED, "원문 범위를 벗어난 query_span 을 버렸다: %s".formatted(describe(claimed))));
         return new Checked(origin, null);
     }
 
+    /** 들어온 span 은 코드 포인트 단위이므로 상한도 코드 포인트 수로 본다. */
     private boolean inRange(QuerySpan span, String rawQuery) {
-        return span.start() >= 0 && span.end() > span.start() && span.end() <= rawQuery.length();
+        return span.start() >= 0 && span.end() > span.start() && span.end() <= codePointCount(rawQuery);
+    }
+
+    /**
+     * 리졸버 span(코드 포인트 단위)을 Java 문자열 인덱스(UTF-16 단위)로 옮긴다.
+     *
+     * <p>범위 검사를 통과한 span 에만 쓴다 — 그러지 않으면 {@link String#offsetByCodePoints} 가 던진다.
+     *
+     * <p>원문에 BMP 밖 문자가 없으면 두 단위가 같으므로 그대로 돌려준다.
+     */
+    private QuerySpan toJavaIndices(QuerySpan span, String rawQuery) {
+        if (span == null || codePointCount(rawQuery) == rawQuery.length()) {
+            return span;
+        }
+        return new QuerySpan(rawQuery.offsetByCodePoints(0, span.start()), rawQuery.offsetByCodePoints(0, span.end()));
+    }
+
+    private int codePointCount(String rawQuery) {
+        return rawQuery.codePointCount(0, rawQuery.length());
     }
 
     /** span 범위만 보는 검사. 대조할 문자열이 없는 날짜 구간에만 쓴다. */
@@ -248,8 +306,8 @@ public final class AnchorVerifier {
         if (span.end() <= span.start()) {
             return "query_span 이 빈 구간이다: [%d, %d)".formatted(span.start(), span.end());
         }
-        if (span.end() > rawQuery.length()) {
-            return "query_span 이 원문 길이를 넘는다: end=%d, len=%d".formatted(span.end(), rawQuery.length());
+        if (span.end() > codePointCount(rawQuery)) {
+            return "query_span 이 원문 길이를 넘는다: end=%d, len=%d".formatted(span.end(), codePointCount(rawQuery));
         }
         return null;
     }

@@ -214,6 +214,95 @@ class AnchorVerifierTest {
     }
 
     @Test
+    @DisplayName("날짜로 읽히지 않는 구간을 날짜의 explicit 근거로 주장하면 강등한다")
+    void demotesDateWindowAnchoredOnNonDateText() {
+        // span[0,2) 는 "태풍" 을 가리킨다. 좌표는 원문 안에 있지만 사용자가 2023년을 말한 근거는 못 된다.
+        QueryResolutionResult result = verifier.verify(
+                "태풍 피해 현장",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 2),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("숫자 없는 상대 날짜 표현은 강등하지 않는다")
+    void keepsRelativeDateExpression() {
+        QueryResolutionResult result = verifier.verify(
+                "작년 여름 침수 현장",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2025, 6, 1),
+                                LocalDate.of(2025, 9, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 5),
+                                0.8)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이모지가 있어도 날짜와 문자열 anchor 의 span 단위가 갈리지 않는다")
+    void returnsEverySpanInJavaIndicesWhenQueryHasSurrogatePair() {
+        // "😀2023년 서울" — 코드 포인트로 날짜는 [1,6), "서울" 은 [7,9).
+        // Java 인덱스로는 이모지가 2칸이라 각각 [2,7) 과 [8,10) 이다.
+        String rawQuery = "😀2023년 서울";
+        QueryResolutionResult result = verifier.verify(
+                rawQuery,
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(1, 6),
+                                0.9)))
+                        .locations(List.of(new QueryResolution.Location(
+                                QueryResolution.LocationType.LOCATION,
+                                "서울",
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(7, 9),
+                                0.9)))));
+
+        QuerySpan dateSpan = result.resolution().dateWindows().getFirst().querySpan();
+        QuerySpan locationSpan = result.resolution().locations().getFirst().querySpan();
+        // 두 span 모두 Java 인덱스라 그대로 잘라 읽을 수 있다.
+        assertThat(rawQuery.substring(dateSpan.start(), dateSpan.end())).isEqualTo("2023년");
+        assertThat(rawQuery.substring(locationSpan.start(), locationSpan.end())).isEqualTo("서울");
+        // 좌표가 맞게 옮겨졌으므로 교정할 것이 없다.
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이모지 원문에서 코드 포인트 범위를 넘는 span 은 강등한다")
+    void demotesSpanBeyondCodePointCount() {
+        // "😀서울" 은 Java 길이 4, 코드 포인트 3. end=4 는 Java 길이 안이지만 코드 포인트로는 범위 밖이다.
+        QueryResolutionResult result = verifier.verify(
+                "😀서울",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(1, 4),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+    }
+
+    @Test
     @DisplayName("원문 없이 부르면 거부한다 — 조용히 전부 강등하지 않는다")
     void rejectsNullRawQuery() {
         QueryResolutionResult given = resolved(resolution()
