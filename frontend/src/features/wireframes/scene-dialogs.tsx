@@ -452,7 +452,7 @@ export function ScenePreviewDialog({
                 ) : null}
               </div>
               <strong>{evidenceValue}</strong>
-              <p>출처 · {evidenceSource}</p>
+              <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
           </div>
           <SearchResultNotices execution={searchExecution} variant="preview" />

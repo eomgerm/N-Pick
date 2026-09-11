@@ -3,14 +3,7 @@
 import { routes } from '@/lib/routes';
 import { AppShell } from '@/components/app-shell';
 
-import {
-  AlertTriangle,
-  CheckCircle2,
-  ChevronDown,
-  ListFilter,
-  Search,
-  Sparkles,
-} from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -20,13 +13,7 @@ import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
-import {
-  type DateRange,
-  compareNullableDatesDescending,
-  emptyDateRange,
-  matchesDateRange,
-  readDateRange,
-} from '@/features/wireframes/date-range';
+import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
 import {
   canCreateInquiry,
@@ -69,19 +56,13 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const [isPreviewOpen, setIsPreviewOpen] = useState(initialParams.preview === 'loading');
   const [inquiryResultId, setInquiryResultId] = useState<number | null>(null);
   const [submittedInquiryIds, setSubmittedInquiryIds] = useState<number[]>([]);
-  const [sortOrder, setSortOrder] = useState<'accuracy' | 'latest'>('accuracy');
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
     [selectedResultId],
   );
   const inquiryResult = results.find(({ id }) => id === inquiryResultId);
-  const filteredResults = results.filter(
-    (result) =>
-      matchesDateRange(result.broadcastDate, broadcastRange) &&
-      matchesDateRange(result.filmedDate, filmingRange, result.filmingState === 'verified'),
-  );
-  const displayedResults = demoState === 'empty' ? [] : filteredResults;
+  const displayedResults = demoState === 'empty' ? [] : results;
   const resultState = isNavigating
     ? 'loading'
     : demoState === 'failed'
@@ -91,13 +72,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
         : 'populated';
   const searchExecution =
     resultState === 'populated' ? demoSearchExecution : successfulSearchExecution;
-  const sortedResults =
-    sortOrder === 'accuracy'
-      ? displayedResults
-      : [...displayedResults].sort((a, b) =>
-          compareNullableDatesDescending(a.broadcastDate, b.broadcastDate),
-        );
-  const topResults = sortedResults.slice(0, 10);
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
     [submittedQuery],
@@ -180,19 +154,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
             <strong>상세 필터</strong>
           </div>
           {rangeFields}
-          <fieldset className={styles.filterGroup}>
-            <legend>검색할 내용</legend>
-            {['장면 설명', '화면 속 글자', '음성 내용'].map((label) => (
-              <label key={label}>
-                <input defaultChecked type="checkbox" />
-                <span>{label}</span>
-              </label>
-            ))}
-          </fieldset>
-          <div className={styles.railNote}>
-            <CheckCircle2 aria-hidden="true" />
-            <span>검증된 날짜 충돌만 결과에서 제외됩니다.</span>
-          </div>
         </aside>
 
         <main className={styles.mainContent}>
@@ -269,25 +230,11 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                     ? '검색을 완료하지 못했어요'
                     : resultState === 'loading'
                       ? '검색 중'
-                      : `관련 장면 ${topResults.length}개`}
+                      : `관련 장면 ${displayedResults.length}개`}
                 </h2>
               </div>
               <div className={styles.resultsMeta}>
                 <span>화면 미리보기 · 예시 데이터</span>
-                <label className={styles.sortControl}>
-                  <span className={styles.visuallyHidden}>검색 결과 정렬</span>
-                  <select
-                    value={sortOrder}
-                    onChange={(event) =>
-                      setSortOrder(event.target.value === 'latest' ? 'latest' : 'accuracy')
-                    }
-                    disabled={resultState !== 'populated'}
-                  >
-                    <option value="accuracy">정확도순</option>
-                    <option value="latest">최신순</option>
-                  </select>
-                  <ChevronDown aria-hidden="true" />
-                </label>
               </div>
             </div>
 
@@ -297,7 +244,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 query={submittedQuery}
                 broadcastRange={broadcastRange}
                 filmingRange={filmingRange}
-                excludedCount={results.length - filteredResults.length}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
@@ -311,7 +257,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
               <>
                 <SearchResultNotices execution={searchExecution} variant="results" />
                 <div className={styles.resultsGrid}>
-                  {topResults.map((result, index) => (
+                  {displayedResults.map((result, index) => (
                     <SearchResultCard
                       result={result}
                       position={index + 1}
@@ -332,7 +278,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           ? '검색에 실패했습니다.'
           : resultState === 'loading'
             ? '검색 중입니다.'
-            : `${submittedQuery} 검색 결과 ${topResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
+            : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
 
       {isPreviewOpen ? (

@@ -100,14 +100,8 @@ test('snapshot 실패 Preview는 통합 경로에서도 문의를 비활성화�
   assert.match(html, /<dialog aria-describedby="[^"]+"/);
 });
 
-test('결과가 없으면 degraded 상태를 빈 결과 상태와 섞어 표시하지 않는다', () => {
-  const html = renderShell({
-    broadcastFrom: '1990-01-01',
-    broadcastTo: '1990-01-02',
-    filmingFrom: '1990-01-01',
-    filmingTo: '1990-01-02',
-    state: 'degraded-snapshot',
-  });
+test('빈 결과 demo는 degraded 상태와 섞어 표시하지 않는다', () => {
+  const html = renderShell({ state: 'empty' });
 
   assert.ok(html.includes('관련 장면 0개'));
   assert.ok(!html.includes('검색 기록 저장 실패'));
