@@ -9,6 +9,7 @@
 이 모듈은 여전히 파일을 열지 않는다.
 """
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -51,6 +52,12 @@ class ScoredFrame:
     score: float
     #: 휘도 표준편차. 블랭크 판정에 쓴다.
     luma_std: float
+    #: H·S·V 채널별 히스토그램을 이어 붙인 것. 변화량 판정(`prune_by_change`)에 쓴다.
+    #: 픽셀을 보는 일은 백엔드의 몫이고 이 모듈은 그 결과를 비교만 한다.
+    #:
+    #: 기본값이 빈 튜플인 이유는 선명도 선정(`select`)이 이 값을 쓰지 않기 때문이다.
+    #: 변화량을 안 재는 경로에서 더미 히스토그램을 지어내게 하지 않는다.
+    histogram: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,10 +88,15 @@ def plan_slots(
     정수 산술만 쓴다. 부동소수로 중심을 계산하면 같은 입력에서 실행마다 1ms 가
     흔들릴 수 있고, 그러면 `timestamp_ms` 가 바뀌어 재처리 결과를 비교할 수 없다.
 
-    프레임레이트가 필요한 이유는 장 수의 상한이 창의 **ms** 가 아니라 창 안의 **프레임
+    프레임레이트가 필요한 이유는 자리 수의 상한이 창의 **ms** 가 아니라 창 안의 **프레임
     수** 여야 하기 때문이다. `_check_keyframe_count` 의 기대치가 프레임 수이므로 여기서
     ms 로 세면 두 곳이 다른 단위로 같은 것을 말한다 — 그 상태에서는 30fps 501ms scene 이
     슬롯 1개를 받는데 검사는 2장을 요구했고, 치명 단계라 그 clip 은 영구 실패했다.
+
+    **여기서 정하는 것은 장 수가 아니라 자리 수다.** 장면 길이에 비례해 장 수를 정하던
+    것이 v1 이고, v2 는 자리를 `planned_slots_per_scene` 개 놓기만 한 뒤 그중 몇 개를
+    남길지를 `prune_by_change` 가 장면 안의 변화량으로 정한다(FRD v3.2 F-03,
+    `docs/frd.md:131`). 길이는 더 이상 장 수를 정하지 않는다.
     """
     duration_ms = scene.duration_ms
     if duration_ms <= 0:
@@ -107,8 +119,7 @@ def plan_slots(
 
     window_len = window.end_ms - window.start_ms
     slot_count = min(
-        max(duration_ms // cfg.interval_ms, cfg.min_keyframes_per_scene),
-        cfg.max_keyframes_per_scene,
+        cfg.planned_slots_per_scene,
         # 창에 프레임이 n 장이면 서로 다른 프레임을 받을 수 있는 슬롯도 최대 n 개다.
         # 없는 프레임을 만들지 않는다.
         window.frame_count,
@@ -231,6 +242,121 @@ def _best(candidates: Sequence[ScoredFrame], min_luma_std: float) -> ScoredFrame
     """
     usable = [frame for frame in candidates if frame.luma_std >= min_luma_std]
     return max(usable or candidates, key=lambda frame: frame.score)
+
+
+def histogram_distance(left: Sequence[float], right: Sequence[float]) -> float:
+    """두 히스토그램의 코사인거리. `[0, 1]` 이고 클수록 다르다.
+
+    코사인을 쓰는 이유는 **밝기 전체가 오르내리는 것**과 **화면이 바뀌는 것**을 가르기
+    위해서다. 조명이 서서히 밝아지는 정적 장면은 히스토그램이 통째로 한쪽으로 밀리는데,
+    L1·L2 거리는 그것을 큰 변화로 읽고 코사인은 방향이 유지되므로 작게 읽는다. 우리가
+    새 keyframe 을 원하는 것은 후자(화면이 바뀔 때)뿐이다.
+
+    scene 분할의 `content_val` 을 쓰지 않는 이유는 **재는 거리가 다르기** 때문이다.
+    그 값은 인접 프레임(t 와 t-1)의 픽셀 정렬 차이이고, 여기서 비교하는 두 프레임은
+    수 초 떨어져 있다. 픽셀 정렬 차이는 그 거리에서 카메라가 조금만 움직여도 포화돼
+    "다르다" 만 답한다. FRD 의 척도 통일 권고를 따르지 않은 지점이고 근거는
+    `ai/docs/frame-extraction.md` §3 에 적었다.
+
+    한쪽이 영벡터면(완전한 단색 프레임) 방향이 없어 코사인이 정의되지 않는다. 둘 다
+    영벡터면 같은 것으로, 한쪽만이면 다른 것으로 본다 — 단색과 단색이 아닌 것은 실제로
+    다른 화면이다.
+    """
+    if len(left) != len(right):
+        msg = f"히스토그램의 길이가 다르다: {len(left)} != {len(right)}"
+        raise ValueError(msg)
+    dot = math.fsum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(math.fsum(a * a for a in left))
+    right_norm = math.sqrt(math.fsum(b * b for b in right))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0 if left_norm == right_norm else 1.0
+    # 부동소수 오차로 1 을 아주 조금 넘을 수 있다. 거리가 음수가 되면 임계 비교가
+    # 뒤집히므로 구간 안으로 접는다.
+    return max(0.0, min(1.0, 1.0 - dot / (left_norm * right_norm)))
+
+
+def prune_by_change(
+    chosen: Sequence[ChosenFrame],
+    scored: Mapping[int, ScoredFrame],
+    cfg: FrameExtractionConfig,
+) -> tuple[ChosenFrame, ...]:
+    """자리마다 고른 프레임 중 **서로 충분히 다른 것만** 남긴다.
+
+    이것이 FRD v3.2 F-03 의 "장 수는 장면 안의 변화량으로 정한다" 를 이행하는 곳이다
+    (`docs/frd.md:131`). 정적 장면은 뒤 자리들이 앞과 비슷해 떨어져 나가 하한만 남고,
+    동적 장면은 계속 달라 상한까지 채운다.
+
+    `select` 가 이미 자리마다 **선명도로** 한 장을 확정한 뒤에 도는 이유는, 변화량을
+    자리의 중심 프레임이 아니라 **실제로 저장될 프레임**에서 재야 하기 때문이다. 중심에서
+    재고 이웃을 저장하면 "이 두 장은 충분히 다르다" 의 근거가 저장된 이미지가 아닌 다른
+    프레임의 성질이 된다.
+
+    규칙 셋이다.
+    1. **시드는 가운데 자리**다. 원 설계(`581f6e3`)의 "중앙(50%) 프레임을 시드로" 를
+       잇는다. 장면의 성격을 한 장으로 말하는 데는 시작·끝보다 가운데가 낫다.
+    2. 나머지를 시각 순으로 훑어 **이미 남긴 것들과의 최소 거리**가 `change_threshold`
+       이상이면 남긴다. 이미 남긴 것 **전부**와 비교하는 이유는 직전 한 장과만 비교하면
+       A→B→A 로 오가는 장면에서 같은 화면이 두 번 남기 때문이다.
+    3. `max_keyframes_per_scene` 에서 멈춘다.
+
+    하한을 채우는 방법이 규칙 하나 더 필요하다. 위 규칙만으로 `min_keyframes_per_scene`
+    에 못 미치면 **떨어진 것 중 가장 덜 닮은 것부터** 되돌린다(최원점 추가). 아무거나
+    채우면 되돌린 장이 남긴 장과 거의 같은 화면일 수 있고, 그러면 하한을 숫자로만 맞추고
+    실제로는 같은 그림을 두 번 저장한다.
+
+    히스토그램이 없는 프레임(`scored` 에 없거나 빈 튜플)은 **판정하지 않고 남긴다.**
+    측정이 닿지 못한 것을 "안 달라졌다" 로 읽으면 디코드 사고가 장 수 감소로 둔갑한다.
+    """
+    if len(chosen) <= cfg.min_keyframes_per_scene:
+        return tuple(chosen)
+
+    histograms = {
+        frame.frame_number: tuple(scored[frame.frame_number].histogram)
+        for frame in chosen
+        if frame.frame_number in scored and scored[frame.frame_number].histogram
+    }
+    if len(histograms) != len(chosen):
+        return tuple(chosen)
+
+    ordered = sorted(chosen, key=lambda frame: frame.timestamp_ms)
+    seed_index = len(ordered) // 2
+    kept = [ordered[seed_index]]
+    rejected: list[ChosenFrame] = []
+
+    for index, frame in enumerate(ordered):
+        if index == seed_index:
+            continue
+        if len(kept) >= cfg.max_keyframes_per_scene:
+            rejected.append(frame)
+            continue
+        if _min_distance(frame, kept, histograms) >= cfg.change_threshold:
+            kept.append(frame)
+        else:
+            rejected.append(frame)
+
+    while len(kept) < cfg.min_keyframes_per_scene and rejected:
+        # 최원점 추가. 동점이면 이른 시각이 이긴다 — 동점 규칙이 없으면 같은 입력에서
+        # 되돌아오는 장이 실행마다 바뀐다.
+        best = max(
+            rejected,
+            key=lambda frame: (_min_distance(frame, kept, histograms), -frame.timestamp_ms),
+        )
+        rejected.remove(best)
+        kept.append(best)
+
+    return tuple(sorted(kept, key=lambda frame: frame.timestamp_ms))
+
+
+def _min_distance(
+    frame: ChosenFrame,
+    kept: Sequence[ChosenFrame],
+    histograms: Mapping[int, tuple[float, ...]],
+) -> float:
+    """`frame` 과 이미 남긴 것들 사이의 가장 가까운 거리."""
+    return min(
+        histogram_distance(histograms[frame.frame_number], histograms[other.frame_number])
+        for other in kept
+    )
 
 
 def order_for_output(chosen: Sequence[ChosenFrame]) -> tuple[ChosenFrame, ...]:

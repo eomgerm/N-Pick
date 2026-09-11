@@ -111,6 +111,7 @@ class PyAvFrameGrabber:
                     timestamp_ms=frames_to_ms(frame_number, frame_rate),
                     score=score,
                     luma_std=luma_std,
+                    histogram=_histogram(frame, cfg.score_stride, cfg.change_hist_bins),
                 )
         return measured
 
@@ -203,6 +204,67 @@ def _score(frame: "av.VideoFrame", stride: int) -> tuple[float, float]:
         4 * luma[1:-1, 1:-1] - luma[:-2, 1:-1] - luma[2:, 1:-1] - luma[1:-1, :-2] - luma[1:-1, 2:]
     )
     return float(laplacian.var()), float(luma.std())
+
+
+def _histogram(frame: "av.VideoFrame", stride: int, bins: int) -> tuple[float, ...]:
+    """H·S·V 채널별 히스토그램을 이어 붙인 것. 변화량 판정의 입력이다.
+
+    **선명도와 같은 stride 로 읽은 픽셀에서 만든다.** 두 측정이 다른 픽셀 집합을 보면
+    "이 프레임이 왜 뽑혔는가" 를 한 벌의 근거로 설명할 수 없다.
+
+    ffmpeg 에 HSV 픽셀 형식이 없어서 RGB 로 받아 여기서 변환한다. `reformat(format="hsv")`
+    는 `not a pixel format` 으로 죽는다. 변환을 numpy 로 하는 편이 `cv2` 를 이 패키지의
+    의존성으로 끌어오는 것보다 낫다 — CPU 전용 fleet 이 frame extraction 만 돌릴 때
+    `scene_detection` 의 무거운 의존성을 따라오게 하지 않는 것이 이 모듈의 전제다.
+
+    채널을 이어 붙일 뿐 3차원 결합 히스토그램을 만들지 않는다. 결합 히스토그램은
+    `bins ** 3` 칸이라 stride 로 솎아낸 픽셀 수로는 대부분이 비고, 그 성김이 코사인거리를
+    실제 변화가 아니라 표본 잡음에 반응하게 만든다.
+
+    각 채널을 픽셀 수로 나눠 정규화한다. 해상도가 다른 영상끼리 같은 임계값을 쓰려면
+    히스토그램이 절대 개수가 아니라 비율이어야 한다.
+
+    **디코드는 여기서 늘지 않는다.** `measure` 가 이미 그 프레임을 손에 들고 있고,
+    `_decode_until` 은 후보 수와 무관하게 0번부터 순차로 훑는다. 늘어나는 것은 후보
+    한 장당 변환·집계 비용뿐이다.
+    """
+    rgb = frame.reformat(format="rgb24").to_ndarray()[::stride, ::stride]
+    if rgb.shape[0] == 0 or rgb.shape[1] == 0:
+        return ()
+    pixels = rgb.shape[0] * rgb.shape[1]
+    channels = _to_hsv(rgb.astype(np.float32) / 255.0)
+    return tuple(
+        float(count) / pixels
+        for channel in channels
+        for count in np.bincount(
+            np.clip((channel * bins).astype(np.int32), 0, bins - 1).reshape(-1), minlength=bins
+        )
+    )
+
+
+def _to_hsv(rgb: "np.ndarray") -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+    """`[0, 1]` RGB 평면을 `[0, 1)` H·S·V 세 평면으로. 표준 원뿔 변환이다.
+
+    색상(H)을 따로 두는 것이 이 척도의 핵심이다. 조명이 오르내리면 V 만 움직이고 H 는
+    거의 그대로이므로, 같은 화면의 밝기 변화가 새 keyframe 을 부르지 않는다.
+    """
+    red, green, blue = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    value = rgb.max(axis=2)
+    chroma = value - rgb.min(axis=2)
+    saturation = np.divide(chroma, value, out=np.zeros_like(chroma), where=value > 0)
+
+    hue = np.zeros_like(chroma)
+    colored = chroma > 0
+    for peak, offset, (left, right) in (
+        (red, 0.0, (green, blue)),
+        (green, 2.0, (blue, red)),
+        (blue, 4.0, (red, green)),
+    ):
+        # 최대 채널이 무엇인지로 60도 구간을 고른다. 앞선 구간이 이미 칠한 자리는
+        # 덮지 않는다 — 세 채널이 같은 회색 픽셀에서 순서에 따라 값이 갈리지 않게 한다.
+        sector = colored & (value == peak) & (hue == 0.0)
+        hue[sector] = (offset + (left - right)[sector] / chroma[sector]) % 6.0
+    return hue / 6.0, saturation, value
 
 
 def _encode_jpeg(frame: "av.VideoFrame", target: Path, qscale: int) -> None:

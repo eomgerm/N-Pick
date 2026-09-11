@@ -315,9 +315,9 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
   "stage": "frame_extraction",
   "status": "succeeded",
   "versions": {
-    "stageVersion": "npick.stage.frame_extraction/v1:595427d7",
+    "stageVersion": "npick.stage.frame_extraction/v1:538214f1",
     "outputSchemaVersion": "npick.stage.frame_extraction.output/v1",
-    "configVersion": "frame-extract/v1:5b266b10",
+    "configVersion": "frame-extract/v2:1e33d3f3",
     "modelVersion": null,
     "promptVersion": null,
     "detail": { "engine": "pyav", "engineVersion": "18.1.0+numpy2.5.2" },
@@ -351,7 +351,11 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 `timestamp_ms` 순으로 정렬해 저장하면 이 규약이 조용히 깨진다 — 대표는 선명도로 뽑히므로 시각이 가장 이르지 않다. 그래서 `representativeTimestampMs`를 함께 싣는다. BE는 저장 직전에 `keyframes[0].timestampMs`와 대조해 어긋나면 `JOB_400_001`로 거부한다. 워커도 보내기 전에 같은 검사를 한다.
 
-**장 수** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. 구간이 미디어 끝을 넘으면 뒤쪽 슬롯의 후보가 디코드에 닿지 못해 앞쪽만 살아 한 장이 되는데, 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호이므로 적은 장 수로 통과시키지 않는다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다. 이 보증은 워커가 슬롯 수의 상한을 창의 ms가 아니라 **구간의 프레임 수**로 두는 데 기댄다. 그래서 프레임이 2장 이상인 구간은 항상 2장 이상을 낸다.
+**장 수는 장면 안의 변화량으로 정해진다.** 고정 개수도, 장면 길이에 비례하는 값도 아니다 — 정적 장면은 적게, 동적 장면은 많게 나온다(FRD v3.2 F-03, `docs/frd.md:131`). **BE는 장면마다 장 수가 다른 것을 정상으로 받는다.** 길이가 같은 두 장면이 다른 장 수를 내는 것도 정상이다. 판정에 쓴 임계값은 `configVersion`에 들어가므로, 어떤 설정으로 뽑은 결과인지는 그 값으로 되짚는다. 선정 방식의 근거는 `ai/docs/frame-extraction.md` §3.1이다.
+
+**하한과 상한** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖에는 변화량이 아무리 작아도 `min_keyframes_per_scene`(기본 2)을 보장한다 — FRD F-03의 "장면의 복수 키프레임"이 변화량 판정으로 깨지지 않아야 하기 때문이다. 상한은 `max_keyframes_per_scene`(기본 5)이고 이것이 곧 후속 VLM·OCR의 비용 상한이다.
+
+그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. scene 구간이 미디어 끝을 넘으면 워커가 **재 달라고 한 프레임에 디코드가 닿지 못한 것을 직접 검출해** 실패시킨다(장 수로 추론하지 않는다). 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다.
 
 **남은 어긋남 — `stages.py`의 "thumbnail"과 축소본의 자리.** 단계 표는 2단계 필수 출력을 "복수 keyframe·thumbnail"로 적고 FRD §3 F-03은 "축소된 대표 이미지 대신 원본 해상도의 프레임"이라 쓰므로 축소본의 존재를 전제한다. 그런데 **축소본 경로를 담을 컬럼이 스키마에 없다.** 이번 구현은 축소본 파일을 만들지 않고 keyframe을 원본 해상도로만 저장한다. 근거는 둘이다 — 작은 글자 OCR이 요구하는 것이 원본 해상도 프레임이고(그것이 이 자산의 1차 소비자다), 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있어 저장이 필요 없다. **컬럼을 새로 만들지 않았으므로 BE는 대표 keyframe을 축소해 카드에 제공한다.** 이 판단을 바꾸려면 스키마가 먼저 바뀌어야 하므로 여기 적어 둔다.
 
@@ -554,8 +558,8 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | --- | --- |
 | `scene_detection.v1.toml` 기본 설정 | `configVersion` = `scene-detect/v1:20dfc0a6` |
 | `{configVersion: scene-detect/v1:20dfc0a6, detector: content, engine: pyscenedetect, engineVersion: 0.7.1}` | `stageVersion` = `npick.stage.scene_detection/v1:3ab4bebe` |
-| `frame_extraction.v1.toml` 기본 설정 | `configVersion` = `frame-extract/v1:5b266b10` |
-| `{configVersion: frame-extract/v1:5b266b10, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:595427d7` |
+| `frame_extraction.v2.toml` 기본 설정 | `configVersion` = `frame-extract/v2:1e33d3f3` |
+| `{configVersion: frame-extract/v2:1e33d3f3, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:538214f1` |
 | `ocr.v1.toml` 기본 설정 | `configVersion` = `ocr/v1:daaf4c83` |
 | `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.ocr/v1:449d6928` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, ocr: npick.stage.ocr/v1:bbbbbbbb}` | `pipelineVersion` = `npick-pipeline/v1:64960bae4565` |
