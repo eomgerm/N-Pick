@@ -14,6 +14,7 @@
   --line: #e6e6e6;
   --success: #00a981;
   --warning: #a46500;
+  --danger: #bf3640;
   --warning-soft: #fff4d8;
   --radius-card: 20px;
   --radius-control: 12px;
@@ -45,6 +46,7 @@
   --line: #dfe3e8;
   --success: #00866d;
   --warning: #8a5b00;
+  --danger: #b4232c;
   --warning-soft: #fff7df;
   --radius-card: 8px;
   --radius-control: 6px;
@@ -454,6 +456,10 @@
 
 .searchHealth svg {
   width: 15px;
+}
+
+.searchHealth[data-status='degraded'] {
+  color: var(--warning);
 }
 
 .resultsSection {
@@ -889,6 +895,101 @@
   color: var(--accent-strong);
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.statusBadge[data-status='verified'] {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--line));
+  background: color-mix(in srgb, var(--success) 10%, var(--surface));
+  color: var(--success);
+}
+
+.statusBadge[data-status='unverified'] {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--line));
+  background: color-mix(in srgb, var(--warning) 11%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 72%, var(--text));
+}
+
+.statusBadge[data-status='unknown'],
+.statusBadge[data-status='withdrawn'] {
+  background: var(--background);
+  color: var(--muted);
+}
+
+.statusBadge[data-status='rejected'] {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  color: var(--danger);
+}
+
+.evidenceTooltip {
+  position: relative;
+  z-index: 6;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.evidenceTooltipTrigger {
+  cursor: help;
+}
+
+.evidenceTooltipTrigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.evidenceTooltipContent {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: grid;
+  gap: 5px;
+  width: max-content;
+  min-width: 168px;
+  max-width: min(260px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--text);
+  box-shadow: 0 8px 20px rgb(0 0 0 / 18%);
+  color: var(--surface);
+  font-size: 10px;
+  line-height: 1.45;
+  opacity: 0;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    visibility 120ms ease;
+  visibility: hidden;
+}
+
+.evidenceTooltipContent strong {
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.evidenceTooltip:hover .evidenceTooltipContent,
+.evidenceTooltip:focus-within .evidenceTooltipContent {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
 }
 
 .previewPane {
@@ -1385,10 +1486,19 @@
 }
 
 .previewReportButton:disabled {
-  cursor: default;
+  cursor: not-allowed;
+}
+
+.previewReportButton[data-state='submitted']:disabled {
   border-color: color-mix(in srgb, var(--success) 25%, var(--line));
   background: color-mix(in srgb, var(--secondary-soft) 45%, var(--surface));
   color: var(--success);
+}
+
+.previewReportButton[data-state='unavailable']:disabled {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--line));
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 .previewReportButton svg {
@@ -1402,6 +1512,13 @@
   border: 1px solid color-mix(in srgb, var(--secondary) 22%, var(--line));
   border-radius: var(--radius-small);
   background: var(--surface);
+}
+
+.previewEvidenceHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .previewEvidence span {
@@ -1467,34 +1584,130 @@
   font-weight: 800;
 }
 
-.safetyNotice {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
+.searchResultNotices {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.searchResultNotices[data-variant='preview'] {
   margin: 0 16px 16px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
+}
+
+.degradedNotice,
+.reviewRuleNotice,
+.resultSafetyNotice {
   border-radius: var(--radius-small);
+}
+
+.degradedNotice {
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 32%, var(--line));
   background: var(--warning-soft);
   color: var(--warning);
 }
 
-.safetyNotice svg {
+.degradedNoticeHeading,
+.reviewRuleNotice,
+.resultSafetyNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.degradedNoticeHeading > svg,
+.reviewRuleNotice > svg,
+.resultSafetyNotice > svg {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
 }
 
-.safetyNotice p {
+.degradedNoticeHeading span {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.degradedNoticeHeading strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.degradedReasonList {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--warning) 22%, var(--line));
+  list-style: none;
+}
+
+.degradedReasonList li {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.32fr) minmax(0, 1fr);
+  gap: 10px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.degradedReasonList strong {
+  color: var(--text);
+}
+
+.degradedReasonList span {
+  color: var(--muted);
+}
+
+.reviewRuleNotice {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--success) 28%, var(--line));
+  background: color-mix(in srgb, var(--success) 7%, var(--surface));
+  color: var(--success);
+}
+
+.reviewRuleNotice div {
+  display: grid;
+  gap: 2px;
+}
+
+.reviewRuleNotice strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.reviewRuleNotice span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.resultSafetyNotice {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.resultSafetyNotice p {
   margin: 0;
   font-size: 10px;
   line-height: 1.55;
 }
 
-.safetyNotice strong {
+.resultSafetyNotice strong {
   display: block;
   color: var(--text);
   font-size: 11px;
+}
+
+.searchResultNotices[data-variant='preview'] .degradedReasonList li {
+  grid-template-columns: 1fr;
+  gap: 2px;
 }
 
 .dialog {
