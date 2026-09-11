@@ -74,7 +74,8 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
   await openAsEditor(page, `/search/results?q=${encodeURIComponent('기존 검색')}`);
   await expect(page.getByRole('button', { name: /1위 설 연휴 첫날/ })).toBeVisible();
 
-  let searchRequestCount = 0;
+  let existingSearchRequestCount = 0;
+  let newSearchRequestCount = 0;
   let notifyRequest = () => {};
   const requestIntercepted = new Promise<void>((resolve) => {
     notifyRequest = resolve;
@@ -83,12 +84,18 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
 
   await page.route('**/search/results**', async (route) => {
     const url = new URL(route.request().url());
-    if (url.searchParams.get('q') !== '새 검색') {
+    const requestedQuery = url.searchParams.get('q');
+    if (requestedQuery === '기존 검색') {
+      existingSearchRequestCount += 1;
+      await route.continue();
+      return;
+    }
+    if (requestedQuery !== '새 검색') {
       await route.continue();
       return;
     }
 
-    searchRequestCount += 1;
+    newSearchRequestCount += 1;
     blockedRoutes.push(route);
     notifyRequest();
   });
@@ -98,7 +105,8 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
   const submit = searchForm.getByRole('button');
 
   await submit.click();
-  expect(searchRequestCount).toBe(0);
+  await page.waitForTimeout(100);
+  expect(existingSearchRequestCount).toBe(0);
   await expect(page.getByRole('heading', { name: '관련 장면 10개' })).toBeVisible();
 
   await query.fill('새 검색');
@@ -109,7 +117,8 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
     });
 
     await requestIntercepted;
-    expect(searchRequestCount).toBe(1);
+    await page.waitForTimeout(100);
+    expect(newSearchRequestCount).toBe(1);
     await expect(submit).toBeDisabled();
     await expect(page.getByRole('heading', { name: '검색 중', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /1위 설 연휴 첫날/ })).toHaveCount(0);
