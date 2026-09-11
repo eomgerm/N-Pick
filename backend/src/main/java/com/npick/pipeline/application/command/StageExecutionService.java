@@ -27,6 +27,7 @@ import com.npick.pipeline.domain.error.PipelineErrorCode;
 import com.npick.pipeline.domain.model.JsonValues;
 import com.npick.pipeline.domain.model.PipelineRun;
 import com.npick.pipeline.domain.model.PipelineStages;
+import com.npick.pipeline.domain.model.StageRetrySettings;
 import com.npick.pipeline.domain.repository.PipelineRunRepository;
 
 /** HTTP·오프라인 반입·mock이 공유할 유일한 배정 및 수락 경계. 단계 함수는 DB 트랜잭션 밖에서 실행한다. */
@@ -42,6 +43,7 @@ public class StageExecutionService
     private final JobJsonPort json;
     private final Clock clock;
     private final ActivateProcessedClipUseCase publication;
+    private final StageRetrySettings retries;
 
     public StageExecutionService(
             PipelineRunRepository runs,
@@ -50,12 +52,24 @@ public class StageExecutionService
             JobJsonPort json,
             Clock clock,
             ActivateProcessedClipUseCase publication) {
+        this(runs, definitions, outputs, json, clock, publication, StageRetrySettings.disabled());
+    }
+
+    public StageExecutionService(
+            PipelineRunRepository runs,
+            GetPipelineDefinitionUseCase definitions,
+            StageOutputPort outputs,
+            JobJsonPort json,
+            Clock clock,
+            ActivateProcessedClipUseCase publication,
+            StageRetrySettings retries) {
         this.runs = runs;
         this.definitions = definitions;
         this.outputs = outputs;
         this.json = json;
         this.clock = clock;
         this.publication = publication;
+        this.retries = retries;
     }
 
     @Override
@@ -115,7 +129,7 @@ public class StageExecutionService
         job.put("processingNo", snapshot.processingNo());
         job.put("stage", stage);
         job.put("attempt", run.state(stage).get("attempts"));
-        job.put("maxAttempts", 1);
+        job.put("maxAttempts", retries.attemptsFor(stage));
         job.put("idempotencyKey", run.idempotencyKey(stage));
         job.put("pipelineVersion", snapshot.pipelineVersion());
         job.put("expectedStageVersion", run.state(stage).get("expectedStageVersion"));
@@ -163,7 +177,7 @@ public class StageExecutionService
         // 도메인 가드를 먼저 적용한다. 검증/정본 저장이 실패하면 행 갱신도 함께 롤백된다.
         String prefix = run.outputKeyPrefix(command.stage());
         validateArtifacts(body, prefix);
-        run.complete(command.stage(), body, hash, now);
+        run.complete(command.stage(), body, hash, now, retries);
         Map<String, Object> ids = Map.of();
         var snapshot = run.snapshot();
         if ("succeeded".equals(body.get("status"))) {

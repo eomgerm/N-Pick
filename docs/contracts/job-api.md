@@ -694,6 +694,20 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
 
 **재시도 정책** — 영구는 `attempts`를 동결하고 재claim하지 않는다. 일시는 `attempts < maxAttempts`일 때만 재claim한다. 치명 단계(`stages.py`의 `fatal=True`: `scene_detection`·`frame_extraction`·`indexing`)의 최종 실패는 run을 `failed`로 만들고, 비치명 단계 실패는 run을 계속 진행시킨다([docs/frd.md](../frd.md) §3 F-03).
 
+BE는 `pipeline.yml`의 `defaults.retry_count`와 단계별 `stage_overrides.<stage>.retry_count`를 읽는다.
+`null`은 추가 시도 0회, 정수 N은 최초 시도를 포함한 `maxAttempts=N+1`이다.
+`transient_errors`는 횟수와 별도의 허용 목록이며, 위 오류 계약상 일시 오류이면서
+워커가 `retryable=true`로 신고한 `failed` 결과만 예산 안에서 재시도한다.
+영구·미등록 코드와 `skipped`는 설정으로 재시도할 수 없다. `MEDIA_UNAVAILABLE`의 파일 부재와
+`ARTIFACT_UPLOAD_FAILED`의 해시 불일치처럼 `retryable=false`인 상세 분류도 재시도하지 않는다.
+
+재시도 수락 시 해당 단계만 `pending`이 되고 `retryScheduled=true`를 기록한다.
+`attempts`는 완료한 시도 번호를 유지하며 다음 claim에서 한 번 증가한다. 이때 멱등성 키와
+`outputKeyPrefix`도 새 attempt 값으로 바뀐다. lease 회수는 같은 attempt를 재배정한다.
+이전 실패는 같은 단계의 `failedAttempts`에 attempt·오류·종료 시각·멱등성 키로 보존한다.
+최종 실패·누락은 기존 단계 `status`·`error`·`errorCode`에 남고 성공 결과만 upstream으로 전달된다.
+`retryScheduled`는 BE 판단이며 기존 `errorRetryable`은 워커 신고 의미를 유지한다.
+
 ## 10. 시간 수치
 
 실측 후 확정할 품질 임계값이 아니라 **프로토콜 타임아웃**이므로 실측 없이 고정해도 "실행 환경 수치를 만들지 않는다"를 위반하지 않는다. 품질 수치(`retry_count`·`timeout_seconds`·`concurrency`)는 `pipeline.yml`에 `null`로 남는다.

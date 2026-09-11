@@ -75,6 +75,10 @@ class StageExecutionIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        configure(com.npick.pipeline.domain.model.StageRetrySettings.disabled());
+    }
+
+    private void configure(com.npick.pipeline.domain.model.StageRetrySettings retries) {
         jdbc.update(
                 "UPDATE npick.pipeline_run SET status='failed', lease_id=NULL, lease_stage=NULL, lease_worker_id=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL WHERE status IN ('queued','running')");
         clock = new MutableClock();
@@ -88,7 +92,86 @@ class StageExecutionIntegrationTest {
                 outputs,
                 HASH,
                 clock,
-                publication));
+                publication,
+                retries));
+    }
+
+    @Test
+    void retryBudgetPreservesSuccessfulStagesAndActiveResults() throws Exception {
+        var budgets = new LinkedHashMap<String, Integer>();
+        PipelineStages.NAMES.forEach(stage -> budgets.put(stage, 2));
+        configure(new com.npick.pipeline.domain.model.StageRetrySettings(
+                budgets, com.npick.pipeline.domain.model.StageRetrySettings.TRANSIENT_CODES));
+        long run = createRun(null, 1, true);
+        for (String stage : PipelineStages.NAMES) {
+            var first = claim();
+            assertThat(object(first.get("job"))).containsEntry("stage", stage);
+            if (stage.equals("scene_detection") || stage.equals("asr")) {
+                var failed = success(first);
+                failBody(failed, "failed", stage.equals("asr") ? "ASR_FAILED" : "SCENE_DETECTION_FAILED");
+                complete(run, stage, failed);
+                assertThat(state(run, stage)).containsEntry("status", "pending").containsEntry("attempts", 1);
+                assertThat(complete(run, stage, failed)).containsEntry("duplicate", true);
+                var second = claim();
+                assertThat(object(second.get("job")))
+                        .containsEntry("attempt", 2)
+                        .containsEntry("maxAttempts", 2)
+                        .containsEntry("outputKeyPrefix", "runs/" + run + "/" + stage + "/a2/")
+                        .containsEntry("idempotencyKey", run + ":" + stage + ":2");
+                assertThat(executor.reserve(worker())).isEmpty();
+                var lateSuccess = success(first);
+                rejects(() -> complete(run, stage, lateSuccess), "JOB_409_003");
+                var result = success(second);
+                if (stage.equals("asr")) failBody(result, "failed", "ASR_FAILED");
+                complete(run, stage, result);
+                assertThat(complete(run, stage, result)).containsEntry("duplicate", true);
+                rejects(() -> complete(run, stage, lateSuccess), "JOB_409_002");
+            } else complete(run, stage, success(first));
+        }
+        assertThat(row(run)).containsEntry("status", "succeeded");
+        assertThat(active(run)).isEqualTo(run);
+        assertThat(sceneCount(run)).isEqualTo(1);
+        assertThat(state(run, "asr"))
+                .containsEntry("status", "failed")
+                .containsEntry("attempts", 2)
+                .containsEntry("errorCode", "ASR_FAILED")
+                .containsEntry("retryScheduled", false);
+        assertThat((List<?>) state(run, "scene_detection").get("failedAttempts"))
+                .hasSize(1);
+        for (String stage : PipelineStages.NAMES)
+            if (!List.of("scene_detection", "asr").contains(stage))
+                assertThat(state(run, stage))
+                        .containsEntry("status", "succeeded")
+                        .containsEntry("attempts", 1);
+
+        long replacement = createRun(((Number) row(run).get("clip_id")).longValue(), 2, true);
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            var failed = success(claim());
+            failBody(failed, "failed", "SCENE_DETECTION_FAILED");
+            complete(replacement, "scene_detection", failed);
+        }
+        assertThat(row(replacement)).containsEntry("status", "failed");
+        assertThat(active(replacement)).isEqualTo(run);
+        assertThat(sceneCount(replacement)).isZero();
+        assertThat(executor.reserve(worker())).isEmpty();
+    }
+
+    @Test
+    void reclaimedRetryLeaseDoesNotSpendAnotherAttempt() throws Exception {
+        configure(new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("scene_detection", 2), java.util.Set.of("SCENE_DETECTION_FAILED")));
+        long run = createRun(null, 1, true);
+        var failed = success(claim());
+        failBody(failed, "failed", "SCENE_DETECTION_FAILED");
+        complete(run, "scene_detection", failed);
+        var old = success(claim());
+        clock.advance(76);
+        assertThat(executor.reclaim()).isEqualTo(1);
+        var replacement = claim();
+        assertThat(object(replacement.get("job"))).containsEntry("attempt", 2);
+        rejects(() -> complete(run, "scene_detection", old), "JOB_409_002");
+        complete(run, "scene_detection", success(replacement));
+        assertThat(sceneCount(run)).isEqualTo(1);
     }
 
     @Test

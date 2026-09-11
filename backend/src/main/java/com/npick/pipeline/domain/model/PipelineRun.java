@@ -9,7 +9,7 @@ import java.util.UUID;
 import com.npick.common.error.BusinessException;
 import com.npick.pipeline.domain.error.PipelineErrorCode;
 
-/** 한 행을 잠근 트랜잭션 안에서만 변경한다. 자동 재시도 예산은 후속 정책의 책임이다. */
+/** 한 행을 잠근 트랜잭션 안에서만 변경한다. */
 public final class PipelineRun {
     public static final String SCHEMA = "npick.stage_states/v1";
     private final long id;
@@ -89,6 +89,7 @@ public final class PipelineRun {
         Map<String, Object> state = stages.get(stage);
         // lease 회수는 실행 실패가 아니므로 같은 attempt를 다시 배정한다.
         int attempt = Math.max(1, ((Number) state.get("attempts")).intValue());
+        if (Boolean.TRUE.equals(state.remove("retryPending"))) attempt = Math.addExact(attempt, 1);
         state.put("status", "running");
         state.put("attempts", attempt);
         state.put("leaseId", lease.toString());
@@ -151,6 +152,11 @@ public final class PipelineRun {
     }
 
     public void complete(String stage, Map<String, Object> result, String hash, Instant now) {
+        complete(stage, result, hash, now, StageRetrySettings.disabled());
+    }
+
+    public void complete(
+            String stage, Map<String, Object> result, String hash, Instant now, StageRetrySettings retries) {
         if (!java.util.List.of("succeeded", "failed", "skipped").contains(result.get("status")))
             fail(PipelineErrorCode.INVALID_STATE);
         Map<String, Object> state = stages.get(stage);
@@ -193,6 +199,26 @@ public final class PipelineRun {
         state.put("errorRetryable", error.get("retryable"));
         state.put("errorMessage", error.get("message"));
         clearLease();
+        boolean retry = "failed".equals(state.get("status"))
+                && retries.permits(stage, ((Number) state.get("attempts")).intValue(), error);
+        state.put("retryScheduled", retry);
+        if (retry) {
+            var failures = new java.util.ArrayList<Object>(
+                    state.get("failedAttempts") instanceof java.util.List<?> previous ? previous : java.util.List.of());
+            failures.add(JsonValues.copy(Map.of(
+                    "attempt",
+                    state.get("attempts"),
+                    "error",
+                    error,
+                    "finishedAt",
+                    state.get("finishedAt"),
+                    "idempotencyKey",
+                    state.get("lastIdempotencyKey"))));
+            state.put("failedAttempts", failures);
+            state.put("status", "pending");
+            state.put("retryPending", true);
+            return;
+        }
         if (!"succeeded".equals(state.get("status")) && PipelineStages.FATAL.contains(stage)) {
             finish("failed", Objects.toString(error.get("code"), "STAGE_FAILED"), now);
         }

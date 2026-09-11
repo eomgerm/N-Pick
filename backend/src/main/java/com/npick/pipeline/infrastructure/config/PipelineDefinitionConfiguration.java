@@ -16,6 +16,36 @@ import com.npick.pipeline.infrastructure.json.JobJsonAdapter;
 @Configuration(proxyBeanMethods = false)
 public class PipelineDefinitionConfiguration {
     @Bean
+    com.npick.pipeline.domain.model.StageRetrySettings stageRetrySettings(
+            @Value("${npick.pipeline.profile:classpath:pipeline-profile.yml}") Resource profile)
+            throws java.io.IOException {
+        var properties =
+                new YamlPropertySourceLoader().load("pipeline-retries", profile).getFirst();
+        Map<String, Integer> attempts = new LinkedHashMap<>();
+        for (String stage : PipelineStages.NAMES) {
+            String override = "stage_overrides." + stage + ".retry_count";
+            Object count = properties.containsProperty(override)
+                    ? properties.getProperty(override)
+                    : properties.getProperty("defaults.retry_count");
+            String value = count == null ? "" : count.toString();
+            if (!value.isEmpty() && !value.matches("[0-9]+"))
+                throw new IllegalArgumentException("Invalid retry_count: " + stage);
+            try {
+                attempts.put(stage, value.isEmpty() ? 1 : Math.addExact(Integer.parseInt(value), 1));
+            } catch (ArithmeticException | NumberFormatException failure) {
+                throw new IllegalArgumentException("Invalid retry_count: " + stage, failure);
+            }
+        }
+        var codes = new java.util.HashSet<String>();
+        for (int index = 0; ; index++) {
+            Object code = properties.getProperty("transient_errors[" + index + "]");
+            if (code == null) break;
+            codes.add(code.toString());
+        }
+        return new com.npick.pipeline.domain.model.StageRetrySettings(attempts, codes);
+    }
+
+    @Bean
     GetPipelineDefinitionUseCase pipelineDefinition(
             @Value("${npick.pipeline.profile:classpath:pipeline-profile.yml}") Resource profile)
             throws java.io.IOException {
