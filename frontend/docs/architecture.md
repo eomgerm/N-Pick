@@ -40,6 +40,7 @@ src/
 │     ├─ login-shell.tsx          로그인 form·mutation·오류와 안전한 복귀
 │     ├─ search-entry-shell.tsx   편집자 검색 입력과 결과 진입
 │     ├─ search-navigation.ts     검색어·명시 날짜 필터의 결과 URL 생성
+│     ├─ search-api-contract.ts   검색 요청 변환·응답 타입과 런타임 계약 검증
 │     ├─ date-range.ts            날짜 범위 검증과 URL 복원
 │     ├─ date-range-picker.tsx    방송일·촬영일 기간 선택 dialog
 │     ├─ search-history.tsx       검색·문의 예시 기록과 부분 노출 시트
@@ -106,9 +107,64 @@ src/
 
 문의 상세의 선택된 장면은 `ReviewerScenePreview`에서 해당 문의의 제목·시작/종료 시각·확인 근거를 공통 `ScenePreviewDialog`에 전달합니다. 문의 생성 버튼은 검수자 팝업에서 제공하지 않으며, 닫기·Escape 후 장면 카드로 포커스를 돌려주고 검수 진행 상태를 유지합니다. 문의별 키로 팝업 상태를 분리해 다른 문의나 목록으로 이동하면 팝업을 닫습니다. 실제 원본 영상은 연결 전으로 기존 재생·일시정지·구간 재생 UI 데모를 사용하고 팝업에 이를 명시합니다. 원본 길이·파일명·날짜가 없는 문의에는 값을 만들어 넣지 않습니다.
 
-다른 디자인 시스템의 전용 스타일과 화면 분기는 제거하고 신한(`shinhan`) 구현만 유지합니다. 신한 검색 입력과 결과 화면은 방송일·촬영일별 Date Range Picker를 제공하며, 달력의 시작일·종료일 선택과 직접 입력, 취소·초기화, 키보드 방향 이동을 지원합니다. 진입 화면의 입력 중 값은 form 가까이에 두고, 제출하면 `search-navigation.ts`가 검색어와 두 날짜를 `q/broadcastFrom/broadcastTo/filmingFrom/filmingTo`로 분리해 결과 URL을 만듭니다. 결과 화면도 같은 생성기를 사용하며 URL을 검색 요청 상태의 정본으로 읽습니다. 선택한 기간은 양 끝 날짜를 포함합니다. navigation 중에는 검색 입력·날짜·제출을 잠그고, 결과 화면은 이전 카드를 `검색 중` 상태로 바꿔 새 결과와 혼동되지 않게 합니다. 실제 검색 API를 연결할 때 URL 값은 백엔드 요청 필드로 전달하며, 백엔드가 필터링·정렬한 응답 순서를 클라이언트가 다시 필터링하거나 정렬하지 않습니다. `state=empty`와 `state=failed`는 디자인 확인용 상태 URL이며, 실패 화면의 재시도는 검색어·기간을 보존하고 실패 시연 상태를 해제합니다. 현재 실제 검색 API는 연결하지 않았습니다. 결과 그리드는 `SearchResultCard`가 제목·썸네일 우하단 장면 구간·키워드와 키워드 행 우측의 텍스트 검증 칩을 맡고, 칩의 hover·focus 툴팁에는 사용자용 근거 필드와 값만 표시합니다. 출처와 OCR·VLM 같은 기술명은 카드에서 숨깁니다. 결과 카드에는 백엔드 내부 점수를 퍼센트 일치도로 변환해 노출하지 않으며 검색 채널 선택과 클라이언트 재정렬 UI를 제공하지 않습니다. `WireframeShell`은 날짜 요청 상태와 선택한 Preview 상태를 소유하고, Preview는 전체 근거와 상태 모델을 유지합니다. 표시명·방송일·촬영일·샷 유형·장면 유형은 이후 검색 API 응답 모델에 보존하되 결과 카드에는 노출하지 않습니다. `demo-scenes.ts`의 10개 장면은 검색 결과와 검색·문의 기록이 공유합니다. 자동 생성 근거에는 `verified/unverified`만 사용하고, 정보 부재는 `unknown`, 사람의 판단은 `rejected/withdrawn`으로 분리합니다.
+다른 디자인 시스템의 전용 스타일과 화면 분기는 제거하고 신한(`shinhan`) 구현만 유지합니다. 신한 검색 입력과 결과 화면은 방송일·촬영일별 Date Range Picker를 제공하며, 달력의 시작일·종료일 선택과 직접 입력, 취소·초기화, 키보드 방향 이동을 지원합니다. 진입 화면의 입력 중 값은 form 가까이에 두고, 제출하면 `search-navigation.ts`가 검색어와 두 날짜를 `q/broadcastFrom/broadcastTo/filmingFrom/filmingTo`로 분리해 결과 URL을 만듭니다. 결과 화면도 같은 생성기를 사용하며 URL을 검색 요청 상태의 정본으로 읽습니다. 선택한 기간은 양 끝 날짜를 포함합니다. navigation 중에는 검색 입력·날짜·제출을 잠그고, 결과 화면은 이전 카드를 `검색 중` 상태로 바꿔 새 결과와 혼동되지 않게 합니다. 실제 검색 API를 연결할 때 `search-api-contract.ts`가 URL 상태와 같은 입력을 아래 요청 본문으로 변환하며, 백엔드가 필터링·정렬한 응답 순서를 클라이언트가 다시 필터링하거나 정렬하지 않습니다. `state=empty`와 `state=failed`는 디자인 확인용 상태 URL이며, 실패 화면의 재시도는 검색어·기간을 보존하고 실패 시연 상태를 해제합니다. 현재 실제 검색 API는 연결하지 않았습니다. 결과 그리드는 `SearchResultCard`가 제목·썸네일 우하단 장면 구간·키워드와 키워드 행 우측의 텍스트 검증 칩을 맡고, 칩의 hover·focus 툴팁에는 사용자용 근거 필드와 값만 표시합니다. 출처와 OCR·VLM 같은 기술명은 카드에서 숨깁니다. 결과 카드에는 백엔드 내부 점수를 퍼센트 일치도로 변환해 노출하지 않으며 검색 채널 선택과 클라이언트 재정렬 UI를 제공하지 않습니다. `WireframeShell`은 날짜 요청 상태와 선택한 Preview 상태를 소유하고, Preview는 전체 근거와 상태 모델을 유지합니다. 표시명·방송일·촬영일·샷 유형·장면 유형은 검색 API 응답 모델에 보존하되 결과 카드에는 노출하지 않습니다. `demo-scenes.ts`의 10개 장면은 검색 결과와 검색·문의 기록이 공유합니다. 자동 생성 근거에는 `verified/unverified`만 사용하고, 정보 부재는 `unknown`, 사람의 판단은 `rejected/withdrawn`으로 분리합니다.
 
-검색 실행의 정상·degraded 상태와 사람 검수 규칙 적용 여부는 개별 장면이 아니라 `WireframeShell`이 한 번 소유합니다. `SearchResultNotices`가 결과 상단과 Preview에 같은 누락 사유·검수 규칙·송출 전 확인 문구를 제공하며, `state=degraded-resolver`, `degraded-dense`, `degraded-snapshot`, `review-rule`은 실제 API 연결 전의 화면 검증용 상태입니다. snapshot 저장 실패 결과는 볼 수 있지만 저장된 검색 식별자가 필요한 문의는 이유와 함께 비활성화합니다. 실제 응답 key와 adapter는 검색 API 연동 작업에서 확정합니다.
+### 검색 API FE 계약
+
+`POST /search`의 FE 요청 본문은 아래 모양으로 고정합니다. `from`과 `to`는 모두 포함되는 `YYYY-MM-DD` 날짜이며 선택하지 않은 날짜 종류는 키 자체를 생략합니다. 저장 태그·백엔드 도메인 이름에 맞춰 촬영일 전송 키는 URL의 `filming*`과 달리 `filmed_date`를 사용합니다.
+
+```json
+{
+  "query": "명절 교통",
+  "explicit_filters": {
+    "broadcast_date": { "from": "2026-09-01", "to": "2026-09-03" },
+    "filmed_date": { "from": "2026-08-28", "to": "2026-08-29" }
+  }
+}
+```
+
+성공 envelope의 `data`는 아래 모양입니다. bigint 식별자는 모두 문자열이며, 결과 배열은 서버가 정한 `rank` 오름차순 그대로 최대 10개를 보냅니다. FE는 배열을 재정렬하지 않고 순서와 `rank`가 다르면 계약 위반으로 처리합니다.
+
+```json
+{
+  "search_execution_id": "398021847361024",
+  "status": "succeeded",
+  "degraded_reasons": [],
+  "query_resolution_status": "resolved",
+  "has_applied_review_rule": false,
+  "guard_summary": { "excluded_result_count": 0, "reasons": [] },
+  "shortage_reasons": ["candidate_pool_exhausted"],
+  "results": [
+    {
+      "search_result_id": "398021847361025",
+      "scene_id": "398021847361026",
+      "clip_id": "398021847361027",
+      "rank": 1,
+      "display_name": "KBC 뉴스9 · 설 연휴 교통",
+      "scene_description": "서울역 귀성 인파",
+      "start_time_ms": 42000,
+      "end_time_ms": 49000,
+      "broadcast_date": { "value": "2026-02-14", "verification_status": "verified" },
+      "filmed_date": { "value": null, "verification_status": "unknown" },
+      "shot_type": "b_roll",
+      "scene_type": "역사 인파",
+      "matched_keywords": ["서울역", "귀성객"],
+      "match_evidence": [
+        {
+          "field": "ocr",
+          "value": "서울역 · 설 연휴 귀성객",
+          "source": "keyframe_ocr",
+          "verification_status": "verified"
+        }
+      ]
+    }
+  ]
+}
+```
+
+`status`가 `succeeded`면 `degraded_reasons`는 비어 있고, `degraded`면 `resolver_fallback`, `dense_unavailable`, `snapshot_save_failed` 중 하나 이상을 보냅니다. resolver fallback 여부는 `query_resolution_status`와 일치해야 합니다. snapshot 저장에 실패한 임시 결과는 `search_execution_id`와 각 `search_result_id`가 `null`이며 문의를 시작할 수 없습니다. `guard_summary.reasons`는 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`, 결과가 10개 미만일 때의 `shortage_reasons`는 `candidate_pool_exhausted`, `guard_excluded`만 허용합니다. 날짜 값이 없으면 상태는 `unknown`, 값이 있으면 `verified` 또는 `unverified`입니다. 썸네일은 응답에 서버 경로나 URL을 싣지 않고 `scene_id`로 ID 기반 조회 주소를 만듭니다.
+
+검색 실행의 정상·degraded 상태와 사람 검수 규칙 적용 여부는 개별 장면이 아니라 `WireframeShell`이 한 번 소유합니다. `SearchResultNotices`가 결과 상단과 Preview에 같은 누락 사유·검수 규칙·송출 전 확인 문구를 제공하며, `state=degraded-resolver`, `degraded-dense`, `degraded-snapshot`, `review-rule`은 실제 API 연결 전의 화면 검증용 상태입니다. snapshot 저장 실패 결과는 볼 수 있지만 저장된 검색 식별자가 필요한 문의는 이유와 함께 비활성화합니다. 실제 응답 key와 런타임 검증은 `search-api-contract.ts`가 소유하며, 검색 API 연동 작업은 이 결과를 기존 화면 모델로 매핑합니다.
 
 신한 Preview는 진입 시 로딩 안내와 비활성 재생 제어를 보여준 뒤 예시 준비 화면으로 전환합니다. `/search/results?preview=loading`은 로딩 상태를 유지해 디자인을 확인하는 주소입니다. 실제 미디어 로딩 성공을 뜻하지 않으며 화면 안에 데모임을 안내합니다. 신한 처리 현황에는 `tab=completed`의 `등록 완료` 탭이 추가됩니다. 고정 완료 예시의 장면 수·완료 시각·누락 정보·단계·검색 이동을 확인할 수 있고, 새로 등록한 영상도 같은 처리 상세에서 파일 정보와 0단계 대기를 확인할 수 있습니다. 신규 영상은 시간이 지났다는 이유로 완료 처리하지 않습니다. 새로고침 시 로컬 등록 메모리는 초기화됩니다. 처리 상태 변환은 `registration-processing.ts`, 날짜 검증은 `date-range.ts`가 담당합니다.
 
