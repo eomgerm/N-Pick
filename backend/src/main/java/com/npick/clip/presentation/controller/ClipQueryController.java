@@ -29,8 +29,15 @@ public class ClipQueryController {
             description =
                     "검수자 전용. 논리 삭제 제외, page 0부터/size 1~100. search_available은 활성 검색 결과, latest_run은 최신 시도이며 검수 완료와 무관하다.")
     public ApiResponse<ClipPageResponse> list(
-            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.success(ClipPageResponse.from(list.getClips(page, size)));
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @io.swagger.v3.oas.annotations.Parameter(
+                            description =
+                                    "최신 run 상태 OR 필터. 쉼표 또는 반복 파라미터로 queued,running,failed,succeeded,no_run 선택. 생략하면 전체. 처리 중은 queued,running, 완료는 succeeded이며 검수 완료와 무관하다.")
+                    @RequestParam(required = false)
+                    java.util.List<String> status) {
+        return ApiResponse.success(
+                ClipPageResponse.from(list.getClips(page, size, status == null ? java.util.List.of() : status)));
     }
 
     @GetMapping("/api/v1/clips/{id}")

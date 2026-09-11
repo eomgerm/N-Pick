@@ -48,6 +48,14 @@ public final class ProcessingRecordReader {
     }
 
     public ProcessingDetailsResult read(long runId, String json) {
+        return read(runId, json, true);
+    }
+
+    public com.npick.pipeline.application.query.ProcessingProgressResult progress(long runId, String json) {
+        return com.npick.pipeline.application.query.ProcessingProgressResult.from(read(runId, json, false));
+    }
+
+    private ProcessingDetailsResult read(long runId, String json, boolean includeTranscript) {
         JsonNode root;
         try {
             root = mapper.readTree(json);
@@ -105,7 +113,7 @@ public final class ProcessingRecordReader {
                 List.copyOf(stages),
                 List.copyOf(failed),
                 channelsKnown ? List.copyOf(missing) : null,
-                transcript(runId, states));
+                includeTranscript ? transcript(runId, states) : null);
     }
 
     private Transcript transcript(long runId, JsonNode states) {

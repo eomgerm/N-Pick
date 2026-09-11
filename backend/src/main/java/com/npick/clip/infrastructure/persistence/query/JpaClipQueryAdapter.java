@@ -16,6 +16,8 @@ public class JpaClipQueryAdapter implements ClipQueryPort {
                 c.clipId, c.title, c.sourceType, c.activePipelineRunId, c.createdAt, c.updatedAt,
                 c.transcriptSource, (c.transcriptFileKey is not null), (c.scriptText is not null),
                 r.pipelineRunId, r.processingNo, r.status, r.errorCode, r.createdAt, r.startedAt, r.finishedAt)
+            """;
+    private static final String FROM = """
             from ClipJpaEntity c left join PipelineRunJpaEntity r
               on r.clipId = c.clipId and not exists (
                 select newer.pipelineRunId from PipelineRunJpaEntity newer
@@ -31,29 +33,37 @@ public class JpaClipQueryAdapter implements ClipQueryPort {
     }
 
     @Override
-    public List<ClipQueryResult> findPage(int offset, int size) {
+    public List<ClipQueryResult> findPage(int offset, int size, List<String> statuses) {
         // One projection query includes the latest run; no per-clip entity lookup.
-        return entityManager
-                .createQuery(PROJECTION + " order by c.createdAt desc, c.clipId desc", ClipQueryRow.class)
-                .setFirstResult(offset)
-                .setMaxResults(size)
-                .getResultList()
-                .stream()
+        var query = entityManager.createQuery(
+                PROJECTION + FROM
+                        + (statuses.isEmpty() ? "" : " and coalesce(r.status, 'no_run') in :statuses")
+                        + " order by c.createdAt desc, c.clipId desc",
+                ClipQueryRow.class);
+        if (!statuses.isEmpty()) query.setParameter("statuses", statuses);
+        return query.setFirstResult(offset).setMaxResults(size).getResultList().stream()
                 .map(ClipQueryRow::toResult)
                 .toList();
     }
 
     @Override
-    public long countVisible() {
-        return entityManager
-                .createQuery("select count(c) from ClipJpaEntity c where c.deletedAt is null", Long.class)
-                .getSingleResult();
+    public java.util.Map<String, Long> countByLatestRunStatus() {
+        var counts = new java.util.HashMap<String, Long>();
+        for (String status : List.of("queued", "running", "failed", "succeeded", "no_run")) counts.put(status, 0L);
+        entityManager
+                .createQuery(
+                        "select coalesce(r.status, 'no_run'), count(c) " + FROM
+                                + " group by coalesce(r.status, 'no_run')",
+                        Object[].class)
+                .getResultList()
+                .forEach(row -> counts.put((String) row[0], (Long) row[1]));
+        return java.util.Map.copyOf(counts);
     }
 
     @Override
     public Optional<ClipQueryResult> findVisible(long clipId) {
         return entityManager
-                .createQuery(PROJECTION + " and c.clipId = :id", ClipQueryRow.class)
+                .createQuery(PROJECTION + FROM + " and c.clipId = :id", ClipQueryRow.class)
                 .setParameter("id", clipId)
                 .getResultList()
                 .stream()

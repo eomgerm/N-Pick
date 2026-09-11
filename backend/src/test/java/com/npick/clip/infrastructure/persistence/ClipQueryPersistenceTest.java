@@ -132,7 +132,7 @@ class ClipQueryPersistenceTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.total_elements").value(3));
-        assertThat(port.findPage(Integer.MAX_VALUE, 100)).isEmpty();
+        assertThat(port.findPage(Integer.MAX_VALUE, 100, java.util.List.of())).isEmpty();
         mvc.perform(get("/api/v1/clips/99")).andExpect(status().isNotFound());
     }
 
@@ -309,7 +309,7 @@ class ClipQueryPersistenceTest {
     }
 
     @Test
-    void listUsesTwoStatementsRegardlessOfClipCountAndDoesNotLoadEntities() {
+    void listUsesTwoJpaStatementsAndOneBatchProgressLookupWithoutArtifacts() {
         for (int i = 1; i <= 25; i++) {
             clip(i, CREATED);
             run(i + 100, i, 1, "queued", null, "{}");
@@ -318,10 +318,53 @@ class ClipQueryPersistenceTest {
         statistics.clear();
         assertThat(list.getClips(0, 20).items()).hasSize(20);
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+        org.mockito.Mockito.verifyNoInteractions(artifacts);
         assertThat(statistics.getEntityLoadCount()).isZero();
         statistics.clear();
         assertThat(list.getClips(0, 1).items()).hasSize(1);
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void latestStatusFiltersAndGlobalCountsIgnoreOldRunsAndDeletedClips() throws Exception {
+        for (int i = 1; i <= 7; i++) clip(i, CREATED);
+        run(101, 1, 1, "queued", null, "{}");
+        run(102, 2, 1, "running", null, "{}");
+        run(103, 3, 1, "succeeded", null, "{}");
+        run(203, 3, 2, "failed", "STAGE_FAILED", "{}");
+        jdbc.update("UPDATE npick.clip SET active_pipeline_run_id=103 WHERE clip_id=3");
+        run(104, 4, 1, "succeeded", null, "{}");
+        run(106, 6, 1, "queued", null, "{}");
+        run(107, 7, 1, "failed", "STAGE_FAILED", "{}");
+        jdbc.update("UPDATE npick.clip SET deleted_at=now() WHERE clip_id=7");
+        mvc.perform(get("/api/v1/clips?status=queued,running&size=1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].clip_id").value("6"))
+                .andExpect(jsonPath("$.data.total_elements").value(3))
+                .andExpect(jsonPath("$.data.total_pages").value(3))
+                .andExpect(jsonPath("$.data.has_next").value(true))
+                .andExpect(jsonPath("$.data.run_counts.queued").value(2))
+                .andExpect(jsonPath("$.data.run_counts.running").value(1))
+                .andExpect(jsonPath("$.data.run_counts.failed").value(1))
+                .andExpect(jsonPath("$.data.run_counts.succeeded").value(1))
+                .andExpect(jsonPath("$.data.run_counts.no_run").value(1));
+        mvc.perform(get("/api/v1/clips?status=queued&status=running&page=2&size=1"))
+                .andExpect(jsonPath("$.data.items[0].clip_id").value("1"))
+                .andExpect(jsonPath("$.data.has_next").value(false));
+        mvc.perform(get("/api/v1/clips?status=failed"))
+                .andExpect(jsonPath("$.data.items[0].clip_id").value("3"))
+                .andExpect(jsonPath("$.data.items[0].search_available").value(true))
+                .andExpect(jsonPath("$.data.items[0].latest_run.status").value("failed"));
+        mvc.perform(get("/api/v1/clips?status=no_run"))
+                .andExpect(jsonPath("$.data.items[0].clip_id").value("5"))
+                .andExpect(jsonPath("$.data.items[0].progress").doesNotExist());
+        mvc.perform(get("/api/v1/clips?status=failed&page=10"))
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.total_elements").value(1))
+                .andExpect(jsonPath("$.data.run_counts.queued").value(2));
+        mvc.perform(get("/api/v1/clips?status=ready"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CLIP_QUERY_400_001"));
     }
 
     @Test

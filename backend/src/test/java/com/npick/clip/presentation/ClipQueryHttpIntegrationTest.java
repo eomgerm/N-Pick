@@ -557,11 +557,65 @@ class ClipQueryHttpIntegrationTest {
     }
 
     @Test
+    void listProgressMatchesDetailAndNeverReadsTranscriptArtifacts() throws Exception {
+        var initial = stages();
+        for (String name : PipelineStages.NAMES.subList(0, 4)) initial.put(name, state("succeeded"));
+        initial.put("transcript_selection", state("skipped"));
+        initial.put("asr", state("running"));
+        fixture(701, 7001, "running", initial);
+        for (int version = 0; version < 5; version++) {
+            if (version == 1) initial.put("asr", state("failed"));
+            if (version == 2) initial.remove("ocr");
+            String record = version == 3
+                    ? "{\"schemaVersion\":{}}"
+                    : version == 4
+                            ? "{\"schemaVersion\":\"future/v2\",\"stages\":{}}"
+                            : mapper.writeValueAsString(
+                                    Map.of("schemaVersion", "npick.stage_states/v1", "stages", initial));
+            jdbc.update("UPDATE npick.pipeline_run SET stage_states_json=?::jsonb WHERE pipeline_run_id=7001", record);
+            JsonNode page = body(request("GET", "/api/v1/clips?status=running&size=100", null))
+                    .path("data");
+            JsonNode item = java.util.stream.StreamSupport.stream(
+                            page.path("items").spliterator(), false)
+                    .filter(value -> value.path("clip_id").asString().equals("701"))
+                    .findFirst()
+                    .orElseThrow();
+            JsonNode progress = item.path("progress");
+            assertThat(progress).isEqualTo(detail(701).at("/clip/progress"));
+            assertThat(page.path("total_elements").asLong())
+                    .isEqualTo(page.at("/run_counts/running").asLong());
+            if (version < 2) {
+                assertThat(progress.path("total_steps").intValue()).isEqualTo(10);
+                assertThat(progress.path("succeeded_steps").intValue()).isEqualTo(4);
+                assertThat(progress.path("skipped_steps").intValue()).isEqualTo(1);
+                assertThat(progress.path("failed_steps").intValue()).isEqualTo(version);
+                if (version == 0)
+                    assertThat(progress.path("current_stage").asString()).isEqualTo("asr");
+                else assertThat(progress.path("current_stage").isNull()).isTrue();
+            } else {
+                assertThat(progress.path("record_status").asString())
+                        .isEqualTo(version == 2 ? "partial" : version == 3 ? "unavailable" : "unsupported_version");
+                assertThat(progress.path("total_steps").isNull()).isTrue();
+                assertThat(progress.path("failed_steps").isNull()).isTrue();
+            }
+            assertThat(item.toString()).doesNotContain("stage_states_json", "storageKey", "raw_response");
+        }
+    }
+
+    @Test
     void swaggerSchemaMatchesPublicSnakeCaseAndTypedDetails() throws Exception {
         JsonNode spec = body(request("GET", "/v3/api-docs", null));
         assertThat(spec.at("/paths/~1api~1v1~1clips/get").isObject()).isTrue();
         assertThat(spec.at("/paths/~1api~1v1~1clips~1{id}/get").isObject()).isTrue();
         JsonNode schemas = spec.at("/components/schemas");
+        assertThat(spec.at("/paths/~1api~1v1~1clips/get/parameters").toString()).contains("status");
+        assertThat(schemas.at("/ClipPageResponse/properties/run_counts").has("$ref"))
+                .isTrue();
+        assertThat(schemas.at("/ClipSummaryResponse/properties/progress").has("$ref"))
+                .isTrue();
+        assertThat(schemas.at("/ProcessingProgressResponse/properties/current_stage")
+                        .isObject())
+                .isTrue();
         assertThat(schemas.path("ClipDetailResponse").path("properties").has("processing_details"))
                 .isTrue();
         JsonNode detailProperties = schemas.path("ProcessingDetailsResponse").path("properties");

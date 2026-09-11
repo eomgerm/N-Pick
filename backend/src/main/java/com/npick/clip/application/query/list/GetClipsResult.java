@@ -4,4 +4,10 @@ import java.util.List;
 
 import com.npick.clip.application.query.ClipQueryResult;
 
-public record GetClipsResult(List<ClipQueryResult> items, int page, int size, long totalElements) {}
+public record GetClipsResult(
+        List<ClipQueryResult> items,
+        int page,
+        int size,
+        long totalElements,
+        java.util.Map<String, Long> runCounts,
+        java.util.Map<Long, com.npick.pipeline.application.query.ProcessingProgressResult> progress) {}

@@ -14,23 +14,39 @@ import com.npick.common.error.BusinessException;
 public class ClipQueryService implements GetClipsUseCase, GetClipUseCase {
     private final ClipQueryPort clips;
     private final com.npick.pipeline.application.query.GetProcessingDetailsUseCase processing;
+    private final com.npick.pipeline.application.query.GetProcessingProgressUseCase progress;
 
     public ClipQueryService(
-            ClipQueryPort clips, com.npick.pipeline.application.query.GetProcessingDetailsUseCase processing) {
+            ClipQueryPort clips,
+            com.npick.pipeline.application.query.GetProcessingDetailsUseCase processing,
+            com.npick.pipeline.application.query.GetProcessingProgressUseCase progress) {
         this.clips = clips;
         this.processing = processing;
+        this.progress = progress;
     }
 
     // Count and page must observe the same PostgreSQL snapshot during registration/deletion.
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public GetClipsResult getClips(int page, int size) {
+    public GetClipsResult getClips(int page, int size, java.util.List<String> statuses) {
+        if (statuses == null
+                || !java.util.Set.of("queued", "running", "failed", "succeeded", "no_run")
+                        .containsAll(statuses)) throw new BusinessException(ClipQueryErrorCode.INVALID_STATUS);
         if (page < 0 || size < 1 || size > 100) throw new BusinessException(ClipQueryErrorCode.INVALID_PAGE);
         long offset = (long) page * size;
         if (offset > Integer.MAX_VALUE) throw new BusinessException(ClipQueryErrorCode.INVALID_PAGE);
-        long total = clips.countVisible();
-        return new GetClipsResult(
-                offset >= total ? java.util.List.of() : clips.findPage((int) offset, size), page, size, total);
+        var counts = clips.countByLatestRunStatus();
+        long total = counts.entrySet().stream()
+                .filter(entry -> statuses.isEmpty() || statuses.contains(entry.getKey()))
+                .mapToLong(java.util.Map.Entry::getValue)
+                .sum();
+        var items =
+                offset >= total ? java.util.List.<ClipQueryResult>of() : clips.findPage((int) offset, size, statuses);
+        var runIds = items.stream()
+                .filter(item -> item.latestRun() != null)
+                .map(item -> item.latestRun().pipelineRunId())
+                .toList();
+        return new GetClipsResult(items, page, size, total, counts, progress.getProgress(runIds));
     }
 
     @Override

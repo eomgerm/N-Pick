@@ -101,7 +101,8 @@ class ClipQuerySecurityTest {
 
     @Test
     void loggedInReviewerReadsBothWithoutCsrfOnGet() throws Exception {
-        when(list.getClips(0, 20)).thenReturn(new GetClipsResult(List.of(), 0, 20, 0));
+        when(list.getClips(0, 20, List.of()))
+                .thenReturn(new GetClipsResult(List.of(), 0, 20, 0, java.util.Map.of(), java.util.Map.of()));
         when(detail.getClip(10))
                 .thenReturn(new ClipQueryResult(
                         10, null, "archive", null, Instant.EPOCH, Instant.EPOCH, "none", false, false, null, null));

@@ -16,8 +16,15 @@ public record ClipSummaryResponse(
         @JsonProperty("active_pipeline_run_id") String activePipelineRunId,
         @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("updated_at") Instant updatedAt,
-        @JsonProperty("latest_run") RunResponse latestRun) {
+        @JsonProperty("latest_run") RunResponse latestRun,
+        ProcessingProgressResponse progress) {
     public static ClipSummaryResponse from(ClipQueryResult result) {
+        return from(
+                result, com.npick.pipeline.application.query.ProcessingProgressResult.from(result.processingDetails()));
+    }
+
+    public static ClipSummaryResponse from(
+            ClipQueryResult result, com.npick.pipeline.application.query.ProcessingProgressResult progress) {
         return new ClipSummaryResponse(
                 Long.toString(result.clipId()),
                 result.title(),
@@ -28,7 +35,8 @@ public record ClipSummaryResponse(
                         : result.activePipelineRunId().toString(),
                 result.createdAt(),
                 result.updatedAt(),
-                RunResponse.from(result.latestRun()));
+                RunResponse.from(result.latestRun()),
+                ProcessingProgressResponse.from(progress));
     }
 
     @JsonInclude(JsonInclude.Include.ALWAYS)
