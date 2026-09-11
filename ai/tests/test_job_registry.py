@@ -5,12 +5,18 @@ FRD 단계 이름은 여기서 **전사**한다. `stages.py` 를 import 하면 �
 """
 
 import ast
+import json
 from pathlib import Path
 
 import pytest
 
 from npick_worker.jobs import registry
-from npick_worker.jobs.errors import UpstreamOutputInvalidError
+from npick_worker.jobs.errors import (
+    ExternalProcessingRefusedError,
+    UpstreamOutputInvalidError,
+    VlmOutputInvalidError,
+    classify,
+)
 from npick_worker.jobs.registry import (
     HANDLERS,
     StageContext,
@@ -19,6 +25,7 @@ from npick_worker.jobs.registry import (
     resolve,
     warm_up,
 )
+from npick_worker.settings import get_settings
 
 #: FRD 처리 단계 10종. 이름과 순서는 문서에서 옮겨 적는다.
 FRD_STAGE_NAMES = (
@@ -82,9 +89,9 @@ def _context(
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_implemented_stages_are_exactly_the_three_present() -> None:
-    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 일곱은 resolve() 가 None 이다."""
-    assert set(HANDLERS) == {"scene_detection", "frame_extraction", "ocr"}
+def test_implemented_stages_are_exactly_the_four_present() -> None:
+    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 여섯은 resolve() 가 None 이다."""
+    assert set(HANDLERS) == {"scene_detection", "frame_extraction", "vlm_metadata", "ocr"}
 
 
 def test_every_handler_is_an_frd_stage() -> None:
@@ -93,7 +100,7 @@ def test_every_handler_is_an_frd_stage() -> None:
 
 
 def test_resolve_returns_none_for_unimplemented_stages() -> None:
-    assert resolve("vlm_metadata") is None
+    assert resolve("asr") is None
     assert resolve("nope") is None
 
 
@@ -105,7 +112,7 @@ def test_resolve_returns_the_handler_for_scene_detection() -> None:
 
 def test_handlers_mapping_is_not_mutable() -> None:
     with pytest.raises(TypeError):
-        HANDLERS["vlm_metadata"] = HANDLERS["scene_detection"]  # type: ignore[index]
+        HANDLERS["asr"] = HANDLERS["scene_detection"]  # type: ignore[index]
 
 
 # ── 패키지 배치 (ai/AGENTS.md 의 기계 가드) ─────────────────────────
@@ -150,7 +157,7 @@ def test_warm_up_reports_the_scene_detection_identity() -> None:
 
 def test_warm_up_marks_unimplemented_stages_as_not_warmed() -> None:
     # 없는 것을 있는 척하지 않는다.
-    report = warm_up(["vlm_metadata"])
+    report = warm_up(["asr"])
     assert report.stages[0].warmed is False
     assert report.ready is False
 
@@ -179,8 +186,26 @@ def test_warm_up_reports_the_resolved_device() -> None:
 # ── claim 에 실을 버전 ───────────────────────────────────────────────
 
 
-def test_capability_versions_cover_exactly_the_implemented_stages() -> None:
-    assert set(capability_versions()) == set(HANDLERS)
+def test_capability_versions_cover_the_stages_this_worker_can_actually_run() -> None:
+    """선언은 구현의 부분집합이다. **같지 않을 수 있다.**
+
+    `vlm_metadata` 는 가중치 이름이 설정돼 있어야 버전을 선언할 수 있다
+    (`NPICK_AI_VLM_MODEL`, FRD §11 이 모델명을 실측 후 확정으로 둔다). 모델이 없는
+    워커가 그 단계를 선언하면 BE 가 배정하고 매번 `MODEL_UNAVAILABLE` 로 죽는다 —
+    배정받지 않는 편이 낫다. 테스트 환경에는 모델이 없으므로 빠지는 것이 정상이다.
+    """
+    declared = set(capability_versions())
+    assert declared <= set(HANDLERS)
+    assert {"scene_detection", "frame_extraction", "ocr"} <= declared
+
+
+def test_vlm_is_not_declared_without_a_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NPICK_AI_VLM_MODEL", "")
+    get_settings.cache_clear()
+    try:
+        assert "vlm_metadata" not in capability_versions()
+    finally:
+        get_settings.cache_clear()
 
 
 def test_capability_versions_do_not_build_an_ocr_engine_per_poll(
@@ -355,15 +380,16 @@ def _ocr_upstream(*keyframes: tuple[int, int]) -> dict[str, object]:
     }
 
 
-def test_only_ocr_skips_the_source_video() -> None:
+def test_keyframe_reading_stages_skip_the_source_video() -> None:
     """`needs_video` 는 러너가 원본 영상을 받을지를 정한다.
 
-    `ocr` 은 상류 keyframe 만 읽으므로 False 다. 나머지 둘은 영상을 열어야 하고,
-    거기서 False 가 되면 `require_video()` 가 실행 중에 터진다.
+    `ocr` 과 `vlm_metadata` 는 상류 keyframe 만 보므로 False 다. 앞의 둘은 영상을 열어야
+    하고, 거기서 False 가 되면 `require_video()` 가 실행 중에 터진다.
     """
     assert {name: handler.needs_video for name, handler in HANDLERS.items()} == {
         "scene_detection": True,
         "frame_extraction": True,
+        "vlm_metadata": False,
         "ocr": False,
     }
 
@@ -494,3 +520,161 @@ def test_ocr_reports_counts_and_versions(tmp_path: Path, monkeypatch: pytest.Mon
     assert outcome.versions.model_version == "fake/0"
     assert outcome.versions.prompt_version is None
     assert outcome.versions.detail["tokenizer"] == "query-norm/v1:test"
+
+
+# ── vlm_metadata 의 배선 ─────────────────────────────────────────────
+
+_VLM_OUTPUT = json.dumps(
+    {
+        "caption": {
+            "value": "앵커가 스튜디오에서 소식을 전한다",
+            "confidence": 0.9,
+            "evidence": ["kf_1"],
+        },
+        "shot_type": {"value": "anchor", "confidence": 0.8, "evidence": ["kf_1"]},
+        "scene_type": {"value": "스튜디오", "confidence": 0.7, "evidence": ["kf_1"]},
+        "tag_candidates": [
+            {"type": "location", "value": "서울", "confidence": 0.5, "evidence": ["kf_1"]}
+        ],
+    },
+    ensure_ascii=False,
+)
+
+
+class _FakeVlmClient:
+    """`VlmClient` 구현. 정해진 텍스트를 돌려준다."""
+
+    name = "fake"
+    version = "0"
+    model_version = "fake-model@0"
+
+    def __init__(self, output: str = _VLM_OUTPUT) -> None:
+        self._output = output
+
+    def describe(self, images: object, system_prompt: str, user_prompt: str, params: object) -> str:
+        return self._output
+
+
+def _vlm_files(tmp_path: Path, *keys: str) -> dict[str, Path]:
+    """상류가 올린 keyframe 이 러너를 통해 도착한 모양. 바이트는 가짜여도 된다 —
+    실제로 그것을 여는 쪽은 어댑터이고 여기서는 가짜 클라이언트를 쓴다."""
+    files: dict[str, Path] = {}
+    for key in keys:
+        target = tmp_path / Path(key).name
+        target.write_bytes(b"jpeg-bytes")
+        files[key] = target
+    return files
+
+
+def test_vlm_declares_only_the_keyframes_it_will_send(tmp_path: Path) -> None:
+    """상한을 넘는 장면에서는 **고른 것만** 받아 온다. 쓰지 않을 이미지를 내려받지 않는다."""
+    handler = resolve("vlm_metadata")
+    assert handler is not None
+    assert handler.required_inputs is not None
+
+    many = _ocr_upstream(*[(0, 1000 * step) for step in range(1, 9)])
+    keys = handler.required_inputs(many)
+
+    from npick_worker.vlm_metadata import get_default_config
+
+    assert len(keys) == get_default_config().max_keyframes_per_scene
+    # 양 끝이 들어 있다 — 앞에서 잘라내지 않는다.
+    assert keys[0].endswith("kf-000001000.jpg")
+    assert keys[-1].endswith("kf-000008000.jpg")
+
+
+def test_vlm_rejects_upstream_without_frame_extraction() -> None:
+    """영구 오류다. 빈 결과를 성공으로 반납하면 "설명할 장면이 없다" 는 거짓이 남는다."""
+    handler = resolve("vlm_metadata")
+    assert handler is not None
+    assert handler.required_inputs is not None
+    with pytest.raises(UpstreamOutputInvalidError):
+        handler.required_inputs({})
+
+
+def test_vlm_stage_reports_every_version_and_metric(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§7.2 기록 — 무엇이 이 결과를 만들었는지 다섯 축으로 남아야 한다."""
+    monkeypatch.setattr(registry, "_vlm_client", lambda payload_bytes: _FakeVlmClient())
+    upstream = _ocr_upstream((0, 4200))
+    key = "runs/1/frame_extraction/a1/s0000/kf-000004200.jpg"
+    context = StageContext(
+        stage="vlm_metadata",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/vlm_metadata/a1/",
+        upstream=upstream,
+        upstream_files=_vlm_files(tmp_path, key),
+    )
+
+    outcome = registry.HANDLERS["vlm_metadata"].run(context)
+
+    versions = outcome.versions
+    assert versions.stage_version.startswith("npick.stage.vlm_metadata/v1:")
+    assert versions.output_schema_version == "npick.stage.vlm_metadata.output/v1"
+    assert versions.config_version is not None
+    assert versions.config_version.startswith("vlm-metadata-config/v1:")
+    # 앞의 세 단계에서 비어 있던 두 키가 여기서 처음 채워진다.
+    assert versions.model_version == "fake-model@0"
+    assert versions.prompt_version is not None
+    assert versions.prompt_version.startswith("vlm-metadata-prompt/v1:")
+    assert versions.detail["tokenizer"]
+    assert "configVersion" not in versions.detail
+
+    scene = outcome.output["scenes"][0]
+    assert scene["shotType"]["value"] == "anchor"
+    assert scene["caption"]["tokens"]
+    # 장면 유형은 컬럼이 아니라 태그 후보로 나간다.
+    assert {tag["type"] for tag in scene["tagCandidates"]} == {"scene_type", "location"}
+    # 근거는 (sceneIndex, timestampMs) 쌍이다 — keyframe_id 는 BE 가 발급한다.
+    assert scene["caption"]["evidence"][0] == {
+        "sceneIndex": 0,
+        "timestampMs": 4200,
+        "storageKey": key,
+    }
+    assert outcome.metrics["scenes"] == 1
+    assert outcome.metrics["captionedScenes"] == 1
+    assert outcome.metrics["unknownShotTypes"] == 0
+    assert outcome.metrics["keyframesSent"] == 1
+
+
+def test_vlm_schema_failure_is_a_permanent_stage_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """계약 §9.2 — `VLM_SCHEMA_INVALID` 는 영구다. 재시도가 고치지 못한다."""
+    monkeypatch.setattr(
+        registry, "_vlm_client", lambda payload_bytes: _FakeVlmClient("설명하겠습니다: {")
+    )
+    key = "runs/1/frame_extraction/a1/s0000/kf-000004200.jpg"
+    context = StageContext(
+        stage="vlm_metadata",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/vlm_metadata/a1/",
+        upstream=_ocr_upstream((0, 4200)),
+        upstream_files=_vlm_files(tmp_path, key),
+    )
+
+    with pytest.raises(VlmOutputInvalidError) as caught:
+        registry.HANDLERS["vlm_metadata"].run(context)
+
+    assert classify(caught.value, "vlm_metadata") == ("VLM_SCHEMA_INVALID", False)
+
+
+def test_unclassified_vlm_failure_is_not_labelled_a_schema_error() -> None:
+    """정체 모를 예외에 영구 코드를 붙이면 원인과 분류가 동시에 거짓이 된다."""
+    assert classify(RuntimeError("무슨 일인지 모른다"), "vlm_metadata") == ("STAGE_FAILED", True)
+
+
+def test_external_backend_fails_closed_before_sending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PRD §12.4 — 조건이 확인되지 않으면 전송 전에 멈춘다."""
+    monkeypatch.setenv("NPICK_AI_VLM_BACKEND", "external")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ExternalProcessingRefusedError, match="clip 의 외부 처리 권리"):
+            registry._vlm_client(1024)
+    finally:
+        get_settings.cache_clear()

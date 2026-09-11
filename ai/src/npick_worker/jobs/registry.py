@@ -21,9 +21,13 @@ from pydantic import BaseModel, ValidationError
 
 from npick_worker.device import detect_device
 from npick_worker.jobs.errors import (
+    ExternalProcessingRefusedError,
     ModelUnavailableError,
+    StageUnavailableError,
+    TransientStageError,
     UnsupportedMediaError,
     UpstreamOutputInvalidError,
+    VlmOutputInvalidError,
 )
 from npick_worker.jobs.models import ArtifactRef
 from npick_worker.jobs.versions import (
@@ -37,6 +41,8 @@ from npick_worker.versioning import service_version
 
 if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(ocr 은 onnxruntime 이 딸려 온다).
     from npick_worker.ocr.models import KeyframeRef
+    from npick_worker.vlm_metadata.client import VlmClient
+    from npick_worker.vlm_metadata.models import SceneKeyframes
 
 logger = logging.getLogger(__name__)
 
@@ -445,6 +451,223 @@ def _warm_ocr() -> str:
     return f"config={config.version_id} engine={engine.name} {engine.version}"
 
 
+def _vlm_scenes(upstream: Mapping[str, Any]) -> tuple["SceneKeyframes", ...]:
+    """상류 `frameExtraction` 산출물을 장면별 keyframe 묶음으로 옮긴다.
+
+    `required_inputs` 와 `_run_vlm_metadata` 가 둘 다 부른다. 조립을 한 함수에 두는
+    이유는 `_ocr_keyframes` 와 같다 — 두 곳에서 따로 파싱하면 받아 온 파일과 실제로
+    모델에 넣는 대상이 어긋날 수 있다.
+    """
+    from npick_worker.jobs.models import VlmMetadataUpstream
+    from npick_worker.vlm_metadata import KeyframeRef as VlmKeyframeRef
+    from npick_worker.vlm_metadata import SceneKeyframes as VlmSceneKeyframes
+
+    parsed = _parse_upstream(VlmMetadataUpstream, upstream)
+    return tuple(
+        VlmSceneKeyframes(
+            scene_index=scene.scene_index,
+            keyframes=tuple(
+                VlmKeyframeRef(
+                    scene_index=keyframe.scene_index,
+                    timestamp_ms=keyframe.timestamp_ms,
+                    storage_key=keyframe.storage_key,
+                )
+                for keyframe in scene.keyframes
+            ),
+        )
+        for scene in parsed.frame_extraction.scenes
+    )
+
+
+def _vlm_selected_keys(upstream: Mapping[str, Any]) -> tuple[str, ...]:
+    """모델에 **실제로 넣을** keyframe 의 키. 순서를 지키며 중복을 없앤다.
+
+    상류가 준 전부가 아니라 고른 것만이다. 장면당 상한(`max_keyframes_per_scene`)을
+    넘으면 `select_keyframes` 가 골라내므로, 전부 받아 오면 쓰지 않을 이미지를 내려받아
+    lease 시간을 쓴다. 외부 어댑터에서는 그 차이가 payload size 판정에도 들어간다.
+    """
+    from npick_worker.vlm_metadata import get_default_config, select_keyframes
+
+    config = get_default_config()
+    seen: dict[str, None] = {}
+    for scene in _vlm_scenes(upstream):
+        for keyframe in select_keyframes(scene, config):
+            seen.setdefault(keyframe.storage_key, None)
+    return tuple(seen)
+
+
+def _run_vlm_metadata(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. transformers·torch 는 헬스체크만 하는 프로세스가 낼 비용이 아니다
+    # (ocr 의 onnxruntime 과 같은 이유).
+    from npick_worker.jobs.models import VlmMetadataOutput
+    from npick_worker.vlm_metadata import (
+        VlmCallError,
+        VlmModelUnavailableError,
+        VlmSchemaInvalidError,
+        describe_scenes,
+        get_default_config,
+    )
+
+    config = get_default_config()
+    scenes = _vlm_scenes(ctx.upstream)
+    selected = _vlm_selected_keys(ctx.upstream)
+
+    missing = [key for key in selected if key not in ctx.upstream_files]
+    if missing:
+        # 러너가 `required_inputs` 로 받아 왔어야 하는 파일이다. 일부만 보고 성공으로
+        # 반납하면 "그 장면은 이렇게 보였다" 는 거짓이 정본에 남는다.
+        msg = f"keyframe 이미지를 받지 못했다: {len(missing)}건"
+        raise UpstreamOutputInvalidError(msg)
+
+    client = _vlm_client(sum(ctx.upstream_files[key].stat().st_size for key in selected))
+
+    try:
+        result = describe_scenes(scenes, ctx.upstream_files, client, config)
+    except VlmModelUnavailableError as exc:
+        # 가중치를 못 받은 것은 이 클립의 문제가 아니다 — 다른 파드나 다음 시도에서
+        # 성공할 수 있다(계약 §9.2 의 일시 오류).
+        raise ModelUnavailableError(str(exc)) from exc
+    except VlmSchemaInvalidError as exc:
+        # 형식·어휘·근거가 어긋났다. temperature 0 이므로 다시 물어도 같은 답이 온다.
+        raise VlmOutputInvalidError(str(exc)) from exc
+    except VlmCallError as exc:
+        # 호출 자체의 실패(타임아웃·런타임 오류)다. 출력 내용의 문제와 갈라야 한다.
+        raise TransientStageError(str(exc)) from exc
+
+    identity = _vlm_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+        model_version=result.model_version,
+        tokenizer=result.tokenizer,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        output=VlmMetadataOutput.from_result(result).model_dump(by_alias=True, mode="json"),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            # 가중치와 프롬프트를 **둘 다** 쓰는 첫 단계다. 앞의 세 단계에서 값이 비어
+            # 있던 두 키가 여기서 처음 채워진다.
+            model_version=result.model_version,
+            prompt_version=result.prompt_version,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "scenes": result.scene_count,
+            # 설명이 만들어진 장면 수. `scenes` 보다 작으면 근거가 없어 비운 장면이 있다.
+            "captionedScenes": result.caption_count,
+            "tagCandidates": result.tag_candidate_count,
+            # `unknown` 으로 남은 장면 수. 이 비율이 튀면 프롬프트나 모델을 사람이 봐야
+            # 한다는 신호다(`ocr` 의 `unverifiedObservations` 와 같은 용도).
+            "unknownShotTypes": result.unknown_shot_type_count,
+            "keyframesSent": len(selected),
+        },
+    )
+
+
+def _vlm_client(payload_bytes: int) -> "VlmClient":
+    """어느 어댑터로 나갈지 고른다. **외부 전송 판정이 여기 있다.**
+
+    판정을 모듈이 아니라 여기서 하는 이유는 `vlm_metadata/__init__.py` 가 적어 둔
+    경계다 — 단계 구현은 어느 provider 로 나가는지 모르고, 고르는 쪽이 PRD §12.4 의
+    조건을 책임진다.
+
+    외부 경로는 **지금 항상 거절된다.** clip 별 외부 처리 권리 확인을 실어 보내는 자리가
+    잡 계약에 없고(`external_policy.py` 모듈 docstring), deployment 수준 허용이 그것을
+    대신할 수 없다. 거절은 `EXTERNAL_PROCESSING_NOT_ALLOWED`(영구)이고 **전송 전**이다.
+    """
+    from npick_worker.vlm_metadata.external_policy import (
+        PAYLOAD_CATEGORY_SELECTED_KEYFRAMES,
+        ExternalCallRequest,
+        ExternalProcessingNotAllowedError,
+        authorize,
+    )
+
+    settings = get_settings()
+    if settings.vlm_backend == "transformers":
+        from npick_worker.vlm_metadata.transformers_backend import shared_client
+
+        return shared_client(settings)
+
+    request = ExternalCallRequest(
+        model=settings.vlm_external_model,
+        endpoint=settings.vlm_external_endpoint,
+        payload_category=PAYLOAD_CATEGORY_SELECTED_KEYFRAMES,
+        payload_bytes=payload_bytes,
+        # 설정에서 읽지 않는다. 전역 플래그가 clip 별 권리 확인을 대신하는 것이 PRD 가
+        # 금지한 것이다(`external_policy.py`).
+        clip_rights_confirmed=False,
+    )
+    try:
+        authorize(request, settings)
+    except ExternalProcessingNotAllowedError as exc:
+        # 원문·secret 을 싣지 않는다. 사유·크기·판정만 남는다(PRD §12.4 감사 기록).
+        logger.warning(
+            "외부 VLM 전송을 하지 않았다: profile=%s bytes=%d 사유=%s",
+            settings.vlm_external_provider_profile,
+            payload_bytes,
+            exc,
+        )
+        raise ExternalProcessingRefusedError(str(exc)) from exc
+    # 조건이 전부 맞았더라도 보낼 구현이 없다. 없는 것을 있는 척하지 않는다 —
+    # `NO_ADAPTER`(영구 → skipped)가 이 사실의 코드다.
+    msg = "외부 VLM 어댑터 구현이 없다"
+    raise StageUnavailableError(msg)
+
+
+def _vlm_identity(
+    *,
+    config_version: str,
+    engine: str,
+    engine_version: str,
+    model_version: str,
+    tokenizer: str,
+) -> dict[str, str]:
+    """vlm_metadata 의 재현 튜플. 축이 다섯이다.
+
+    앞 단계들보다 둘 많다. `modelVersion` 은 가중치가 바뀌면 같은 프레임에서 다른 문장이
+    나오기 때문이고, `tokenizer` 는 `scene.caption_tokens` 가 이 단계의 산출물이기
+    때문이다 — Kiwi 설정이 바뀌면 설명이 같아도 색인이 달라진다(`ocr` 과 같은 이유).
+
+    `promptVersion` 은 여기 없다. `configVersion` 이 설정 파일 전체의 해시이고 프롬프트가
+    그 파일의 한 절이므로, 프롬프트가 바뀌면 `configVersion` 도 바뀐다. 두 값을 다 넣으면
+    해시에 같은 정보가 두 번 들어간다 — `versions.promptVersion` 으로는 그대로 보고한다.
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+        "modelVersion": model_version,
+        "tokenizer": tokenizer,
+    }
+
+
+def _warm_vlm_metadata() -> str:
+    """설정을 미리 읽고 가중치를 미리 올린다.
+
+    `ocr` 과 같은 이유다 — 첫 잡에서 모델을 내려받으면 그 시간이 통째로 그 잡의 처리
+    시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다. 기동 때 하면
+    `/health` 로 드러난다. 이 단계는 앞의 셋과 달리 **VRAM 을 실제로 잡는다.**
+
+    외부 백엔드로 설정돼 있으면 워밍업할 것이 없다. 예외를 던져 `warmed=False` 로
+    보고한다 — 없는 것을 있는 척하지 않는다(`warm_up` 이 예외를 잡아 기록한다).
+    """
+    from npick_worker.vlm_metadata import get_default_config, prompt_version
+    from npick_worker.vlm_metadata.transformers_backend import TransformersVlmClient
+
+    config = get_default_config()
+    client = _vlm_client(0)
+    loaded = (
+        client.warm_up()
+        if isinstance(client, TransformersVlmClient)
+        else f"model={client.model_version}"
+    )
+    return f"config={config.version_id} prompt={prompt_version(config)} {loaded}"
+
+
 def _parse_upstream[T: BaseModel](model: type[T], payload: Mapping[str, Any]) -> T:
     """`inputs.upstream` 을 단계가 기대하는 모양으로 검증한다.
 
@@ -532,6 +755,14 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
         for handler in (
             StageHandler("scene_detection", _run_scene_detection, _warm_scene_detection),
             StageHandler("frame_extraction", _run_frame_extraction, _warm_frame_extraction),
+            StageHandler(
+                "vlm_metadata",
+                _run_vlm_metadata,
+                _warm_vlm_metadata,
+                required_inputs=_vlm_selected_keys,
+                # 이 단계도 영상을 열지 않는다. 상류가 올린 keyframe JPEG 만 본다.
+                needs_video=False,
+            ),
             StageHandler(
                 "ocr",
                 _run_ocr,
@@ -656,6 +887,29 @@ def _declared_version(stage: str) -> str:
                 config_version=ocr_config.version_id,
                 engine=ocr_engine.name,
                 engine_version=ocr_engine.version,
+                tokenizer=korean_tokens.tokenizer_version(),
+            ),
+        )
+    if stage == "vlm_metadata":
+        from npick_worker import korean_tokens
+        from npick_worker.vlm_metadata import get_default_config as get_vlm_config
+
+        vlm_config = get_vlm_config()
+        # **클라이언트를 만들어 본다.** `ocr` 과 같은 이유다 — 모델이 설정되지 않았거나
+        # 런타임이 없는 워커는 여기서 걸려 `capability_versions` 가 이 단계를 목록에서
+        # 빼야 한다. 배정받지 못하는 편이 배정받아 매번 `MODEL_UNAVAILABLE` 로 죽는
+        # 것보다 낫다. 외부 백엔드로 설정된 워커도 여기서 걸린다(전송 조건 미충족).
+        #
+        # 가중치를 여기서 올리지는 않는다. 생성자는 이름만 검사하고 로딩은 첫 호출까지
+        # 미룬다 — 이 함수가 claim 한 바퀴마다 불리기 때문이다(`ocr` 분기의 같은 지적).
+        vlm_client = _vlm_client(0)
+        return stage_version(
+            stage,
+            _vlm_identity(
+                config_version=vlm_config.version_id,
+                engine=vlm_client.name,
+                engine_version=vlm_client.version,
+                model_version=vlm_client.model_version,
                 tokenizer=korean_tokens.tokenizer_version(),
             ),
         )

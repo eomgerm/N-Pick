@@ -464,6 +464,95 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 **비치명이다.** `stages.py`가 이 단계를 `fatal=False`로 둔다. 실패해도 run은 계속 가고 그 사실이 `stage_states_json`에 남는다("VLM·OCR·음성인식 중 하나가 실패해도 나머지 결과를 사용할 수 있으면 처리를 계속한다", [docs/frd.md](../frd.md) §3 F-03).
 
+### 4.3.3 `vlm_metadata` — 장면 설명과 샷 유형
+
+`ocr`과 같은 상류를 쓰고 같은 파일을 본다. 다른 것은 **무엇을 보느냐**다 — OCR은 화면에 적힌 문자열을 읽고, 이 단계는 장면이 어떤 화면인지를 말한다. 두 역할은 겹치지 않는다([docs/frd.md](../frd.md) §3 F-03).
+
+**입력** — `inputs.upstream.frameExtraction`이 필수다. 모양은 §4.3.2와 같다. 없으면 워커는 `VALIDATION_ERROR`(영구)로 실패를 신고한다. 빈 결과를 성공으로 반납하면 "이 영상에는 설명할 장면이 없다"는 거짓이 정본에 남는다.
+
+**장면당 keyframe을 여러 장 넣는다.** 한 장씩 따로 보면 "앵커에서 자료 화면으로 넘어간다" 같은 판단이 불가능하고, 그 판단이 이 단계가 존재하는 이유다. 장면당 장 수는 상류가 내용으로 정하므로(F-03) 고정이 아니고, 워커가 설정 상한(`max_keyframes_per_scene`)까지만 넣는다.
+
+**러너는 고른 것만 받아 온다.** `StageHandler.required_inputs`가 돌려주는 목록이 상류 keyframe 전부가 아니라 **모델에 실제로 넣을 것**이다. 상한을 넘는 장면에서는 시간순으로 양 끝을 포함해 고르게 고른다 — 앞에서 자르면 장면 뒷부분이 통째로 빠진다. 고르는 규칙은 결정론이다(§8).
+
+**결과** — 이 단계는 `artifacts`를 만들지 않는다. 전부 `output`으로 간다.
+
+```json
+{
+  "stage": "vlm_metadata",
+  "status": "succeeded",
+  "versions": {
+    "stageVersion": "npick.stage.vlm_metadata/v1:325198af",
+    "outputSchemaVersion": "npick.stage.vlm_metadata.output/v1",
+    "configVersion": "vlm-metadata-config/v1:fcd15e10",
+    "modelVersion": "example/vlm@main",
+    "promptVersion": "vlm-metadata-prompt/v1:587f345d",
+    "detail": {
+      "engine": "transformers",
+      "engineVersion": "transformers5.0.0+torch2.13.0",
+      "modelVersion": "example/vlm@main",
+      "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0"
+    },
+    "runtime": { "worker": "0.1.0", "python": "3.12.14", "torch": "2.13.0+cu130", "cuda": "13.0" }
+  },
+  "metrics": {
+    "scenes": 10, "captionedScenes": 9, "tagCandidates": 24,
+    "unknownShotTypes": 1, "keyframesSent": 23
+  },
+  "output": {
+    "metadataSchemaVersion": "vlm-metadata/v1",
+    "scenes": [
+      {
+        "sceneIndex": 8,
+        "shotType": {
+          "value": "b_roll",
+          "confidence": 0.82,
+          "evidence": [{ "sceneIndex": 8, "timestampMs": 71833,
+                         "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }]
+        },
+        "caption": {
+          "value": "취재진이 모인 현장에서 관계자가 무언가를 가리키고 있다",
+          "tokens": "취재진 모이다 현장 관계자 가리키다",
+          "confidence": 0.77,
+          "evidence": [{ "sceneIndex": 8, "timestampMs": 71833,
+                         "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }]
+        },
+        "tagCandidates": [
+          { "type": "scene_type", "value": "사고 현장", "confidence": 0.61,
+            "evidence": [{ "sceneIndex": 8, "timestampMs": 71833,
+                           "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }] }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**`promptVersion`이 처음으로 채워지는 단계다.** 앞의 세 단계는 가중치도 프롬프트도 쓰지 않아 두 키가 `null`이었다(§7). 여기서는 둘 다 값이 있고, `configVersion`과 `promptVersion`은 **다른 값**이다 — 앞엣것은 설정 파일 전체의 해시이고 뒤엣것은 어휘까지 채워 **렌더링된** 프롬프트의 해시다. 어휘를 바꾸면 템플릿이 그대로여도 `promptVersion`이 움직인다.
+
+**`metadataSchemaVersion`은 또 다른 값이다.** `outputSchemaVersion`이 이 payload의 형식이라면, 이쪽은 **모델에게 요구한 JSON**의 버전이다(워커의 `vlm_metadata/schema.py`가 정본). 프롬프트를 고치지 않고도 바뀔 수 있고, 반대도 된다.
+
+**keyframe은 `(sceneIndex, timestampMs)`로 가리킨다.** §4.3.2와 같은 이유다 — `keyframe_id`는 BE가 발급하고 `assignedIds`는 scene만 돌려준다. BE는 이 쌍으로 행을 찾아 `tag_evidence.source_ref_type='keyframe'`·`source_ref_id`를 채운다.
+
+**`shotType`은 항상 있고 `caption`은 없을 수 있다.** `scene.shot_type`이 `NOT NULL`이고 근거가 없을 때 쓸 값이 어휘 안에 있기 때문이다(`unknown`). 반대로 캡션과 태그는 없으면 없는 것이라 `null`·빈 배열이 정상 payload다. **`evidence`가 빈 배열일 수 있는 곳은 `shotType`의 `unknown` 하나뿐이다.**
+
+**단계가 실패해도 `scene.shot_type`은 채워져야 한다.** 그 컬럼이 `NOT NULL`인데 이 단계는 비치명이므로, VLM이 실패한 run에서도 scene 행은 만들어진다. 그때 BE가 쓰는 값은 `unknown`이다 — 워커가 그 사실을 보고할 자리가 없으므로 여기 적어 둔다.
+
+**`caption.tokens`는 워커가 만든다.** BE에 Kiwi가 없고([02-container.md](../architecture/02-container.md)) 색인과 질의가 같은 설정을 써야 한다. `ocr_observation.tokens`와 같은 규약이고 `versions.detail.tokenizer`가 그 설정의 식별자를 싣는다. 공백으로 이어진 문자열이 그대로 `scene.caption_tokens`가 된다.
+
+**`tagCandidates`는 태그가 아니다.** `tag`·`tagging` 행을 만드는 일과 `tag.match_value` 정규화(NFKC + 공백 제거)는 BE의 몫이고, 이 값은 8단계 `entity_extraction`이 모으는 후보와 같은 성격이다. **날짜 유형(`filmed_date`·`broadcast_date`)은 이 payload에 올 수 없다** — 워커 쪽 schema에 그 유형이 없다. 화면에 날짜가 보인다는 사실과 그것이 방송일·촬영일이라는 판단은 다르고, 후자는 OCR 신뢰도와 원본 문맥을 확인한 뒤의 일이다([docs/frd.md](../frd.md) §3 F-04).
+
+**전부 미검증이다.** 이 payload에 검증 상태 필드가 없는 것은 빠뜨려서가 아니라 값이 하나이기 때문이다. 저장할 때 `tag_evidence.source`는 `vlm`, `verification_status`는 `unverified`다. **BE는 confidence가 높다는 이유로 `verified`로 올리지 않는다**([docs/frd.md](../frd.md) §3 F-04: "ASR·VLM·일반 추론 규칙은 기본 미검증"). 사람의 승인 판단은 `reviewer_feedback`으로 따로 남는다.
+
+**형식이 틀린 출력은 통째로 버린다.** 워커가 JSON·schema·어휘·근거를 검사하고, 하나라도 어긋나면 그 출력의 **어떤 필드도** 쓰지 않는다([docs/frd.md](../frd.md) §3 F-03: "형식이 잘못된 출력을 정상 데이터에 부분 적용하지 않는다"). 거부는 `VLM_SCHEMA_INVALID`이고 §9.2대로 **영구**다 — 워커가 `temperature: 0`으로 부르므로 다시 물어도 같은 답이 온다.
+
+**장면 하나가 깨지면 그 단계 전체가 실패한다.** 깨진 장면만 빼고 나머지를 반납하면 그 장면은 "설명이 없는 장면"으로 저장되어, 실패가 정상 데이터로 보인다. 비치명 단계이므로 run은 계속 가고 OCR·ASR 결과는 그대로 쓰인다.
+
+**오류 코드** — 이 단계 전용 코드는 §9.2의 `VLM_SCHEMA_INVALID` 하나다. 나머지는 공통 어휘를 쓴다: 상류 산출물이 잘못됐으면 `VALIDATION_ERROR`(영구), keyframe JPEG을 열 수 없으면 `UNSUPPORTED_MEDIA`(영구), 가중치를 준비하지 못했으면 `MODEL_UNAVAILABLE`(일시), VRAM이 모자라면 `OUT_OF_MEMORY`(일시), 외부 전송 조건이 확인되지 않으면 `EXTERNAL_PROCESSING_NOT_ALLOWED`(영구), 그 밖의 실패는 `STAGE_FAILED`(일시)다.
+
+**외부 제공자는 기본 경로가 아니다.** [02-container.md](../architecture/02-container.md)의 *요소* 표가 이 단계를 워커의 자체 GPU에 두고, 외부 호출은 PRD §12.4의 조건을 **전부** 만족할 때만 쓰는 대체 경로다. 그 조건 중 하나인 clip별 외부 처리 권리 확인을 실어 보내는 자리가 이 계약에 없으므로, 지금 워커의 외부 경로는 항상 전송 전에 fail-closed한다. 자리를 만들려면 이 문서와 §4.1을 함께 고쳐야 한다.
+
+**배정 조건** — 워커는 가중치 이름이 설정돼 있을 때만 이 단계를 `capabilities`에 싣는다. 모델이 없는 워커가 배정받아 매번 `MODEL_UNAVAILABLE`로 죽는 것보다 배정받지 않는 편이 낫다. CPU 전용 워커가 scene 분할·keyframe 추출·OCR만 도는 구성이 그래서 성립한다.
+
 ### 4.4 artifacts — 입력 내려받기 / 산출물 올리기
 
 ```
@@ -582,6 +671,8 @@ compose에서는 backend와 ai-worker가 `media:/srv/npick/media`를 함께 마�
 
 입력은 그 단계의 **재현 튜플 전체**다. `scene_detection`이면 `{configVersion, detector, engine, engineVersion}`, `frame_extraction`이면 `{configVersion, engine, engineVersion}`다 — 후자에 `detector` 같은 축이 없는 것은 고를 구현이 하나뿐이어서다. 항상 같은 값인 축을 넣으면 해시에 아무 정보도 들어가지 않는다.
 
+`vlm_metadata`는 축이 다섯이다 — `{configVersion, engine, engineVersion, modelVersion, tokenizer}`. `modelVersion`이 있는 이유는 가중치가 바뀌면 같은 프레임에서 다른 문장이 나오기 때문이고, `tokenizer`는 `scene.caption_tokens`가 이 단계의 산출물이기 때문이다. `promptVersion`은 축이 아니다 — 프롬프트가 설정 파일의 한 절이라 `configVersion`이 이미 그것을 덮는다. 위 벡터의 `engineVersion`·`modelVersion`은 **예시 값**이다. 실제 값은 설치된 런타임과 설정에서 오므로, 이 벡터가 고정하는 것은 해시 함수와 키 이름이다.
+
 `ocr`은 축이 넷이다 — `{configVersion, engine, engineVersion, tokenizer}`. `tokenizer`가 있는 이유는 `ocr_observation.tokens`가 그 단계의 산출물이기 때문이다. Kiwi 설정이 바뀌면 화면에서 읽은 글자가 같아도 색인이 달라지고, 그건 검색이 0건이 되는 종류의 변화다([02-container.md](../architecture/02-container.md)).
 
 설정 해시만으로는 부족하다. 그 값은 설정 파일만 해시하므로 **라이브러리가 바뀌면 값이 그대로인데 경계는 달라질 수 있다**. 원본 튜플은 `versions.detail`에 그대로 남겨 조사할 수 있게 한다.
@@ -606,6 +697,9 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | `{configVersion: scene-detect/v1:20dfc0a6, detector: content, engine: pyscenedetect, engineVersion: 0.7.1}` | `stageVersion` = `npick.stage.scene_detection/v1:3ab4bebe` |
 | `frame_extraction.v1.toml` 기본 설정 | `configVersion` = `frame-extract/v1:5b266b10` |
 | `{configVersion: frame-extract/v1:5b266b10, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:595427d7` |
+| `vlm_metadata.v1.toml` 기본 설정 | `configVersion` = `vlm-metadata-config/v1:fcd15e10` |
+| 같은 설정의 **렌더링된** 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v1:587f345d` |
+| `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0+torch2.13.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:325198af` |
 | `ocr.v1.toml` 기본 설정 | `configVersion` = `ocr/v1:daaf4c83` |
 | `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.ocr/v1:449d6928` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, ocr: npick.stage.ocr/v1:bbbbbbbb}` | `pipelineVersion` = `npick-pipeline/v1:64960bae4565` |
@@ -749,7 +843,7 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 7단계 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다 |
+| 미구현 6단계 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 

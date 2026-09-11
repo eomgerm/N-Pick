@@ -653,3 +653,145 @@ def test_ocr_stage_version_matches_recorded_vector() -> None:
         )
         == "npick.stage.ocr/v1:449d6928"
     )
+
+
+# ── vlm_metadata (계약 §4.3.3) ──────────────────────────────────────
+
+
+def _vlm_result(**overrides: object) -> object:
+    """검증을 통과한 단계 산출물 하나. 와이어 변환만 보는 테스트의 입력이다."""
+    from npick_worker.vlm_metadata.models import (
+        Caption,
+        KeyframeRef,
+        SceneMetadata,
+        ShotTypeJudgement,
+        TagCandidate,
+        VlmResult,
+    )
+
+    keyframe = KeyframeRef(
+        scene_index=0,
+        timestamp_ms=4200,
+        storage_key="runs/1/frame_extraction/a1/s0000/kf-000004200.jpg",
+    )
+    scene = SceneMetadata(
+        scene_index=0,
+        shot_type=ShotTypeJudgement(value="anchor", confidence=0.8, evidence=(keyframe,)),
+        caption=Caption(
+            value="앵커가 스튜디오에서 소식을 전한다",
+            tokens=("앵커", "스튜디오", "소식", "전하다"),
+            confidence=0.9,
+            evidence=(keyframe,),
+        ),
+        tag_candidates=(
+            TagCandidate(type="scene_type", value="스튜디오", confidence=0.7, evidence=(keyframe,)),
+        ),
+    )
+    values: dict[str, object] = {
+        "scenes": (scene,),
+        "schema_version": "vlm-metadata/v1",
+        "config_version": "vlm-metadata-config/v1:test",
+        "prompt_version": "vlm-metadata-prompt/v1:test",
+        "engine": "transformers",
+        "engine_version": "test",
+        "model_version": "example/vlm@main",
+        "tokenizer": "query-norm/v1:test",
+    }
+    values.update(overrides)
+    return VlmResult(**values)  # type: ignore[arg-type]
+
+
+def test_vlm_upstream_requires_frame_extraction() -> None:
+    """상류가 없으면 무엇을 볼지 모른다. 빈 결과를 성공으로 반납하지 않는다."""
+    from npick_worker.jobs.models import VlmMetadataUpstream
+
+    with pytest.raises(ValidationError):
+        VlmMetadataUpstream.model_validate({})
+
+
+def test_vlm_output_groups_by_scene() -> None:
+    """`ocr` 과 반대다. 저장 자리가 `scene` 행의 컬럼이라 scene 단위로 보낸다."""
+    from npick_worker.jobs.models import VlmMetadataOutput
+
+    payload = VlmMetadataOutput.from_result(_vlm_result()).model_dump(  # type: ignore[arg-type]
+        by_alias=True, mode="json"
+    )
+
+    assert payload["metadataSchemaVersion"] == "vlm-metadata/v1"
+    scene = payload["scenes"][0]
+    assert scene["sceneIndex"] == 0
+    assert scene["shotType"]["value"] == "anchor"
+    # `scene.caption_tokens` 에 들어가는 문자열. 공백으로 이어진다(색인이 whitespace 다).
+    assert scene["caption"]["tokens"] == "앵커 스튜디오 소식 전하다"
+    # 근거는 `(sceneIndex, timestampMs)` 쌍이다. `keyframe_id` 는 BE 가 발급한다.
+    assert scene["caption"]["evidence"] == [
+        {
+            "sceneIndex": 0,
+            "timestampMs": 4200,
+            "storageKey": "runs/1/frame_extraction/a1/s0000/kf-000004200.jpg",
+        }
+    ]
+
+
+def test_vlm_output_allows_a_scene_without_a_caption() -> None:
+    """근거가 없으면 비운다. `caption: null` 은 정상 payload 다."""
+    from npick_worker.jobs.models import VlmMetadataOutput
+    from npick_worker.vlm_metadata.models import SceneMetadata, ShotTypeJudgement
+
+    scene = SceneMetadata(
+        scene_index=0,
+        shot_type=ShotTypeJudgement(value="unknown", confidence=0.1, evidence=()),
+    )
+    payload = VlmMetadataOutput.from_result(
+        _vlm_result(scenes=(scene,))  # type: ignore[arg-type]
+    ).model_dump(by_alias=True, mode="json")
+
+    assert payload["scenes"][0]["caption"] is None
+    assert payload["scenes"][0]["tagCandidates"] == []
+    # `unknown` 만 근거 없이 올 수 있다. `scene.shot_type` 이 NOT NULL 이라 값은 있어야 한다.
+    assert payload["scenes"][0]["shotType"] == {
+        "value": "unknown",
+        "confidence": 0.1,
+        "evidence": [],
+    }
+
+
+def test_vlm_config_version_matches_recorded_vector() -> None:
+    """`vlm_metadata.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
+    from npick_worker.vlm_metadata import get_default_config
+
+    assert get_default_config().version_id == "vlm-metadata-config/v1:fcd15e10"
+
+
+def test_vlm_prompt_version_matches_recorded_vector() -> None:
+    """**렌더링된** 프롬프트의 벡터다. 어휘를 고치면 템플릿이 그대로여도 바뀐다."""
+    from npick_worker.vlm_metadata import get_default_config, prompt_version
+
+    assert prompt_version(get_default_config()) == "vlm-metadata-prompt/v1:587f345d"
+
+
+def test_vlm_stage_version_matches_recorded_vector() -> None:
+    """재현 튜플은 `{configVersion, engine, engineVersion, modelVersion, tokenizer}` 다.
+
+    축이 다섯인 첫 단계다. `modelVersion` 은 가중치가 바뀌면 같은 프레임에서 다른 문장이
+    나오기 때문이고, `tokenizer` 는 `scene.caption_tokens` 가 이 단계의 산출물이기
+    때문이다.
+
+    `engineVersion`·`modelVersion` 은 **예시 값**이다. 실제 값은 설치된 런타임과 설정에서
+    오므로 고정 벡터로 쓸 수 없다 — 이 벡터가 고정하는 것은 해시 함수와 키 이름이고,
+    그것이 BE 의 Java 포팅이 대조해야 하는 것이다. 값이 바뀌면 계약 문서의 벡터도 함께
+    고친다.
+    """
+    assert (
+        stage_version(
+            "vlm_metadata",
+            {
+                "configVersion": "vlm-metadata-config/v1:fcd15e10",
+                "engine": "transformers",
+                "engineVersion": "transformers5.0.0+torch2.13.0",
+                "modelVersion": "example/vlm@main",
+                "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0",
+            },
+        )
+        == "npick.stage.vlm_metadata/v1:325198af"
+    )
