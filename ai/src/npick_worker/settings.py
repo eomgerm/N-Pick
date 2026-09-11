@@ -12,6 +12,9 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 #: Query Resolver 가 어느 adapter 로 나가는가. local 또는 승인된 GMS 중 하나다.
 #: 배포 경계와 교체 가능성은 `docs/architecture/02-container.md` 요소 표가 정본이다.
 ResolverBackend = Literal["ollama", "gms"]
+#: VLM 장면 metadata 가 어느 어댑터로 나가는가. 자체 호스팅이 정본 경로이고(`02-container.md`
+#: 요소 표) 외부 호출은 PRD §12.4 의 조건을 전부 만족할 때만 쓰는 대체 경로다.
+VlmBackend = Literal["transformers", "external"]
 
 
 class Settings(BaseSettings):
@@ -78,6 +81,43 @@ class Settings(BaseSettings):
     #: 때마다 모델을 새로 받는다. Dockerfile 이 /var/cache/npick/models 를 잡아 둔다.
     #: 품질을 바꾸는 값이 아니라 경로이므로 버전이 붙는 설정 파일이 아니라 여기 있다.
     ocr_model_dir: Path | None = None
+
+    # ── VLM 장면 metadata (3단계) ────────────────────────────────────
+    # 어느 어댑터로 장면을 설명하는가. 기본은 **자체 호스팅**이다 —
+    # `docs/architecture/02-container.md` 요소 표가 VLM 을 워커의 자체 GPU 에 두고,
+    # 외부 제공자는 PRD §12.4 의 조건을 전부 만족할 때만 쓸 수 있는 대체 경로다.
+    vlm_backend: VlmBackend = "transformers"
+    #: 가중치 식별자. **기본값을 두지 않는다.** 모델명은 결과를 바꾸는 값이고 실측 후
+    #: 확정 대상이라(FRD §11) 코드가 임의로 고르면 그게 곧 근거 없는 동결이다 —
+    #: `ollama_model` 과 같은 판단이다. 비어 있으면 이 단계는 `MODEL_UNAVAILABLE` 이다.
+    vlm_model: str = ""
+    #: 가중치 리비전(커밋 해시·태그). 같은 이름이라도 리비전이 바뀌면 출력이 달라지므로
+    #: 재현 식별자에 들어간다. 비어 있으면 `main` 을 쓴 것으로 기록한다.
+    vlm_model_revision: str = ""
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: 파드 디스크가 휘발성이라 파드를 띄울 때마다 수 GB 를 다시 받는다
+    #: (`03-deployment.md`: 모델 가중치는 네트워크 볼륨에 상주).
+    vlm_model_dir: Path | None = None
+
+    # ── 외부 VLM 처리 (PRD §12.4) ────────────────────────────────────
+    # 아래 값이 전부 맞아도 **그것만으로 승인이 성립하지 않는다.** clip 별 외부 처리
+    # 권리 확인은 deployment 수준 허용으로 대신할 수 없고(PRD §12.4) 그 확인을 담는 DB
+    # 경로를 만들지 않기로 했다(FRD §11). 그래서 기본값은 전부 닫힘이고, 조건 중 하나라도
+    # 확인되지 않으면 전송 전에 fail-closed 한다.
+    #: 활성 deployment policy 가 있는가.
+    vlm_external_enabled: bool = False
+    #: 활성 provider profile 의 식별자. 감사 기록에 남기는 값이다(원문 대신).
+    vlm_external_provider_profile: str = ""
+    #: 승인된 endpoint. TLS 가 아니면 게이트가 거절한다.
+    vlm_external_endpoint: str = ""
+    #: allowlist 에 오른 모델 이름. `vlm_model` 과 다르면 거절한다.
+    vlm_external_model: str = ""
+    #: provider 의 보관·학습·삭제 조건을 확인하고 승인했는가.
+    vlm_external_provider_terms_confirmed: bool = False
+    #: component 별 payload 크기 상한(바이트).
+    vlm_external_max_payload_bytes: int = Field(default=0, ge=0)
+    #: 승인된 주입 방식으로 들어온 secret. 로그·예외에 싣지 않는다.
+    vlm_external_api_key: SecretStr = SecretStr("")
 
     # ── Query Resolver LLM (local 또는 승인된 GMS) ──
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만
