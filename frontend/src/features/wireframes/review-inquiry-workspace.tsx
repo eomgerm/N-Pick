@@ -32,11 +32,11 @@ import {
   type ReviewInquiryList,
 } from '@/features/wireframes/review-inquiry-api';
 import {
-  countSnapshotEntries,
+  getSnapshotFacts,
   displayClipTitle,
   getClaimRecovery,
   getFilterFacts,
-  uniqueTagNames,
+  evidenceLabel,
 } from '@/features/wireframes/review-inquiry-view';
 import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ResolutionSummary } from '@/features/wireframes/reviewer-resolution';
@@ -198,6 +198,10 @@ function InquiryList({
                       </span>
                     </span>
                     <strong>{displayClipTitle(item.scene.clipTitle)}</strong>
+                    <span>
+                      {formatTimecode(item.scene.startTimeMs)}–
+                      {formatTimecode(item.scene.endTimeMs)}
+                    </span>
                     <span className={boardStyles.comment}>{item.queryText}</span>
                   </span>
                   <span className={boardStyles.age}>{formatDate(item.createdAt)}</span>
@@ -279,19 +283,30 @@ function SearchInterpretation({ value }: { value: string | null }) {
 }
 
 function SnapshotCount({ label, value }: { label: string; value: string | null }) {
-  const count = countSnapshotEntries(value);
+  const facts = getSnapshotFacts(value);
   return (
     <div className="rounded-xl bg-(--surface-muted) p-4">
       <dt className="text-xs font-bold text-(--muted)">{label}</dt>
       <dd className="mt-2 font-semibold">
-        {count === null ? '기록 확인 불가' : count === 0 ? '없음' : `${count}개 기록`}
+        {facts === null ? (
+          '이 형식의 기록은 아직 표시할 수 없습니다.'
+        ) : facts.length === 0 ? (
+          '없음'
+        ) : (
+          <ul className="space-y-2">
+            {facts.map((fact, index) => (
+              <li className="wrap-anywhere" key={index}>
+                {fact.label}: {fact.value}
+              </li>
+            ))}
+          </ul>
+        )}
       </dd>
     </div>
   );
 }
 
 function InquiryDetail({ feedbackId }: { feedbackId: string }) {
-  const member = useMember();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -311,19 +326,6 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
     },
     onSuccess: async () => {
       claimKey.current = null;
-      queryClient.setQueryData<ReviewInquiryDetail>(detailQueryKey, (current) =>
-        current?.status === 'open'
-          ? {
-              ...current,
-              status: 'reviewing',
-              history: {
-                ...current.history,
-                reviewedById: member.memberId,
-                reviewerLoginId: member.loginId,
-              },
-            }
-          : current,
-      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['review-inquiries'] }),
         queryClient.invalidateQueries({ queryKey: detailQueryKey }),
@@ -380,7 +382,6 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
 
   const inquiry: ReviewInquiryDetail = detail.data;
   const clipTitle = displayClipTitle(inquiry.scene.clipTitle);
-  const tagNames = uniqueTagNames(inquiry.evidence);
   const claimRecovery = claim.isError ? getClaimRecovery(claim.error) : null;
   return (
     <div className="mx-auto max-w-5xl">
@@ -469,7 +470,7 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
           {claim.isPending
             ? '검수 시작 요청을 처리하고 있습니다.'
             : claim.isSuccess
-              ? '검수 시작에 성공했습니다. 최신 문의 상태를 확인했습니다.'
+              ? '검수 시작 요청이 성공했습니다.'
               : ''}
         </p>
         {claimRecovery ? (
@@ -548,16 +549,21 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
             </section>
             <section className="rounded-2xl border border-(--line) p-5">
               <h3 className="font-bold">현재 태그</h3>
-              {tagNames.length === 0 ? (
+              {inquiry.evidence.length === 0 ? (
                 <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
               ) : (
                 <ul className="mt-4 flex flex-wrap gap-2" aria-label="현재 장면과 영상의 태그">
-                  {tagNames.map((tagName) => (
+                  {inquiry.evidence.map((evidence, index) => (
                     <li
                       className="rounded-full bg-(--accent-soft) px-3 py-2 text-sm font-semibold text-(--accent-strong)"
-                      key={tagName}
+                      key={`${evidence.taggingId}-${index}`}
                     >
-                      {tagName}
+                      <strong>{evidence.tagName}</strong>
+                      <span className="mt-1 block text-xs text-(--muted)">
+                        출처: {evidenceLabel(evidence.source)} · 검증:{' '}
+                        {evidenceLabel(evidence.verifiedState)} · 범위:{' '}
+                        {evidenceLabel(evidence.scope)}
+                      </span>
                     </li>
                   ))}
                 </ul>

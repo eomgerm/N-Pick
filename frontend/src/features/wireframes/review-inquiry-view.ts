@@ -86,6 +86,93 @@ export function countSnapshotEntries(value: string | null): number | null {
   }
 }
 
+const snapshotLabels: Record<string, string> = {
+  score: '점수',
+  reason: '이유',
+  explanation: '설명',
+  summary: '요약',
+  match: '일치 근거',
+  evidence: '근거',
+  tags: '태그',
+  tag_name: '태그명',
+  tagName: '태그명',
+  value: '값',
+  text: '근거 내용',
+  source: '출처',
+  verified_state: '검증 상태',
+  verifiedState: '검증 상태',
+  scope: '적용 범위',
+  rule_id: '규칙 ID',
+  ruleId: '규칙 ID',
+  status: '처리 상태',
+  order: '적용 순서',
+  applied: '적용 여부',
+  scene_id: '장면 ID',
+  sceneId: '장면 ID',
+  conditions: '조건',
+  operations: '변경 연산',
+  field: '항목',
+  op: '연산',
+};
+
+export function evidenceLabel(value: string | null): string {
+  if (!value) return '기록 없음';
+  const labels: Record<string, string> = {
+    ocr: '화면 문자',
+    asr: '음성 인식',
+    subtitle: '자막',
+    original_metadata: '원본 메타데이터',
+    user_input: '사용자 입력',
+    verified: '검증됨',
+    unverified: '미검증',
+    rejected: '거부됨',
+    scene: '장면',
+    clip: '클립',
+    applied: '적용',
+    skipped: '건너뜀',
+    failed: '실패',
+  };
+  return labels[value.toLowerCase()] ?? '알 수 없는 값';
+}
+
+// Known display fields only: never render resolver output, paths, or arbitrary JSON keys.
+export function getSnapshotFacts(value: string | null): FilterFact[] | null {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const facts: FilterFact[] = [];
+    function visit(item: unknown, path: string, depth: number) {
+      if (depth > 8) return;
+      if (Array.isArray(item)) {
+        item.forEach((child, index) => visit(child, `${path} ${index + 1}`.trim(), depth + 1));
+      } else if (item !== null && typeof item === 'object') {
+        for (const [key, child] of Object.entries(item)) {
+          if (Object.hasOwn(snapshotLabels, key)) {
+            visit(child, [path, snapshotLabels[key]].filter(Boolean).join(' · '), depth + 1);
+          }
+        }
+      } else if (
+        path &&
+        (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')
+      ) {
+        const text = String(item);
+        if (
+          !/(?:[a-z]:[\\/]|\/(?:srv|app|home|tmp|etc)\/|<[^>]+>|Bearer\s|-----BEGIN)/i.test(text)
+        ) {
+          facts.push({
+            label: path,
+            value: typeof item === 'boolean' ? (item ? '예' : '아니요') : text,
+          });
+        }
+      }
+    }
+    visit(parsed, '', 0);
+    return facts.length > 0 || countSnapshotEntries(value) === 0 ? facts : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getClaimRecovery(error: unknown): ClaimRecovery {
   if (error instanceof ApiClientError) {
     if (error.code === 'FEEDBACK_409_001') {
