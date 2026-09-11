@@ -1,6 +1,6 @@
 # N-Pick AI Worker
 
-헬스체크, `scene_detection`, Query Resolver 프롬프트·출력 계약(FRD v3.1 F-04~06)이 구현되어 있다.
+헬스체크, `scene_detection`, `frame_extraction`, Query Resolver 프롬프트·출력 계약(FRD v3.1 F-04~06)이 구현되어 있다.
 
 Query Resolver는 검색 시점에 쓰이며 파이프라인 단계가 아니다. 배포 경계는
 [Container 요소 표](../docs/architecture/02-container.md#요소)를 따른다. 이 모듈은
@@ -53,10 +53,15 @@ Invoke-RestMethod http://127.0.0.1:8000/health | ConvertTo-Json -Depth 5
   },
   "pipeline": {
     "stage_count": 10,
-    "stages": [{ "order": 1, "name": "scene_detection", "fatal": true }]
+    "stages": [
+      { "order": 1, "name": "scene_detection", "fatal": true },
+      { "order": 2, "name": "frame_extraction", "fatal": true }
+    ]
   }
 }
 ```
+
+`pipeline.stages` 는 FRD 단계 표 10개를 전부 싣는다 (위 예시는 앞 둘만 옮겼다).
 
 `gpu` 그룹을 설치하지 않은 환경에서는 `torch_available: false`, `resolved: "cpu"` 로 응답한다. GPU 부재는 오류가 아니다.
 
@@ -88,6 +93,52 @@ uv run --directory ai python -m npick_worker.scene_detection.report     samples/
 scene 표를 출력하고 `--out` 에 `scenes.json` 과 경계 프레임 PNG 를 남긴다.
 필요한 샘플 클립 종류는 [samples/README.md](samples/README.md), 선정 근거와 설정 키는
 [docs/scene-detection.md](docs/scene-detection.md).
+
+## keyframe 추출 (FRD F-03)
+
+scene 마다 **복수 keyframe** 을 뽑고 그중 **결과 카드에 쓸 대표 이미지 1개** 를 고른다.
+구간은 상류 `scene_detection` 산출물에서 받는다 — 실제 파이프라인에서 이 단계에 scene 이
+도착하는 경로가 BE 가 되돌려 주는 JSON 이기 때문이다.
+
+```python
+from pathlib import Path
+from npick_worker.frame_extraction import SceneSpan, extract_keyframes
+
+result = extract_keyframes(
+    Path("clip.mp4"),
+    [SceneSpan(scene_index=0, start_time_ms=0, end_time_ms=4200)],
+    Path("out"),
+)
+scene = result.scenes[0]
+scene.representative  # Keyframe(...) ← 결과 카드에 쓸 한 장
+scene.keyframes[0]  # 같은 객체. 대표는 **목록의 첫 원소**다
+len(scene.keyframes)  # 2 이상 (FRD 의 "복수 키프레임")
+result.image_width  # 원본 해상도. 다운스케일하지 않는다
+result.config_version  # 'frame-extract/v1:5b266b10'
+result.engine_version  # '18.1.0+numpy2.5.2'  ← PyAV + numpy (둘 다 결과를 바꾼다)
+```
+
+`keyframe` 테이블에 대표를 표시할 컬럼이 없어서 **대표는 순서로 전달된다.** BE 는 이 순서대로
+INSERT 하고 대표가 그 scene 의 최소 `keyframe_id` 가 된다. 규약 정본은
+[../docs/contracts/job-api.md](../docs/contracts/job-api.md) §4.3.1.
+
+**작은 글자 OCR 을 위해 원본 해상도를 유지한다**(FRD §3 F-03). 축소본 파일은 만들지 않는다 —
+담을 컬럼이 없고, 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있다. 원본 영상 자체도
+`clip.storage_key` 로 계속 접근할 수 있으므로 필요하면 프레임을 다시 뽑을 수 있다.
+
+같은 입력 + 같은 `(config_version, engine, engine_version)` 이면 **같은 프레임을 고르고 같은
+바이트를 쓴다.** 샘플 클립 23장이 두 실행에서 sha256 까지 동일했다.
+
+샘플 클립 육안 확인:
+
+```bash
+uv run --directory ai python -m npick_worker.frame_extraction.report \
+    samples/KNI_02205.mp4 --out samples/out/KNI_02205-frames
+```
+
+scene 마다 대표(`*`)와 전체 keyframe 시각을 표로 출력하고 `--out` 에 `keyframes.json` 과 JPEG 을
+남긴다. `--scenes` 로 `scene_detection.report` 가 만든 `scenes.json` 을 주면 분할을 다시 돌리지
+않는다. 선정 근거·인코딩 실측·설정 키는 [docs/frame-extraction.md](docs/frame-extraction.md).
 
 ## Query Resolver (FRD F-04~06)
 
@@ -187,13 +238,17 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 
 | 그룹 | 설치 | 내용 | 비고 |
 | --- | --- | --- | --- |
-| 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av·httpx2 | 설치 약 240MB (cv2 113 · av 67 · numpy 45) |
+| 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av·kiwipiepy·rapidocr·onnxruntime·httpx2 | 설치 약 240MB + OCR 약 90MB |
 | `dev` | `uv sync` (기본 포함) | ruff·mypy·pytest·pytest-asyncio | |
 | `gpu` | `uv sync --group gpu` | torch(cu130)·faster-whisper | 약 1.8GB, 최초 1회 |
 
 `scenedetect` 는 PyAV 백엔드만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. GUI 라이브러리가 붙은 `opencv-python` 이면 헤드리스 컨테이너에서 `libGL.so` 로 죽으므로 headless 변종을 쓴다 — 0.7 부터 이건 extra 가 아니라 **`scenedetect-headless` 별도 배포판**이다. 임포트 이름은 그대로 `scenedetect` 이고, 두 배포판을 같이 설치하면 임포트 이름을 다투므로 한쪽만 선언한다.
 
 `scenedetect-headless` 를 `<0.8` 로 묶은 것은 상한 관례를 따른 것이지만, **`<0.7` 처럼 좁게 묶으면 안 된다** — 0.6.x 는 `click<8.3` 을 요구해서 `click` 과 `huggingface-hub`(ASR 단계에서 쓴다)를 함께 끌어내린다.
+
+`rapidocr`(OCR 단계)가 `opencv-python` 을 요구하는데 그건 위와 같은 이유로 들이면 안 되는 배포판이다. **둘은 같은 `cv2` 를 설치하므로 함께 깔면 나중에 깔린 쪽이 이긴다.** `pyproject.toml` 의 `[tool.uv] override-dependencies` 가 항상 거짓인 marker 로 그 요구를 지워 headless 하나만 남긴다 — rapidocr 이 쓰는 것은 `import cv2` 뿐이라 구현체가 headless 여도 된다.
+
+OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/profiles/pipeline.yml` 이 "CPU 워커와 GPU 파드가 같은 이미지를 쓴다" 로 적었기 때문이다. 그룹으로 빼면 배포 이미지가 OCR 을 못 한다. 실행기가 onnxruntime(CPU)이라 GPU 없이 돌아간다 — 샘플 클립에서 장당 약 430ms 다([docs/ocr.md](docs/ocr.md) §9).
 
 **torch 는 PyPI 가 아니라 `download.pytorch.org/whl/cu130` 에서 온다.** PyPI 의 Windows torch 휠은 CPU 전용(약 122MB)이라 그대로 설치하면 CUDA 가 조용히 비활성화된다. `pyproject.toml` 의 `[[tool.uv.index]]` 와 `[tool.uv.sources]` 가 이걸 막는다. macOS 는 CUDA 휠이 없으므로 marker 로 제외되어 PyPI 의 arm64(MPS) 휠로 해석된다.
 
@@ -223,6 +278,7 @@ uv sync --directory ai --group gpu
 | `NPICK_AI_LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `NPICK_AI_DEVICE` | `auto` | `auto` / `cuda` / `cpu`. `cuda` 를 지정해도 불가하면 경고 후 `cpu` 로 내려간다 |
 | `NPICK_AI_MEDIA_ROOT` | 없음 | backend 와 공유하는 미디어 마운트. 없으면 입력을 HTTP 로 받는다 |
+| `NPICK_AI_OCR_MODEL_DIR` | 없음 | OCR 모델 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — 기본값이 site-packages 안이라 컨테이너를 다시 만들 때마다 약 19MB 를 새로 받는다 |
 | `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §6.4 |
 | `NPICK_AI_OLLAMA_URL` | `http://127.0.0.1:11434` | Query Resolver 가 부를 Ollama 주소 |
 | `NPICK_AI_OLLAMA_MODEL` | (없음) | 쓸 모델 태그. **기본값을 두지 않는다** — 모델이 결과를 바꾸고 실측 후 확정이라 코드가 임의로 고르면 근거 없는 동결이 된다 |

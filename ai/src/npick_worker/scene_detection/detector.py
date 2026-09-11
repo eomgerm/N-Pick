@@ -41,7 +41,7 @@ class SceneDetector(Protocol):
 
         `config_version` 은 설정만 해시하므로 이 값이 따로 필요하다. 라이브러리가
         바뀌면 같은 설정에서도 경계가 달라질 수 있다. 재현성 식별자는
-        `(config_version, engine, engine_version)` 튜플이다(FR-PRC-006). 모델 기반
+        `(config_version, engine, engine_version)` 튜플이다(`docs/frd.md:137`). 모델 기반
         detector 라면 가중치 해시를 이 버전에 섞는다.
         """
         ...

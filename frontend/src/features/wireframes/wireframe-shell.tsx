@@ -3,7 +3,7 @@
 import { routes } from '@/lib/routes';
 import { AppShell } from '@/components/app-shell';
 
-import { CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -15,6 +15,13 @@ import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
 import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
+import {
+  canCreateInquiry,
+  getDemoSearchExecution,
+  getSearchExecutionAnnouncement,
+  successfulSearchExecution,
+} from '@/features/wireframes/search-execution-status';
+import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
 
 export interface SearchScreenParams {
   q?: string;
@@ -39,6 +46,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const broadcastRange = readDateRange(initialParams.broadcastFrom, initialParams.broadcastTo);
   const filmingRange = readDateRange(initialParams.filmingFrom, initialParams.filmingTo);
   const demoState = initialParams.state;
+  const demoSearchExecution = getDemoSearchExecution(demoState);
   const [query, setQuery] = useState(
     (typeof initialQuery === 'string' && initialQuery.trim()) ||
       '2025년 추석 경부고속도로 귀성길 정체',
@@ -62,6 +70,8 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
       : displayedResults.length === 0
         ? 'empty'
         : 'populated';
+  const searchExecution =
+    resultState === 'populated' ? demoSearchExecution : successfulSearchExecution;
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
     [submittedQuery],
@@ -110,7 +120,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   );
 
   function handleInquirySubmit() {
-    if (inquiryResultId === null) {
+    if (inquiryResultId === null || !canCreateInquiry(searchExecution)) {
       return;
     }
 
@@ -130,6 +140,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   }
 
   function handlePreviewInquiry() {
+    if (!canCreateInquiry(searchExecution)) return;
     setIsPreviewOpen(false);
     setInquiryResultId(selectedResult.id);
   }
@@ -189,15 +200,24 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 <span key={`${token}-${index}`}>{token}</span>
               ))}
             </div>
-            <span className={styles.searchHealth}>
+            <span
+              className={styles.searchHealth}
+              data-status={searchExecution.status === 'degraded' ? 'degraded' : resultState}
+            >
               {resultState === 'populated' || resultState === 'empty' ? (
-                <CheckCircle2 aria-hidden="true" />
+                searchExecution.status === 'degraded' ? (
+                  <AlertTriangle aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 aria-hidden="true" />
+                )
               ) : null}
               {resultState === 'failed'
                 ? '검색 연결 실패'
                 : resultState === 'loading'
                   ? '검색 중'
-                  : '정상 검색'}
+                  : searchExecution.status === 'degraded'
+                    ? '일부 기능 누락'
+                    : '정상 검색'}
             </span>
           </section>
 
@@ -234,17 +254,20 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 }}
               />
             ) : (
-              <div className={styles.resultsGrid}>
-                {displayedResults.map((result, index) => (
-                  <SearchResultCard
-                    result={result}
-                    position={index + 1}
-                    isSelected={isPreviewOpen && selectedResultId === result.id}
-                    key={result.id}
-                    onSelect={handlePreviewSelect}
-                  />
-                ))}
-              </div>
+              <>
+                <SearchResultNotices execution={searchExecution} variant="results" />
+                <div className={styles.resultsGrid}>
+                  {displayedResults.map((result, index) => (
+                    <SearchResultCard
+                      result={result}
+                      position={index + 1}
+                      isSelected={isPreviewOpen && selectedResultId === result.id}
+                      key={result.id}
+                      onSelect={handlePreviewSelect}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </section>
         </main>
@@ -255,7 +278,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           ? '검색에 실패했습니다.'
           : resultState === 'loading'
             ? '검색 중입니다.'
-            : `${submittedQuery} 검색 결과 ${displayedResults.length}개`}
+            : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
 
       {isPreviewOpen ? (
@@ -263,10 +286,10 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           result={selectedResult}
           theme={theme}
           isSubmitted={submittedInquiryIds.includes(selectedResult.id)}
+          searchExecution={searchExecution}
           onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
           keepLoading={initialParams.preview === 'loading'}
-          showSafetyNotice={false}
         />
       ) : null}
       {inquiryResult ? (

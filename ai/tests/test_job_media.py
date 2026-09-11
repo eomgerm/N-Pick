@@ -286,3 +286,52 @@ async def test_fallback_needs_a_client(tmp_path: Path) -> None:
     with pytest.raises(InputUnavailableError):
         async with resolver.resolve("run-1", ref):
             pass
+
+
+# ── 상류 산출물 (fetch_artifacts) ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_duplicate_keys_are_downloaded_once(
+    fake_backend: FakeBackend, job_client: JobApiClient, tmp_path: Path
+) -> None:
+    """중복 제거가 두 갈래 중 한쪽에만 걸려 있으면 http 쪽이 샌다.
+
+    `resolved` 를 보는 가드는 공유 마운트에서 이미 푼 키만 거른다. 같은 키가 두 번
+    오면 다운로드 목록에는 두 번 들어가 같은 파일을 두 번 받는다. keyframe 214장이
+    정상 규모(계약 §4.3.2)이므로 중복 하나가 왕복 하나다.
+    """
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"jpeg-1"))
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=b"jpeg-2"))
+    resolver = MediaResolver(None, job_client)
+
+    key = "runs/1/frame_extraction/a1/s0000/kf-000004200.jpg"
+    other = "runs/1/frame_extraction/a1/s0001/kf-000009100.jpg"
+    resolved = await resolver.fetch_artifacts(
+        "run-1", [key, other, key], tmp_path / "upstream", transport="http"
+    )
+
+    assert len(fake_backend.calls("artifact_get")) == 2
+    assert set(resolved) == {key, other}
+    assert resolved[key].read_bytes() == b"jpeg-1"
+    assert resolved[other].read_bytes() == b"jpeg-2"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_keys_on_the_shared_mount_resolve_once(
+    media_root: Path, fake_backend: FakeBackend, job_client: JobApiClient, tmp_path: Path
+) -> None:
+    """마운트 갈래도 같은 자리에서 걸러진다. 두 갈래가 같은 목록을 본다는 확인이다."""
+    (media_root / "runs").mkdir()
+    (media_root / "runs" / "kf.jpg").write_bytes(b"jpeg")
+    resolver = MediaResolver(media_root, job_client)
+
+    resolved = await resolver.fetch_artifacts(
+        "run-1",
+        ["runs/kf.jpg", "runs/kf.jpg"],
+        tmp_path / "upstream",
+        transport="shared-volume",
+    )
+
+    assert set(resolved) == {"runs/kf.jpg"}
+    assert fake_backend.calls("artifact_get") == []

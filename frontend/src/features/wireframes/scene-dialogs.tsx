@@ -13,13 +13,19 @@ import {
   RotateCcw,
   X,
 } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
 import {
   formatTimestamp,
   getVerificationStatusLabel,
   type SearchResult,
 } from '@/features/wireframes/demo-scenes';
+import {
+  canCreateInquiry,
+  type SearchExecutionPresentation,
+  successfulSearchExecution,
+} from '@/features/wireframes/search-execution-status';
+import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
@@ -27,12 +33,20 @@ import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
 interface SceneDialogProps {
   children: ReactNode;
   className: string;
+  describedBy?: string;
   labelledBy: string;
   theme: WireframeTheme;
   onClose: () => void;
 }
 
-function SceneDialog({ children, className, labelledBy, theme, onClose }: SceneDialogProps) {
+function SceneDialog({
+  children,
+  className,
+  describedBy,
+  labelledBy,
+  theme,
+  onClose,
+}: SceneDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -52,6 +66,7 @@ function SceneDialog({ children, className, labelledBy, theme, onClose }: SceneD
 
   return (
     <dialog
+      aria-describedby={describedBy}
       aria-labelledby={labelledBy}
       className={`${styles.dialogTheme} ${styles.dialog} ${className}`}
       data-theme={theme}
@@ -115,7 +130,7 @@ interface ScenePreviewDialogProps {
   contextLabel?: string;
   notice?: string;
   autoPlay?: boolean;
-  showSafetyNotice?: boolean;
+  searchExecution?: SearchExecutionPresentation;
   onClose: () => void;
   keepLoading?: boolean;
 }
@@ -131,7 +146,7 @@ export function ScenePreviewDialog({
   contextLabel,
   notice,
   autoPlay = false,
-  showSafetyNotice = true,
+  searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
@@ -145,6 +160,8 @@ export function ScenePreviewDialog({
   const [isPlaying, setIsPlaying] = useState(autoPlay);
   const [replayCount, setReplayCount] = useState(0);
   const sceneListRef = useRef<HTMLOListElement>(null);
+  const inquiryUnavailableReasonId = useId();
+  const isInquiryUnavailable = !isSubmitted && !canCreateInquiry(searchExecution);
   useEffect(() => {
     if (keepLoading) return;
     // 미디어 API 연결 전, 로딩 → 준비 화면 전환을 보여 주는 데모입니다.
@@ -189,6 +206,7 @@ export function ScenePreviewDialog({
     <SceneDialog
       theme={theme}
       className={styles.previewModal}
+      describedBy={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
       labelledBy="preview-title"
       onClose={onClose}
     >
@@ -203,13 +221,27 @@ export function ScenePreviewDialog({
           {onInquiry ? (
             <button
               className={styles.previewReportButton}
-              disabled={isSubmitted}
+              data-state={
+                isSubmitted ? 'submitted' : isInquiryUnavailable ? 'unavailable' : 'ready'
+              }
+              disabled={isSubmitted || isInquiryUnavailable}
               onClick={onInquiry}
               type="button"
             >
-              {isSubmitted ? <Check aria-hidden="true" /> : <Flag aria-hidden="true" />}
-              {isSubmitted ? '접수됨' : '이상해요'}
+              {isSubmitted ? (
+                <Check aria-hidden="true" />
+              ) : isInquiryUnavailable ? (
+                <AlertTriangle aria-hidden="true" />
+              ) : (
+                <Flag aria-hidden="true" />
+              )}
+              {isSubmitted ? '접수됨' : isInquiryUnavailable ? '문의 불가' : '이상해요'}
             </button>
+          ) : null}
+          {onInquiry && isInquiryUnavailable ? (
+            <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
+              검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.
+            </p>
           ) : null}
           <button
             aria-label="Preview 닫기"
@@ -423,15 +455,7 @@ export function ScenePreviewDialog({
               <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
           </div>
-          {showSafetyNotice ? (
-            <div className={styles.safetyNotice}>
-              <AlertTriangle aria-hidden="true" />
-              <p>
-                <strong>송출 전 최종 확인</strong>
-                내용·최신성·권리·사용 적합성을 확인하세요.
-              </p>
-            </div>
-          ) : null}
+          <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
       </div>
     </SceneDialog>

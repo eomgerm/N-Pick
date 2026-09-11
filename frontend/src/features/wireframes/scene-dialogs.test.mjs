@@ -9,6 +9,11 @@ import ts from 'typescript';
 const cssModuleUrl = `data:text/javascript,${encodeURIComponent(
   'export default new Proxy({}, { get: (_, key) => String(key) });',
 )}`;
+const localFiles = {
+  '@/features/wireframes/demo-scenes': './demo-scenes.ts',
+  '@/features/wireframes/search-execution-status': './search-execution-status.ts',
+  '@/features/wireframes/search-result-notices': './search-result-notices.tsx',
+};
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -18,13 +23,13 @@ registerHooks({
     ) {
       return { url: cssModuleUrl, shortCircuit: true };
     }
-    if (specifier === '@/features/wireframes/demo-scenes') {
-      return { url: new URL('./demo-scenes.ts', import.meta.url).href, shortCircuit: true };
+    if (localFiles[specifier]) {
+      return { url: new URL(localFiles[specifier], import.meta.url).href, shortCircuit: true };
     }
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
-    if (url === new URL('./scene-dialogs.tsx', import.meta.url).href) {
+    if (url.endsWith('.ts') || url.endsWith('.tsx')) {
       return {
         format: 'module',
         source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
@@ -38,25 +43,31 @@ registerHooks({
 });
 
 const { ScenePreviewDialog } = await import('./scene-dialogs.tsx');
+const { getDemoSearchExecution } = await import('./search-execution-status.ts');
 const { results } = await import('./demo-scenes.ts');
 
-function renderScene(result, showSafetyNotice) {
+function renderPreview({ isSubmitted = false, result = results[0], state } = {}) {
   return renderToStaticMarkup(
     createElement(ScenePreviewDialog, {
       result,
       theme: 'shinhan',
+      isSubmitted,
+      onInquiry() {},
       onClose() {},
-      showSafetyNotice,
+      keepLoading: true,
+      searchExecution: getDemoSearchExecution(state),
     }),
   );
 }
 
 test('출처 접두사는 matchEvidence가 있는 결과에만 표시한다', () => {
-  const withEvidence = renderScene(results[0]);
-  const withoutEvidence = renderScene({
-    ...results[0],
-    matchEvidence: undefined,
-    source: '장소가 정확한지 아직 확인되지 않았어요.',
+  const withEvidence = renderPreview();
+  const withoutEvidence = renderPreview({
+    result: {
+      ...results[0],
+      matchEvidence: undefined,
+      source: '장소가 정확한지 아직 확인되지 않았어요.',
+    },
   });
 
   assert.ok(withEvidence.includes('출처 · Keyframe OCR'));
@@ -64,12 +75,35 @@ test('출처 접두사는 matchEvidence가 있는 결과에만 표시한다', ()
   assert.ok(!withoutEvidence.includes('출처 · 장소가 정확한지 아직 확인되지 않았어요.'));
 });
 
-test('검색 결과 Preview에서는 송출 전 최종 확인 문구를 숨길 수 있다', () => {
-  const withNotice = renderScene(results[0]);
-  const withoutNotice = renderScene(results[0], false);
+test('정상 Preview는 문의를 허용하고 공용 송출 전 고지를 표시한다', () => {
+  const html = renderPreview();
 
-  assert.ok(withNotice.includes('송출 전 최종 확인'));
-  assert.ok(withNotice.includes('내용·최신성·권리·사용 적합성을 확인하세요.'));
-  assert.ok(!withoutNotice.includes('송출 전 최종 확인'));
-  assert.ok(!withoutNotice.includes('내용·최신성·권리·사용 적합성을 확인하세요.'));
+  assert.match(html, /data-state="ready"/);
+  assert.ok(html.includes('이상해요'));
+  assert.ok(!html.includes('문의 불가'));
+  assert.ok(html.includes('송출 전 최종 확인'));
+});
+
+test('접수 완료와 snapshot 문의 불가를 다른 상태로 표시한다', () => {
+  const submittedHtml = renderPreview({ isSubmitted: true });
+  const unavailableHtml = renderPreview({ state: 'degraded-snapshot' });
+
+  assert.match(submittedHtml, /data-state="submitted"/);
+  assert.ok(submittedHtml.includes('접수됨'));
+  assert.match(unavailableHtml, /data-state="unavailable"/);
+  assert.ok(unavailableHtml.includes('문의 불가'));
+  assert.ok(
+    unavailableHtml.includes('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'),
+  );
+  assert.match(unavailableHtml, /<dialog aria-describedby="[^"]+"/);
+  assert.match(unavailableHtml, /disabled=""/);
+  assert.ok(unavailableHtml.includes('검색 기록 저장 실패'));
+});
+
+test('이미 접수된 문의는 snapshot 상태에서도 접수 완료로만 안내한다', () => {
+  const html = renderPreview({ isSubmitted: true, state: 'degraded-snapshot' });
+
+  assert.match(html, /data-state="submitted"/);
+  assert.ok(html.includes('접수됨'));
+  assert.ok(!html.includes('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'));
 });

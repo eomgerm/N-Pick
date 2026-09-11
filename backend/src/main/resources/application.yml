@@ -58,16 +58,16 @@ server:
 # 합의한 입력 기본값은 환경변수로 덮어쓸 수 있다.
 # 저장 경로 등 필수 설정이 비면 등록을 거부한다.
 npick:
+  pipeline:
+    profile: ${NPICK_PIPELINE_PROFILE:classpath:pipeline-profile.yml}
   clip-registration:
+    # 파서 메모리 보호용 운영 한도(byte). 시간 허용 오차와 무관하다.
+    subtitle-max-bytes: ${CLIP_SUBTITLE_MAX_BYTES:10485760}
     media-root: ${CLIP_MEDIA_ROOT:${NPICK_MEDIA_ROOT:}}
     upload-root: ${CLIP_UPLOAD_ROOT:}
     probe-timeout: ${CLIP_PROBE_TIMEOUT:60s}
     # 개발용 잠정값. 실제 데이터셋의 전체 디코딩 시간 측정 후 조정한다.
     decode-timeout: ${CLIP_DECODE_TIMEOUT:30m}
-    # 최초 등록용 실행 정의 식별자. 실행기에서 모델·단계 설정 버전을 결합할 때 갱신한다.
-    pipeline-version: ${CLIP_PIPELINE_VERSION:pipeline-v1}
-    # ai/src/npick_worker/stages.py의 단계 순서에 맞춘 초기 실행 설정.
-    stage-names: ${CLIP_STAGE_NAMES:scene_detection,frame_extraction,vlm_metadata,ocr,transcript_selection,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing}
     # 현재 영상 분석은 자체 GPU 사용. 외부 AI를 사용하는 실행 정의에서는 true로 변경한다.
     external-processing-required: ${CLIP_EXTERNAL_PROCESSING_REQUIRED:false}
     input:
@@ -76,6 +76,25 @@ npick:
       allowed-containers: ${CLIP_ALLOWED_CONTAINERS:mp4,mov}
       allowed-video-codecs: ${CLIP_ALLOWED_VIDEO_CODECS:h264,hevc}
       allowed-audio-codecs: ${CLIP_ALLOWED_AUDIO_CODECS:aac,mp3}
+  clip-media:
+    # 등록과 같은 media root 를 같은 환경 변수 순서로 읽는다. 재생은 등록 실행 설정에 묶이지 않는다.
+    media-root: ${CLIP_MEDIA_ROOT:${NPICK_MEDIA_ROOT:}}
+    # true 면 바이트 전송을 nginx 의 location /internal-media/ 에 위임한다 (03-deployment.md §31).
+    # 로컬·테스트에는 nginx 가 없으므로 기본은 애플리케이션 직접 전송이다.
+    nginx-accel: ${CLIP_MEDIA_NGINX_ACCEL:false}
+    internal-location: ${CLIP_MEDIA_INTERNAL_LOCATION:/internal-media/}
+  search:
+    # 단어 검색(BM25) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
+    # 값을 바꿀 때는 config-version 도 함께 올린다 — 그러지 않으면 다른 설정으로 돌린
+    # 두 실행이 search_execution 에서 같은 설정으로 보인다.
+    candidate:
+      config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v1}
+      # 가중치 0 은 그 필드를 검색 대상에서 제외한다는 뜻이다. 실측 전까지 세 채널을 동일 가중으로 둔다.
+      caption-weight: ${SEARCH_CANDIDATE_CAPTION_WEIGHT:1.0}
+      transcript-weight: ${SEARCH_CANDIDATE_TRANSCRIPT_WEIGHT:1.0}
+      ocr-weight: ${SEARCH_CANDIDATE_OCR_WEIGHT:1.0}
+      # 재순위·제외 전의 후보 상한. 최종 반환 10개(F-05)와 다른 값이며 실측으로 조정한다.
+      pool-size: ${SEARCH_CANDIDATE_POOL_SIZE:200}
 
 # PostgreSQL error details may include the failing row (script, paths, secrets).
 # API failures are reported through safe application error codes instead.

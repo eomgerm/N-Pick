@@ -15,10 +15,16 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
+
+from pydantic import BaseModel, ValidationError
 
 from npick_worker.device import detect_device
-from npick_worker.jobs.errors import UnsupportedMediaError
+from npick_worker.jobs.errors import (
+    ModelUnavailableError,
+    UnsupportedMediaError,
+    UpstreamOutputInvalidError,
+)
 from npick_worker.jobs.models import ArtifactRef
 from npick_worker.jobs.versions import (
     StageRuntime,
@@ -29,7 +35,13 @@ from npick_worker.jobs.versions import (
 from npick_worker.settings import get_settings
 from npick_worker.versioning import service_version
 
+if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(ocr 은 onnxruntime 이 딸려 온다).
+    from npick_worker.ocr.models import KeyframeRef
+
 logger = logging.getLogger(__name__)
+
+#: keyframe 이미지의 Content-Type. 계약 §4.4 의 PUT 헤더에 그대로 들어간다.
+_JPEG_CONTENT_TYPE: Final[str] = "image/jpeg"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,9 +49,50 @@ class StageContext:
     """단계 하나를 실행하는 데 필요한 전부. 잡 API 타입이 단계로 새지 않게 한다."""
 
     stage: str
-    video_path: Path
+    #: 입력 영상의 로컬 경로. **`StageHandler.needs_video` 가 False 인 단계에서는
+    #: None 이다** — 러너가 쓰지 않을 영상을 받지 않는다(`ocr`). 읽는 쪽은
+    #: `require_video()` 를 쓴다.
+    video_path: Path | None
     storage_key: str
+    #: 단계가 파일을 쓸 수 있는 디렉터리. 러너가 잡마다 만들고 잡이 끝나면 지운다.
+    #: 단계 구현은 여기 밖에 쓰지 않는다 — 미디어 루트도 최종 저장소도 모른다.
+    work_dir: Path
+    #: 올릴 수 있는 키 접두(`runs/{runId}/{stage}/a{attempt}/`). 계약 §5.
+    output_key_prefix: str
+    #: 상류 단계 산출물. BE 가 `inputs.upstream` 으로 되돌려 준 그대로다.
+    upstream: Mapping[str, Any] = field(default_factory=dict)
+    #: `storage_key` → 로컬 파일. 러너가 `StageHandler.required_inputs` 가 부른 키만
+    #: 미리 받아 둔다. 단계가 직접 받지 않는 이유는 업로드와 같다 — 단계는 순수
+    #: 함수이고 잡 API 를 모르며(`ai/AGENTS.md`), 내려받는 동안 heartbeat 가 돌아야
+    #: 한다(계약 §4.2 — 연장하는 것은 heartbeat 뿐이다).
+    upstream_files: Mapping[str, Path] = field(default_factory=dict)
     params: Mapping[str, Any] = field(default_factory=dict)
+
+    def require_video(self) -> Path:
+        """영상을 쓰는 단계가 경로를 꺼내는 자리.
+
+        `needs_video=True` 로 등록한 단계에서는 언제나 값이 있다. 여기서 걸리면
+        등록과 구현이 어긋난 것이므로 조용히 넘기지 않는다.
+        """
+        if self.video_path is None:
+            msg = f"이 단계는 needs_video=False 로 등록돼 있다: {self.stage}"
+            raise AssertionError(msg)
+        return self.video_path
+
+
+@dataclass(frozen=True, slots=True)
+class PendingUpload:
+    """단계가 만든 파일 하나와 그 파일이 올라갈 자리.
+
+    단계가 직접 올리지 않는 이유가 둘이다. 단계 구현은 순수 함수이고 잡 API 를
+    모른다(`ai/AGENTS.md`). 그리고 업로드는 lease 를 연장하지 않으므로(계약 §4.2)
+    heartbeat 가 도는 동안 러너가 해야 한다 — 단계 안에서 올리면 그 시간이 heartbeat
+    없이 흐른다.
+    """
+
+    ref: ArtifactRef
+    local_path: Path
+    content_type: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +101,8 @@ class StageOutcome:
     versions: StageVersion
     artifacts: tuple[ArtifactRef, ...] = ()
     metrics: Mapping[str, Any] = field(default_factory=dict)
+    #: 러너가 올려야 하는 파일. 올린 뒤 `artifacts` 에 합쳐져 봉투로 나간다.
+    uploads: tuple[PendingUpload, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +112,14 @@ class StageHandler:
     run: Callable[[StageContext], StageOutcome]
     #: 첫 잡 전에 미리 치를 비용. 없으면 None.
     warm: Callable[[], str] | None = None
+    #: `inputs.upstream` 을 받아 **미리 받아 둬야 할 산출물 키**를 돌려준다.
+    #: 없으면 이 단계는 배정의 입력 미디어만 쓴다. 러너가 이 목록을 heartbeat 가
+    #: 도는 동안 받아 `StageContext.upstream_files` 로 넘긴다.
+    required_inputs: Callable[[Mapping[str, Any]], tuple[str, ...]] | None = None
+    #: 입력 영상이 필요한가. False 면 러너가 **영상을 해석하지 않는다** —
+    #: `transport: "http"` 에서 원본 전체를 내려받는 비용이 그대로 없어진다.
+    #: `ocr` 은 상류가 올린 keyframe 만 읽으므로 False 다.
+    needs_video: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +156,7 @@ def _run_scene_detection(ctx: StageContext) -> StageOutcome:
     from npick_worker.scene_detection import detect_scenes
 
     try:
-        result = detect_scenes(ctx.video_path)
+        result = detect_scenes(ctx.require_video())
     except VideoOpenFailure as exc:
         # 어댑터 경계에서 벤더 예외를 번역한다. 이걸 그냥 통과시키면 잡 레이어가
         # scenedetect 를 알아야 하고(ai/AGENTS.md 가 금지한다), 분류를 못 해
@@ -144,6 +207,308 @@ def _scene_detection_identity(
     }
 
 
+def _run_frame_extraction(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. av·numpy 는 헬스체크만 하는 프로세스가 낼 비용이 아니다
+    # (scene_detection 의 cv2 와 같은 이유).
+    from npick_worker.frame_extraction import SceneSpan, extract_keyframes
+    from npick_worker.jobs.models import FrameExtractionOutput, FrameExtractionUpstream
+
+    upstream = _parse_upstream(FrameExtractionUpstream, ctx.upstream)
+    detection = upstream.scene_detection
+    scenes = tuple(
+        SceneSpan(
+            scene_index=scene.scene_index,
+            start_time_ms=scene.start_time_ms,
+            end_time_ms=scene.end_time_ms,
+        )
+        for scene in detection.scenes
+    )
+
+    # 상류가 필수로 보내는 두 값을 실제로 쓴다. 받아 놓고 쓰지 않으면 계약이 요구하는
+    # 필드가 검증되지 않은 채 남고, 어긋남이 실패가 아니라 조용히 틀린 timestamp 로 나온다.
+    covered_ms = max(scene.end_time_ms for scene in scenes)
+    if covered_ms != detection.media_duration_ms:
+        # scene_detection 은 마지막 scene 을 영상 끝에서 닫으므로 두 값은 같아야 한다
+        # (scene_detection 의 `_to_scenes` 불변식). 다르면 scenes 와 나머지 필드가 서로
+        # 다른 산출물에서 온 것이고, 그러면 frameRate 도 이 미디어의 것이 아닐 수 있다.
+        msg = (
+            f"상류 scene 이 덮는 끝과 보고한 길이가 다르다: "
+            f"{covered_ms}ms vs {detection.media_duration_ms}ms"
+        )
+        raise UpstreamOutputInvalidError(msg)
+
+    try:
+        result = extract_keyframes(
+            ctx.require_video(),
+            scenes,
+            ctx.work_dir,
+            expected_frame_rate=detection.frame_rate,
+        )
+    except _ffmpeg_errors() as exc:
+        # 어댑터 경계에서 벤더 예외를 번역한다. 통과시키면 잡 레이어가 `av` 를 알아야
+        # 하고(ai/AGENTS.md 가 금지한다) 분류를 못 해 재시도 가능으로 보고된다.
+        if isinstance(exc, OSError):
+            # PyAV 는 errno 기반 오류를 해당 내장 예외(FileNotFoundError 등)와 함께
+            # 상속시킨다. 그건 코덱 문제가 아니라 파일 시스템 문제이므로 코드를 여기서
+            # 정하지 않고 `classify` 에 맡긴다 — 없는 파일과 깨진 파일은 다른 사실이다.
+            raise
+        # 같은 파일은 다시 열어도 안 열리므로 영구 오류다.
+        msg = f"영상을 열 수 없다: {ctx.storage_key}"
+        raise UnsupportedMediaError(msg) from exc
+
+    storage_keys = {
+        (keyframe.scene_index, keyframe.timestamp_ms): _output_key(
+            ctx.output_key_prefix, keyframe.file_name
+        )
+        for scene in result.scenes
+        for keyframe in scene.keyframes
+    }
+    identity = _frame_extraction_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        output=FrameExtractionOutput.from_result(result, storage_keys).model_dump(
+            by_alias=True, mode="json"
+        ),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            # 이 단계도 가중치도 프롬프트도 쓰지 않는다. 키는 남기고 값만 비운다.
+            model_version=None,
+            prompt_version=None,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "scenes": len(result.scenes),
+            "keyframes": result.keyframe_count,
+            # 블랭크 판정에 걸렸는데도 대안이 없어 쓴 장 수. 0 이 아니면 그 클립의
+            # 대표 이미지를 사람이 한 번 봐야 한다는 신호다.
+            "blankKeyframes": result.blank_count,
+            "bytes": sum(
+                keyframe.byte_size for scene in result.scenes for keyframe in scene.keyframes
+            ),
+            "imageWidth": result.image_width,
+            "imageHeight": result.image_height,
+        },
+        uploads=tuple(
+            PendingUpload(
+                ref=ArtifactRef(
+                    # `keyframe.storage_key` 와 같은 어휘를 쓴다. 새 식별자를 만들지
+                    # 않는다(계약 §4.4).
+                    kind="keyframe",
+                    storage_key=storage_keys[(keyframe.scene_index, keyframe.timestamp_ms)],
+                    byte_size=keyframe.byte_size,
+                    content_hash=keyframe.content_sha256,
+                ),
+                local_path=ctx.work_dir / keyframe.file_name,
+                content_type=_JPEG_CONTENT_TYPE,
+            )
+            for scene in result.scenes
+            for keyframe in scene.keyframes
+        ),
+    )
+
+
+def _ocr_keyframes(upstream: Mapping[str, Any]) -> tuple["KeyframeRef", ...]:
+    """상류 `frameExtraction` 산출물을 읽을 대상 목록으로 옮긴다.
+
+    `required_inputs` 와 `_run_ocr` 이 둘 다 부른다. 한 번은 어떤 파일을 받아야 하는지
+    알려고, 한 번은 실제로 읽으려고다. 두 곳에서 따로 파싱하면 받아 온 파일과 읽는
+    대상이 어긋날 수 있으므로 조립은 이 함수 하나다.
+    """
+    from npick_worker.jobs.models import OcrUpstream
+    from npick_worker.ocr import KeyframeRef
+
+    upstream_model = _parse_upstream(OcrUpstream, upstream)
+    return tuple(
+        KeyframeRef(
+            scene_index=keyframe.scene_index,
+            timestamp_ms=keyframe.timestamp_ms,
+            storage_key=keyframe.storage_key,
+        )
+        for scene in upstream_model.frame_extraction.scenes
+        for keyframe in scene.keyframes
+    )
+
+
+def _ocr_required_inputs(upstream: Mapping[str, Any]) -> tuple[str, ...]:
+    """읽으려면 있어야 하는 keyframe 이미지들.
+
+    같은 키가 두 번 오지 않게 순서를 지키며 중복을 없앤다 — `UNIQUE(scene_id,
+    timestamp_ms)` 가 있으니 정상 입력에서는 없을 일이지만, 있으면 같은 파일을 두 번
+    받게 된다.
+    """
+    seen: dict[str, None] = {}
+    for keyframe in _ocr_keyframes(upstream):
+        seen.setdefault(keyframe.storage_key, None)
+    return tuple(seen)
+
+
+def _run_ocr(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. rapidocr 는 onnxruntime·cv2 를 끌어온다(scene_detection 과 같은 이유).
+    from npick_worker.jobs.models import OcrOutput
+    from npick_worker.ocr import OcrModelUnavailableError, OcrReadError, read_keyframes
+
+    keyframes = _ocr_keyframes(ctx.upstream)
+
+    missing = [kf.storage_key for kf in keyframes if kf.storage_key not in ctx.upstream_files]
+    if missing:
+        # 러너가 `required_inputs` 로 받아 왔어야 하는 파일이다. 일부만 읽고 성공으로
+        # 반납하면 "그 프레임에는 글자가 없었다" 는 거짓이 정본에 남는다.
+        msg = f"keyframe 이미지를 받지 못했다: {len(missing)}건"
+        raise UpstreamOutputInvalidError(msg)
+
+    try:
+        result = read_keyframes(keyframes, ctx.upstream_files)
+    except OcrModelUnavailableError as exc:
+        # 어댑터 경계에서 번역한다. 가중치를 못 받은 것은 이 클립의 문제가 아니므로
+        # 다른 파드나 다음 시도에서 성공할 수 있다 — 계약 §9.2 의 일시 오류다.
+        raise ModelUnavailableError(str(exc)) from exc
+    except OcrReadError as exc:
+        # 상류가 올린 JPEG 을 열지 못했다. 같은 파일은 다시 읽어도 안 열린다.
+        raise UnsupportedMediaError(str(exc)) from exc
+
+    identity = _ocr_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+        tokenizer=result.tokenizer,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        output=OcrOutput.from_result(result).model_dump(by_alias=True, mode="json"),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            # 가중치를 쓰는 첫 단계다. 프롬프트는 없으므로 키만 남기고 값을 비운다.
+            model_version=f"{result.engine}/{result.engine_version}",
+            prompt_version=None,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "keyframes": len(result.keyframes),
+            "observations": result.observation_count,
+            # 임계값 미달로 unverified 가 된 수. 이 비율이 튀면 그 클립의 화면 글자
+            # 품질이나 임계값을 사람이 한 번 봐야 한다는 신호다.
+            "unverifiedObservations": result.unverified_count,
+            # 서로 다른 문구의 수. 관측 수보다 작으면 프레임 사이에 같은 문구가 있다.
+            # **합치지 않았다는 뜻이기도 하다** — 관측은 전부 남아 있다.
+            "textGroups": result.text_group_count,
+            "minConfidence": result.min_confidence,
+        },
+    )
+
+
+def _ocr_identity(
+    *, config_version: str, engine: str, engine_version: str, tokenizer: str
+) -> dict[str, str]:
+    """ocr 의 재현 튜플.
+
+    앞의 두 단계와 달리 축이 넷이다. `tokenizer` 가 있는 이유는 `ocr_observation.tokens`
+    가 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면 화면에서 읽은 글자가 같아도
+    색인이 달라진다. 검색이 0 건이 되는 종류의 변화라 재현 식별자에 들어가야 한다
+    (`docs/architecture/02-container.md:110`).
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+        "tokenizer": tokenizer,
+    }
+
+
+def _warm_ocr() -> str:
+    """설정을 미리 읽고 모델을 미리 올린다.
+
+    이 단계는 앞의 둘과 달리 **가중치를 쓴다.** 첫 잡에서 모델을 내려받으면 그 시간이
+    통째로 그 잡의 처리 시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다.
+    기동 때 하면 `/health` 로 드러난다.
+
+    `shared_engine` 으로 만드는 것이 요점이다. 여기서 만들고 버리면 앞당겨지는 것이
+    가중치 내려받기뿐이고, ONNX 세션 생성 비용은 첫 잡이 아니라 **모든 잡이** 낸다.
+    캐시된 인스턴스를 잡과 `_declared_version` 이 그대로 받아야 이 docstring 이
+    사실이 된다.
+    """
+    from npick_worker.ocr import get_default_config, shared_engine
+
+    config = get_default_config()
+    engine = shared_engine(config)
+    return f"config={config.version_id} engine={engine.name} {engine.version}"
+
+
+def _parse_upstream[T: BaseModel](model: type[T], payload: Mapping[str, Any]) -> T:
+    """`inputs.upstream` 을 단계가 기대하는 모양으로 검증한다.
+
+    실패를 영구로 본다. 상류 산출물의 모양이 틀렸다면 다시 시도해도 BE 는 같은 것을
+    보낸다. 일시로 신고하면 `maxAttempts` 만큼 GPU 분을 태우고 같은 자리에서 죽는다.
+    """
+    try:
+        return model.model_validate(payload)
+    except ValidationError as exc:
+        msg = f"상류 산출물이 계약과 다르다: {exc.error_count()}건"
+        raise UpstreamOutputInvalidError(msg) from exc
+
+
+def _output_key(prefix: str, file_name: str) -> str:
+    """`outputKeyPrefix` 와 파일명을 잇는다.
+
+    접두에 슬래시가 있는지 없는지로 키가 갈리면 BE 의 접두 검사(`JOB_403_001`)가 통과
+    여부만 다르고 이유는 알 수 없는 실패가 된다. 여기서 한 번만 정규화한다.
+    """
+    return f"{prefix.rstrip('/')}/{file_name}"
+
+
+def _frame_extraction_identity(
+    *, config_version: str, engine: str, engine_version: str
+) -> dict[str, str]:
+    """frame extraction 의 재현 튜플.
+
+    `scene_detection` 과 같은 이유로 조립 지점을 하나로 둔다 — 실행 결과에서 만들 때와
+    claim 에 실을 값을 미리 선언할 때가 갈라지면 BE 의 배정 필터가 하는 일이 없어진다.
+
+    `detector` 에 대응하는 항목이 없다. 이 단계에는 고를 구현이 하나뿐이고, 없는 축을
+    만들어 두면 그 축이 항상 같은 값이어서 해시에 아무 정보도 넣지 않는다.
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+    }
+
+
+def _ffmpeg_errors() -> tuple[type[Exception], ...]:
+    """`av` 가 던지는 예외의 뿌리.
+
+    함수로 감싸는 이유는 임포트 시점을 늦추기 위해서다. 모듈 최상단에서 `av` 를
+    끌어오면 지연 임포트로 아낀 비용이 그대로 돌아온다. `except` 절의 식은 예외가
+    실제로 났을 때만 평가되므로, 정상 경로에서는 이 함수가 불리지 않는다.
+    """
+    from av.error import FFmpegError
+
+    return (FFmpegError,)
+
+
+def _warm_frame_extraction() -> str:
+    """설정을 미리 읽고 디코더·점수 계산 의존성을 미리 임포트한다.
+
+    `scene_detection` 의 워밍업과 같은 성격이다. 깨진 toml 이 잡 도중이 아니라 기동
+    시 터지게 하고, `av`·`numpy` 임포트 비용을 첫 잡에서 떼어 낸다. 이 단계도 ML
+    가중치를 쓰지 않으므로 미리 잡을 GPU 메모리는 없다.
+    """
+    from npick_worker.frame_extraction import PyAvFrameGrabber, get_default_config
+
+    config = get_default_config()
+    grabber = PyAvFrameGrabber()
+    return f"config={config.version_id} engine={grabber.name} {grabber.version}"
+
+
 def _warm_scene_detection() -> str:
     """설정을 미리 읽고 엔진을 미리 임포트한다.
 
@@ -164,6 +529,15 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
         handler.name: handler
         for handler in (
             StageHandler("scene_detection", _run_scene_detection, _warm_scene_detection),
+            StageHandler("frame_extraction", _run_frame_extraction, _warm_frame_extraction),
+            StageHandler(
+                "ocr",
+                _run_ocr,
+                _warm_ocr,
+                required_inputs=_ocr_required_inputs,
+                # 이 단계는 영상을 열지 않는다. 상류가 올린 keyframe JPEG 만 읽는다.
+                needs_video=False,
+            ),
         )
     }
 )
@@ -235,6 +609,52 @@ def _declared_version(stage: str) -> str:
                 detector=config.detector,
                 engine=engine.name,
                 engine_version=engine.version,
+            ),
+        )
+    if stage == "frame_extraction":
+        # 두 단계의 `get_default_config` 가 이름이 같다. 한 함수 안에서 둘을 지연
+        # 임포트하므로 별칭을 준다 — 같은 이름에 다른 타입이 묶이면 타입 검사가 막힌다.
+        from npick_worker.frame_extraction import (
+            PyAvFrameGrabber,
+        )
+        from npick_worker.frame_extraction import (
+            get_default_config as get_frame_config,
+        )
+
+        frame_config = get_frame_config()
+        grabber = PyAvFrameGrabber()
+        return stage_version(
+            stage,
+            _frame_extraction_identity(
+                config_version=frame_config.version_id,
+                engine=grabber.name,
+                engine_version=grabber.version,
+            ),
+        )
+    if stage == "ocr":
+        from npick_worker import korean_tokens
+        from npick_worker.ocr import get_default_config as get_ocr_config
+        from npick_worker.ocr import shared_engine
+
+        ocr_config = get_ocr_config()
+        # **엔진을 만들어 본다.** 여기서 읽는 값(`name` 은 상수, `version` 은
+        # importlib.metadata)은 인스턴스와 무관하지만, 가중치를 준비하지 못한 워커가
+        # 여기서 걸려 `capability_versions` 가 ocr 를 목록에서 빼야 한다 — 배정받지
+        # 못하는 편이 배정받아 매번 죽는 것보다 낫다.
+        #
+        # **반드시 `shared_engine` 이어야 한다.** 이 함수는 claim long-poll 한 바퀴마다
+        # (`runner._claim_request`), 그리고 실패마다(`runner._failure_versions`) 불린다.
+        # 매번 새로 만들면 ONNX 세션 생성 비용을 그 주기로 내고, 동기 호출이라 그동안
+        # 이벤트 루프가 멈춘다(실패 경로에서는 lease 를 든 채 heartbeat 가 못 뛴다).
+        # 캐시는 성공만 담으므로 위의 "실패하면 목록에서 뺀다" 는 그대로 산다.
+        ocr_engine = shared_engine(ocr_config)
+        return stage_version(
+            stage,
+            _ocr_identity(
+                config_version=ocr_config.version_id,
+                engine=ocr_engine.name,
+                engine_version=ocr_engine.version,
+                tokenizer=korean_tokens.tokenizer_version(),
             ),
         )
     msg = f"버전을 선언할 수 없는 단계다: {stage}"

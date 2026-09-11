@@ -28,7 +28,7 @@ C4Deployment
     Deployment_Node(ec2, "SSAFY EC2 — j15a501.p.ssafy.io", "Ubuntu 24.04.4 LTS · 4 vCPU · 15GB RAM · Docker 29.7.2 / Compose v5.5.0") {
 
         Deployment_Node(n_proxy, "호스트 진입점", "포트 80 / 443") {
-            Container(proxy, "리버스 프록시", "nginx 1.28 — 인프라", "TLS를 종단하고 80은 443으로 리다이렉트한다. '/'는 web으로, '/api/*'는 api로, '/mlflow/*'는 basic auth 뒤의 mlflow로, '/jenkins/*'는 jenkins로 라우팅한다. '/media'는 api가 인증한 뒤 X-Accel-Redirect로 Range 전송한다.")
+            Container(proxy, "리버스 프록시", "nginx 1.28 — 인프라", "TLS를 종단하고 80은 443으로 리다이렉트한다. '/'는 web으로, '/api/*'는 api로, '/mlflow/*'는 basic auth 뒤의 mlflow로, '/jenkins/*'는 jenkins로 라우팅한다. 영상 재생은 '/api/v1/media/{clip_id}'가 인증·경로 해석·Range 검증을 하고 X-Accel-Redirect로 '/internal-media/'에 바이트 전송을 위임한다.")
         }
 
         Deployment_Node(n_web, "컨테이너: web", "Node 24 · 호스트 포트 3000 (loopback)") {

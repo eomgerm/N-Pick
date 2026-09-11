@@ -39,7 +39,7 @@ registerHooks({
 const { AppShell } = await import('./app-shell.tsx');
 const { SessionBoundary } = await import('./session-boundary.tsx');
 
-function renderShell(role, pathname, loginId = 'test-member') {
+function renderShell(role, pathname, loginId = 'test-member', isInteractionLocked = false) {
   globalThis.testPathname = pathname;
   const client = new QueryClient();
   try {
@@ -50,7 +50,11 @@ function renderShell(role, pathname, loginId = 'test-member') {
         createElement(
           SessionBoundary,
           { member: { memberId: '1', role, loginId } },
-          createElement(AppShell, { 'data-theme': 'shinhan' }, createElement('main', null, '본문')),
+          createElement(
+            AppShell,
+            { 'data-theme': 'shinhan', isInteractionLocked },
+            createElement('main', null, '본문'),
+          ),
         ),
       ),
     );
@@ -90,4 +94,10 @@ test('공통 헤더와 페이지 본문은 한 번씩 렌더링하며 긴 계정
   assert.match(html, /data-theme="shinhan"/);
   assert.ok(html.includes(loginId));
   assert.match(html, /본문/);
+});
+
+test('상호작용 잠금 중에는 공통 헤더 링크와 로그아웃도 비활성 상태를 노출한다', () => {
+  const html = renderShell('REVIEWER', '/review', '검수자', true);
+  assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 3);
+  assert.match(html, /<button[^>]*disabled=""[^>]*>로그아웃<\/button>/);
 });
