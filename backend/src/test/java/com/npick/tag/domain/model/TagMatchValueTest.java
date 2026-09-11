@@ -60,6 +60,45 @@ class TagMatchValueTest {
     }
 
     @Test
+    @DisplayName("폭 없는 문자를 지운다 - 이름에 SPACE 가 붙어도 유니코드 공백이 아니라 NFKC 도 \\s 도 못 잡는다")
+    void stripsZeroWidthCharacters() {
+        int[] invisible = {
+            0x200B, // ZERO WIDTH SPACE
+            0xFEFF, // BOM
+            0x00AD, // SOFT HYPHEN
+            0x2060, // WORD JOINER
+            0x034F, // COMBINING GRAPHEME JOINER
+            0x200E // LEFT-TO-RIGHT MARK
+        };
+
+        for (int codePoint : invisible) {
+            String pasted = "이태원" + Character.toString(codePoint) + "참사";
+
+            assertThat(TagMatchValue.normalize(pasted)).as("U+%04X", codePoint).isEqualTo("이태원참사");
+        }
+    }
+
+    @Test
+    @DisplayName("폭 없는 문자만 있는 값도 빈 문자열이 된다 - isBlank() 가 못 잡던 구멍이다")
+    void emptiesZeroWidthOnlyInput() {
+        // 이 값이 살아남으면 TAG_500_002 도 CHECK 도 안 타고 이름 없는 태그 한 행이 된다.
+        assertThat(Character.isWhitespace(0x200B)).isFalse();
+        assertThat(TagMatchValue.normalize(Character.toString(0x200B))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("ZWJ·ZWNJ 는 남긴다 - 이모지를 조립하고 아랍·인도계 문자에서 의미를 가른다")
+    void keepsJoiners() {
+        // ZWJ 로 이어진 가족 이모지. 리터럴은 편집 과정에서 결합자가 사라질 수 있어 코드포인트로 만든다.
+        String family = new String(new int[] {0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467}, 0, 5);
+
+        String normalized = TagMatchValue.normalize(family);
+
+        assertThat(normalized).isEqualTo(family);
+        assertThat(normalized.codePointCount(0, normalized.length())).isEqualTo(5);
+    }
+
+    @Test
     @DisplayName("호환문자를 접는다 - NFC 로는 남는 차이다")
     void foldsCompatibilityCharacters() {
         assertThat(TagMatchValue.normalize("ＫＢＳ")).isEqualTo("KBS");

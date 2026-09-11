@@ -31,7 +31,7 @@ class TagMatchValueConstraintTest {
 
     @BeforeAll
     static void migrateOwnDatabase() {
-        url = NpickPostgres.freshDatabase("npick_tag_match_value_test");
+        url = NpickPostgres.freshDatabase("npick_tag_match_value");
         NpickPostgres.migrate(url);
     }
 
@@ -56,34 +56,50 @@ class TagMatchValueConstraintTest {
     @Test
     @DisplayName("공백이 있는 match_value 를 거부한다 - 함수를 안 거친 저장 경로가 생겨도 DB 가 잡는다")
     void rejectsWhitespaceInMatchValue() throws Exception {
-        rejects("INSERT INTO tag VALUES (63,'event','이태원 참사','이태원 참사')");
-        rejects("INSERT INTO tag VALUES (63,'event','이태원\t참사','이태원 참사')");
-        rejects("INSERT INTO tag VALUES (63,'keyword',' 화재','화재')");
+        rejects(insert("event", "이태원 참사"));
+        rejects(insert("event", "이태원\t참사"));
+        rejects(insert("keyword", " 화재"));
     }
 
     @Test
-    @DisplayName("빈 match_value 를 거부한다 - normalize() 가 널·공백만 있는 입력을 접어 내는 값이다")
+    @DisplayName("폭 없는 문자가 있는 match_value 를 거부한다 - [[:space:]] 에 안 걸리는 것들이다")
+    void rejectsZeroWidthInMatchValue() throws Exception {
+        // ZWSP 는 이름과 달리 유니코드 공백이 아니다. 이게 통과하면 화면상 같은 값이 두 행이 된다.
+        rejects(insert("event", "이태원" + Character.toString(0x200B) + "참사"));
+        rejects(insert("event", "이태원" + Character.toString(0xFEFF) + "참사"));
+        rejects(insert("keyword", "화재" + Character.toString(0x00AD)));
+    }
+
+    @Test
+    @DisplayName("빈 match_value 를 거부한다 - normalize() 가 널·보이지 않는 문자만 있는 입력을 접어 내는 값이다")
     void rejectsEmptyMatchValue() throws Exception {
         // 저장 경로가 빈 값 검사를 빠뜨리면 이름 없는 태그 한 행이 생기고, UNIQUE 때문에 이후 모든 빈 값이 그 행에 붙는다.
-        rejects("INSERT INTO tag VALUES (63,'event','','뭔가')");
-        rejects("INSERT INTO tag VALUES (63,'keyword','" + TagMatchValue.normalize("   ") + "','공백만')");
+        // 리터럴을 쓴다. normalize() 로 만들면 그 함수가 회귀했을 때 이 테스트가 엉뚱한 규칙에 걸려 초록으로 남는다.
+        rejects(insert("event", ""));
     }
 
     @Test
     @DisplayName("normalize() 를 거친 값은 통과한다 - 표시값의 띄어쓰기는 name 이 그대로 들고 있다")
     void acceptsNormalizedValue() throws Exception {
-        execute("INSERT INTO tag VALUES (63,'event','" + TagMatchValue.normalize("이태원 참사") + "','이태원 참사')");
+        execute(insert("event", TagMatchValue.normalize("이태원 참사")));
 
-        assertThat(number("SELECT count(*) FROM tag WHERE tag_id=63 AND match_value='이태원참사' AND name='이태원 참사'"))
+        assertThat(number("SELECT count(*) FROM tag WHERE tag_id=63 AND match_value='이태원참사'"))
                 .isEqualTo(1);
     }
 
     @Test
     @DisplayName("날짜 태그는 영향받지 않는다 - ck_tag_date 의 YYYY-MM-DD 에 공백이 없다")
     void keepsDateTagsValid() throws Exception {
-        execute("INSERT INTO tag VALUES (64,'filmed_date','2026-03-15','2026-03-15')");
+        execute(
+                "INSERT INTO tag (tag_id, tag_type, match_value, name) VALUES (64,'filmed_date','2026-03-15','2026-03-15')");
 
         assertThat(number("SELECT count(*) FROM tag WHERE tag_id=64")).isEqualTo(1);
+    }
+
+    /** 컬럼 목록을 적는다 — tag 에 컬럼이 하나 늘어도 이 테스트가 깨지지 않는다. name 은 표시값이라 정규화 대상이 아니다. */
+    private static String insert(String tagType, String matchValue) {
+        return "INSERT INTO tag (tag_id, tag_type, match_value, name) VALUES (63,'" + tagType + "','" + matchValue
+                + "','표시값')";
     }
 
     private void execute(String sql) throws SQLException {
