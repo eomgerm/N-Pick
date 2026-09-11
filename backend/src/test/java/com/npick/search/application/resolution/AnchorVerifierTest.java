@@ -1,0 +1,322 @@
+package com.npick.search.application.resolution;
+
+import java.time.LocalDate;
+import java.util.List;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import com.npick.search.application.error.QueryResolverErrorCode;
+import com.npick.search.application.port.AnchorFinding;
+import com.npick.search.application.port.QueryNormalization;
+import com.npick.search.application.port.QueryResolution;
+import com.npick.search.application.port.QueryResolution.Classification;
+import com.npick.search.application.port.QueryResolution.ClassificationType;
+import com.npick.search.application.port.QueryResolution.DateField;
+import com.npick.search.application.port.QueryResolution.DateWindow;
+import com.npick.search.application.port.QueryResolution.Entity;
+import com.npick.search.application.port.QueryResolution.EntityType;
+import com.npick.search.application.port.QueryResolution.IncidentName;
+import com.npick.search.application.port.QueryResolution.Intent;
+import com.npick.search.application.port.QueryResolution.Origin;
+import com.npick.search.application.port.QueryResolution.QuerySpan;
+import com.npick.search.application.port.QueryResolutionResult;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
+import static org.assertj.core.groups.Tuple.tuple;
+
+/**
+ * mock 리졸버 출력으로 강등·교정 경로를 확인한다 (S15P21A501-46 완료 조건).
+ *
+ * <p>여기 mock 이 <b>강등되지 않은</b> explicit 주장을 보낸다는 것 자체가 이 클래스의 존재 이유다. 리졸버 쪽 validator 를 거치면 정상 경로에서는 이런 출력이 나오지 않지만, 그
+ * 단계를 믿지 않는 것이 신뢰 경계의 일이다.
+ */
+class AnchorVerifierTest {
+
+    private static final String RAW_QUERY = "2023년 태풍 힌남노 피해 현장";
+
+    private final AnchorVerifier verifier = new AnchorVerifier();
+
+    @Test
+    @DisplayName("원문에 없는 값을 explicit_query 로 주장하면 inferred 로 강등한다")
+    void demotesFabricatedExplicitAnchor() {
+        // "포항 제철소 침수" 는 원문에 없다. LLM 이 힌남노 하면 따라오는 사건을 명시된 것처럼 얹은 경우다.
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .incidentNames(List.of(
+                                new IncidentName("힌남노", Origin.EXPLICIT_QUERY, new QuerySpan(9, 12), 0.9),
+                                new IncidentName("포항 제철소 침수", Origin.EXPLICIT_QUERY, new QuerySpan(13, 20), 0.6)))));
+
+        List<IncidentName> incidents = result.resolution().incidentNames();
+        assertThat(incidents.get(0).origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(incidents.get(1).origin()).isEqualTo(Origin.INFERRED);
+        // 값은 남는다 — 빼앗는 것은 제외 권한뿐이고 관련성 점수에는 여전히 쓸 수 있다.
+        assertThat(incidents.get(1).value()).isEqualTo("포항 제철소 침수");
+        assertThat(incidents.get(1).querySpan()).isNull();
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("incident_names[1]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("원문에 실제로 있는 값은 그대로 둔다")
+    void keepsGroundedExplicitAnchor() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .entities(List.of(new Entity(
+                                EntityType.PERSON, "힌남노", Origin.EXPLICIT_QUERY, new QuerySpan(9, 12), 0.9)))));
+
+        assertThat(result.resolution().entities().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("값은 원문에 있는데 span 만 틀리면 강등이 아니라 교정한다")
+    void correctsSpanWithoutDemoting() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .locations(List.of(new QueryResolution.Location(
+                                QueryResolution.LocationType.LOCATION,
+                                "힌남노",
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 3),
+                                0.8)))));
+
+        QueryResolution.Location location = result.resolution().locations().getFirst();
+        assertThat(location.origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(location.querySpan()).isEqualTo(new QuerySpan(9, 12));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("locations[0]", "span_corrected"));
+    }
+
+    @Test
+    @DisplayName("날짜는 대조할 문자열이 없어 span 범위만 본다 — 원문을 벗어나면 강등")
+    void demotesDateWindowWithOutOfRangeSpan() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 999),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("explicit_query 인데 span 이 없으면 강등한다")
+    void demotesExplicitDateWindowWithoutSpan() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                null,
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+    }
+
+    @Test
+    @DisplayName("뒤집힌 날짜 구간은 강등이 아니라 버린다")
+    void dropsInvertedDateWindow() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2024, 1, 1),
+                                LocalDate.of(2023, 1, 1),
+                                Origin.INFERRED,
+                                null,
+                                0.5)))));
+
+        assertThat(result.resolution().dateWindows()).isEmpty();
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "dropped"));
+    }
+
+    @Test
+    @DisplayName("리졸버는 explicit_filter 를 낼 수 없다 — 사용자 조건 위조이므로 강등")
+    void demotesExplicitFilterFromResolver() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .classifications(List.of(new Classification(
+                                ClassificationType.WEATHER, "태풍", Origin.EXPLICIT_FILTER, new QuerySpan(4, 6), 0.9)))));
+
+        assertThat(result.resolution().classifications().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings()).extracting(AnchorFinding::action).containsExactly("demoted_to_inferred");
+    }
+
+    @Test
+    @DisplayName("inferred 는 대조하지 않고 그대로 통과시킨다")
+    void leavesInferredAnchorAlone() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .entities(List.of(new Entity(EntityType.ORGANIZATION, "기상청", Origin.INFERRED, null, 0.4)))));
+
+        assertThat(result.resolution().entities().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("inferred 라도 원문 범위를 벗어난 span 은 버린다 — 강등은 아니다")
+    void discardsOutOfRangeSpanOnInferredAnchor() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .entities(List.of(new Entity(
+                                EntityType.ORGANIZATION, "기상청", Origin.INFERRED, new QuerySpan(0, 999), 0.4)))));
+
+        Entity entity = result.resolution().entities().getFirst();
+        // 출처는 건드리지 않는다. 이 span 으로 원문을 잘라 읽는 쪽이 깨지지 않게 좌표만 버린다.
+        assertThat(entity.origin()).isEqualTo(Origin.INFERRED);
+        assertThat(entity.querySpan()).isNull();
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("entities[0]", "span_corrected"));
+    }
+
+    @Test
+    @DisplayName("날짜 구간도 inferred 의 범위 밖 span 을 버린다")
+    void discardsOutOfRangeSpanOnInferredDateWindow() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.INFERRED,
+                                new QuerySpan(-1, 4),
+                                0.5)))));
+
+        DateWindow window = result.resolution().dateWindows().getFirst();
+        assertThat(window.origin()).isEqualTo(Origin.INFERRED);
+        assertThat(window.querySpan()).isNull();
+    }
+
+    @Test
+    @DisplayName("원문 없이 부르면 거부한다 — 조용히 전부 강등하지 않는다")
+    void rejectsNullRawQuery() {
+        QueryResolutionResult given = resolved(resolution()
+                .entities(List.of(
+                        new Entity(EntityType.PERSON, "힌남노", Origin.EXPLICIT_QUERY, new QuerySpan(9, 12), 0.9))));
+
+        assertThatNullPointerException().isThrownBy(() -> verifier.verify(null, given));
+    }
+
+    @Test
+    @DisplayName("리졸버가 준 findings 를 버리지 않고 뒤에 이어 붙인다")
+    void keepsResolverFindings() {
+        AnchorFinding fromResolver = new AnchorFinding("entities[0]", "dropped", "locations 에 같은 값이 있다");
+        QueryResolutionResult given = new QueryResolutionResult(
+                normalization(),
+                resolution()
+                        .incidentNames(
+                                List.of(new IncidentName("없는사건", Origin.EXPLICIT_QUERY, new QuerySpan(0, 4), 0.6)))
+                        .build(),
+                List.of(fromResolver),
+                "query-resolver/v2",
+                "query-resolver-prompt/v3",
+                "gemma3:12b",
+                null);
+
+        QueryResolutionResult result = verifier.verify(RAW_QUERY, given);
+
+        assertThat(result.findings()).hasSize(2).first().isEqualTo(fromResolver);
+    }
+
+    @Test
+    @DisplayName("해석 실패면 손대지 않고 그대로 돌려준다")
+    void passesThroughUnresolvedResult() {
+        QueryResolutionResult failed = new QueryResolutionResult(
+                normalization(), null, List.of(), null, null, null, QueryResolverErrorCode.RESOLVER_TIMEOUT);
+
+        assertThat(verifier.verify(RAW_QUERY, failed)).isSameAs(failed);
+    }
+
+    private static QueryResolutionResult resolved(ResolutionBuilder builder) {
+        return new QueryResolutionResult(
+                normalization(),
+                builder.build(),
+                List.of(),
+                "query-resolver/v2",
+                "query-resolver-prompt/v3",
+                "gemma3:12b",
+                null);
+    }
+
+    private static QueryNormalization normalization() {
+        return new QueryNormalization("2023 태풍 힌남노 피해 현장", List.of("2023", "태풍", "힌남노", "피해", "현장"), "query-norm/v1");
+    }
+
+    private static ResolutionBuilder resolution() {
+        return new ResolutionBuilder();
+    }
+
+    /** 관심 있는 배열 하나만 채우고 나머지는 비워 두기 위한 테스트 전용 빌더. */
+    private static final class ResolutionBuilder {
+
+        private List<DateWindow> dateWindows = List.of();
+        private List<IncidentName> incidentNames = List.of();
+        private List<Entity> entities = List.of();
+        private List<QueryResolution.Location> locations = List.of();
+        private List<Classification> classifications = List.of();
+
+        ResolutionBuilder dateWindows(List<DateWindow> value) {
+            this.dateWindows = value;
+            return this;
+        }
+
+        ResolutionBuilder incidentNames(List<IncidentName> value) {
+            this.incidentNames = value;
+            return this;
+        }
+
+        ResolutionBuilder entities(List<Entity> value) {
+            this.entities = value;
+            return this;
+        }
+
+        ResolutionBuilder locations(List<QueryResolution.Location> value) {
+            this.locations = value;
+            return this;
+        }
+
+        ResolutionBuilder classifications(List<Classification> value) {
+            this.classifications = value;
+            return this;
+        }
+
+        QueryResolution build() {
+            return new QueryResolution(
+                    "query-resolver/v2",
+                    Intent.SCENE_SEARCH,
+                    dateWindows,
+                    incidentNames,
+                    entities,
+                    locations,
+                    classifications,
+                    List.of(),
+                    0.8);
+        }
+    }
+}
