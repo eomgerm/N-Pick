@@ -43,10 +43,13 @@ class FrameExtractionConfig(BaseModel):
     #: FRD F-03 의 "복수 키프레임" 이 하한 2 의 근거다. 1 을 허용하지 않는다.
     min_keyframes_per_scene: int = Field(ge=2)
     max_keyframes_per_scene: int = Field(ge=2)
-    #: HSV 히스토그램 코사인거리. 범위가 [0, 1] 이라 scene 분할의 `content.threshold`
-    #: (0~100 스케일)와 단위가 다르다. 옮겨 쓰지 않는다.
-    change_threshold: float = Field(ge=0.0, le=1.0)
-    change_hist_bins: int = Field(ge=2)
+    #: `content_val` 눈금이다. scene 분할의 `content.threshold` 와 **같은 자** 위에 있다
+    #: (FRD F-03 척도 통일 권고). 다만 재는 거리가 달라 같은 값이 맞지는 않는다.
+    change_threshold: float = Field(ge=0.0, le=255.0)
+    #: 변화량 계산 시 픽셀을 솎는 간격. 솎기는 평균 절대차의 불편추정이라 눈금을 바꾸지
+    #: 않는다. 선명도의 `score_stride` 와 따로 두는 이유는 후보 평면을 들고 있어야 하는
+    #: 쪽이라 메모리가 이 값에 제곱으로 달리기 때문이다.
+    change_stride: int = Field(ge=1)
     edge_margin_ms: int = Field(ge=0)
     candidates_per_slot: int = Field(ge=1)
     candidate_step_ms: int = Field(gt=0)

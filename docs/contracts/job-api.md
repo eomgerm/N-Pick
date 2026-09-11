@@ -315,9 +315,9 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
   "stage": "frame_extraction",
   "status": "succeeded",
   "versions": {
-    "stageVersion": "npick.stage.frame_extraction/v1:538214f1",
+    "stageVersion": "npick.stage.frame_extraction/v1:5fa70a50",
     "outputSchemaVersion": "npick.stage.frame_extraction.output/v1",
-    "configVersion": "frame-extract/v2:1e33d3f3",
+    "configVersion": "frame-extract/v2:a0684794",
     "modelVersion": null,
     "promptVersion": null,
     "detail": { "engine": "pyav", "engineVersion": "18.1.0+numpy2.5.2" },
@@ -351,7 +351,9 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 `timestamp_ms` 순으로 정렬해 저장하면 이 규약이 조용히 깨진다 — 대표는 선명도로 뽑히므로 시각이 가장 이르지 않다. 그래서 `representativeTimestampMs`를 함께 싣는다. BE는 저장 직전에 `keyframes[0].timestampMs`와 대조해 어긋나면 `JOB_400_001`로 거부한다. 워커도 보내기 전에 같은 검사를 한다.
 
-**장 수는 장면 안의 변화량으로 정해진다.** 고정 개수도, 장면 길이에 비례하는 값도 아니다 — 정적 장면은 적게, 동적 장면은 많게 나온다(FRD v3.2 F-03, `docs/frd.md:131`). **BE는 장면마다 장 수가 다른 것을 정상으로 받는다.** 길이가 같은 두 장면이 다른 장 수를 내는 것도 정상이다. 판정에 쓴 임계값은 `configVersion`에 들어가므로, 어떤 설정으로 뽑은 결과인지는 그 값으로 되짚는다. 선정 방식의 근거는 `ai/docs/frame-extraction.md` §3.1이다.
+**장 수는 장면 안의 변화량으로 정해진다.** 고정 개수도, 장면 길이에 비례하는 값도 아니다 — 정적 장면은 적게, 동적 장면은 많게 나온다(FRD v3.2 F-03, `docs/frd.md:131`). **BE는 장면마다 장 수가 다른 것을 정상으로 받는다.** 길이가 같은 두 장면이 다른 장 수를 내는 것도 정상이다.
+
+변화량 척도는 `scene_detection`이 컷을 판정할 때 쓰는 `content_val`과 같다(FRD의 척도 통일 권고). 기본 임계도 그 단계의 컷 임계와 같은 값이라, 규칙이 한 문장으로 선다 — **장면 안의 두 장을 따로 남기려면 scene 분할이 컷으로 봤을 만큼 달라야 한다.** 판정에 쓴 임계값은 `configVersion`에 들어가므로 어떤 설정으로 뽑은 결과인지는 그 값으로 되짚는다. 근거는 `ai/docs/frame-extraction.md` §3.1이다.
 
 **하한과 상한** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖에는 변화량이 아무리 작아도 `min_keyframes_per_scene`(기본 2)을 보장한다 — FRD F-03의 "장면의 복수 키프레임"이 변화량 판정으로 깨지지 않아야 하기 때문이다. 상한은 `max_keyframes_per_scene`(기본 5)이고 이것이 곧 후속 VLM·OCR의 비용 상한이다.
 
@@ -558,8 +560,8 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | --- | --- |
 | `scene_detection.v1.toml` 기본 설정 | `configVersion` = `scene-detect/v1:20dfc0a6` |
 | `{configVersion: scene-detect/v1:20dfc0a6, detector: content, engine: pyscenedetect, engineVersion: 0.7.1}` | `stageVersion` = `npick.stage.scene_detection/v1:3ab4bebe` |
-| `frame_extraction.v2.toml` 기본 설정 | `configVersion` = `frame-extract/v2:1e33d3f3` |
-| `{configVersion: frame-extract/v2:1e33d3f3, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:538214f1` |
+| `frame_extraction.v2.toml` 기본 설정 | `configVersion` = `frame-extract/v2:a0684794` |
+| `{configVersion: frame-extract/v2:a0684794, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:5fa70a50` |
 | `ocr.v1.toml` 기본 설정 | `configVersion` = `ocr/v1:daaf4c83` |
 | `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.ocr/v1:449d6928` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, ocr: npick.stage.ocr/v1:bbbbbbbb}` | `pipelineVersion` = `npick-pipeline/v1:64960bae4565` |

@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+import numpy as np
 import pytest
 
 from npick_worker.frame_extraction import (
@@ -16,6 +17,7 @@ from npick_worker.frame_extraction import (
     ChosenFrame,
     FrameExtractionConfig,
     MediaProfile,
+    SceneMeasurement,
     SceneRequest,
     SceneSpan,
     ScoredFrame,
@@ -24,7 +26,6 @@ from npick_worker.frame_extraction import (
     WrittenImage,
     extract_keyframes,
     frames_in_span,
-    histogram_distance,
     load_config,
     order_for_output,
     plan_slots,
@@ -105,7 +106,7 @@ def test_config_version_is_the_pinned_vector() -> None:
     값이 바뀌면 설정이 바뀐 것이다. 그때는 이 줄과 docs/contracts/job-api.md 를 함께
     고친다 — 한쪽만 고치면 어긋난 것을 아무도 못 잡는다.
     """
-    assert load_config().version_id == "frame-extract/v2:1e33d3f3"
+    assert load_config().version_id == "frame-extract/v2:a0684794"
 
 
 def test_config_version_changes_when_a_threshold_changes() -> None:
@@ -314,72 +315,45 @@ def test_select_returns_timestamp_order() -> None:
 # FRD v3.2 F-03 (`docs/frd.md:131`). 정적 장면은 적게, 동적 장면은 많게.
 
 
-def test_identical_frames_are_at_distance_zero() -> None:
-    assert histogram_distance((0.5, 0.3, 0.2), (0.5, 0.3, 0.2)) == 0.0
-
-
-def test_disjoint_histograms_are_at_distance_one() -> None:
-    assert histogram_distance((1.0, 0.0), (0.0, 1.0)) == 1.0
-
-
-def test_a_uniform_brightness_change_is_not_a_content_change() -> None:
-    """코사인을 쓰는 이유. 조명이 오르내리는 정적 장면이 새 keyframe 을 부르면 안 된다.
-
-    분포의 **방향**이 같고 크기만 다른 경우다. L1·L2 거리는 이것을 큰 변화로 읽는다.
-    """
-    assert histogram_distance((0.4, 0.2, 0.1), (0.8, 0.4, 0.2)) == pytest.approx(0.0, abs=1e-9)
-
-
-def test_distance_rejects_histograms_of_different_length() -> None:
-    with pytest.raises(ValueError, match="길이가 다르다"):
-        histogram_distance((1.0, 0.0), (1.0, 0.0, 0.0))
-
-
-def test_a_blank_frame_differs_from_a_frame_with_content() -> None:
-    """완전한 단색은 영벡터라 방향이 없다. 단색과 단색 아닌 것은 실제로 다른 화면이다."""
-    assert histogram_distance((0.0, 0.0), (1.0, 0.0)) == 1.0
-    assert histogram_distance((0.0, 0.0), (0.0, 0.0)) == 0.0
-
-
 def _adaptive(
-    *histograms: tuple[float, ...], cfg: FrameExtractionConfig | None = None
+    *distances: float, cfg: FrameExtractionConfig | None = None, count: int = 5
 ) -> tuple[int, ...]:
-    """자리마다 고른 프레임의 히스토그램을 주고, 남은 프레임 번호를 돌려받는다.
+    """이웃한 자리 사이의 거리를 주고, 남은 자리 번호를 돌려받는다.
 
+    `distances[i]` 는 자리 `i` 와 `i+1` 사이의 거리다. 떨어진 두 자리 사이는 그 사이
+    구간들의 합으로 둔다 — 실제 영상에서 변화가 누적되는 모양이고, 표로 쓰기도 쉽다.
     프레임 번호를 자리 순번과 같게 둬서 "몇 번째 자리가 남았는가" 를 그대로 읽는다.
     """
     chosen = tuple(
         ChosenFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, blank=False)
-        for index in range(len(histograms))
+        for index in range(count)
     )
-    scored = {
-        index: ScoredFrame(
-            frame_number=index,
-            timestamp_ms=index * 1000,
-            score=1.0,
-            luma_std=40.0,
-            histogram=histogram,
-        )
-        for index, histogram in enumerate(histograms)
+    frames = {
+        index: ScoredFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, luma_std=40.0)
+        for index in range(count)
     }
-    kept = prune_by_change(chosen, scored, cfg if cfg is not None else load_config())
+    changes = {
+        (left, right): float(sum(distances[left:right]))
+        for left in range(count)
+        for right in range(left + 1, count)
+    }
+    kept = prune_by_change(
+        chosen,
+        SceneMeasurement(frames=frames, changes=changes),
+        cfg if cfg is not None else load_config(),
+    )
     return tuple(frame.frame_number for frame in kept)
-
-
-#: 서로 완전히 다른 화면. 한 자리만 1 이라 어느 둘을 비교해도 거리가 1 이다.
-def _distinct(index: int, total: int = 5) -> tuple[float, ...]:
-    return tuple(1.0 if position == index else 0.0 for position in range(total))
 
 
 def test_a_static_scene_keeps_only_the_lower_bound() -> None:
     """다섯 자리가 전부 같은 화면이면 하한만 남는다. 같은 그림을 다섯 번 저장하지 않는다."""
-    same = (0.5, 0.5)
-    assert len(_adaptive(*[same] * 5)) == load_config().min_keyframes_per_scene
+    assert len(_adaptive(0.0, 0.0, 0.0, 0.0)) == load_config().min_keyframes_per_scene
 
 
 def test_a_dynamic_scene_keeps_every_slot() -> None:
     """자리마다 화면이 다르면 전부 남는다. 상한까지 채우는 쪽이 동적 장면이다."""
-    assert _adaptive(*[_distinct(index) for index in range(5)]) == (0, 1, 2, 3, 4)
+    far = load_config().change_threshold * 2
+    assert _adaptive(far, far, far, far) == (0, 1, 2, 3, 4)
 
 
 def test_the_seed_is_the_middle_slot() -> None:
@@ -388,25 +362,13 @@ def test_the_seed_is_the_middle_slot() -> None:
     정적 장면이라 시드 말고는 아무것도 임계를 넘지 못하므로, 남은 것에 가운데 자리가
     들어 있다는 사실이 곧 시드가 가운데였다는 뜻이다.
     """
-    same = (0.5, 0.5)
-    assert 2 in _adaptive(*[same] * 5)
+    assert 2 in _adaptive(0.0, 0.0, 0.0, 0.0)
 
 
-def test_an_alternating_scene_does_not_keep_the_same_picture_twice() -> None:
-    """A→B→A→B→A. 직전 한 장이 아니라 **이미 남긴 것 전부**와 비교하는 이유다.
-
-    직전과만 비교하면 A 와 B 가 번갈아 임계를 넘어 다섯 자리가 다 남고, 같은 화면 두
-    종류를 다섯 장 저장하게 된다.
-    """
-    first, second = _distinct(0, 2), _distinct(1, 2)
-    kept = _adaptive(first, second, first, second, first)
-    assert len(kept) == 2
-
-
-def test_the_cap_wins_over_the_change(tmp_path: Path) -> None:
+def test_the_cap_wins_over_the_change() -> None:
     """전부 달라도 상한을 넘지 않는다. 상한이 후속 VLM·OCR 의 비용 상한이다."""
-    capped = _cfg(max_keyframes_per_scene=3)
-    assert len(_adaptive(*[_distinct(index) for index in range(5)], cfg=capped)) == 3
+    far = load_config().change_threshold * 2
+    assert len(_adaptive(far, far, far, far, cfg=_cfg(max_keyframes_per_scene=3))) == 3
 
 
 def test_the_lower_bound_is_filled_with_the_least_similar_frame() -> None:
@@ -415,17 +377,70 @@ def test_the_lower_bound_is_filled_with_the_least_similar_frame() -> None:
     아무거나 채우면 되돌린 장이 남긴 장과 거의 같은 화면일 수 있고, 그러면 하한을
     숫자로만 맞추고 실제로는 같은 그림을 두 번 저장한다.
 
-    자리 0 이 가장 멀고(0.2) 나머지는 시드와 사실상 같다. 임계(0.08)를 넘는 자리가
-    없으므로 셋 다 떨어지고, 그중 자리 0 이 돌아와야 한다.
+    임계(30.0)를 넘는 자리가 없으므로 시드(자리 2) 말고 넷이 다 떨어진다. 그중 시드에서
+    가장 먼 것은 누적 거리가 가장 큰 자리 0(1+20+4=25)이다.
     """
-    seed = (1.0, 0.0)
-    kept = _adaptive((0.98, 0.2), (1.0, 0.001), seed, (1.0, 0.001), (1.0, 0.002))
+    kept = _adaptive(1.0, 20.0, 4.0, 1.0)
     assert kept == (0, 2)
 
 
-def test_frames_without_a_histogram_are_kept_unjudged() -> None:
-    """측정이 닿지 못한 것을 "안 달라졌다" 로 읽으면 디코드 사고가 장 수 감소로 둔갑한다."""
-    assert len(_adaptive((), (), (), (), ())) == 5
+def test_an_unmeasured_pair_leaves_every_slot_in_place() -> None:
+    """재지 못한 것을 "안 달라졌다" 로 읽으면 측정 사고가 장 수 감소로 둔갑한다."""
+    chosen = tuple(
+        ChosenFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, blank=False)
+        for index in range(5)
+    )
+    frames = {
+        index: ScoredFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, luma_std=40.0)
+        for index in range(5)
+    }
+    measurement = SceneMeasurement(frames=frames, changes={})
+    assert len(prune_by_change(chosen, measurement, load_config())) == 5
+
+
+def test_change_is_looked_up_in_either_direction() -> None:
+    """쌍의 키는 정렬된 순서쌍이다. 조회할 때 방향을 신경 쓰지 않는다."""
+    measurement = SceneMeasurement(frames={}, changes={(3, 7): 12.5})
+    assert measurement.change_between(3, 7) == 12.5
+    assert measurement.change_between(7, 3) == 12.5
+    assert measurement.change_between(1, 2) is None
+
+
+# ── 변화 척도: scene 분할과 같은 자를 쓴다 ──────────────────────────────
+
+
+def test_content_val_matches_the_scene_detection_scale() -> None:
+    """`scenedetect` 의 `content_val` 과 같은 값이어야 한다. FRD F-03 의 척도 통일이다.
+
+    기준점은 `ai/docs/scene-detection.md` §4 의 실측이다 — `KNI_02205` 프레임 720→721 이
+    19.92 다. 눈금이 어긋나면 `change_threshold` 와 scene 분할의 `content.threshold` 를
+    같은 자 위에서 말할 수 없다.
+
+    여기서는 합성 프레임으로 **공식**을 잠근다. 실제 클립 대조는 문서의 실측이 맡는다 —
+    19 MiB 짜리 샘플을 단위 테스트가 디코드하지 않는다.
+    """
+    black = np.zeros((8, 8, 3), dtype=np.float32)
+    white = np.ones((8, 8, 3), dtype=np.float32)
+    # 검정 대 흰색: H 는 둘 다 0, S 도 둘 다 0, V 만 0 대 255 다. 평균하면 255/3 이다.
+    assert pyav_backend._content_val(
+        pyav_backend._to_hsv_scaled(black), pyav_backend._to_hsv_scaled(white)
+    ) == pytest.approx(255.0 / 3.0)
+
+
+def test_hue_uses_the_opencv_eight_bit_range() -> None:
+    """H 는 `0~179` 다. `cv2.cvtColor(..., COLOR_BGR2HSV)` 의 8bit 범위와 같아야 한다."""
+    red = np.zeros((1, 3, 3), dtype=np.float32)
+    red[:, :, 0] = 1.0
+    hue, saturation, value = pyav_backend._to_hsv_scaled(red)
+    assert float(hue.max()) == pytest.approx(0.0)
+    assert float(saturation.max()) == pytest.approx(255.0)
+    assert float(value.max()) == pytest.approx(255.0)
+
+    cyan = np.zeros((1, 3, 3), dtype=np.float32)
+    cyan[:, :, 1] = 1.0
+    cyan[:, :, 2] = 1.0
+    # 180도. OpenCV 눈금에서 절반인 90 이다.
+    assert float(pyav_backend._to_hsv_scaled(cyan)[0].max()) == pytest.approx(90.0)
 
 
 def test_a_static_scene_yields_fewer_keyframes_than_a_moving_one(
@@ -443,9 +458,9 @@ def test_a_static_scene_yields_fewer_keyframes_than_a_moving_one(
             *[(kind, 4) for kind in ("white", "noise", "gray", "bars", "white")],
         ],
     )
-    static_scene = _span(0, BLOCK_MS, 0)
-    moving_scene = _span(BLOCK_MS, BLOCK_MS * 2, 1)
-    result = extract_keyframes(video, (static_scene, moving_scene), tmp_path / "out")
+    result = extract_keyframes(
+        video, (_span(0, BLOCK_MS, 0), _span(BLOCK_MS, BLOCK_MS * 2, 1)), tmp_path / "out"
+    )
 
     static, moving = result.scenes
     assert len(static.keyframes) == load_config().min_keyframes_per_scene
@@ -725,19 +740,24 @@ class FakeGrabber:
         video_path: Path,
         requests: Sequence[SceneRequest],
         cfg: FrameExtractionConfig,
-    ) -> Mapping[int, Mapping[int, ScoredFrame]]:
+    ) -> Mapping[int, SceneMeasurement]:
+        # `changes` 를 비워 둔다 — 변화량을 재지 않은 대역이므로 `prune_by_change` 가
+        # 판정하지 않고 전부 남긴다. 여기서 보려는 것은 선정·배선이지 적응형이 아니다.
         return {
-            request.scene_index: {
-                number: ScoredFrame(
-                    frame_number=number,
-                    timestamp_ms=frames_to_ms(number, 10.0),
-                    # 슬롯 순번이 클수록 선명하게 둬서 대표가 첫 슬롯이 아니게 만든다.
-                    score=float(slot.slot_index + 1),
-                    luma_std=40.0,
-                )
-                for slot in request.slots
-                for number in slot.frame_numbers
-            }
+            request.scene_index: SceneMeasurement(
+                frames={
+                    number: ScoredFrame(
+                        frame_number=number,
+                        timestamp_ms=frames_to_ms(number, 10.0),
+                        # 슬롯 순번이 클수록 선명하게 둬서 대표가 첫 슬롯이 아니게 만든다.
+                        score=float(slot.slot_index + 1),
+                        luma_std=40.0,
+                    )
+                    for slot in request.slots
+                    for number in slot.frame_numbers
+                },
+                changes={},
+            )
             for request in requests
         }
 
@@ -798,14 +818,17 @@ def test_unreached_candidates_are_not_reported_as_fewer_keyframes(tmp_path: Path
             video_path: Path,
             requests: Sequence[SceneRequest],
             cfg: FrameExtractionConfig,
-        ) -> Mapping[int, Mapping[int, ScoredFrame]]:
+        ) -> Mapping[int, SceneMeasurement]:
             return {
-                index: {
-                    number: frame
-                    for number, frame in frames.items()
-                    if frames_to_ms(number, 10.0) < 500
-                }
-                for index, frames in super().measure(video_path, requests, cfg).items()
+                index: SceneMeasurement(
+                    frames={
+                        number: frame
+                        for number, frame in measurement.frames.items()
+                        if frames_to_ms(number, 10.0) < 500
+                    },
+                    changes={},
+                )
+                for index, measurement in super().measure(video_path, requests, cfg).items()
             }
 
     with pytest.raises(ValueError, match="먼저 끝났다"):
@@ -853,19 +876,22 @@ class _AllCandidatesGrabber:
         video_path: Path,
         requests: Sequence[SceneRequest],
         cfg: FrameExtractionConfig,
-    ) -> Mapping[int, Mapping[int, ScoredFrame]]:
+    ) -> Mapping[int, SceneMeasurement]:
         self.requests.extend(requests)
         return {
-            request.scene_index: {
-                number: ScoredFrame(
-                    frame_number=number,
-                    timestamp_ms=frames_to_ms(number, self.frame_rate),
-                    score=1.0 + number,
-                    luma_std=40.0,
-                )
-                for slot in request.slots
-                for number in slot.frame_numbers
-            }
+            request.scene_index: SceneMeasurement(
+                frames={
+                    number: ScoredFrame(
+                        frame_number=number,
+                        timestamp_ms=frames_to_ms(number, self.frame_rate),
+                        score=1.0 + number,
+                        luma_std=40.0,
+                    )
+                    for slot in request.slots
+                    for number in slot.frame_numbers
+                },
+                changes={},
+            )
             for request in requests
         }
 

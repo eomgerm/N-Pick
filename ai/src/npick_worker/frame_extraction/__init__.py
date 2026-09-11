@@ -42,10 +42,10 @@ from npick_worker.frame_extraction.models import (
 from npick_worker.frame_extraction.pyav_backend import PyAvFrameGrabber
 from npick_worker.frame_extraction.selector import (
     ChosenFrame,
+    SceneMeasurement,
     ScoredFrame,
     SlotCandidates,
     SlotPlan,
-    histogram_distance,
     order_for_output,
     plan_slots,
     prune_by_change,
@@ -65,6 +65,7 @@ __all__ = [
     "MediaProfile",
     "PyAvFrameGrabber",
     "SceneKeyframes",
+    "SceneMeasurement",
     "SceneRequest",
     "SceneSpan",
     "ScoredFrame",
@@ -74,7 +75,6 @@ __all__ = [
     "extract_keyframes",
     "frames_in_span",
     "get_default_config",
-    "histogram_distance",
     "load_config",
     "order_for_output",
     "plan_slots",
@@ -118,11 +118,12 @@ def extract_keyframes(
         for scene in scenes
     )
 
+    empty = SceneMeasurement(frames={}, changes={})
     measured = engine.measure(video_path, requests, config)
     _check_measured(requests, measured)
     ordered = {
         request.scene_index: order_for_output(
-            _choose(request.slots, measured.get(request.scene_index, {}), config)
+            _choose(request.slots, measured.get(request.scene_index, empty), config)
         )
         for request in requests
     }
@@ -153,7 +154,7 @@ def extract_keyframes(
 
 def _check_measured(
     requests: Sequence[SceneRequest],
-    measured: Mapping[int, Mapping[int, ScoredFrame]],
+    measured: Mapping[int, SceneMeasurement],
 ) -> None:
     """재 달라고 한 프레임을 하나라도 못 받았으면 멈춘다.
 
@@ -170,7 +171,8 @@ def _check_measured(
     다시 시도해도 같은 결과이므로 `ValueError` 이고 잡 레이어가 영구 오류로 번역한다.
     """
     for request in requests:
-        reached = measured.get(request.scene_index, {})
+        measurement = measured.get(request.scene_index)
+        reached = measurement.frames if measurement is not None else {}
         missing = sorted(
             frame_number
             for slot in request.slots
@@ -187,7 +189,7 @@ def _check_measured(
 
 def _choose(
     slots: Sequence[SlotCandidates],
-    scored: Mapping[int, ScoredFrame],
+    measurement: SceneMeasurement,
     config: FrameExtractionConfig,
 ) -> tuple[ChosenFrame, ...]:
     """자리마다 선명도로 한 장을 고른 뒤, 서로 충분히 다른 것만 남긴다.
@@ -197,7 +199,7 @@ def _choose(
     변화량은 장 수·위치를 내용으로 정하고(FRD v3.2 F-03), 선명도는 그 자리에서 뽑는
     프레임의 품질을 보장한다.
     """
-    return prune_by_change(select(slots, scored, config), scored, config)
+    return prune_by_change(select(slots, measurement.frames, config), measurement, config)
 
 
 def _validate_scenes(scenes: Sequence[SceneSpan]) -> None:

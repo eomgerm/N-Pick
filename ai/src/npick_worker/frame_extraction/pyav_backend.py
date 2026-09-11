@@ -29,7 +29,7 @@ from npick_worker.frame_extraction.extractor import (
     SceneRequest,
     WrittenImage,
 )
-from npick_worker.frame_extraction.selector import ScoredFrame
+from npick_worker.frame_extraction.selector import SceneMeasurement, ScoredFrame
 from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.timecode import frames_to_ms
 
@@ -85,8 +85,14 @@ class PyAvFrameGrabber:
         video_path: Path,
         requests: Sequence[SceneRequest],
         cfg: FrameExtractionConfig,
-    ) -> Mapping[int, Mapping[int, ScoredFrame]]:
-        """후보 프레임을 재서 `scene_index → {프레임 번호: 측정값}` 을 돌려준다."""
+    ) -> Mapping[int, SceneMeasurement]:
+        """후보를 재서 `scene_index → SceneMeasurement` 를 돌려준다.
+
+        **후보 평면을 scene 하나치만 들고 있는다.** 변화량(`content_val`)은 픽셀을 맞대어
+        보는 값이라 두 프레임이 동시에 있어야 하는데, 영상 전체의 후보 평면을 쥐면 장면
+        수에 비례해 메모리가 는다. scene 은 시간순이고 후보도 프레임 순으로 오므로, 다음
+        scene 의 후보가 나타나는 순간 직전 scene 의 쌍 거리를 다 재고 평면을 버린다.
+        """
         owner: dict[int, int] = {
             frame_number: request.scene_index
             for request in requests
@@ -96,8 +102,14 @@ class PyAvFrameGrabber:
         measured: dict[int, dict[int, ScoredFrame]] = {
             request.scene_index: {} for request in requests
         }
+        changes: dict[int, dict[tuple[int, int], float]] = {
+            request.scene_index: {} for request in requests
+        }
         if not owner:
-            return measured
+            return {index: SceneMeasurement(frames={}, changes={}) for index in measured}
+
+        planes: dict[int, tuple[np.ndarray, ...]] = {}
+        open_scene: int | None = None
 
         with av.open(str(video_path)) as container:
             frame_rate = _profile(container).frame_rate
@@ -105,15 +117,26 @@ class PyAvFrameGrabber:
                 scene_index = owner.get(frame_number)
                 if scene_index is None:
                     continue
+                if scene_index != open_scene:
+                    if open_scene is not None:
+                        changes[open_scene] = _pairwise_change(planes)
+                    planes = {}
+                    open_scene = scene_index
                 score, luma_std = _score(frame, cfg.score_stride)
                 measured[scene_index][frame_number] = ScoredFrame(
                     frame_number=frame_number,
                     timestamp_ms=frames_to_ms(frame_number, frame_rate),
                     score=score,
                     luma_std=luma_std,
-                    histogram=_histogram(frame, cfg.score_stride, cfg.change_hist_bins),
                 )
-        return measured
+                planes[frame_number] = _hsv_planes(frame, cfg.change_stride)
+            if open_scene is not None:
+                changes[open_scene] = _pairwise_change(planes)
+
+        return {
+            index: SceneMeasurement(frames=frames, changes=changes[index])
+            for index, frames in measured.items()
+        }
 
     def write(
         self,
@@ -206,47 +229,58 @@ def _score(frame: "av.VideoFrame", stride: int) -> tuple[float, float]:
     return float(laplacian.var()), float(luma.std())
 
 
-def _histogram(frame: "av.VideoFrame", stride: int, bins: int) -> tuple[float, ...]:
-    """H·S·V 채널별 히스토그램을 이어 붙인 것. 변화량 판정의 입력이다.
+def _hsv_planes(frame: "av.VideoFrame", stride: int) -> tuple["np.ndarray", ...]:
+    """변화량 계산용 H·S·V 평면. OpenCV 8bit HSV 와 같은 눈금이다.
 
-    **선명도와 같은 stride 로 읽은 픽셀에서 만든다.** 두 측정이 다른 픽셀 집합을 보면
-    "이 프레임이 왜 뽑혔는가" 를 한 벌의 근거로 설명할 수 없다.
+    `cv2.cvtColor(..., COLOR_BGR2HSV)` 의 8bit 범위가 H `0~179`, S·V `0~255` 다. 그
+    눈금을 그대로 쓰는 이유는 `content_val` 을 scene 분할과 **같은 자**로 재기 위해서다
+    (FRD F-03 의 척도 통일 권고). 눈금이 다르면 두 단계의 임계값을 비교할 수 없다.
 
-    ffmpeg 에 HSV 픽셀 형식이 없어서 RGB 로 받아 여기서 변환한다. `reformat(format="hsv")`
-    는 `not a pixel format` 으로 죽는다. 변환을 numpy 로 하는 편이 `cv2` 를 이 패키지의
-    의존성으로 끌어오는 것보다 낫다 — CPU 전용 fleet 이 frame extraction 만 돌릴 때
-    `scene_detection` 의 무거운 의존성을 따라오게 하지 않는 것이 이 모듈의 전제다.
+    ffmpeg 에 HSV 픽셀 형식이 없어서 RGB 로 받아 여기서 변환한다
+    (`reformat(format="hsv")` 는 `not a pixel format` 으로 죽는다). 변환을 numpy 로 하는
+    편이 `cv2` 를 이 패키지의 의존성으로 끌어오는 것보다 낫다 — CPU 전용 fleet 이 frame
+    extraction 만 돌릴 때 `scene_detection` 의 무거운 의존성을 따라오게 하지 않는 것이
+    이 모듈의 전제다. `scenedetect` 의 `content_val` 과 대조해 소수점 둘째 자리까지
+    일치함을 확인했다(`ai/docs/frame-extraction.md` §3.1).
 
-    채널을 이어 붙일 뿐 3차원 결합 히스토그램을 만들지 않는다. 결합 히스토그램은
-    `bins ** 3` 칸이라 stride 로 솎아낸 픽셀 수로는 대부분이 비고, 그 성김이 코사인거리를
-    실제 변화가 아니라 표본 잡음에 반응하게 만든다.
-
-    각 채널을 픽셀 수로 나눠 정규화한다. 해상도가 다른 영상끼리 같은 임계값을 쓰려면
-    히스토그램이 절대 개수가 아니라 비율이어야 한다.
-
-    **디코드는 여기서 늘지 않는다.** `measure` 가 이미 그 프레임을 손에 들고 있고,
-    `_decode_until` 은 후보 수와 무관하게 0번부터 순차로 훑는다. 늘어나는 것은 후보
-    한 장당 변환·집계 비용뿐이다.
+    `stride` 로 솎아 읽는다. **평균을 흐리지 않는다** — 솎기는 평균 절대차의 불편추정이라
+    전체 픽셀로 잰 값과 같은 눈금에 있다. 이웃을 평균 내는 축소와는 다르다.
     """
-    rgb = frame.reformat(format="rgb24").to_ndarray()[::stride, ::stride]
-    if rgb.shape[0] == 0 or rgb.shape[1] == 0:
-        return ()
-    pixels = rgb.shape[0] * rgb.shape[1]
-    channels = _to_hsv(rgb.astype(np.float32) / 255.0)
-    return tuple(
-        float(count) / pixels
-        for channel in channels
-        for count in np.bincount(
-            np.clip((channel * bins).astype(np.int32), 0, bins - 1).reshape(-1), minlength=bins
-        )
-    )
+    rgb = frame.reformat(format="rgb24").to_ndarray()[::stride, ::stride].astype(np.float32)
+    return _to_hsv_scaled(rgb / 255.0)
 
 
-def _to_hsv(rgb: "np.ndarray") -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
-    """`[0, 1]` RGB 평면을 `[0, 1)` H·S·V 세 평면으로. 표준 원뿔 변환이다.
+def _pairwise_change(
+    planes: Mapping[int, tuple["np.ndarray", ...]],
+) -> dict[tuple[int, int], float]:
+    """scene 안 후보 쌍 전부의 `content_val`."""
+    numbers = sorted(planes)
+    return {
+        (left, right): _content_val(planes[left], planes[right])
+        for index, left in enumerate(numbers)
+        for right in numbers[index + 1 :]
+    }
 
-    색상(H)을 따로 두는 것이 이 척도의 핵심이다. 조명이 오르내리면 V 만 움직이고 H 는
-    거의 그대로이므로, 같은 화면의 밝기 변화가 새 keyframe 을 부르지 않는다.
+
+def _content_val(left: Sequence["np.ndarray"], right: Sequence["np.ndarray"]) -> float:
+    """PySceneDetect `ContentDetector` 의 `content_val`.
+
+    H·S·V 채널별 평균 절대차의 산술평균이다. `ContentDetector` 의 기본 가중치가
+    `(hue, saturation, luma, edges) = (1, 1, 1, 0)` 이므로 세 채널을 같은 무게로 평균한
+    것과 같다. `luma_only = false` 인 현재 scene 분할 설정에 대응한다.
+
+    그래서 이 값은 `scene_detection` 의 `content.threshold`(기본 27.0)와 **같은 자 위에
+    있다.** 다만 재는 거리가 다르다 — 그쪽은 인접 프레임(t, t-1)이고 여기는 수 초 떨어진
+    두 자리다. 같은 눈금이라고 같은 임계값이 맞는 것은 아니므로 값은 따로 실측한다.
+    """
+    return float(sum(np.abs(a - b).mean() for a, b in zip(left, right, strict=True)) / 3.0)
+
+
+def _to_hsv_scaled(rgb: "np.ndarray") -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+    """`[0, 1]` RGB 평면을 OpenCV 8bit 눈금의 H·S·V 평면으로.
+
+    표준 원뿔 변환에 `cv2` 의 범위를 입힌 것이다 — H `0~179`, S·V `0~255`. 그 눈금이라야
+    `_content_val` 이 scene 분할의 `content_val` 과 같은 값을 낸다.
     """
     red, green, blue = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
     value = rgb.max(axis=2)
@@ -264,7 +298,7 @@ def _to_hsv(rgb: "np.ndarray") -> tuple["np.ndarray", "np.ndarray", "np.ndarray"
         # 덮지 않는다 — 세 채널이 같은 회색 픽셀에서 순서에 따라 값이 갈리지 않게 한다.
         sector = colored & (value == peak) & (hue == 0.0)
         hue[sector] = (offset + (left - right)[sector] / chroma[sector]) % 6.0
-    return hue / 6.0, saturation, value
+    return hue / 6.0 * 180.0, saturation * 255.0, value * 255.0
 
 
 def _encode_jpeg(frame: "av.VideoFrame", target: Path, qscale: int) -> None:

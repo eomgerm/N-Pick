@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from npick_worker.frame_extraction.config import FrameExtractionConfig
-from npick_worker.frame_extraction.selector import ScoredFrame, SlotCandidates
+from npick_worker.frame_extraction.selector import SceneMeasurement, SlotCandidates
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,12 +65,20 @@ class FrameGrabber(Protocol):
 
     def measure(
         self, video_path: Path, requests: Sequence[SceneRequest], cfg: FrameExtractionConfig
-    ) -> Mapping[int, Mapping[int, ScoredFrame]]:
-        """후보를 재서 `scene_index → {프레임 번호: 측정값}` 을 돌려준다.
+    ) -> Mapping[int, SceneMeasurement]:
+        """후보를 재서 `scene_index → SceneMeasurement` 를 돌려준다.
 
-        선정 규칙은 여기 없다. 이 구현은 재기만 하고 고르는 일은
-        `selector.select` 이 한다 — 그래야 "몇 장을 어디서 뽑고 무엇을 대표로
-        하는가" 를 영상 없이 검증할 수 있다.
+        재는 것이 둘이다 — 후보 한 장의 성질(선명도·휘도)과 **후보 두 장 사이의 변화량**
+        (`content_val`). 후자를 여기서 재는 이유는 그것이 픽셀을 맞대어 보는 일이라
+        프레임 자체가 필요하기 때문이다. 그 프레임을 손에 들고 있는 것은 이 구현뿐이다.
+
+        변화량을 값으로 돌려주고 프레임을 돌려주지 않는 것이 중요하다. 픽셀을 밖으로
+        내보내면 호출부가 영상 전체의 후보 평면을 쥐게 된다 — 장면 수에 비례해 늘어나는
+        메모리이고, 이 단계가 후보 때문에 메모리를 늘리지 않기로 한 판단(`pyav_backend`
+        모듈 문서)과 어긋난다.
+
+        선정 규칙은 여기 없다. 이 구현은 재기만 하고 고르는 일은 `selector` 가 한다 —
+        그래야 "몇 장을 어디서 뽑고 무엇을 대표로 하는가" 를 영상 없이 검증할 수 있다.
         """
         ...
 
