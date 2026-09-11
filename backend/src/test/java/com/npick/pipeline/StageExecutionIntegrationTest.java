@@ -83,10 +83,14 @@ class StageExecutionIntegrationTest {
                 "UPDATE npick.pipeline_run SET status='failed', lease_id=NULL, lease_stage=NULL, lease_worker_id=NULL, lease_expires_at=NULL, lease_heartbeat_at=NULL WHERE status IN ('queued','running')");
         clock = new MutableClock();
         outputs = new MockOutputs();
+        executor = newExecutor(retries);
+    }
+
+    private StageExecutionService newExecutor(com.npick.pipeline.domain.model.StageRetrySettings retries) {
         var properties =
                 new ClipRegistrationProperties(media, media.resolve("upload"), null, null, null, false, 10485760);
         var publication = new ClipPublicationService(new JdbcClipPublicationAdapter(jdbc, properties));
-        executor = transactional(new StageExecutionService(
+        return transactional(new StageExecutionService(
                 new JdbcPipelineRunRepository(jdbc, JSON),
                 () -> new GetPipelineDefinitionUseCase.Definition(VERSION, PipelineStages.NAMES, VERSIONS),
                 outputs,
@@ -125,7 +129,7 @@ class StageExecutionIntegrationTest {
                 if (stage.equals("asr")) failBody(result, "failed", "ASR_FAILED");
                 complete(run, stage, result);
                 assertThat(complete(run, stage, result)).containsEntry("duplicate", true);
-                rejects(() -> complete(run, stage, lateSuccess), "JOB_409_002");
+                rejects(() -> complete(run, stage, lateSuccess), "JOB_409_003");
             } else complete(run, stage, success(first));
         }
         assertThat(row(run)).containsEntry("status", "succeeded");
@@ -172,6 +176,188 @@ class StageExecutionIntegrationTest {
         rejects(() -> complete(run, "scene_detection", old), "JOB_409_002");
         complete(run, "scene_detection", success(replacement));
         assertThat(sceneCount(run)).isEqualTo(1);
+    }
+
+    @Test
+    void acceptedAttemptReplaysAcrossWorkersCompletionAndRestartWithoutWritingAgain() throws Exception {
+        configure(new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("scene_detection", 2), java.util.Set.of("SCENE_DETECTION_FAILED")));
+        long run = createRun(null, 1, true);
+        var first = success(claim());
+        failBody(first, "failed", "SCENE_DETECTION_FAILED");
+        var original = complete(run, "scene_detection", first);
+        var expected = new LinkedHashMap<>(original);
+        expected.put("duplicate", true);
+        var second = executor.reserve(new ClaimStageCommand("replacement", VERSIONS, Map.of()))
+                .orElseThrow();
+        assertThat(complete(run, "scene_detection", first)).isEqualTo(expected);
+        var changed = new LinkedHashMap<>(first);
+        changed.put("metrics", Map.of("changed", true));
+        rejects(() -> complete(run, "scene_detection", changed), "JOB_409_003");
+        rejects(
+                () -> executor.complete(new CompleteStageCommand(
+                        run, "scene_detection", "replacement", (String) first.get("idempotencyKey"), first)),
+                "JOB_409_002");
+        var result = success(second);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var replay = pool.submit(() -> complete(run, "scene_detection", first));
+            var accepted = pool.submit(() -> executor.complete(new CompleteStageCommand(
+                    run, "scene_detection", "replacement", (String) result.get("idempotencyKey"), result)));
+            assertThat(replay.get(10, TimeUnit.SECONDS)).isEqualTo(expected);
+            assertThat(accepted.get(10, TimeUnit.SECONDS)).containsEntry("duplicate", false);
+        }
+        clock.advance(120);
+        executor = newExecutor(com.npick.pipeline.domain.model.StageRetrySettings.disabled());
+        assertThat(complete(run, "scene_detection", first)).isEqualTo(expected);
+        rejects(() -> complete(run, "scene_detection", changed), "JOB_409_003");
+        assertThat(sceneCount(run)).isEqualTo(1);
+        assertThat(state(run, "scene_detection"))
+                .containsEntry("status", "succeeded")
+                .containsEntry("attempts", 2);
+        assertThat(object(state(run, "scene_detection").get("completions"))).hasSize(2);
+    }
+
+    @Test
+    void reservedRetryKeepsItsBudgetAndClassificationAfterSettingsChangeAndLeaseReclaim() throws Exception {
+        configure(new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("scene_detection", 3), java.util.Set.of("SCENE_DETECTION_FAILED")));
+        long run = createRun(null, 1, true);
+        var failed = success(claim());
+        failBody(failed, "failed", "SCENE_DETECTION_FAILED");
+        complete(run, "scene_detection", failed);
+        executor = newExecutor(com.npick.pipeline.domain.model.StageRetrySettings.disabled());
+        var second = claim();
+        assertThat(object(second.get("job"))).containsEntry("attempt", 2).containsEntry("maxAttempts", 3);
+        clock.advance(76);
+        assertThat(executor.reclaim()).isEqualTo(1);
+        var replacement = claim();
+        assertThat(object(replacement.get("job"))).containsEntry("attempt", 2).containsEntry("maxAttempts", 3);
+        var failedAgain = success(replacement);
+        failBody(failedAgain, "failed", "SCENE_DETECTION_FAILED");
+        complete(run, "scene_detection", failedAgain);
+        assertThat(state(run, "scene_detection")).containsEntry("status", "pending");
+        var third = claim();
+        assertThat(object(third.get("job"))).containsEntry("attempt", 3).containsEntry("maxAttempts", 3);
+        complete(run, "scene_detection", success(third));
+        assertThat(object(claim().get("job")))
+                .containsEntry("stage", "frame_extraction")
+                .containsEntry("maxAttempts", 1);
+    }
+
+    @Test
+    void enablingRetriesDoesNotExpandAnAlreadyAssignedBudget() throws Exception {
+        long run = createRun(null, 1, true);
+        var failed = success(claim());
+        executor = newExecutor(new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("scene_detection", 3), java.util.Set.of("SCENE_DETECTION_FAILED")));
+        failBody(failed, "failed", "SCENE_DETECTION_FAILED");
+        complete(run, "scene_detection", failed);
+        assertThat(row(run)).containsEntry("status", "failed");
+        assertThat(state(run, "scene_detection")).containsEntry("attempts", 1).containsEntry("retryScheduled", false);
+    }
+
+    @Test
+    void invalidStoredSubtitleRemainsPermanentThroughStorageWrapper() throws Exception {
+        configure(new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("transcript_selection", 3), java.util.Set.of("STAGE_FAILED", "INVALID_TRANSCRIPT")));
+        long run = createRun(null, 1, true);
+        long clip = ((Number) row(run).get("clip_id")).longValue();
+        String subtitle = "clips/" + clip + "/invalid.srt";
+        Files.writeString(media.resolve(subtitle), "invalid subtitle without timestamps");
+        advanceToTranscript(run);
+        var source = new com.npick.clip.application.command.StoredTranscriptPreparationService(
+                (clipId, runId) -> new com.npick.clip.application.port.TranscriptPreparationSourcePort.Source(
+                        "clips/" + clip + "/source.mp4", subtitle, java.math.BigDecimal.ONE),
+                localTranscriptPreparation());
+        var facade = preparedClaims(source, executor);
+        rejects(() -> facade.claim(worker()), "CLIP_503_010");
+        assertThat(state(run, "transcript_selection"))
+                .containsEntry("status", "failed")
+                .containsEntry("attempts", 1)
+                .containsEntry("errorCode", "INVALID_TRANSCRIPT")
+                .containsEntry("errorRetryable", false);
+        assertThat(object(
+                        object(state(run, "transcript_selection").get("error")).get("detail")))
+                .containsEntry("sourceErrorCode", "CLIP_400_012");
+        assertThat(object(claim().get("job"))).containsEntry("stage", "asr");
+    }
+
+    @Test
+    void legacyPendingRetryRetainsItsReceiptBeforeWorkerChangesAndAddsNoNewBudget() throws Exception {
+        configure(new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("scene_detection", 2), java.util.Set.of("SCENE_DETECTION_FAILED")));
+        long run = createRun(null, 1, true);
+        var failed = success(claim());
+        failBody(failed, "failed", "SCENE_DETECTION_FAILED");
+        var receipt = new LinkedHashMap<>(complete(run, "scene_detection", failed));
+        receipt.put("duplicate", true);
+        jdbc.update("""
+                UPDATE npick.pipeline_run SET stage_states_json = stage_states_json
+                    #- '{stages,scene_detection,retryPolicy}'
+                    #- '{stages,scene_detection,completions}'
+                    #- '{stages,scene_detection,completedWorkerId}'
+                WHERE pipeline_run_id=?
+                """, run);
+        executor = newExecutor(new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("scene_detection", 5), java.util.Set.of("SCENE_DETECTION_FAILED")));
+        var second = executor.reserve(new ClaimStageCommand("replacement", VERSIONS, Map.of()))
+                .orElseThrow();
+        assertThat(object(second.get("job"))).containsEntry("attempt", 2).containsEntry("maxAttempts", 2);
+        assertThat(complete(run, "scene_detection", failed)).isEqualTo(receipt);
+        var finalFailure = success(second);
+        failBody(finalFailure, "failed", "SCENE_DETECTION_FAILED");
+        executor.complete(new CompleteStageCommand(
+                run, "scene_detection", "replacement", (String) finalFailure.get("idempotencyKey"), finalFailure));
+        assertThat(row(run)).containsEntry("status", "failed");
+        assertThat(complete(run, "scene_detection", failed)).isEqualTo(receipt);
+        assertThat(object(state(run, "scene_detection").get("completions"))).hasSize(2);
+    }
+
+    @Test
+    void transientPreparationFailureRetriesButUnknownAndPermanentFailuresDoNot() throws Exception {
+        var policy = new com.npick.pipeline.domain.model.StageRetrySettings(
+                Map.of("transcript_selection", 2), java.util.Set.of("STAGE_FAILED", "STAGE_TIMEOUT"));
+        configure(policy);
+        long run = createRun(null, 1, true);
+        advanceToTranscript(run);
+        var prepared = storedPreparation(run, localTranscriptPreparation());
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var facade = preparedClaims(
+                (clip, id, prefix) -> {
+                    if (calls.incrementAndGet() == 1)
+                        throw new BusinessException(
+                                com.npick.clip.application.error.TranscriptErrorCode.STORAGE_FAILED,
+                                new java.io.IOException("temporary I/O"));
+                    return prepared.prepare(clip, id, prefix);
+                },
+                executor);
+        rejects(() -> facade.claim(worker()), "CLIP_503_010");
+        assertThat(state(run, "transcript_selection")).containsEntry("status", "pending");
+        var second = facade.claim(worker()).orElseThrow();
+        assertThat(object(second.get("job"))).containsEntry("attempt", 2).containsEntry("maxAttempts", 2);
+        complete(run, "transcript_selection", success(second));
+        assertThat(calls.get()).isEqualTo(2);
+        for (RuntimeException failure : List.of(
+                com.npick.clip.application.error.TranscriptErrorCode.invalid("subtitle", "bad input"),
+                new BusinessException(
+                        com.npick.clip.application.error.TranscriptErrorCode.STORAGE_FAILED,
+                        new java.nio.file.NoSuchFileException("missing")),
+                new IllegalStateException("unknown failure"))) {
+            configure(policy);
+            long rejected = createRun(null, 1, true);
+            advanceToTranscript(rejected);
+            var failing = preparedClaims(
+                    (clip, id, prefix) -> {
+                        throw failure;
+                    },
+                    executor);
+            assertThatThrownBy(() -> failing.claim(worker())).isSameAs(failure);
+            assertThat(state(rejected, "transcript_selection"))
+                    .containsEntry("status", "failed")
+                    .containsEntry("attempts", 1)
+                    .containsEntry("errorRetryable", false);
+            assertThat(object(claim().get("job"))).containsEntry("stage", "asr");
+        }
     }
 
     @Test

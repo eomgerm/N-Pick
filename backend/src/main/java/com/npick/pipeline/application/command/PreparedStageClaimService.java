@@ -117,23 +117,56 @@ public class PreparedStageClaimService implements ClaimStageUseCase {
         result.put("durationMs", durationMs);
         result.put("versions", versions);
         result.put("output", null);
-        result.put(
-                "error",
-                Map.of(
-                        "code",
-                        "STAGE_FAILED",
-                        "retryable",
-                        true,
-                        "message",
-                        "자막 입력 준비를 완료하지 못했습니다.",
-                        "detail",
-                        Map.of("phase", "input_preparation")));
+        result.put("error", preparationError(failure));
         try {
             completion.complete(new CompleteStageCommand(
                     run, "transcript_selection", worker, (String) job.get("idempotencyKey"), result));
         } catch (RuntimeException persistenceFailure) {
             failure.addSuppressed(persistenceFailure);
         }
+    }
+
+    private static Map<String, Object> preparationError(RuntimeException failure) {
+        Map<String, Object> transientError = null;
+        var visited = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
+        // 저장 준비 어댑터는 자막 파싱 오류도 STORAGE_FAILED로 감싼다. 내부 영구 원인을 먼저 보존한다.
+        for (Throwable cause = failure; cause != null && visited.add(cause); cause = cause.getCause()) {
+            if (cause instanceof BusinessException business) {
+                String source = business.errorCode().code();
+                if ("CLIP_400_012".equals(source)) return preparationError("INVALID_TRANSCRIPT", false, source);
+                if ("CLIP_400_001".equals(source)) return preparationError("UNSUPPORTED_MEDIA", false, source);
+                switch (business.errorCode().type()) {
+                    case BAD_REQUEST, LENGTH_REQUIRED, UNAUTHORIZED, FORBIDDEN, CONFLICT, RANGE_NOT_SATISFIABLE -> {
+                        return preparationError("VALIDATION_ERROR", false, source);
+                    }
+                    case NOT_FOUND -> {
+                        return preparationError("MEDIA_UNAVAILABLE", false, source);
+                    }
+                    case SERVICE_UNAVAILABLE -> {
+                        if (transientError == null) transientError = preparationError("STAGE_FAILED", true, source);
+                    }
+                    default -> {
+                        /* 알 수 없는 서버 오류는 일시 오류로 추정하지 않는다. */
+                    }
+                }
+            } else if (cause instanceof java.nio.file.NoSuchFileException
+                    || cause instanceof java.io.FileNotFoundException
+                    || cause instanceof java.nio.file.AccessDeniedException) {
+                return preparationError("MEDIA_UNAVAILABLE", false, null);
+            } else if (cause instanceof IllegalArgumentException || cause instanceof SecurityException) {
+                return preparationError("VALIDATION_ERROR", false, null);
+            } else if (cause instanceof java.util.concurrent.TimeoutException) {
+                transientError = preparationError("STAGE_TIMEOUT", true, null);
+            }
+        }
+        return transientError != null ? transientError : preparationError("STAGE_FAILED", false, null);
+    }
+
+    private static Map<String, Object> preparationError(String code, boolean retryable, String source) {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("phase", "input_preparation");
+        if (source != null) detail.put("sourceErrorCode", source);
+        return Map.of("code", code, "retryable", retryable, "message", "자막 입력 준비를 완료하지 못했습니다.", "detail", detail);
     }
 
     private static Map<String, Object> transcript(PrepareTranscriptInputUseCase.TranscriptInput input) {

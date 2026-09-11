@@ -100,7 +100,7 @@ public class StageExecutionService
                         || "unknown".equals(command.capabilities().get(stage))) continue;
                 run.bindExpectedVersions(snapshot.pipelineVersion(), expected);
                 Instant now = clock.instant();
-                run.claim(stage, command.workerId(), UUID.randomUUID(), command.device(), now);
+                run.claim(stage, command.workerId(), UUID.randomUUID(), command.device(), now, retries);
                 runs.save(run, now);
                 return Optional.of(assignment(run, stage));
             }
@@ -129,7 +129,7 @@ public class StageExecutionService
         job.put("processingNo", snapshot.processingNo());
         job.put("stage", stage);
         job.put("attempt", run.state(stage).get("attempts"));
-        job.put("maxAttempts", retries.attemptsFor(stage));
+        job.put("maxAttempts", run.maxAttempts(stage));
         job.put("idempotencyKey", run.idempotencyKey(stage));
         job.put("pipelineVersion", snapshot.pipelineVersion());
         job.put("expectedStageVersion", run.state(stage).get("expectedStageVersion"));
