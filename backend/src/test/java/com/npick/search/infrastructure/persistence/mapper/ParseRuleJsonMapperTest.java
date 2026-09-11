@@ -1,5 +1,8 @@
 package com.npick.search.infrastructure.persistence.mapper;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -67,6 +70,41 @@ class ParseRuleJsonMapperTest {
                 .singleElement()
                 .extracting(QueryResolution.IncidentName::value)
                 .isEqualTo(FACTORY);
+    }
+
+    @Test
+    @DisplayName("ParseRule javadoc 의 예시가 그대로 통과한다")
+    void theDocumentedExampleParsesAsWritten() throws Exception {
+        // 정본 javadoc 과 이 테스트의 JSON 이 갈리면 예시를 그대로 베낀 규칙이 비호환으로 거부된다.
+        String javadoc = Files.readString(
+                Path.of("src/main/java/com/npick/search/domain/model/ParseRule.java"), StandardCharsets.UTF_8);
+        String condition = extractJson(javadoc, "condition_json");
+        String patch = extractJson(javadoc, "patch_json");
+
+        ParseRule rule = mapper.toDomain(10L, condition, patch);
+
+        assertThat(rule.parseError()).isNull();
+        assertThat(rule.incompatibleReason(originalWithFactoryAsLocation())).isNull();
+        ParseRulePolicy.Result result = policy.apply(originalWithFactoryAsLocation(), List.of(rule));
+        assertThat(result.outcomes())
+                .singleElement()
+                .extracting(ParseRuleOutcome::status)
+                .isEqualTo(ParseRuleOutcome.Status.APPLIED);
+    }
+
+    /** javadoc 의 {@code <pre>} 블록에서 이름 뒤에 오는 JSON 객체를 꺼낸다. 줄 앞의 {@code *} 는 지운다. */
+    private static String extractJson(String javadoc, String name) {
+        int start = javadoc.indexOf("{", javadoc.indexOf("\n * " + name));
+        int depth = 0;
+        for (int i = start; i < javadoc.length(); i++) {
+            char c = javadoc.charAt(i);
+            if (c == '{') {
+                depth++;
+            } else if (c == '}' && --depth == 0) {
+                return javadoc.substring(start, i + 1).replaceAll("(?m)^\\s*\\*", "");
+            }
+        }
+        throw new IllegalStateException(name + " 예시를 javadoc 에서 찾지 못했다");
     }
 
     @Test

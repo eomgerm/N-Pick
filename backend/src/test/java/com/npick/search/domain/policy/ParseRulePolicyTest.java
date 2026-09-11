@@ -608,6 +608,114 @@ class ParseRulePolicyTest {
                 .contains("값을 쓰지 않는다");
     }
 
+    // ── MR 리뷰 반영 (!55) ───────────────────────────────────────────────
+
+    @Test
+    @DisplayName("연산이 쓰지 않는 피연산자는 조용히 무시되지 않는다")
+    void unusedOperandsAreRejected() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        ParseRule.Patch.Operation harmless =
+                operation(ParseRule.Patch.Op.SET, ResolutionAxis.INTENT, null, "recent_scene");
+
+        // has_value 는 type 을 보지 않는다. 무시하면 person:X 규칙이 organization:X 에도 걸린다.
+        assertThat(reasonOf(
+                        original,
+                        rule(
+                                10L,
+                                List.of(new ParseRule.Condition.Predicate(
+                                        ResolutionAxis.ENTITIES, ParseRule.Condition.Op.HAS_VALUE, "person", "김철수")),
+                                List.of(harmless))))
+                .isEqualTo("has_value 는 type 을 쓰지 않는다");
+        // has_type 은 value 를 보지 않는다
+        assertThat(reasonOf(
+                        original,
+                        rule(
+                                20L,
+                                List.of(new ParseRule.Condition.Predicate(
+                                        ResolutionAxis.LOCATIONS, ParseRule.Condition.Op.HAS_TYPE, "location", "○○공장")),
+                                List.of(harmless))))
+                .isEqualTo("has_type 는 value 를 쓰지 않는다");
+        // is_empty 는 둘 다 보지 않는다
+        assertThat(reasonOf(
+                        original,
+                        rule(
+                                30L,
+                                List.of(new ParseRule.Condition.Predicate(
+                                        ResolutionAxis.INCIDENT_NAMES, ParseRule.Condition.Op.IS_EMPTY, null, "아무값")),
+                                List.of(harmless))))
+                .isEqualTo("is_empty 는 value 를 쓰지 않는다");
+    }
+
+    @Test
+    @DisplayName("같은 값을 다른 confidence 로 넣는 두 규칙은 충돌이다")
+    void differentConfidenceOnTheSameValueIsAConflict() {
+        // confidence 가 효과에서 빠지면 충돌로 잡히지 않고 먼저 온 규칙이 이긴다 — 규칙 ID 순서가
+        // 최종 confidence 를 바꾼다. F-11 은 임의의 규칙이 이기는 방식을 금지한다.
+        QueryResolution original = new QueryResolution(
+                SCHEMA,
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new QueryResolution.Location(
+                        QueryResolution.LocationType.LOCATION,
+                        FACTORY,
+                        QueryResolution.Origin.EXPLICIT_QUERY,
+                        span(0, 4),
+                        0.9)),
+                List.of(),
+                List.of(),
+                0.8);
+
+        // 리터럴 추가는 confidence 0.0, value_from 은 원본의 0.9 를 승계한다.
+        ParseRule literal = rule(
+                10L,
+                List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)),
+                List.of(operation(ParseRule.Patch.Op.ADD_ITEM, ResolutionAxis.INCIDENT_NAMES, null, FACTORY)));
+        ParseRule reused = rule(
+                20L,
+                List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)),
+                List.of(new ParseRule.Patch.Operation(
+                        ParseRule.Patch.Op.ADD_ITEM,
+                        ResolutionAxis.INCIDENT_NAMES,
+                        new ParseRule.Patch.Target(null, null, null, null),
+                        new ParseRule.Patch.ValueRef(ResolutionAxis.LOCATIONS, "location", FACTORY))));
+
+        ParseRulePolicy.Result result = policy.apply(original, List.of(literal, reused));
+
+        assertThat(result.outcomes())
+                .extracting(ParseRuleOutcome::status)
+                .containsExactly(ParseRuleOutcome.Status.SKIPPED_CONFLICT, ParseRuleOutcome.Status.SKIPPED_CONFLICT);
+        assertThat(result.resolution().incidentNames()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("규칙 ID 순서를 바꿔도 결과가 같다")
+    void theResultDoesNotDependOnRuleIdOrder() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        ParseRule move = moveFactoryToIncident(10L);
+        ParseRule intent = setIntent(20L, "recent_scene");
+
+        // 목록 순서를 뒤집어도 판정 전에 규칙 ID 로 정렬하므로 같은 해석이 나온다.
+        assertThat(policy.apply(original, List.of(move, intent)).resolution())
+                .isEqualTo(policy.apply(original, List.of(intent, move)).resolution());
+    }
+
+    @Test
+    @DisplayName("set 의 intent 값이 틀리면 조건과 무관하게 비호환이다")
+    void unknownIntentInSetIsAlwaysIncompatible() {
+        QueryResolution original = withLocation(FACTORY, QueryResolution.Origin.EXPLICIT_QUERY, span(0, 4));
+        ParseRule.Patch.Operation typo = operation(ParseRule.Patch.Op.SET, ResolutionAxis.INTENT, null, "typo");
+
+        // 조건이 맞든 안 맞든 같은 결과여야 한다. 규칙 본문이 잘못된 것은 그 실행의 사정과 무관하다.
+        ParseRule matching = rule(10L, List.of(hasValue(ResolutionAxis.LOCATIONS, FACTORY)), List.of(typo));
+        ParseRule notMatching = rule(20L, List.of(hasValue(ResolutionAxis.LOCATIONS, "△△공장")), List.of(typo));
+
+        for (ParseRule candidate : List.of(matching, notMatching)) {
+            assertThat(reasonOf(original, candidate)).isEqualTo("모르는 intent 값 typo");
+        }
+    }
+
     // ── 시나리오 조립 도구 ───────────────────────────────────────────────
 
     private static QueryResolution.QuerySpan span(int start, int end) {

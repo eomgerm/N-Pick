@@ -263,11 +263,15 @@ public final class ParseRulePolicy {
     /**
      * 추가 연산의 효과.
      *
-     * <p><b>축이 저장하지 않는 것은 효과에 넣지 않는다.</b> {@code expanded_terms} 는 문자열만 저장하므로 출처가 달라도 결과가 같다. 출처를 효과에 넣으면 같은 단어를 리터럴로
-     * 넣는 규칙과 원본 값으로 넣는 규칙이 충돌로 묶여 <b>둘 다 건너뛰어진다</b> — 결과가 같은데도. F-11 「독립 규칙은 함께 적용한다」 위반이다.
+     * <p><b>축이 저장하는 것은 전부 효과에 넣고, 저장하지 않는 것은 넣지 않는다.</b> {@code expanded_terms} 는 문자열만 저장하므로 출처가 달라도 결과가 같다. 출처를 효과에
+     * 넣으면 같은 단어를 리터럴로 넣는 규칙과 원본 값으로 넣는 규칙이 충돌로 묶여 <b>둘 다 건너뛰어진다</b> — 결과가 같은데도. F-11 「독립 규칙은 함께 적용한다」 위반이다.
      */
     private static String addEffect(ResolutionAxis axis, ResolutionAxis.Item item) {
-        return axis.carriesOrigin() ? "add:%s:%s".formatted(item.origin(), item.querySpan()) : "add";
+        // confidence 도 저장되는 값이라 효과에 들어간다. 빼면 같은 값을 다른 confidence 로 넣는 두 규칙이
+        // 충돌로 잡히지 않고, 먼저 온 규칙이 이겨서 규칙 ID 순서가 최종 confidence 를 바꾼다 (F-11).
+        return axis.carriesOrigin()
+                ? "add:%s:%s:%s".formatted(item.origin(), item.querySpan(), item.confidence())
+                : "add";
     }
 
     /**

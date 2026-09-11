@@ -35,9 +35,9 @@ import com.npick.search.domain.error.SearchErrorCode;
  * {
  *   "syntax_version": "parse-rule/v1",
  *   "operations": [
- *     { "op": "remove_item", "axis": "locations", "value": "○○공장" },
+ *     { "op": "remove_item", "axis": "locations", "type": "location", "value": "○○공장" },
  *     { "op": "add_item",    "axis": "incident_names",
- *       "value_from": { "axis": "locations", "value": "○○공장" } }
+ *       "value_from": { "axis": "locations", "type": "location", "value": "○○공장" } }
  *   ]
  * }
  * }</pre>
@@ -146,6 +146,10 @@ public record ParseRule(
                 if (!axis.list() && op != Op.EQUALS) {
                     return "스칼라 축 %s 에 %s 는 쓸 수 없다".formatted(axis.jsonName(), op.jsonName());
                 }
+                String unused = unusedOperand();
+                if (unused != null) {
+                    return unused;
+                }
                 return switch (op) {
                     case EQUALS -> intentProblem();
                     case HAS_VALUE -> {
@@ -158,6 +162,25 @@ public record ParseRule(
                     case HAS_TYPE -> typeProblem();
                     case IS_EMPTY, IS_NOT_EMPTY -> null;
                 };
+            }
+
+            /**
+             * 이 연산이 쓰지 않는 피연산자를 적었는가.
+             *
+             * <p><b>조용히 무시하지 않는다.</b> {@code has_value} 는 {@code type} 을 보지 않으므로 {@code has_value + type:person +
+             * value:X} 는 {@code organization:X} 에도 걸린다. 적은 사람의 의도와 다른데 오류도 나지 않는다 — 유형까지 좁히려면 {@code has_type} 을 조건에 하나
+             * 더 적어야 한다.
+             */
+            private String unusedOperand() {
+                boolean usesValue = op == Op.EQUALS || op == Op.HAS_VALUE;
+                boolean usesType = op == Op.HAS_TYPE;
+                if (!usesValue && value != null) {
+                    return "%s 는 value 를 쓰지 않는다".formatted(op.jsonName());
+                }
+                if (!usesType && type != null) {
+                    return "%s 는 type 을 쓰지 않는다".formatted(op.jsonName());
+                }
+                return null;
             }
 
             /**
@@ -242,10 +265,27 @@ public record ParseRule(
                     }
                 }
                 return switch (op) {
-                    case SET -> target.value() == null || target.value().isBlank() ? "set 에 값이 없다" : null;
+                    case SET -> setProblem();
                     case UNSET -> null;
                     case ADD_ITEM, REMOVE_ITEM -> targetProblem();
                 };
+            }
+
+            /**
+             * {@code set} 의 값 검사. 어휘 대조까지 여기서 한다.
+             *
+             * <p>대조를 적용 단계로 미루면 결과가 조건 일치 여부에 따라 {@code failed} 또는 {@code skipped_condition_unmet} 으로 갈린다. 규칙 본문이 잘못된
+             * 것은 그 실행의 사정과 무관하므로 {@code skipped_incompatible} 하나로 기록되어야 한다 (F-14).
+             */
+            private String setProblem() {
+                if (blank(target.value())) {
+                    return "set 에 값이 없다";
+                }
+                if (axis == ResolutionAxis.INTENT
+                        && ResolutionAxis.intentFrom(target.value()).isEmpty()) {
+                    return "모르는 intent 값 %s".formatted(target.value());
+                }
+                return null;
             }
 
             private String valueFromProblem() {
