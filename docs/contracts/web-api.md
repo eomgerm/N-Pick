@@ -1,0 +1,470 @@
+# 웹 API 계약
+
+브라우저 FE와 서비스 서버 사이의 HTTP 계약 정본이다. 내부 파이프라인 워커 계약은 [job-api.md](job-api.md)를 따른다.
+
+## 1. 범위와 상태
+
+모든 경로의 기본 prefix는 `/api/v1`이다. 표의 경로는 이 prefix를 포함하지 않는다.
+
+| 상태      | 의미                                                                           |
+| --------- | ------------------------------------------------------------------------------ |
+| 연결됨    | BE endpoint와 FE 호출·검증이 모두 존재한다                                     |
+| 계약 확정 | 요청·응답 계약은 확정됐지만 실제 호출 또는 BE endpoint가 남아 있다             |
+| BE 구현   | BE endpoint는 존재하지만 FE가 아직 데모 데이터를 사용한다                      |
+| 명세 필요 | FRD가 요구하는 기능만 확정됐다. 경로와 JSON을 이 문서에서 임의로 만들지 않는다 |
+
+| 기능                       | Method | 경로                                        | 상태      | FE 후속                             |
+| -------------------------- | ------ | ------------------------------------------- | --------- | ----------------------------------- |
+| CSRF 준비                  | GET    | `/auth/csrf`                                | 연결됨    | 없음                                |
+| 로그인                     | POST   | `/auth/login`                               | 연결됨    | 없음                                |
+| 현재 계정                  | GET    | `/auth/me`                                  | 연결됨    | 없음                                |
+| 로그아웃                   | POST   | `/auth/logout`                              | 연결됨    | 없음                                |
+| 영상 등록                  | POST   | `/clips`                                    | 연결됨    | 없음                                |
+| 장면 검색                  | POST   | `/search`                                   | 계약 확정 | 실제 호출·화면 바인딩               |
+| 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | Preview 바인딩                      |
+| 문의 접수                  | POST   | `/search/results/{resultId}/inquiries`      | BE 구현   | 문의 생성 바인딩                    |
+| 문의 설명 수정             | PATCH  | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 문의 기록 바인딩과 함께 연결 |
+| 검수 문의 목록             | GET    | `/review/inquiries`                         | BE 구현   | 검수 게시판 바인딩                  |
+| 검수 문의 상세             | GET    | `/review/inquiries/{feedbackId}`            | BE 구현   | 검수 상세 바인딩                    |
+| 검수 시작                  | POST   | `/review/inquiries/{feedbackId}/claim`      | BE 구현   | 검수 흐름 바인딩                    |
+| 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
+| 검색·문의 기록             | 미정   | 미정                                        | 명세 필요 | 편집자 하단 기록 시트 영속화        |
+| 영상 처리 목록·상세·재시도 | 미정   | 미정                                        | 명세 필요 | 처리 화면 영속화·polling            |
+| 교정 후보 검증·확정        | 미정   | 미정                                        | 명세 필요 | 검수 재검색·확정 바인딩             |
+| 검색 규칙 사용 중단·재검증 | 미정   | 미정                                        | 명세 필요 | 검수 규칙 관리 바인딩               |
+
+## 2. 공통 규약
+
+### 2.1 인증과 요청 보호
+
+- 로그인 세션은 `JSESSIONID` cookie로 유지한다. FE는 `credentials: include`로 요청한다.
+- 브라우저의 변경 요청은 먼저 `GET /auth/csrf`로 `XSRF-TOKEN` cookie를 준비하고 같은 값을 `X-XSRF-TOKEN` header로 보낸다.
+- 세션 token과 비밀번호를 FE 저장소에 저장하지 않는다.
+- 서버는 사용자 ID를 요청 본문에서 신뢰하지 않고 로그인 세션에서 결정한다.
+- 역할은 `EDITOR`, `REVIEWER`다. 검색은 두 역할, 영상 등록·검수 API는 `REVIEWER`만 허용한다.
+- FE는 API redirect를 따르지 않는다.
+
+### 2.2 JSON envelope
+
+영상 byte 응답을 제외한 성공 JSON은 다음 envelope를 사용한다.
+
+```json
+{
+  "isSuccess": true,
+  "code": "COMM_200",
+  "message": "Request succeeded",
+  "data": {}
+}
+```
+
+본문 없는 성공은 `data`를 생략할 수 있다.
+
+실패 JSON은 다음 모양이다.
+
+```json
+{
+  "isSuccess": false,
+  "code": "COMM_400_001",
+  "message": "Request validation failed",
+  "timestamp": "2026-09-11T03:00:00Z",
+  "path": "/api/v1/example",
+  "data": {
+    "fieldName": "입력값을 확인해 주세요."
+  }
+}
+```
+
+- HTTP 실패와 `isSuccess: false` 중 하나라도 실패면 FE는 실패로 처리한다.
+- `COMM_400_001`의 `data`는 field별 검증 메시지일 수 있다.
+- 요청 식별자는 `X-Request-Id` header 또는 envelope의 `requestId`로 전달한다.
+- 임의 JSON의 `message`, 서버 경로, 예외 문자열은 사용자 메시지로 신뢰하지 않는다.
+
+### 2.3 값 형식
+
+- 새로 확정하는 브라우저용 bigint ID는 양의 십진 문자열로 보낸다. 영상 등록과 검색 계약은 이 규칙을 따른다.
+- 현재 인증·문의 BE 응답의 ID는 JSON number다. FE 연동 전에 §8의 ID 정합화 결정을 끝낸다.
+- 날짜는 실제 존재하는 `YYYY-MM-DD`다.
+- 시각은 ISO-8601 UTC 문자열, 영상 위치는 정수 millisecond다.
+- 장면 구간은 시작 포함·종료 제외 `[start_time_ms, end_time_ms)`이며 종료가 시작보다 커야 한다.
+
+## 3. 인증 API — 연결됨
+
+### 3.1 CSRF 준비
+
+`GET /auth/csrf`
+
+요청 body는 없다. 성공하면 서버가 `XSRF-TOKEN` cookie를 설정하고 body 없는 성공 envelope를 보낸다.
+
+### 3.2 로그인
+
+`POST /auth/login`
+
+```json
+{
+  "loginId": "editor",
+  "password": "password"
+}
+```
+
+두 필드는 빈 문자열일 수 없다. 성공하면 새 session ID를 발급하고 다음 `data`를 보낸다.
+
+```json
+{
+  "memberId": 398021847361024,
+  "loginId": "editor",
+  "role": "EDITOR"
+}
+```
+
+현재 wire의 `memberId`는 JSON number다. FE 공통 client가 원문 숫자를 십진 문자열로 보존한 뒤 화면 모델에 전달한다.
+
+| 오류             | HTTP | 의미                        |
+| ---------------- | ---- | --------------------------- |
+| `COMM_400_001`   | 400  | 필수 입력 검증 실패         |
+| `MEMBER_401_001` | 401  | 아이디 또는 비밀번호 불일치 |
+
+### 3.3 현재 계정
+
+`GET /auth/me`
+
+요청 body는 없다. 성공 `data`는 로그인 응답과 같다. 인증되지 않았거나 session이 만료됐으면 `COMM_401`을 보낸다.
+
+### 3.4 로그아웃
+
+`POST /auth/logout`
+
+요청 body는 없다. session을 무효화하고 body 없는 성공 envelope를 보낸다.
+
+## 4. 영상 등록 API — 연결됨
+
+`POST /clips`
+
+- Content-Type: `multipart/form-data`
+- Header: `Idempotency-Key` 필수, 공백 불가, 최대 128자
+- 성공 HTTP: `201 Created`
+
+| Form field                      | 타입    | 필수   | 규칙                                            |
+| ------------------------------- | ------- | ------ | ----------------------------------------------- |
+| `video`                         | file    | 필수   | 1개, 실제 영상 내용·형식·크기·길이 검사         |
+| `source_type`                   | string  | 필수   | `broadcast` 또는 `archive`                      |
+| `title`                         | string  | 선택   | 공백은 생략, 최대 500자                         |
+| `broadcast_date`                | date    | 선택   | `broadcast`에서만 허용                          |
+| `filmed_date`                   | date    | 선택   | 두 source 모두 허용                             |
+| `subtitle`                      | file    | 선택   | 1개, UTF-8 SRT/VTT 또는 승인된 JSON             |
+| `script_text`                   | string  | 선택   | UTF-8 TXT를 FE가 읽어 문자열로 전송             |
+| `rights_confirmed`              | boolean | 필수   | `true`여야 등록 가능                            |
+| `external_processing_confirmed` | boolean | 조건부 | 현재 처리 설정이 외부 AI 동의를 요구하면 `true` |
+
+자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다.
+
+성공 envelope의 `data`:
+
+```json
+{
+  "clip_id": "398021847361024",
+  "pipeline_run_id": "398021847361025",
+  "status": "queued"
+}
+```
+
+수동 재시도 규칙:
+
+- 네트워크·취소·비정상 응답·5xx·`CLIP_409_002`·`CLIP_503_008`: 같은 snapshot과 `Idempotency-Key`를 사용한다.
+- `CLIP_409_001`·`CLIP_409_003`: 새 요청으로 취급하고 새 key를 사용한다.
+- 입력이 바뀌면 기존 snapshot과 key를 폐기한다.
+
+FE가 직접 처리하는 주요 오류:
+
+| 오류                                          | 입력/동작                  |
+| --------------------------------------------- | -------------------------- |
+| `CLIP_400_001`, `CLIP_400_005`~`CLIP_400_008` | 영상 파일                  |
+| `CLIP_400_002`, `CLIP_400_003`                | 영상 종류·자료 영상 방송일 |
+| `CLIP_400_004`                                | 제목                       |
+| `CLIP_400_009`                                | 이용 권한 확인             |
+| `CLIP_400_010`                                | 외부 처리 확인             |
+| `CLIP_400_011`                                | 날짜                       |
+| `CLIP_400_012`                                | 자막 내용                  |
+| `CLIP_409_001`~`CLIP_409_003`                 | 멱등 요청 상태             |
+| `CLIP_503_001`~`CLIP_503_010`                 | 검사·저장·등록 연계 실패   |
+
+## 5. 장면 검색 API — 계약 확정, 연결 대기
+
+`POST /search`
+
+FE URL 상태와 wire 요청의 대응:
+
+| FE URL                         | 요청 JSON                                     |
+| ------------------------------ | --------------------------------------------- |
+| `q`                            | `query`                                       |
+| `broadcastFrom`, `broadcastTo` | `explicit_filters.broadcast_date.from`, `.to` |
+| `filmingFrom`, `filmingTo`     | `explicit_filters.filmed_date.from`, `.to`    |
+
+선택하지 않은 날짜 종류는 key 자체를 생략한다. `from`과 `to`는 모두 포함되는 날짜다.
+
+```json
+{
+  "query": "명절 교통",
+  "explicit_filters": {
+    "broadcast_date": { "from": "2026-09-01", "to": "2026-09-03" },
+    "filmed_date": { "from": "2026-08-28", "to": "2026-08-29" }
+  }
+}
+```
+
+날짜 필터가 없을 때도 `explicit_filters`는 빈 object로 보낸다.
+
+성공 응답 전체 모양:
+
+```json
+{
+  "isSuccess": true,
+  "code": "COMM_200",
+  "message": "Request succeeded",
+  "data": {
+    "search_execution_id": "398021847361024",
+    "status": "succeeded",
+    "degraded_reasons": [],
+    "query_resolution_status": "resolved",
+    "has_applied_review_rule": false,
+    "guard_summary": {
+      "excluded_result_count": 0,
+      "reasons": []
+    },
+    "shortage_reasons": ["candidate_pool_exhausted"],
+    "results": [
+      {
+        "search_result_id": "398021847361025",
+        "scene_id": "398021847361026",
+        "clip_id": "398021847361027",
+        "rank": 1,
+        "display_name": "KBC 뉴스9 · 설 연휴 교통",
+        "scene_description": "서울역 귀성 인파",
+        "start_time_ms": 42000,
+        "end_time_ms": 49000,
+        "broadcast_date": {
+          "value": "2026-02-14",
+          "verification_status": "verified"
+        },
+        "filmed_date": {
+          "value": null,
+          "verification_status": "unknown"
+        },
+        "shot_type": "b_roll",
+        "scene_type": "역사 인파",
+        "matched_keywords": ["서울역", "귀성객"],
+        "match_evidence": [
+          {
+            "field": "ocr",
+            "value": "서울역 · 설 연휴 귀성객",
+            "source": "keyframe_ocr",
+            "verification_status": "verified"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+검색 결과 배열의 정확한 위치는 `data.results`다.
+
+### 5.1 응답 불변식
+
+- `results`는 0~10개다. 서버가 정한 `rank` 오름차순을 FE가 다시 정렬하지 않는다.
+- 각 `rank`는 배열 위치와 같은 1부터 시작하는 연속 정수다.
+- 한 응답 안의 `scene_id`와 null이 아닌 `search_result_id`는 중복되지 않는다.
+- `match_evidence`는 1개 이상이다. `field`는 `caption`, `ocr`, `transcript`, `tag` 중 하나다.
+- `shot_type`은 `anchor`, `interview`, `b_roll`, `unknown` 중 하나다.
+- 날짜 `value`가 null이면 `verification_status`는 `unknown`이다. 값이 있으면 `verified` 또는 `unverified`다.
+- `status=succeeded`면 `degraded_reasons`는 비어 있다.
+- `status=degraded`면 `resolver_fallback`, `dense_unavailable`, `snapshot_save_failed` 중 하나 이상이다.
+- `query_resolution_status=fallback` 여부는 `resolver_fallback` 포함 여부와 일치한다.
+- `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
+- `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
+- 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
+- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다.
+
+### 5.2 오류 경계
+
+현재 공개 검색 endpoint의 전체 오류 코드 매핑은 아직 구현되지 않았다. 이미 존재하는 `SRCH_` 오류 어휘는 다음과 같다.
+
+| 오류           | 의미                             |
+| -------------- | -------------------------------- |
+| `SRCH_400_001` | 정규화된 검색어가 비어 있음      |
+| `SRCH_400_002` | 정규화 버전이 비어 있음          |
+| `SRCH_400_003` | 필터에 null 포함                 |
+| `SRCH_400_101` | 검색 가능한 token을 만들 수 없음 |
+
+리졸버·dense 검색 실패 뒤 기본 검색이 가능하면 HTTP 실패 대신 `degraded` 성공 응답을 사용한다. 기본 검색도 불가능하거나 활성 규칙을 안전하게 읽을 수 없으면 검색 실패로 처리하며, 공개 오류 코드는 BE endpoint 구현 전에 이 문서에 추가한다.
+
+## 6. BE 구현 완료, FE 연결 대기 API
+
+이 절의 모양은 현재 BE controller 기준이다. FE 바인딩 전에 ID 표현과 화면 상태 mapping을 §8에 따라 정리해야 한다.
+
+### 6.1 영상 재생
+
+`GET /media/{clipId}`
+
+- 선택 header: `Range: bytes=<start>-<end>`
+- 성공: 영상 byte, `Content-Type`, `Accept-Ranges: bytes`, `Cache-Control: private, no-store`
+- 전체 응답은 `200`, 부분 응답은 `206`과 `Content-Range`를 사용한다.
+- 성공 byte에는 공통 JSON envelope를 사용하지 않는다. 실패에는 공통 실패 envelope를 사용한다.
+
+| 오류                           | HTTP | 의미                       |
+| ------------------------------ | ---- | -------------------------- |
+| `CLIP_404_001`                 | 404  | clip 없음                  |
+| `CLIP_404_002`                 | 404  | 원본 file 없음             |
+| `CLIP_416_001`                 | 416  | 요청 byte 범위 오류        |
+| `CLIP_500_003`                 | 500  | 저장 위치 오류             |
+| `CLIP_503_010`, `CLIP_503_011` | 503  | 전송 또는 저장소 설정 실패 |
+
+### 6.2 편집자 문의 접수·수정
+
+`POST /search/results/{resultId}/inquiries`
+
+body는 생략하거나 다음처럼 보낸다.
+
+```json
+{ "comment": "검색 조건과 다른 장면입니다." }
+```
+
+성공 `data`의 현재 BE 모양:
+
+```json
+{
+  "feedbackId": 398021847361024,
+  "status": "OPEN"
+}
+```
+
+`PATCH /inquiries/{feedbackId}`
+
+```json
+{ "comment": "수정한 설명" }
+```
+
+본인이 접수했고 아직 `OPEN`인 문의만 수정한다. 성공 body에는 `data`가 없다.
+
+### 6.3 검수 문의 목록
+
+`GET /review/inquiries?status=OPEN&page=0&size=20`
+
+- `status`: 생략 또는 `OPEN`, `REVIEWING`, `CLOSED`; 입력 대소문자는 무시한다.
+- `page`: 0부터 시작하며 음수면 0으로 정규화한다.
+- `size`: 기본 20, 최소 1, 최대 100으로 정규화한다.
+
+성공 `data`의 현재 BE 모양:
+
+```json
+{
+  "items": [
+    {
+      "feedbackId": 398021847361024,
+      "status": "OPEN",
+      "resolution": null,
+      "createdAt": "2026-09-11T03:00:00Z",
+      "queryText": "명절 교통",
+      "sceneId": 398021847361026,
+      "scene": {
+        "sceneId": 398021847361026,
+        "clipId": 398021847361027,
+        "clipTitle": "설 연휴 교통",
+        "startTimeMs": 42000,
+        "endTimeMs": 49000,
+        "pipelineRunId": 398021847361028,
+        "processingNo": 1
+      },
+      "hasComment": true
+    }
+  ],
+  "page": 0,
+  "size": 20,
+  "totalElements": 1,
+  "totalPages": 1,
+  "statusCounts": {
+    "open": 1,
+    "reviewing": 0,
+    "closed": 0
+  }
+}
+```
+
+### 6.4 검수 문의 상세·시작·처리 결과
+
+`GET /review/inquiries/{feedbackId}`는 문의, 장면, 당시 검색 실행 snapshot, 근거, 검수 이력을 반환한다. 현재 BE 응답의 snapshot JSON 필드(`explicitFiltersJson`, `parsedQueryJson`, `resolverOutputJson`, `appliedRulesJson`, `appliedExcludesJson`)는 JSON 문자열이다. FE는 이를 개발용 원문으로 직접 노출하지 않고 사용자용 모델로 변환한다.
+
+`POST /review/inquiries/{feedbackId}/claim`
+
+- 선택 header: `Idempotency-Key`
+- 같은 검수자가 이미 잡은 `REVIEWING` 문의의 재요청은 성공한다.
+- 다른 검수자가 잡았거나 종료된 문의는 `FEEDBACK_409_001`이다.
+
+`PUT /review/inquiries/{feedbackId}/resolution`
+
+```json
+{
+  "resolution": "exclude_scene",
+  "note": "이 검색 조건에서 장면을 제외해야 합니다."
+}
+```
+
+| `resolution`     | 결과                                    |
+| ---------------- | --------------------------------------- |
+| `tag_correction` | 교정 후보 단계로 이동, `REVIEWING` 유지 |
+| `patch_parse`    | 교정 후보 단계로 이동, `REVIEWING` 유지 |
+| `exclude_scene`  | 교정 후보 단계로 이동, `REVIEWING` 유지 |
+| `no_action`      | `note` 필수, `CLOSED` 종료              |
+| `deferred`       | `note` 필수, `CLOSED` 종료              |
+
+`note`는 최대 2000자다. 성공 body에는 `data`가 없다.
+
+문의 주요 오류:
+
+| 오류               | HTTP | 의미                            |
+| ------------------ | ---- | ------------------------------- |
+| `FEEDBACK_400_001` | 400  | 종료 처리 사유 필요             |
+| `FEEDBACK_400_002` | 400  | 허용되지 않은 처리 결과         |
+| `FEEDBACK_403_001` | 403  | 문의 작성자 아님                |
+| `FEEDBACK_403_002` | 403  | 담당 검수자 아님                |
+| `FEEDBACK_404_001` | 404  | 신고 가능한 저장 검색 결과 아님 |
+| `FEEDBACK_404_002` | 404  | 문의 없음                       |
+| `FEEDBACK_409_001` | 409  | 이미 다른 검수가 시작됨         |
+| `FEEDBACK_409_002` | 409  | 수정 가능한 상태 아님           |
+| `FEEDBACK_409_003` | 409  | 처리 결과를 기록할 수 없는 상태 |
+
+## 7. 앞으로 명세·구현할 API
+
+아래는 [FRD](../frd.md) F-03, F-05, F-08~F-14와 현재 FE 화면이 요구하는 기능 목록이다. 경로·method·JSON·오류 코드는 담당 이슈에서 확정한 뒤 이 문서의 별도 절로 승격한다.
+
+| 우선순위 | API 기능                             | 최소 계약 요구                                                                                 | 현재 FE 대체 상태             |
+| -------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------- |
+| 1        | 검색 실행                            | §5 계약 그대로 구현하고 실제 결과·loading·empty·degraded·failed를 연결                         | 고정 장면과 URL demo          |
+| 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination   | `search-history.tsx` 고정 5건 |
+| 3        | 편집자 문의 기록 목록·상세           | 본인 문의만 조회, `OPEN/REVIEWING/CLOSED`와 처리 결과·설명·장면·원 검색 연결                   | 고정 문의와 memory 추가       |
+| 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
+| 5        | 영상 재생                            | §6.1 byte Range API를 Preview에 연결, 장면 시작 위치와 오류 처리                               | 준비 화면 demo                |
+| 6        | 검수 문의 목록·상세·claim·resolution | §6.3~6.4 응답을 검수 화면 모델로 mapping                                                       | 23건 고정 문의                |
+| 7        | 영상 처리 목록                       | 최신 run 상태, 현재 제공 가능 여부, 완료 단계 수, 실패 이유, 재시도 가능 여부, pagination      | 고정 진행·완료 영상           |
+| 8        | 영상 처리 상세·polling               | clip·run·stage·누락 channel·장면 목록·완료 시각을 반환하고 terminal 상태에서 polling 종료      | 등록 응답을 memory로 합성     |
+| 9        | 처리 재시도                          | 일시/영구 실패 구분, 중복 클릭 방지, 기존 제공 run 보존, 새 run 식별자 반환                    | 버튼 demo                     |
+| 10       | 교정 후보 작성·검증                  | 태그·해석 patch·장면 제외 후보, 원 문의 검색 조건 서버 재사용, 일반 검색과 분리된 검증 실행 ID | 로컬 검수 state               |
+| 11       | 교정 확정                            | 검증 실행 ID만 입력받고 서버에 저장된 후보를 원자적으로 확정, stale 검증 거부                  | 로컬 완료 state               |
+| 12       | 규칙 사용 중단·재검증                | 수행자·사유, 이후 검색 미적용, 재활성화 전 검증                                                | 로컬 toggle/state             |
+| 13       | 장면 thumbnail                       | `scene_id` 기반 제공, 서버 경로 비노출, cache·권한 정책                                        | CSS thumbnail demo            |
+
+검색 기록은 cache가 아니다. 과거 실행의 immutable snapshot이며 새 검색에 해석을 몰래 재사용하지 않는다.
+
+## 8. 구현 전 해결할 계약 차이
+
+| 항목               | 현재 상태                                                            | 결정 필요                                                                                 |
+| ------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| bigint ID          | clip/search는 string, auth/feedback은 number                         | 모든 신규 응답은 string. auth/feedback을 migration할지 endpoint별 legacy 예외로 둘지 결정 |
+| 성공 code          | 영상 등록은 HTTP 201이지만 현재 envelope helper는 `COMM_200`을 사용  | `COMM_201`로 맞출지 현재 wire를 정본으로 둘지 결정                                        |
+| 문의 상태          | BE는 `OPEN/REVIEWING/CLOSED`, FE demo는 `pending/reviewing/resolved` | BE 상태를 정본으로 하고 FE adapter에서 사용자 문구로 변환                                 |
+| 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
+| 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
+| 검색·문의 기록     | 화면 필드는 있으나 목록 endpoint 없음                                | pagination, 정렬, 상세 분리, ID와 nullable 규칙 확정                                      |
+| 처리 조회          | UI 모델만 있고 endpoint 없음                                         | run/stage 상태 enum, polling 간격·종료 조건, 재시도 응답 확정                             |
+| thumbnail          | 검색 응답에 URL을 넣지 않는 것만 확정                                | `scene_id` 기반 endpoint와 응답 cache 정책 확정                                           |
+
+미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.

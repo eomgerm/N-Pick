@@ -1,15 +1,18 @@
 'use client';
 
-import { routes } from '@/lib/routes';
 import { AppShell } from '@/components/app-shell';
 
 import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useMemo, useRef, useState, useTransition } from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { results } from '@/features/wireframes/demo-scenes';
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
+import {
+  createSearchResultsHref,
+  isSameSearchDestination,
+} from '@/features/wireframes/search-navigation';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
@@ -43,6 +46,8 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const navigationLockRef = useRef(false);
+  const hasObservedNavigationRef = useRef(false);
   const broadcastRange = readDateRange(initialParams.broadcastFrom, initialParams.broadcastTo);
   const filmingRange = readDateRange(initialParams.filmingFrom, initialParams.filmingTo);
   const demoState = initialParams.state;
@@ -56,6 +61,17 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   const [isPreviewOpen, setIsPreviewOpen] = useState(initialParams.preview === 'loading');
   const [inquiryResultId, setInquiryResultId] = useState<number | null>(null);
   const [submittedInquiryIds, setSubmittedInquiryIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (isNavigating) {
+      hasObservedNavigationRef.current = true;
+      return;
+    }
+    if (hasObservedNavigationRef.current) {
+      navigationLockRef.current = false;
+      hasObservedNavigationRef.current = false;
+    }
+  }, [isNavigating]);
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
@@ -87,19 +103,23 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   }
 
   function handleSearchNavigation(nextQuery: string, broadcast: DateRange, filming: DateRange) {
-    if (isNavigating) return;
-    const params = new URLSearchParams({ q: nextQuery });
-    if (broadcast.from && broadcast.to) {
-      params.set('broadcastFrom', broadcast.from);
-      params.set('broadcastTo', broadcast.to);
+    if (navigationLockRef.current || isNavigating) return;
+
+    const href = createSearchResultsHref({ query: nextQuery, broadcast, filming });
+    if (!href) return;
+    if (
+      typeof window !== 'undefined' &&
+      isSameSearchDestination(`${window.location.pathname}${window.location.search}`, href)
+    )
+      return;
+
+    navigationLockRef.current = true;
+    try {
+      startNavigation(() => router.push(href, { scroll: false }));
+    } catch (error) {
+      navigationLockRef.current = false;
+      throw error;
     }
-    if (filming.from && filming.to) {
-      params.set('filmingFrom', filming.from);
-      params.set('filmingTo', filming.to);
-    }
-    startNavigation(() =>
-      router.push(`${routes.searchResults}?${params.toString()}`, { scroll: false }),
-    );
   }
 
   const rangeFields = (
@@ -170,6 +190,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 <span className={styles.visuallyHidden}>검색어</span>
                 <input
                   aria-label="뉴스 장면 검색어"
+                  disabled={isNavigating}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
                   value={query}
