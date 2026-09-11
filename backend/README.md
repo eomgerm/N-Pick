@@ -1,5 +1,23 @@
 # N-Pick Backend
 
+## 내부 워커 잡 API
+
+`NPICK_WORKER_JOBS_ENABLED`는 기본 `false`다. 활성화하면 기존 실행기의 배정·heartbeat·완료 UseCase에
+HTTP 전송을 연결한다. 단계 정본 저장 어댑터는 실행기의 fencing·멱등성 검사가 끝난 완료 트랜잭션
+안에서 호출된다. 저장 어댑터는 HTTP 활성화와 독립적으로 제공된다. 저장 미지원 단계는 HTTP 배정에서
+제외하며, 내부 호출로 들어온 미지원 출력도 성공으로 저장하지 않는다.
+
+`NPICK_WORKER_JOBS_TOKENS`는 쉼표로 구분한 32바이트 이상 Bearer 토큰 목록이며 회전 중 두 토큰을
+함께 둘 수 있다. `NPICK_WORKER_JOBS_FLEET`는 기본 `local`이다. 운영에는 운영 토큰만 설정한다.
+HTTP 전송이 기본이며 `NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME=true`와 워커의 공유 볼륨 선언이
+모두 참일 때만 공유 경로를 배정한다. artifact GET·PUT은 `X-Job-Lease-Id`를 함께 보낸다.
+상세 입출력은 [잡 계약](../docs/contracts/job-api.md)을 따른다.
+
+HTTP 왕복 테스트는 `ffmpeg`·`ffprobe`가 PATH에 있고 AI 테스트 의존성이 설치되어 있어야 한다.
+`NPICK_TEST_PYTHON`으로 해당 Python 실행 파일을 지정한다(기본: Windows `../ai/.venv/Scripts/python.exe`,
+Linux `../ai/.venv/bin/python`).
+이 테스트는 실제 실행기·DB와 Python 워커를 연결하고 AI 단계 함수만 테스트 대역으로 실행한다.
+
 Spring Boot 기반 N-Pick API 서버.
 
 ## 요구 사항
@@ -169,6 +187,21 @@ com.npick
 필요한 도메인 패키지만 생성하며 빈 패키지를 미리 만들지 않는다.
 
 ## 등록 운영
+
+- 실행 버전은 빌드에 포함한 `infra/compose/profiles/pipeline.yml`의 `stage_versions`로 계산한다.
+  외부 파일은 `NPICK_PIPELINE_PROFILE=file:/absolute/path/pipeline.yml`로 지정한다.
+  기대 버전이 없는 단계는 `unknown`으로 남고 배정되지 않는다. 기존 `CLIP_PIPELINE_VERSION`·
+  `CLIP_STAGE_NAMES` 설정 대신 이 프로파일을 사용한다.
+- 실행기는 내부 claim/heartbeat/complete 유스케이스를 제공한다. 성공 결과 수락에는
+  `StageOutputPort`의 단계별 형식 검사·정본 저장 어댑터가 필요하며, 없으면 성공을 기록하지 않는다.
+  HTTP·artifact 전송은 위 설정으로 활성화한다. 실제 AI 단계와 해당 출력 저장 지원은 함께 연결한다.
+- `transcript_selection` 배정은 보관 영상의 ffprobe 길이와 DB 자막 키로 입력을 준비한 뒤
+  `inputs.upstream.transcript`를 전달한다. 준비 중에는 DB 트랜잭션을 열지 않고 lease를 갱신한다.
+  준비 산출물은 배정 기록 성공 또는 커밋 결과 불명확 시 보존하며, 회수된 lease의 입력은 반영하지 않는다.
+- 기존 10개 단계의 평면 JSON은 실행 시 버전 봉투로 읽고 저장한다. 단계나 기대 버전을 확인할 수 없는
+  과거 run은 임의로 현재 버전으로 바꾸지 않는다. 현재 프로파일과 일치하는 기존 run만 버전을 보완한다.
+- mock 전체 흐름은 `./gradlew test --tests 'com.npick.pipeline.*'`로 검증한다.
+  PostgreSQL은 Testcontainers를 사용하고 mock 단계는 실제 AI를 호출하지 않는다.
 
 - 영상 검사에 `ffmpeg`·`ffprobe`가 필요하다. 등록용 저장 경로·입력 제한·파이프라인 설정은
   [환경 변수 예시](.env.example)와 [애플리케이션 설정](src/main/resources/application.yml)을 참고한다.

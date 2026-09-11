@@ -40,7 +40,8 @@ services:
   # 로컬은 셋 다 기본값 local 을 쓴다.
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     image: npick/backend:${BACKEND_TAG:-local}
     container_name: npick-backend
     restart: unless-stopped

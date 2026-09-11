@@ -43,7 +43,7 @@ function renderCard(result, isSelected = false, position = result.rank) {
   );
 }
 
-test('결과 카드는 제목, 썸네일 구간, 키워드와 일치도만 렌더한다', () => {
+test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 툴팁을 렌더한다', () => {
   const result = results[0];
   const html = renderCard(result);
 
@@ -51,11 +51,33 @@ test('결과 카드는 제목, 썸네일 구간, 키워드와 일치도만 렌�
     '1위',
     result.title,
     '00:42 – 00:49',
-    `일치도 ${result.score}%`,
     ...result.matchedKeywords,
+    '검증됨',
+    '화면 속 글자',
+    '서울역, 설 연휴 귀성객',
   ]) {
     assert.ok(html.includes(value));
   }
+  for (const value of [
+    '일치 근거',
+    '필드',
+    '값',
+    '출처',
+    'OCR',
+    'Keyframe OCR',
+    '서울역 · 설 연휴 귀성객',
+    '촬영일',
+    `일치도 ${result.score}%`,
+  ]) {
+    assert.ok(!html.includes(value));
+  }
+  assert.equal((html.match(/statusBadge/g) ?? []).length, 1);
+  assert.match(html, /aria-describedby="match-evidence-1"/);
+  assert.match(html, /id="match-evidence-1" role="tooltip"/);
+  assert.match(
+    html,
+    /<div class="matchedKeywords">[\s\S]*키워드[\s\S]*서울역[\s\S]*귀성객[\s\S]*<span class="evidenceTooltip">/,
+  );
   assert.equal((html.match(/00:42 – 00:49/g) ?? []).length, 1);
   assert.ok(!html.includes('장면 구간'));
   for (const value of [
@@ -73,13 +95,15 @@ test('결과 카드는 제목, 썸네일 구간, 키워드와 일치도만 렌�
   assert.match(html, new RegExp(`aria-label="${result.imageLabel}"`));
 });
 
-test('백엔드 메타데이터가 없어도 카드에 미상 값을 노출하지 않는다', () => {
+test('촬영일 값이 없어도 카드에는 근거 검증 칩만 표시한다', () => {
   const html = renderCard({ ...results[0], broadcastDate: null, filmedDate: null }, true);
+  assert.ok(!html.includes('촬영일'));
   assert.ok(!html.includes('미상'));
+  assert.ok(html.includes('검증됨'));
   assert.match(html, /aria-expanded="true"/);
 });
 
-test('정렬된 목록의 화면 순번을 원본 정확도 순위와 분리해 표시한다', () => {
+test('서버 응답 목록의 화면 순번을 원본 순위와 분리해 표시한다', () => {
   const html = renderCard(results[3], false, 1);
   assert.match(html, /검색 결과 1번째/);
   assert.match(html, /aria-label="1위 톨게이트로 이어지는 귀성 차량 행렬/);

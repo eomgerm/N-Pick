@@ -20,6 +20,16 @@ dependencies = [
     # canonical 이 바뀌어 쌓인 exclude_scene 이 전멸한다.
     "kiwipiepy==0.23.2",
     "kiwipiepy-model==0.23.0",
+    # ocr 이 keyframe 에서 화면 글자를 읽는다. rapidocr 는 PP-OCRv5 계열 모델을
+    # onnxruntime 으로 돌린다 — paddleocr 와 **같은 한국어 인식 모델**
+    # (korean_PP-OCRv5_rec_mobile)을 쓰면서 paddlepaddle 도 torch 도 이미지에
+    # 들이지 않는다(선정 근거와 실측은 docs/ocr.md). gpu 그룹에 두지 않는 이유는
+    # 이 단계가 CPU 로 돌아야 하기 때문이다 — pipeline.yml 이 CPU 워커와 GPU 파드에
+    # 같은 이미지를 쓴다고 적었고, opt-in 그룹에 두면 배포 이미지가 OCR 을 못 한다.
+    "rapidocr>=3.9,<4",
+    # rapidocr 의 의존이 아니라 **고를 수 있는 실행기**다. 명시하지 않으면 설치되지
+    # 않아 첫 잡에서 엔진 생성이 실패한다.
+    "onnxruntime>=1.29,<2",
     # 배포판·임포트 이름이 모두 httpx2 다(httpx 아님). 런타임 경로가 둘이다 —
     # 워커가 잡 API 를 발신하고(jobs/client.py), query_resolver 가 Ollama HTTP 를
     # 부른다(ollama_backend.py). dev 그룹에 두면 Dockerfile 의
@@ -54,6 +64,15 @@ gpu = [
 [tool.uv]
 required-version = ">=0.12"
 default-groups = ["dev"] # gpu 는 --group gpu 로만 설치된다
+
+# rapidocr 는 `opencv-python` 을 요구하는데 이 저장소는 scenedetect-headless 를 통해
+# 이미 `opencv-python-headless` 를 받는다. **둘은 같은 `cv2` 패키지를 설치한다** —
+# 함께 깔면 나중에 깔린 쪽이 앞의 것을 덮어쓰고, 어느 쪽이 이겼는지는 설치 순서에
+# 달려 있어 환경마다 달라진다. 헤드리스가 아닌 쪽이 이기면 GUI 공유 라이브러리
+# (libGL 등)가 없는 slim 컨테이너에서 `import cv2` 가 죽는다.
+# 항상 거짓인 marker 로 요구 자체를 지워 headless 하나만 남긴다. rapidocr 가 쓰는
+# 것은 `import cv2` 뿐이라 구현체가 headless 여도 된다.
+override-dependencies = ["opencv-python ; python_version < '3'"]
 
 # PyPI 의 win_amd64 torch 휠은 CPU 전용이다(약 122MB). CUDA 는 이 인덱스에서만 온다.
 # explicit=true 로 torch 이외 패키지에는 절대 쓰이지 않게 막는다.

@@ -34,6 +34,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # 볼륨으로 잡아야 컨테이너를 다시 만들어도 재다운로드하지 않는다.
 ENV HF_HOME=/var/cache/npick/models
 ENV TORCH_HOME=/var/cache/npick/models
+# rapidocr(OCR 단계)는 기본으로 site-packages 안에 모델을 받는다. 그건 이미지 레이어라
+# 컨테이너를 다시 만들 때마다 다시 받게 되므로 같은 캐시 볼륨으로 돌린다.
+ENV NPICK_AI_OCR_MODEL_DIR=/var/cache/npick/models/rapidocr
 RUN mkdir -p /var/cache/npick/models && chown -R npick:npick /var/cache/npick
 
 USER npick

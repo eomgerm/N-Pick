@@ -2,6 +2,7 @@ import { Play } from 'lucide-react';
 
 import {
   formatTimestamp,
+  getVerificationStatusLabel,
   getKeyframeTimes,
   type SearchResult,
 } from '@/features/wireframes/demo-scenes';
@@ -14,6 +15,14 @@ interface SearchResultCardProps {
   onSelect: (resultId: number) => void;
 }
 
+function getEvidenceFieldLabel(field: SearchResult['matchEvidence']['field']) {
+  return field === '화면 속 글자 (OCR)' ? '화면 속 글자' : field;
+}
+
+function getEvidenceValueLabel(value: string) {
+  return value.replaceAll(' · ', ', ');
+}
+
 export function SearchResultCard({
   result,
   position,
@@ -21,6 +30,7 @@ export function SearchResultCard({
   onSelect,
 }: SearchResultCardProps) {
   const keyframeTimes = getKeyframeTimes(result);
+  const evidenceTooltipId = `match-evidence-${result.id}`;
 
   return (
     <article className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}>
@@ -51,10 +61,7 @@ export function SearchResultCard({
       </div>
 
       <div className={styles.cardBody}>
-        <div className={styles.cardTopline}>
-          <span className={styles.score}>일치도 {result.score}%</span>
-          <h3 className={styles.cardTitle}>{result.title}</h3>
-        </div>
+        <h3 className={styles.cardTitle}>{result.title}</h3>
 
         <div className={styles.matchedKeywords}>
           <span>키워드</span>
@@ -63,6 +70,20 @@ export function SearchResultCard({
               {keyword}
             </span>
           ))}
+          <span className={styles.evidenceTooltip}>
+            <span
+              aria-describedby={evidenceTooltipId}
+              className={`${styles.statusBadge} ${styles.evidenceTooltipTrigger}`}
+              data-status={result.matchEvidence.status}
+              tabIndex={0}
+            >
+              {getVerificationStatusLabel(result.matchEvidence.status)}
+            </span>
+            <span className={styles.evidenceTooltipContent} id={evidenceTooltipId} role="tooltip">
+              <strong>{getEvidenceFieldLabel(result.matchEvidence.field)}</strong>
+              <span>{getEvidenceValueLabel(result.matchEvidence.value)}</span>
+            </span>
+          </span>
         </div>
       </div>
       <button
