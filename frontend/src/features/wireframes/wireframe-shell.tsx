@@ -1,12 +1,14 @@
 'use client';
 
+import { ApiErrorNotice } from '@/components/api-error-notice';
+import type { SearchExecutionPresentation } from '@/features/wireframes/search-execution-status';
 import { AppShell } from '@/components/app-shell';
 
 import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
-import { results } from '@/features/wireframes/demo-scenes';
+import { results as demoResults, type SearchResult } from '@/features/wireframes/demo-scenes';
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import {
@@ -37,12 +39,24 @@ export interface SearchScreenParams {
 }
 
 interface WireframeShellProps {
+  api?: {
+    presentation?: { results: SearchResult[]; execution: SearchExecutionPresentation };
+    state: 'loading' | 'failed' | 'ready';
+    error: unknown;
+    retry: () => void;
+  };
   initialQuery?: string;
   theme: WireframeTheme;
   initialParams?: SearchScreenParams;
 }
 
-export function WireframeShell({ initialQuery, theme, initialParams = {} }: WireframeShellProps) {
+export function WireframeShell({
+  initialQuery,
+  theme,
+  initialParams = {},
+  api,
+}: WireframeShellProps) {
+  const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -75,19 +89,21 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
-    [selectedResultId],
+    [results, selectedResultId],
   );
   const inquiryResult = results.find(({ id }) => id === inquiryResultId);
-  const displayedResults = demoState === 'empty' ? [] : results;
-  const resultState = isNavigating
-    ? 'loading'
-    : demoState === 'failed'
-      ? 'failed'
-      : displayedResults.length === 0
-        ? 'empty'
-        : 'populated';
+  const displayedResults = !api && demoState === 'empty' ? [] : results;
+  const resultState =
+    isNavigating || api?.state === 'loading'
+      ? 'loading'
+      : api?.state === 'failed' || (!api && demoState === 'failed')
+        ? 'failed'
+        : displayedResults.length === 0
+          ? 'empty'
+          : 'populated';
   const searchExecution =
-    resultState === 'populated' ? demoSearchExecution : successfulSearchExecution;
+    api?.presentation?.execution ??
+    (resultState === 'populated' ? demoSearchExecution : successfulSearchExecution);
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
     [submittedQuery],
@@ -162,7 +178,7 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
   function handlePreviewInquiry() {
     if (!canCreateInquiry(searchExecution)) return;
     setIsPreviewOpen(false);
-    setInquiryResultId(selectedResult.id);
+    if (selectedResult) setInquiryResultId(selectedResult.id);
   }
 
   return (
@@ -255,10 +271,11 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 </h2>
               </div>
               <div className={styles.resultsMeta}>
-                <span>화면 미리보기 · 예시 데이터</span>
+                <span>{api ? '검색 결과' : '화면 미리보기 · 예시 데이터'}</span>
               </div>
             </div>
 
+            {api?.error ? <ApiErrorNotice error={api.error} /> : null}
             {resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
@@ -268,7 +285,10 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
-                onRetry={() => handleSearchNavigation(submittedQuery, broadcastRange, filmingRange)}
+                onRetry={
+                  api?.retry ??
+                  (() => handleSearchNavigation(submittedQuery, broadcastRange, filmingRange))
+                }
                 onEditQuery={() => {
                   searchInputRef.current?.focus();
                   searchInputRef.current?.select();
@@ -302,15 +322,14 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
             : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
 
-      {isPreviewOpen ? (
+      {isPreviewOpen && selectedResult ? (
         <ScenePreviewDialog
           result={selectedResult}
           theme={theme}
           isSubmitted={submittedInquiryIds.includes(selectedResult.id)}
           searchExecution={searchExecution}
-          onInquiry={handlePreviewInquiry}
+          onInquiry={api ? undefined : handlePreviewInquiry}
           onClose={handlePreviewClose}
-          keepLoading={initialParams.preview === 'loading'}
         />
       ) : null}
       {inquiryResult ? (

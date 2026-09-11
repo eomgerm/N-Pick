@@ -1,0 +1,383 @@
+{
+  "scope": "actual MP4 endpoint to decoded frame; excludes search and product card UI",
+  "mediaUrl": "http://127.0.0.1:8182/api/v1/media/885423794805527772",
+  "browserOrigin": "http://127.0.0.1:8182",
+  "browser": "152.0.4191.66",
+  "samples": {
+    "firstLoad": [
+      {
+        "ms": 92.20000000298023,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 84.19999999999999,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 64.5,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 70.10000000223518,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 72.20000000074506,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 69.5,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 69.40000000074505,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 41.099999999999994,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 59.8,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 71.20000000149011,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 73.39999999776482,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 58.09999999925495,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 57.50000000149012,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 65.9,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 76.70000000074506,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 74.39999999850988,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 73.99999999850988,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 75.20000000074506,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 58.7,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 70.8,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 41.69999999925494,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 73.79999999701977,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 69.79999999776483,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 60.49999999925494,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 68.09999999925495,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 49.3,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 42.59999999925495,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 43.400000000000006,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 71.59999999925495,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 42.29999999701977,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      }
+    ],
+    "warm": [
+      {
+        "ms": 47.50000000074505,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 38.09999999925495,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 43.99999999925495,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 54.299999999254965,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 28.999999999254953,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 50.89999999999998,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 32.39999999999998,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 31.399999998509884,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 46.5,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 30.399999998509884,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 38.100000001490116,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 36.30000000074506,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 40.89999999999998,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 37.700000000745035,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 33.00000000149009,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 33.00000000149009,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 36.69999999925494,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 67.19999999850984,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 25.899999999254987,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 112.40000000000009,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 78.30000000149016,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 78.90000000000009,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 80.80000000074506,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 112.4999999985098,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 78.20000000149003,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 89.30000000149016,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 98.0000000007451,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 112.30000000074506,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 93.89999999850988,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      },
+      {
+        "ms": 56.200000001490025,
+        "mediaTime": 0,
+        "width": 1248,
+        "height": 704
+      }
+    ]
+  },
+  "failures": [],
+  "http": {
+    "status": 206,
+    "contentRange": "bytes 0-1023/1173383",
+    "acceptRanges": "bytes",
+    "cacheControl": "private, no-store"
+  },
+  "p95": {
+    "firstLoadMs": 84.19999999999999,
+    "warmMs": 112.40000000000009
+  }
+}

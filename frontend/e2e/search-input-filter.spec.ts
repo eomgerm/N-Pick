@@ -72,7 +72,7 @@ test('빈 검색어와 날짜 입력 Enter는 검색을 시작하지 않는다',
 
 test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번만 처리한다', async ({ page }) => {
   await openAsEditor(page, `/search/results?q=${encodeURIComponent('기존 검색')}`);
-  await expect(page.getByRole('button', { name: /1위 설 연휴 첫날/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /1위 실제 응답 장면/ })).toBeVisible();
 
   let existingSearchRequestCount = 0;
   let newSearchRequestCount = 0;
@@ -107,7 +107,7 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
   await submit.click();
   await page.waitForTimeout(100);
   expect(existingSearchRequestCount).toBe(0);
-  await expect(page.getByRole('heading', { name: '관련 장면 10개' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '관련 장면 1개' })).toBeVisible();
 
   await query.fill('새 검색');
   try {
@@ -121,13 +121,13 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
     expect(newSearchRequestCount).toBe(1);
     await expect(submit).toBeDisabled();
     await expect(page.getByRole('heading', { name: '검색 중', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /1위 설 연휴 첫날/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /1위 실제 응답 장면/ })).toHaveCount(0);
 
     const [blockedRoute] = blockedRoutes.splice(0, 1);
     if (!blockedRoute) throw new Error('Expected one blocked search request.');
     await blockedRoute.continue();
     await expect(page).toHaveURL((url) => url.searchParams.get('q') === '새 검색');
-    await expect(page.getByRole('heading', { name: '관련 장면 10개' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '관련 장면 1개' })).toBeVisible();
   } finally {
     await Promise.all(blockedRoutes.map((route) => route.abort().catch(() => {})));
   }

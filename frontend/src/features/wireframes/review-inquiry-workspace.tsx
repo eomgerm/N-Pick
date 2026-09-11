@@ -40,6 +40,7 @@ import {
 } from '@/features/wireframes/review-inquiry-view';
 import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ResolutionSummary } from '@/features/wireframes/reviewer-resolution';
+import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import { getResolutionSummary } from '@/features/wireframes/reviewer-resolution-state';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
 import styles from '@/features/wireframes/reviewer.module.css';
@@ -306,7 +307,7 @@ function SnapshotCount({ label, value }: { label: string; value: string | null }
   );
 }
 
-function InquiryDetail({ feedbackId }: { feedbackId: string }) {
+function InquiryDetail({ feedbackId, theme }: { feedbackId: string; theme: WireframeTheme }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -426,6 +427,7 @@ function InquiryDetail({ feedbackId }: { feedbackId: string }) {
 
         <section className="rounded-2xl border border-(--line) p-5">
           <h2 className="font-bold">문의 장면</h2>
+          <ReviewInquiryPreview key={inquiry.feedbackId} inquiry={inquiry} theme={theme} />
           <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
             <div>
               <dt className="text-(--muted)">클립 / 장면 ID</dt>
@@ -625,7 +627,7 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
         </nav>
 
         {feedbackId ? (
-          <InquiryDetail feedbackId={feedbackId} />
+          <InquiryDetail feedbackId={feedbackId} theme={theme} />
         ) : list.isPending ? (
           <p aria-busy="true" className="py-24 text-center" role="status">
             문의 목록을 불러오는 중…

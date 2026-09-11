@@ -24,8 +24,54 @@ registerHooks({
 });
 
 const { createSearchRequestBody, parseSearchResponse } = await import('./search-api-contract.ts');
+const { presentSearchResponse, searchScenes } = await import('./search-results-api.ts');
 
 const emptyRange = { from: '', to: '' };
+
+test('실제 검색 adapter는 clip ID와 소수 초, 추가 근거와 degraded 상태를 보존한다', () => {
+  const raw = createResponse({ status: 'degraded', degraded_reasons: ['dense_unavailable'] });
+  raw.results[0] = createScene(1, {
+    clip_id: '9007199254740993',
+    start_time_ms: 1250,
+    end_time_ms: 2700,
+  });
+  raw.results[0].match_evidence.push({
+    field: 'tag',
+    value: '귀성',
+    source: 'reviewer',
+    verification_status: 'verified',
+  });
+  const view = presentSearchResponse(parseSearchResponse(raw));
+  assert.equal(view.results[0].clipId, '9007199254740993');
+  assert.equal(view.results[0].sceneStart, 1.25);
+  assert.equal(view.results[0].sceneEnd, 2.7);
+  assert.equal(view.results[0].additionalEvidence[0].field, '태그');
+  assert.deepEqual(view.execution.degradedReasons, ['dense-unavailable']);
+});
+
+test('검색 API는 요청 객체를 한 번만 JSON 직렬화한다', async () => {
+  const originalFetch = globalThis.fetch;
+  const body = { query: '뉴스', explicit_filters: {} };
+  globalThis.fetch = async (url, init) => {
+    assert.ok(String(url).endsWith('/api/v1/search'));
+    assert.equal(init.method, 'POST');
+    assert.deepEqual(JSON.parse(init.body), body);
+    return new Response(
+      JSON.stringify({
+        isSuccess: true,
+        code: 'COMM_200',
+        message: '성공',
+        data: createResponse(),
+      }),
+      { status: 200 },
+    );
+  };
+  try {
+    assert.equal((await searchScenes(body)).results.length, 10);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 function createScene(rank, overrides = {}) {
   return {

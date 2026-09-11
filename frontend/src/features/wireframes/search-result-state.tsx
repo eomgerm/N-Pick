@@ -72,7 +72,7 @@ export function SearchResultState({
             </div>
             <div>
               <dt>검색 해석</dt>
-              <dd>{isFailed ? '확인하지 못함' : '정상 완료 · 예시 검색'}</dd>
+              <dd>{isFailed ? '확인하지 못함' : '검색 완료'}</dd>
             </div>
           </dl>
           <div className={styles.stateActions}>
