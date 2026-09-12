@@ -826,6 +826,9 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
    현재 `SecurityConfig`는 `anyRequest().permitAll()`이고 nginx가 `/api/`를 공개로 프록시한다. **인증 없이 잡 API를 배포하면 claim/complete가 인터넷에 열린다.** 이 항목은 엔드포인트와 같은 MR에 들어가야 한다.
 10. **artifacts 저장소 어댑터** — 미디어 루트 정규화·경로 이탈 차단·sha256 검증.
 11. **`pipeline.yml`에 `stage_versions:` 키 신설**, 기동 시 롤업 계산·로그.
+12. **stage output 저장 어댑터가 지원하는 단계를 늘린다.** BE는 `StageOutputPort.supports(stage)`가 거짓인 단계를 워커 `capabilities`에서 **제거한다**(`WorkerExecutionBinding`). 그래서 워커가 구현하고 버전을 선언해도 그 단계는 배정되지 않고, 강제로 결과를 보내도 `validateAndStore`의 `default` 분기에서 거절된다.
+    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`transcript_selection`·`asr` 넷이다. **`ocr`(`S15P21A501-94`, dev 머지됨)과 `vlm_metadata`(`S15P21A501-92`)는 워커 쪽이 끝났고 BE 저장 경로만 없다.** 둘 다 §4.3.2·§4.3.3이 저장 자리를 이미 지정한다 — `ocr`은 `ocr_observation` 행, `vlm_metadata`는 `scene.caption`·`scene.caption_tokens`·`scene.shot_type` 갱신과 `tag`·`tagging`·`tag_evidence` 후보(`source='vlm'`, `verification_status='unverified'`, `source_ref_type='keyframe'`)다.
+    이건 설계 미결이 아니라 **미구현**이다. 계약이 정한 payload를 받아 쓰는 쪽이 아직 없다는 뜻이므로, 두 단계의 end-to-end 확인은 이 항목이 끝나야 가능하다.
 
 ## 12. 워커 쪽 구현
 

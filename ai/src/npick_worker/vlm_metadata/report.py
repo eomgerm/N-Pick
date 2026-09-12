@@ -8,11 +8,13 @@
 
 이 도구가 티켓의 두 가지를 담당한다.
 
-- **smoke test** — scene 10건 이상에 각 scene 의 복수 keyframe 을 넣어 schema 에 맞는
-  출력이 나오는지 확인한다.
+- **smoke test** (`--smoke`) — scene 10건 이상에 각 scene 의 복수 keyframe 을 넣어 schema 에
+  맞는 출력이 나오는지 확인한다. **두 조건을 도구가 검사한다** — 종료 코드로 판정할 수
+  있어야 그 실행이 증거가 되기 때문이다. 장면이 모자라거나 한 장짜리 장면이 섞이면
+  출력이 전부 유효해도 실패로 끝낸다.
 - **후보 비교** — 모델을 바꿔 가며(`--model`) 같은 입력으로 돌리고, 장면당 소요 시간과
   원시 출력을 남긴다. "평가에 사용한 설정 version 과 원시 결과를 보존한다" 가 티켓의
-  요구이므로 `--out` 은 **원문을 그대로** 저장한다.
+  요구이므로 `--out` 은 통과한 출력과 **거부된 출력의 원문을 모두** 저장한다.
 
 운영 경로가 아니다(`ocr/report.py` 와 같은 성격의 개발자 도구).
 """
@@ -23,6 +25,7 @@ import re
 import sys
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -32,6 +35,14 @@ from npick_worker.vlm_metadata.describer import SceneDescription, describe_scene
 from npick_worker.vlm_metadata.models import KeyframeRef, SceneKeyframes
 from npick_worker.vlm_metadata.prompt import prompt_version
 from npick_worker.vlm_metadata.validator import VlmSchemaInvalidError
+
+#: smoke test 가 요구하는 최소 장면 수. 티켓의 "scene 10건 이상" 이 근거다.
+MIN_SMOKE_SCENES: Final[int] = 10
+
+#: smoke test 가 요구하는 장면당 최소 keyframe 수. 티켓의 "각 scene 의 복수 selected
+#: keyframe 을 입력" 이 근거다. 한 장으로 돌면 이 단계가 존재하는 이유(장면을 하나로
+#: 이해한다)가 검증되지 않는다.
+MIN_SMOKE_KEYFRAMES: Final[int] = 2
 
 #: `frame_extraction` 의 `FILE_NAME_TEMPLATE` 이 만든 이름을 되읽는다.
 _FILE_NAME: Final[re.Pattern[str]] = re.compile(
@@ -68,6 +79,19 @@ def discover_scenes(frames_dir: Path) -> tuple[tuple[SceneKeyframes, ...], dict[
     return scenes, paths
 
 
+@dataclass(frozen=True, slots=True)
+class Rejected:
+    """거부된 장면 하나. **원문을 들고 있다.**
+
+    `malformed output 이 가장 중요한 분석 대상` 이라는 것이 이 클래스의 존재 이유다 —
+    통과한 출력만 남기면 프롬프트를 왜 고쳐야 하는지가 기록에서 사라진다.
+    """
+
+    scene_index: int
+    reason: str
+    raw_output: str | None
+
+
 def render_table(rows: Sequence[tuple[SceneDescription, float]]) -> str:
     """장면마다 한 줄. 근거가 없어 비운 값은 `-` 로 보인다."""
     header = f"{'scene':>5} {'n':>2} {'초':>6} {'shot':<10} {'scene_type':<12} 설명"
@@ -87,15 +111,50 @@ def render_table(rows: Sequence[tuple[SceneDescription, float]]) -> str:
     return "\n".join([header, "-" * len(header), *lines])
 
 
+def reset_peak_memory() -> None:
+    """GPU peak 측정을 0 에서 다시 시작한다. torch·CUDA 가 없으면 아무 일도 하지 않는다."""
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
+
+def peak_memory() -> dict[str, int] | None:
+    """이 실행이 실제로 쓴 VRAM 최댓값. 없으면 `None`.
+
+    후보 비교에서 이 값이 없으면 "48GB 에서 돌았다" 만 남고 **얼마가 필요한지**는 남지
+    않는다. `nvidia-smi` 를 사람이 눈으로 본 값은 다른 프로세스와 allocator 캐시가 섞여
+    재현 가능한 근거가 아니라서, 문서(§9.2)가 `max_memory_allocated`·`max_memory_reserved`
+    를 요구한다.
+    """
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    return {
+        "peakAllocatedBytes": int(torch.cuda.max_memory_allocated()),
+        "peakReservedBytes": int(torch.cuda.max_memory_reserved()),
+    }
+
+
 def to_json(
     rows: Sequence[tuple[SceneDescription, float]],
+    rejected: Sequence[Rejected],
     config: VlmMetadataConfig,
     client: VlmClient,
+    memory: dict[str, int] | None = None,
 ) -> dict[str, object]:
     """평가 기록. **원시 출력과 설정 version 을 함께 남긴다**(티켓 요구).
 
     `rawOutput` 을 넣는 이유는 프롬프트를 고칠 근거가 거기에만 있기 때문이다. 검증을
     통과한 값만 남기면 "왜 이런 답이 나왔나" 를 나중에 볼 수 없다.
+
+    **거부된 장면도 같은 파일에 남는다.** 통과한 것만 저장하면 후보의 성적에서 가장 중요한
+    부분 — 무엇을 어떻게 틀렸나 — 이 카운트 하나로 줄어든다.
     """
     return {
         "versions": {
@@ -104,7 +163,20 @@ def to_json(
             "engine": client.name,
             "engineVersion": client.version,
             "modelVersion": client.model_version,
+            # 후보 비교에서 이 값이 cpu 면 시간·VRAM 수치를 쓸 수 없다.
+            "device": getattr(client, "device", None),
         },
+        # torch·CUDA 가 없으면 null 이다. **0 으로 적지 않는다** — "재지 못했다" 와
+        # "0 바이트를 썼다" 는 다르고, 비교표에서 뒤엣것은 거짓이다.
+        "memory": memory,
+        "rejected": [
+            {
+                "sceneIndex": item.scene_index,
+                "reason": item.reason,
+                "rawOutput": item.raw_output,
+            }
+            for item in rejected
+        ],
         "scenes": [
             {
                 "sceneIndex": described.metadata.scene_index,
@@ -147,6 +219,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--revision", default="", help="가중치 리비전")
     parser.add_argument("--config", type=Path, help="설정 toml 경로 (프롬프트·어휘 실험용)")
     parser.add_argument("--limit", type=int, help="앞에서 이만큼의 장면만 처리")
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=(
+            f"티켓의 smoke 조건을 검사한다 — 장면 {MIN_SMOKE_SCENES}개 이상, "
+            f"장면마다 keyframe {MIN_SMOKE_KEYFRAMES}장 이상"
+        ),
+    )
     args = parser.parse_args(argv)
 
     config = load_config(args.config) if args.config is not None else get_default_config()
@@ -156,6 +236,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if args.limit is not None:
         scenes = scenes[: args.limit]
+
+    if args.smoke:
+        shortfall = _smoke_shortfall(scenes)
+        if shortfall is not None:
+            # 출력이 전부 유효해도 실패로 끝낸다. 조건을 만족하지 않은 실행은 티켓이
+            # 요구한 것을 증명하지 못한다.
+            print(f"smoke 조건 미달: {shortfall}", file=sys.stderr)
+            return 1
 
     try:
         client = _client(args.model, args.revision)
@@ -169,13 +257,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    device = getattr(client, "device", None)
     print(
         f"장면 {len(scenes)}개 | {config.version_id} | {prompt_version(config)} | "
-        f"{client.name} {client.version} | {client.model_version}"
+        f"{client.name} {client.version} | {client.model_version} | device={device}"
     )
 
     rows: list[tuple[SceneDescription, float]] = []
-    failures = 0
+    rejected: list[Rejected] = []
+    # 가중치 로딩까지 포함해 잰다. 이 값이 곧 "이 후보를 돌리려면 얼마가 필요한가" 다.
+    reset_peak_memory()
     for scene in scenes:
         started = time.perf_counter()
         try:
@@ -184,33 +275,60 @@ def main(argv: Sequence[str] | None = None) -> int:
             # 실측 도구는 멈추지 않는다. **운영 경로와 다른 점이고 의도적이다** —
             # 단계는 하나만 깨져도 전체 실패지만(`describer.describe_scenes`), 후보를
             # 비교할 때는 몇 장면이 왜 깨졌는지가 그 후보의 성적이다.
-            failures += 1
+            rejected.append(
+                Rejected(scene_index=scene.scene_index, reason=str(exc), raw_output=exc.raw_output)
+            )
             print(f"  scene {scene.scene_index}: 거부 — {exc}", file=sys.stderr)
             continue
         rows.append((described, time.perf_counter() - started))
 
     if rows:
         print(render_table(rows))
+    memory = peak_memory()
+    if memory is not None:
+        print(
+            f"peak VRAM | allocated {memory['peakAllocatedBytes'] / 1024**3:.2f} GiB | "
+            f"reserved {memory['peakReservedBytes'] / 1024**3:.2f} GiB"
+        )
     total = sum(elapsed for _, elapsed in rows)
     print(
-        f"성공 {len(rows)}장면 | 거부 {failures}장면 | "
+        f"성공 {len(rows)}장면 | 거부 {len(rejected)}장면 | "
         f"총 {total:.1f}초 | 장면당 평균 {total / len(rows):.1f}초"
         if rows
-        else f"성공 0장면 | 거부 {failures}장면"
+        else f"성공 0장면 | 거부 {len(rejected)}장면"
     )
 
     if args.out is not None:
         args.out.mkdir(parents=True, exist_ok=True)
         target = args.out / "vlm-metadata.json"
         target.write_text(
-            json.dumps(to_json(rows, config, client), ensure_ascii=False, indent=2),
+            json.dumps(
+                to_json(rows, rejected, config, client, memory), ensure_ascii=False, indent=2
+            ),
             encoding="utf-8",
         )
         print(f"저장: {target}")
 
     # 거부가 하나라도 있으면 실패로 끝낸다. smoke test 를 CI 나 스크립트에서 돌릴 때
     # 종료 코드로 판정할 수 있어야 한다.
-    return 0 if rows and failures == 0 else 1
+    return 0 if rows and not rejected else 1
+
+
+def _smoke_shortfall(scenes: Sequence[SceneKeyframes]) -> str | None:
+    """smoke 조건을 만족하지 못한 이유. 만족하면 `None`.
+
+    입력을 보고 판정한다 — 출력이 아니라. 장면이 9개뿐이거나 한 장짜리 장면이 섞인 실행은
+    모델이 아무리 잘 답해도 티켓이 요구한 것을 증명하지 못한다.
+    """
+    if len(scenes) < MIN_SMOKE_SCENES:
+        return f"장면이 {len(scenes)}개다 (필요 {MIN_SMOKE_SCENES}개 이상)"
+    thin = [scene.scene_index for scene in scenes if len(scene.keyframes) < MIN_SMOKE_KEYFRAMES]
+    if thin:
+        return (
+            f"keyframe 이 {MIN_SMOKE_KEYFRAMES}장 미만인 장면이 있다: "
+            f"{thin[:5]}{'…' if len(thin) > 5 else ''}"
+        )
+    return None
 
 
 def _client(model: str | None, revision: str) -> VlmClient:
@@ -220,18 +338,19 @@ def _client(model: str | None, revision: str) -> VlmClient:
     입력으로 여러 후보를 돌리는 것**이기 때문이다. 운영 경로는 그대로 설정을 쓴다.
     """
     from npick_worker.settings import get_settings
-    from npick_worker.vlm_metadata.transformers_backend import (
-        TransformersVlmClient,
-        shared_client,
-    )
+    from npick_worker.vlm_metadata.transformers_backend import build_client, shared_client
 
-    if model is None:
-        return shared_client(get_settings())
     settings = get_settings()
-    return TransformersVlmClient(
+    if model is None:
+        return shared_client(settings)
+    # **`build_client` 로 만든다.** 생성자를 직접 부르면 `device` 를 빠뜨리게 되고, 그러면
+    # 가중치가 CPU 에 남아 후보 비교의 추론 시간과 VRAM 수치가 통째로 무의미해진다.
+    # 예외가 나지 않고 "느리다" 로만 드러나는 종류의 실수다.
+    return build_client(
         model,
-        revision=revision or "main",
+        revision=revision,
         model_dir=settings.vlm_model_dir,
+        device_choice=settings.device,
     )
 
 

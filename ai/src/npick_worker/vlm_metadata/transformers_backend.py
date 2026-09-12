@@ -17,6 +17,7 @@
 """
 
 import logging
+import time
 from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -95,6 +96,16 @@ class TransformersVlmClient:
         """`<모델>@<리비전>`. 이름만으로는 부족하다 — 같은 이름의 가중치가 갱신된다."""
         return f"{self._model_id}@{self._revision}"
 
+    @property
+    def device(self) -> str | None:
+        """가중치를 올릴 장치. `None` 이면 옮기지 않는다(= CPU 추론).
+
+        읽을 수 있게 둔 이유는 이 값이 조용히 틀릴 수 있기 때문이다. 장치를 넘기지 않은
+        클라이언트는 예외 없이 CPU 로 돌고, 증상이 "느리다" 뿐이라 후보 비교의 추론 시간과
+        VRAM 수치가 통째로 무의미해진다. `report.py` 가 실행 머리글에 이 값을 찍는다.
+        """
+        return self._device
+
     def describe(
         self,
         images: Sequence[LabeledImage],
@@ -110,6 +121,11 @@ class TransformersVlmClient:
         messages = _build_messages(images, system_prompt, user_prompt)
         try:
             return _generate(processor, model, messages, images, params)
+        except TimeoutError:
+            # `STAGE_TIMEOUT`(일시)으로 분류되도록 그대로 올려보낸다. 잘린 출력을 그대로
+            # 돌려주면 schema 검증에서 `VLM_SCHEMA_INVALID`(영구)가 되어, 재시도로 풀릴 수
+            # 있는 실패가 재시도 불가로 기록된다.
+            raise
         except (MemoryError, KeyboardInterrupt):
             # OOM 은 **그대로 올려보낸다.** `jobs/errors.classify` 가 이것을
             # `OUT_OF_MEMORY`(일시, 다른 파드에서 성공할 수 있다)로 번역한다. 여기서
@@ -155,15 +171,7 @@ def _shared_client(model: str, revision: str, model_dir: Path | None, device: st
     `maxsize=1` 인 이유는 VRAM 이다. 설정이 바뀌면 새 인스턴스를 만들고 옛 것을 버리는데,
     둘을 동시에 들고 있으면 8GB 급 환경에서 그것만으로 OOM 이 된다.
     """
-    from npick_worker.device import detect_device
-
-    resolved = detect_device(device)
-    return TransformersVlmClient(
-        model,
-        revision=revision,
-        model_dir=model_dir,
-        device=resolved.resolved,
-    )
+    return build_client(model, revision=revision, model_dir=model_dir, device_choice=device)
 
 
 def _load(
@@ -207,6 +215,51 @@ def _load(
     model.eval()
     logger.info("VLM 가중치 준비 완료: %s@%s device=%s", model_id, revision, device)
     return processor, model
+
+
+def _deadline(timeout_seconds: float) -> dict[str, Any]:
+    """`generate()` 에 붙일 시간 상한.
+
+    설정에 상한이 있는데 호출이 그것을 쓰지 않으면 그 값은 **기록일 뿐 제약이 아니다** —
+    생성이 멈추지 않는 동안 GPU 를 계속 잡고, 잡 레이어에는 아무 신호도 가지 않는다.
+
+    라이브러리의 `MaxTimeCriteria` 를 쓴다. 직접 구현하지 않는 이유는 `StoppingCriteria`
+    의 반환 모양(배치별 bool 텐서)이 버전마다 달라, 잘못 구현하면 조용히 **한 번도 멈추지
+    않는** 조건이 되기 때문이다.
+
+    없는 버전이면 빈 인자를 돌려준다. 그때도 상한이 사라지지는 않는다 — 호출이 끝난 뒤
+    경과 시간을 재서 `TimeoutError` 를 던진다. 중간에 끊지 못할 뿐 그 실행이 상한을
+    넘었다는 사실은 남는다.
+    """
+    try:
+        from transformers import MaxTimeCriteria, StoppingCriteriaList
+    except ImportError:
+        logger.warning("MaxTimeCriteria 가 없다. 생성 중간에 끊지 못하고 사후 판정만 한다")
+        return {}
+    return {"stopping_criteria": StoppingCriteriaList([MaxTimeCriteria(max_time=timeout_seconds)])}
+
+
+def build_client(
+    model: str,
+    *,
+    revision: str = DEFAULT_REVISION,
+    model_dir: Path | None = None,
+    device_choice: str = "auto",
+) -> TransformersVlmClient:
+    """장치까지 정해서 클라이언트를 만든다. **이 함수로만 만든다.**
+
+    `shared_client` 와 `report.py` 가 각각 생성자를 부르던 것을 여기로 모은다. 한쪽이
+    `device` 를 빠뜨리면 그 경로만 CPU 로 도는데, 예외가 없어 "느리다" 로만 드러난다 —
+    후보 비교에서 그 차이가 곧 결론을 바꾼다.
+    """
+    from npick_worker.device import detect_device
+
+    return TransformersVlmClient(
+        model,
+        revision=revision or DEFAULT_REVISION,
+        model_dir=model_dir,
+        device=detect_device(device_choice).resolved,
+    )
 
 
 def _build_messages(
@@ -270,12 +323,19 @@ def _generate(
         if params.temperature == 0.0
         else {"do_sample": True, "temperature": params.temperature}
     )
+    started = time.monotonic()
     with torch.inference_mode():
         generated = model.generate(
             **inputs,
             max_new_tokens=params.max_output_tokens,
+            **_deadline(params.timeout_seconds),
             **sampling,
         )
+    elapsed = time.monotonic() - started
+    if elapsed >= params.timeout_seconds:
+        # 상한에 닿았다. 토큰이 얼마나 나왔든 그것은 **완성된 답이 아니다.**
+        msg = f"VLM 호출이 {params.timeout_seconds}초를 넘었다: {elapsed:.1f}초"
+        raise TimeoutError(msg)
     # 프롬프트 토큰을 잘라낸다. 이걸 빼면 출력에 system prompt 가 그대로 섞여 나오고
     # JSON 파싱이 프롬프트 문장에서 실패한다.
     prompt_length = int(inputs["input_ids"].shape[1])

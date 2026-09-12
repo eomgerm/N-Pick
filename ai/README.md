@@ -179,8 +179,11 @@ result.model_version  # '<모델>@<리비전>'
 
 ```bash
 uv run --directory ai python -m npick_worker.vlm_metadata.report \
-    samples/out/KNI_02205-frames --out samples/out/KNI_02205-vlm --model <후보>
+    samples/out/KNI_02205-frames --out samples/out/KNI_02205-vlm --model <후보> --smoke
 ```
+
+`--smoke` 는 티켓의 조건(장면 10건 이상, 장면마다 keyframe 2장 이상)을 검사한다. 저장되는
+JSON 에는 통과한 출력뿐 아니라 **거부된 장면의 원문·사유**와 device·peak VRAM 이 함께 남는다.
 
 선정 근거·어휘·설정 키·외부 처리 게이트는 [docs/vlm-metadata.md](docs/vlm-metadata.md).
 

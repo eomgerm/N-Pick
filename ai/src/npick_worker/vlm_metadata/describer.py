@@ -28,7 +28,7 @@ from npick_worker.vlm_metadata.prompt import (
     render_user_prompt,
 )
 from npick_worker.vlm_metadata.schema import SCHEMA_VERSION
-from npick_worker.vlm_metadata.validator import parse_raw, validate
+from npick_worker.vlm_metadata.validator import VlmSchemaInvalidError, parse_raw, validate
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +105,15 @@ def describe_scene(
         render_user_prompt(config, len(images)),
         config.call,
     )
-    metadata = validate(parse_raw(raw_output), scene.scene_index, selected, config)
+    try:
+        metadata = validate(parse_raw(raw_output), scene.scene_index, selected, config)
+    except VlmSchemaInvalidError as exc:
+        # 어휘·근거 검사에서 떨어진 경우 `validate` 는 원문을 모른다(`RawSceneMetadata` 만
+        # 받는다). 원문을 아는 곳이 여기뿐이라 여기서 붙인다 — 거부된 출력이야말로 프롬프트를
+        # 고칠 근거다(`validator.VlmSchemaInvalidError`).
+        if exc.raw_output is None:
+            exc.raw_output = raw_output
+        raise
     return SceneDescription(metadata=metadata, raw_output=raw_output, inputs=selected)
 
 

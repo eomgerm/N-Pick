@@ -30,6 +30,7 @@ from npick_worker.vlm_metadata import (
     prompt_version,
     render_system_prompt,
     render_user_prompt,
+    report,
     select_keyframes,
     validate,
 )
@@ -40,6 +41,7 @@ from npick_worker.vlm_metadata.external_policy import (
     ExternalProcessingNotAllowedError,
     authorize,
 )
+from npick_worker.vlm_metadata.transformers_backend import TransformersVlmClient
 
 
 def _keyframe(scene: int = 0, timestamp: int = 1000) -> KeyframeRef:
@@ -626,3 +628,92 @@ def test_deployment_flags_cannot_stand_in_for_clip_rights() -> None:
     """PRD: media clip 별 승인과 deployment-level 승인은 서로 대신할 수 없다."""
     with pytest.raises(ExternalProcessingNotAllowedError, match="clip 의 외부 처리 권리"):
         authorize(_request(clip_rights_confirmed=False), _approved_settings())
+
+
+# ── 리뷰 회귀: 실측 도구가 증거가 되려면 (S15P21A501-92) ────────────
+
+
+def _frames_dir(tmp_path: Path, scenes: int, per_scene: int) -> Path:
+    """`frame_extraction.report` 가 만드는 구조를 흉내낸다. 바이트는 가짜여도 된다 —
+    이 테스트들은 가짜 클라이언트를 쓰므로 파일을 여는 쪽이 없다."""
+    root = tmp_path / "frames"
+    for scene_index in range(scenes):
+        scene_dir = root / f"s{scene_index:04d}"
+        scene_dir.mkdir(parents=True)
+        for position in range(per_scene):
+            timestamp = 1000 * (position + 1) + scene_index * 100_000
+            (scene_dir / f"kf-{timestamp:09d}.jpg").write_bytes(b"jpeg")
+    return root
+
+
+def test_smoke_flag_requires_ten_scenes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """출력이 전부 유효해도 장면이 모자라면 티켓이 요구한 것을 증명하지 못한다."""
+    monkeypatch.setattr(report, "_client", lambda model, revision: _FakeClient())
+    frames = _frames_dir(tmp_path, scenes=9, per_scene=2)
+
+    assert report.main([str(frames), "--smoke"]) == 1
+
+
+def test_smoke_flag_requires_multiple_keyframes_per_scene(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """한 장짜리 장면이 섞이면 "복수 keyframe 을 함께 본다" 가 검증되지 않는다."""
+    monkeypatch.setattr(report, "_client", lambda model, revision: _FakeClient())
+    frames = _frames_dir(tmp_path, scenes=10, per_scene=1)
+
+    assert report.main([str(frames), "--smoke"]) == 1
+
+
+def test_smoke_flag_passes_when_both_conditions_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(report, "_client", lambda model, revision: _FakeClient())
+    frames = _frames_dir(tmp_path, scenes=10, per_scene=2)
+
+    assert report.main([str(frames), "--smoke"]) == 0
+
+
+def test_rejected_output_keeps_its_raw_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """거부된 출력이야말로 프롬프트를 고칠 근거다. 카운트만 남기면 그것이 사라진다."""
+    broken = '{"caption": {"value": "설명", "confidence": 0.9, "evidence": ["kf_9"]}}'
+    monkeypatch.setattr(report, "_client", lambda model, revision: _FakeClient([broken]))
+    frames = _frames_dir(tmp_path, scenes=1, per_scene=2)
+    out = tmp_path / "out"
+
+    assert report.main([str(frames), "--out", str(out)]) == 1
+
+    saved = json.loads((out / "vlm-metadata.json").read_text(encoding="utf-8"))
+    assert saved["scenes"] == []
+    assert len(saved["rejected"]) == 1
+    rejected = saved["rejected"][0]
+    assert rejected["sceneIndex"] == 0
+    assert rejected["rawOutput"] == broken
+    assert rejected["reason"]
+
+
+def test_semantic_rejection_also_carries_the_raw_text() -> None:
+    """어휘·근거 검사에서 떨어진 경우 validate 는 원문을 모른다. describer 가 붙인다."""
+    scene = _scene()
+    client = _FakeClient(
+        [_raw(scene_type={"value": "우주", "confidence": 0.9, "evidence": ["kf_1"]})]
+    )
+
+    with pytest.raises(VlmSchemaInvalidError) as caught:
+        describe_scene(scene, _image_paths(scene), client)
+
+    assert caught.value.raw_output is not None
+    assert "우주" in caught.value.raw_output
+
+
+def test_candidate_comparison_client_gets_a_device() -> None:
+    """--model 경로가 device 를 빠뜨리면 CPU 로 돌고, 시간·VRAM 비교가 무의미해진다.
+
+    가중치를 올리지 않는다 — 생성자는 이름만 검사하고 로딩은 첫 호출까지 미룬다.
+    """
+    client = report._client("example/vlm", "")
+
+    assert isinstance(client, TransformersVlmClient)
+    assert client.device is not None
+    assert client.model_version == "example/vlm@main"

@@ -59,9 +59,19 @@ class VlmSchemaInvalidError(ValueError):
 
     `ValueError` 하위인 이유는 단계 구현이 잡 레이어를 임포트할 수 없기 때문이다
     (`ai/AGENTS.md`). 계약 §9.2 의 코드로 번역하는 일은 경계인 `jobs/registry.py` 가 한다.
+
+    `raw_output` 은 **거부된 출력의 원문**이다. 티켓이 "평가에 사용한 설정 version 과 원시
+    결과를 보존한다" 를 요구하는데, 가장 볼 가치가 있는 원문이 거부된 쪽이다 — 통과한
+    출력만 남기면 프롬프트를 왜 고쳐야 하는지가 기록에서 사라진다. 운영 경로는 이 값을
+    저장하지 않는다(담을 컬럼이 없다). 채우는 쪽은 `describer.describe_scene` 이고 쓰는
+    쪽은 `report.py` 다.
     """
 
     code = VLM_SCHEMA_INVALID
+
+    def __init__(self, message: str, raw_output: str | None = None) -> None:
+        super().__init__(message)
+        self.raw_output = raw_output
 
 
 def parse_raw(payload: str) -> RawSceneMetadata:
@@ -77,15 +87,15 @@ def parse_raw(payload: str) -> RawSceneMetadata:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         msg = f"VLM 출력이 JSON 이 아니다: {exc} · 원문 {_excerpt(payload)}"
-        raise VlmSchemaInvalidError(msg) from exc
+        raise VlmSchemaInvalidError(msg, payload) from exc
     if not isinstance(data, dict):
         msg = f"VLM 출력이 객체가 아니다: {type(data).__name__}"
-        raise VlmSchemaInvalidError(msg)
+        raise VlmSchemaInvalidError(msg, payload)
     try:
         return RawSceneMetadata.model_validate(data)
     except ValidationError as exc:
         msg = f"VLM 출력이 schema 와 맞지 않는다: {exc.error_count()}건 · {exc}"
-        raise VlmSchemaInvalidError(msg) from exc
+        raise VlmSchemaInvalidError(msg, payload) from exc
 
 
 def validate(
