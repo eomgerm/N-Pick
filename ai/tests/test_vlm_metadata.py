@@ -7,8 +7,10 @@
 """
 
 import json
+import logging
 from collections.abc import Sequence
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import SecretStr
@@ -32,6 +34,7 @@ from npick_worker.vlm_metadata import (
     render_user_prompt,
     report,
     select_keyframes,
+    transformers_backend,
     validate,
 )
 from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH
@@ -41,7 +44,10 @@ from npick_worker.vlm_metadata.external_policy import (
     ExternalProcessingNotAllowedError,
     authorize,
 )
-from npick_worker.vlm_metadata.transformers_backend import TransformersVlmClient
+from npick_worker.vlm_metadata.transformers_backend import (
+    TransformersVlmClient,
+    _resolve_revision,
+)
 
 
 def _keyframe(scene: int = 0, timestamp: int = 1000) -> KeyframeRef:
@@ -107,13 +113,38 @@ class _FakeClient:
         return self._outputs[min(len(self.calls) - 1, len(self._outputs) - 1)]
 
 
-def _config_with(tmp_path: Path, **overrides: object) -> VlmMetadataConfig:
-    """기본 설정을 한 곳만 바꿔 만든다. 파일명 규약을 피해 임의 이름으로 쓴다."""
+class _FailingClient(_FakeClient):
+    """N번째 호출에서 정해진 예외를 던진다. 실패한 실행의 기록을 검증하기 위한 것이다."""
+
+    def __init__(self, fail_at: int, error: BaseException) -> None:
+        super().__init__()
+        self._fail_at = fail_at
+        self._error = error
+
+    def describe(
+        self,
+        images: Sequence[LabeledImage],
+        system_prompt: str,
+        user_prompt: str,
+        params: CallParams,
+    ) -> str:
+        output = super().describe(images, system_prompt, user_prompt, params)
+        if len(self.calls) == self._fail_at:
+            raise self._error
+        return output
+
+
+def _config_file(tmp_path: Path, **overrides: object) -> Path:
+    """기본 설정을 한 곳만 바꿔 파일로 쓴다. 파일명 규약을 피해 임의 이름으로 쓴다."""
     raw = get_default_config().model_dump(by_alias=True, mode="json")
     raw.update(overrides)
     target = tmp_path / "custom.toml"
     target.write_text(_to_toml(raw), encoding="utf-8")
-    return load_config(target)
+    return target
+
+
+def _config_with(tmp_path: Path, **overrides: object) -> VlmMetadataConfig:
+    return load_config(_config_file(tmp_path, **overrides))
 
 
 def _to_toml(raw: dict[str, object]) -> str:
@@ -717,3 +748,100 @@ def test_candidate_comparison_client_gets_a_device() -> None:
     assert isinstance(client, TransformersVlmClient)
     assert client.device is not None
     assert client.model_version == "example/vlm@main"
+
+
+# ── 리뷰 회귀: 실패한 실행도 증거를 남긴다 (S15P21A501-92) ────────────
+
+
+def test_call_failure_keeps_the_scenes_already_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """timeout 은 그 장면만 버린다. 앞뒤 장면의 실측은 그대로 남는다."""
+    client = _FailingClient(fail_at=2, error=TimeoutError("VLM 호출이 120.0초를 넘었다"))
+    monkeypatch.setattr(report, "_client", lambda model, revision: client)
+    frames = _frames_dir(tmp_path, scenes=3, per_scene=2)
+    out = tmp_path / "out"
+
+    assert report.main([str(frames), "--out", str(out)]) == 1
+
+    saved = json.loads((out / "vlm-metadata.json").read_text(encoding="utf-8"))
+    assert [scene["sceneIndex"] for scene in saved["scenes"]] == [0, 2]
+    failure = saved["rejected"][0]
+    assert failure["sceneIndex"] == 1
+    assert failure["kind"] == "call_failed"
+    assert "TimeoutError" in failure["reason"]
+    # 입력과 소요 시간이 없으면 그 실패를 재현할 수도, "얼마나 걸려서 죽었나" 를 말할
+    # 수도 없다.
+    assert len(failure["inputs"]) == 2
+    assert failure["elapsedSeconds"] >= 0
+
+
+def test_aborting_failure_still_leaves_what_was_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OOM 은 그대로 올려보낸다. 그렇다고 앞선 장면의 실측까지 잃지는 않는다."""
+    client = _FailingClient(fail_at=2, error=MemoryError("CUDA out of memory"))
+    monkeypatch.setattr(report, "_client", lambda model, revision: client)
+    frames = _frames_dir(tmp_path, scenes=3, per_scene=2)
+    out = tmp_path / "out"
+
+    with pytest.raises(MemoryError):
+        report.main([str(frames), "--out", str(out)])
+
+    saved = json.loads((out / "vlm-metadata.json").read_text(encoding="utf-8"))
+    assert [scene["sceneIndex"] for scene in saved["scenes"]] == [0]
+    aborted = saved["rejected"][0]
+    assert aborted["sceneIndex"] == 1
+    assert aborted["kind"] == "aborted"
+    assert "MemoryError" in aborted["reason"]
+
+
+def test_smoke_flag_counts_the_frames_actually_sent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """디렉터리에 두 장이 있어도 설정이 한 장만 넣으면 복수 keyframe 은 검증되지 않는다."""
+    monkeypatch.setattr(report, "_client", lambda model, revision: _FakeClient())
+    frames = _frames_dir(tmp_path, scenes=10, per_scene=2)
+    config = _config_file(tmp_path, max_keyframes_per_scene=1)
+
+    assert report.main([str(frames), "--smoke", "--config", str(config)]) == 1
+
+
+# ── 리뷰 회귀: 무엇을 돌렸는지 말할 수 있어야 한다 (S15P21A501-92) ────
+
+
+def test_resolved_revision_prefers_the_commit_that_was_loaded() -> None:
+    """`main` 은 움직인다. 원격이 갱신되면 같은 기록이 다른 가중치를 가리킨다."""
+    sha = "b" * 40
+    model = SimpleNamespace(config=SimpleNamespace(_commit_hash=sha))
+
+    assert _resolve_revision(model, "main") == sha
+
+
+def test_pinned_revision_is_kept_as_is() -> None:
+    sha = "c" * 40
+
+    assert _resolve_revision(SimpleNamespace(config=None), sha) == sha
+
+
+def test_unresolvable_revision_warns_instead_of_passing_quietly(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """추적되는 실행과 안 되는 실행을 나중에 구분할 수 있어야 한다."""
+    with caplog.at_level(logging.WARNING):
+        assert _resolve_revision(SimpleNamespace(config=None), "main") == "main"
+
+    assert "SHA" in caplog.text
+
+
+def test_loaded_client_reports_the_resolved_revision(monkeypatch: pytest.MonkeyPatch) -> None:
+    sha = "d" * 40
+    monkeypatch.setattr(transformers_backend, "_load", lambda *args: (object(), object(), sha))
+    client = TransformersVlmClient("example/vlm", revision="main", device=None)
+
+    # 올리기 전에는 선언한 값이 아는 전부다.
+    assert client.model_version == "example/vlm@main"
+    # `warm_up` 대신 로딩만 부른다 — 그 함수가 읽는 런타임 버전은 gpu 그룹이 있어야 한다.
+    client._ensure_loaded()
+
+    assert client.model_version == f"example/vlm@{sha}"

@@ -29,9 +29,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from npick_worker.vlm_metadata.client import VlmClient, VlmModelUnavailableError
+from npick_worker.media_errors import MediaUnreadableError
+from npick_worker.vlm_metadata.client import VlmCallError, VlmClient, VlmModelUnavailableError
 from npick_worker.vlm_metadata.config import VlmMetadataConfig, get_default_config, load_config
-from npick_worker.vlm_metadata.describer import SceneDescription, describe_scene
+from npick_worker.vlm_metadata.describer import SceneDescription, describe_scene, select_keyframes
 from npick_worker.vlm_metadata.models import KeyframeRef, SceneKeyframes
 from npick_worker.vlm_metadata.prompt import prompt_version
 from npick_worker.vlm_metadata.validator import VlmSchemaInvalidError
@@ -43,6 +44,16 @@ MIN_SMOKE_SCENES: Final[int] = 10
 #: keyframe 을 입력" 이 근거다. 한 장으로 돌면 이 단계가 존재하는 이유(장면을 하나로
 #: 이해한다)가 검증되지 않는다.
 MIN_SMOKE_KEYFRAMES: Final[int] = 2
+
+#: 그 장면만 버리고 계속할 수 있는 호출 실패. 다음 장면은 성공할 수 있고, **어느 장면에서
+#: 무엇이 실패했는지가 곧 그 후보의 성적**이다. 여기 없는 예외(OOM·버그·중단)는 그대로
+#: 올려보낸다 — 그때도 그때까지의 기록은 파일에 남는다(`main` 의 `finally`).
+_CALL_FAILURES: Final[tuple[type[Exception], ...]] = (
+    TimeoutError,
+    VlmCallError,
+    VlmModelUnavailableError,
+    MediaUnreadableError,
+)
 
 #: `frame_extraction` 의 `FILE_NAME_TEMPLATE` 이 만든 이름을 되읽는다.
 _FILE_NAME: Final[re.Pattern[str]] = re.compile(
@@ -81,15 +92,26 @@ def discover_scenes(frames_dir: Path) -> tuple[tuple[SceneKeyframes, ...], dict[
 
 @dataclass(frozen=True, slots=True)
 class Rejected:
-    """거부된 장면 하나. **원문을 들고 있다.**
+    """결과를 얻지 못한 장면 하나. **무엇을 넣었고 왜 실패했는지를 들고 있다.**
 
     `malformed output 이 가장 중요한 분석 대상` 이라는 것이 이 클래스의 존재 이유다 —
     통과한 출력만 남기면 프롬프트를 왜 고쳐야 하는지가 기록에서 사라진다.
+
+    schema 거부만 담지 않는다. **timeout·OOM 같은 호출 실패도 같은 자리에 남는다** —
+    "10장면 중 3장면이 120초를 넘었다" 는 그 후보를 탈락시키는 근거이고, 그것을 남기지
+    않으면 실패하기 쉬운 후보일수록 비교표에서 유리해진다.
     """
 
     scene_index: int
+    #: `schema_invalid`(형식·어휘 위반) · `call_failed`(호출 실패) · `aborted`(실행 중단).
+    kind: str
     reason: str
-    raw_output: str | None
+    #: 실제로 모델에 넣은 keyframe. 실패를 재현하려면 입력이 있어야 한다.
+    inputs: tuple[KeyframeRef, ...]
+    #: 실패까지 걸린 시간. timeout 인지 즉시 실패인지가 여기서 갈린다.
+    elapsed_seconds: float
+    #: 모델이 낸 텍스트. 호출 자체가 실패했으면 없다.
+    raw_output: str | None = None
 
 
 def render_table(rows: Sequence[tuple[SceneDescription, float]]) -> str:
@@ -172,7 +194,13 @@ def to_json(
         "rejected": [
             {
                 "sceneIndex": item.scene_index,
+                "kind": item.kind,
                 "reason": item.reason,
+                "inputs": [
+                    {"timestampMs": keyframe.timestamp_ms, "storageKey": keyframe.storage_key}
+                    for keyframe in item.inputs
+                ],
+                "elapsedSeconds": round(item.elapsed_seconds, 2),
                 "rawOutput": item.raw_output,
             }
             for item in rejected
@@ -238,7 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         scenes = scenes[: args.limit]
 
     if args.smoke:
-        shortfall = _smoke_shortfall(scenes)
+        shortfall = _smoke_shortfall(scenes, config)
         if shortfall is not None:
             # 출력이 전부 유효해도 실패로 끝낸다. 조건을 만족하지 않은 실행은 티켓이
             # 요구한 것을 증명하지 못한다.
@@ -265,9 +293,33 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     rows: list[tuple[SceneDescription, float]] = []
     rejected: list[Rejected] = []
+    target = args.out / "vlm-metadata.json" if args.out is not None else None
+
+    def save() -> None:
+        """지금까지의 기록을 파일에 쓴다. **장면마다 부른다.**
+
+        마지막에 한 번만 쓰면 중간에 OOM 으로 실행이 끊길 때 앞선 장면의 결과까지 함께
+        사라진다. 오래 걸리고 잘 죽는 후보일수록 증거가 남지 않는다는 뜻이라, 비교표가
+        그 후보에게 유리해진다.
+        """
+        if target is None:
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(
+                to_json(rows, rejected, config, client, peak_memory()),
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
     # 가중치 로딩까지 포함해 잰다. 이 값이 곧 "이 후보를 돌리려면 얼마가 필요한가" 다.
     reset_peak_memory()
     for scene in scenes:
+        # 실패도 입력과 함께 남긴다. `describe_scene` 안에서 고르는 것과 같은 함수라
+        # 실제로 넣은(넣으려던) 프레임이다.
+        selected = select_keyframes(scene, config)
         started = time.perf_counter()
         try:
             described = describe_scene(scene, paths, client, config)
@@ -276,11 +328,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             # 단계는 하나만 깨져도 전체 실패지만(`describer.describe_scenes`), 후보를
             # 비교할 때는 몇 장면이 왜 깨졌는지가 그 후보의 성적이다.
             rejected.append(
-                Rejected(scene_index=scene.scene_index, reason=str(exc), raw_output=exc.raw_output)
+                _failed(scene, "schema_invalid", str(exc), selected, started, exc.raw_output)
             )
             print(f"  scene {scene.scene_index}: 거부 — {exc}", file=sys.stderr)
-            continue
-        rows.append((described, time.perf_counter() - started))
+        except _CALL_FAILURES as exc:
+            # timeout 도 여기다. "10장면 중 3장면이 상한을 넘었다" 는 그 후보를 탈락시키는
+            # 근거이고, 남기지 않으면 그 후보가 "거부 0건" 으로 보인다.
+            reason = f"{type(exc).__name__}: {exc}"
+            rejected.append(_failed(scene, "call_failed", reason, selected, started))
+            print(f"  scene {scene.scene_index}: 호출 실패 — {reason}", file=sys.stderr)
+        except BaseException as exc:
+            # OOM·중단·이 도구의 버그다. 호출 실패와 섞어 넘기지 않는다 — 그러면 도구가
+            # 깨진 것이 후보의 성적으로 기록된다. 다만 **무엇을 하다 끊겼는지는 남긴다.**
+            reason = f"{type(exc).__name__}: {exc}"
+            rejected.append(_failed(scene, "aborted", reason, selected, started))
+            save()
+            raise
+        else:
+            rows.append((described, time.perf_counter() - started))
+        save()
 
     if rows:
         print(render_table(rows))
@@ -298,15 +364,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else f"성공 0장면 | 거부 {len(rejected)}장면"
     )
 
-    if args.out is not None:
-        args.out.mkdir(parents=True, exist_ok=True)
-        target = args.out / "vlm-metadata.json"
-        target.write_text(
-            json.dumps(
-                to_json(rows, rejected, config, client, memory), ensure_ascii=False, indent=2
-            ),
-            encoding="utf-8",
-        )
+    if target is not None:
         print(f"저장: {target}")
 
     # 거부가 하나라도 있으면 실패로 끝낸다. smoke test 를 CI 나 스크립트에서 돌릴 때
@@ -314,21 +372,49 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0 if rows and not rejected else 1
 
 
-def _smoke_shortfall(scenes: Sequence[SceneKeyframes]) -> str | None:
+def _smoke_shortfall(scenes: Sequence[SceneKeyframes], config: VlmMetadataConfig) -> str | None:
     """smoke 조건을 만족하지 못한 이유. 만족하면 `None`.
 
     입력을 보고 판정한다 — 출력이 아니라. 장면이 9개뿐이거나 한 장짜리 장면이 섞인 실행은
     모델이 아무리 잘 답해도 티켓이 요구한 것을 증명하지 못한다.
+
+    세는 것은 디렉터리에 있는 프레임이 아니라 **실제로 모델에 넣는 프레임**이다. 둘은
+    설정 때문에 다를 수 있다 — `max_keyframes_per_scene = 1` 이면 장면마다 열 장이 있어도
+    한 장씩만 들어가는데, 그 실행은 "각 scene 의 복수 keyframe 을 입력" 을 증명하지 못한다.
     """
     if len(scenes) < MIN_SMOKE_SCENES:
         return f"장면이 {len(scenes)}개다 (필요 {MIN_SMOKE_SCENES}개 이상)"
-    thin = [scene.scene_index for scene in scenes if len(scene.keyframes) < MIN_SMOKE_KEYFRAMES]
+    thin = [
+        scene.scene_index
+        for scene in scenes
+        if len(select_keyframes(scene, config)) < MIN_SMOKE_KEYFRAMES
+    ]
     if thin:
         return (
-            f"keyframe 이 {MIN_SMOKE_KEYFRAMES}장 미만인 장면이 있다: "
-            f"{thin[:5]}{'…' if len(thin) > 5 else ''}"
+            f"모델에 넣는 keyframe 이 {MIN_SMOKE_KEYFRAMES}장 미만인 장면이 있다: "
+            f"{thin[:5]}{'…' if len(thin) > 5 else ''} "
+            f"(max_keyframes_per_scene={config.max_keyframes_per_scene})"
         )
     return None
+
+
+def _failed(
+    scene: SceneKeyframes,
+    kind: str,
+    reason: str,
+    inputs: tuple[KeyframeRef, ...],
+    started: float,
+    raw_output: str | None = None,
+) -> Rejected:
+    """실패 하나를 기록으로 만든다. 소요 시간은 여기서 잰다 — 호출마다 빠뜨리기 쉽다."""
+    return Rejected(
+        scene_index=scene.scene_index,
+        kind=kind,
+        reason=reason,
+        inputs=inputs,
+        elapsed_seconds=time.perf_counter() - started,
+        raw_output=raw_output,
+    )
 
 
 def _client(model: str | None, revision: str) -> VlmClient:

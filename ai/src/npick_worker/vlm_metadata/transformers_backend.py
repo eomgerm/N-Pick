@@ -17,6 +17,7 @@
 """
 
 import logging
+import re
 import time
 from collections.abc import Sequence
 from functools import lru_cache
@@ -44,6 +45,9 @@ ENGINE_NAME: Final[str] = "transformers"
 #: 와 "기록을 빠뜨렸다" 는 다르고, 나중에 어느 쪽인지 알 수 없으면 재현이 불가능하다.
 DEFAULT_REVISION: Final[str] = "main"
 
+#: 고정된 가중치를 가리키는 리비전의 모양. hub 의 commit SHA 다.
+_PINNED_REVISION: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}")
+
 
 class TransformersVlmClient:
     """`VlmClient` 구현. 이미지 여러 장과 프롬프트로 텍스트 하나를 받는다.
@@ -70,6 +74,8 @@ class TransformersVlmClient:
         self._model_dir = model_dir
         self._device = device
         self._loaded: tuple[Any, Any] | None = None
+        #: 실제로 올라간 가중치의 commit SHA. 로딩 전에는 모른다.
+        self._resolved_revision: str | None = None
 
     @property
     def name(self) -> str:
@@ -93,8 +99,14 @@ class TransformersVlmClient:
 
     @property
     def model_version(self) -> str:
-        """`<모델>@<리비전>`. 이름만으로는 부족하다 — 같은 이름의 가중치가 갱신된다."""
-        return f"{self._model_id}@{self._revision}"
+        """`<모델>@<리비전>`. 이름만으로는 부족하다 — 같은 이름의 가중치가 갱신된다.
+
+        **가중치를 올린 뒤에는 실제 commit SHA 를 쓴다.** `main` 같은 움직이는 ref 를 그대로
+        기록하면 원격이 갱신돼도 같은 값으로 남아, 다른 가중치로 만든 결과가 같은
+        `modelVersion`·`stageVersion` 을 달게 된다 — 재현도 처리 버전 구분도 거짓이 된다.
+        로딩 전에는 선언한 값을 돌려준다(그때는 그것이 아는 전부다).
+        """
+        return f"{self._model_id}@{self._resolved_revision or self._revision}"
 
     @property
     def device(self) -> str | None:
@@ -144,12 +156,16 @@ class TransformersVlmClient:
 
     def _ensure_loaded(self) -> tuple[Any, Any]:
         if self._loaded is None:
-            self._loaded = _load(
+            processor, model, resolved = _load(
                 self._model_id,
                 self._revision,
                 str(self._model_dir) if self._model_dir is not None else None,
                 self._device,
             )
+            # 버전을 먼저 확정하고 인스턴스를 채운다. 순서가 반대면 로딩 직후 다른
+            # 스레드가 `model_version` 을 읽을 때 움직이는 ref 를 볼 수 있다.
+            self._resolved_revision = resolved
+            self._loaded = (processor, model)
         return self._loaded
 
 
@@ -176,8 +192,10 @@ def _shared_client(model: str, revision: str, model_dir: Path | None, device: st
 
 def _load(
     model_id: str, revision: str, cache_dir: str | None, device: str | None
-) -> tuple[Any, Any]:
+) -> tuple[Any, Any, str]:
     """가중치를 올린다. 실패는 전부 `VlmModelUnavailableError`(일시)다.
+
+    세 번째로 **실제로 올라간 리비전**을 함께 돌려준다(`_resolve_revision`).
 
     영구로 보고하지 않는 이유는 이 실패의 원인이 대개 환경이기 때문이다 — 캐시 볼륨이 안
     붙었거나 내려받기가 끊겼거나 VRAM 이 부족하다. 다른 파드나 다음 시도에서 성공할 수
@@ -213,8 +231,34 @@ def _load(
             msg = f"VLM 가중치를 {device} 로 올리지 못했다: {type(exc).__name__}"
             raise VlmModelUnavailableError(msg) from exc
     model.eval()
-    logger.info("VLM 가중치 준비 완료: %s@%s device=%s", model_id, revision, device)
-    return processor, model
+    resolved = _resolve_revision(model, revision)
+    logger.info("VLM 가중치 준비 완료: %s@%s device=%s", model_id, resolved, device)
+    return processor, model, resolved
+
+
+def _resolve_revision(model: Any, revision: str) -> str:
+    """실제로 올라간 가중치의 commit SHA. 알아내지 못하면 선언한 값 그대로다.
+
+    `main` 같은 움직이는 ref 로 받은 실행은 **무엇을 돌렸는지 나중에 말할 수 없다.** 원격이
+    갱신되면 같은 `<모델>@main` 이 다른 가중치를 가리키는데, 기록은 그대로라 후보 비교표의
+    한 줄과 그 줄을 만든 가중치의 연결이 끊긴다. 계약 §8 의 멱등성도 같은 이유로 깨진다.
+
+    `transformers` 가 hub 에서 받은 config 에 해석한 SHA 를 달아 두므로 그것을 읽는다.
+    비공개 속성이라 없을 수 있고, 로컬 디렉터리에서 올린 가중치에는 아예 없다 — 그때는
+    선언한 값을 쓰고 **경고를 남긴다.** 조용히 넘기면 추적이 되는 실행과 안 되는 실행을
+    나중에 구분할 수 없다.
+    """
+    if _PINNED_REVISION.fullmatch(revision):
+        return revision
+    commit = getattr(getattr(model, "config", None), "_commit_hash", None)
+    if isinstance(commit, str) and _PINNED_REVISION.fullmatch(commit):
+        return commit
+    logger.warning(
+        "가중치 리비전을 SHA 로 확정하지 못했다: %s. 이 실행의 기록은 나중에 같은 "
+        "가중치를 가리키지 못할 수 있다 — 후보 비교와 재현에는 SHA 를 고정해 쓴다",
+        revision,
+    )
+    return revision
 
 
 def _deadline(timeout_seconds: float) -> dict[str, Any]:
