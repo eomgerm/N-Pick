@@ -1,5 +1,8 @@
 # N-Pick AI Worker
 
+실제 세 후보의 품질·속도·메모리 비교는 [VLM 문서 §9.6](docs/vlm-metadata.md#96-2026-09-13-실제-세-후보-비교)에 있다.
+Qwen3.5-9B를 조건부 주 후보로 선정했으며, 품질 수치는 AI 예비 검토로 사람 검수·Gold Set 합격과 구분한다.
+
 외부 Linux GPU에서 VLM 후보를 비교하려면 [VLM 문서 §9.5](docs/vlm-metadata.md#95-linux-gpu-서버에서-직접-실행하기)를 따른다.
 `bash run-vlm-smoke.sh <frames-dir> <out-root> <memory-budget-gib> [model ...]`로
 BE 없이 10장면 smoke와 실행 기록을 생성한다.
