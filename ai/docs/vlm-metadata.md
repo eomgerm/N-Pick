@@ -98,8 +98,8 @@ FP8과 BF16 결과를 섞어 모델 크기만의 성능 차이라고 결론 내�
    약 22.5 GiB 안에서 다중 이미지·생성에 쓸 여유를 확보하기 쉽다. 9B의 품질 향상이
    추가 메모리와 시간을 정당화하는지, 12B·27B까지 필요한지는 아직 모른다.
 3. **짧은 JSON을 먼저 평가한다.** Qwen3.5·Qwen3.8은 기본적으로 thinking이 켜져 있다.
-   첫 비교는 `enable_thinking=False`를 적용한 조건으로 계획한다. 현재 어댑터는 이 인자를
-   전달하지 않으므로 모델명만 바꾸면 이 조건이 충족된다고 간주하지 않는다.
+   첫 비교는 `enable_thinking=False`를 적용한다. §9.5의 benchmark CLI가 이 인자를
+   명시적으로 전달하고 실행 설정에 기록한다. 운영 기본값은 모델 template을 따른다.
 4. **배포 구조가 맞는다.** 외부 GPU 서버에 워커와 가중치를 직접 배치한다.
    [Deployment](../../docs/architecture/03-deployment.md)에 따라 GPU 워커가 EC2의
    잡 API를 claim/heartbeat/complete/artifacts로 호출한다. GPU 인바운드 잡 API를
@@ -142,10 +142,10 @@ Qwen3.6-27B는 같은 규모의 더 최근 후보 Qwen3.8-27B를 우선해 별�
 `AutoModelForImageTextToText`가 설치된 런타임에서 각 모델을 올바르게 resolve하는지,
 다중 이미지 입력과 chat template이 맞는지 먼저 확인한다.
 
-현재 코드에는 `enable_thinking=False` 전달이 없고 로딩 dtype은 `auto`다.
-따라서 non-thinking·BF16 실험을 이미 지원한다고 간주하지 않는다. 모델 로딩, 실제 dtype,
-thinking 해제, 원문에 reasoning이 섞이지 않는지를 확인한 후 비교한다. 필요한 어댑터·
-versioned config 변경은 별도 구현 대상이며 이 문서 갱신에서 코드를 바꾸지 않는다.
+§9.5의 benchmark CLI는 dtype과 thinking 옵션을 어댑터에 전달하고 별도
+`benchmarkConfigVersion`과 설정 원문을 저장한다. 운영 기본값은 dtype `auto`, thinking
+옵션 미지정이다. 실측에서는 모델 로딩, 기록된 실제 dtype, 원문에 reasoning이 섞이지
+않는지를 확인한다. 실행 도구의 구현은 각 후보가 실제 GPU에서 성공했다는 증거가 아니다.
 
 **이미지는 `images=`로 따로 넘긴다.** chat template의 `url`·`path` 키를 쓰지 않는다. 그
 경로는 런타임 버전마다 의미가 갈리는데, 어긋났을 때의 증상이 예외가 아니라 **"이미지를 못
@@ -458,6 +458,91 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
 `MaxTimeCriteria`가 없는 런타임에서는 생성을 중간에 끊지 못한다. 그때도 상한이 사라지지는
 않는다 — 호출이 끝난 뒤 경과 시간을 재서 같은 `TimeoutError`를 던진다. 끊지 못했다는 사실은
 경고 로그로 남는다.
+
+### 9.5 Linux GPU 서버에서 직접 실행하기
+
+코드는 `src/npick_worker/vlm_metadata/benchmark.py`, 후보별 별도 프로세스를 순차 실행하는
+진입점은 `run-vlm-smoke.sh`다. 자체 호스팅 개발 GPU에서 BE·DB 없이 평가한다. 승인된 서버와
+자료 이용 범위 안에서 selected keyframe만 복사한다. 모델 제공자 추론 API로 프레임을
+보내는 경로가 아니며 가중치·revision은 Hugging Face에서 내려받는다.
+
+공유 L40S에서는 우선 GPU 0, PyTorch allocator 예산 20 GiB로 시작한다. 이는 실험용 상한이며
+운영 확정값이 아니다. CUDA context 등 allocator 밖의 메모리는 별도이므로 팀 전체
+22.49 GiB를 강제 격리하는 기능은 아니다. 같은 팀의 다른 GPU 프로세스도 예산에 포함한다.
+
+1. 로컬 `ai/src`, `ai/pyproject.toml`, `ai/uv.lock`, `ai/run-vlm-smoke.sh`와
+   `ai/samples/out/KNI_02205-frames/s*/kf-*.jpg`를 같은 상대 경로로 서버에 복사한다.
+   이번 작업의 `ai/samples/out/vlm-smoke-kit.tgz`는 이 코드와 10장면의 프레임을 담는다.
+   `.env`, 모델 캐시, 전체 영상은 제외한다. 미커밋 코드도 포함되며 소스를 바꾸면 묶음도
+   다시 만들어야 한다. Git 이력이 없어도 실행 시 `source-hashes.json`이 실제 코드를 구분한다.
+2. Linux 서버에서 묶음을 풀고 설치한다. 기존 체크아웃이면 새 코드까지 반영한 뒤 `cd ai`부터 한다.
+
+   ```bash
+   mkdir -p ~/npick-vlm/ai
+   tar -xzf ~/vlm-smoke-kit.tgz -C ~/npick-vlm/ai
+   cd ~/npick-vlm/ai
+   # uv가 없을 때 1회. 공식 설치: https://docs.astral.sh/uv/getting-started/installation/
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   export PATH="$HOME/.local/bin:$PATH"
+   uv sync --locked --group gpu
+   nvidia-smi
+   df -h . "$HOME"
+   export CUDA_VISIBLE_DEVICES=0
+   uv run --locked --group gpu python -c 'import torch; print(torch.__version__, torch.version.cuda); assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
+   ```
+
+   최초 설치·모델 다운로드에는 네트워크와 디스크 여유가 필요하다. CUDA 드라이버와 잠긴
+   torch 휠이 맞지 않거나 AutoModel이 후보를 지원하지 않으면 로그를 보존하고 환경부터
+   맞춘다. 한 후보만 라이브러리를 갱신했다면 다른 후보도 같은 환경으로 다시 측정한다.
+3. 먼저 4B 한 개로 smoke를 실행한다. SSH를 끊을 예정이면 `tmux` 세션에서 실행한다.
+
+   ```bash
+   bash run-vlm-smoke.sh samples/out/KNI_02205-frames samples/out/vlm-bench 20 Qwen/Qwen3.5-4B
+   ```
+
+   `summary.json`의 `smokePassed: true`를 확인한다. 파일이 없으면 로딩 이전 실패일 수 있어
+   `run.json`과 `.log`부터 본다. 모델명만 주면 시작 시 `main`을 40자리 SHA로 해석해 로딩 전에
+   고정한다. 같은 가중치의 재실행은 아래 명령에 `run.json`의 SHA를 넣는다. 출력 경로는 새로 쓴다.
+
+   ```bash
+   uv run --locked --group gpu python -u -m npick_worker.vlm_metadata.benchmark \
+     samples/out/KNI_02205-frames --model Qwen/Qwen3.5-4B \
+     --revision <run.json의_modelRevision> --out samples/out/vlm-bench/repeat-4b-01 \
+     --memory-budget-gib 20 --dtype bfloat16 --thinking off --limit 10
+   ```
+
+4. 같은 입력·설정으로 나머지 두 후보를 실행한다. 12B·27B는 현재 공유 예산의 첫 비교에서 제외한다.
+
+   ```bash
+   bash run-vlm-smoke.sh samples/out/KNI_02205-frames samples/out/vlm-bench 20 \
+     Qwen/Qwen3.5-9B Qwen/Qwen3-VL-8B-Instruct
+   ```
+
+   OOM이면 해당 조건의 실패로 보존한다. 예산을 임의로 늘리지 않는다. 후보 하나가 실패해도
+   다음 후보를 별도 프로세스로 실행하며, 전부 통과해야 shell 종료 코드가 0이다.
+   FP16·프레임 수·출력 상한을 바꾸면 별도 실험이다. 실패한 장면만 다른 모델로 채우지 않는다.
+5. 결과 폴더 전체를 보존하고 품질은 실제 프레임을 보며 직접 판정한다.
+
+   | 파일 | 내용 |
+   | --- | --- |
+   | `run.json` | 실행 ID·시각, 고정 모델 SHA, 설정 버전, GPU/runtime, 실제 dtype, 모델 준비 시간, 실패 이유 |
+   | `config.toml`, `schema.json`, `prompts.json`, `generation-config.json`, `image-processor.json` | 실제 설정·출력 계약·프롬프트·모델 생성/이미지 처리 기본값 |
+   | `inputs.json`, `source-hashes.json` | selected 프레임 순서·SHA256과 코드 해시 |
+   | `vlm-metadata.json` | 원시 출력·근거 입력·거부/호출 실패·소요 시간 |
+   | `summary.json` | schema 통과 수, 실패 포함 평균·중앙값·nearest-rank p95, peak allocated/reserved VRAM |
+   | `quality-review.json` | 사람이 채울 장면별 판정. 초기 `null`은 미평가 |
+   | 실행 디렉터리 옆 `.log`, `.exit-code.txt` | 설치/로딩/호출 오류와 프로세스 종료 상태 |
+
+   모델 다운로드·로딩은 장면 시간에서 제외하고 `loadSeconds`에 따로 기록한다. 첫 추론의
+   캐시·커널 준비 비용은 장면 시간에 포함한다. 공유 GPU의 다른 팀 부하도 기록하고 같은
+   조건에서 반복한다. PyTorch peak와 `nvidia-smi`의 GPU 전체 점유량은 다른 측정이다.
+
+   `quality-review.json`은 실제 프레임과 원시 결과를 함께 보고 채운다. `shotTypeExpected`는
+   닫힌 4값, `captionRating`은 `correct / partial / incorrect / unclear`, `sceneTypeExpected`는
+   현재 taxonomy 또는 `null`이다. 나머지 근거·복수 프레임 이해 판정은 true/false와 `notes`로
+   남긴다. 모델 confidence로 대신하지 않는다. 후보별 caption·shot type·scene metadata·복수
+   프레임 이해 판정을 비교표로 정리하고 시간·메모리 실패까지 반영해 조건부 후보를 고른다.
+   10장면은 smoke·개발 비교용이며 별도 Gold Set 100장면의 품질 목표 달성을 증명하지 않는다.
 
 ## 10. 언제 다시 볼 것인가
 

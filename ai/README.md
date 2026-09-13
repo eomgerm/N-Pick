@@ -1,5 +1,9 @@
 # N-Pick AI Worker
 
+외부 Linux GPU에서 VLM 후보를 비교하려면 [VLM 문서 §9.5](docs/vlm-metadata.md#95-linux-gpu-서버에서-직접-실행하기)를 따른다.
+`bash run-vlm-smoke.sh <frames-dir> <out-root> <memory-budget-gib> [model ...]`로
+BE 없이 10장면 smoke와 실행 기록을 생성한다.
+
 헬스체크, `scene_detection`, `frame_extraction`, `vlm_metadata`, `ocr`, Query Resolver 프롬프트·출력 계약(FRD F-04~06)이 구현되어 있다.
 
 Query Resolver는 검색 시점에 쓰이며 파이프라인 단계가 아니다. 배포 경계는

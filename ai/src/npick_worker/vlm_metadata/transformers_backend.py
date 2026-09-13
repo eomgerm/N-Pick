@@ -65,6 +65,8 @@ class TransformersVlmClient:
         revision: str = DEFAULT_REVISION,
         model_dir: Path | None = None,
         device: str | None = None,
+        dtype: str = "auto",
+        enable_thinking: bool | None = None,
     ) -> None:
         if not model:
             msg = "VLM 모델이 설정되지 않았다 (NPICK_AI_VLM_MODEL)"
@@ -73,6 +75,8 @@ class TransformersVlmClient:
         self._revision = revision or DEFAULT_REVISION
         self._model_dir = model_dir
         self._device = device
+        self._dtype = dtype
+        self._enable_thinking = enable_thinking
         self._loaded: tuple[Any, Any] | None = None
         #: 실제로 올라간 가중치의 commit SHA. 로딩 전에는 모른다.
         self._resolved_revision: str | None = None
@@ -132,7 +136,9 @@ class TransformersVlmClient:
         processor, model = self._ensure_loaded()
         messages = _build_messages(images, system_prompt, user_prompt)
         try:
-            return _generate(processor, model, messages, images, params)
+            return _generate(
+                processor, model, messages, images, params, enable_thinking=self._enable_thinking
+            )
         except TimeoutError:
             # `STAGE_TIMEOUT`(일시)으로 분류되도록 그대로 올려보낸다. 잘린 출력을 그대로
             # 돌려주면 schema 검증에서 `VLM_SCHEMA_INVALID`(영구)가 되어, 재시도로 풀릴 수
@@ -161,6 +167,7 @@ class TransformersVlmClient:
                 self._revision,
                 str(self._model_dir) if self._model_dir is not None else None,
                 self._device,
+                self._dtype,
             )
             # 버전을 먼저 확정하고 인스턴스를 채운다. 순서가 반대면 로딩 직후 다른
             # 스레드가 `model_version` 을 읽을 때 움직이는 ref 를 볼 수 있다.
@@ -191,7 +198,11 @@ def _shared_client(model: str, revision: str, model_dir: Path | None, device: st
 
 
 def _load(
-    model_id: str, revision: str, cache_dir: str | None, device: str | None
+    model_id: str,
+    revision: str,
+    cache_dir: str | None,
+    device: str | None,
+    dtype: str = "auto",
 ) -> tuple[Any, Any, str]:
     """가중치를 올린다. 실패는 전부 `VlmModelUnavailableError`(일시)다.
 
@@ -214,7 +225,7 @@ def _load(
         processor = AutoProcessor.from_pretrained(model_id, **kwargs)
         model = AutoModelForImageTextToText.from_pretrained(
             model_id,
-            dtype="auto",
+            dtype=dtype,
             # 단일 GPU 를 전제한다(`settings.job_concurrency` 주석). device_map 을 쓰지
             # 않는 이유는 accelerate 의 분할 배치가 8GB 급에서 CPU 오프로딩으로 조용히
             # 넘어가고, 그러면 추론 시간이 수십 배가 되는데 실패로는 보이지 않기 때문이다.
@@ -289,6 +300,8 @@ def build_client(
     revision: str = DEFAULT_REVISION,
     model_dir: Path | None = None,
     device_choice: str = "auto",
+    dtype: str = "auto",
+    enable_thinking: bool | None = None,
 ) -> TransformersVlmClient:
     """장치까지 정해서 클라이언트를 만든다. **이 함수로만 만든다.**
 
@@ -303,6 +316,8 @@ def build_client(
         revision=revision or DEFAULT_REVISION,
         model_dir=model_dir,
         device=detect_device(device_choice).resolved,
+        dtype=dtype,
+        enable_thinking=enable_thinking,
     )
 
 
@@ -336,6 +351,8 @@ def _generate(
     messages: list[dict[str, Any]],
     images: Sequence[LabeledImage],
     params: CallParams,
+    *,
+    enable_thinking: bool | None = None,
 ) -> str:
     """한 번 부른다. 재시도는 하지 않는다 — 그 판단은 BE 의 것이다(계약 §9.2).
 
@@ -346,7 +363,10 @@ def _generate(
     import torch
     from PIL import Image
 
-    text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+    template_options = {} if enable_thinking is None else {"enable_thinking": enable_thinking}
+    text = processor.apply_chat_template(
+        messages, add_generation_prompt=True, tokenize=False, **template_options
+    )
     # 라벨 순서 그대로 연다. 이 순서가 `{"type": "image"}` 자리 표시자의 순서와 같아야
     # `kf_2` 가 실제로 두 번째 그림을 가리킨다.
     try:

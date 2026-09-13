@@ -35,6 +35,7 @@ from npick_worker.vlm_metadata.config import VlmMetadataConfig, get_default_conf
 from npick_worker.vlm_metadata.describer import SceneDescription, describe_scene, select_keyframes
 from npick_worker.vlm_metadata.models import KeyframeRef, SceneKeyframes
 from npick_worker.vlm_metadata.prompt import prompt_version
+from npick_worker.vlm_metadata.schema import SCHEMA_VERSION
 from npick_worker.vlm_metadata.validator import VlmSchemaInvalidError
 
 #: smoke test 가 요구하는 최소 장면 수. 티켓의 "scene 10건 이상" 이 근거다.
@@ -180,6 +181,7 @@ def to_json(
     """
     return {
         "versions": {
+            "schemaVersion": SCHEMA_VERSION,
             "configVersion": config.version_id,
             "promptVersion": prompt_version(config),
             "engine": client.name,
@@ -236,7 +238,7 @@ def to_json(
     }
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, client: VlmClient | None = None) -> int:
     parser = argparse.ArgumentParser(description="scene별 복수 keyframe으로 VLM metadata 생성")
     parser.add_argument("frames_dir", type=Path, help="frame_extraction.report 산출 디렉터리")
     parser.add_argument("--out", type=Path, help="결과 JSON 을 저장할 디렉터리")
@@ -274,7 +276,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
 
     try:
-        client = _client(args.model, args.revision)
+        if client is None:
+            client = _client(args.model, args.revision)
     except VlmModelUnavailableError as exc:
         # 모델이 없는 것은 이 도구의 버그가 아니다. 트레이스백 대신 무엇을 해야 하는지
         # 알려 준다 — 모델 이름은 실측 후 확정 대상이라 코드가 고르지 않는다(FRD §11).
@@ -305,7 +308,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if target is None:
             return
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
+        temporary = target.with_suffix(".json.tmp")
+        temporary.write_text(
             json.dumps(
                 to_json(rows, rejected, config, client, peak_memory()),
                 ensure_ascii=False,
@@ -313,6 +317,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             encoding="utf-8",
         )
+        temporary.replace(target)
 
     # 가중치 로딩까지 포함해 잰다. 이 값이 곧 "이 후보를 돌리려면 얼마가 필요한가" 다.
     reset_peak_memory()
