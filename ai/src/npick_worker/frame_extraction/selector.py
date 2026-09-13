@@ -276,18 +276,31 @@ def prune_by_change(
     재고 이웃을 저장하면 "이 두 장은 충분히 다르다" 의 근거가 저장된 이미지가 아닌 다른
     프레임의 성질이 된다.
 
-    규칙 셋이다.
+    규칙 넷이다.
     1. **시드는 가운데 자리**다. 원 설계(`581f6e3`)의 "중앙(50%) 프레임을 시드로" 를
-       잇는다. 장면의 성격을 한 장으로 말하는 데는 시작·끝보다 가운데가 낫다.
+       잇는다. 장면의 성격을 한 장으로 말하는 데는 시작·끝보다 가운데가 낫다. 가운데가
+       블랭크면 가장 가까운 비블랭크 자리로 옮긴다(`_seed_index`).
     2. 나머지를 시각 순으로 훑어 **이미 남긴 것들과의 최소 거리**가 `change_threshold`
        이상이면 남긴다. 이미 남긴 것 **전부**와 비교하는 이유는 직전 한 장과만 비교하면
-       A→B→A 로 오가는 장면에서 같은 화면이 두 번 남기 때문이다.
-    3. `max_keyframes_per_scene` 에서 멈춘다.
+       A→B→A 로 오가는 장면에서 같은 화면이 두 번 남기 때문이다. **블랭크는 여기서
+       제외한다** — 아래 「블랭크를 거리로만 보면 안 되는 이유」.
+    3. `max_keyframes_per_scene` 을 넘으면 **최원점으로 추린다**(`_thin_to`). 시각 순으로
+       자르지 않는 이유는 시드가 가운데라 앞쪽 자리가 먼저 상한을 채우기 때문이다. 그렇게
+       자르면 상한이 `planned_slots_per_scene` 보다 작을 때 장면 뒷부분이 통째로 사라진다.
+    4. `min_keyframes_per_scene` 에 못 미치면 **떨어진 것 중 가장 덜 닮은 것부터**
+       되돌린다(최원점 추가). 아무거나 채우면 되돌린 장이 남긴 장과 거의 같은 화면일 수
+       있고, 그러면 하한을 숫자로만 맞추고 실제로는 같은 그림을 두 번 저장한다. 여기서도
+       **비블랭크가 먼저**다. 블랭크는 다른 장이 하나도 없을 때만 온다.
 
-    하한을 채우는 방법이 규칙 하나 더 필요하다. 위 규칙만으로 `min_keyframes_per_scene`
-    에 못 미치면 **떨어진 것 중 가장 덜 닮은 것부터** 되돌린다(최원점 추가). 아무거나
-    채우면 되돌린 장이 남긴 장과 거의 같은 화면일 수 있고, 그러면 하한을 숫자로만 맞추고
-    실제로는 같은 그림을 두 번 저장한다.
+    상한과 하한이 **같은 규칙(최원점)** 을 쓴다. 한쪽만 시각 순이면 같은 설정에서 장면의
+    앞뒤가 비대칭으로 대표된다.
+
+    **블랭크를 거리로만 보면 안 되는 이유.** 블랭크(암전·화이트아웃)는 다른 어떤 화면과도
+    `content_val` 이 최대에 가깝다 — 검정과 유채색의 채널 평균 절대차는 임계를 한참 넘는다.
+    그래서 거리만 보면 블랭크가 규칙 2 를 **항상** 통과하고 규칙 4 에서 **항상** 1 등이
+    된다. `select` 가 "이 자리엔 쓸 만한 게 없었다" 고 표시해 둔 장을 다음 단계가 오히려
+    선호하는 꼴이고, 실제 화면 여러 장을 버리고 검정 JPEG 을 남긴다. 하류 OCR·VLM 에 글자
+    없는 장이 간다.
 
     변화량을 재지 못한 쌍이 하나라도 있으면 **판정하지 않고 전부 남긴다.** 재지 못한 것을
     "안 달라졌다" 로 읽으면 측정 사고가 장 수 감소로 둔갑한다.
@@ -300,32 +313,75 @@ def prune_by_change(
     if distances is None:
         return tuple(chosen)
 
-    seed_index = len(ordered) // 2
-    kept = [ordered[seed_index]]
-    rejected: list[ChosenFrame] = []
-
-    for index, frame in enumerate(ordered):
-        if index == seed_index:
-            continue
-        if len(kept) >= cfg.max_keyframes_per_scene:
-            rejected.append(frame)
+    seed = ordered[_seed_index(ordered)]
+    kept = [seed]
+    for frame in ordered:
+        if frame is seed or frame.blank:
             continue
         if _min_distance(frame, kept, distances) >= cfg.change_threshold:
             kept.append(frame)
-        else:
-            rejected.append(frame)
 
+    if len(kept) > cfg.max_keyframes_per_scene:
+        kept = _thin_to(kept, seed, cfg.max_keyframes_per_scene, distances)
+
+    taken = {frame.frame_number for frame in kept}
+    rejected = [frame for frame in ordered if frame.frame_number not in taken]
     while len(kept) < cfg.min_keyframes_per_scene and rejected:
-        # 최원점 추가. 동점이면 이른 시각이 이긴다 — 동점 규칙이 없으면 같은 입력에서
-        # 되돌아오는 장이 실행마다 바뀐다.
+        # 비블랭크 우선, 그다음 최원점. 동점이면 이른 시각이 이긴다 — 동점 규칙이 없으면
+        # 같은 입력에서 되돌아오는 장이 실행마다 바뀐다.
         best = max(
             rejected,
-            key=lambda frame: (_min_distance(frame, kept, distances), -frame.timestamp_ms),
+            key=lambda frame: (
+                not frame.blank,
+                _min_distance(frame, kept, distances),
+                -frame.timestamp_ms,
+            ),
         )
         rejected.remove(best)
         kept.append(best)
 
     return tuple(sorted(kept, key=lambda frame: frame.timestamp_ms))
+
+
+def _seed_index(ordered: Sequence[ChosenFrame]) -> int:
+    """시드로 쓸 자리. 가운데가 원칙이고, 가운데가 블랭크면 가장 가까운 비블랭크로 옮긴다.
+
+    시드는 무조건 살아남는 자리다. 거기에 블랭크를 두면 그 장면의 keyframe 한 장이
+    확정적으로 검정이 된다. 전부 블랭크면 옮길 곳이 없으므로 가운데를 그대로 쓴다.
+
+    거리가 같으면 이른 자리가 이긴다. 동점 규칙이 없으면 같은 입력에서 시드가 흔들린다.
+    """
+    middle = len(ordered) // 2
+    if not ordered[middle].blank:
+        return middle
+    usable = [index for index, frame in enumerate(ordered) if not frame.blank]
+    if not usable:
+        return middle
+    return min(usable, key=lambda index: (abs(index - middle), index))
+
+
+def _thin_to(
+    kept: Sequence[ChosenFrame],
+    seed: ChosenFrame,
+    limit: int,
+    distances: Mapping[tuple[int, int], float],
+) -> list[ChosenFrame]:
+    """상한을 넘긴 자리를 `limit` 장으로 추린다. 최원점 선택이고 시드는 반드시 남는다.
+
+    하한 채우기와 같은 규칙을 반대 방향으로 쓴다 — 채울 때 가장 덜 닮은 것을 데려오듯이,
+    줄일 때도 서로 가장 덜 닮은 조합을 남긴다. 그래서 상한이 자리 수보다 작아도 남는 장이
+    장면 전체에 퍼진다.
+    """
+    picked = [seed]
+    remaining = [frame for frame in kept if frame is not seed]
+    while len(picked) < limit and remaining:
+        best = max(
+            remaining,
+            key=lambda frame: (_min_distance(frame, picked, distances), -frame.timestamp_ms),
+        )
+        remaining.remove(best)
+        picked.append(best)
+    return picked
 
 
 def _distance_table(

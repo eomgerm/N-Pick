@@ -156,7 +156,7 @@ def _check_measured(
     requests: Sequence[SceneRequest],
     measured: Mapping[int, SceneMeasurement],
 ) -> None:
-    """재 달라고 한 프레임을 하나라도 못 받았으면 멈춘다.
+    """**자리 하나가 통째로** 미디어 밖이면 멈춘다.
 
     디코드는 0번부터 순차로 훑으므로(`pyav_backend._decode_until`) 요청한 프레임에 닿지
     못하는 경우는 하나뿐이다 — **미디어가 그 전에 끝났다.** 즉 상류 scene 목록이 이
@@ -168,21 +168,25 @@ def _check_measured(
     입력이 조용히 성공한다 — **같은 사실이 자리 수에 따라 실패와 성공으로 갈린다.**
     측정이 닿았는지를 직접 보면 자리 수와 무관하게 같은 답이 나온다.
 
+    **후보 하나가 아니라 자리 하나를 본다.** 막으려는 것은 자리가 조용히 사라져 장 수가
+    주는 일이고, `select` 는 자리 안의 다른 후보로 그 자리를 채울 수 있다. 후보 단위로
+    보면 그렇게 채워지는 경우까지 clip 전체를 영구 실패시킨다 — 자리를 2 개에서
+    5 개로 늘리면서 마지막 자리가 창의 75% 에서 90% 로 옮겨 갔기 때문에, 컨테이너가
+    선언한 길이가 실제 디코드 가능 구간보다 긴 파일(TS, 잘린 꼬리, 추정 duration)에서
+    닿을 확률이 그만큼 커졌다. 자리 단위로 보면 **막으려던 것은 그대로 막고**(자리가
+    사라지면 실패) 대체 가능한 초과분은 통과한다.
+
     다시 시도해도 같은 결과이므로 `ValueError` 이고 잡 레이어가 영구 오류로 번역한다.
     """
     for request in requests:
         measurement = measured.get(request.scene_index)
         reached = measurement.frames if measurement is not None else {}
-        missing = sorted(
-            frame_number
-            for slot in request.slots
-            for frame_number in slot.frame_numbers
-            if frame_number not in reached
-        )
-        if missing:
+        for slot in request.slots:
+            if any(frame_number in reached for frame_number in slot.frame_numbers):
+                continue
             msg = (
                 f"미디어가 scene 보다 먼저 끝났다: scene_index={request.scene_index} "
-                f"(닿지 못한 프레임 {missing[0]}번)"
+                f"(자리 {slot.slot_index} 의 후보 {sorted(slot.frame_numbers)} 에 닿지 못했다)"
             )
             raise ValueError(msg)
 

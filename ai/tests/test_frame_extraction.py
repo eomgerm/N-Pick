@@ -315,25 +315,50 @@ def test_select_returns_timestamp_order() -> None:
 # FRD v3.2 F-03 (`docs/frd.md:131`). 정적 장면은 적게, 동적 장면은 많게.
 
 
+#: 블랭크와 다른 화면 사이의 `content_val`. 검정과 유채색의 채널 평균 절대차는 임계를
+#: 한참 넘는다. 적응형이 거리만 보면 블랭크가 항상 이기는 이유가 이 값이다.
+BLANK_DISTANCE = 85.0
+
+
 def _adaptive(
-    *distances: float, cfg: FrameExtractionConfig | None = None, count: int = 5
+    *distances: float,
+    cfg: FrameExtractionConfig | None = None,
+    count: int = 5,
+    blanks: frozenset[int] = frozenset(),
 ) -> tuple[int, ...]:
     """이웃한 자리 사이의 거리를 주고, 남은 자리 번호를 돌려받는다.
 
     `distances[i]` 는 자리 `i` 와 `i+1` 사이의 거리다. 떨어진 두 자리 사이는 그 사이
     구간들의 합으로 둔다 — 실제 영상에서 변화가 누적되는 모양이고, 표로 쓰기도 쉽다.
     프레임 번호를 자리 순번과 같게 둬서 "몇 번째 자리가 남았는가" 를 그대로 읽는다.
+
+    `blanks` 에 든 자리는 `select` 가 블랭크로 표시한 자리다. 그 자리가 끼는 쌍의 거리는
+    `distances` 와 무관하게 `BLANK_DISTANCE` 가 된다 — 실제 암전 프레임이 그렇다.
     """
     chosen = tuple(
-        ChosenFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, blank=False)
+        ChosenFrame(
+            frame_number=index,
+            timestamp_ms=index * 1000,
+            score=1.0,
+            blank=index in blanks,
+        )
         for index in range(count)
     )
     frames = {
-        index: ScoredFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, luma_std=40.0)
+        index: ScoredFrame(
+            frame_number=index,
+            timestamp_ms=index * 1000,
+            score=1.0,
+            luma_std=0.0 if index in blanks else 40.0,
+        )
         for index in range(count)
     }
     changes = {
-        (left, right): float(sum(distances[left:right]))
+        (left, right): (
+            BLANK_DISTANCE
+            if left in blanks or right in blanks
+            else float(sum(distances[left:right]))
+        )
         for left in range(count)
         for right in range(left + 1, count)
     }
@@ -371,14 +396,28 @@ def test_the_cap_wins_over_the_change() -> None:
     assert len(_adaptive(far, far, far, far, cfg=_cfg(max_keyframes_per_scene=3))) == 3
 
 
+def test_the_cap_keeps_the_whole_scene_not_just_the_front() -> None:
+    """상한이 자리 수보다 작을 때 장면 뒷부분이 통째로 사라지지 않는다.
+
+    시드가 가운데라 시각 순으로 자르면 앞쪽 자리가 먼저 상한을 채운다. 전 구간이 동적인
+    5 자리 장면에서 앞 세 자리만 남으면 뒤 40% 는 대표되지 않는다. 최원점으로 추리면
+    남는 장이 장면 전체에 퍼진다.
+
+    기본 설정은 `max == planned == 5` 라 지금은 걸리지 않지만, `max_keyframes_per_scene`
+    은 후속 단계 비용 실측 후 다시 볼 값이다(`docs/frame-extraction.md` §10).
+    """
+    far = load_config().change_threshold * 2
+    assert _adaptive(far, far, far, far, cfg=_cfg(max_keyframes_per_scene=3)) == (0, 2, 4)
+
+
 def test_the_lower_bound_is_filled_with_the_least_similar_frame() -> None:
     """하한을 채울 때 아무거나 되돌리지 않는다. 떨어진 것 중 가장 덜 닮은 것이 온다.
 
     아무거나 채우면 되돌린 장이 남긴 장과 거의 같은 화면일 수 있고, 그러면 하한을
     숫자로만 맞추고 실제로는 같은 그림을 두 번 저장한다.
 
-    임계(30.0)를 넘는 자리가 없으므로 시드(자리 2) 말고 넷이 다 떨어진다. 그중 시드에서
-    가장 먼 것은 누적 거리가 가장 큰 자리 0(1+20+4=25)이다.
+    임계(27.0)를 넘는 자리가 없으므로 시드(자리 2) 말고 넷이 다 떨어진다. 그중 시드에서
+    가장 먼 것은 자리 0 이다 — d(0,2) = 1+20 = 21 이고, 나머지는 20·4·5 다.
     """
     kept = _adaptive(1.0, 20.0, 4.0, 1.0)
     assert kept == (0, 2)
@@ -396,6 +435,38 @@ def test_an_unmeasured_pair_leaves_every_slot_in_place() -> None:
     }
     measurement = SceneMeasurement(frames=frames, changes={})
     assert len(prune_by_change(chosen, measurement, load_config())) == 5
+
+
+# ── 적응형과 블랭크: 거리만 보면 암전이 항상 이긴다 ──────────────────────
+
+
+def test_a_blank_slot_does_not_win_the_change_check() -> None:
+    """블랭크는 다른 어떤 화면과도 멀어서, 거리만 보면 규칙 2 를 항상 통과한다.
+
+    정적 장면의 자리 3 만 블랭크인 경우다. 거리만 보면 실제 화면 세 장을 버리고 검정
+    JPEG 을 두 번째 keyframe 으로 확정한다 — `select` 가 "이 자리엔 쓸 만한 게 없었다"
+    고 표시해 둔 장을 다음 단계가 오히려 선호하는 꼴이다.
+    """
+    kept = _adaptive(2.0, 2.0, 2.0, 2.0, blanks=frozenset({3}))
+
+    assert 3 not in kept
+    assert kept == (0, 2)
+
+
+def test_the_seed_moves_off_a_blank_slot() -> None:
+    """시드는 무조건 살아남는 자리다. 거기에 블랭크를 두면 검정 한 장이 확정된다."""
+    assert _adaptive(0.0, 0.0, 0.0, 0.0, blanks=frozenset({2})) == (0, 1)
+
+
+def test_a_blank_slot_comes_back_only_when_nothing_else_is_left() -> None:
+    """장면 전체가 암전이면 블랭크라도 하한을 채운다.
+
+    치명 단계이므로 keyframe 0 장으로 끝내는 것이 블랭크 한 장보다 나쁘다. 블랭크를
+    빼는 것은 **선호**이지 금지가 아니다.
+    """
+    kept = _adaptive(0.0, 0.0, 0.0, 0.0, blanks=frozenset(range(5)))
+
+    assert len(kept) == load_config().min_keyframes_per_scene
 
 
 def test_change_is_looked_up_in_either_direction() -> None:
@@ -450,12 +521,17 @@ def test_a_static_scene_yields_fewer_keyframes_than_a_moving_one(
 
     두 장면의 **길이가 같다.** v1 은 길이로 장 수를 정했으므로 두 장면이 같은 장 수를
     받았다. v2 는 내용으로 정하므로 갈려야 한다.
+
+    뒤 장면의 블록이 전부 **비블랭크**인 것이 중요하다. `white`·`gray` 는 휘도 표준편차가
+    0 이라 `select` 가 블랭크로 표시하고, 블랭크는 장 수를 늘리는 근거가 되지 못한다.
+    그런 블록으로 채우면 "동적이라 많이 뽑혔다" 가 아니라 "암전이라 많이 뽑혔다" 를
+    확인하게 된다.
     """
     video = make_video(
         "static-vs-moving",
         [
             ("bars", BLOCK_FRAMES),
-            *[(kind, 4) for kind in ("white", "noise", "gray", "bars", "white")],
+            *[(kind, 4) for kind in ("noise", "bars", "split", "noise", "bars")],
         ],
     )
     result = extract_keyframes(
@@ -835,6 +911,50 @@ def test_unreached_candidates_are_not_reported_as_fewer_keyframes(tmp_path: Path
         extract_keyframes(
             tmp_path / "missing.mp4", _spans(1), tmp_path / "out", grabber=TruncatedGrabber()
         )
+
+
+def test_an_unreached_outer_candidate_does_not_fail_the_clip(tmp_path: Path) -> None:
+    """자리 안의 다른 후보로 채워지는 초과분은 실패가 아니다.
+
+    자리를 2 개에서 5 개로 늘리면서 마지막 자리가 창의 75% 에서 90% 로 옮겨 갔다.
+    컨테이너가 선언한 길이가 실제 디코드 가능 구간보다 긴 파일(TS, 잘린 꼬리, 추정
+    duration)에서 바깥쪽 후보가 미디어 밖으로 나가는 일이 그만큼 흔해진다. 막으려는 것은
+    자리가 사라져 장 수가 주는 일이므로, 자리가 남아 있으면 실패시키지 않는다.
+    """
+
+    class OuterCandidateMissingGrabber(FakeGrabber):
+        def measure(
+            self,
+            video_path: Path,
+            requests: Sequence[SceneRequest],
+            cfg: FrameExtractionConfig,
+        ) -> Mapping[int, SceneMeasurement]:
+            unreached = {
+                max(slot.frame_numbers)
+                for request in requests
+                for slot in request.slots
+                if len(slot.frame_numbers) > 1
+            }
+            return {
+                index: SceneMeasurement(
+                    frames={
+                        number: frame
+                        for number, frame in measurement.frames.items()
+                        if number not in unreached
+                    },
+                    changes={},
+                )
+                for index, measurement in super().measure(video_path, requests, cfg).items()
+            }
+
+    result = extract_keyframes(
+        tmp_path / "missing.mp4",
+        _spans(1),
+        tmp_path / "out",
+        grabber=OuterCandidateMissingGrabber(),
+    )
+
+    assert len(result.scenes[0].keyframes) >= load_config().min_keyframes_per_scene
 
 
 # ── 장 수 보증: 어떤 scene 길이도 기대치를 밑돌지 않는다 ──────────────────
