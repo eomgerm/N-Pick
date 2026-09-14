@@ -205,7 +205,7 @@ async def test_unimplemented_stage_is_skipped_not_failed(
     job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
 ) -> None:
     """FRD 표에는 있으나 구현이 없는 단계. 비치명 단계의 생략은 run 을 멈추지 않는다."""
-    fake_backend.enqueue_claim(make_job(stage="vlm_metadata"))
+    fake_backend.enqueue_claim(make_job(stage="asr"))
 
     await _runner(job_client, media_root).run_once()
 
