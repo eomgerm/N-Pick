@@ -16,6 +16,36 @@ registerHooks({
 const { ApiClientError } = await import('../../lib/api/error.ts');
 const { countSnapshotEntries, displayClipTitle, getClaimRecovery, getFilterFacts, uniqueTagNames } =
   await import('./review-inquiry-view.ts');
+const { getSnapshotFacts, evidenceLabel } = await import('./review-inquiry-view.ts');
+
+test('과거 근거와 적용 규칙의 내용을 보존하고 내부 필드는 노출하지 않는다', () => {
+  const snapshot = JSON.stringify({
+    score: 0.8,
+    evidence: [{ tag_name: '서울역', reason: '화면 문자 일치' }],
+    storage_key: '/srv/private',
+    resolverOutput: 'secret',
+  });
+  assert.deepEqual(getSnapshotFacts(snapshot), [
+    { label: '점수', value: '0.8' },
+    { label: '근거 1 · 태그명', value: '서울역' },
+    { label: '근거 1 · 이유', value: '화면 문자 일치' },
+  ]);
+  assert.deepEqual(
+    getSnapshotFacts('[{"rule_id":"9","status":"applied","reason":"장소 조건 일치"}]'),
+    [
+      { label: '1 · 규칙 ID', value: '9' },
+      { label: '1 · 처리 상태', value: 'applied' },
+      { label: '1 · 이유', value: '장소 조건 일치' },
+    ],
+  );
+  assert.equal(getSnapshotFacts('{"reason":"/srv/private"}'), null);
+  assert.equal(getSnapshotFacts('invalid'), null);
+  assert.equal(getSnapshotFacts('{"unknown":"secret"}'), null);
+  assert.deepEqual(getSnapshotFacts('[]'), []);
+  assert.equal(evidenceLabel('SCENE'), '장면');
+  assert.equal(evidenceLabel('verified'), '검증됨');
+  assert.equal(evidenceLabel(null), '기록 없음');
+});
 
 test('제목 없는 영상 fallback과 중복 없는 태그명만 화면 값으로 만든다', () => {
   assert.equal(displayClipTitle(null), '제목 없는 영상');

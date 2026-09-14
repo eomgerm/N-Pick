@@ -1,4 +1,4 @@
-"""scene detection 설정과 그 버전(FR-PRC-015).
+"""scene detection 설정과 그 버전(FRD §7 `docs/frd.md:415`).
 
 임계값을 코드에 두지 않는다. 값은 전부 `config/scene_detection.v*.toml` 에 있고,
 그 값들의 해시가 `version_id` 가 된다. 재처리 결과를 비교할 때 "어떤 설정으로

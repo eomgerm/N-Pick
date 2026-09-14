@@ -8,7 +8,6 @@ interface SearchResultStateProps {
   query: string;
   broadcastRange: DateRange;
   filmingRange: DateRange;
-  excludedCount: number;
   onReset: () => void;
   onRetry: () => void;
   onEditQuery: () => void;
@@ -19,7 +18,6 @@ export function SearchResultState({
   query,
   broadcastRange,
   filmingRange,
-  excludedCount,
   onReset,
   onRetry,
   onEditQuery,
@@ -76,12 +74,6 @@ export function SearchResultState({
               <dt>검색 해석</dt>
               <dd>{isFailed ? '확인하지 못함' : '정상 완료 · 예시 검색'}</dd>
             </div>
-            {!isFailed ? (
-              <div>
-                <dt>조건으로 제외</dt>
-                <dd>{excludedCount}개</dd>
-              </div>
-            ) : null}
           </dl>
           <div className={styles.stateActions}>
             <button

@@ -9,9 +9,13 @@
 """
 
 import asyncio
+import hashlib
 import logging
+import tempfile
 import time
 import uuid
+from collections.abc import Mapping
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,8 +24,11 @@ from typing import Final
 from npick_worker.jobs import registry
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.errors import (
+    ArtifactKeyRejectedError,
+    ArtifactUploadError,
     JobApiConflictError,
     JobApiError,
+    JobApiInvalidRequestError,
     JobApiUnauthorizedError,
     JobApiUnavailableError,
     LeaseLostError,
@@ -34,6 +41,7 @@ from npick_worker.jobs.errors import (
 )
 from npick_worker.jobs.media import MediaResolver, redact
 from npick_worker.jobs.models import (
+    ArtifactRef,
     ClaimRequest,
     HeartbeatRequest,
     JobAssignment,
@@ -52,6 +60,10 @@ from npick_worker.stages import STAGES_BY_NAME
 from npick_worker.versioning import service_version
 
 logger = logging.getLogger(__name__)
+
+#: 상류 산출물을 받아 두는 작업 디렉터리 하위 폴더. 단계가 쓰는 산출물과
+#: 섞이지 않게 나눈다 — `frame_extraction` 은 같은 work_dir 에 JPEG 을 쓴다.
+_UPSTREAM_INPUT_DIR: Final[str] = "inputs"
 
 #: 예상치 못한 오류 뒤에 쉬는 시간. 즉시 재발하는 오류에서 hot loop 가 되지 않게 한다.
 _UNEXPECTED_ERROR_BACKOFF_SECONDS: Final[float] = 5.0
@@ -190,6 +202,9 @@ class JobRunner:
             except JobApiUnauthorizedError:
                 logger.error("잡 API 인증이 거절됐다. 폴링을 멈춘다.")
                 return
+            except JobApiInvalidRequestError:
+                logger.exception("잡 API 요청 계약이 거절됐다. 워커 수정 전까지 폴링을 멈춘다.")
+                return
             except JobApiUnavailableError as exc:
                 # `_send` 소진 경로는 이미 백오프했으니 여기서 오래 자지 않는다.
                 # 다만 `_unwrap` 의 봉투 실패는 재시도도 수면도 없이 여기로 오므로
@@ -254,11 +269,12 @@ class JobRunner:
         """
         while True:
             control = _JobControl(abandoned=asyncio.Event())
+            self._client.bind_artifact_lease(job.pipeline_run_id, lease.lease_id)
             heartbeat = asyncio.create_task(
                 self._heartbeat_loop(job, lease, control), name=f"heartbeat:{job.pipeline_run_id}"
             )
             try:
-                result = await self._execute(job, lease)
+                result = await self._execute(job, lease, control)
 
                 if control.abandoned.is_set():
                     logger.warning(
@@ -287,6 +303,7 @@ class JobRunner:
                 )
                 return
             finally:
+                self._client.release_artifact_lease(job.pipeline_run_id)
                 heartbeat.cancel()
                 # `gather` 가 예외를 값으로 돌려주므로 finally 에서 되던지지 않는다.
                 # `suppress(CancelledError)` 로는 부족했다 — heartbeat 태스크가 다른
@@ -359,16 +376,30 @@ class JobRunner:
 
     # ── 단계 실행 ────────────────────────────────────────────────────
 
-    async def _execute(self, job: JobAssignment, lease: LeaseGrant) -> StageResult:
-        """단계를 돌리고 결과를 봉투로 만든다. 이 함수는 예외를 올리지 않는다.
+    async def _execute(
+        self, job: JobAssignment, lease: LeaseGrant, control: _JobControl
+    ) -> StageResult:
+        """단계를 돌리고 산출물을 올린 뒤 결과를 봉투로 만든다. 예외를 올리지 않는다.
 
         실패도 결과다. 예외로 빠져나가면 BE 는 lease 가 만료될 때까지 아무것도 모른다.
+
+        업로드가 여기 있는 이유는 계약 §4.2 다 — "연장하는 것은 heartbeat 뿐" 이고
+        artifacts 업로드는 lease 를 연장하지 않는다. 이 함수는 heartbeat 태스크가 도는
+        동안 호출되므로 업로드가 오래 걸려도 lease 가 살아 있다. 반납(`complete`) 뒤로
+        미루면 BE 가 이미 keyframe 행을 만든 뒤에 파일이 올라가고, 그 사이 조회는 없는
+        파일을 가리킨다.
         """
         started_at = datetime.now(UTC)
         started = time.monotonic()
 
         try:
-            outcome = await self._run_stage(job)
+            # 단계가 파일을 쓸 자리. 잡마다 새로 만들고 나갈 때 지운다 — 파드 디스크는
+            # 휘발성이지만 한 파드가 잡을 여러 개 처리하므로 남겨 두면 금방 찬다
+            # (media.py 의 입력 임시 디렉터리와 같은 이유).
+            with tempfile.TemporaryDirectory(prefix="npick-stage-") as work:
+                work_dir = Path(work)
+                outcome = await self._run_stage(job, work_dir)
+                uploaded = await self._upload(job, outcome, control, work_dir)
         except (LeaseLostError, JobApiUnauthorizedError):
             # 단계의 실패가 아니라 제어 흐름이다. 결과 봉투로 바꾸면 "이 단계가
             # 실패했다" 는 잘못된 기록이 정본에 남는다.
@@ -389,10 +420,101 @@ class JobRunner:
             versions=outcome.versions,
             metrics=outcome.metrics,
             output=outcome.output,
-            artifacts=outcome.artifacts,
+            artifacts=(*outcome.artifacts, *uploaded),
         )
 
-    async def _run_stage(self, job: JobAssignment) -> StageOutcome:
+    async def _upload(
+        self,
+        job: JobAssignment,
+        outcome: StageOutcome,
+        control: _JobControl,
+        work_dir: Path,
+    ) -> tuple[ArtifactRef, ...]:
+        """단계가 만든 파일을 올리고 그 참조를 돌려준다.
+
+        중단된 작업이면 올리지 않는다. 파일 자체는 attempt 가 접두에 들어 있어
+        (`runs/{runId}/{stage}/a{attempt}/`) 재배정된 워커의 것과 섞이지 않지만, 버릴
+        결과의 바이트를 굳이 네트워크로 보낼 이유가 없다.
+
+        **파일마다 다시 본다.** 중단은 첫 파일을 보내는 동안에도 온다 — heartbeat 는
+        별도 태스크이고 업로드마다 await 가 있으므로 그 사이에 알린다. 진입 전에 한 번만
+        보면 그 신호를 놓쳐 장면 수백 장을 끝까지 올리고, 결과는 어차피 버려지므로
+        그 전송은 전부 헛일이며 그동안 이 워커는 다음 잡을 잡지 못한다.
+        """
+        if not outcome.uploads:
+            return ()
+
+        refs: list[ArtifactRef] = []
+        # Validate the entire upload set before transmitting the first artifact.
+        for upload in outcome.uploads:
+            self._check_output_key(job, upload.ref.storage_key)
+            if not upload.local_path.resolve().is_relative_to(work_dir.resolve()):
+                raise ArtifactKeyRejectedError("upload source is outside stage work directory")
+            body = upload.local_path.read_bytes()
+            if (
+                len(body) != upload.ref.byte_size
+                or hashlib.sha256(body).hexdigest() != upload.ref.content_hash
+            ):
+                raise ArtifactKeyRejectedError("artifact size or hash differs from reported output")
+        for upload in outcome.uploads:
+            if control.abandoned.is_set():
+                logger.warning(
+                    "중단된 작업의 산출물 %d개를 올리지 않는다 (%s): %s/%s",
+                    len(outcome.uploads) - len(refs),
+                    control.reason,
+                    job.pipeline_run_id,
+                    job.stage,
+                )
+                return ()
+            self._check_output_key(job, upload.ref.storage_key)
+            try:
+                body = upload.local_path.read_bytes()
+            except OSError as exc:
+                # 단계가 만들었다고 보고한 파일이 없다. 반쯤 올라간 산출물로 성공을
+                # 보고하면 BE 는 keyframe 이 원래 그만큼인 줄 안다.
+                msg = redact(
+                    f"올릴 산출물을 읽지 못했다: {upload.ref.storage_key} ({exc.strerror})",
+                    media_root=self._media_root,
+                    extra=work_dir,
+                )
+                raise ArtifactUploadError(msg) from exc
+            await self._client.upload_artifact(
+                job.pipeline_run_id,
+                upload.ref.storage_key,
+                body,
+                content_type=upload.content_type,
+                content_sha256=upload.ref.content_hash,
+            )
+            # 올린 파일은 여기서 지운다. **피크를 낮추지는 못한다** — 단계가 그 클립의
+            # keyframe 전부를 쓴 뒤에야 이 반복이 시작하므로 최대 사용량은 그대로다.
+            # 줄어드는 것은 점유 시간이고, 뒤쪽 파일을 올리는 동안 앞쪽이 디스크를 잡고
+            # 있지 않게 된다. 실패해도 attempt N+1 은 새 접두를 받으므로 부작용이 없다.
+            upload.local_path.unlink(missing_ok=True)
+            refs.append(upload.ref)
+        logger.info("산출물 %d개를 올렸다: %s/%s", len(refs), job.pipeline_run_id, job.stage)
+        return tuple(refs)
+
+    @staticmethod
+    def _check_output_key(job: JobAssignment, storage_key: str) -> None:
+        """키가 배정이 준 접두 안인지 본다.
+
+        BE 도 `JOB_403_001` 로 막지만(계약 §5), 그건 첫 파일을 이미 보낸 뒤다. 워커
+        버그를 네트워크 왕복 없이 여기서 잡는다. 접두 밖 키는 재시도가 고치지 못하는
+        **워커의 문제**이므로 권한 오류가 아니라 단계 실패로 신고한다.
+        """
+        from npick_worker.jobs.artifacts import validate_key
+
+        try:
+            validate_key(storage_key)
+        except ValueError as exc:
+            raise ArtifactKeyRejectedError("invalid artifact storageKey") from exc
+        if not storage_key.startswith(job.output_key_prefix.rstrip("/") + "/"):
+            msg = f"산출물 키가 배정이 준 접두 밖이다: {storage_key} (접두 {job.output_key_prefix})"
+            raise ArtifactKeyRejectedError(msg)
+
+    async def _run_stage(self, job: JobAssignment, work_dir: Path) -> StageOutcome:
+        from npick_worker.jobs.artifacts import resolve_transcripts
+
         if job.inputs.config:
             # 계약 §4.1 이 `"config": {}` 이므로 지금 오는 일이 없다. 실제로 쓰는
             # 단계가 생길 때까지는 조용히 무시하는 것보다 거절하는 편이 정직하다 —
@@ -410,12 +532,43 @@ class JobRunner:
             msg = f"이 워커에 구현이 없다: {job.stage}"
             raise StageUnavailableError(msg)
 
-        async with self._media.resolve(job.pipeline_run_id, job.inputs.media) as resolved:
+        async with AsyncExitStack() as stack:
+            # **쓰지 않을 영상을 받지 않는다.** `transport: "http"` 에서 `resolve` 는
+            # 원본 전체를 내려받는데, `ocr` 은 상류가 올린 keyframe 만 읽는다.
+            # shared-volume 이면 어차피 복사가 없지만 RunPod 는 http 다(계약 §5).
+            video_path: Path | None = None
+            if handler.needs_video:
+                resolved = await stack.enter_async_context(
+                    self._media.resolve(job.pipeline_run_id, job.inputs.media)
+                )
+                video_path = resolved.path
+
+            # 상류 산출물이 필요한 단계(`ocr`)는 여기서 받는다. `_execute` 가
+            # heartbeat 태스크가 도는 동안 이 함수를 부르므로, keyframe 수백 장을
+            # 받아도 lease 가 살아 있다 — 업로드를 여기 둔 것과 같은 이유다(계약 §4.2).
+            upstream_files: Mapping[str, Path] = {}
+            if handler.required_inputs is not None:
+                keys = handler.required_inputs(job.inputs.upstream)
+                if keys:
+                    upstream_files = await self._media.fetch_artifacts(
+                        job.pipeline_run_id,
+                        keys,
+                        work_dir / _UPSTREAM_INPUT_DIR,
+                        transport=job.inputs.media.transport,
+                    )
+
+            # Transcript documents are independent of video/keyframe requirements.
+            documents = await resolve_transcripts(job, self._media)
             context = StageContext(
                 stage=job.stage,
-                video_path=resolved.path,
+                video_path=video_path,
                 storage_key=job.inputs.media.storage_key,
+                work_dir=work_dir,
+                output_key_prefix=job.output_key_prefix,
+                upstream=job.inputs.upstream,
+                upstream_files=upstream_files,
                 params=job.inputs.config,
+                artifact_documents=documents,
             )
             # 단계는 블로킹 CPU 작업이다. 스레드로 넘겨야 heartbeat 가 계속 뛴다.
             return await asyncio.to_thread(handler.run, context)

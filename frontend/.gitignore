@@ -13,3 +13,8 @@
 npm-debug.log*
 .DS_Store
 *.tsbuildinfo
+
+# Playwright
+/test-results
+/playwright-report
+/blob-report
