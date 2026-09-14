@@ -15,8 +15,10 @@
 
 - A1 무음·잡음 — 발화를 넣지 않았으므로 정답이 "구간 0 개" 다. 여기서 나오는 문장은
   전부 환각이고, 그 판정에 사람의 귀가 필요 없다.
-- A2 감쇠 — 같은 조각의 음량만 낮췄으므로 정답 구간이 다섯 파일에서 모두 같다.
-  "몇 dB 부터 놓치는가" 가 곧 누락이다.
+- A2 감쇠 — 같은 조각의 음량만 낮췄으므로 정답 **시각**이 다섯 파일에서 모두 같고,
+  출력이 SNR 에 따라 언제부터 흔들리는지 볼 수 있다. **"몇 dB 부터 놓치는가" 는 여기서
+  답하지 못한다** — 사람이 어디까지 알아들을 수 있는지 확인하지 않았으므로, 모델이
+  아무것도 못 낸 것이 누락인지 정상인지 가릴 근거가 없다(`_spoken` 주석).
 - A3 경계 — 알려진 위치에 심었으므로 정답 시각이 구성으로 정해진다. VAD 가 무음을 잘라
   낸 좌표를 원본 타임라인으로 되돌리는지(`docs/asr.md` §4)를 이것으로 확인한다.
 
@@ -86,15 +88,27 @@ def _embed(chunk: np.ndarray, pad_ms: int) -> np.ndarray:
     return np.concatenate([pad, chunk, pad])
 
 
-def _spoken(start_ms: int, duration_ms: int, audibility: str) -> list[dict[str, object]]:
+def _spoken(start_ms: int, duration_ms: int) -> list[dict[str, object]]:
+    """구성으로 정해지는 것은 **시각뿐이다.** 나머지 둘은 미확인으로 적는다.
+
+    `audibility` 를 감쇠량에서 만들어 내지 않는다. README 가 그 값을 "사람이 알아들을
+    수 있는 발화" 로 정의하고 **누락률의 분모**로 쓰기 때문이다 — -26 dB 를 `faint`
+    라고 적는 순간, 아무도 들어 보지 않은 파일이 "사람은 알아들었는데 모델이 놓쳤다"
+    의 근거가 된다. 사람이 못 알아듣는 소리라면 README 상 그 구간은 분모에서 빠지고
+    그 출력은 환각으로도 세지 않으므로, 결론이 정반대로 뒤집힌다.
+
+    비워 두면 §5.4 가 감쇠 축을 누락률이 아니라 **출력 안정성**으로만 읽는다. 그것이
+    실제로 잰 것이다. 채우려면 다섯 파일을 사람이 들어 보면 된다.
+    """
     return [
         {
             "startMs": start_ms,
             "endMs": start_ms + duration_ms,
+            # 원문은 인식 결과를 옮겨 둔 것이고, 청취 가능성은 아무도 확인하지 않았다.
             "text": CHUNK_TEXT,
-            "audibility": audibility,
-            # 시각은 구성으로 정해진 정답이지만 원문은 사람이 확인하지 않았다.
             "textVerified": False,
+            "audibility": None,
+            "audibilityVerified": False,
         }
     ]
 
@@ -134,7 +148,7 @@ def main() -> int:
         "asr-A3-boundary",
         f"{SOURCE.name} 의 {CHUNK_START_MS}~{CHUNK_END_MS}ms 를 무음 {A3_PAD_MS}ms 뒤에 심었다. "
         "시각이 이만큼 어긋나면 VAD 타임스탬프 되돌림이 깨진 것이다.",
-        _spoken(A3_PAD_MS, duration_ms, "clear"),
+        _spoken(A3_PAD_MS, duration_ms),
     )
 
     a2_end = A2_PAD_MS + duration_ms
@@ -150,9 +164,7 @@ def main() -> int:
             name,
             f"A3 과 같은 조각을 {db:+d} dB 감쇠하고 {A2_NOISE_FLOOR_DBFS:.0f} dBFS 바닥 잡음을 "
             f"깔아 무음 {A2_PAD_MS}ms 뒤에 심었다 (SNR 약 {snr:.0f} dB).",
-            # 사람이 알아들을 수 있는 하한은 재봐야 안다. 감쇠 표본의 audibility 는
-            # 라벨이 아니라 물음이므로 비워 두지 않고 미확인으로 적는다.
-            _spoken(A2_PAD_MS, duration_ms, "clear" if db >= -20 else "faint"),
+            _spoken(A2_PAD_MS, duration_ms),
         )
         print(f"    {name}  SNR 약 {snr:.0f} dB")
 
