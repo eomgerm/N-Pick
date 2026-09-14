@@ -99,6 +99,15 @@ DB 를 쓰는 테스트는 [Testcontainers](https://testcontainers.com/) 가 com
 이미 적용된 migration 을 수정하거나 checksum 을 강제로 repair 하지 않는다. 스키마 변경은 후속
 migration 으로 관리한다. `vector`·`pg_search` 확장 설치에는 관리자 권한이 필요하다.
 
+`V20260910140000__tag_match_value_invisible_chars.sql` 을 적용한 로컬 DB에서 변경된 버전으로
+전환할 때는, 먼저 해당 migration 이 만든 제약과 적용 이력을 순서대로 제거한 뒤 재기동한다.
+운영 DB에는 이 버전이 적용된 적이 없으며, 아래 절차는 영향받은 로컬 DB에만 사용한다.
+
+```sql
+ALTER TABLE npick.tag DROP CONSTRAINT IF EXISTS ck_tag_match_value_invisible_chars;
+DELETE FROM npick.flyway_schema_history WHERE version = '20260910140000';
+```
+
 테스트 설정은 `src/test/resources/application-test.yml` 이며 `test` 프로파일로 활성화된다(`build.gradle`).
 같은 이름의 `application.yml` 을 테스트 클래스패스에 두면 main 의 설정을 통째로 가려 운영 설정이
 검증되지 않으므로, 프로파일 파일로 둔다.
