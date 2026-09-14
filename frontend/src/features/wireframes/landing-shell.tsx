@@ -39,14 +39,14 @@ export function LandingShell() {
     const measure = () => {
       // h1 상자는 가로를 꽉 채우므로, 실제로 보이는 가장 긴 줄을 기준으로 가운데를 잡는다.
       // offsetWidth는 정수로 반올림돼 끝이 1px 어긋나므로 소수점까지 있는 rect 폭을 쓴다.
-      const lines = [...title.children] as HTMLElement[];
+      const lines = [...title.querySelectorAll<HTMLElement>(`.${styles.heroLine}`)];
       const widths = lines.map((line) => line.getBoundingClientRect().width);
       const textWidth = Math.max(...widths, 0);
       // 인트로 동안에는 짧은 줄을 오른쪽으로 밀어 '?'와 '!'의 x를 맞춘다.
       lines.forEach((line, index) => {
         line.style.setProperty('--line-shift', `${textWidth - widths[index]}px`);
       });
-      const x = (hero.clientWidth - textWidth) / 2 - title.offsetLeft;
+      const x = (hero.clientWidth - textWidth) / 2 - title.offsetLeft - lines[0].offsetLeft;
       const y = (hero.clientHeight - title.offsetHeight) / 2 - title.offsetTop;
       hero.style.setProperty('--intro-x', `${x}px`);
       hero.style.setProperty('--intro-y', `${y}px`);
@@ -157,6 +157,16 @@ export function LandingShell() {
       <main className={styles.main}>
         <section aria-labelledby="landing-title" className={styles.hero} ref={heroRef}>
           <h1 className={styles.heroTitle} id="landing-title" ref={titleRef}>
+            <span aria-hidden="true" className={styles.heroIcon}>
+              <Image
+                alt=""
+                className={styles.heroIconImage}
+                width={1254}
+                height={1254}
+                sizes="(max-width: 740px) 24vw, 16vw"
+                src="/images/landing-app-icon.png"
+              />
+            </span>
             <span className={styles.heroLine}>
               <em className={styles.heroWord}>
                 N<span className={styles.heroTrim}>EED</span>
