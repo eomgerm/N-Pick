@@ -1735,7 +1735,7 @@
   color: var(--accent-strong);
 }
 
-.inquiryStatus[data-status='resolved'] {
+.inquiryStatus[data-status='closed'] {
   background: #e8f6ef;
   color: #227150;
 }

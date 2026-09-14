@@ -28,10 +28,19 @@ interface ResolutionSummaryProps {
   title?: string;
 }
 
-export function ResolutionSummary({
-  value,
+export function ResolutionSummary({ value, title }: ResolutionSummaryProps) {
+  return <ResolutionSummaryView facts={getResolutionSummary(value)} title={title} />;
+}
+
+interface ResolutionSummaryViewProps {
+  facts: ReturnType<typeof getResolutionSummary>;
+  title?: string;
+}
+
+export function ResolutionSummaryView({
+  facts,
   title = '검색어를 이렇게 이해했어요',
-}: ResolutionSummaryProps) {
+}: ResolutionSummaryViewProps) {
   return (
     <section className={styles.summary} aria-label={title}>
       <h3>
@@ -40,7 +49,7 @@ export function ResolutionSummary({
       </h3>
       <p>검색을 돕기 위한 해석입니다. 실제 영상 정보와 다를 수 있어요.</p>
       <dl>
-        {getResolutionSummary(value).map(({ label, value: text }) => (
+        {facts.map(({ label, value: text }) => (
           <div key={label}>
             <dt>{label}</dt>
             <dd>{text}</dd>
