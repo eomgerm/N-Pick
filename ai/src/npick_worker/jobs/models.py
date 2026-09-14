@@ -696,10 +696,21 @@ def _evidence(keyframes: Sequence["VlmKeyframeRef"]) -> list[EvidenceKeyframeOut
 
 
 class CandidateRange(WireResponse):
-    """자막·CC 가 덮지 못한 구간 하나. 상류 `transcript_selection` 이 준다(계약 §4.5)."""
+    """자막·CC 가 덮지 못한 구간 하나. 상류 `transcript_selection` 이 준다(계약 §4.5).
 
-    s: int = Field(ge=0)
-    e: int = Field(gt=0)
+    **제약을 걸지 않는다.** `asr` 은 이 값을 세기만 하고(`metrics.candidateRanges`)
+    어느 구간을 돌릴지 정하는 데 쓰지 않는다 — 영상 전체를 돌리고 채택은 하류가 한다.
+    쓰지도 않는 필드에 `ge`·`gt`·정수를 걸면, 아직 없는 `transcript_selection` 이
+    나중에 조금 다른 모양(`e` 가 float, 길이 0 구간)을 보낼 때 `VALIDATION_ERROR`
+    (영구)로 **ASR 단계 전체가 죽는다**. `AsrUpstream` 의 "판정이 오면 기록하고, 안
+    오면 영상 전체를 돈다" 와 반대 방향이다.
+
+    구간을 실제로 읽는 쪽이 생기면 그때 그 자리에서 검증한다. 검증은 값을 쓰는 곳의
+    일이지 지나가는 곳의 일이 아니다.
+    """
+
+    s: float | None = None
+    e: float | None = None
 
 
 class TranscriptSelectionUpstream(WireResponse):

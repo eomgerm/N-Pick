@@ -821,10 +821,9 @@ def _warm_asr() -> str:
 
     config = get_default_config()
     engine = shared_engine()
-    return (
-        f"config={config.version_id} engine={engine.name} {engine.version} "
-        f"model={engine.model_version}"
-    )
+    # **여기가 가중치를 올리는 유일한 자리다.** 생성자는 라이브러리·모델 설정만 보고
+    # 끝나므로(`faster_whisper_backend`), 이 호출을 빼면 로딩이 첫 잡으로 미뤄진다.
+    return f"config={config.version_id} {engine.warm_up()}"
 
 
 def _parse_upstream[T: BaseModel](model: type[T], payload: Mapping[str, Any]) -> T:
@@ -1086,15 +1085,23 @@ def _declared_version(stage: str) -> str:
         from npick_worker.asr import get_default_config as get_asr_config
 
         asr_config = get_asr_config()
-        # **엔진을 만들어 본다.** `ocr` 과 같은 이유다 — 라이브러리가 없거나 가중치를
-        # 준비하지 못한 워커는 여기서 걸려 `capability_versions` 가 이 단계를 목록에서
+        # **엔진을 만들어 본다.** `ocr` 과 같은 이유다 — 라이브러리가 없거나 모델을
+        # 고르지 않은 워커는 여기서 걸려 `capability_versions` 가 이 단계를 목록에서
         # 빼야 한다. 배정받지 못하는 편이 배정받아 매번 죽는 것보다 낫다. `gpu` 그룹을
-        # 설치하지 않은 개발 환경이 정확히 이 경로로 빠진다.
+        # 설치하지 않은 개발 환경이 정확히 이 경로로 빠진다. 생성자는 그 둘만 보므로
+        # 싸다 — 수 GB 가중치는 `warm_up()` 이 올린다.
         #
-        # **반드시 `shared_engine` 이어야 한다**(`_asr_engine` 이 그것을 부른다). 이
-        # 함수는 claim long-poll 한 바퀴마다, 그리고 실패마다 불린다. 매번 모델을 새로
-        # 올리면 수 GB 로딩을 그 주기로 내고 VRAM 이 두 벌 잡힌다.
+        # **가중치가 올라오기 전에는 선언하지 않는다**(`vlm_metadata` 와 같은 가드). 이
+        # 함수는 claim long-poll 한 바퀴마다, 그리고 실패마다 **동기로** 불린다. 여기서
+        # 로딩을 트리거하면 수 GB 내려받기가 이벤트 루프를 통째로 멈추고, 실패 기록
+        # 경로에서는 lease 를 든 채 heartbeat 가 못 뛰어 lease 만료 → 재배정이 된다.
+        # 워밍업이 한 번 실패한 워커가 폴링마다 내려받기를 재시도하는 자리도 여기다.
+        # 워밍업 실패 복구는 재워밍업 또는 워커 재시작으로 한다.
         asr_engine = _asr_engine()
+        from npick_worker.asr.faster_whisper_backend import FasterWhisperEngine
+
+        if isinstance(asr_engine, FasterWhisperEngine) and not asr_engine.is_loaded:
+            raise ModelUnavailableError("ASR 워밍업이 완료되지 않아 버전을 선언할 수 없다")
         return stage_version(
             stage,
             _asr_identity(

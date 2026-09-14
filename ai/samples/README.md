@@ -75,8 +75,11 @@ scene 분할용 표본과 **별개로 필요하다.** 여기서 보는 것은 �
 ```bash
 uv run --directory ai python samples/build_asr_samples.py   # A1~A3 과 라벨을 만든다
 uv run --directory ai python -m npick_worker.asr.report \
-    samples/KNI_02205.mp4 --out samples/out/KNI_02205-asr
+    samples/KNI_02205.mp4 --model large-v3-turbo --out samples/out/KNI_02205-asr
 ```
+
+`--model` 을 주지 않으면 `NPICK_AI_ASR_MODEL` 을 쓴다. 둘 다 없으면 실행되지 않는다 —
+코드에 기본 모델이 없다(FRD §11). 가중치 실행에는 `uv sync --group gpu` 가 필요하다.
 
 wav 로 만든다(아래 「파일 형식」의 mp4 규칙은 scene 분할 표본의 것이다). AAC 재인코딩이
 조용한 구간을 실제로 바꾸므로 A2 의 감쇠 축이 오염된다.

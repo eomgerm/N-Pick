@@ -1,12 +1,18 @@
 """표본 클립의 인식 결과를 눈으로 확인하고 실측 표를 만드는 도구.
 
+**모델을 반드시 고른다.** 코드에 기본 모델이 없으므로(FRD §11, 실측 후 확정) `--model` 을
+주거나 `NPICK_AI_ASR_MODEL` 을 설정해야 한다. 가중치 실행에는 `gpu` 그룹이 필요하다
+(`uv sync --group gpu`). 둘 중 하나가 빠지면 이 도구는 트레이스백 대신 그 사실을 찍고
+1 로 끝난다.
+
     uv run --directory ai python -m npick_worker.asr.report \
-        samples/KNI_02205.mp4 --out samples/out/KNI_02205-asr
+        samples/KNI_02205.mp4 --model large-v3-turbo --out samples/out/KNI_02205-asr
 
     # VAD on/off·임계값 비교. 동봉 설정을 고쳐 가며 재지 않는다 —
     # 어느 값으로 잰 표인지 나중에 알 수 없게 된다.
     uv run --directory ai python -m npick_worker.asr.report \
-        samples/silence.mp4 --config samples/asr.novad.toml --out samples/out/silence-novad
+        samples/silence.mp4 --model large-v3-turbo \
+        --config samples/asr.novad.toml --out samples/out/silence-novad
 
 `docs/asr.md` §5 의 표가 이 출력에서 나온다. **환각과 누락을 함께 본다** — 무음 표본에서
 나온 문장 수(있으면 환각)와 라벨 대비 놓친 발화(있으면 누락)는 서로 반대 방향으로
@@ -96,6 +102,11 @@ def _clock(ms: int) -> str:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("media", type=Path, help="표본 클립(mp4 등)")
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="가중치 식별자(예: large-v3-turbo). 주지 않으면 NPICK_AI_ASR_MODEL 을 쓴다",
+    )
     parser.add_argument("--config", type=Path, default=None, help="비교용 설정 toml")
     parser.add_argument("--out", type=Path, default=None, help="asr.json 을 쓸 디렉터리")
     return parser.parse_args()
@@ -109,11 +120,32 @@ def main() -> int:
 
     # 여기서만 backend 를 직접 부른다. 운영 경로에서 어댑터를 고르는 일은
     # `jobs/registry.py` 의 몫이고, 이 도구는 그 배선 없이 엔진만 쓴다.
-    from npick_worker.asr.faster_whisper_backend import shared_engine
+    from npick_worker.asr.engine import AsrModelUnavailableError
+    from npick_worker.asr.faster_whisper_backend import (
+        AsrRuntimeMissingError,
+        build_engine,
+        shared_engine,
+    )
+
+    try:
+        engine = build_engine(args.model) if args.model else shared_engine()
+    except (AsrModelUnavailableError, AsrRuntimeMissingError) as exc:
+        # 모델을 고르지 않았거나 라이브러리가 없는 것은 이 도구의 버그가 아니다.
+        # 트레이스백 대신 무엇을 해야 하는지 알려 준다 — 모델명은 실측 후 확정 대상이라
+        # 코드가 고르지 않는다(FRD §11). `vlm_metadata/report.py` 와 같은 처리다.
+        print(f"{exc}", file=sys.stderr)
+        print(
+            "  --model 로 후보를 주거나 NPICK_AI_ASR_MODEL 을 설정한다. "
+            "가중치 실행에는 gpu 그룹이 필요하다: uv sync --group gpu",
+            file=sys.stderr,
+        )
+        return 1
 
     config = load_config(args.config) if args.config is not None else get_default_config()
+    # **가중치 로딩까지 포함해 잰다.** 엔진은 첫 인식에서 가중치를 올리므로(생성은 싸다)
+    # 이 값이 곧 "이 후보를 한 번 돌리려면 얼마가 걸리는가" 다.
     started = time.monotonic()
-    result = transcribe_media(args.media, shared_engine(), config)
+    result = transcribe_media(args.media, engine, config)
     elapsed = time.monotonic() - started
 
     print(render_table(result))

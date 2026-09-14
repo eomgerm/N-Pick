@@ -117,9 +117,15 @@ def resolve_compute_type(settings: Settings) -> str:
 class FasterWhisperEngine:
     """`AsrEngine` 의 유일한 구현.
 
-    가중치는 **생성 시점에 올린다.** 첫 잡에서 내려받으면 그 시간이 통째로 그 잡의
-    처리 시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다(`ocr` 의
-    `_warm_ocr` 과 같은 판단). 그래서 `shared_engine()` 을 기동 때 부른다.
+    **생성은 싸고 로딩은 따로다.** 생성자는 라이브러리와 모델 설정만 확인하고, 수 GB
+    가중치는 `warm_up()`(기동) 또는 첫 `transcribe()` 에서 올린다. 둘을 합쳐 두면
+    `capability_versions()` 가 엔진을 만들어 보는 것만으로 가중치를 내려받게 되는데,
+    그 함수는 claim long-poll 한 바퀴마다·실패 기록마다 **동기로** 불리므로 로딩이
+    이벤트 루프를 통째로 멈춘다(`vlm_metadata` 가 같은 이유로 `is_loaded` 를 둔다).
+
+    첫 잡에서 내려받으면 그 시간이 통째로 그 잡의 처리 시간이 되고 내려받기 실패가 잡
+    하나를 죽이므로, 로딩 자체는 기동 때 `warm_up()` 으로 미리 한다(`ocr` 의 `_warm_ocr`
+    과 같은 판단).
     """
 
     def __init__(
@@ -128,8 +134,10 @@ class FasterWhisperEngine:
         # **라이브러리 확인이 먼저다.** 둘 다 없는 워커에서 모델 미설정(일시)을 먼저
         # 신고하면, 재시도로는 절대 고쳐지지 않는 상태를 재시도 가능으로 적게 된다.
         # 없는 것 중 더 근본적인 사실을 말한다 — 이 이미지에 구현이 없다(영구).
+        #
+        # 임포트만 한다. `WhisperModel` 을 여기서 만들지 않는 것이 이 생성자가 싼 이유다.
         try:
-            from faster_whisper import WhisperModel
+            import faster_whisper  # noqa: F401
         except ImportError as exc:
             msg = f"faster-whisper 가 설치되지 않았다 (uv sync --group gpu): {exc}"
             raise AsrRuntimeMissingError(msg) from exc
@@ -141,18 +149,9 @@ class FasterWhisperEngine:
             raise AsrModelUnavailableError(msg)
         self._model_name = model_name
         self._compute_type = compute_type
-        try:
-            self._model = WhisperModel(
-                model_name,
-                device=device,
-                compute_type=compute_type,
-                download_root=str(model_dir) if model_dir is not None else None,
-            )
-        except Exception as exc:
-            # 가중치를 못 받았거나 이 장치에서 못 여는 compute type 이다. 둘 다 이
-            # 클립의 문제가 아니므로 일시로 신고한다(계약 §9.2 `MODEL_UNAVAILABLE`).
-            msg = f"ASR 가중치를 준비하지 못했다 ({model_name}, {compute_type}): {exc}"
-            raise AsrModelUnavailableError(msg) from exc
+        self._device = device
+        self._model_dir = model_dir
+        self._model: Any | None = None
 
     @property
     def name(self) -> str:
@@ -164,14 +163,76 @@ class FasterWhisperEngine:
 
     @property
     def model_version(self) -> str:
-        """엔진·가중치·정밀도. 셋 다 있어야 같은 오디오의 결과를 재현할 수 있다."""
+        """엔진·가중치·정밀도. 셋 다 있어야 같은 오디오의 결과를 재현할 수 있다.
+
+        **로딩 여부와 무관하다.** 셋 다 설정에서 오므로 가중치를 올리기 전에도 같은
+        값이다(`VlmClient.model_version` 이 로딩 후 commit SHA 로 바뀌는 것과 다르다).
+        이 속성을 읽는 것만으로 로딩이 일어나지 않는다.
+        """
         return model_identifier(self._model_name, self._compute_type)
+
+    @property
+    def is_loaded(self) -> bool:
+        """가중치가 준비됐는가. **조회 시 로딩하지 않는다**(`TransformersVlmClient` 와 같다)."""
+        return self._model is not None
+
+    def warm_up(self) -> str:
+        """첫 잡 전에 가중치를 올린다. 실패는 기동 시점에 드러난다."""
+        self._ensure_loaded()
+        return f"engine={self.name} {self.version} model={self.model_version}"
+
+    def _ensure_loaded(self) -> Any:
+        """가중치를 올린다. 이미 올라와 있으면 그대로 돌려준다.
+
+        **폴링 경로에서 불리면 안 된다.** 수 GB 로딩이 동기로 돌아 이벤트 루프를 멈춘다 —
+        `jobs/registry._declared_version` 이 `is_loaded` 로 그것을 막는다.
+        """
+        if self._model is not None:
+            return self._model
+        from faster_whisper import WhisperModel
+
+        logger.info(
+            "ASR 가중치를 올린다: model=%s compute_type=%s device=%s",
+            self._model_name,
+            self._compute_type,
+            self._device,
+        )
+        try:
+            self._model = WhisperModel(
+                self._model_name,
+                device=self._device,
+                compute_type=self._compute_type,
+                download_root=str(self._model_dir) if self._model_dir is not None else None,
+            )
+        except MemoryError:
+            # **OOM 은 그대로 올려보낸다.** `transcribe()` 가 같은 예외를 같은 이유로
+            # 올려보내고 `jobs/errors.classify` 가 `OUT_OF_MEMORY`(일시)로 옮긴다. 여기서
+            # `MODEL_UNAVAILABLE` 로 싸면 VLM 이 먼저 VRAM 을 잡은 파드에서 같은 원인이
+            # 로딩 시점이냐 인식 시점이냐에 따라 다른 코드로 정본에 남는다.
+            raise
+        except RuntimeError as exc:
+            if _CUDA_OOM_MARKER in str(exc).lower():
+                raise  # 같은 이유. classify 가 문자열로 CUDA OOM 을 알아본다.
+            raise self._unavailable(exc) from exc
+        except Exception as exc:
+            # 가중치를 못 받았거나 이 장치에서 못 여는 compute type 이다. 둘 다 이
+            # 클립의 문제가 아니므로 일시로 신고한다(계약 §9.2 `MODEL_UNAVAILABLE`).
+            raise self._unavailable(exc) from exc
+        return self._model
+
+    def _unavailable(self, exc: Exception) -> AsrModelUnavailableError:
+        msg = f"ASR 가중치를 준비하지 못했다 ({self._model_name}, {self._compute_type}): {exc}"
+        return AsrModelUnavailableError(msg)
 
     def transcribe(self, media_path: Path, config: AsrConfig) -> Transcription:
         """디코드 → (VAD) → 인식. 실패의 종류를 갈라 던진다."""
+        # **try 밖이다.** 로딩 실패는 인식 실행의 실패가 아니라 가중치의 문제이고
+        # (`MODEL_UNAVAILABLE`·`OUT_OF_MEMORY`), 아래 `except Exception` 이 그것을
+        # `AsrCallError` 로 덮으면 그 구분이 사라진다.
+        model = self._ensure_loaded()
         audio = self._decode(media_path)
         try:
-            segments, info = self._model.transcribe(
+            segments, info = model.transcribe(
                 audio,
                 language=config.language,
                 task=config.task,
@@ -258,12 +319,12 @@ def _vad_parameters(config: AsrConfig) -> dict[str, Any]:
 
 
 def shared_engine() -> FasterWhisperEngine:
-    """프로세스에 하나만 두는 엔진.
+    """프로세스에 하나만 두는 엔진. **가중치를 올리지는 않는다**(`warm_up()` 이 한다).
 
-    **캐시가 요점이다.** 가중치는 수 GB 이고 VRAM 에 올라간다. 잡마다 새로 만들면
-    내려받기·로딩 비용을 매 잡이 내고 VRAM 이 두 벌 잡힌다(`ocr.shared_engine` 과 같은
-    이유이며 그쪽보다 비용이 크다). 캐시는 성공만 담으므로 "실패하면 capabilities 에서
-    빠진다" 는 성질은 그대로 산다.
+    **캐시가 요점이다.** 가중치는 수 GB 이고 VRAM 에 올라간다. 잡마다 새 인스턴스를
+    쓰면 내려받기·로딩 비용을 매 잡이 내고 VRAM 이 두 벌 잡힌다(`ocr.shared_engine` 과
+    같은 이유이며 그쪽보다 비용이 크다). 로딩 상태가 인스턴스에 붙어 있으므로 공유가
+    곧 "한 번만 올린다" 다.
     """
     settings = get_settings()
     return _cached_engine(
@@ -274,11 +335,30 @@ def shared_engine() -> FasterWhisperEngine:
     )
 
 
+def build_engine(model_name: str, *, settings: Settings | None = None) -> FasterWhisperEngine:
+    """설정 대신 인자로 모델을 골라 만든다. **후보 비교 도구(`report.py`) 전용이다.**
+
+    `shared_engine()` 을 쓰지 않는 이유는 그것이 `NPICK_AI_ASR_MODEL` 에 묶여 있기
+    때문이다 — 이 도구의 목적은 같은 입력으로 여러 모델을 돌리는 것이다. compute
+    type·장치·캐시 경로는 그대로 설정에서 가져온다. 직접 생성자를 부르면 그 셋을
+    빠뜨리게 되고, 그러면 실측 표의 처리 시간이 통째로 다른 조건의 것이 된다
+    (`vlm_metadata.build_client` 와 같은 판단). 공유 캐시에는 넣지 않는다.
+    """
+    config = settings if settings is not None else get_settings()
+    return FasterWhisperEngine(
+        model_name,
+        resolve_compute_type(config),
+        detect_device(config.device).resolved,
+        config.asr_model_dir,
+    )
+
+
 @lru_cache(maxsize=1)
 def _cached_engine(
     model_name: str, compute_type: str, device: str, model_dir: Path | None
 ) -> FasterWhisperEngine:
+    """`maxsize=1` 인 이유는 VRAM 이다. 설정이 바뀌면 옛 인스턴스를 버린다."""
     logger.info(
-        "ASR 엔진을 올린다: model=%s compute_type=%s device=%s", model_name, compute_type, device
+        "ASR 엔진을 만든다: model=%s compute_type=%s device=%s", model_name, compute_type, device
     )
     return FasterWhisperEngine(model_name, compute_type, device, model_dir)

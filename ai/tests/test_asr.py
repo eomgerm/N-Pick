@@ -24,6 +24,7 @@ from npick_worker.asr import (
 )
 from npick_worker.asr.faster_whisper_backend import (
     AsrRuntimeMissingError,
+    FasterWhisperEngine,
     model_identifier,
     speech_judgment,
 )
@@ -487,3 +488,141 @@ def test_model_version_names_the_engine_that_produced_it() -> None:
 def test_unknown_asr_failure_is_reported_as_asr_failed() -> None:
     """정체 모를 실패는 분류를 미룰 뿐 숨기지 않는다(계약 §9.2)."""
     assert classify(RuntimeError("?"), "asr") == ("ASR_FAILED", True)
+
+
+def test_unused_candidate_ranges_cannot_kill_the_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`asr` 은 이 값을 세기만 한다. 세기만 하는 값이 단계를 죽이면 안 된다.
+
+    `transcript_selection` 은 아직 없다. 그것이 붙을 때 모양이 조금 어긋나면 —
+    `e` 가 float 이거나 길이 0 구간이 섞이면 — 쓰지도 않는 필드 때문에
+    `UpstreamOutputInvalidError`(영구 `VALIDATION_ERROR`)로 ASR 전체가 죽는다.
+    구간을 실제로 읽는 쪽이 생기면 그때 그 자리에서 검증한다.
+    """
+    engine = FakeEngine((speech(1.0, 2.0),))
+    monkeypatch.setattr(registry, "_asr_engine", lambda: engine)
+    ctx = context(tmp_path)
+    ctx = StageContext(
+        stage=ctx.stage,
+        video_path=ctx.video_path,
+        storage_key=ctx.storage_key,
+        work_dir=ctx.work_dir,
+        output_key_prefix=ctx.output_key_prefix,
+        upstream={
+            "transcript": {
+                "asrRequired": True,
+                "candidateRanges": [
+                    {"s": 20000.5, "e": 25000.5},  # 정수가 아니다
+                    {"s": 0, "e": 0},  # 길이 0
+                ],
+            }
+        },
+    )
+
+    outcome = registry.HANDLERS["asr"].run(ctx)
+
+    assert outcome.metrics["candidateRanges"] == 2
+
+
+# ── 폴링 경로는 가중치를 올리지 않는다 ───────────────────────────────
+
+
+class _FakeWhisperModel:
+    """`WhisperModel` 자리. 만들어진 횟수를 세고 무엇을 던질지 테스트가 정한다."""
+
+    built = 0
+    error: Exception | None = None
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        type(self).built += 1
+        error = type(self).error
+        if error is not None:
+            raise error
+
+
+def _engine_with_fake_weights(monkeypatch: pytest.MonkeyPatch) -> FasterWhisperEngine:
+    import faster_whisper
+
+    _FakeWhisperModel.built = 0
+    _FakeWhisperModel.error = None
+    monkeypatch.setattr(faster_whisper, "WhisperModel", _FakeWhisperModel)
+    return FasterWhisperEngine("small", "int8", "cpu", None)
+
+
+def test_constructing_the_engine_does_not_load_the_weights(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """생성이 싸야 `capability_versions()` 가 폴링마다 수 GB 를 건드리지 않는다."""
+    engine = _engine_with_fake_weights(monkeypatch)
+
+    assert _FakeWhisperModel.built == 0
+    assert engine.is_loaded is False
+    # 버전 축 셋 다 설정에서 온다. 읽는 것만으로 로딩이 일어나면 안 된다.
+    assert engine.model_version == "faster-whisper/small@int8"
+    assert _FakeWhisperModel.built == 0
+
+
+def test_warm_up_loads_once_and_flips_is_loaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = _engine_with_fake_weights(monkeypatch)
+
+    engine.warm_up()
+    engine.warm_up()
+
+    assert _FakeWhisperModel.built == 1
+    assert engine.is_loaded is True
+
+
+def test_asr_is_not_declared_before_the_warm_up_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`capability_versions()` 는 claim long-poll 한 바퀴마다·실패마다 동기로 불린다.
+
+    가중치가 아직 없는 엔진을 선언에 쓰면 그 폴링이 내려받기를 트리거하고, 실패 기록
+    경로에서는 lease 를 든 채 heartbeat 가 못 뛴다. `vlm_metadata` 와 같은 가드다.
+    """
+    engine = _engine_with_fake_weights(monkeypatch)
+    monkeypatch.setattr(registry, "_asr_engine", lambda: engine)
+
+    assert "asr" not in registry.capability_versions()
+    assert _FakeWhisperModel.built == 0
+
+    engine.warm_up()
+
+    assert "asr" in registry.capability_versions()
+    # 선언을 두 번 더 해도 로딩은 한 번뿐이다.
+    registry.capability_versions()
+    assert _FakeWhisperModel.built == 1
+
+
+@pytest.mark.parametrize(
+    "raised",
+    [
+        MemoryError("cuda out of memory"),
+        RuntimeError("CUDA failed with error out of memory"),
+    ],
+)
+def test_oom_while_loading_is_not_disguised_as_model_unavailable(
+    monkeypatch: pytest.MonkeyPatch, raised: Exception
+) -> None:
+    """VLM 이 먼저 VRAM 을 잡은 파드에서 ASR 가중치를 올리다 나는 실패다.
+
+    같은 원인이 로딩 시점이냐 인식 시점이냐에 따라 다른 코드로 정본에 남으면 안 된다 —
+    `transcribe()` 는 이미 이 둘을 그대로 올려보내 `OUT_OF_MEMORY` 로 분류되게 해 뒀다.
+    """
+    engine = _engine_with_fake_weights(monkeypatch)
+    _FakeWhisperModel.error = raised
+
+    with pytest.raises(type(raised)) as caught:
+        engine.warm_up()
+
+    assert classify(caught.value, "asr") == ("OUT_OF_MEMORY", True)
+
+
+def test_other_load_failures_stay_model_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """캐시 볼륨 미마운트·내려받기 실패는 이 클립의 문제가 아니다(계약 §9.2, 일시)."""
+    engine = _engine_with_fake_weights(monkeypatch)
+    _FakeWhisperModel.error = OSError("HTTP 503")
+
+    with pytest.raises(AsrModelUnavailableError):
+        engine.warm_up()

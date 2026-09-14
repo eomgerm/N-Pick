@@ -314,9 +314,14 @@ A1 무음·잡음에서 생성된 구간 수는 `true` 와 `false` 가 **완전�
 ### 5.7 다시 재는 법
 
 ```bash
+uv sync --group gpu                                           # 가중치 실행에 필요하다
 uv run --directory ai python samples/build_asr_samples.py     # A1~A3 과 라벨
-uv run --directory ai python -m npick_worker.asr.report     samples/asr-A3-boundary.wav --out samples/out/A3
+uv run --directory ai python -m npick_worker.asr.report     samples/asr-A3-boundary.wav --model large-v3-turbo --out samples/out/A3
 ```
+
+**모델은 반드시 고른다.** 코드에 기본 모델이 없으므로(§11, 실측 후 확정) `--model` 을
+주거나 `NPICK_AI_ASR_MODEL` 을 설정해야 한다 — 둘 다 없으면 `report.py` 가 그 사실을
+찍고 1 로 끝난다. 위 표의 모델 비교는 `--model` 을 바꿔 가며 돌린 것이다.
 
 비교 축은 **설정 파일을 따로 두고** 돌린다(`report.py --config`). 동봉 설정을 고쳐 가며
 재면 어느 값으로 잰 표인지 나중에 알 수 없다.
