@@ -146,11 +146,9 @@ class RegistrationDeduplicationIntegrationTest {
                 .cleanDisabled(true)
                 .locations("classpath:db/migration")
                 .load();
-        // 건수를 못 박지 않는다. 이 테스트가 확인하는 것은 "baseline 위에 이후 마이그레이션이 얹힌다" 이지 그 개수가 아니다.
-        // 못 박으면 마이그레이션이 하나 늘 때마다 이 테스트가 무관하게 깨진다 — S15P21A501-169 와
-        // S15P21A501-69(pipeline_run_lease) 가 각각 한 번씩 깨뜨렸고, 후자는 1 을 2 로 올려 넘겼다.
-        // baseline 자체가 1건이라는 것은 위의 target 고정 단언이, 재실행 무변경은 아래 isZero 가 계속 지킨다.
-        assertThat(flyway.migrate().migrationsExecuted).isPositive();
+        // baseline 이후 마이그레이션 수. 늘 때마다 같이 올린다
+        // (registration_request, pipeline_run_lease, tag_match_value_invisible_chars, parse_rule_comments).
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(4);
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (var c = DriverManager.getConnection(url, user, password);
