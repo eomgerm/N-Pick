@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from npick_worker.device import detect_device
 from npick_worker.jobs.errors import (
+    AsrFailedError,
     ExternalProcessingRefusedError,
     ModelUnavailableError,
     StageUnavailableError,
@@ -717,8 +718,10 @@ def _run_asr(ctx: StageContext) -> StageOutcome:
         raise ModelUnavailableError(str(exc)) from exc
     except AsrCallError as exc:
         # 실행의 실패다. **빈 결과와 다른 사실이므로** 성공으로 반납하지 않는다 —
-        # 발화 미감지 정상 종료로 바꾸면 티켓이 금지한 일이 된다.
-        raise TransientStageError(str(exc)) from exc
+        # 발화 미감지 정상 종료로 바꾸면 티켓이 금지한 일이 된다. 계약이 이 자리에 준
+        # 코드는 `ASR_FAILED` 이고, 맨 `TransientStageError` 는 "분류를 미룬다" 는 뜻의
+        # `STAGE_FAILED` 로 적힌다 — 분류된 실패를 미분류로 적을 이유가 없다.
+        raise AsrFailedError(str(exc)) from exc
     # 오디오를 디코드할 수 없으면 `MediaUnreadableError` 가 그대로 올라간다.
     # `classify` 가 `UNSUPPORTED_MEDIA`(영구)로 옮긴다 — 같은 파일은 다시 열어도 같다.
 
@@ -752,9 +755,13 @@ def _run_asr(ctx: StageContext) -> StageOutcome:
             "rawSegments": result.raw_segment_count,
             "droppedBlank": result.dropped_blank,
             "droppedDegenerate": result.dropped_degenerate,
-            # 발화로 판정된 총 길이. 무음 표본에서 이 값이 크면 환각을 의심한다.
+            # 내보낸 구간의 총 길이. 무음 표본에서 이 값이 크면 환각을 의심한다.
             "speechMs": result.speech_ms,
             "vadEnabled": result.vad_enabled,
+            # VAD 가 발화로 남긴 오디오 길이. `null` 이면 VAD 를 끄고 돌아 판정이 없다.
+            # **이 값이 크고 `speechMs` 가 0 인 실행이 "무음" 이 아니다** — 말은 있었는데
+            # 임계에 걸려 문장이 안 나온 것이고, 그 구분이 여기 남아야 나중에 보인다.
+            "vadSpeechMs": result.vad_speech_ms,
             # 상류 판정. 없으면 `null` 이고, 그것도 사실이다 — 선택 단계 없이 돈 run 이다.
             "asrRequired": None if selection is None else selection.asr_required,
             "candidateRanges": len(candidates),

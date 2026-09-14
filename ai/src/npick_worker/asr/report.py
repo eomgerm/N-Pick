@@ -38,10 +38,15 @@ def render_table(result: AsrResult) -> str:
         f"{segment.no_speech_prob:>5.2f}  {segment.text}"
         for segment in result.segments
     ]
+    # VAD 가 남긴 길이를 함께 찍는다. 이 값이 크고 구간이 0 개인 실행이 무음이 아니라
+    # "말은 있었는데 전사가 비었다" 이고, 표에서 누락으로 세야 하는 자리다.
+    vad_speech = (
+        "판정없음" if result.vad_speech_ms is None else f"{result.vad_speech_ms / 1000:.1f}초"
+    )
     summary = (
         f"구간 {len(result.segments)}개 (엔진 {result.raw_segment_count}개, "
         f"버림 blank {result.dropped_blank}·degenerate {result.dropped_degenerate}) | "
-        f"발화 {result.speech_ms / 1000:.1f}초 | "
+        f"전사 {result.speech_ms / 1000:.1f}초 / VAD 발화 {vad_speech} | "
         f"VAD {'on' if result.vad_enabled else 'off'} | "
         f"발화미감지 {'예' if result.no_speech_detected else '아니오'} | "
         f"{result.config_version} | {result.engine} {result.engine_version} "
@@ -62,6 +67,7 @@ def to_json(result: AsrResult) -> dict[str, object]:
         "engineVersion": result.engine_version,
         "modelVersion": result.model_version,
         "vadEnabled": result.vad_enabled,
+        "vadSpeechMs": result.vad_speech_ms,
         "noSpeechDetected": result.no_speech_detected,
         "rawSegmentCount": result.raw_segment_count,
         "droppedBlank": result.dropped_blank,

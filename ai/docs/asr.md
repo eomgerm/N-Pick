@@ -88,6 +88,21 @@ faster-whisper 를 모른다(`ai/AGENTS.md` 의 어댑터 경계).
 VAD 는 작은 목소리를 놓칠 수 있다. **발화 미감지는 무음의 확정도 환각 제거의 증명도
 아니다.** 그래서 §5 의 지표가 환각과 누락을 함께 본다.
 
+### 발화 미감지의 근거는 여기서만 나온다
+
+VAD 가 남긴 오디오 길이(`duration_after_vad`)가 0 일 때만 "말이 없었다" 고 적는다.
+**전사가 비었다는 사실은 근거가 아니다** — 라이브러리가 임계(`no_speech_threshold`·
+`log_prob_threshold`)에 걸린 구간과 글자가 없는 구간을 스스로 버리므로, 말이 있어도
+목록은 빈다. VAD 가 3 초를 남겼는데 문장이 하나도 안 나온 실행을 무음으로 적으면 그
+3 초에 대한 거짓이 정본에 남는다.
+
+VAD 를 끄면(`enabled = false`) 판정 자체가 없다. 그때 `duration_after_vad` 는 클립
+전체 길이이므로 무음을 말할 근거가 되지 못하고, 이 단계는 **아무 사유도 붙이지
+않는다.** 실험 설정으로 돌린 실행은 `NO_SPEECH_DETECTED` 를 영영 내지 않는다는 뜻이다.
+
+두 값을 metrics 에 함께 남긴다 — `vadSpeechMs`(VAD 가 남긴 오디오)와 `speechMs`
+(내보낸 구간의 합). 앞이 크고 뒤가 0 인 실행이 §5 에서 누락으로 세야 하는 자리다.
+
 ## 5. 임계값은 실측으로 정한다 — 아직 재지 않았다
 
 ### 표본
@@ -137,15 +152,22 @@ GPU 가 필요하다. CPU `tiny` 로 잰 수는 선정 근거가 되지 못한�
 
 | 상황 | 어디서 갈리는가 | 계약 |
 | --- | --- | --- |
-| 발화 미감지 | 엔진이 구간을 0 개 냈다 | `succeeded` + `NO_SPEECH_DETECTED` |
-| 걸러서 비었다 | 엔진은 냈는데 계약을 못 지켜 버렸다 | `succeeded`, 사유 없음 |
+| 발화 미감지 | VAD 가 남긴 오디오가 0 이다 | `succeeded` + `NO_SPEECH_DETECTED` |
+| 전사가 비었다 | VAD 는 남겼는데 엔진이 임계로 다 버렸다 | `succeeded`, 사유 없음 |
+| 걸러서 비었다 | 엔진은 냈는데 계약을 못 지켜 우리가 버렸다 | `succeeded`, 사유 없음 |
+| 판정이 없다 | VAD 를 끄고 돌았다 | `succeeded`, 사유 없음 |
 | 실행 실패 | `AsrCallError` | `failed` + `ASR_FAILED`(일시) |
 | 구현 없음 | faster-whisper 미설치 | `skipped` + `NO_ADAPTER`(영구) |
 | 가중치 없음 | 모델 미설정·내려받기 실패 | `failed` + `MODEL_UNAVAILABLE`(일시) |
 
-**둘째 줄이 요점이다.** 빈 `segments` 만 보고 사유를 만들면 "무음이었다" 는 거짓이
-정본에 남는다. BE 도 같은 구분을 한다(`ProcessingRecordReader`: "빈 segments 만으로
-사유를 만들지 않는다").
+**가운데 세 줄이 요점이고, 셋 다 빈 `segments` 로 나간다.** 빈 목록만 보고 사유를
+만들면 "무음이었다" 는 거짓이 정본에 남는다. 그래서 판정은 목록의 길이가 아니라
+엔진에서 온다(`Transcription.speech_detected`, §4). BE 도 같은 구분을 한다
+(`ProcessingRecordReader`: "빈 segments 만으로 사유를 만들지 않는다").
+
+`ASR_FAILED` 는 **명시적으로 발신한다**(`AsrFailedError`). 맨 `TransientStageError` 는
+`STAGE_FAILED` 로 적히는데 그 값의 뜻은 "분류를 미룬다" 이고, 인식 실패는 미룰 것이
+없는 분류된 사실이다.
 
 VAD 오류나 실행 실패를 발화 미감지 정상 종료로 바꾸지 않는다. 그래서 `_run_asr` 은
 실패를 삼키지 않고 그대로 올린다 — 비치명 단계라 run 은 계속 간다(FRD F-03).
@@ -159,8 +181,14 @@ VAD 오류나 실행 실패를 발화 미감지 정상 종료로 바꾸지 않�
 stageVersion = hash(configVersion, engine, engineVersion, modelVersion)
 ```
 
-`modelVersion` 에 compute type 이 함께 들어간다(`large-v3-turbo@float16`) — `float16`
-과 `int8` 은 같은 모델의 다른 수치이고 결과가 달라진다.
+`modelVersion` 은 **엔진 이름으로 시작한다** — `faster-whisper/large-v3-turbo@float16`.
+이 문자열 하나가 봉투에 실려 정본에 남는데, 가중치 이름만으로는 무엇이 그것을 돌렸는지
+알 수 없다(같은 Whisper 가중치를 여러 런타임이 돌리고 결과가 다르다). `ocr` 도 같은
+모양이다(계약 §4.5 예시 `rapidocr/rapidocr3.9.2+onnxruntime1.29.0`). compute type 이
+함께 들어가는 이유는 `float16` 과 `int8` 이 같은 모델의 다른 수치이기 때문이다.
+
+`engine` 이 재현 튜플의 별도 축으로도 있는 것은 detail 을 사람이 읽기 위한 것이지
+`modelVersion` 을 대신하지 않는다.
 
 `tokenizer` 축이 **없다.** 이 단계는 색인 토큰을 만들지 않는다. 대사의 토큰화는 채택된
 구간을 다루는 하류의 일이고, 여기 넣으면 이 단계와 무관한 변경으로 `stageVersion` 이

@@ -17,16 +17,21 @@ from npick_worker.asr import (
     AsrModelUnavailableError,
     AsrResult,
     SpeechSegment,
+    Transcription,
     get_default_config,
     load_config,
     transcribe_media,
 )
-from npick_worker.asr.faster_whisper_backend import AsrRuntimeMissingError
+from npick_worker.asr.faster_whisper_backend import (
+    AsrRuntimeMissingError,
+    model_identifier,
+    speech_judgment,
+)
 from npick_worker.jobs import registry
 from npick_worker.jobs.errors import (
+    AsrFailedError,
     ModelUnavailableError,
     StageUnavailableError,
-    TransientStageError,
     classify,
 )
 from npick_worker.jobs.models import AsrOutput, AsrUpstream
@@ -38,13 +43,24 @@ CONFIG_FILE = Path(__file__).parent.parent / "src" / "npick_worker" / "config" /
 
 
 class FakeEngine:
-    """`AsrEngine` 자리를 대신한다. 무엇을 돌려줄지·무엇을 던질지 테스트가 정한다."""
+    """`AsrEngine` 자리를 대신한다. 무엇을 돌려줄지·무엇을 던질지 테스트가 정한다.
+
+    `speech_detected` 가 구간과 **따로** 있는 것이 요점이다. 진짜 엔진도 그 둘이 따로다 —
+    VAD 는 말을 찾았는데 임계에 걸려 문장이 하나도 안 나오는 실행이 있다. 기본값이 참인
+    이유는 대부분의 테스트가 구간을 돌려주는 엔진을 세우기 때문이다.
+    """
 
     def __init__(
-        self, segments: tuple[SpeechSegment, ...] = (), error: Exception | None = None
+        self,
+        segments: tuple[SpeechSegment, ...] = (),
+        error: Exception | None = None,
+        speech_detected: bool | None = True,
+        speech_audio_seconds: float | None = 12.0,
     ) -> None:
         self._segments = segments
         self._error = error
+        self._speech_detected = speech_detected
+        self._speech_audio_seconds = speech_audio_seconds
         self.calls = 0
 
     @property
@@ -57,13 +73,17 @@ class FakeEngine:
 
     @property
     def model_version(self) -> str:
-        return "fake-model@int8"
+        return "fake-asr/fake-model@int8"
 
-    def transcribe(self, media_path: Path, config: AsrConfig) -> tuple[SpeechSegment, ...]:
+    def transcribe(self, media_path: Path, config: AsrConfig) -> Transcription:
         self.calls += 1
         if self._error is not None:
             raise self._error
-        return self._segments
+        return Transcription(
+            segments=self._segments,
+            speech_detected=self._speech_detected,
+            speech_audio_seconds=self._speech_audio_seconds,
+        )
 
 
 def speech(
@@ -156,19 +176,44 @@ def test_positive_logprob_cannot_exceed_one() -> None:
     assert run(FakeEngine((speech(1.0, 2.0, logprob=0.5),))).segments[0].confidence == 1.0
 
 
-# ── 발화 미감지와 "걸러서 비었다" 는 다른 사실이다 ──────────────────
+# ── 빈 결과에는 여러 이유가 있다. 그중 하나만 발화 미감지다 ─────────
 
 
-def test_no_speech_is_reported_only_when_the_engine_found_nothing() -> None:
-    result = run(FakeEngine(()))
+def test_no_speech_is_reported_only_on_the_engine_judgment() -> None:
+    """VAD 가 남긴 오디오가 0 이었다 — 이때만 "말이 없었다" 가 사실이다."""
+    result = run(FakeEngine((), speech_detected=False, speech_audio_seconds=0.0))
 
     assert result.segments == ()
     assert result.no_speech_detected is True
-    assert result.raw_segment_count == 0
+    assert result.vad_speech_ms == 0
+
+
+def test_empty_transcription_after_vad_kept_audio_is_not_no_speech() -> None:
+    """**VAD 는 3 초를 남겼는데 전사가 비었다.**
+
+    엔진이 `no_speech_threshold`·`log_prob_threshold` 에 걸린 구간과 글자가 없는 구간을
+    스스로 버리므로 목록은 비어서 나온다. 그것을 무음으로 적으면 "이 3 초에 말이 없었다"
+    는 거짓이 정본에 남고, 나중에 되돌릴 근거도 사라진다.
+    """
+    result = run(FakeEngine((), speech_detected=True, speech_audio_seconds=3.0))
+
+    assert result.segments == ()
+    assert result.no_speech_detected is False
+    assert result.vad_speech_ms == 3000
+    assert AsrOutput.from_result(result).reason_code is None
+
+
+def test_without_a_judgment_nothing_is_claimed() -> None:
+    """VAD 를 끄고 돌면 무음을 말할 근거가 없다. 모르는 것을 적지 않는다."""
+    result = run(FakeEngine((), speech_detected=None, speech_audio_seconds=None))
+
+    assert result.no_speech_detected is False
+    # 0 으로 바꾸면 "발화 0 초" 라는 없던 판정이 생긴다.
+    assert result.vad_speech_ms is None
 
 
 def test_everything_filtered_is_not_no_speech() -> None:
-    """엔진은 말을 찾았는데 계약을 못 지켜 버린 것이다. 발화 미감지로 적으면 정본이 거짓이 된다."""
+    """엔진은 말을 찾았는데 계약을 못 지켜 우리가 버린 것이다. 발화 미감지가 아니다."""
     result = run(FakeEngine((speech(1.0, 2.0, text=" "),)))
 
     assert result.segments == ()
@@ -176,8 +221,46 @@ def test_everything_filtered_is_not_no_speech() -> None:
     assert result.raw_segment_count == 1
 
 
+def test_no_speech_never_rides_along_with_segments() -> None:
+    """구간을 실어 보내며 "발화가 없었다" 고 적으면 봉투 하나가 스스로 어긋난다."""
+    result = run(FakeEngine((speech(1.0, 2.0),), speech_detected=False))
+
+    assert result.segments != ()
+    assert result.no_speech_detected is False
+
+
+def test_vad_silence_is_the_only_no_speech_judgment() -> None:
+    """판정의 근거는 VAD 가 남긴 오디오 길이지 전사의 길이가 아니다."""
+    config = get_default_config()
+
+    assert speech_judgment(_Info(0.0), config) == (False, 0.0)
+    assert speech_judgment(_Info(3.0), config) == (True, 3.0)
+
+
+def test_vad_off_produces_no_judgment_at_all() -> None:
+    """VAD 를 끄면 `duration_after_vad` 는 클립 전체 길이다. 이걸로 무음을 말할 수 없다."""
+    config = get_default_config()
+    without_vad = config.model_copy(
+        update={"vad": config.vad.model_copy(update={"enabled": False})}
+    )
+
+    assert speech_judgment(_Info(120.0), without_vad) == (None, None)
+
+
+def test_missing_library_field_does_not_invent_a_judgment() -> None:
+    """라이브러리가 필드를 바꾸면 판정을 비운다. 조용히 무음으로 떨어지지 않는다."""
+    assert speech_judgment(object(), get_default_config()) == (None, None)
+
+
+class _Info:
+    """faster-whisper 의 `TranscriptionInfo` 중 판정에 쓰는 한 필드."""
+
+    def __init__(self, duration_after_vad: float) -> None:
+        self.duration_after_vad = duration_after_vad
+
+
 def test_reason_code_rides_only_on_a_real_no_speech_result() -> None:
-    empty = AsrOutput.from_result(run(FakeEngine(())))
+    empty = AsrOutput.from_result(run(FakeEngine((), speech_detected=False)))
     found = AsrOutput.from_result(run(FakeEngine((speech(1.0, 2.0),))))
 
     assert empty.reason_code == "NO_SPEECH_DETECTED"
@@ -266,11 +349,13 @@ def test_stage_reports_versions_and_metrics(
     assert outcome.output["segments"][0]["segmentId"] == "asr-0"
     assert outcome.versions.stage_version.startswith("npick.stage.asr/v1:")
     assert outcome.versions.output_schema_version == "npick.stage.asr.output/v1"
-    assert outcome.versions.model_version == "fake-model@int8"
+    # 엔진 이름이 이 값 안에 있어야 한다. 정본에 남는 것은 이 문자열 하나다.
+    assert outcome.versions.model_version == "fake-asr/fake-model@int8"
     # 프롬프트를 쓰지 않는 단계다. 키는 있고 값만 비어 있어야 한다(계약 §6).
     assert outcome.versions.prompt_version is None
     assert outcome.metrics["segments"] == 1
     assert outcome.metrics["vadEnabled"] is True
+    assert outcome.metrics["vadSpeechMs"] == 12000
     assert outcome.metrics["candidateRanges"] == 1
     assert outcome.metrics["asrRequired"] is True
     # 산출물을 올리지 않는다. 대사는 파일이 아니라 payload 다.
@@ -316,7 +401,11 @@ def test_empty_result_is_a_success_with_a_reason(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """발화 미감지는 정상 종료다. 실패로 바꾸지 않는다."""
-    monkeypatch.setattr(registry, "_asr_engine", lambda: FakeEngine(()))
+    monkeypatch.setattr(
+        registry,
+        "_asr_engine",
+        lambda: FakeEngine((), speech_detected=False, speech_audio_seconds=0.0),
+    )
 
     outcome = registry.HANDLERS["asr"].run(context(tmp_path))
 
@@ -348,24 +437,30 @@ def test_engine_failures_are_split_by_what_retrying_can_fix(
     # 이 테스트의 관심사이므로, 함수를 통째로 갈면 확인하려던 것이 사라진다.
     monkeypatch.setattr("npick_worker.asr.faster_whisper_backend.shared_engine", explode)
 
-    with pytest.raises(expected):
+    with pytest.raises(expected) as caught:
         registry.HANDLERS["asr"].run(context(tmp_path))
 
-    assert classify(expected("x"), "asr")[0] == code
+    # **던져진 그 예외를 분류한다.** 같은 클래스를 새로 만들어 넣으면 단계가 실제로 무엇을
+    # 던졌는지는 확인되지 않고, 그 자리에서 코드가 틀려도 테스트는 통과한다.
+    assert classify(caught.value, "asr")[0] == code
 
 
 def test_recognition_failure_is_transient_not_an_empty_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """실패를 빈 결과로 바꾸면 "무음이었다" 는 거짓이 정본에 남는다."""
+    """실패를 빈 결과로 바꾸면 "무음이었다" 는 거짓이 정본에 남는다.
+
+    코드는 `ASR_FAILED` 여야 한다. `STAGE_FAILED` 는 "분류를 미룬다" 는 뜻인데 이 실패는
+    미룰 것이 없고, 계약 §9.2 가 이 자리에 코드를 하나 주고 있다.
+    """
     monkeypatch.setattr(
         registry, "_asr_engine", lambda: FakeEngine(error=AsrCallError("cuda blew up"))
     )
 
-    with pytest.raises(TransientStageError):
+    with pytest.raises(AsrFailedError) as caught:
         registry.HANDLERS["asr"].run(context(tmp_path))
 
-    assert classify(TransientStageError("x"), "asr") == ("STAGE_FAILED", True)
+    assert classify(caught.value, "asr") == ("ASR_FAILED", True)
 
 
 def test_undecodable_audio_is_permanent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -378,6 +473,15 @@ def test_undecodable_audio_is_permanent(tmp_path: Path, monkeypatch: pytest.Monk
         registry.HANDLERS["asr"].run(context(tmp_path))
 
     assert classify(MediaUnreadableError("x"), "asr") == ("UNSUPPORTED_MEDIA", False)
+
+
+def test_model_version_names_the_engine_that_produced_it() -> None:
+    """`versions.modelVersion` 은 정본에 한 번 실리는 문자열이다.
+
+    `large-v3-turbo@float16` 만으로는 무엇이 그것을 돌렸는지 알 수 없다 — 같은 가중치를
+    여러 런타임이 돌리고 결과가 서로 다르다. `ocr` 도 같은 모양으로 적는다(계약 §4.5).
+    """
+    assert model_identifier("large-v3-turbo", "float16") == "faster-whisper/large-v3-turbo@float16"
 
 
 def test_unknown_asr_failure_is_reported_as_asr_failed() -> None:

@@ -7,6 +7,9 @@
   만들지 않고, 글자가 없는 구간은 버린다.
 - **발화 미감지와 실패를 가른다.** 구간이 0 개인 것은 정상 종료이고 예외가 아니다.
   둘을 섞으면 "무음이었나 실패했나" 를 나중에 구분할 수 없다(계약 §4.5).
+- **빈 결과를 무음의 근거로 쓰지 않는다.** 발화 미감지는 엔진의 판정
+  (`Transcription.speech_detected`)일 때만이다. 목록이 비었다는 사실에서 추론하면
+  "말은 있었는데 임계에 걸려 문장이 안 나온" 실행이 무음으로 기록된다.
 - **시간은 원본 영상 기준이다.** VAD 가 무음을 잘라 낸 좌표를 되돌리는 일은 backend
   가 하고, 여기서는 초를 정수 ms 로 옮기기만 한다.
 - **자막을 대신하지 않는다.** 이 단계의 산출물은 후보일 뿐이고 제공 자막 → CC → ASR
@@ -34,7 +37,8 @@ def transcribe_media(media_path: Path, engine: AsrEngine, config: AsrConfig) -> 
     구간별 실행기를 요구하지 않고(§4.5), 잘라 넣으면 문맥이 끊겨 경계에서 환각이 는다.
     무엇을 채택할지는 우선순위를 아는 하류가 정한다.
     """
-    raw = engine.transcribe(media_path, config)
+    transcription = engine.transcribe(media_path, config)
+    raw = transcription.segments
 
     segments: list[AsrSegment] = []
     dropped_blank = 0
@@ -70,13 +74,19 @@ def transcribe_media(media_path: Path, engine: AsrEngine, config: AsrConfig) -> 
         engine_version=engine.version,
         model_version=engine.model_version,
         config_version=config.version_id,
-        # **엔진이 낸 것이 0 개일 때만 참이다.** 걸러서 비게 된 것과 다른 사실이고,
-        # 계약의 `NO_SPEECH_DETECTED` 는 앞의 것만 가리킨다.
-        no_speech_detected=not raw,
+        # **엔진이 "발화가 없었다" 고 판정했을 때만 참이다.** 목록이 비었다는 사실에서
+        # 추론하지 않는다 — 엔진은 임계에 걸린 구간을 스스로 버리므로 말이 있어도 목록이
+        # 빌 수 있고(`Transcription`), 그것을 무음으로 적으면 정본이 거짓이 된다.
+        # 판정이 없으면(`None`, VAD off) 아무 말도 하지 않는다.
+        #
+        # `not segments` 를 함께 두는 것은 추론이 아니라 모순 방지다. 구간을 실어 보내면서
+        # "발화가 없었다" 고 적으면 봉투 하나가 스스로 어긋난다.
+        no_speech_detected=transcription.speech_detected is False and not segments,
         raw_segment_count=len(raw),
         dropped_blank=dropped_blank,
         dropped_degenerate=dropped_degenerate,
         vad_enabled=config.vad.enabled,
+        vad_speech_ms=_optional_ms(transcription.speech_audio_seconds),
     )
 
 
@@ -88,6 +98,11 @@ def _to_ms(seconds: float) -> int:
     사라진다.
     """
     return max(0, round(seconds * _MS_PER_SECOND))
+
+
+def _optional_ms(seconds: float | None) -> int | None:
+    """판정이 없으면 `None` 을 그대로 둔다. 0 으로 바꾸면 "발화 0 초" 라는 판정이 된다."""
+    return None if seconds is None else _to_ms(seconds)
 
 
 def _confidence(segment: SpeechSegment) -> float:

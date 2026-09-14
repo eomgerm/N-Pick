@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Any, Final
 
 from npick_worker.asr.config import AsrConfig
-from npick_worker.asr.engine import AsrCallError, AsrModelUnavailableError, SpeechSegment
+from npick_worker.asr.engine import (
+    AsrCallError,
+    AsrModelUnavailableError,
+    SpeechSegment,
+    Transcription,
+)
 from npick_worker.device import detect_device
 from npick_worker.media_errors import MediaUnreadableError
 from npick_worker.settings import Settings, get_settings
@@ -64,6 +69,42 @@ def _library_version() -> str:
         except PackageNotFoundError:  # 설치 경로에 따라 메타데이터가 없을 수 있다
             parts.append(f"{package}=unknown")
     return " ".join(parts)
+
+
+def model_identifier(model_name: str, compute_type: str) -> str:
+    """봉투의 `versions.modelVersion` 에 실리는 값.
+
+    **엔진 이름이 앞에 붙는다.** 이 필드는 결과마다 한 번 실려 정본에 남는데
+    `small@int8` 만으로는 무엇이 만든 값인지 알 수 없다 — 같은 Whisper 가중치를 원본
+    구현·CTranslate2 판·다른 런타임이 각각 돌리고 결과가 서로 다르다. `ocr` 이 같은
+    모양으로 적는다(계약 §4.5 예시 `rapidocr/rapidocr3.9.2+onnxruntime1.29.0`).
+
+    compute type 이 함께 들어가는 이유는 `float16` 과 `int8` 이 같은 모델의 다른 수치라
+    같은 오디오에서 다른 문장이 나오기 때문이다.
+    """
+    return f"{ENGINE_NAME}/{model_name}@{compute_type}"
+
+
+def speech_judgment(info: Any, config: AsrConfig) -> tuple[bool | None, float | None]:
+    """엔진의 발화 판정 `(있었는가, 발화 오디오 길이 초)`.
+
+    **빈 전사를 무음의 근거로 쓰지 않기 위해 있다.** 라이브러리는 임계에 걸린 구간과
+    글자가 없는 구간을 스스로 버리므로, 전사가 비었다는 것은 "말이 없었다" 가 아니라
+    "남은 문장이 없다" 다. 무음을 말할 수 있는 근거는 VAD 가 남긴 오디오 길이
+    (`duration_after_vad`)뿐이다 — 0 이면 판정할 발화 자체가 없었다는 뜻이다.
+
+    VAD 를 끄면 이 값은 클립 전체 길이라 판정이 아니다. 그때는 `None` 을 돌려준다.
+    **모르는 것을 무음으로 적지 않는다** — 그 거짓은 정본에 남고 나중에 되돌릴 수 없다.
+    """
+    if not config.vad.enabled:
+        return None, None
+    remaining = getattr(info, "duration_after_vad", None)
+    if remaining is None:
+        # 라이브러리가 이 필드를 없애거나 이름을 바꾸면 판정을 지어내지 않는다.
+        logger.warning("faster-whisper 가 duration_after_vad 를 주지 않았다: 발화 판정을 비운다")
+        return None, None
+    seconds = max(0.0, float(remaining))
+    return seconds > 0.0, seconds
 
 
 def resolve_compute_type(settings: Settings) -> str:
@@ -123,14 +164,14 @@ class FasterWhisperEngine:
 
     @property
     def model_version(self) -> str:
-        """가중치와 정밀도. 둘 다 있어야 같은 오디오의 결과를 재현할 수 있다."""
-        return f"{self._model_name}@{self._compute_type}"
+        """엔진·가중치·정밀도. 셋 다 있어야 같은 오디오의 결과를 재현할 수 있다."""
+        return model_identifier(self._model_name, self._compute_type)
 
-    def transcribe(self, media_path: Path, config: AsrConfig) -> tuple[SpeechSegment, ...]:
+    def transcribe(self, media_path: Path, config: AsrConfig) -> Transcription:
         """디코드 → (VAD) → 인식. 실패의 종류를 갈라 던진다."""
         audio = self._decode(media_path)
         try:
-            segments, _info = self._model.transcribe(
+            segments, info = self._model.transcribe(
                 audio,
                 language=config.language,
                 task=config.task,
@@ -149,7 +190,7 @@ class FasterWhisperEngine:
                 vad_parameters=_vad_parameters(config) if config.vad.enabled else None,
             )
             # generator 다. 여기서 소비해야 인식이 실제로 돌고, 예외도 여기서 난다.
-            return tuple(
+            recognized = tuple(
                 SpeechSegment(
                     start=float(segment.start),
                     end=float(segment.end),
@@ -158,6 +199,14 @@ class FasterWhisperEngine:
                     no_speech_prob=float(segment.no_speech_prob),
                 )
                 for segment in segments
+            )
+            # 판정은 소비가 끝난 뒤에 읽는다. 라이브러리가 VAD 를 `transcribe()` 안에서
+            # 먼저 돌려 `info` 를 채우지만, 그 순서에 기대지 않아도 되는 자리다.
+            detected, speech_seconds = speech_judgment(info, config)
+            return Transcription(
+                segments=recognized,
+                speech_detected=detected,
+                speech_audio_seconds=speech_seconds,
             )
         except MemoryError:
             # `jobs/errors.classify` 가 `OUT_OF_MEMORY`(일시)로 옮긴다. 여기서 삼키면

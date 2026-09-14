@@ -39,6 +39,28 @@ class SpeechSegment:
     no_speech_prob: float
 
 
+@dataclass(frozen=True, slots=True)
+class Transcription:
+    """엔진 한 번의 결과. 구간과 **발화가 있었는가에 대한 엔진의 판정**을 함께 담는다.
+
+    구간만 돌려주면 빈 결과의 뜻을 알 수 없다. 오디오에 말이 없었던 것과, 말은 있었는데
+    임계에 걸려 문장이 하나도 안 나온 것은 다른 사실인데 둘 다 빈 목록이다 — 구현체가
+    자기 임계(`no_speech_threshold`·`log_prob_threshold`)와 빈 문자열로 스스로 버리기
+    때문이다. 계약의 `NO_SPEECH_DETECTED` 는 앞의 것만 가리키므로(§4.5) 목록의 길이로
+    추측하지 않고 판정을 받아 온다.
+    """
+
+    segments: tuple[SpeechSegment, ...]
+
+    #: 이 오디오에 발화가 있었는가. **`None` 은 판정하지 않았다는 뜻이다** — 모르는 것을
+    #: 빈 목록으로 추측하지 않는다. 판정이 없으면 발화 미감지도 신고하지 않는다.
+    speech_detected: bool | None
+
+    #: 발화로 판정된 오디오 길이(초). 판정이 없으면 `None`.
+    #: 이 값이 크고 `segments` 가 비면 "말은 있었는데 전사가 비었다" 이고, 무음이 아니다.
+    speech_audio_seconds: float | None
+
+
 class AsrModelUnavailableError(RuntimeError):
     """가중치를 준비하지 못했거나 모델이 설정되지 않았다.
 
@@ -74,15 +96,21 @@ class AsrEngine(Protocol):
 
     @property
     def model_version(self) -> str:
-        """가중치의 식별자. 예: `large-v3-turbo@float16`
+        """가중치의 식별자. 예: `faster-whisper/large-v3-turbo@float16`
 
         런타임 버전만으로는 부족하다. 같은 라이브러리라도 모델 크기·compute type 이
         바뀌면 같은 오디오에서 다른 문장이 나온다(`VlmClient.model_version` 과 같은 이유).
+
+        **엔진 이름으로 시작한다.** 이 값 하나가 봉투의 `versions.modelVersion` 으로
+        정본에 남는데, `large-v3-turbo@float16` 만으로는 무엇이 그것을 돌렸는지 알 수
+        없다 — 같은 Whisper 가중치를 여러 런타임이 돌린다. `ocr` 도 같은 모양이고
+        (계약 §4.5 예시 `rapidocr/rapidocr3.9.2+onnxruntime1.29.0`), `engine` 축이
+        따로 있는 것은 detail 을 사람이 읽기 위한 것이지 이 값을 대신하지 않는다.
         """
         ...
 
-    def transcribe(self, media_path: Path, config: AsrConfig) -> tuple[SpeechSegment, ...]:
-        """발화 구간을 돌려준다. 발화가 없으면 빈 튜플이다.
+    def transcribe(self, media_path: Path, config: AsrConfig) -> Transcription:
+        """발화 구간과 판정을 돌려준다. 발화가 없으면 구간은 빈 튜플이다.
 
         **빈 튜플을 예외로 만들지 않는다.** 무음 영상에서 아무것도 나오지 않는 것은
         정상이고, 빈 구간을 채우려 문장을 만드는 것이 티켓이 금지한 일이다.

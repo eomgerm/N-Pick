@@ -61,8 +61,10 @@ compression_ratio_threshold = 2.4
 #
 # `enabled` 를 키로 둔 이유는 실험 때문이다 — VAD on/off 는 실측 비교 축이고
 # (docs/asr.md §5), 어느 쪽으로 돈 실행인지는 config_version 에 남는다.
-# **동봉 기본값은 true 를 유지한다.** 이 값을 false 로 배포하면 티켓의 "VAD·무음
-# 처리를 ASR 실행기 내부에 적용한다" 가 조용히 깨진다.
+# **동봉 기본값은 true 를 유지한다.** 이 값을 false 로 배포하면 두 가지가 깨진다.
+# 하나는 티켓의 "VAD·무음 처리를 ASR 실행기 내부에 적용한다" 이고, 다른 하나는 발화
+# 미감지 판정 자체다 — 무음을 말할 수 있는 근거가 VAD 가 남긴 오디오 길이뿐이라
+# (docs/asr.md §4) VAD 를 끄면 이 단계는 `NO_SPEECH_DETECTED` 를 영영 내지 않는다.
 enabled = true
 
 # 아래는 전부 실측 전 잠정값이다(Silero 기본값에서 출발).

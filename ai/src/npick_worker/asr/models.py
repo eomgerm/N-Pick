@@ -46,8 +46,9 @@ class AsrResult:
     model_version: str
     config_version: str
 
-    #: **엔진이 구간을 하나도 내지 않았다.** 빈 `segments` 와 같은 말이 아니다 —
-    #: 아래 `dropped_*` 로 전부 걸러져 비었을 수도 있다. 계약의
+    #: **엔진이 "이 오디오에 발화가 없다" 고 판정했다.** 빈 `segments` 와 같은 말이
+    #: 아니다 — 아래 `dropped_*` 로 전부 걸러졌을 수도 있고, 엔진이 자기 임계에 걸린
+    #: 구간을 스스로 버려 목록이 비었을 수도 있다. 그 둘은 무음이 아니다. 계약의
     #: `NO_SPEECH_DETECTED` 는 이 값이 참일 때만 쓴다(계약 §4.5: "실제 발화 미감지
     #: 판정에만"). BE 도 "빈 segments 만으로 사유를 만들지 않는다" 로 같은 구분을 한다.
     no_speech_detected: bool
@@ -62,7 +63,13 @@ class AsrResult:
     #: VAD 를 켜고 돌았는가. 실측 표를 나중에 해석하려면 있어야 한다.
     vad_enabled: bool
 
+    #: **VAD 가 발화로 남긴 오디오 길이.** `None` 이면 VAD 를 끄고 돌아 판정이 없다.
+    #: 아래 `speech_ms`(우리가 내보낸 구간의 합)와 다른 값이다 — 이것이 크고 저것이 0 이면
+    #: "말은 있었는데 전사가 비었다" 이고, 그건 무음도 실패도 아니다. 이 두 값을 함께
+    #: 봐야 §5 실측에서 누락과 환각을 가를 수 있다.
+    vad_speech_ms: int | None
+
     @property
     def speech_ms(self) -> int:
-        """발화로 판정된 총 길이. 무음 표본에서 이 값이 크면 환각을 의심한다."""
+        """내보낸 구간의 총 길이. 무음 표본에서 이 값이 크면 환각을 의심한다."""
         return sum(segment.duration_ms for segment in self.segments)

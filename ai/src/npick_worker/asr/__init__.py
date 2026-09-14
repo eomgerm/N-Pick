@@ -10,9 +10,10 @@
   VAD 구성은 없다 — faster-whisper 내장 Silero VAD 가 그 자리다.
 - **빈 결과가 정상이다.** 발화가 없으면 구간 0 개로 정상 종료한다. 빈 구간을 채우려
   문장을 만들지 않는다.
-- **발화 미감지와 실패를 가른다.** 계약의 `NO_SPEECH_DETECTED` 는 엔진이 구간을 하나도
-  내지 않았을 때만이고, 실패(`ASR_FAILED`)·미배정·구현 없음(`NO_ADAPTER`)과 다른
-  사실이다(계약 §4.5). VAD 오류나 실행 실패를 발화 미감지로 바꾸지 않는다.
+- **발화 미감지와 실패를 가른다.** 계약의 `NO_SPEECH_DETECTED` 는 엔진이 **발화가
+  없었다고 판정**했을 때만이고(`Transcription.speech_detected`), 실패(`ASR_FAILED`)·
+  미배정·구현 없음(`NO_ADAPTER`)과 다른 사실이다(계약 §4.5). 빈 목록에서 무음을
+  추론하지 않는다 — 엔진은 임계에 걸린 구간을 스스로 버리므로 말이 있어도 목록이 빈다.
 - **자막을 대신하지 않는다.** 산출물은 후보일 뿐이고 제공 자막 → CC → ASR 우선순위의
   적용은 하류가 한다. 시간은 언제나 원본 영상 기준이다.
 - **검증된 사실로 올리지 않는다.** ASR 근거는 기본 미검증이다. 신뢰도가 높다는 것과
@@ -36,6 +37,7 @@ from npick_worker.asr.engine import (
     AsrEngine,
     AsrModelUnavailableError,
     SpeechSegment,
+    Transcription,
 )
 from npick_worker.asr.models import CONFIDENCE_DECIMALS, AsrResult, AsrSegment
 from npick_worker.asr.recognizer import transcribe_media
@@ -51,6 +53,7 @@ __all__ = [
     "AsrSegment",
     "DecodeParams",
     "SpeechSegment",
+    "Transcription",
     "VadParams",
     "get_default_config",
     "load_config",
