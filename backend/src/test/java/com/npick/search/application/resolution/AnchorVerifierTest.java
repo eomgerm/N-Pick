@@ -36,6 +36,9 @@ class AnchorVerifierTest {
 
     private static final String RAW_QUERY = "2023년 태풍 힌남노 피해 현장";
 
+    /** 한 질의에 두 해가 나오는 원문. "2022년" 은 [0, 5), "2023년" 은 [10, 15) 다. */
+    private static final String TWO_YEAR_QUERY = "2022년 태풍이 2023년 뉴스에 나온 장면";
+
     private final AnchorVerifier verifier = new AnchorVerifier();
 
     @Test
@@ -558,6 +561,269 @@ class AnchorVerifierTest {
                                 0.5)))));
 
         assertThat(result.resolution().dateWindows().getFirst().field()).isEqualTo(DateField.BROADCAST_DATE);
+    }
+
+    @Test
+    @DisplayName("교정하면 같은 종류 창이 둘이 되는 경우 교정 대신 강등한다")
+    void demotesInsteadOfCreatingRivalBroadcastWindow() {
+        // 방송일로 고치면 서로 다른 구간의 방송일 조건이 둘 생긴다. 둘 다 명시 출처로 살아남으면
+        // guard 의 「명시한 날짜와 같은 종류의 검증된 날짜가 충돌 → 제외」 에 어느 장면이든 걸려 0 건이 된다 (F-06).
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2022, new QuerySpan(0, 5)),
+                                twoYearWindow(DateField.BROADCAST_DATE, 2023, new QuerySpan(10, 15))))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::start, DateWindow::origin, DateWindow::querySpan)
+                .containsExactly(
+                        // 종류는 그대로 두고 출처만 뗀다. 값은 관련성 점수에 여전히 쓰이고,
+                        // 빼앗는 것은 결과를 제외시킬 권한뿐이다.
+                        tuple(DateField.FILMED_DATE, LocalDate.of(2022, 1, 1), Origin.INFERRED, null),
+                        tuple(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(10, 15)));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("같은 구간의 방송일 창이 이미 있으면 그냥 교정한다")
+    void correctsWhenRivalWindowCoversTheSamePeriod() {
+        // 구간이 같으면 조건이 겹치는 것이지 충돌이 아니다. 강등할 이유가 없다.
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2023, new QuerySpan(10, 15)),
+                                twoYearWindow(DateField.BROADCAST_DATE, 2023, new QuerySpan(10, 15))))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::origin)
+                .containsExactly(
+                        tuple(DateField.BROADCAST_DATE, Origin.EXPLICIT_QUERY),
+                        tuple(DateField.BROADCAST_DATE, Origin.EXPLICIT_QUERY));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "date_field_corrected"));
+    }
+
+    @Test
+    @DisplayName("날짜 축에서도 리졸버의 explicit_filter 주장을 강등한다")
+    void demotesExplicitFilterOnDateWindow() {
+        // ExplicitFilterPolicy 가 「EXPLICIT_FILTER 를 만드는 유일한 통로」 라는 설계가 이 강등에 기댄다.
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_FILTER,
+                                new QuerySpan(0, 5),
+                                0.9)))));
+
+        DateWindow window = result.resolution().dateWindows().getFirst();
+        assertThat(window.origin()).isEqualTo(Origin.INFERRED);
+        assertThat(window.querySpan()).isNull();
+        assertThat(window.start()).isEqualTo(LocalDate.of(2023, 1, 1));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("함께 교정될 촬영일 창이 서로 구간이 다르면 둘 다 강등한다")
+    void demotesRivalFilmedWindowsThatWouldBothBecomeBroadcast() {
+        // 원본 종류로 rival 을 가리면 이 둘이 서로를 「아직 촬영일」 로만 보고 각각 교정돼,
+        // 막으려던 「구간이 다른 방송일 명시 조건 둘」 이 그대로 생긴다.
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2022, new QuerySpan(0, 5)),
+                                twoYearWindow(DateField.FILMED_DATE, 2023, new QuerySpan(10, 15))))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::start, DateWindow::origin)
+                .containsExactly(
+                        tuple(DateField.FILMED_DATE, LocalDate.of(2022, 1, 1), Origin.INFERRED),
+                        tuple(DateField.FILMED_DATE, LocalDate.of(2023, 1, 1), Origin.INFERRED));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(
+                        tuple("date_windows[0]", "demoted_to_inferred"),
+                        tuple("date_windows[1]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("추측 출처의 방송일 창은 다툴 상대가 아니므로 그냥 교정한다")
+    void correctsWhenRivalWindowIsOnlyInferred() {
+        // 추측 조건은 hard 제외 근거가 아니다 (F-06). 0 건을 유발하지 않는 창 때문에
+        // 정말 명시였을 수 있는 창의 제외 권한을 먼저 뺏을 이유가 없다.
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2022, new QuerySpan(0, 5)),
+                                inferredWindow(DateField.BROADCAST_DATE, 2023)))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::start, DateWindow::origin)
+                .containsExactly(
+                        tuple(DateField.BROADCAST_DATE, LocalDate.of(2022, 1, 1), Origin.EXPLICIT_QUERY),
+                        tuple(DateField.BROADCAST_DATE, LocalDate.of(2023, 1, 1), Origin.INFERRED));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "date_field_corrected"));
+    }
+
+    @Test
+    @DisplayName("교정 대상이 이미 추측이면 강등할 것이 없어 그냥 교정한다")
+    void correctsInferredWindowEvenWithRival() {
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                inferredWindow(DateField.FILMED_DATE, 2022),
+                                twoYearWindow(DateField.BROADCAST_DATE, 2023, new QuerySpan(10, 15))))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::start, DateWindow::origin)
+                .containsExactly(
+                        tuple(DateField.BROADCAST_DATE, LocalDate.of(2022, 1, 1), Origin.INFERRED),
+                        tuple(DateField.BROADCAST_DATE, LocalDate.of(2023, 1, 1), Origin.EXPLICIT_QUERY));
+    }
+
+    @Test
+    @DisplayName("함께 교정될 촬영일 창의 구간이 같으면 둘 다 교정한다")
+    void correctsRivalFilmedWindowsCoveringTheSamePeriod() {
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2023, new QuerySpan(10, 15)),
+                                twoYearWindow(DateField.FILMED_DATE, 2023, new QuerySpan(10, 15))))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::origin)
+                .containsExactly(
+                        tuple(DateField.BROADCAST_DATE, Origin.EXPLICIT_QUERY),
+                        tuple(DateField.BROADCAST_DATE, Origin.EXPLICIT_QUERY));
+    }
+
+    @Test
+    @DisplayName("explicit_filter 를 사칭한 창은 다툴 상대가 아니다 — 반드시 강등되기 때문")
+    void ignoresForgedExplicitFilterSiblingWhenJudgingRivals() {
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2022, new QuerySpan(0, 5)),
+                                new DateWindow(
+                                        DateField.BROADCAST_DATE,
+                                        LocalDate.of(2023, 1, 1),
+                                        LocalDate.of(2024, 1, 1),
+                                        Origin.EXPLICIT_FILTER,
+                                        new QuerySpan(10, 15),
+                                        0.9)))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::start, DateWindow::origin)
+                .containsExactly(
+                        // 사칭 창은 제외 권한을 못 가지므로 이 창의 권한을 뺏을 이유가 없다.
+                        tuple(DateField.BROADCAST_DATE, LocalDate.of(2022, 1, 1), Origin.EXPLICIT_QUERY),
+                        tuple(DateField.BROADCAST_DATE, LocalDate.of(2023, 1, 1), Origin.INFERRED));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(
+                        tuple("date_windows[0]", "date_field_corrected"),
+                        tuple("date_windows[1]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("뒤집혀 버려질 창은 다툴 상대가 아니다 — 결과에 남지 않기 때문")
+    void ignoresDroppedSiblingWhenJudgingRivals() {
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2022, new QuerySpan(0, 5)),
+                                new DateWindow(
+                                        DateField.BROADCAST_DATE,
+                                        LocalDate.of(2024, 1, 1),
+                                        LocalDate.of(2023, 1, 1),
+                                        Origin.EXPLICIT_QUERY,
+                                        new QuerySpan(10, 15),
+                                        0.9)))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::start, DateWindow::origin)
+                .containsExactly(tuple(DateField.BROADCAST_DATE, LocalDate.of(2022, 1, 1), Origin.EXPLICIT_QUERY));
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "date_field_corrected"), tuple("date_windows[1]", "dropped"));
+    }
+
+    @Test
+    @DisplayName("사칭 창의 강등 사유는 충돌이 아니라 만들 수 없는 출처다")
+    void recordsForgedOriginAsTheDemotionReason() {
+        // 사칭 창에까지 충돌 검사를 걸면 §7.2 기록의 사유가 「충돌」 로 덮여 진짜 원인이 사라진다.
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                new DateWindow(
+                                        DateField.FILMED_DATE,
+                                        LocalDate.of(2022, 1, 1),
+                                        LocalDate.of(2023, 1, 1),
+                                        Origin.EXPLICIT_FILTER,
+                                        new QuerySpan(0, 5),
+                                        0.9),
+                                twoYearWindow(DateField.BROADCAST_DATE, 2023, new QuerySpan(10, 15))))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings())
+                .filteredOn(finding -> finding.action().equals("demoted_to_inferred"))
+                .singleElement()
+                .extracting(AnchorFinding::reason)
+                .asString()
+                .contains("리졸버가 만들 수 없는 origin");
+    }
+
+    @Test
+    @DisplayName("촬영일 창 셋 중 일부만 구간이 겹쳐도 전부 강등한다")
+    void demotesAllRivalFilmedWindowsWhenSomeSharePeriod() {
+        QueryResolutionResult result = verifier.verify(
+                TWO_YEAR_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(
+                                twoYearWindow(DateField.FILMED_DATE, 2022, new QuerySpan(0, 5)),
+                                twoYearWindow(DateField.FILMED_DATE, 2023, new QuerySpan(10, 15)),
+                                twoYearWindow(DateField.FILMED_DATE, 2023, new QuerySpan(10, 15))))));
+
+        assertThat(result.resolution().dateWindows())
+                .extracting(DateWindow::field, DateWindow::origin)
+                .containsExactly(
+                        tuple(DateField.FILMED_DATE, Origin.INFERRED),
+                        tuple(DateField.FILMED_DATE, Origin.INFERRED),
+                        tuple(DateField.FILMED_DATE, Origin.INFERRED));
+    }
+
+    /** 리졸버가 추측으로 낸 한 해 구간. 원문을 짚지 않아 span 이 없다. */
+    private static DateWindow inferredWindow(DateField field, int year) {
+        return new DateWindow(
+                field, LocalDate.of(year, 1, 1), LocalDate.of(year + 1, 1, 1), Origin.INFERRED, null, 0.5);
+    }
+
+    /** {@link #TWO_YEAR_QUERY} 안의 한 해를 짚는 구간. */
+    private static DateWindow twoYearWindow(DateField field, int year, QuerySpan span) {
+        return new DateWindow(
+                field, LocalDate.of(year, 1, 1), LocalDate.of(year + 1, 1, 1), Origin.EXPLICIT_QUERY, span, 0.9);
     }
 
     /** {@link #RAW_QUERY} 의 "2023년" 을 근거로 삼는 한 해 구간. */

@@ -99,7 +99,7 @@ public final class AnchorVerifier {
         for (int i = 0; i < resolution.dateWindows().size(); i++) {
             DateWindow window = resolution.dateWindows().get(i);
             String path = "date_windows[" + i + "]";
-            if (!window.start().isBefore(window.endExclusive())) {
+            if (inverted(window)) {
                 // 뒤집힌 구간은 강등해도 쓸 수 없다. 남겨두면 무엇과도 맞지 않는 날짜 조건이 된다.
                 findings.add(new AnchorFinding(
                         path,
@@ -107,9 +107,12 @@ public final class AnchorVerifier {
                         "start 가 end_exclusive 이상이다: %s >= %s".formatted(window.start(), window.endExclusive())));
                 continue;
             }
-            Checked checked = checkDateSpan(window, rawQuery, path, findings);
+            CheckedField field = verifyDateField(i, window, resolution.dateWindows(), rawQuery, path, findings);
+            // 강등이 정해졌으면 span 검사를 건너뛴다. 결과가 같고, 사유가 둘 기록되면 §7.2 기록을 읽는
+            // 쪽이 강등이 두 번 일어난 것으로 센다.
+            Checked checked = field.demote() ? Checked.demoted() : checkDateSpan(window, rawQuery, path, findings);
             dateWindows.add(new DateWindow(
-                    verifyDateField(window.field(), rawQuery, path, findings),
+                    field.field(),
                     window.start(),
                     window.endExclusive(),
                     checked.origin(),
@@ -192,14 +195,93 @@ public final class AnchorVerifier {
      * {@code S15P21A501-56}).
      *
      * <p>출처를 가리지 않고 모든 날짜에 건다. 추측 날짜는 결과를 제외시키지 못하지만 관련성 점수에는 쓰이고, 종류가 틀리면 엉뚱한 칸과 비교된다.
+     *
+     * <h3>교정이 손해를 내는 경우가 있다</h3>
+     *
+     * 고치고 나면 다투게 될 창이 <b>다른 구간으로 이미 있으면</b> 교정하지 않고 강등한다. {@code "2022년 태풍이 2023년 뉴스에 나온 장면"} 에서 촬영일 2022 를 방송일로 고치면 서로
+     * 다른 구간의 방송일 조건이 둘 생기고, 둘 다 명시 출처로 살아남아 guard 가 어느 장면을 넣어도 하나와는 충돌한다 — 결과가 0 건이 된다. 교정 전이었다면 촬영일 2022 는 장면의 촬영일과
+     * 비교되고, 그 값이 없거나 미검증이면 「그 이유만으로 제외하지 않음」 으로 빠져나갔다. 즉 교정이 결과를 살리던 길을 닫는다.
+     *
+     * <p>강등을 고르는 이유는 이 클래스가 원래 하는 일이기 때문이다 — 값은 남기고 제외 권한만 뺏는다. 추측 조건은 hard 제외 근거가 아니므로(F-06) 충돌이 결과를 죽이지 않는다.
      */
-    private DateField verifyDateField(DateField claimed, String rawQuery, String path, List<AnchorFinding> findings) {
+    private CheckedField verifyDateField(
+            int index,
+            DateWindow window,
+            List<DateWindow> siblings,
+            String rawQuery,
+            String path,
+            List<AnchorFinding> findings) {
+        DateField claimed = window.field();
         if (claimed != DateField.FILMED_DATE || FILMING_MARKERS.stream().anyMatch(rawQuery::contains)) {
-            return claimed;
+            return new CheckedField(claimed, false);
+        }
+        // 제외 권한이 없는 창은 강등해도 잃을 것이 없다. 사칭 창까지 충돌 검사를 걸면 강등 사유가
+        // 「충돌」 로 덮여 §7.2 기록에서 진짜 원인(만들 수 없는 출처)이 사라진다.
+        if (window.origin() == Origin.EXPLICIT_QUERY && rivalWindowExists(index, window, siblings)) {
+            findings.add(new AnchorFinding(
+                    path,
+                    DEMOTED,
+                    "원문에 촬영 명시가 없는데 방송일로 고치면 다른 구간의 방송일 조건과 충돌한다: [%s, %s)"
+                            .formatted(window.start(), window.endExclusive())));
+            return new CheckedField(claimed, true);
         }
         findings.add(new AnchorFinding(path, DATE_FIELD_CORRECTED, "원문에 촬영 명시가 없어 방송일로 되돌렸다"));
-        return DateField.BROADCAST_DATE;
+        return new CheckedField(DateField.BROADCAST_DATE, false);
     }
+
+    /**
+     * 방송일로 고쳤을 때 다투게 될 창이 이미 있는가.
+     *
+     * <p>세는 기준은 하나다 — <b>결과에 남아 hard 제외 권한을 가질 창 중, 구간이 다른 것</b>. 셋 다 이유가 따로 있다.
+     *
+     * <ul>
+     *   <li><b>{@link Origin#EXPLICIT_QUERY} 만 센다.</b> 이 단계에서 제외 권한을 가질 수 있는 출처가 그것뿐이다. {@link Origin#INFERRED} 는 애초에
+     *       권한이 없고(F-06 「AI가 추정한 조건만 충돌 → 강제 제외 근거로 사용하지 않음」), {@link Origin#EXPLICIT_FILTER} 는 리졸버가 만들 수 없는 출처라
+     *       {@link #spanProblem} 이 반드시 강등시킨다. 권한이 없을 창 때문에 정말 명시였을 수 있는 창의 권한을 먼저 뺏을 이유가 없다.
+     *   <li><b>버려질 창은 세지 않는다.</b> {@link #inverted} 인 창은 {@link #verify} 가 결과에서 뺀다. 결과에 없는 창은 무엇과도 충돌하지 않는다.
+     *   <li><b>구간이 다른 것만 센다.</b> 구간이 같으면 조건이 겹치는 것이지 충돌이 아니다 — 같은 기간을 두 번 요구해도 통과하는 장면은 달라지지 않는다.
+     * </ul>
+     *
+     * <p><b>원본 종류는 보지 않는다.</b> 이 메서드에 오는 것은 원문에 촬영 어휘가 없는 질의이고, 그 질의의 촬영일 창은 하나같이 교정 대상이다. 종류로 걸러 방송일 창만 세면 함께 교정될 촬영일
+     * 창끼리 서로를 「아직 촬영일」 로만 보고 각자 교정돼, 막으려던 충돌이 그대로 생긴다.
+     *
+     * <p>자기 자신은 <b>인덱스</b>로 뺀다. 참조 비교로 빼면 같은 인스턴스가 두 자리에 들어온 목록에서 두 번째 자리도 자기 자신으로 오인된다.
+     *
+     * <p><b>알려진 한계.</b> {@link Origin#EXPLICIT_QUERY} 지만 자기 span 검사에서 강등될 창은 걸러내지 못한다 — {@code origin} 만으로는 알 수 없고
+     * {@link #checkDateSpan} 을 실제로 돌려봐야 갈린다. 그 경우 상대가 사라질 창인데도 이쪽을 강등하므로 <b>과하게</b> 강등된다. 0 건을 만드는 방향은 아니라 한 번의 순회로 끝내는
+     * 구조를 유지했다. 닫으려면 span 검사를 먼저 다 돌리고 충돌을 나중에 보는 2-pass 가 필요하다.
+     */
+    private boolean rivalWindowExists(int index, DateWindow window, List<DateWindow> siblings) {
+        for (int i = 0; i < siblings.size(); i++) {
+            if (i == index) {
+                continue;
+            }
+            DateWindow other = siblings.get(i);
+            if (other.origin() != Origin.EXPLICIT_QUERY || inverted(other)) {
+                continue;
+            }
+            if (!other.start().equals(window.start()) || !other.endExclusive().equals(window.endExclusive())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 뒤집힌 구간인가. 강등해도 쓸 수 없어 {@link #verify} 가 버린다.
+     *
+     * <p>{@link #rivalWindowExists} 가 같은 기준을 쓴다 — 두 곳이 갈리면 버려질 창이 상대로 남아 엉뚱한 강등을 만든다.
+     */
+    private boolean inverted(DateWindow window) {
+        return !window.start().isBefore(window.endExclusive());
+    }
+
+    /**
+     * 확정된 날짜 종류.
+     *
+     * @param demote 종류를 고치는 대신 출처를 내려놓아야 하는가
+     */
+    private record CheckedField(DateField field, boolean demote) {}
 
     /** 확정된 출처와 span. */
     private record Checked(Origin origin, QuerySpan span) {

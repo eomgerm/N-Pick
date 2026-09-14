@@ -1,6 +1,7 @@
 package com.npick.search.domain.policy;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -94,9 +95,11 @@ class ExplicitFilterPolicyTest {
                         DateField.BROADCAST_DATE, new ClosedRange(LocalDate.of(2023, 1, 1), LocalDate.of(2023, 12, 31)),
                         DateField.FILMED_DATE, new ClosedRange(LocalDate.of(2022, 8, 28), LocalDate.of(2022, 8, 29)))));
 
+        // 순서가 그대로 search_execution.parsed_query_json 에 남는다. 실행마다 달라지면 같은 검색의
+        // 기록이 매번 다른 모양이 된다 — NormalizedSearch 가 지문 때문에 정렬하는 것과 같은 이유다.
         assertThat(applied.dateWindows())
                 .extracting(DateWindow::field, DateWindow::start, DateWindow::endExclusive, DateWindow::origin)
-                .containsExactlyInAnyOrder(
+                .containsExactly(
                         tuple(
                                 DateField.BROADCAST_DATE,
                                 LocalDate.of(2023, 1, 1),
@@ -153,6 +156,37 @@ class ExplicitFilterPolicyTest {
         assertThat(resolution.dateWindows())
                 .extracting(DateWindow::start, DateWindow::origin)
                 .containsExactly(tuple(LocalDate.of(2025, 1, 1), Origin.INFERRED));
+    }
+
+    @Test
+    @DisplayName("필터에 널이 섞이면 거부한다")
+    void rejectsNullInFilters() {
+        Map<DateField, ClosedRange> withNullValue = new HashMap<>();
+        withNullValue.put(DateField.BROADCAST_DATE, null);
+
+        assertThatThrownBy(() -> new ExplicitDateFilters(withNullValue))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(SearchErrorCode.FILTER_CONTAINS_NULL);
+        assertThatThrownBy(() -> new ExplicitDateFilters(null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(SearchErrorCode.FILTER_CONTAINS_NULL);
+    }
+
+    @Test
+    @DisplayName("구간의 양끝에 널이 오면 거부한다")
+    void rejectsNullRangeBound() {
+        // 뒤집힌 구간은 SRCH_400_004 로 정성껏 처리하면서 널만 타입 없는 NPE 로 새어 나가면
+        // 요청 DTO 가 붙는 순간 400 이어야 할 입력이 500 이 된다.
+        assertThatThrownBy(() -> new ClosedRange(null, LocalDate.of(2026, 9, 1)))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(SearchErrorCode.FILTER_CONTAINS_NULL);
+        assertThatThrownBy(() -> new ClosedRange(LocalDate.of(2026, 9, 1), null))
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).errorCode())
+                .isEqualTo(SearchErrorCode.FILTER_CONTAINS_NULL);
     }
 
     private static ExplicitDateFilters broadcastFilter() {

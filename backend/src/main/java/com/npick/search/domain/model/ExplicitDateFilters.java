@@ -1,6 +1,8 @@
 package com.npick.search.domain.model;
 
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.Map;
 
 import com.npick.common.error.BusinessException;
@@ -19,8 +21,24 @@ import com.npick.search.domain.error.SearchErrorCode;
  */
 public record ExplicitDateFilters(Map<QueryResolution.DateField, ClosedRange> ranges) {
 
+    /**
+     * <b>{@link EnumMap} 이라 순회 순서가 enum 선언 순서로 고정된다.</b> {@code Map.copyOf} 는 JVM 마다 다른 SALT 로 순회 순서를 섞어, 같은 필터가 실행마다
+     * 다른 순서로 {@code search_execution.parsed_query_json} 에 남는다. {@link NormalizedSearch} 가 지문 때문에 {@code SortedMap} 을 쓰는
+     * 것과 같은 이유로 여기도 결정적이어야 한다.
+     */
     public ExplicitDateFilters {
-        ranges = Map.copyOf(ranges);
+        if (ranges == null) {
+            throw new BusinessException(SearchErrorCode.FILTER_CONTAINS_NULL);
+        }
+        // new EnumMap<>(map) 은 빈 맵을 받으면 키 타입을 알 수 없어 던진다. 키 타입을 직접 준다.
+        Map<QueryResolution.DateField, ClosedRange> copy = new EnumMap<>(QueryResolution.DateField.class);
+        ranges.forEach((field, range) -> {
+            if (field == null || range == null) {
+                throw new BusinessException(SearchErrorCode.FILTER_CONTAINS_NULL);
+            }
+            copy.put(field, range);
+        });
+        ranges = Collections.unmodifiableMap(copy);
     }
 
     public static ExplicitDateFilters none() {
@@ -36,6 +54,10 @@ public record ExplicitDateFilters(Map<QueryResolution.DateField, ClosedRange> ra
     public record ClosedRange(LocalDate from, LocalDate to) {
 
         public ClosedRange {
+            // 널을 먼저 본다. isAfter 에 맡기면 400 이어야 할 입력이 타입 없는 NPE 로 새어 나가 500 이 된다.
+            if (from == null || to == null) {
+                throw new BusinessException(SearchErrorCode.FILTER_CONTAINS_NULL);
+            }
             if (from.isAfter(to)) {
                 throw new BusinessException(SearchErrorCode.EXPLICIT_FILTER_RANGE_INVERTED);
             }
