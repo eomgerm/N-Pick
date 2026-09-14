@@ -12,6 +12,8 @@
 
 ## 현재 구조
 
+검색 결과의 0건 안내는 `wireframes/search-result-details.tsx`의 UI 입력 모델을 사용합니다. `WireframeShell`은 선택적인 `execution`·`resultDetails` 입력을 받아 빈 결과에서도 degraded 상태를 유지합니다. `SearchResultState`는 실제 해석 상태와 제외 정보를 표시합니다. 사용자 결정에 따라 1~9건에는 별도 부족 안내 없이 기존 결과 개수와 카드만 표시합니다. 기록이 없는 수치는 0으로 바꾸지 않습니다. 서버 DTO·사유 코드 변환은 167의 검색 adapter 연결 범위로 남아 있고, 현재 제품 경로는 기존 데모 데이터입니다.
+
 ```text
 src/
 ├─ app/                    Next.js route와 화면 조합

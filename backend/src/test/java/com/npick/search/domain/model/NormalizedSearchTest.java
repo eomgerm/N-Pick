@@ -223,6 +223,32 @@ class NormalizedSearchTest {
     }
 
     @Test
+    void 필터_값의_띄어쓰기가_달라도_같은_지문이다() {
+        // 필터 값은 태그 값이고, 태그 채널은 두 표기를 같은 tag.match_value 로 맞춘다.
+        // 지문만 갈리면 같은 장면을 찾아오면서 쌓인 장면 제외 규칙은 공유하지 못한다.
+        var spaced = search("이태원", Map.of("tag", List.of("이태원 참사")));
+        var joined = search("이태원", Map.of("tag", List.of("이태원참사")));
+
+        assertThat(spaced.fingerprint()).isEqualTo(joined.fingerprint());
+    }
+
+    @Test
+    void 필터_값의_폭_없는_문자는_지문을_가르지_않는다() {
+        // 붙여넣기로 섞여 들어오는 ZWSP. 유니코드 공백이 아니라 NFKC 도 \s 도 못 잡는다.
+        var pasted = search("이태원", Map.of("tag", List.of("이태원" + Character.toString(0x200B) + "참사")));
+        var clean = search("이태원", Map.of("tag", List.of("이태원참사")));
+
+        assertThat(pasted.fingerprint()).isEqualTo(clean.fingerprint());
+    }
+
+    @Test
+    void 필터_값의_대소문자는_여전히_지문을_가른다() {
+        // 태그 정규화와 같은 이유로 casefold 를 걸지 않는다 — 필터 값은 태그·enum 이다.
+        assertThat(search("방송", Map.of("tag", List.of("KBS"))).fingerprint())
+                .isNotEqualTo(search("방송", Map.of("tag", List.of("kbs"))).fingerprint());
+    }
+
+    @Test
     void 질의와_버전을_그대로_돌려준다() {
         // 생성자가 위치 기반이고 String 필드가 셋이다. 선언 순서를 바꾸면 지문은
         // 그대로인 채 normalized_query 컬럼에 버전 문자열이 들어간다.

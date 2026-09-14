@@ -56,12 +56,13 @@ registerHooks({
 
 const { WireframeShell } = await import('./wireframe-shell.tsx');
 
-function renderShell({ preview, state, ...params } = {}) {
+function renderShell({ preview, state, ...params } = {}, props = {}) {
   return renderToStaticMarkup(
     createElement(WireframeShell, {
       initialQuery: '명절 교통',
       initialParams: { ...params, ...(state ? { state } : {}), ...(preview ? { preview } : {}) },
       theme: 'shinhan',
+      ...props,
     }),
   );
 }
@@ -100,7 +101,7 @@ test('snapshot 실패 Preview는 통합 경로에서도 문의를 비활성화�
   assert.match(html, /<dialog aria-describedby="[^"]+"/);
 });
 
-test('빈 결과 demo는 degraded 상태와 섞어 표시하지 않는다', () => {
+test('정상 빈 결과는 임의 degraded 경고를 만들지 않는다', () => {
   const html = renderShell({ state: 'empty' });
 
   assert.ok(html.includes('관련 장면 0개'));
@@ -118,4 +119,78 @@ test('결과 URL의 방송일과 촬영일 범위를 각각 복원한다', () =>
 
   assert.match(html, /방송일 기간 선택: 2026\.09\.01 – 2026\.09\.03/);
   assert.match(html, /촬영일 기간 선택: 2026\.08\.28 – 2026\.08\.29/);
+});
+
+test('빈 결과도 실제 degraded 경고와 resolver 상태를 보존한다', () => {
+  for (const reason of ['resolver-fallback', 'dense-unavailable', 'snapshot-save-failed']) {
+    const html = renderShell(
+      { state: 'empty' },
+      {
+        execution: { status: 'degraded', degradedReasons: [reason], hasAppliedReviewRule: false },
+      },
+    );
+    assert.match(html, /관련 장면 0개/);
+    assert.match(html, /일부 기능 누락/);
+    assert.doesNotMatch(html, /정상 완료/);
+    assert.match(
+      html,
+      reason === 'resolver-fallback'
+        ? /해석을 사용할 수 없어 기본 단어 검색으로 전환/
+        : /해석 상태가 제공되지 않았어요/,
+    );
+  }
+});
+
+test('검색 실패에는 빈 결과의 제외 정보와 부족 안내를 표시하지 않는다', () => {
+  const html = renderShell(
+    { state: 'failed' },
+    {
+      resultDetails: { excludedCount: 7 },
+    },
+  );
+  assert.match(html, /검색을 완료하지 못했어요/);
+  assert.doesNotMatch(html, /제외된 결과|검색 결과 부족 안내|후보 부족/);
+});
+
+const { SearchResultState } = await import('./search-result-state.tsx');
+
+test('빈 결과의 적용 조건과 제외 수 0·미제공·유효하지 않은 값을 구분한다', () => {
+  for (const excludedCount of [0, 4, undefined, null, -1, 1.5, NaN]) {
+    const html = renderShell(
+      { state: 'empty', broadcastFrom: '2026-09-01', broadcastTo: '2026-09-11' },
+      {
+        resultDetails: {
+          excludedCount,
+          resolverStatus: 'succeeded',
+          exclusionReasons: ['명시 날짜 충돌'],
+        },
+      },
+    );
+    assert.match(html, /2026\.09\.01/);
+    assert.match(html, /2026\.09\.11/);
+    assert.match(html, /명시 날짜 충돌/);
+    assert.match(html, /정상 완료/);
+    if (excludedCount === 0 || excludedCount === 4) {
+      assert.ok(html.includes(`<dd>${excludedCount}건</dd>`));
+    } else {
+      assert.match(html, /제외 정보가 제공되지 않았어요/);
+    }
+  }
+});
+
+test('검색 중에는 이전 실행의 해석·제외 정보를 노출하지 않는다', () => {
+  const html = renderToStaticMarkup(
+    createElement(SearchResultState, {
+      state: 'loading',
+      query: '교통',
+      broadcastRange: { from: '', to: '' },
+      filmingRange: { from: '', to: '' },
+      details: { excludedCount: 4, resolverStatus: 'succeeded' },
+      onReset() {},
+      onRetry() {},
+      onEditQuery() {},
+    }),
+  );
+  assert.match(html, /aria-busy="true"/);
+  assert.doesNotMatch(html, /제외된 결과|정상 완료/);
 });
