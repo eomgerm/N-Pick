@@ -23,6 +23,25 @@ class TagConditionTest {
     }
 
     @Test
+    @DisplayName("정규화되지 않은 값을 받아도 조회가 성립한다 - 조회 경로가 정규화를 잊을 수 없다")
+    void exactNormalizesMatchValue() {
+        var condition = TagCondition.exact(TagType.EVENT, " 이태원 참사 ");
+
+        assertThat(condition.fromInclusive()).isEqualTo("이태원참사");
+        assertThat(condition.toInclusive()).isEqualTo("이태원참사");
+        assertThat(condition).isEqualTo(TagCondition.exact(TagType.EVENT, "이태원참사"));
+    }
+
+    @Test
+    @DisplayName("정규화 후 빈 문자열이 되는 값은 빈 값 경로를 탄다 - 순서가 정규화 다음 빈 값 검사다")
+    void exactRejectsValueEmptiedByNormalization() {
+        assertThatThrownBy(() -> TagCondition.exact(TagType.EVENT, "　 "))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        failure -> assertThat(failure.errorCode().code()).isEqualTo("TAG_500_002"));
+    }
+
+    @Test
     @DisplayName("날짜창의 반열린 끝을 하루 당겨 닫는다 - 변환은 이 한 곳에만 있다")
     void datesClosesHalfOpenEnd() {
         var condition = TagCondition.dates(
