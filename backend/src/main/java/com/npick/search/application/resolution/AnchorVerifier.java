@@ -38,8 +38,12 @@ import com.npick.search.application.port.QueryResolutionResult;
  * <h2>날짜는 왜 다르게 보나</h2>
  *
  * 값이 있는 anchor(인물·장소·사건명)는 원문에서 그 문자열을 찾으면 끝이다. 날짜는 대조할 원본이 없다 — 리졸버가 주는 {@code 2025-06-01~2025-09-01} 은 사용자가 친 문자열이
- * 아니라 해석해서 만든 값이고, 사용자는 {@code "작년 여름"} 이라고 썼다. 그래서 span 이 가리키는 원문 조각에서 <b>기간을 다시 계산해 구간이 그 안에 드는지</b> 본다
+ * 아니라 해석해서 만든 값이고, 사용자는 {@code "작년 여름"} 이라고 썼다. 그래서 span 이 가리키는 원문 조각에서 <b>기간을 다시 계산해 맞춰본다</b>
  * ({@link #denotedPeriod}). {@code "작년"} 이 몇 년인지는 {@link Clock} 으로 직접 세며, 리졸버가 푼 값을 가져다 쓰지 않는다 — 그래야 검산이 된다.
+ *
+ * <p>얼마나 엄하게 맞춰보는지는 <b>조각이 기간을 더 좁힐 여지를 남겼는가</b>로 갈린다. {@code "작년 여름"} 에는 {@code 여름} 이라는 좁히기 근거가 글자로 있으니 리졸버가 고른 6~9월을
+ * 받아들인다(포함). {@code "작년"} 에는 그런 근거가 없으니 작년 <b>전체</b>와 같아야 한다(일치) — 없는 근거로 좁힌 구간에 명시 출처를 주면, 사용자가 지정하지 않은 달의 결과가 guard
+ * 에서 제외된다.
  *
  * <h2>{@code findings} 의 {@code path} 규약</h2>
  *
@@ -72,14 +76,22 @@ public final class AnchorVerifier {
     private static final List<String> RELATIVE_PERIOD_WORDS =
             List.of("재작년", "지난해", "작년", "올해", "금년", "내년", "그저께", "그제", "어제", "오늘", "지난달", "이번달", "이달", "지난주", "이번주");
 
+    /**
+     * 기간을 더 좁히지만 그 경계를 여기서 셀 수 없는 말. 이 말이 조각에 있으면 리졸버가 좁힌 구간을 받아들인다.
+     *
+     * <p>목록에 없는 한정 표현은 "좁힐 근거 없음" 으로 읽혀 일치를 요구받고, 그러면 강등된다. 빠뜨려도 안전한 쪽으로 틀린다.
+     */
+    private static final List<String> PERIOD_QUALIFIER_WORDS =
+            List.of("봄", "여름", "가을", "겨울", "초순", "중순", "하순", "초", "말", "무렵", "즈음", "쯤", "상반기", "하반기", "분기", "연휴", "명절");
+
     private final Clock clock;
 
     /**
      * @param clock {@code "작년"} 같은 상대 표현을 풀 기준 시각. 리졸버가 푼 값을 베끼지 않고 여기서 <b>따로 계산해</b> 대조하기 위한 것이다.
-     *     <p><b>사용자가 있는 시간대(KST)여야 한다</b> — {@link Clock#systemDefaultZone()}. 검색하는 사람이 {@code "작년"} 이라고 쓸 때의 작년은 한국
-     *     기준이다. {@code systemUTC()} 를 넘기면 12월 31일 09시부터 자정까지 아홉 시간 동안 UTC 는 아직 전날이라 {@code "작년"} 이 한 해 밀리고, 사용자가 맞게 쓴
-     *     조건이 통째로 강등된다. 파이프라인 쪽({@code PipelineConfiguration})이 {@code systemUTC()} 를 쓰는 것과 목적이 다르다 — 그쪽은 실행 시각 기록이라
-     *     시간대가 없어야 맞다.
+     *     <p><b>사용자가 있는 시간대를 명시해 넘긴다</b> — {@code Clock.system(ZoneId.of("Asia/Seoul"))}. 검색하는 사람이 {@code "작년"} 이라고 쓸
+     *     때의 작년은 한국 기준이다. {@link Clock#systemDefaultZone()} 도 답이 아니다 — {@code backend/Dockerfile} 의 {@code ENTRYPOINT}
+     *     가 {@code -Duser.timezone=UTC} 라 <b>운영에서는 그것도 UTC 를 준다</b>. UTC 로 세면 KST 자정부터 오전 9시까지 하루가 밀려 사용자가 맞게 쓴 조건이
+     *     강등되거나 틀린 기간이 명시 조건으로 통과한다. 배선은 {@code AnchorVerificationConfiguration} 이 이미 해두었으니 그 빈을 주입받는다.
      */
     public AnchorVerifier(Clock clock) {
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -254,26 +266,17 @@ public final class AnchorVerifier {
         // 범위 검사를 통과했으니 옮기는 것이 안전하다.
         QuerySpan span = toJavaIndices(window.querySpan(), rawQuery);
         String claimedText = rawQuery.substring(span.start(), span.end());
-        Period denoted = denotedPeriod(claimedText);
+        Denoted denoted = denotedPeriod(claimedText);
         if (denoted == null) {
-            // "3명 구조 현장" 의 "3명" 처럼 기간을 읽어낼 수 없는 조각이다. 숫자가 있다는 것만으로는
-            // 근거가 되지 않는다 — 그 3 은 인원수다.
+            // "3명 구조 현장" 의 "3명", "2023명 구조" 의 "2023명" 처럼 기간을 읽어낼 수 없는 조각이다.
+            // 숫자가 있다는 것만으로는 근거가 되지 않는다 — 그것들은 인원수다.
             findings.add(new AnchorFinding(
                     path, DEMOTED, "기간을 읽어낼 수 없는 구간을 날짜의 explicit_query 근거로 주장했다: '%s'".formatted(claimedText)));
             return Checked.demoted();
         }
-        if (!denoted.contains(window.start(), window.endExclusive())) {
-            // "2024년 태풍" 의 "2024년" 을 근거로 2023년 구간을 주장하는 출력이 여기서 걸린다.
-            findings.add(new AnchorFinding(
-                    path,
-                    DEMOTED,
-                    "'%s' 가 가리키는 기간 [%s, %s) 밖의 구간을 explicit_query 로 주장했다: [%s, %s)"
-                            .formatted(
-                                    claimedText,
-                                    denoted.start(),
-                                    denoted.endExclusive(),
-                                    window.start(),
-                                    window.endExclusive())));
+        String mismatch = denoted.mismatch(claimedText, window.start(), window.endExclusive());
+        if (mismatch != null) {
+            findings.add(new AnchorFinding(path, DEMOTED, mismatch));
             return Checked.demoted();
         }
         return new Checked(origin, span);
@@ -282,36 +285,71 @@ public final class AnchorVerifier {
     /** 원문 조각이 가리키는 기간. {@code [start, endExclusive)} 반열린 구간이다. */
     private record Period(LocalDate start, LocalDate endExclusive) {
 
-        /** 이 기간이 저 구간을 품는가. */
+        boolean sameAs(LocalDate windowStart, LocalDate windowEndExclusive) {
+            return start.equals(windowStart) && endExclusive.equals(windowEndExclusive);
+        }
+
         boolean contains(LocalDate windowStart, LocalDate windowEndExclusive) {
             return !start.isAfter(windowStart) && !endExclusive.isBefore(windowEndExclusive);
         }
     }
 
     /**
-     * 이 원문 조각이 가리킬 수 있는 기간. 읽어낼 수 없으면 {@code null}.
+     * 원문 조각에서 읽어낸 기간과, <b>그 조각이 기간을 더 좁힐 여지를 남겼는지</b>.
      *
-     * <p><b>구간을 똑같이 재현하라고 요구하지 않고 품는지만 본다.</b> {@code "작년 여름"} 에서 {@code 여름} 이 6월부터인지 7월부터인지는 여기서 알 수 없다. 그 경계는 리졸버 판단에
-     * 맡기고, 연도를 벗어나는 것만 막는다 — 확인할 수 있는 만큼만 확인한다.
-     *
-     * <p>ponytail: 그래서 {@code "2023년"} 을 근거로 리졸버가 2023년 7월로 좁혀도 통과한다. 사용자가 실제로 말한 해 안에서만 좁혀지므로 감수한다. 좁히기까지 막으려면 리졸버가 날짜
-     * 구간의 근거가 된 원문 조각과 그 해석 단위를 함께 내려줘야 한다 ({@code S15P21A501-101}).
+     * <p>{@code narrowable} 이 이 검증의 핵심이다. {@code "2023년 여름"} 에는 {@code 여름} 이라는 좁히기 근거가 글자로 남아 있다 — 그 경계가 6월부터인지 7월부터인지만
+     * 여기서 셀 수 없을 뿐이다. 반면 {@code "2023년"} 에는 월로 좁힐 근거가 <b>아무것도 없다</b>. 앞은 리졸버 판단에 맡기고 뒤는 맡기지 않는다.
      */
-    private Period denotedPeriod(String text) {
-        Period numeric = numericPeriod(digitRuns(text));
+    private record Denoted(Period period, boolean narrowable) {
+
+        /**
+         * 구간이 이 조각과 맞지 않는 이유. 맞으면 {@code null}.
+         *
+         * <p>좁힐 근거가 없으면 <b>일치</b>를, 있으면 <b>포함</b>을 요구한다.
+         */
+        String mismatch(String text, LocalDate windowStart, LocalDate windowEndExclusive) {
+            if (narrowable) {
+                return period.contains(windowStart, windowEndExclusive)
+                        ? null
+                        : "'%s' 가 가리키는 기간 [%s, %s) 밖의 구간을 explicit_query 로 주장했다: [%s, %s)"
+                                .formatted(
+                                        text, period.start(), period.endExclusive(), windowStart, windowEndExclusive);
+            }
+            return period.sameAs(windowStart, windowEndExclusive)
+                    ? null
+                    : "'%s' 는 기간을 [%s, %s) 로만 짚는데 [%s, %s) 를 explicit_query 로 주장했다"
+                            .formatted(text, period.start(), period.endExclusive(), windowStart, windowEndExclusive);
+        }
+    }
+
+    /**
+     * 이 원문 조각이 가리키는 기간. 읽어낼 수 없으면 {@code null}.
+     *
+     * <p>조각에 {@link #PERIOD_QUALIFIER_WORDS} 가 섞여 있으면 좁힐 여지가 있는 것으로 본다. 그 목록에 없는 한정 표현은 좁힐 여지가 없는 것으로 읽혀 일치를 요구받고, 그러면
+     * 강등된다 — 목록이 비어 있어도 안전한 쪽으로 틀린다.
+     */
+    private Denoted denotedPeriod(String text) {
+        boolean narrowable = PERIOD_QUALIFIER_WORDS.stream().anyMatch(text::contains);
+
+        Period numeric = numericPeriod(text);
         if (numeric != null) {
-            return numeric;
+            return new Denoted(numeric, narrowable);
         }
         for (String word : RELATIVE_PERIOD_WORDS) {
             if (text.contains(word)) {
-                return relativePeriod(word);
+                return new Denoted(relativePeriod(word), narrowable);
             }
         }
         return null;
     }
 
-    /** {@code 2023} · {@code 2023년 7월} · {@code 2023-07-15} 처럼 숫자로 짚은 기간. */
-    private Period numericPeriod(List<String> runs) {
+    /**
+     * {@code 2023} · {@code 2023년 7월} · {@code 2023-07-15} 처럼 숫자로 짚은 기간.
+     *
+     * <p>숫자 뒤에 <b>단위나 구분자가 와야</b> 날짜로 읽는다. 자릿수만 보면 {@code "2023명 구조"} 의 인원수가 연도가 된다.
+     */
+    private Period numericPeriod(String text) {
+        List<String> runs = dateNumbers(text);
         // 첫 덩어리가 네 자리여야 연도로 읽는다. "3명" 의 3 을 연도나 월로 읽지 않기 위한 문턱이다.
         if (runs.isEmpty() || runs.getFirst().length() != 4 || runs.size() > 3) {
             return null;
@@ -371,23 +409,40 @@ public final class AnchorVerifier {
         return new Period(monday, monday.plusWeeks(1));
     }
 
-    /** 문자열에서 이어진 숫자 덩어리를 순서대로 뽑는다. {@code "2023년 7월"} → {@code ["2023", "7"]}. */
-    private List<String> digitRuns(String text) {
+    /**
+     * 날짜로 읽을 수 있는 숫자 덩어리를 순서대로 뽑는다. {@code "2023년 7월"} → {@code ["2023", "7"]}.
+     *
+     * <p>덩어리마다 <b>바로 뒤 글자</b>를 본다. 날짜 단위({@code 년}·{@code 월}·{@code 일})나 구분자({@code -}·{@code .}·{@code /}·공백)가 아니고 문자열
+     * 끝도 아니면 날짜가 아니다 — 하나라도 걸리면 전부 버린다. {@code "2023명"} 의 {@code 명} 이 여기서 걸린다.
+     */
+    private List<String> dateNumbers(String text) {
         List<String> runs = new ArrayList<>();
-        StringBuilder run = new StringBuilder();
-        for (int i = 0; i < text.length(); i++) {
-            char character = text.charAt(i);
-            if (Character.isDigit(character)) {
-                run.append(character);
-            } else if (!run.isEmpty()) {
-                runs.add(run.toString());
-                run.setLength(0);
+        int index = 0;
+        while (index < text.length()) {
+            if (!Character.isDigit(text.charAt(index))) {
+                index++;
+                continue;
             }
-        }
-        if (!run.isEmpty()) {
-            runs.add(run.toString());
+            int start = index;
+            while (index < text.length() && Character.isDigit(text.charAt(index))) {
+                index++;
+            }
+            if (index < text.length() && !isDateUnitOrSeparator(text.charAt(index))) {
+                return List.of();
+            }
+            runs.add(text.substring(start, index));
         }
         return runs;
+    }
+
+    private boolean isDateUnitOrSeparator(char character) {
+        return character == '년'
+                || character == '월'
+                || character == '일'
+                || character == '-'
+                || character == '.'
+                || character == '/'
+                || Character.isWhitespace(character);
     }
 
     /**

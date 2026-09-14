@@ -1,6 +1,7 @@
 package com.npick.search.infrastructure.config;
 
 import java.time.Clock;
+import java.time.ZoneId;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,8 +23,26 @@ import com.npick.search.application.resolution.AnchorVerifier;
 @Configuration(proxyBeanMethods = false)
 public class AnchorVerificationConfiguration {
 
+    /**
+     * 검색하는 사람이 있는 시간대. {@code backend/Dockerfile} 의 {@code ENTRYPOINT} 가 {@code -Duser.timezone=UTC} 라 <b>운영에서 JVM 기본
+     * 시간대는 UTC 다</b>.
+     *
+     * <p>그래서 {@link Clock#systemDefaultZone()} 은 쓸 수 없다. 그걸 쓰면 KST 자정부터 오전 9시까지 UTC 가 전날이라 {@code "오늘"}·{@code "어제"} 가
+     * 하루씩 밀리고, 월·연 경계에서는 {@code "지난달"}·{@code "작년"} 까지 어긋난다. 예를 들어 KST 2026-01-01 00:30 의 {@code "작년"} 은 2025년인데 UTC 로는
+     * 2024년이 된다.
+     */
+    private static final ZoneId USER_ZONE = ZoneId.of("Asia/Seoul");
+
+    /**
+     * 검증기에 넣을 시계. 빈 메서드와 나눠 둔 이유는 시간대를 <b>결정적으로</b> 검증하기 위해서다 — {@link Clock#system} 은 실제 현재 시각이라 시간대를 틀려도 연말 아홉 시간
+     * 동안에만 답이 갈린다. 동작으로만 확인하면 그 창 밖에서는 잘못된 배선도 통과한다.
+     */
+    static Clock userClock() {
+        return Clock.system(USER_ZONE);
+    }
+
     @Bean
     AnchorVerifier anchorVerifier() {
-        return new AnchorVerifier(Clock.systemDefaultZone());
+        return new AnchorVerifier(userClock());
     }
 }

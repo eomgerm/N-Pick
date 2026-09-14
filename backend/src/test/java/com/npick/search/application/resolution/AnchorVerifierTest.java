@@ -325,6 +325,100 @@ class AnchorVerifierTest {
     }
 
     @Test
+    @DisplayName("연도만 짚은 조각으로 월까지 좁힌 구간은 강등한다")
+    void demotesWindowNarrowerThanDenotedYear() {
+        // "2023년" 에는 7월로 좁힐 근거가 없다. 통과시키면 사용자가 지정하지 않은 달의 결과가 guard 에서 제외된다.
+        QueryResolutionResult result = verifier.verify(
+                "2023년 태풍",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 7, 1),
+                                LocalDate.of(2023, 8, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 5),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("좁히는 말이 있으면 리졸버가 고른 경계를 받아들인다")
+    void keepsNarrowedWindowWhenTextQualifiesThePeriod() {
+        // "여름" 이 6월부터인지 7월부터인지는 여기서 셀 수 없다. 그 경계는 리졸버 판단에 맡기고 연도만 지킨다.
+        QueryResolutionResult result = verifier.verify(
+                "2023년 여름 태풍",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 6, 1),
+                                LocalDate.of(2023, 9, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 8),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("숫자 뒤에 날짜 단위가 없으면 연도로 읽지 않는다")
+    void demotesNumberWithoutDateUnit() {
+        // "2023명" 은 인원수다. 네 자리라는 이유로 연도가 되면 안 된다.
+        QueryResolutionResult result = verifier.verify(
+                "2023명 구조",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 5),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+    }
+
+    @Test
+    @DisplayName("구분자로 쓴 날짜도 읽는다")
+    void readsDelimitedDate() {
+        QueryResolutionResult result = verifier.verify(
+                "2023-07-15 집중호우",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 7, 15),
+                                LocalDate.of(2023, 7, 16),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 10),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("좁히는 말 없는 상대 표현은 그 기간 전체와 같아야 한다")
+    void demotesNarrowedWindowUnderBareRelativeWord() {
+        // "작년" 만으로는 여름으로 좁힐 근거가 없다. 같은 구간이라도 "작년 여름" 이었다면 유지된다.
+        QueryResolutionResult result = verifier.verify(
+                "작년 침수 현장",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2025, 6, 1),
+                                LocalDate.of(2025, 9, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 2),
+                                0.8)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+    }
+
+    @Test
     @DisplayName("연·월까지 짚은 구간은 그 달 안에 들면 유지한다")
     void keepsWindowInsideDenotedMonth() {
         QueryResolutionResult result = verifier.verify(
