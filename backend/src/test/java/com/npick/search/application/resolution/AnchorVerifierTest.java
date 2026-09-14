@@ -1,9 +1,6 @@
 package com.npick.search.application.resolution;
 
-import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -39,11 +36,7 @@ class AnchorVerifierTest {
 
     private static final String RAW_QUERY = "2023년 태풍 힌남노 피해 현장";
 
-    /** {@code "작년"} 같은 상대 표현이 테스트마다 달라지지 않게 고정한다. 이 시각 기준 작년은 2025년이다. */
-    private static final Clock FIXED_CLOCK =
-            Clock.fixed(Instant.parse("2026-09-14T09:00:00Z"), ZoneId.of("Asia/Seoul"));
-
-    private final AnchorVerifier verifier = new AnchorVerifier(FIXED_CLOCK);
+    private final AnchorVerifier verifier = new AnchorVerifier();
 
     @Test
     @DisplayName("원문에 없는 값을 explicit_query 로 주장하면 inferred 로 강등한다")
@@ -242,8 +235,10 @@ class AnchorVerifierTest {
     }
 
     @Test
-    @DisplayName("숫자 없는 상대 날짜 표현은 강등하지 않는다")
-    void keepsRelativeDateExpression() {
+    @DisplayName("상대 표현은 리졸버가 맞게 풀었어도 강등한다")
+    void demotesRelativeDateExpression() {
+        // 막으려는 것은 날조이지 산수 오류가 아니다. "작년" 을 여기서 다시 세려면 기준 시각·시간대·
+        // 표현 어휘를 BE 가 떠안아야 하는데, 그 값이 틀릴 일은 거의 없다. 강등돼도 날짜는 점수에 남는다.
         QueryResolutionResult result = verifier.verify(
                 "작년 여름 침수 현장",
                 resolved(resolution()
@@ -255,31 +250,10 @@ class AnchorVerifierTest {
                                 new QuerySpan(0, 5),
                                 0.8)))));
 
-        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
-        assertThat(result.findings()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("상대 표현은 사용자 시간대 기준으로 푼다 — 연말 자정 전후")
-    void resolvesRelativePeriodInUserZone() {
-        // 2025-12-31T15:30Z 는 KST 로 2026-01-01 00:30 이다. 한국 사용자에게 "작년" 은 2025년이다.
-        // UTC 로 세면 오늘이 아직 2025-12-31 이라 "작년" 이 2024년이 되고, 맞게 쓴 조건이 강등된다.
-        AnchorVerifier seoulVerifier =
-                new AnchorVerifier(Clock.fixed(Instant.parse("2025-12-31T15:30:00Z"), ZoneId.of("Asia/Seoul")));
-
-        QueryResolutionResult result = seoulVerifier.verify(
-                "작년 여름 침수 현장",
-                resolved(resolution()
-                        .dateWindows(List.of(new DateWindow(
-                                DateField.BROADCAST_DATE,
-                                LocalDate.of(2025, 6, 1),
-                                LocalDate.of(2025, 9, 1),
-                                Origin.EXPLICIT_QUERY,
-                                new QuerySpan(0, 5),
-                                0.8)))));
-
-        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
-        assertThat(result.findings()).isEmpty();
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
     }
 
     @Test
@@ -346,62 +320,6 @@ class AnchorVerifierTest {
     }
 
     @Test
-    @DisplayName("좁히는 말이 있으면 리졸버가 고른 경계를 받아들인다")
-    void keepsNarrowedWindowWhenTextQualifiesThePeriod() {
-        // "여름" 이 6월부터인지 7월부터인지는 여기서 셀 수 없다. 그 경계는 리졸버 판단에 맡기고 연도만 지킨다.
-        QueryResolutionResult result = verifier.verify(
-                "2023년 여름 태풍",
-                resolved(resolution()
-                        .dateWindows(List.of(new DateWindow(
-                                DateField.BROADCAST_DATE,
-                                LocalDate.of(2023, 6, 1),
-                                LocalDate.of(2023, 9, 1),
-                                Origin.EXPLICIT_QUERY,
-                                new QuerySpan(0, 8),
-                                0.9)))));
-
-        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
-        assertThat(result.findings()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("다른 낱말 속 음절은 좁히는 말로 치지 않는다")
-    void ignoresQualifierSyllableInsideAnotherWord() {
-        // "초등학교" 의 "초" 가 한정어로 잡히면 일치 검사가 포함 검사로 풀려,
-        // 리졸버가 임의로 좁힌 하루짜리 구간이 명시 조건으로 통과한다.
-        QueryResolutionResult result = verifier.verify(
-                "2023년 초등학교 화재",
-                resolved(resolution()
-                        .dateWindows(List.of(new DateWindow(
-                                DateField.BROADCAST_DATE,
-                                LocalDate.of(2023, 7, 1),
-                                LocalDate.of(2023, 7, 2),
-                                Origin.EXPLICIT_QUERY,
-                                new QuerySpan(0, 10),
-                                0.9)))));
-
-        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
-    }
-
-    @Test
-    @DisplayName("낱말로 선 좁히는 말은 그대로 인정한다")
-    void acceptsQualifierStandingAsItsOwnWord() {
-        QueryResolutionResult result = verifier.verify(
-                "2023년 초 폭설",
-                resolved(resolution()
-                        .dateWindows(List.of(new DateWindow(
-                                DateField.BROADCAST_DATE,
-                                LocalDate.of(2023, 1, 1),
-                                LocalDate.of(2023, 3, 1),
-                                Origin.EXPLICIT_QUERY,
-                                new QuerySpan(0, 7),
-                                0.9)))));
-
-        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
-        assertThat(result.findings()).isEmpty();
-    }
-
-    @Test
     @DisplayName("날짜 아닌 숫자가 섞여도 날짜 숫자는 살린다")
     void keepsDateNumberDespiteNonDateNumberInSpan() {
         // "3명" 때문에 "2023년" 까지 버리면 사용자가 직접 친 조건이 사라진다.
@@ -454,24 +372,6 @@ class AnchorVerifierTest {
 
         assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
         assertThat(result.findings()).isEmpty();
-    }
-
-    @Test
-    @DisplayName("좁히는 말 없는 상대 표현은 그 기간 전체와 같아야 한다")
-    void demotesNarrowedWindowUnderBareRelativeWord() {
-        // "작년" 만으로는 여름으로 좁힐 근거가 없다. 같은 구간이라도 "작년 여름" 이었다면 유지된다.
-        QueryResolutionResult result = verifier.verify(
-                "작년 침수 현장",
-                resolved(resolution()
-                        .dateWindows(List.of(new DateWindow(
-                                DateField.BROADCAST_DATE,
-                                LocalDate.of(2025, 6, 1),
-                                LocalDate.of(2025, 9, 1),
-                                Origin.EXPLICIT_QUERY,
-                                new QuerySpan(0, 2),
-                                0.8)))));
-
-        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
     }
 
     @Test

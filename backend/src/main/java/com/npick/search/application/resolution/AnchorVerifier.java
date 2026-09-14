@@ -1,10 +1,7 @@
 package com.npick.search.application.resolution;
 
-import java.time.Clock;
 import java.time.DateTimeException;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -38,13 +35,15 @@ import com.npick.search.application.port.QueryResolutionResult;
  *
  * <h2>날짜는 왜 다르게 보나</h2>
  *
- * 값이 있는 anchor(인물·장소·사건명)는 원문에서 그 문자열을 찾으면 끝이다. 날짜는 대조할 원본이 없다 — 리졸버가 주는 {@code 2025-06-01~2025-09-01} 은 사용자가 친 문자열이
- * 아니라 해석해서 만든 값이고, 사용자는 {@code "작년 여름"} 이라고 썼다. 그래서 span 이 가리키는 원문 조각에서 <b>기간을 다시 계산해 맞춰본다</b>
- * ({@link #denotedPeriod}). {@code "작년"} 이 몇 년인지는 {@link Clock} 으로 직접 세며, 리졸버가 푼 값을 가져다 쓰지 않는다 — 그래야 검산이 된다.
+ * 값이 있는 anchor(인물·장소·사건명)는 원문에서 그 문자열을 찾으면 끝이다. 날짜는 대조할 원본이 없다 — 리졸버가 주는 {@code 2023-01-01~2024-01-01} 은 사용자가 친 문자열이
+ * 아니라 해석해서 만든 값이다. 그래서 span 이 가리키는 원문 조각을 <b>숫자로 파싱해 기간을 만들고 구간과 일치하는지</b> 본다 ({@link #numericPeriod}).
  *
- * <p>얼마나 엄하게 맞춰보는지는 <b>조각이 기간을 더 좁힐 여지를 남겼는가</b>로 갈린다. {@code "작년 여름"} 에는 {@code 여름} 이라는 좁히기 근거가 글자로 있으니 리졸버가 고른 6~9월을
- * 받아들인다(포함). {@code "작년"} 에는 그런 근거가 없으니 작년 <b>전체</b>와 같아야 한다(일치) — 없는 근거로 좁힌 구간에 명시 출처를 주면, 사용자가 지정하지 않은 달의 결과가 guard
- * 에서 제외된다.
+ * <p><b>숫자로 짚은 날짜만 통과한다.</b> {@code "2023년"}·{@code "2023년 7월"}·{@code "2023-07-15"} 는 살고, {@code "작년"}·{@code "이번 여름"}
+ * 같은 상대 표현은 강등된다. 막으려는 것이 <b>날조</b>(원문에 없는 날짜를 명시라고 주장)이지 <b>산수 오류</b>({@code "작년"} 을 한 해 잘못 셈)가 아니기 때문이다. 앞은 흔하고 되돌릴 수
+ * 없지만, 뒤는 리졸버가 틀릴 일이 거의 없고 검산하려면 기준 시각·시간대·상대 표현 어휘를 BE 가 떠안아야 한다 — 막는 위험보다 들여온 복잡도가 컸다.
+ *
+ * <p>상대 표현이 강등되면 그 날짜는 hard 제외 근거로 못 쓰이고 관련성 점수에만 반영된다. {@code "작년 태풍"} 검색이 실패하지는 않고, 다른 해의 결과를 칼같이 잘라내지 못할 뿐이다 (F-06
+ * "불확실한 정보를 모두 제거하는 것이 아니다").
  *
  * <h2>{@code findings} 의 {@code path} 규약</h2>
  *
@@ -68,45 +67,6 @@ public final class AnchorVerifier {
     private static final String DEMOTED = "demoted_to_inferred";
     private static final String DROPPED = "dropped";
     private static final String SPAN_CORRECTED = "span_corrected";
-
-    /**
-     * 숫자 없이 기간을 가리키는 표현. 긴 것부터 본다 — {@code "재작년"} 은 {@code "작년"} 을 품고 있다.
-     *
-     * <p>기간이 딱 정해지는 말만 넣는다. {@code "최근"}·{@code "연초"} 처럼 경계가 사람마다 다른 말은 일부러 뺐다 — 그런 표현은 확인할 수 없으므로 강등된다.
-     */
-    private static final List<String> RELATIVE_PERIOD_WORDS =
-            List.of("재작년", "지난해", "작년", "올해", "금년", "내년", "그저께", "그제", "어제", "오늘", "지난달", "이번달", "이달", "지난주", "이번주");
-
-    /**
-     * 기간을 더 좁히지만 그 경계를 여기서 셀 수 없는 말. 이 말이 조각에 <b>낱말로</b> 있으면 리졸버가 좁힌 구간을 받아들인다.
-     *
-     * <p>목록에 없는 한정 표현은 "좁힐 근거 없음" 으로 읽혀 일치를 요구받고, 그러면 강등된다. 빠뜨려도 안전한 쪽으로 틀린다.
-     */
-    private static final List<String> PERIOD_QUALIFIER_WORDS =
-            List.of("봄", "여름", "가을", "겨울", "초순", "중순", "하순", "초", "말", "무렵", "즈음", "쯤", "상반기", "하반기", "분기", "연휴", "명절");
-
-    private final Clock clock;
-
-    /**
-     * @param clock {@code "작년"} 같은 상대 표현을 풀 기준 시각. 리졸버가 푼 값을 베끼지 않고 여기서 <b>따로 계산해</b> 대조하기 위한 것이다.
-     *     <p><b>사용자가 있는 시간대를 명시해 넘긴다</b> — {@code Clock.system(ZoneId.of("Asia/Seoul"))}. 검색하는 사람이 {@code "작년"} 이라고 쓸
-     *     때의 작년은 한국 기준이다. {@link Clock#systemDefaultZone()} 도 답이 아니다 — {@code backend/Dockerfile} 의 {@code ENTRYPOINT}
-     *     가 {@code -Duser.timezone=UTC} 라 <b>운영에서는 그것도 UTC 를 준다</b>. UTC 로 세면 KST 자정부터 오전 9시까지 하루가 밀려 사용자가 맞게 쓴 조건이
-     *     강등되거나 틀린 기간이 명시 조건으로 통과한다. 배선은 {@code AnchorVerificationConfiguration} 이 이미 해두었으니 그 빈을 주입받는다.
-     */
-    public AnchorVerifier(Clock clock) {
-        this.clock = Objects.requireNonNull(clock, "clock");
-    }
-
-    /**
-     * {@code "작년"} 같은 말을 어느 시간대 기준으로 푸는가.
-     *
-     * <p>배선이 맞는지 <b>동작 대신 이걸로</b> 확인한다. 시간대를 틀려도 답이 갈리는 것은 연말 아홉 시간뿐이라, {@code "작년"} 이 몇 년으로 풀리는지로 보면 나머지 기간에는 UTC 배선도
-     * 그냥 통과한다.
-     */
-    public ZoneId zone() {
-        return clock.getZone();
-    }
 
     /**
      * 해석 안의 모든 anchor 를 {@code rawQuery} 와 대조해 출처를 확정한다.
@@ -280,17 +240,26 @@ public final class AnchorVerifier {
         // 범위 검사를 통과했으니 옮기는 것이 안전하다.
         QuerySpan span = toJavaIndices(window.querySpan(), rawQuery);
         String claimedText = rawQuery.substring(span.start(), span.end());
-        Denoted denoted = denotedPeriod(claimedText);
+        Period denoted = numericPeriod(claimedText);
         if (denoted == null) {
-            // "3명 구조 현장" 의 "3명", "2023명 구조" 의 "2023명" 처럼 기간을 읽어낼 수 없는 조각이다.
-            // 숫자가 있다는 것만으로는 근거가 되지 않는다 — 그것들은 인원수다.
+            // 숫자로 짚은 날짜가 아니다. "3명"·"2023명" 의 인원수, "태풍" 같은 낱말,
+            // 그리고 "작년"·"이번 여름" 처럼 여기서 셀 수 없는 상대 표현이 모두 여기로 온다.
             findings.add(new AnchorFinding(
-                    path, DEMOTED, "기간을 읽어낼 수 없는 구간을 날짜의 explicit_query 근거로 주장했다: '%s'".formatted(claimedText)));
+                    path, DEMOTED, "숫자로 짚은 날짜가 아닌 구간을 explicit_query 근거로 주장했다: '%s'".formatted(claimedText)));
             return Checked.demoted();
         }
-        String mismatch = denoted.mismatch(claimedText, window.start(), window.endExclusive());
-        if (mismatch != null) {
-            findings.add(new AnchorFinding(path, DEMOTED, mismatch));
+        if (!denoted.sameAs(window.start(), window.endExclusive())) {
+            // "2024년" 을 근거로 2023년을 주장하거나, "2023년" 을 근거로 7월 한 달로 좁히는 출력이 걸린다.
+            findings.add(new AnchorFinding(
+                    path,
+                    DEMOTED,
+                    "'%s' 는 기간을 [%s, %s) 로 짚는데 [%s, %s) 를 explicit_query 로 주장했다"
+                            .formatted(
+                                    claimedText,
+                                    denoted.start(),
+                                    denoted.endExclusive(),
+                                    window.start(),
+                                    window.endExclusive())));
             return Checked.demoted();
         }
         return new Checked(origin, span);
@@ -306,55 +275,6 @@ public final class AnchorVerifier {
         boolean contains(LocalDate windowStart, LocalDate windowEndExclusive) {
             return !start.isAfter(windowStart) && !endExclusive.isBefore(windowEndExclusive);
         }
-    }
-
-    /**
-     * 원문 조각에서 읽어낸 기간과, <b>그 조각이 기간을 더 좁힐 여지를 남겼는지</b>.
-     *
-     * <p>{@code narrowable} 이 이 검증의 핵심이다. {@code "2023년 여름"} 에는 {@code 여름} 이라는 좁히기 근거가 글자로 남아 있다 — 그 경계가 6월부터인지 7월부터인지만
-     * 여기서 셀 수 없을 뿐이다. 반면 {@code "2023년"} 에는 월로 좁힐 근거가 <b>아무것도 없다</b>. 앞은 리졸버 판단에 맡기고 뒤는 맡기지 않는다.
-     */
-    private record Denoted(Period period, boolean narrowable) {
-
-        /**
-         * 구간이 이 조각과 맞지 않는 이유. 맞으면 {@code null}.
-         *
-         * <p>좁힐 근거가 없으면 <b>일치</b>를, 있으면 <b>포함</b>을 요구한다.
-         */
-        String mismatch(String text, LocalDate windowStart, LocalDate windowEndExclusive) {
-            if (narrowable) {
-                return period.contains(windowStart, windowEndExclusive)
-                        ? null
-                        : "'%s' 가 가리키는 기간 [%s, %s) 밖의 구간을 explicit_query 로 주장했다: [%s, %s)"
-                                .formatted(
-                                        text, period.start(), period.endExclusive(), windowStart, windowEndExclusive);
-            }
-            return period.sameAs(windowStart, windowEndExclusive)
-                    ? null
-                    : "'%s' 는 기간을 [%s, %s) 로만 짚는데 [%s, %s) 를 explicit_query 로 주장했다"
-                            .formatted(text, period.start(), period.endExclusive(), windowStart, windowEndExclusive);
-        }
-    }
-
-    /**
-     * 이 원문 조각이 가리키는 기간. 읽어낼 수 없으면 {@code null}.
-     *
-     * <p>조각에 {@link #PERIOD_QUALIFIER_WORDS} 가 섞여 있으면 좁힐 여지가 있는 것으로 본다. 그 목록에 없는 한정 표현은 좁힐 여지가 없는 것으로 읽혀 일치를 요구받고, 그러면
-     * 강등된다 — 목록이 비어 있어도 안전한 쪽으로 틀린다.
-     */
-    private Denoted denotedPeriod(String text) {
-        boolean narrowable = PERIOD_QUALIFIER_WORDS.stream().anyMatch(word -> containsAsWord(text, word));
-
-        Period numeric = numericPeriod(text);
-        if (numeric != null) {
-            return new Denoted(numeric, narrowable);
-        }
-        for (String word : RELATIVE_PERIOD_WORDS) {
-            if (text.contains(word)) {
-                return new Denoted(relativePeriod(word), narrowable);
-            }
-        }
-        return null;
     }
 
     /**
@@ -389,65 +309,6 @@ public final class AnchorVerifier {
             // 13월·32일 같은 값이다. 기간으로 읽을 수 없으니 근거가 못 된다.
             return null;
         }
-    }
-
-    /**
-     * {@code word} 가 이 글에 <b>낱말로</b> 들어 있는가. 앞이나 뒤에 다른 한글 음절이 붙어 있으면 그 단어의 일부지 이 낱말이 아니다.
-     *
-     * <p>그냥 {@link String#contains} 로 보면 {@code "초등학교"} 의 {@code 초}, {@code "말레이시아"} 의 {@code 말}, {@code "돌아봄"} 의
-     * {@code 봄} 이 한정어로 잡힌다. 그러면 좁힐 근거가 없는 조각이 "좁힐 근거 있음" 으로 읽혀 일치 검사가 포함 검사로 풀리고, 리졸버가 임의로 좁힌 하루짜리 구간도 명시 조건이 된다 — 이
-     * 클래스가 막으려는 바로 그 구멍이다.
-     *
-     * <p>대신 {@code "여름철"} 처럼 뒤에 한글이 붙은 형태는 한정어로 안 쳐서 일치를 요구받고 강등된다. 못 알아보는 쪽은 hard 제외 권한만 잃으므로 안전한 방향이다.
-     */
-    private boolean containsAsWord(String text, String word) {
-        for (int at = text.indexOf(word); at >= 0; at = text.indexOf(word, at + 1)) {
-            boolean gluedBefore = at > 0 && isHangul(text.charAt(at - 1));
-            int after = at + word.length();
-            boolean gluedAfter = after < text.length() && isHangul(text.charAt(after));
-            if (!gluedBefore && !gluedAfter) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean isHangul(char character) {
-        return Character.UnicodeScript.of(character) == Character.UnicodeScript.HANGUL;
-    }
-
-    /** {@code "작년"} 처럼 오늘을 기준으로 풀어야 하는 기간. 리졸버가 푼 값을 믿지 않고 여기서 다시 센다. */
-    private Period relativePeriod(String word) {
-        LocalDate today = LocalDate.now(clock);
-        return switch (word) {
-            case "재작년" -> wholeYear(today.getYear() - 2);
-            case "작년", "지난해" -> wholeYear(today.getYear() - 1);
-            case "올해", "금년" -> wholeYear(today.getYear());
-            case "내년" -> wholeYear(today.getYear() + 1);
-            case "지난달" -> wholeMonth(today.withDayOfMonth(1).minusMonths(1));
-            case "이번달", "이달" -> wholeMonth(today.withDayOfMonth(1));
-            case "지난주" -> wholeWeek(today.minusWeeks(1));
-            case "이번주" -> wholeWeek(today);
-            case "그저께", "그제" -> new Period(today.minusDays(2), today.minusDays(1));
-            case "어제" -> new Period(today.minusDays(1), today);
-            case "오늘" -> new Period(today, today.plusDays(1));
-            // 목록과 이 switch 가 두 군데라 어긋날 수 있다. null 을 흘려보내면 강등이 아니라
-            // 검색 요청이 NPE 로 죽으므로, 빠뜨린 자리를 여기서 드러낸다.
-            default -> throw new IllegalStateException("기간을 풀 수 없는 상대 표현이다: " + word);
-        };
-    }
-
-    private Period wholeYear(int year) {
-        return new Period(LocalDate.of(year, 1, 1), LocalDate.of(year + 1, 1, 1));
-    }
-
-    private Period wholeMonth(LocalDate firstOfMonth) {
-        return new Period(firstOfMonth, firstOfMonth.plusMonths(1));
-    }
-
-    private Period wholeWeek(LocalDate dayInWeek) {
-        LocalDate monday = dayInWeek.with(DayOfWeek.MONDAY);
-        return new Period(monday, monday.plusWeeks(1));
     }
 
     /**
