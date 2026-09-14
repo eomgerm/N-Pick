@@ -3,6 +3,7 @@
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -123,9 +124,12 @@ def test_extracted_instructions_are_encoded_as_data() -> None:
     assert "\n" not in context.text
 
 
-def test_existing_ocr_output_is_grouped_by_scene_without_transcript_reselection() -> None:
+@pytest.mark.parametrize("invalid_confidence", [False, True])
+def test_existing_ocr_output_is_grouped_by_scene_without_transcript_reselection(
+    invalid_confidence: bool,
+) -> None:
     frame = {"sceneIndex": 0, "timestampMs": 1000, "storageKey": "f"}
-    upstream = {
+    upstream: dict[str, Any] = {
         "frameExtraction": {
             "scenes": [{"sceneIndex": 0, "keyframes": [frame]}],
             "imageWidth": 1920,
@@ -135,12 +139,14 @@ def test_existing_ocr_output_is_grouped_by_scene_without_transcript_reselection(
             "observations": [
                 {
                     **frame,
+                    "futureObservationField": True,
                     "rawText": "부산",
                     "tokens": "부산",
                     "confidence": 0.9,
                     "unverified": False,
                     "textKey": "busan",
                     "boundingBox": {
+                        "futureBoxField": True,
                         "points": [[0, 0], [10, 0], [10, 10]],
                         "x": 0,
                         "y": 0,
@@ -151,10 +157,22 @@ def test_existing_ocr_output_is_grouped_by_scene_without_transcript_reselection(
             ],
             "keyframesRead": 1,
             "minConfidence": 0.8,
+            "futureField": True,
         },
         # 원본 transcript는 장면 연결·최종 채택을 대신하지 않는다.
         "transcript": {"segmentsArtifact": {"storageKey": "unmapped.json"}},
     }
+    if invalid_confidence:
+        upstream["ocr"]["observations"][0]["confidence"] = 2.0
+        with pytest.raises(UpstreamOutputInvalidError):
+            registry._vlm_scenes(upstream)
+        return
+    from pydantic import ValidationError
+
+    from npick_worker.jobs.models import OcrOutput
+
+    with pytest.raises(ValidationError):
+        OcrOutput.model_validate(upstream["ocr"])
     sample = registry._vlm_scenes(upstream)[0]
     assert sample.ocr[0].raw_text == "부산"
     assert sample.ocr[0].ref.observation_index == 0
@@ -162,3 +180,18 @@ def test_existing_ocr_output_is_grouped_by_scene_without_transcript_reselection(
     upstream["scene_transcript_mapping"] = {}  # 잘못된 봉투를 빈 대사로 숨기지 않는다.
     with pytest.raises(UpstreamOutputInvalidError):
         attach_mapped_transcripts((sample,), upstream, {})
+
+
+@pytest.mark.parametrize("evidence", [["kf_1"], ["ocr_1"], ["tr_1"]])
+def test_image_only_config_never_accepts_unsent_text(evidence: list[str]) -> None:
+    from npick_worker.vlm_metadata import load_config
+    from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH
+
+    cfg = load_config(DEFAULT_CONFIG_PATH.with_name("vlm_metadata.v1.toml"))
+    client = RecordingClient(evidence)
+    if evidence == ["kf_1"]:
+        describe_scenes([scene()], {"frame.jpg": Path("frame.jpg")}, client, cfg)
+    else:
+        with pytest.raises(VlmSchemaInvalidError, match="입력에 없다"):
+            describe_scenes([scene()], {"frame.jpg": Path("frame.jpg")}, client, cfg)
+    assert "부산 축제" not in client.user_prompt

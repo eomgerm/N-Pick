@@ -128,9 +128,11 @@ def validate_snapshot(
                 raise ValueError("invalid higher-priority overlap reference")
 
 
-def transcript_refs(upstream: Mapping[str, Any]) -> tuple[ArtifactRef, ...]:
+def transcript_refs(
+    upstream: Mapping[str, Any], *, stage: str | None = None
+) -> tuple[ArtifactRef, ...]:
     # 상위 transcript 별칭이 이전 snapshot이어도 최종 매핑의 참조가 정본이다.
-    if "scene_transcript_mapping" in upstream:
+    if stage == "vlm_metadata" and "scene_transcript_mapping" in upstream:
         mapping = SceneTranscriptMappingOutput.model_validate(upstream["scene_transcript_mapping"])
         return (mapping.transcript.segments_artifact, mapping.transcript.decisions_artifact)
     transcript = upstream.get("transcript")

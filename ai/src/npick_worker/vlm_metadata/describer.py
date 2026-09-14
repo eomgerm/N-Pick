@@ -97,10 +97,12 @@ def describe_scene(
     """
     config = cfg if cfg is not None else get_default_config()
     selected = select_keyframes(scene, config)
+    # 이미지 전용 템플릿에서는 텍스트를 보내거나 근거로 인정하지 않는다.
+    supports_grounding = "{grounding}" in config.prompt.user
     grounding = prepare_grounding(
         scene.scene_index,
-        scene.ocr,
-        scene.transcripts,
+        scene.ocr if supports_grounding else (),
+        scene.transcripts if supports_grounding else (),
         max_ocr_chars=config.max_ocr_chars,
         max_transcript_chars=config.max_transcript_chars,
     )

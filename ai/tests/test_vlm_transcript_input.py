@@ -176,7 +176,7 @@ async def test_existing_artifact_loader_and_vlm_handler_use_final_mapping(
             },
         )
     )
-    for ref in transcript_refs(upstream):
+    for ref in transcript_refs(upstream, stage="vlm_metadata"):
         fake_backend.enqueue(
             "artifact_get",
             httpx2.Response(200, content=json.dumps(documents[ref.storage_key]).encode()),
@@ -203,3 +203,27 @@ async def test_existing_artifact_loader_and_vlm_handler_use_final_mapping(
     assert "제외된 ASR" not in client.user_prompt
     assert output.output["scenes"][0]["caption"]["evidence"][1]["segmentId"] == "s1"
     assert output.versions.output_schema_version == "npick.stage.vlm_metadata.output/v2"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stage", ["entity_extraction", "text_embedding", "indexing", "vlm_metadata"]
+)
+async def test_mapping_validation_is_scoped_to_vlm(
+    stage: str, job_client: JobApiClient, fake_backend: FakeBackend
+) -> None:
+    job = JobAssignment.model_validate(
+        make_job(
+            stage=stage,
+            inputs={
+                "media": {"storageKey": "clips/1/source.mp4"},
+                "upstream": {"scene_transcript_mapping": {}},
+            },
+        )
+    )
+    if stage == "vlm_metadata":
+        with pytest.raises(UpstreamOutputInvalidError):
+            await resolve_transcripts(job, MediaResolver(None, job_client))
+    else:
+        assert await resolve_transcripts(job, MediaResolver(None, job_client)) == {}
+    assert not fake_backend.calls("artifact_get")

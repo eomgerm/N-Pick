@@ -545,6 +545,20 @@ class OcrOutput(WireModel):
         )
 
 
+class UpstreamBoundingBox(BoundingBoxOut):
+    model_config = ConfigDict(extra="ignore")
+
+
+class UpstreamOcrObservation(OcrObservationOut):
+    model_config = ConfigDict(extra="ignore")
+    bounding_box: UpstreamBoundingBox
+
+
+class UpstreamOcrOutput(OcrOutput):
+    model_config = ConfigDict(extra="ignore")
+    observations: Sequence[UpstreamOcrObservation]
+
+
 class VlmMetadataUpstream(WireResponse):
     """`inputs.upstream` 중 `vlm_metadata` 가 쓰는 부분.
 
@@ -553,7 +567,7 @@ class VlmMetadataUpstream(WireResponse):
     """
 
     frame_extraction: UpstreamFrameExtraction
-    ocr: OcrOutput | None = None
+    ocr: UpstreamOcrOutput | None = None
 
 
 class EvidenceKeyframeOut(WireModel):

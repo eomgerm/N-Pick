@@ -803,3 +803,24 @@ def test_vlm_stage_version_matches_recorded_vector() -> None:
         )
         == "npick.stage.vlm_metadata/v1:325198af"
     )
+
+
+def test_vlm_default_v2_vectors() -> None:
+    from npick_worker.vlm_metadata import get_default_config, prompt_version
+
+    cfg = get_default_config()
+    assert cfg.version_id == "vlm-metadata-config/v2:c3b7d840"
+    assert prompt_version(cfg) == "vlm-metadata-prompt/v2:2c686602"
+    assert (
+        stage_version(
+            "vlm_metadata",
+            {
+                "configVersion": cfg.version_id,
+                "engine": "transformers",
+                "engineVersion": "transformers5.0.0+torch2.13.0",
+                "modelVersion": "example/vlm@main",
+                "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0",
+            },
+        )
+        == "npick.stage.vlm_metadata/v1:2f0d224e"
+    )
