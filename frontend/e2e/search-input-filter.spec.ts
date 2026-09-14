@@ -70,11 +70,12 @@ test('빈 검색어와 날짜 입력 Enter는 검색을 시작하지 않는다',
   await expect(page).toHaveURL(/\/search$/);
 });
 
-test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번만 처리한다', async ({ page }) => {
+test('결과 재검색은 동일 조건도 새 실행을 만들고 연속 제출을 한 번만 처리한다', async ({
+  page,
+}) => {
   await openAsEditor(page, `/search/results?q=${encodeURIComponent('기존 검색')}`);
   await expect(page.getByRole('button', { name: /1위 실제 응답 장면/ })).toBeVisible();
 
-  let existingSearchRequestCount = 0;
   let newSearchRequestCount = 0;
   let notifyRequest = () => {};
   const requestIntercepted = new Promise<void>((resolve) => {
@@ -85,11 +86,6 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
   await page.route('**/search/results**', async (route) => {
     const url = new URL(route.request().url());
     const requestedQuery = url.searchParams.get('q');
-    if (requestedQuery === '기존 검색') {
-      existingSearchRequestCount += 1;
-      await route.continue();
-      return;
-    }
     if (requestedQuery !== '새 검색') {
       await route.continue();
       return;
@@ -104,9 +100,32 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
   const searchForm = query.locator('xpath=ancestor::form');
   const submit = searchForm.getByRole('button');
 
-  await submit.click();
+  let repeatedSearchRequestCount = 0;
+  let notifyRepeatedSearch = () => {};
+  const repeatedSearchIntercepted = new Promise<void>((resolve) => {
+    notifyRepeatedSearch = resolve;
+  });
+  const repeatedSearchRoutes: Route[] = [];
+  await page.route('**/api/v1/search', (route) => {
+    repeatedSearchRequestCount += 1;
+    repeatedSearchRoutes.push(route);
+    notifyRepeatedSearch();
+  });
+
+  await submit.evaluate((button: HTMLButtonElement) => {
+    button.click();
+    button.click();
+  });
+  await repeatedSearchIntercepted;
   await page.waitForTimeout(100);
-  expect(existingSearchRequestCount).toBe(0);
+  expect(repeatedSearchRequestCount).toBe(1);
+  await expect(submit).toBeDisabled();
+  await expect(page.getByRole('heading', { name: '검색 중', exact: true })).toBeVisible();
+
+  const [repeatedSearchRoute] = repeatedSearchRoutes.splice(0, 1);
+  if (!repeatedSearchRoute) throw new Error('Expected one repeated search request.');
+  await repeatedSearchRoute.continue();
+  await page.unroute('**/api/v1/search');
   await expect(page.getByRole('heading', { name: '관련 장면 1개' })).toBeVisible();
 
   await query.fill('새 검색');
@@ -129,6 +148,7 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
     await expect(page).toHaveURL((url) => url.searchParams.get('q') === '새 검색');
     await expect(page.getByRole('heading', { name: '관련 장면 1개' })).toBeVisible();
   } finally {
+    await Promise.all(repeatedSearchRoutes.map((route) => route.abort().catch(() => {})));
     await Promise.all(blockedRoutes.map((route) => route.abort().catch(() => {})));
   }
 });

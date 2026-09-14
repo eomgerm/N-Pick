@@ -84,9 +84,10 @@ export function WireframeShell({
   const [isPreviewOpen, setIsPreviewOpen] = useState(initialParams.preview === 'loading');
   const [inquiryResultId, setInquiryResultId] = useState<number | null>(null);
   const [submittedInquiryIds, setSubmittedInquiryIds] = useState<number[]>([]);
+  const isSearchPending = isNavigating || api?.state === 'loading';
 
   useEffect(() => {
-    if (isNavigating) {
+    if (isSearchPending) {
       hasObservedNavigationRef.current = true;
       return;
     }
@@ -94,7 +95,7 @@ export function WireframeShell({
       navigationLockRef.current = false;
       hasObservedNavigationRef.current = false;
     }
-  }, [isNavigating]);
+  }, [isSearchPending]);
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
@@ -138,15 +139,25 @@ export function WireframeShell({
   }
 
   function handleSearchNavigation(nextQuery: string, broadcast: DateRange, filming: DateRange) {
-    if (navigationLockRef.current || isNavigating) return;
+    if (navigationLockRef.current || isSearchPending) return;
 
     const href = createSearchResultsHref({ query: nextQuery, broadcast, filming });
     if (!href) return;
     if (
       typeof window !== 'undefined' &&
       isSameSearchDestination(`${window.location.pathname}${window.location.search}`, href)
-    )
+    ) {
+      if (api) {
+        navigationLockRef.current = true;
+        try {
+          api.retry();
+        } catch (error) {
+          navigationLockRef.current = false;
+          throw error;
+        }
+      }
       return;
+    }
 
     navigationLockRef.current = true;
     try {
@@ -162,13 +173,13 @@ export function WireframeShell({
       <DateRangePicker
         label="방송일"
         value={broadcastRange}
-        isDisabled={isNavigating}
+        isDisabled={isSearchPending}
         onChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
       />
       <DateRangePicker
         label="촬영일"
         value={filmingRange}
-        isDisabled={isNavigating}
+        isDisabled={isSearchPending}
         onChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
       />
     </>
@@ -225,7 +236,7 @@ export function WireframeShell({
                 <span className={styles.visuallyHidden}>검색어</span>
                 <input
                   aria-label="뉴스 장면 검색어"
-                  disabled={isNavigating}
+                  disabled={isSearchPending}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
                   value={query}
@@ -234,11 +245,11 @@ export function WireframeShell({
               </label>
               <button
                 className={styles.searchButton}
-                disabled={!query.trim() || isNavigating}
+                disabled={!query.trim() || isSearchPending}
                 type="submit"
               >
                 <Search aria-hidden="true" />
-                <span>{isNavigating ? '검색 중' : '검색'}</span>
+                <span>{isSearchPending ? '검색 중' : '검색'}</span>
               </button>
             </form>
           </section>
