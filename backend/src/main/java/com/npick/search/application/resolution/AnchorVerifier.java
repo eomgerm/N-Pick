@@ -1,5 +1,9 @@
 package com.npick.search.application.resolution;
 
+import java.time.Clock;
+import java.time.DateTimeException;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -31,6 +35,12 @@ import com.npick.search.application.port.QueryResolutionResult;
  * <p><b>이 클래스는 제외 판정을 하지 않는다.</b> "강등된 anchor 는 hard 제외 근거가 될 수 없다" 는 규칙 자체는 guard 의 몫이다 (F-06, {@code S15P21A501-56}).
  * 여기서는 guard 가 믿고 쓸 {@code origin} 을 확정해 넘길 뿐이다.
  *
+ * <h2>날짜는 왜 다르게 보나</h2>
+ *
+ * 값이 있는 anchor(인물·장소·사건명)는 원문에서 그 문자열을 찾으면 끝이다. 날짜는 대조할 원본이 없다 — 리졸버가 주는 {@code 2025-06-01~2025-09-01} 은 사용자가 친 문자열이
+ * 아니라 해석해서 만든 값이고, 사용자는 {@code "작년 여름"} 이라고 썼다. 그래서 span 이 가리키는 원문 조각에서 <b>기간을 다시 계산해 구간이 그 안에 드는지</b> 본다
+ * ({@link #denotedPeriod}). {@code "작년"} 이 몇 년인지는 {@link Clock} 으로 직접 세며, 리졸버가 푼 값을 가져다 쓰지 않는다 — 그래야 검산이 된다.
+ *
  * <h2>{@code findings} 의 {@code path} 규약</h2>
  *
  * {@code path} 는 <b>그 판정을 한 단계가 받은 배열 기준</b> 인덱스다. 리졸버가 남긴 {@code entities[0]} 은 LLM 원본 배열의 0번이고, 여기서 남기는
@@ -54,10 +64,20 @@ public final class AnchorVerifier {
     private static final String DROPPED = "dropped";
     private static final String SPAN_CORRECTED = "span_corrected";
 
-    /** 숫자 없이 날짜를 가리키는 표현. {@link #looksLikeDateExpression} 참조 — 이 목록은 날짜 어휘의 정본이 아니라 최소 바닥이다. */
-    private static final List<String> RELATIVE_DATE_WORDS = List.of(
-            "작년", "재작년", "지난해", "올해", "금년", "내년", "지난달", "이번달", "지난주", "이번주", "그제", "어제", "오늘", "최근", "연초", "연말", "상반기",
-            "하반기");
+    /**
+     * 숫자 없이 기간을 가리키는 표현. 긴 것부터 본다 — {@code "재작년"} 은 {@code "작년"} 을 품고 있다.
+     *
+     * <p>기간이 딱 정해지는 말만 넣는다. {@code "최근"}·{@code "연초"} 처럼 경계가 사람마다 다른 말은 일부러 뺐다 — 그런 표현은 확인할 수 없으므로 강등된다.
+     */
+    private static final List<String> RELATIVE_PERIOD_WORDS =
+            List.of("재작년", "지난해", "작년", "올해", "금년", "내년", "그저께", "그제", "어제", "오늘", "지난달", "이번달", "이달", "지난주", "이번주");
+
+    private final Clock clock;
+
+    /** @param clock {@code "작년"} 같은 상대 표현을 풀 기준 시각. 리졸버가 푼 값을 베끼지 않고 여기서 <b>따로 계산해</b> 대조하기 위한 것이다 */
+    public AnchorVerifier(Clock clock) {
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
 
     /**
      * 해석 안의 모든 anchor 를 {@code rawQuery} 와 대조해 출처를 확정한다.
@@ -88,8 +108,7 @@ public final class AnchorVerifier {
                         "start 가 end_exclusive 이상이다: %s >= %s".formatted(window.start(), window.endExclusive())));
                 continue;
             }
-            // 날짜 구간에는 대조할 문자열이 없다. span 을 찾아줄 수 없으니 범위만 본다.
-            Checked checked = checkSpanOnly(window.origin(), window.querySpan(), rawQuery, path, findings);
+            Checked checked = checkDateSpan(window, rawQuery, path, findings);
             dateWindows.add(new DateWindow(
                     window.field(),
                     window.start(),
@@ -209,45 +228,160 @@ public final class AnchorVerifier {
         return new Checked(Origin.EXPLICIT_QUERY, located);
     }
 
-    private Checked checkSpanOnly(
-            Origin origin, QuerySpan claimed, String rawQuery, String path, List<AnchorFinding> findings) {
+    /**
+     * 날짜 구간의 출처 주장: span 이 가리키는 원문 조각이 그 구간을 <b>설명하는지</b> 본다.
+     *
+     * <p>값 anchor 는 쉽다 — {@code "힌남노"} 가 원문에 있는지 글자로 찾으면 끝이다. 날짜는 다르다. 리졸버가 주는 {@code 2025-06-01~2025-09-01} 은 사용자가 친 적
+     * 없는 문자열이라 대조할 원본이 아예 없다. 그래서 찾는 대신 <b>원문 조각에서 기간을 계산해 맞춰본다</b>.
+     */
+    private Checked checkDateSpan(DateWindow window, String rawQuery, String path, List<AnchorFinding> findings) {
+        Origin origin = window.origin();
         if (origin != Origin.EXPLICIT_FILTER && origin != Origin.EXPLICIT_QUERY) {
-            return keepNonExplicit(origin, claimed, rawQuery, path, findings);
+            return keepNonExplicit(origin, window.querySpan(), rawQuery, path, findings);
         }
-        String problem = spanProblem(origin, claimed, rawQuery);
+        String problem = spanProblem(origin, window.querySpan(), rawQuery);
         if (problem != null) {
             findings.add(new AnchorFinding(path, DEMOTED, problem));
             return Checked.demoted();
         }
 
         // 범위 검사를 통과했으니 옮기는 것이 안전하다.
-        QuerySpan span = toJavaIndices(claimed, rawQuery);
+        QuerySpan span = toJavaIndices(window.querySpan(), rawQuery);
         String claimedText = rawQuery.substring(span.start(), span.end());
-        if (!looksLikeDateExpression(claimedText)) {
-            // 좌표가 원문 안에 있다는 것만으로는 사용자가 그 날짜를 말했다는 근거가 되지 않는다.
-            // "태풍 피해 현장" 의 [0,2) 를 근거로 2023년 한 해를 explicit 로 주장하는 출력이 여기서 걸린다.
+        Period denoted = denotedPeriod(claimedText);
+        if (denoted == null) {
+            // "3명 구조 현장" 의 "3명" 처럼 기간을 읽어낼 수 없는 조각이다. 숫자가 있다는 것만으로는
+            // 근거가 되지 않는다 — 그 3 은 인원수다.
             findings.add(new AnchorFinding(
-                    path, DEMOTED, "날짜로 읽히지 않는 구간을 날짜의 explicit_query 근거로 주장했다: '%s'".formatted(claimedText)));
+                    path, DEMOTED, "기간을 읽어낼 수 없는 구간을 날짜의 explicit_query 근거로 주장했다: '%s'".formatted(claimedText)));
+            return Checked.demoted();
+        }
+        if (!denoted.contains(window.start(), window.endExclusive())) {
+            // "2024년 태풍" 의 "2024년" 을 근거로 2023년 구간을 주장하는 출력이 여기서 걸린다.
+            findings.add(new AnchorFinding(
+                    path,
+                    DEMOTED,
+                    "'%s' 가 가리키는 기간 [%s, %s) 밖의 구간을 explicit_query 로 주장했다: [%s, %s)"
+                            .formatted(
+                                    claimedText,
+                                    denoted.start(),
+                                    denoted.endExclusive(),
+                                    window.start(),
+                                    window.endExclusive())));
             return Checked.demoted();
         }
         return new Checked(origin, span);
     }
 
-    /**
-     * 이 원문 조각이 날짜 표현으로 읽히는가.
-     *
-     * <p>날짜 구간에는 대조할 값 문자열이 없다 — {@code 2023-01-01~2024-01-01} 은 사용자가 그렇게 쓴 문자열이 아니라 리졸버가 해석해 만든 값이다. 그래서 좌표가 가리키는 원문
-     * 조각이 날짜로 읽히기라도 하는지 본다.
-     *
-     * <p>ponytail: 숫자나 상대 날짜어가 있는지만 보는 어림짐작이다. {@code "2023년"}·{@code "작년 여름"} 은 통과하고 {@code "태풍"} 은 걸린다. 제대로 하려면 리졸버가
-     * 날짜 구간과 함께 그 근거가 된 원문 조각을 내려줘야 하고({@code S15P21A501-101}), 그러면 값 anchor 와 똑같이 대조로 바꾼다. 그때까지는 틀리는 방향이 안전한 쪽이다 — 못
-     * 알아본 날짜 표현은 강등되어 hard 제외 권한만 잃고 결과에서 사라지지는 않는다 (F-06 "불확실한 정보를 모두 제거하는 것이 아니다").
-     */
-    private boolean looksLikeDateExpression(String text) {
-        if (text.codePoints().anyMatch(Character::isDigit)) {
-            return true;
+    /** 원문 조각이 가리키는 기간. {@code [start, endExclusive)} 반열린 구간이다. */
+    private record Period(LocalDate start, LocalDate endExclusive) {
+
+        /** 이 기간이 저 구간을 품는가. */
+        boolean contains(LocalDate windowStart, LocalDate windowEndExclusive) {
+            return !start.isAfter(windowStart) && !endExclusive.isBefore(windowEndExclusive);
         }
-        return RELATIVE_DATE_WORDS.stream().anyMatch(text::contains);
+    }
+
+    /**
+     * 이 원문 조각이 가리킬 수 있는 기간. 읽어낼 수 없으면 {@code null}.
+     *
+     * <p><b>구간을 똑같이 재현하라고 요구하지 않고 품는지만 본다.</b> {@code "작년 여름"} 에서 {@code 여름} 이 6월부터인지 7월부터인지는 여기서 알 수 없다. 그 경계는 리졸버 판단에
+     * 맡기고, 연도를 벗어나는 것만 막는다 — 확인할 수 있는 만큼만 확인한다.
+     *
+     * <p>ponytail: 그래서 {@code "2023년"} 을 근거로 리졸버가 2023년 7월로 좁혀도 통과한다. 사용자가 실제로 말한 해 안에서만 좁혀지므로 감수한다. 좁히기까지 막으려면 리졸버가 날짜
+     * 구간의 근거가 된 원문 조각과 그 해석 단위를 함께 내려줘야 한다 ({@code S15P21A501-101}).
+     */
+    private Period denotedPeriod(String text) {
+        Period numeric = numericPeriod(digitRuns(text));
+        if (numeric != null) {
+            return numeric;
+        }
+        for (String word : RELATIVE_PERIOD_WORDS) {
+            if (text.contains(word)) {
+                return relativePeriod(word);
+            }
+        }
+        return null;
+    }
+
+    /** {@code 2023} · {@code 2023년 7월} · {@code 2023-07-15} 처럼 숫자로 짚은 기간. */
+    private Period numericPeriod(List<String> runs) {
+        // 첫 덩어리가 네 자리여야 연도로 읽는다. "3명" 의 3 을 연도나 월로 읽지 않기 위한 문턱이다.
+        if (runs.isEmpty() || runs.getFirst().length() != 4 || runs.size() > 3) {
+            return null;
+        }
+        try {
+            int year = Integer.parseInt(runs.getFirst());
+            if (runs.size() == 1) {
+                return new Period(LocalDate.of(year, 1, 1), LocalDate.of(year + 1, 1, 1));
+            }
+            if (runs.get(1).length() > 2) {
+                return null;
+            }
+            LocalDate firstOfMonth = LocalDate.of(year, Integer.parseInt(runs.get(1)), 1);
+            if (runs.size() == 2) {
+                return new Period(firstOfMonth, firstOfMonth.plusMonths(1));
+            }
+            if (runs.get(2).length() > 2) {
+                return null;
+            }
+            LocalDate day = firstOfMonth.withDayOfMonth(Integer.parseInt(runs.get(2)));
+            return new Period(day, day.plusDays(1));
+        } catch (DateTimeException ex) {
+            // 13월·32일 같은 값이다. 기간으로 읽을 수 없으니 근거가 못 된다.
+            return null;
+        }
+    }
+
+    /** {@code "작년"} 처럼 오늘을 기준으로 풀어야 하는 기간. 리졸버가 푼 값을 믿지 않고 여기서 다시 센다. */
+    private Period relativePeriod(String word) {
+        LocalDate today = LocalDate.now(clock);
+        return switch (word) {
+            case "재작년" -> wholeYear(today.getYear() - 2);
+            case "작년", "지난해" -> wholeYear(today.getYear() - 1);
+            case "올해", "금년" -> wholeYear(today.getYear());
+            case "내년" -> wholeYear(today.getYear() + 1);
+            case "지난달" -> wholeMonth(today.withDayOfMonth(1).minusMonths(1));
+            case "이번달", "이달" -> wholeMonth(today.withDayOfMonth(1));
+            case "지난주" -> wholeWeek(today.minusWeeks(1));
+            case "이번주" -> wholeWeek(today);
+            case "그저께", "그제" -> new Period(today.minusDays(2), today.minusDays(1));
+            case "어제" -> new Period(today.minusDays(1), today);
+            case "오늘" -> new Period(today, today.plusDays(1));
+            default -> null;
+        };
+    }
+
+    private Period wholeYear(int year) {
+        return new Period(LocalDate.of(year, 1, 1), LocalDate.of(year + 1, 1, 1));
+    }
+
+    private Period wholeMonth(LocalDate firstOfMonth) {
+        return new Period(firstOfMonth, firstOfMonth.plusMonths(1));
+    }
+
+    private Period wholeWeek(LocalDate dayInWeek) {
+        LocalDate monday = dayInWeek.with(DayOfWeek.MONDAY);
+        return new Period(monday, monday.plusWeeks(1));
+    }
+
+    /** 문자열에서 이어진 숫자 덩어리를 순서대로 뽑는다. {@code "2023년 7월"} → {@code ["2023", "7"]}. */
+    private List<String> digitRuns(String text) {
+        List<String> runs = new ArrayList<>();
+        StringBuilder run = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char character = text.charAt(i);
+            if (Character.isDigit(character)) {
+                run.append(character);
+            } else if (!run.isEmpty()) {
+                runs.add(run.toString());
+                run.setLength(0);
+            }
+        }
+        if (!run.isEmpty()) {
+            runs.add(run.toString());
+        }
+        return runs;
     }
 
     /**

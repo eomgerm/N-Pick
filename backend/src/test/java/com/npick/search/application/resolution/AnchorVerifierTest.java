@@ -1,6 +1,9 @@
 package com.npick.search.application.resolution;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
@@ -36,7 +39,11 @@ class AnchorVerifierTest {
 
     private static final String RAW_QUERY = "2023년 태풍 힌남노 피해 현장";
 
-    private final AnchorVerifier verifier = new AnchorVerifier();
+    /** {@code "작년"} 같은 상대 표현이 테스트마다 달라지지 않게 고정한다. 이 시각 기준 작년은 2025년이다. */
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-09-14T09:00:00Z"), ZoneId.of("Asia/Seoul"));
+
+    private final AnchorVerifier verifier = new AnchorVerifier(FIXED_CLOCK);
 
     @Test
     @DisplayName("원문에 없는 값을 explicit_query 로 주장하면 inferred 로 강등한다")
@@ -247,6 +254,66 @@ class AnchorVerifierTest {
                                 Origin.EXPLICIT_QUERY,
                                 new QuerySpan(0, 5),
                                 0.8)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("숫자가 있어도 기간을 읽어낼 수 없으면 강등한다")
+    void demotesDateWindowAnchoredOnNonPeriodNumber() {
+        // "3명" 의 3 은 인원수다. 숫자가 있다는 것만으로는 날짜의 근거가 되지 않는다.
+        QueryResolutionResult result = verifier.verify(
+                "3명 구조 현장",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 2),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("원문이 가리키는 기간 밖의 구간은 강등한다")
+    void demotesDateWindowOutsideDenotedPeriod() {
+        // 사용자는 2024년이라 썼는데 리졸버가 2023년 구간을 붙였다.
+        QueryResolutionResult result = verifier.verify(
+                "2024년 태풍",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 5),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("연·월까지 짚은 구간은 그 달 안에 들면 유지한다")
+    void keepsWindowInsideDenotedMonth() {
+        QueryResolutionResult result = verifier.verify(
+                "2023년 7월 집중호우",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 7, 1),
+                                LocalDate.of(2023, 8, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 9),
+                                0.9)))));
 
         assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
         assertThat(result.findings()).isEmpty();
