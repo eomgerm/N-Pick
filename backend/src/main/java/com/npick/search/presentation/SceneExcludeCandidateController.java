@@ -1,15 +1,19 @@
 package com.npick.search.presentation;
 
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.npick.common.error.BusinessException;
@@ -18,6 +22,7 @@ import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.search.application.CreateSceneExcludeCandidateCommand;
 import com.npick.search.application.CreateSceneExcludeCandidateService;
+import com.npick.search.application.ParseCandidateOutcome;
 import com.npick.search.application.error.SceneExcludeCandidateErrorCode;
 import com.npick.search.presentation.response.SceneExcludeCandidateResponse;
 
@@ -28,6 +33,7 @@ import com.npick.search.presentation.response.SceneExcludeCandidateResponse;
  */
 @RestController
 @RequestMapping("/api/v1/review/inquiries")
+@Validated
 public class SceneExcludeCandidateController {
 
     private static final String REVIEWER_ROLE = "reviewer";
@@ -40,22 +46,25 @@ public class SceneExcludeCandidateController {
     }
 
     @PostMapping("/{feedbackId}/scene-exclude-candidate")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<SceneExcludeCandidateResponse> create(
+    public ResponseEntity<ApiResponse<SceneExcludeCandidateResponse>> create(
             @PathVariable long feedbackId,
             @RequestBody String rawBody,
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("Idempotency-Key") @NotBlank @Size(max = 64) String idempotencyKey,
             @LoginMember CurrentMember member) {
         JsonNode body = parse(rawBody);
         long targetSceneId = readSceneId(body.get("targetSceneId"));
 
-        long searchRuleId = service.create(new CreateSceneExcludeCandidateCommand(
+        ParseCandidateOutcome outcome = service.create(new CreateSceneExcludeCandidateCommand(
                 feedbackId,
                 member.memberId(),
                 REVIEWER_ROLE.equalsIgnoreCase(member.role()),
                 idempotencyKey,
                 targetSceneId));
-        return ApiResponse.success(SceneExcludeCandidateResponse.of(searchRuleId, feedbackId));
+
+        // 새로 만들면 201, 멱등 재생으로 기존 후보를 돌려주면 200.
+        HttpStatus status = outcome.created() ? HttpStatus.CREATED : HttpStatus.OK;
+        return ResponseEntity.status(status)
+                .body(ApiResponse.success(SceneExcludeCandidateResponse.of(outcome.searchRuleId(), feedbackId)));
     }
 
     /** 장면 ID 는 64bit 라 FE 가 문자열로 보낼 수 있다. 숫자·양의 정수 문자열 둘 다 받는다. */

@@ -65,10 +65,10 @@ class SceneExcludeCandidateLifecycleDbTest {
                         .header("Idempotency-Key", "rk-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"targetSceneId\":\"9301\"}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk()); // 멱등 재생은 201 이 아니라 200
 
-        Integer total = jdbc.queryForObject(
-                "SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901", Integer.class);
+        Integer total =
+                jdbc.queryForObject("SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901", Integer.class);
         assertThat(total).isEqualTo(1);
     }
 
@@ -86,8 +86,8 @@ class SceneExcludeCandidateLifecycleDbTest {
                         .content("{\"targetSceneId\":\"9302\"}"))
                 .andExpect(status().isBadRequest());
 
-        Integer count = jdbc.queryForObject(
-                "SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901", Integer.class);
+        Integer count =
+                jdbc.queryForObject("SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901", Integer.class);
         assertThat(count).isZero();
     }
 
