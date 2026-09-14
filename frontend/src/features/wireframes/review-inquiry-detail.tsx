@@ -28,15 +28,18 @@ import {
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
 import styles from '@/features/wireframes/reviewer.module.css';
+import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
 interface InquiryDetailProps {
   feedbackId: string;
+  theme: WireframeTheme;
 }
 
-export function InquiryDetail({ feedbackId }: InquiryDetailProps) {
+export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
   const member = useMember();
   const router = useRouter();
   const pathname = usePathname();
@@ -158,6 +161,7 @@ export function InquiryDetail({ feedbackId }: InquiryDetailProps) {
 
         <section className="rounded-2xl border border-(--line) p-5">
           <h2 className="font-bold">문의 장면</h2>
+          <ReviewInquiryPreview key={inquiry.feedbackId} inquiry={inquiry} theme={theme} />
           <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
             <div>
               <dt className="text-(--muted)">클립 / 장면 ID</dt>

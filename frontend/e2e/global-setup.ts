@@ -1,5 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer, type ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { searchFixture } from './search-fixture';
 
 const host = '127.0.0.1';
 const frontendPort = 3116;
@@ -16,8 +18,77 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
 }
 
 export default async function globalSetup() {
+  // Synthetic, silent 8-second MP4 recorded from a canvas (no external media).
+  const previewMedia = readFileSync('e2e/preview-fixture.mp4');
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', `http://${host}:${mockApiPort}`);
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, {
+        'access-control-allow-origin': frontendUrl,
+        'access-control-allow-credentials': 'true',
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'access-control-allow-headers': 'Content-Type, X-XSRF-TOKEN',
+      });
+      response.end();
+      return;
+    }
+    if (url.pathname === '/api/v1/auth/csrf') {
+      response.setHeader('set-cookie', 'XSRF-TOKEN=test-csrf; Path=/');
+      sendJson(response, 200, { isSuccess: true, code: 'COMM_200', message: '성공' });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/api/v1/search') {
+      if (
+        request.headers['x-xsrf-token'] !== 'test-csrf' ||
+        !request.headers.cookie?.includes('JSESSIONID=e2e-')
+      ) {
+        sendJson(response, 403, {
+          isSuccess: false,
+          code: 'COMM_403',
+          message: '인증을 확인해 주세요.',
+        });
+      } else {
+        sendJson(response, 200, {
+          isSuccess: true,
+          code: 'COMM_200',
+          message: '성공',
+          data: searchFixture,
+        });
+      }
+      return;
+    }
+
+    if (url.pathname === '/api/v1/media/21') {
+      if (!request.headers.cookie?.includes('JSESSIONID=e2e-')) {
+        sendJson(response, 401, {
+          isSuccess: false,
+          code: 'COMM_401',
+          message: '인증이 필요합니다.',
+        });
+        return;
+      }
+      const range = request.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
+      const start = range ? Number(range[1]) : 0;
+      const end = range?.[2]
+        ? Math.min(Number(range[2]), previewMedia.length - 1)
+        : previewMedia.length - 1;
+      if (start > end || start >= previewMedia.length) {
+        response.writeHead(416, { 'content-range': `bytes */${previewMedia.length}` });
+        response.end();
+        return;
+      }
+      response.writeHead(range ? 206 : 200, {
+        'access-control-allow-origin': frontendUrl,
+        'access-control-allow-credentials': 'true',
+        'content-type': 'video/mp4',
+        'accept-ranges': 'bytes',
+        'cache-control': 'private, no-store',
+        'content-length': end - start + 1,
+        ...(range ? { 'content-range': `bytes ${start}-${end}/${previewMedia.length}` } : {}),
+      });
+      response.end(previewMedia.subarray(start, end + 1));
+      return;
+    }
 
     if (request.method === 'GET' && url.pathname === '/api/v1/auth/me') {
       const isReviewer = request.headers.cookie?.includes('JSESSIONID=e2e-reviewer');

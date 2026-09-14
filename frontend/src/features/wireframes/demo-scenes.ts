@@ -9,10 +9,10 @@ export type InformationVerificationStatus = Extract<
 >;
 
 export interface SearchEvidenceMatch {
-  field: '화면 속 글자 (OCR)' | '장면 설명' | '대사';
+  field: '화면 속 글자 (OCR)' | '장면 설명' | '대사' | '태그';
   value: string;
   source: string;
-  status: EvidenceVerificationStatus;
+  status: EvidenceVerificationStatus | 'unknown';
 }
 
 const verificationStatusLabels: Record<VerificationStatus, string> = {
@@ -28,6 +28,9 @@ export function getVerificationStatusLabel(status: VerificationStatus) {
 }
 
 export interface SearchResult {
+  clipId?: string;
+  sceneId?: string;
+  additionalEvidence?: SearchEvidenceMatch[];
   id: number;
   searchResultId?: string | null;
   rank: number;

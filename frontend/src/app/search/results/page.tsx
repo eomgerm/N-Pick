@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
+import { SearchResults } from '@/features/wireframes/search-results';
 
-import { WireframeShell, type SearchScreenParams } from '@/features/wireframes/wireframe-shell';
+import type { SearchScreenParams } from '@/features/wireframes/wireframe-shell';
 import { SessionBoundary } from '@/components/session-boundary';
 import { requireMember } from '@/lib/auth/server';
 import { pageLocation } from '@/lib/auth/member';
@@ -20,12 +21,7 @@ export default async function SearchResultsPage({ searchParams }: SearchResultsP
 
   return (
     <SessionBoundary member={member}>
-      <WireframeShell
-        key={JSON.stringify(queryParams)}
-        initialQuery={queryParams.q}
-        initialParams={queryParams}
-        theme="shinhan"
-      />
+      <SearchResults key={JSON.stringify(queryParams)} params={queryParams} />
     </SessionBoundary>
   );
 }

@@ -5,15 +5,12 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Flag,
   LoaderCircle,
-  Pause,
   Play,
-  RotateCcw,
   X,
 } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
@@ -35,6 +32,7 @@ import { SearchResultNotices } from '@/features/wireframes/search-result-notices
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
+import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
 
 interface SceneDialogProps {
   children: ReactNode;
@@ -114,6 +112,8 @@ type ScenePreviewResult = Pick<
   Partial<
     Pick<
       SearchResult,
+      | 'additionalEvidence'
+      | 'clipId'
       | 'clip'
       | 'searchResultId'
       | 'totalSeconds'
@@ -142,7 +142,6 @@ interface ScenePreviewDialogProps {
   autoPlay?: boolean;
   searchExecution?: SearchExecutionPresentation;
   onClose: () => void;
-  keepLoading?: boolean;
 }
 
 export function ScenePreviewDialog({
@@ -153,10 +152,9 @@ export function ScenePreviewDialog({
   isSubmitting = false,
   onInquiry,
   onClose,
-  keepLoading = false,
   contextLabel,
   notice,
-  autoPlay = false,
+  autoPlay = true,
   searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
@@ -166,22 +164,12 @@ export function ScenePreviewDialog({
   const evidenceValue = result.matchEvidence?.value ?? result.evidence;
   const evidenceSource = result.matchEvidence?.source ?? result.source;
   const selectedSceneIndex = scenes?.findIndex((scene) => scene.id === result.id) ?? -1;
-  const [loadedSceneId, setLoadedSceneId] = useState<string | number | null>(null);
-  const isLoading = keepLoading || loadedSceneId !== result.id;
-  const [isPlaying, setIsPlaying] = useState(autoPlay);
-  const [replayCount, setReplayCount] = useState(0);
   const sceneListRef = useRef<HTMLOListElement>(null);
   const inquiryUnavailableReasonId = useId();
   const hasSavedResult =
     typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
   const isInquiryUnavailable =
     !isSubmitted && (!hasSavedResult || !canCreateInquiry(searchExecution));
-  useEffect(() => {
-    if (keepLoading) return;
-    // 미디어 API 연결 전, 로딩 → 준비 화면 전환을 보여 주는 데모입니다.
-    const timer = window.setTimeout(() => setLoadedSceneId(result.id), 1000);
-    return () => window.clearTimeout(timer);
-  }, [keepLoading, result.id]);
   useEffect(() => {
     const list = sceneListRef.current;
     const selected = list?.querySelector<HTMLElement>('[aria-current="true"]');
@@ -194,26 +182,9 @@ export function ScenePreviewDialog({
       list.scrollTop += selectedBounds.bottom - listBounds.bottom;
     }
   }, [result.id]);
-  const previewTimelineStyle = {
-    '--scene-start': result.totalSeconds
-      ? `${(result.sceneStart / result.totalSeconds) * 100}%`
-      : '0%',
-    '--scene-width': result.totalSeconds
-      ? `${((result.sceneEnd - result.sceneStart) / result.totalSeconds) * 100}%`
-      : '100%',
-  } as CSSProperties;
-
-  function handleReplay() {
-    setReplayCount((current) => current + 1);
-    setIsPlaying(true);
-  }
-
   function handleSceneSelect(scene: ScenePreviewResult) {
     if (scene.id === result.id) return;
     setSelectedSceneId(scene.id);
-    setLoadedSceneId(null);
-    setIsPlaying(autoPlay);
-    setReplayCount(0);
   }
 
   return (
@@ -289,102 +260,14 @@ export function ScenePreviewDialog({
 
       <div className={styles.previewModalBody}>
         <div className={styles.previewPlayer}>
-          {isLoading ? (
-            <div aria-busy="true" className={shinhanStyles.previewLoading} role="status">
-              <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-              <strong>장면을 불러오고 있어요</strong>
-              <p>
-                {formatTimestamp(result.sceneStart)}부터 시작하는 영상을 준비하고 있어요.
-                <br />
-                잠시만 기다려 주세요.
-              </p>
-            </div>
-          ) : (
-            <div
-              aria-label={result.imageLabel}
-              className={`${styles.previewMedia} ${result.imageClass}`}
-              key={`media-${result.id}-${replayCount}`}
-              role="group"
-            >
-              <button
-                aria-label={isPlaying ? '일시정지' : '재생'}
-                className={styles.previewPlay}
-                onClick={() => setIsPlaying((current) => !current)}
-                title={isPlaying ? '일시정지' : '재생'}
-                type="button"
-              >
-                {isPlaying ? (
-                  <Pause aria-hidden="true" fill="currentColor" />
-                ) : (
-                  <Play aria-hidden="true" fill="currentColor" />
-                )}
-              </button>
-              <span className={styles.playingBadge} data-playing={isPlaying}>
-                <span aria-hidden="true" /> {isPlaying ? '재생 중' : '일시 정지'}
-              </span>
-            </div>
-          )}
-          {!notice ? (
-            <p className={shinhanStyles.previewNote}>
-              화면 미리보기용 영상 상태입니다. 실제 영상 재생은 연결 전이에요.
-            </p>
-          ) : null}
-
-          <div
-            aria-label={`${result.totalDuration ? `전체 ${result.totalDuration} 중 ` : ''}${formatTimestamp(
-              result.sceneStart,
-            )}부터 ${formatTimestamp(result.sceneEnd)}까지 재생 구간`}
-            className={`${styles.timelinePanel} ${isPlaying && !isLoading ? styles.timelinePlaying : ''}`}
-            key={`timeline-${result.id}-${replayCount}`}
-            style={previewTimelineStyle}
-          >
-            <div className={styles.timelineHeading}>
-              <strong>{result.totalSeconds ? '전체 영상' : '문의한 영상 구간'}</strong>
-              <span>
-                선택 구간 <b>{result.duration}</b>
-              </span>
-            </div>
-            {result.totalSeconds ? (
-              <div className={styles.timelineTrack}>
-                <span className={styles.sceneRange}>
-                  <span className={styles.sceneProgress} />
-                  <span className={styles.timelinePlayhead} />
-                </span>
-              </div>
-            ) : null}
-            {result.totalDuration ? (
-              <div className={styles.timelineLabels}>
-                <span>00:00</span>
-                <span>{result.totalDuration}</span>
-              </div>
-            ) : null}
-            <div className={styles.sceneBounds}>
-              <span>IN {formatTimestamp(result.sceneStart)}</span>
-              <span>OUT {formatTimestamp(result.sceneEnd)}</span>
-            </div>
-          </div>
-
-          <div className={`${styles.previewControls} ${shinhanStyles.playbackControls}`}>
-            <div className={styles.previewControlButtons}>
-              <button
-                className={styles.playbackButton}
-                disabled={isLoading}
-                onClick={() => setIsPlaying((current) => !current)}
-                type="button"
-              >
-                {isPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                {isPlaying ? '일시정지' : '재생'}
-              </button>
-              <button disabled={isLoading} onClick={handleReplay} type="button">
-                <RotateCcw aria-hidden="true" /> 구간 다시 재생
-              </button>
-            </div>
-            {result.totalDuration ? (
-              <span>
-                <Clock3 aria-hidden="true" /> 원본 {result.totalDuration}
-              </span>
-            ) : null}
-          </div>
+          <ScenePreviewPlayer
+            key={`${result.id}:${result.clipId ?? ''}`}
+            clipId={result.clipId}
+            sceneStart={result.sceneStart}
+            sceneEnd={result.sceneEnd}
+            title={result.title}
+            autoPlay={autoPlay}
+          />
         </div>
 
         <div className={styles.previewSidebar}>
@@ -487,6 +370,16 @@ export function ScenePreviewDialog({
               <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
           </div>
+          {result.additionalEvidence?.map((evidence, index) => (
+            <div className={styles.previewEvidence} key={index}>
+              <strong>
+                {evidence.field} · {evidence.value}
+              </strong>
+              <p>
+                {evidence.source} · {getVerificationStatusLabel(evidence.status)}
+              </p>
+            </div>
+          ))}
           <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
       </div>

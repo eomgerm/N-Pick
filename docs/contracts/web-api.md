@@ -21,7 +21,7 @@
 | 로그아웃                   | POST   | `/auth/logout`                              | 연결됨    | 없음                                |
 | 영상 등록                  | POST   | `/clips`                                    | 연결됨    | 없음                                |
 | 장면 검색                  | POST   | `/search`                                   | 계약 확정 | 실제 호출·화면 바인딩               |
-| 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | Preview 바인딩                      |
+| 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | 공통 플레이어·문의 상세·검색 카드 연결 |
 | 문의 접수                  | POST   | `/search/results/{resultId}/inquiries`      | BE 구현   | 문의 생성 바인딩                    |
 | 문의 설명 수정             | PATCH  | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 문의 기록 바인딩과 함께 연결 |
 | 검수 문의 목록             | GET    | `/review/inquiries`                         | BE 구현   | 검수 게시판 바인딩                  |
@@ -456,7 +456,7 @@ body는 생략하거나 다음처럼 보낸다.
 | 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination   | `search-history.tsx` 고정 5건 |
 | 3        | 편집자 문의 기록 목록·상세           | 본인 문의만 조회, `OPEN/REVIEWING/CLOSED`와 처리 결과·설명·장면·원 검색 연결                   | 고정 문의와 memory 추가       |
 | 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
-| 5        | 영상 재생                            | §6.1 byte Range API를 Preview에 연결, 장면 시작 위치와 오류 처리                               | 준비 화면 demo                |
+| 5        | 영상 재생                            | §6.1 공통 Preview·문의 상세·검색 결과 clipId 바인딩 완료                               | 배포 BE endpoint 확인 필요      |
 | 6        | 검수 문의 목록·상세·claim·resolution | §6.3~6.4 응답을 검수 화면 모델로 mapping                                                       | 23건 고정 문의                |
 | 7        | 영상 처리 목록 FE 연결               | §6.5 상태 필터·진행 요약·전체 상태 건수·pagination을 화면에 연결                             | 고정 진행·완료 영상           |
 | 8        | 영상 처리 상세·polling               | §6.5 처리 기록을 연결하고 terminal 상태에서 polling 종료. 장면 목록은 별도 조회 계약 필요      | 등록 응답을 memory로 합성     |

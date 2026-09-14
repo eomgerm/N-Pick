@@ -1,4 +1,4 @@
-/** UI 입력 모델. 서버 필드명·사유 코드는 167의 adapter에서 변환한다. */
+/** UI 입력 모델. 서버 필드명·사유 코드는 검색 adapter에서 변환한다. */
 export interface SearchResultDetails {
   resolverStatus?: 'succeeded' | 'fallback' | 'unknown';
   excludedCount?: number | null;

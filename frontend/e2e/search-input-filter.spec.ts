@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { searchFixture } from './search-fixture';
 
 async function openAsEditor(page: Page, path: string) {
   await page.context().addCookies([
@@ -20,17 +21,36 @@ async function applyDateRange(page: Page, label: string, from: string, to: strin
   await expect(dialog).not.toBeVisible();
 }
 
-test('저장 ID가 없는 데모 Preview는 실제 문의 요청을 보내지 않는다', async ({ page }) => {
+test('저장에 실패한 검색 결과 Preview는 문의 요청을 보내지 않는다', async ({ page }) => {
   const inquiryRequests: string[] = [];
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().includes('/inquiries')) {
       inquiryRequests.push(request.url());
     }
   });
-  await openAsEditor(page, '/search/results?preview=loading');
+  await page.route('**/api/v1/search', (route) =>
+    route.fulfill({
+      json: {
+        isSuccess: true,
+        code: 'COMM_200',
+        message: '성공',
+        data: {
+          ...searchFixture,
+          search_execution_id: null,
+          status: 'degraded',
+          degraded_reasons: ['snapshot_save_failed'],
+          results: searchFixture.results.map((result) => ({ ...result, search_result_id: null })),
+        },
+      },
+    }),
+  );
+  await openAsEditor(page, '/search/results?q=장면');
+  await page.getByRole('button', { name: '1위 실제 응답 장면 Preview 열기' }).click();
   const preview = page.getByRole('dialog');
   await expect(preview.getByRole('button', { name: '문의 불가' })).toBeDisabled();
-  await expect(preview.getByText('저장된 검색 결과가 아니므로 문의할 수 없습니다.')).toBeVisible();
+  await expect(
+    preview.getByText('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'),
+  ).toBeVisible();
   expect(inquiryRequests).toEqual([]);
 });
 
@@ -84,11 +104,12 @@ test('빈 검색어와 날짜 입력 Enter는 검색을 시작하지 않는다',
   await expect(page).toHaveURL(/\/search$/);
 });
 
-test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번만 처리한다', async ({ page }) => {
+test('결과 재검색은 동일 조건도 새 실행을 만들고 연속 제출을 한 번만 처리한다', async ({
+  page,
+}) => {
   await openAsEditor(page, `/search/results?q=${encodeURIComponent('기존 검색')}`);
-  await expect(page.getByRole('button', { name: /1위 설 연휴 첫날/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /1위 실제 응답 장면/ })).toBeVisible();
 
-  let existingSearchRequestCount = 0;
   let newSearchRequestCount = 0;
   let notifyRequest = () => {};
   const requestIntercepted = new Promise<void>((resolve) => {
@@ -99,11 +120,6 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
   await page.route('**/search/results**', async (route) => {
     const url = new URL(route.request().url());
     const requestedQuery = url.searchParams.get('q');
-    if (requestedQuery === '기존 검색') {
-      existingSearchRequestCount += 1;
-      await route.continue();
-      return;
-    }
     if (requestedQuery !== '새 검색') {
       await route.continue();
       return;
@@ -118,10 +134,33 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
   const searchForm = query.locator('xpath=ancestor::form');
   const submit = searchForm.getByRole('button');
 
-  await submit.click();
+  let repeatedSearchRequestCount = 0;
+  let notifyRepeatedSearch = () => {};
+  const repeatedSearchIntercepted = new Promise<void>((resolve) => {
+    notifyRepeatedSearch = resolve;
+  });
+  const repeatedSearchRoutes: Route[] = [];
+  await page.route('**/api/v1/search', (route) => {
+    repeatedSearchRequestCount += 1;
+    repeatedSearchRoutes.push(route);
+    notifyRepeatedSearch();
+  });
+
+  await submit.evaluate((button: HTMLButtonElement) => {
+    button.click();
+    button.click();
+  });
+  await repeatedSearchIntercepted;
   await page.waitForTimeout(100);
-  expect(existingSearchRequestCount).toBe(0);
-  await expect(page.getByRole('heading', { name: '관련 장면 10개' })).toBeVisible();
+  expect(repeatedSearchRequestCount).toBe(1);
+  await expect(submit).toBeDisabled();
+  await expect(page.getByRole('heading', { name: '검색 중', exact: true })).toBeVisible();
+
+  const [repeatedSearchRoute] = repeatedSearchRoutes.splice(0, 1);
+  if (!repeatedSearchRoute) throw new Error('Expected one repeated search request.');
+  await repeatedSearchRoute.continue();
+  await page.unroute('**/api/v1/search');
+  await expect(page.getByRole('heading', { name: '관련 장면 1개' })).toBeVisible();
 
   await query.fill('새 검색');
   try {
@@ -135,14 +174,15 @@ test('결과 재검색은 동일 조건을 무시하고 연속 제출을 한 번
     expect(newSearchRequestCount).toBe(1);
     await expect(submit).toBeDisabled();
     await expect(page.getByRole('heading', { name: '검색 중', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /1위 설 연휴 첫날/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /1위 실제 응답 장면/ })).toHaveCount(0);
 
     const [blockedRoute] = blockedRoutes.splice(0, 1);
     if (!blockedRoute) throw new Error('Expected one blocked search request.');
     await blockedRoute.continue();
     await expect(page).toHaveURL((url) => url.searchParams.get('q') === '새 검색');
-    await expect(page.getByRole('heading', { name: '관련 장면 10개' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '관련 장면 1개' })).toBeVisible();
   } finally {
+    await Promise.all(repeatedSearchRoutes.map((route) => route.abort().catch(() => {})));
     await Promise.all(blockedRoutes.map((route) => route.abort().catch(() => {})));
   }
 });
