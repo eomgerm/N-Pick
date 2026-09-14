@@ -227,3 +227,38 @@ async def test_mapping_validation_is_scoped_to_vlm(
     else:
         assert await resolve_transcripts(job, MediaResolver(None, job_client)) == {}
     assert not fake_backend.calls("artifact_get")
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_mapping_ignores_nested_extensions_but_validates_known_fields(invalid: bool) -> None:
+    from copy import deepcopy
+
+    from pydantic import ValidationError
+
+    from npick_worker.jobs.transcripts import SceneTranscriptMappingOutput
+
+    upstream, documents = sample()
+    mapping = deepcopy(upstream["scene_transcript_mapping"])
+    for obj in [
+        mapping,
+        mapping["transcript"],
+        mapping["transcript"]["segmentsArtifact"],
+        mapping["transcript"]["decisionsArtifact"],
+        mapping["scenes"][0],
+        mapping["scenes"][0]["segments"][0],
+    ]:
+        obj["futureField"] = {"extra": True}
+    upstream["scene_transcript_mapping"] = mapping
+    with pytest.raises(ValidationError):
+        SceneTranscriptMappingOutput.model_validate(mapping)
+    if invalid:
+        mapping["scenes"][0]["segments"][0]["overlapMs"] = 0
+        with pytest.raises(UpstreamOutputInvalidError):
+            attach_mapped_transcripts(frames(), upstream, documents)
+    else:
+        refs = transcript_refs(upstream, stage="vlm_metadata")
+        assert (
+            refs[0].model_dump(by_alias=True) == documents[refs[1].storage_key]["segmentsArtifact"]
+        )
+        result = attach_mapped_transcripts(frames(), upstream, documents)
+        assert result[0].transcripts[0].t == "부산 축제 소개"

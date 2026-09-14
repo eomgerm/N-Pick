@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import Field, StrictBool, StrictInt, model_validator
 
-from npick_worker.jobs.models import ArtifactRef
+from npick_worker.jobs.models import ArtifactRef, WireResponse
 from npick_worker.jobs.versions import WireModel
 
 
@@ -95,6 +95,38 @@ class SceneTranscriptMappingOutput(WireModel):
         return self
 
 
+class UpstreamTranscriptArtifact(ArtifactRef):
+    model_config = WireResponse.model_config
+
+
+class UpstreamTranscriptSnapshot(WireResponse):
+    segments_artifact: UpstreamTranscriptArtifact
+    decisions_artifact: UpstreamTranscriptArtifact
+
+
+class UpstreamMappedSegment(WireResponse):
+    segment_id: str
+    overlap_ms: StrictInt
+
+
+class UpstreamSceneTranscriptLinks(WireResponse):
+    scene_index: StrictInt
+    segments: list[UpstreamMappedSegment]
+
+
+class UpstreamSceneTranscriptMapping(WireResponse):
+    """상류 추가 필드를 제거한 뒤 기존 출력 계약으로 값과 참조를 검증한다."""
+
+    transcript: UpstreamTranscriptSnapshot
+    scenes: list[UpstreamSceneTranscriptLinks]
+
+
+def parse_scene_transcript_mapping(value: Any) -> SceneTranscriptMappingOutput:
+    received = UpstreamSceneTranscriptMapping.model_validate(value)
+    # dict 재검증으로 ArtifactRef 정본 타입을 복원해 snapshot 동등성 검사를 유지한다.
+    return SceneTranscriptMappingOutput.model_validate(received.model_dump(by_alias=True))
+
+
 def validate_snapshot(
     segments_ref: ArtifactRef,
     segments: TranscriptSegments,
@@ -133,7 +165,7 @@ def transcript_refs(
 ) -> tuple[ArtifactRef, ...]:
     # 상위 transcript 별칭이 이전 snapshot이어도 최종 매핑의 참조가 정본이다.
     if stage == "vlm_metadata" and "scene_transcript_mapping" in upstream:
-        mapping = SceneTranscriptMappingOutput.model_validate(upstream["scene_transcript_mapping"])
+        mapping = parse_scene_transcript_mapping(upstream["scene_transcript_mapping"])
         return (mapping.transcript.segments_artifact, mapping.transcript.decisions_artifact)
     transcript = upstream.get("transcript")
     if transcript is None:

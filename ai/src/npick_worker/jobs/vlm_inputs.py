@@ -6,9 +6,9 @@ from typing import Any
 
 from npick_worker.jobs.errors import UpstreamOutputInvalidError
 from npick_worker.jobs.transcripts import (
-    SceneTranscriptMappingOutput,
     TranscriptDecisions,
     TranscriptSegments,
+    parse_scene_transcript_mapping,
     validate_snapshot,
 )
 from npick_worker.vlm_metadata.grounding import TranscriptRef, TranscriptText
@@ -23,7 +23,7 @@ def attach_mapped_transcripts(
     if "scene_transcript_mapping" not in upstream:
         return tuple(scenes)
     try:
-        mapping = SceneTranscriptMappingOutput.model_validate(upstream["scene_transcript_mapping"])
+        mapping = parse_scene_transcript_mapping(upstream["scene_transcript_mapping"])
         snapshot = mapping.transcript
         segments = TranscriptSegments.model_validate(
             documents[snapshot.segments_artifact.storage_key]
