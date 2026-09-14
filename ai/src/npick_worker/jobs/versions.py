@@ -97,6 +97,8 @@ def stage_version(stage: str, reproducibility: Mapping[str, Any]) -> str:
 
 def output_schema_version(stage: str) -> str:
     """단계 산출물 payload 의 schema 문자열."""
+    if stage == "ocr":
+        return "npick.stage.ocr.output/v2"
     return OUTPUT_SCHEMA.format(stage=stage)
 
 

@@ -37,6 +37,9 @@ samples/*
 # ground truth 는 사람이 화면을 보고 적은 라벨이라 영상이 아니다. 이것이 없으면
 # docs/ocr.md 의 재현율·임계값 표를 아무도 다시 잴 수 없다.
 !samples/ocr-ground-truth.*.json
+# 병합 평가 도구와 원문 없는 관측 인덱스 라벨. OCR 원본 출력은 계속 로컬에 둔다.
+!samples/evaluate_ocr_merge.py
+!samples/ocr-merge-labels.*.json
 
 ### 평가 하네스 로컬 산출물 (eval/, S15P21A501-175) ###
 # MLflow 로컬 백엔드. 팀 트래킹 서버(EC2 의 /mlflow)를 쓰면 생기지 않는다.

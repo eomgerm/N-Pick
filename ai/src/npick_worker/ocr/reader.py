@@ -6,6 +6,7 @@ from pathlib import Path
 from npick_worker import korean_tokens
 from npick_worker.ocr.config import OcrConfig, get_default_config
 from npick_worker.ocr.engine import OcrEngine
+from npick_worker.ocr.merge import OcrMergeConfig, get_merge_config
 from npick_worker.ocr.models import KeyframeObservations, KeyframeRef, OcrResult
 from npick_worker.ocr.postprocess import to_observations
 
@@ -16,6 +17,7 @@ def read_keyframes(
     *,
     engine: OcrEngine | None = None,
     config: OcrConfig | None = None,
+    merge_config: OcrMergeConfig | None = None,
 ) -> OcrResult:
     """keyframe 마다 화면 글자를 읽는다.
 
@@ -56,6 +58,7 @@ def read_keyframes(
         engine_version=ocr_engine.version,
         tokenizer=korean_tokens.tokenizer_version(),
         min_confidence=settings.min_confidence,
+        merge_config=merge_config if merge_config is not None else get_merge_config(),
     )
 
 

@@ -281,7 +281,7 @@ def test_result_counts_distinguish_observations_from_phrases(tmp_path: Path) -> 
     result = read_keyframes(keyframes, paths, engine=engine)
 
     assert result.observation_count == 3
-    # 문구는 둘이다. 관측 셋이 그대로 남아 있고 묶을 수 있을 뿐이다.
+    # 문구 그룹은 둘이다. 관측 셋은 원본으로 그대로 남는다.
     assert result.text_group_count == 2
     assert result.unverified_count == 1
 

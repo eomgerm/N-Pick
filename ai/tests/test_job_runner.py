@@ -1129,6 +1129,66 @@ def _ocr_job(**overrides: object) -> dict[str, object]:
 KEYFRAME_KEY = f"runs/{RUN_ID}/frame_extraction/a1/s0000/kf-000004200.jpg"
 
 
+@pytest.mark.asyncio
+async def test_ocr_v2_uploads_replayable_result_before_complete(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """실제 OCR 핸들러·러너의 JSON 보존 경로. 엔진과 BE만 fake다."""
+    import npick_worker.ocr as ocr_module
+    from npick_worker.jobs.models import OcrOutput
+    from npick_worker.ocr import KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    def fake_read(*args: object, **kwargs: object) -> OcrResult:
+        return OcrResult(
+            keyframes=(
+                to_observations(
+                    KeyframeRef(0, 4200, KEYFRAME_KEY),
+                    [
+                        TextDetection(
+                            "  원문 보존  ", 0.5, ((0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0))
+                        )
+                    ],
+                    min_confidence=0.7,
+                ),
+            ),
+            config_version="ocr/v1:test",
+            engine="fake",
+            engine_version="1",
+            tokenizer="fake/v1",
+            min_confidence=0.7,
+        )
+
+    monkeypatch.setattr(ocr_module, "read_keyframes", fake_read)
+    image = media_root / KEYFRAME_KEY
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(JPEG_MAGIC)
+    fake_backend.enqueue_claim(_ocr_job())
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["status"] == "succeeded"
+    uploads = fake_backend.calls("artifact_put")
+    assert len(uploads) == 1
+    saved = uploads[0].content
+    document = json.loads(saved)
+    assert document["output"] == body["output"]
+    assert document["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+    assert body["artifacts"][0]["contentHash"] == hashlib.sha256(saved).hexdigest()
+    assert body["artifacts"][0]["byteSize"] == len(saved)
+    assert body["artifacts"][0]["kind"] == "ocr_result"
+    assert uploads[0].headers["content-type"] == "application/json"
+    output = OcrOutput.model_validate(document["output"])
+    original = output.observations[output.text_groups[0].representative_index]
+    assert original.raw_text == "  원문 보존  "
+    assert original.unverified
+    routes = [FakeBackend._route(request) for request in fake_backend.requests]
+    assert routes.index("artifact_put") < routes.index("complete")
+
+
 def _recording_handler(
     seen: dict[str, Path], contents: dict[str, bytes] | None = None
 ) -> StageHandler:

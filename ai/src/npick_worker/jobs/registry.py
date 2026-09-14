@@ -9,6 +9,8 @@
 실행이 아니라 run 전체의 정책이라 BE 의 몫이다.
 """
 
+import hashlib
+import json
 import logging
 import platform
 from collections.abc import Callable, Iterable, Mapping
@@ -386,10 +388,38 @@ def _run_ocr(ctx: StageContext) -> StageOutcome:
         engine=result.engine,
         engine_version=result.engine_version,
         tokenizer=result.tokenizer,
+        merge_version=result.merge_config.version_id,
     )
     detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    output = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
+    # 관측 배열과 그룹 참조를 한 문서에 보존한다. DB ID로 해석하거나 배열만 정렬하면 안 된다.
+    artifact_bytes = json.dumps(
+        {
+            "outputSchemaVersion": output_schema_version(ctx.stage),
+            "identity": identity,
+            "output": output,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    artifact_path = ctx.work_dir / "ocr-result.json"
+    artifact_path.write_bytes(artifact_bytes)
     return StageOutcome(
-        output=OcrOutput.from_result(result).model_dump(by_alias=True, mode="json"),
+        output=output,
+        uploads=(
+            PendingUpload(
+                ref=ArtifactRef(
+                    kind="ocr_result",
+                    storage_key=_output_key(ctx.output_key_prefix, "ocr-result.json"),
+                    byte_size=len(artifact_bytes),
+                    content_hash=hashlib.sha256(artifact_bytes).hexdigest(),
+                ),
+                local_path=artifact_path,
+                content_type="application/json",
+            ),
+        ),
         versions=StageVersion(
             stage_version=stage_version(ctx.stage, identity),
             output_schema_version=output_schema_version(ctx.stage),
@@ -406,8 +436,7 @@ def _run_ocr(ctx: StageContext) -> StageOutcome:
             # 임계값 미달로 unverified 가 된 수. 이 비율이 튀면 그 클립의 화면 글자
             # 품질이나 임계값을 사람이 한 번 봐야 한다는 신호다.
             "unverifiedObservations": result.unverified_count,
-            # 서로 다른 문구의 수. 관측 수보다 작으면 프레임 사이에 같은 문구가 있다.
-            # **합치지 않았다는 뜻이기도 하다** — 관측은 전부 남아 있다.
+            # 독립 관측을 포함한 scene별 병합 그룹 수. 원본 관측 수는 줄이지 않는다.
             "textGroups": result.text_group_count,
             "minConfidence": result.min_confidence,
         },
@@ -415,20 +444,30 @@ def _run_ocr(ctx: StageContext) -> StageOutcome:
 
 
 def _ocr_identity(
-    *, config_version: str, engine: str, engine_version: str, tokenizer: str
+    *,
+    config_version: str,
+    engine: str,
+    engine_version: str,
+    tokenizer: str,
+    merge_version: str | None = None,
 ) -> dict[str, str]:
     """ocr 의 재현 튜플.
 
-    앞의 두 단계와 달리 축이 넷이다. `tokenizer` 가 있는 이유는 `ocr_observation.tokens`
+    병합 설정을 포함해 축이 다섯이다. `tokenizer` 가 있는 이유는 `ocr_observation.tokens`
     가 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면 화면에서 읽은 글자가 같아도
     색인이 달라진다. 검색이 0 건이 되는 종류의 변화라 재현 식별자에 들어가야 한다
     (`docs/architecture/02-container.md:110`).
     """
+    from npick_worker.ocr.merge import get_merge_config
+
     return {
         "configVersion": config_version,
         "engine": engine,
         "engineVersion": engine_version,
         "tokenizer": tokenizer,
+        "mergeConfigVersion": merge_version
+        if merge_version is not None
+        else get_merge_config().version_id,
     }
 
 
