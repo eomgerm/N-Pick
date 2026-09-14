@@ -100,13 +100,46 @@ test('실패 후 수동 재시도는 같은 body와 Idempotency-Key를 다시 �
   assert.equal(retryInit.headers.get('idempotency-key'), 'retry-key');
 });
 
+for (const [status, normalizedStatus] of [
+  ['REVIEWING', 'reviewing'],
+  ['CLOSED', 'closed'],
+]) {
+  test(`응답 유실 후 재시도는 기존 문의의 ${status} 상태를 성공으로 보존한다`, async (context) => {
+    let attempt = 0;
+    const fetch = context.mock.method(globalThis, 'fetch', async () => {
+      if (++attempt === 1) throw new TypeError('response lost after submission');
+      return Response.json({
+        isSuccess: true,
+        code: 'COMM_200',
+        message: '요청에 성공했습니다.',
+        data: { feedbackId: '9223372036854775807', status },
+      });
+    });
+    const submission = createInquirySubmission('987', '같은 설명', () => 'retry-key');
+
+    await assert.rejects(
+      () => submitInquiry(submission),
+      (error) => error instanceof ApiClientError && error.kind === 'network',
+    );
+    assert.deepEqual(await submitInquiry(submission), {
+      inquiryId: '9223372036854775807',
+      status: normalizedStatus,
+    });
+    assert.equal(fetch.mock.callCount(), 2);
+    const [first, retry] = fetch.mock.calls.map(({ arguments: [, init] }) => init);
+    assert.equal(first.body, retry.body);
+    assert.equal(first.headers.get('idempotency-key'), 'retry-key');
+    assert.equal(retry.headers.get('idempotency-key'), 'retry-key');
+  });
+}
+
 test('문의 대상 ID는 양의 10진 문자열만 허용한다', () => {
   for (const resultId of ['', '0', '-1', '1.5', ' 1', '1/other']) {
     assert.throws(() => createInquirySubmission(resultId, '', () => 'key'), TypeError);
   }
 });
 
-test('성공 응답은 유효한 feedbackId와 OPEN 상태를 모두 요구한다', () => {
+test('성공 응답은 유효한 feedbackId와 알려진 문의 상태를 모두 요구한다', () => {
   assert.deepEqual(parseInquiryResponse({ feedbackId: '9223372036854775807', status: 'OPEN' }), {
     inquiryId: '9223372036854775807',
     status: 'open',
@@ -119,7 +152,14 @@ test('성공 응답은 유효한 feedbackId와 OPEN 상태를 모두 요구한�
     { feedbackId: -1, status: 'OPEN' },
     { feedbackId: '1.5', status: 'OPEN' },
     { feedbackId: Number.MAX_SAFE_INTEGER + 1, status: 'OPEN' },
-    { feedbackId: '1', status: 'CLOSED' },
+    { feedbackId: '1', status: 'UNKNOWN' },
+    { feedbackId: '1', status: 'open' },
+    { feedbackId: '1', status: null },
+    { feedbackId: '1' },
+    { feedbackId: '1', status: {} },
+    { feedbackId: '1', status: ['OPEN'] },
+    { feedbackId: '0', status: 'REVIEWING' },
+    { feedbackId: Number.MAX_SAFE_INTEGER + 1, status: 'CLOSED' },
   ]) {
     assert.throws(() => parseInquiryResponse(response), ApiClientError);
   }

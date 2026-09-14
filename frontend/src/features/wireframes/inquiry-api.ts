@@ -1,3 +1,4 @@
+import type { InquiryStatus } from '@/features/wireframes/inquiry-state';
 import { ApiClientError, fetchJson } from '@/lib/api/client';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -13,7 +14,7 @@ export interface InquirySubmission {
 
 export interface InquirySubmissionResult {
   inquiryId: string;
-  status: 'open';
+  status: InquiryStatus;
 }
 
 function normalizeResultId(resultId: string): string {
@@ -67,11 +68,20 @@ export function parseInquiryResponse(value: unknown): InquirySubmissionResult {
         ? String(payload.feedbackId)
         : undefined;
 
-  if (inquiryId === undefined || !/^[1-9]\d*$/.test(inquiryId) || payload.status !== 'OPEN') {
+  const status =
+    payload.status === 'OPEN'
+      ? 'open'
+      : payload.status === 'REVIEWING'
+        ? 'reviewing'
+        : payload.status === 'CLOSED'
+          ? 'closed'
+          : undefined;
+
+  if (inquiryId === undefined || !/^[1-9]\d*$/.test(inquiryId) || status === undefined) {
     throw new ApiClientError('invalid-response', 200);
   }
 
-  return { inquiryId, status: 'open' };
+  return { inquiryId, status };
 }
 
 export async function submitInquiry(

@@ -19,6 +19,7 @@ import {
   submitInquiry,
   type InquirySubmission,
 } from '@/features/wireframes/inquiry-api';
+import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
@@ -198,7 +199,7 @@ export function WireframeShell({
         current.includes(inquiryResultId) ? current : [...current, inquiryResultId],
       );
       setInquirySuccessNotice(
-        `문의 #${response.inquiryId}가 접수되었습니다. 검수 후 반영되며 현재 검색 결과는 즉시 변경되지 않습니다.`,
+        `문의 #${response.inquiryId}의 접수가 확인되었습니다. 현재 상태: ${inquiryStatusLabels[response.status]}. 문의 접수 자체로 검색 결과는 변경되지 않습니다.`,
       );
       setInquirySubmission(null);
       setInquiryResultId(null);
