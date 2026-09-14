@@ -11,8 +11,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.npick.search.application.error.QueryResolverErrorCode;
 import com.npick.search.application.port.AnchorFinding;
 import com.npick.search.application.port.QueryNormalization;
-import com.npick.search.application.port.QueryResolution;
 import com.npick.search.application.port.QueryResolutionResult;
+import com.npick.search.domain.model.QueryResolution;
 
 /**
  * 질의 리졸버 응답 본문. 리졸버 모듈의 {@code ResolutionResult} 계약을 그대로 받는다.

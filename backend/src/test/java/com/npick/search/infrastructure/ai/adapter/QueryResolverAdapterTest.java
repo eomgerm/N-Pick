@@ -17,8 +17,8 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.QueryResolverErrorCode;
-import com.npick.search.application.port.QueryResolution;
 import com.npick.search.application.port.QueryResolutionResult;
+import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.infrastructure.ai.client.QueryResolverClient;
 
 import static org.assertj.core.api.Assertions.assertThat;

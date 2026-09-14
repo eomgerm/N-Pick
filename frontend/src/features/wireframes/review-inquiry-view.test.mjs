@@ -17,6 +17,30 @@ const { ApiClientError } = await import('../../lib/api/error.ts');
 const { countSnapshotEntries, displayClipTitle, getClaimRecovery, getFilterFacts, uniqueTagNames } =
   await import('./review-inquiry-view.ts');
 const { getSnapshotFacts, evidenceLabel } = await import('./review-inquiry-view.ts');
+const { selectInquiryPage, selectInquiryStatus, normalizeInquiryPage } =
+  await import('./review-inquiry-view.ts');
+
+test('목록 URL은 지원 상태와 양의 정수 페이지만 선택한다', () => {
+  for (const status of ['open', 'reviewing', 'closed']) {
+    assert.equal(selectInquiryStatus(status), status);
+  }
+  for (const value of [null, '', 'all', 'OPEN', 'unknown']) {
+    assert.equal(selectInquiryStatus(value), undefined);
+  }
+  for (const value of [null, '', '0', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992']) {
+    assert.equal(selectInquiryPage(value), 1);
+  }
+  assert.equal(selectInquiryPage('2'), 2);
+  assert.equal(selectInquiryPage('999'), 999);
+});
+
+test('서버 페이지 수로 범위 초과와 빈 목록을 보정하고 유효 페이지를 유지한다', () => {
+  assert.equal(normalizeInquiryPage(99, 3), 3);
+  assert.equal(normalizeInquiryPage(99, 0), 1);
+  assert.equal(normalizeInquiryPage(1, 0), 1);
+  assert.equal(normalizeInquiryPage(2, 3), 2);
+  assert.equal(normalizeInquiryPage(3, 3), 3);
+});
 
 test('과거 근거와 적용 규칙의 내용을 보존하고 내부 필드는 노출하지 않는다', () => {
   const snapshot = JSON.stringify({

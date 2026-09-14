@@ -1,3 +1,5 @@
+import type { InquiryResolution, InquiryStatus } from '@/features/wireframes/inquiry-state';
+
 import { ApiClientError } from '@/lib/api/error';
 
 const filterLabels: Record<string, string> = {
@@ -211,3 +213,42 @@ export function getClaimRecovery(error: unknown): ClaimRecovery {
     message: '성공 여부를 확인할 수 없습니다. 문의 상태를 다시 불러온 뒤 진행해 주세요.',
   };
 }
+
+export function selectInquiryStatus(value: string | null): InquiryStatus | undefined {
+  return value === 'open' || value === 'reviewing' || value === 'closed' ? value : undefined;
+}
+
+export function selectInquiryPage(value: string | null): number {
+  const page = Number(value ?? '1');
+  return Number.isSafeInteger(page) && page > 0 ? page : 1;
+}
+
+export function formatInquiryDate(value: string | null): string {
+  if (!value) return '기록 없음';
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  return new Intl.DateTimeFormat('ko-KR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+export function formatInquiryTimecode(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, '0')).join(':');
+}
+
+export function normalizeInquiryPage(page: number, totalPages: number): number {
+  return totalPages === 0 ? 1 : Math.min(page, totalPages);
+}
+
+export const inquiryResolutionClasses: Record<InquiryResolution, string> = {
+  exclude_scene: 'bg-(--positive-soft)',
+  no_action: 'bg-(--surface-muted)',
+  deferred: 'bg-(--warning-soft)',
+  tag_correction: 'bg-(--positive-soft)',
+  patch_parse: 'bg-(--positive-soft)',
+};
