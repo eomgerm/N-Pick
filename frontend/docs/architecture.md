@@ -49,6 +49,7 @@ src/
 │     ├─ search-history.module.css 기록 목록·상태 칩·펼침 레이아웃
 │     ├─ demo-scenes.ts          결과·기록이 공유하는 10개 예시 장면과 표시 모델
 │     ├─ scene-dialogs.tsx        구간 영상·문의 공통 팝업과 상태별 조회
+│     ├─ inquiry-api.ts          문의 제출 snapshot·응답 검증·접수 API
 │     ├─ entry-chrome.tsx         로그인 헤더와 로그인·검색 공통 푸터
 │     ├─ entry.module.css         신한 로그인·검색 반응형 레이아웃
 │     ├─ reviewer-shell.tsx    처리 상태·문의 검수 로컬 상호작용
@@ -104,6 +105,8 @@ src/
 문의 목록과 상세의 장면 요약은 API의 `clipTitle`, `startTimeMs`, `endTimeMs`를 사용하며 제목이 없으면 `제목 없는 영상`으로 표시합니다. 썸네일·영상 API가 계약에 없으므로 가짜 썸네일이나 재생 기능을 만들지 않습니다. 상세는 문의 당시 검색 결과·필터·해석·적용 기록과 현재 태그를 분리합니다. 과거 JSON과 `resolverOutputJson`은 화면에 원문으로 노출하지 않으며, 현재 근거는 태그별 출처·검증 상태·장면/클립 범위를 함께 표시합니다. 당시 결과와 적용 기록은 허용된 항목을 읽기 전용 목록으로 표시하며, 미지원 형식은 기록 없음과 구분합니다. 미지원 JSON 구조는 BE snapshot 내부 계약 확정 후 확장해야 합니다. 선점 후 담당자를 로그인 계정으로 합성하지 않고 상세 재조회 응답만 표시합니다. 과거 검색 기록은 읽기 전용이고 현재 태그로 다시 계산해 덮어쓰지 않습니다.
 
 선점한 검수자는 `PUT /review/inquiries/{feedbackId}/resolution`으로 판정과 최대 2,000자의 사유를 저장합니다. `no_action/deferred`는 사유가 필수이며 즉시 `closed`로 종료됩니다. `tag_correction/patch_parse/exclude_scene`는 판정만 저장하고 후속 교정·검증 API가 완료될 때까지 `reviewing`을 유지합니다. 프론트는 서버 응답 뒤 목록과 상세를 다시 읽어 상태를 확정하고 요청 중 중복 입력과 다른 검수자의 저장을 막습니다.
+
+검색 결과의 문의 입력은 Preview의 `이상해요`에서만 열며 `POST /search/results/{resultId}/inquiries`로 선택 설명을 전송합니다. 화면 장면 ID와 서버의 저장된 결과 ID를 분리하고 `SearchResult.searchResultId`만 API 경로에 사용합니다. 데모 결과에는 서버 ID를 만들지 않으며 저장 ID가 없거나 snapshot 저장에 실패하면 이유와 함께 문의를 비활성화합니다. 현재 검색 결과는 데모이므로 실제 접수 진입은 검색 API adapter 연동 후 활성화됩니다. 제출은 trim한 설명과 frozen snapshot·UUID 멱등성 키를 보존하며 자동 재시도하지 않습니다. 실패 후 설명을 바꾸지 않은 수동 재시도는 같은 snapshot/key를 사용하고 입력 변경 시 새 요청으로 바꿉니다. 제출 중에는 입력·중복 제출·dialog 닫기를 잠급니다. 성공 응답의 양의 `feedbackId`와 `OPEN`을 확인한 뒤에만 접수 완료를 표시하며 접수 자체로 현재 결과를 숨기거나 즉시 개선하지 않습니다.
 
 검수 화면 상단의 문의·처리 이동 메뉴는 URL로 선택 상태를 계산합니다. 기본 `/review`는 문의, `view=processing`은 처리이며 `view=upload` 등록 화면도 처리 영역으로 표시합니다. 상위 메뉴 이동은 `getReviewTabUrl`로 상세 선택(`inquiry/clip`)과 처리 하위 `tab`을 지우고 목록 조건과 나머지 query를 유지합니다. 처리 하위 탭은 기존 `tab=uploads/completed`를 사용하며 생략하거나 알 수 없는 값이면 문의 처리 중을 표시합니다. 문의·처리 이동은 브라우저 이력에 남고 새로고침·뒤로가기·앞으로가기로 복원됩니다. URL 변경에 따른 재마운트 없이 기존 검수 초안을 유지하며, 등록 취소는 문의 목록으로 돌아갑니다.
 

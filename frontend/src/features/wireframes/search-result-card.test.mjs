@@ -39,7 +39,12 @@ const { results } = await import('./demo-scenes.ts');
 
 function renderCard(result, isSelected = false, position = result.rank) {
   return renderToStaticMarkup(
-    createElement(SearchResultCard, { result, position, isSelected, onSelect() {} }),
+    createElement(SearchResultCard, {
+      result,
+      position,
+      isSelected,
+      onSelect() {},
+    }),
   );
 }
 
@@ -118,4 +123,12 @@ test('긴 백엔드 메타데이터도 카드 DOM에 노출하지 않는다', ()
     sceneType: longValue,
   });
   assert.ok(!html.includes(longValue));
+});
+
+test('결과 카드에는 이상해요 버튼을 표시하지 않고 Preview 진입점만 제공한다', () => {
+  const html = renderCard(results[0]);
+
+  assert.ok(!html.includes('이상해요'));
+  assert.ok(!html.includes('cardInquiryButton'));
+  assert.match(html, /aria-label="1위 설 연휴 첫날, 서울역 귀성 인파 Preview 열기"/);
 });
