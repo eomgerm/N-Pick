@@ -11,6 +11,7 @@ import com.npick.search.application.port.AnchorFinding;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.QueryResolution.Classification;
+import com.npick.search.domain.model.QueryResolution.DateField;
 import com.npick.search.domain.model.QueryResolution.DateWindow;
 import com.npick.search.domain.model.QueryResolution.Entity;
 import com.npick.search.domain.model.QueryResolution.IncidentName;
@@ -67,6 +68,15 @@ public final class AnchorVerifier {
     private static final String DEMOTED = "demoted_to_inferred";
     private static final String DROPPED = "dropped";
     private static final String SPAN_CORRECTED = "span_corrected";
+    private static final String DATE_FIELD_CORRECTED = "date_field_corrected";
+
+    /**
+     * 원문이 촬영 의미를 명시했는지 가리는 낱말.
+     *
+     * <p>리졸버 프롬프트({@code config/query_resolver.v1.toml} 규칙 6)의 「"촬영", "찍힌", "촬영 당시"」와 같은 어휘다. {@code "찍"} 하나로
+     * {@code 찍힌}·{@code 찍은}·{@code 찍었던} 을 모두 잡는다 — 활용형을 늘어놓으면 빠뜨린 어미가 곧 오판이 된다.
+     */
+    private static final List<String> FILMING_MARKERS = List.of("촬영", "찍");
 
     /**
      * 해석 안의 모든 anchor 를 {@code rawQuery} 와 대조해 출처를 확정한다.
@@ -99,7 +109,7 @@ public final class AnchorVerifier {
             }
             Checked checked = checkDateSpan(window, rawQuery, path, findings);
             dateWindows.add(new DateWindow(
-                    window.field(),
+                    verifyDateField(window.field(), rawQuery, path, findings),
                     window.start(),
                     window.endExclusive(),
                     checked.origin(),
@@ -169,6 +179,26 @@ public final class AnchorVerifier {
                 result.promptVersion(),
                 result.modelVersion(),
                 null);
+    }
+
+    /**
+     * 날짜가 방송일인지 촬영일인지 확정한다 (FRD v3.2 F-06 「별도 표현 없이 연도·날짜만 입력하면 방송일 기준으로 해석한다」).
+     *
+     * <p><b>한 방향으로만 강제한다.</b> 원문에 촬영 어휘가 없는데 촬영일을 주장하면 방송일로 되돌리고, 그 반대는 손대지 않는다. 촬영 명시는 촬영일이 되기 위한 <b>필요조건</b>이지 충분조건이
+     * 아니다 — {@code "2023년 방송분 중 촬영지가 궁금한 산불"} 처럼 촬영 어휘가 날짜와 무관하게 섞이면 낱말 하나로 날짜 종류를 뒤집는 쪽이 더 자주 틀린다.
+     *
+     * <p>{@link #checkDateSpan} 과 같은 이유로 이 검사가 필요하다. 리졸버 프롬프트가 이 규칙을 글로 적어 두지만 리졸버 쪽 {@code validator.py} 는 검사하지 않아,
+     * 지금은 모델이 지킬 때만 지켜지는 규칙이다. 종류를 잘못 붙이면 guard 가 <b>다른 종류의 날짜와 비교해</b> 맞는 장면을 잘라낸다 (F-06 「명시한 날짜와 같은 종류의 검증된 날짜가 충돌」,
+     * {@code S15P21A501-56}).
+     *
+     * <p>출처를 가리지 않고 모든 날짜에 건다. 추측 날짜는 결과를 제외시키지 못하지만 관련성 점수에는 쓰이고, 종류가 틀리면 엉뚱한 칸과 비교된다.
+     */
+    private DateField verifyDateField(DateField claimed, String rawQuery, String path, List<AnchorFinding> findings) {
+        if (claimed != DateField.FILMED_DATE || FILMING_MARKERS.stream().anyMatch(rawQuery::contains)) {
+            return claimed;
+        }
+        findings.add(new AnchorFinding(path, DATE_FIELD_CORRECTED, "원문에 촬영 명시가 없어 방송일로 되돌렸다"));
+        return DateField.BROADCAST_DATE;
     }
 
     /** 확정된 출처와 span. */

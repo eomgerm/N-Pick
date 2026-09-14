@@ -482,6 +482,95 @@ class AnchorVerifierTest {
         assertThat(verifier.verify(RAW_QUERY, failed)).isSameAs(failed);
     }
 
+    @Test
+    @DisplayName("원문에 촬영 어휘가 없으면 촬영일 주장을 방송일로 되돌린다")
+    void correctsUngroundedFilmedDate() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY, resolved(resolution().dateWindows(List.of(year2023(DateField.FILMED_DATE)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().field()).isEqualTo(DateField.BROADCAST_DATE);
+        assertThat(result.findings())
+                .extracting(AnchorFinding::path, AnchorFinding::action)
+                .containsExactly(tuple("date_windows[0]", "date_field_corrected"));
+    }
+
+    @Test
+    @DisplayName("수식어 없는 날짜의 방송일 주장은 그대로 둔다")
+    void keepsBroadcastDateWithoutMarker() {
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY, resolved(resolution().dateWindows(List.of(year2023(DateField.BROADCAST_DATE)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().field()).isEqualTo(DateField.BROADCAST_DATE);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("원문에 촬영이 명시되면 촬영일 주장을 유지한다")
+    void keepsFilmedDateWhenQuerySaysSo() {
+        String rawQuery = "2023년 촬영한 태풍 힌남노 피해 현장";
+
+        QueryResolutionResult result =
+                verifier.verify(rawQuery, resolved(resolution().dateWindows(List.of(year2023(DateField.FILMED_DATE)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().field()).isEqualTo(DateField.FILMED_DATE);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("찍힌·찍은 같은 활용형도 촬영 명시로 본다")
+    void recognizesConjugatedFilmingMarker() {
+        String rawQuery = "2023년 찍힌 태풍 힌남노 피해 현장";
+
+        QueryResolutionResult result =
+                verifier.verify(rawQuery, resolved(resolution().dateWindows(List.of(year2023(DateField.FILMED_DATE)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().field()).isEqualTo(DateField.FILMED_DATE);
+    }
+
+    @Test
+    @DisplayName("촬영이 명시돼 있어도 리졸버의 방송일 판단을 뒤집지 않는다")
+    void neverPromotesBroadcastDateToFilmed() {
+        // 막으려는 것은 근거 없는 촬영일 주장이지 리졸버와의 판단 차이가 아니다.
+        // "2023년 방송분 중 촬영지가 궁금한" 처럼 촬영 어휘가 날짜와 무관하게 섞이는 질의가 있다.
+        String rawQuery = "2023년 촬영한 태풍 힌남노 피해 현장";
+
+        QueryResolutionResult result = verifier.verify(
+                rawQuery, resolved(resolution().dateWindows(List.of(year2023(DateField.BROADCAST_DATE)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().field()).isEqualTo(DateField.BROADCAST_DATE);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("추측 출처의 날짜에도 같은 규칙을 적용한다")
+    void correctsFilmedDateRegardlessOfOrigin() {
+        // 출처별로 규칙이 갈리면 「수식어 없는 날짜는 방송일」 을 설명할 수 없다.
+        // 추측 날짜도 관련성 점수에 쓰이므로 종류가 틀리면 엉뚱한 칸과 비교된다.
+        QueryResolutionResult result = verifier.verify(
+                RAW_QUERY,
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.FILMED_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.INFERRED,
+                                null,
+                                0.5)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().field()).isEqualTo(DateField.BROADCAST_DATE);
+    }
+
+    /** {@link #RAW_QUERY} 의 "2023년" 을 근거로 삼는 한 해 구간. */
+    private static DateWindow year2023(DateField field) {
+        return new DateWindow(
+                field,
+                LocalDate.of(2023, 1, 1),
+                LocalDate.of(2024, 1, 1),
+                Origin.EXPLICIT_QUERY,
+                new QuerySpan(0, 5),
+                0.9);
+    }
+
     private static QueryResolutionResult resolved(ResolutionBuilder builder) {
         return new QueryResolutionResult(
                 normalization(),
