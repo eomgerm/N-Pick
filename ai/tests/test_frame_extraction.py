@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+import numpy as np
 import pytest
 
 from npick_worker.frame_extraction import (
@@ -16,6 +17,7 @@ from npick_worker.frame_extraction import (
     ChosenFrame,
     FrameExtractionConfig,
     MediaProfile,
+    SceneMeasurement,
     SceneRequest,
     SceneSpan,
     ScoredFrame,
@@ -27,6 +29,7 @@ from npick_worker.frame_extraction import (
     load_config,
     order_for_output,
     plan_slots,
+    prune_by_change,
     pyav_backend,
     select,
 )
@@ -103,7 +106,7 @@ def test_config_version_is_the_pinned_vector() -> None:
     값이 바뀌면 설정이 바뀐 것이다. 그때는 이 줄과 docs/contracts/job-api.md 를 함께
     고친다 — 한쪽만 고치면 어긋난 것을 아무도 못 잡는다.
     """
-    assert load_config().version_id == "frame-extract/v1:5b266b10"
+    assert load_config().version_id == "frame-extract/v2:a0684794"
 
 
 def test_config_version_changes_when_a_threshold_changes() -> None:
@@ -129,18 +132,23 @@ def _toml(text: str) -> dict[str, object]:
 def test_short_scene_still_gets_multiple_slots() -> None:
     """scene_detection 의 최소 장면 길이(1000ms)에서도 복수 keyframe 이 나와야 한다."""
     slots = _plan(_span(0, 1000))
-    assert len(slots) == 2
+    assert len(slots) >= load_config().min_keyframes_per_scene
 
 
-def test_slot_count_follows_the_interval() -> None:
-    # interval_ms 3000 → 9000ms 짜리 장면은 3장.
-    slots = _plan(_span(0, 9000), _cfg(interval_ms=3000))
-    assert len(slots) == 3
+def test_slot_count_does_not_follow_the_scene_length() -> None:
+    """길이가 9배 늘어도 자리 수는 그대로다. v2 에서 장 수를 정하는 것은 길이가 아니다.
+
+    v1 은 `interval_ms` 로 길이에 비례해 장 수를 정했고, 그래서 정적인 긴 장면이 같은
+    그림을 여러 장 남겼다. v2 에서 길이가 정하는 것은 자리의 **간격**뿐이고 장 수는
+    `prune_by_change` 가 내용으로 정한다(FRD v3.2 F-03, `docs/frd.md:131`).
+    """
+    config = _cfg(planned_slots_per_scene=5)
+    assert len(_plan(_span(0, 3000), config)) == len(_plan(_span(0, 27_000), config)) == 5
 
 
-def test_slot_count_is_capped_by_max() -> None:
-    # 60초 장면이면 간격상 20장이지만 상한이 이긴다. 상한은 후속 VLM·OCR 의 비용 상한이다.
-    slots = _plan(_span(0, 60_000), _cfg(interval_ms=3000, max_keyframes_per_scene=5))
+def test_slot_count_is_capped_by_the_planned_count() -> None:
+    # 60초 장면이라도 자리는 계획한 수만큼만 놓는다. 이 값이 후보의 해상도 상한이다.
+    slots = _plan(_span(0, 60_000), _cfg(planned_slots_per_scene=5))
     assert len(slots) == 5
 
 
@@ -301,6 +309,238 @@ def test_select_returns_timestamp_order() -> None:
         load_config(),
     )
     assert [frame.timestamp_ms for frame in chosen] == [1000, 3000]
+
+
+# ── 적응형: 장 수를 장면 안의 변화량으로 정한다 ────────────────────────
+# FRD v3.2 F-03 (`docs/frd.md:131`). 정적 장면은 적게, 동적 장면은 많게.
+
+
+#: 블랭크와 다른 화면 사이의 `content_val`. 검정과 유채색의 채널 평균 절대차는 임계를
+#: 한참 넘는다. 적응형이 거리만 보면 블랭크가 항상 이기는 이유가 이 값이다.
+BLANK_DISTANCE = 85.0
+
+
+def _adaptive(
+    *distances: float,
+    cfg: FrameExtractionConfig | None = None,
+    count: int = 5,
+    blanks: frozenset[int] = frozenset(),
+) -> tuple[int, ...]:
+    """이웃한 자리 사이의 거리를 주고, 남은 자리 번호를 돌려받는다.
+
+    `distances[i]` 는 자리 `i` 와 `i+1` 사이의 거리다. 떨어진 두 자리 사이는 그 사이
+    구간들의 합으로 둔다 — 실제 영상에서 변화가 누적되는 모양이고, 표로 쓰기도 쉽다.
+    프레임 번호를 자리 순번과 같게 둬서 "몇 번째 자리가 남았는가" 를 그대로 읽는다.
+
+    `blanks` 에 든 자리는 `select` 가 블랭크로 표시한 자리다. 그 자리가 끼는 쌍의 거리는
+    `distances` 와 무관하게 `BLANK_DISTANCE` 가 된다 — 실제 암전 프레임이 그렇다.
+    """
+    chosen = tuple(
+        ChosenFrame(
+            frame_number=index,
+            timestamp_ms=index * 1000,
+            score=1.0,
+            blank=index in blanks,
+        )
+        for index in range(count)
+    )
+    frames = {
+        index: ScoredFrame(
+            frame_number=index,
+            timestamp_ms=index * 1000,
+            score=1.0,
+            luma_std=0.0 if index in blanks else 40.0,
+        )
+        for index in range(count)
+    }
+    changes = {
+        (left, right): (
+            BLANK_DISTANCE
+            if left in blanks or right in blanks
+            else float(sum(distances[left:right]))
+        )
+        for left in range(count)
+        for right in range(left + 1, count)
+    }
+    kept = prune_by_change(
+        chosen,
+        SceneMeasurement(frames=frames, changes=changes),
+        cfg if cfg is not None else load_config(),
+    )
+    return tuple(frame.frame_number for frame in kept)
+
+
+def test_a_static_scene_keeps_only_the_lower_bound() -> None:
+    """다섯 자리가 전부 같은 화면이면 하한만 남는다. 같은 그림을 다섯 번 저장하지 않는다."""
+    assert len(_adaptive(0.0, 0.0, 0.0, 0.0)) == load_config().min_keyframes_per_scene
+
+
+def test_a_dynamic_scene_keeps_every_slot() -> None:
+    """자리마다 화면이 다르면 전부 남는다. 상한까지 채우는 쪽이 동적 장면이다."""
+    far = load_config().change_threshold * 2
+    assert _adaptive(far, far, far, far) == (0, 1, 2, 3, 4)
+
+
+def test_the_seed_is_the_middle_slot() -> None:
+    """원 설계(`581f6e3`)의 "중앙(50%) 프레임을 시드로" 를 잇는다.
+
+    정적 장면이라 시드 말고는 아무것도 임계를 넘지 못하므로, 남은 것에 가운데 자리가
+    들어 있다는 사실이 곧 시드가 가운데였다는 뜻이다.
+    """
+    assert 2 in _adaptive(0.0, 0.0, 0.0, 0.0)
+
+
+def test_the_cap_wins_over_the_change() -> None:
+    """전부 달라도 상한을 넘지 않는다. 상한이 후속 VLM·OCR 의 비용 상한이다."""
+    far = load_config().change_threshold * 2
+    assert len(_adaptive(far, far, far, far, cfg=_cfg(max_keyframes_per_scene=3))) == 3
+
+
+def test_the_cap_keeps_the_whole_scene_not_just_the_front() -> None:
+    """상한이 자리 수보다 작을 때 장면 뒷부분이 통째로 사라지지 않는다.
+
+    시드가 가운데라 시각 순으로 자르면 앞쪽 자리가 먼저 상한을 채운다. 전 구간이 동적인
+    5 자리 장면에서 앞 세 자리만 남으면 뒤 40% 는 대표되지 않는다. 최원점으로 추리면
+    남는 장이 장면 전체에 퍼진다.
+
+    기본 설정은 `max == planned == 5` 라 지금은 걸리지 않지만, `max_keyframes_per_scene`
+    은 후속 단계 비용 실측 후 다시 볼 값이다(`docs/frame-extraction.md` §10).
+    """
+    far = load_config().change_threshold * 2
+    assert _adaptive(far, far, far, far, cfg=_cfg(max_keyframes_per_scene=3)) == (0, 2, 4)
+
+
+def test_the_lower_bound_is_filled_with_the_least_similar_frame() -> None:
+    """하한을 채울 때 아무거나 되돌리지 않는다. 떨어진 것 중 가장 덜 닮은 것이 온다.
+
+    아무거나 채우면 되돌린 장이 남긴 장과 거의 같은 화면일 수 있고, 그러면 하한을
+    숫자로만 맞추고 실제로는 같은 그림을 두 번 저장한다.
+
+    임계(27.0)를 넘는 자리가 없으므로 시드(자리 2) 말고 넷이 다 떨어진다. 그중 시드에서
+    가장 먼 것은 자리 0 이다 — d(0,2) = 1+20 = 21 이고, 나머지는 20·4·5 다.
+    """
+    kept = _adaptive(1.0, 20.0, 4.0, 1.0)
+    assert kept == (0, 2)
+
+
+def test_an_unmeasured_pair_leaves_every_slot_in_place() -> None:
+    """재지 못한 것을 "안 달라졌다" 로 읽으면 측정 사고가 장 수 감소로 둔갑한다."""
+    chosen = tuple(
+        ChosenFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, blank=False)
+        for index in range(5)
+    )
+    frames = {
+        index: ScoredFrame(frame_number=index, timestamp_ms=index * 1000, score=1.0, luma_std=40.0)
+        for index in range(5)
+    }
+    measurement = SceneMeasurement(frames=frames, changes={})
+    assert len(prune_by_change(chosen, measurement, load_config())) == 5
+
+
+# ── 적응형과 블랭크: 거리만 보면 암전이 항상 이긴다 ──────────────────────
+
+
+def test_a_blank_slot_does_not_win_the_change_check() -> None:
+    """블랭크는 다른 어떤 화면과도 멀어서, 거리만 보면 규칙 2 를 항상 통과한다.
+
+    정적 장면의 자리 3 만 블랭크인 경우다. 거리만 보면 실제 화면 세 장을 버리고 검정
+    JPEG 을 두 번째 keyframe 으로 확정한다 — `select` 가 "이 자리엔 쓸 만한 게 없었다"
+    고 표시해 둔 장을 다음 단계가 오히려 선호하는 꼴이다.
+    """
+    kept = _adaptive(2.0, 2.0, 2.0, 2.0, blanks=frozenset({3}))
+
+    assert 3 not in kept
+    assert kept == (0, 2)
+
+
+def test_the_seed_moves_off_a_blank_slot() -> None:
+    """시드는 무조건 살아남는 자리다. 거기에 블랭크를 두면 검정 한 장이 확정된다."""
+    assert _adaptive(0.0, 0.0, 0.0, 0.0, blanks=frozenset({2})) == (0, 1)
+
+
+def test_a_blank_slot_comes_back_only_when_nothing_else_is_left() -> None:
+    """장면 전체가 암전이면 블랭크라도 하한을 채운다.
+
+    치명 단계이므로 keyframe 0 장으로 끝내는 것이 블랭크 한 장보다 나쁘다. 블랭크를
+    빼는 것은 **선호**이지 금지가 아니다.
+    """
+    kept = _adaptive(0.0, 0.0, 0.0, 0.0, blanks=frozenset(range(5)))
+
+    assert len(kept) == load_config().min_keyframes_per_scene
+
+
+def test_change_is_looked_up_in_either_direction() -> None:
+    """쌍의 키는 정렬된 순서쌍이다. 조회할 때 방향을 신경 쓰지 않는다."""
+    measurement = SceneMeasurement(frames={}, changes={(3, 7): 12.5})
+    assert measurement.change_between(3, 7) == 12.5
+    assert measurement.change_between(7, 3) == 12.5
+    assert measurement.change_between(1, 2) is None
+
+
+# ── 변화 척도: scene 분할과 같은 자를 쓴다 ──────────────────────────────
+
+
+def test_content_val_matches_the_scene_detection_scale() -> None:
+    """`scenedetect` 의 `content_val` 과 같은 값이어야 한다. FRD F-03 의 척도 통일이다.
+
+    기준점은 `ai/docs/scene-detection.md` §4 의 실측이다 — `KNI_02205` 프레임 720→721 이
+    19.92 다. 눈금이 어긋나면 `change_threshold` 와 scene 분할의 `content.threshold` 를
+    같은 자 위에서 말할 수 없다.
+
+    여기서는 합성 프레임으로 **공식**을 잠근다. 실제 클립 대조는 문서의 실측이 맡는다 —
+    19 MiB 짜리 샘플을 단위 테스트가 디코드하지 않는다.
+    """
+    black = np.zeros((8, 8, 3), dtype=np.float32)
+    white = np.ones((8, 8, 3), dtype=np.float32)
+    # 검정 대 흰색: H 는 둘 다 0, S 도 둘 다 0, V 만 0 대 255 다. 평균하면 255/3 이다.
+    assert pyav_backend._content_val(
+        pyav_backend._to_hsv_scaled(black), pyav_backend._to_hsv_scaled(white)
+    ) == pytest.approx(255.0 / 3.0)
+
+
+def test_hue_uses_the_opencv_eight_bit_range() -> None:
+    """H 는 `0~179` 다. `cv2.cvtColor(..., COLOR_BGR2HSV)` 의 8bit 범위와 같아야 한다."""
+    red = np.zeros((1, 3, 3), dtype=np.float32)
+    red[:, :, 0] = 1.0
+    hue, saturation, value = pyav_backend._to_hsv_scaled(red)
+    assert float(hue.max()) == pytest.approx(0.0)
+    assert float(saturation.max()) == pytest.approx(255.0)
+    assert float(value.max()) == pytest.approx(255.0)
+
+    cyan = np.zeros((1, 3, 3), dtype=np.float32)
+    cyan[:, :, 1] = 1.0
+    cyan[:, :, 2] = 1.0
+    # 180도. OpenCV 눈금에서 절반인 90 이다.
+    assert float(pyav_backend._to_hsv_scaled(cyan)[0].max()) == pytest.approx(90.0)
+
+
+def test_a_static_scene_yields_fewer_keyframes_than_a_moving_one(
+    make_video: MakeVideo, tmp_path: Path
+) -> None:
+    """실제 디코드·인코드 경로로 확인한다. 이것이 이 티켓이 바꾸려던 성질 자체다.
+
+    두 장면의 **길이가 같다.** v1 은 길이로 장 수를 정했으므로 두 장면이 같은 장 수를
+    받았다. v2 는 내용으로 정하므로 갈려야 한다.
+
+    뒤 장면의 블록이 전부 **비블랭크**인 것이 중요하다. `white`·`gray` 는 휘도 표준편차가
+    0 이라 `select` 가 블랭크로 표시하고, 블랭크는 장 수를 늘리는 근거가 되지 못한다.
+    그런 블록으로 채우면 "동적이라 많이 뽑혔다" 가 아니라 "암전이라 많이 뽑혔다" 를
+    확인하게 된다.
+    """
+    video = make_video(
+        "static-vs-moving",
+        [
+            ("bars", BLOCK_FRAMES),
+            *[(kind, 4) for kind in ("noise", "bars", "split", "noise", "bars")],
+        ],
+    )
+    result = extract_keyframes(
+        video, (_span(0, BLOCK_MS, 0), _span(BLOCK_MS, BLOCK_MS * 2, 1)), tmp_path / "out"
+    )
+
+    static, moving = result.scenes
+    assert len(static.keyframes) == load_config().min_keyframes_per_scene
+    assert len(moving.keyframes) > len(static.keyframes)
 
 
 # ── 대표 이미지 ────────────────────────────────────────────────────────
@@ -522,7 +762,7 @@ def test_extract_fails_when_a_scene_is_past_the_end_of_the_media(
     """상류 scene 구간이 이 미디어의 것이 아니라는 뜻이다. 빈 결과로 넘어가지 않는다."""
     video = make_video("past-end", [("bars", BLOCK_FRAMES)])
     scenes = (_span(0, BLOCK_MS, 0), _span(600_000, 601_000, 1))
-    with pytest.raises(ValueError, match="프레임을 얻지 못했다"):
+    with pytest.raises(ValueError, match="먼저 끝났다"):
         extract_keyframes(video, scenes, tmp_path / "out")
 
 
@@ -537,7 +777,7 @@ def test_extract_fails_when_a_scene_only_partly_overlaps_the_media(
     """
     video = make_video("partly-past-end", [("bars", BLOCK_FRAMES)])
     scenes = (_span(0, 1200, 0), _span(1200, BLOCK_MS + 800, 1))
-    with pytest.raises(ValueError, match="기대보다 적다"):
+    with pytest.raises(ValueError, match="먼저 끝났다"):
         extract_keyframes(video, scenes, tmp_path / "out")
 
 
@@ -576,19 +816,24 @@ class FakeGrabber:
         video_path: Path,
         requests: Sequence[SceneRequest],
         cfg: FrameExtractionConfig,
-    ) -> Mapping[int, Mapping[int, ScoredFrame]]:
+    ) -> Mapping[int, SceneMeasurement]:
+        # `changes` 를 비워 둔다 — 변화량을 재지 않은 대역이므로 `prune_by_change` 가
+        # 판정하지 않고 전부 남긴다. 여기서 보려는 것은 선정·배선이지 적응형이 아니다.
         return {
-            request.scene_index: {
-                number: ScoredFrame(
-                    frame_number=number,
-                    timestamp_ms=frames_to_ms(number, 10.0),
-                    # 슬롯 순번이 클수록 선명하게 둬서 대표가 첫 슬롯이 아니게 만든다.
-                    score=float(slot.slot_index + 1),
-                    luma_std=40.0,
-                )
-                for slot in request.slots
-                for number in slot.frame_numbers[:1]
-            }
+            request.scene_index: SceneMeasurement(
+                frames={
+                    number: ScoredFrame(
+                        frame_number=number,
+                        timestamp_ms=frames_to_ms(number, 10.0),
+                        # 슬롯 순번이 클수록 선명하게 둬서 대표가 첫 슬롯이 아니게 만든다.
+                        score=float(slot.slot_index + 1),
+                        luma_std=40.0,
+                    )
+                    for slot in request.slots
+                    for number in slot.frame_numbers
+                },
+                changes={},
+            )
             for request in requests
         }
 
@@ -649,20 +894,67 @@ def test_unreached_candidates_are_not_reported_as_fewer_keyframes(tmp_path: Path
             video_path: Path,
             requests: Sequence[SceneRequest],
             cfg: FrameExtractionConfig,
-        ) -> Mapping[int, Mapping[int, ScoredFrame]]:
+        ) -> Mapping[int, SceneMeasurement]:
             return {
-                index: {
-                    number: frame
-                    for number, frame in frames.items()
-                    if frames_to_ms(number, 10.0) < 1000
-                }
-                for index, frames in super().measure(video_path, requests, cfg).items()
+                index: SceneMeasurement(
+                    frames={
+                        number: frame
+                        for number, frame in measurement.frames.items()
+                        if frames_to_ms(number, 10.0) < 500
+                    },
+                    changes={},
+                )
+                for index, measurement in super().measure(video_path, requests, cfg).items()
             }
 
-    with pytest.raises(ValueError, match="기대보다 적다"):
+    with pytest.raises(ValueError, match="먼저 끝났다"):
         extract_keyframes(
             tmp_path / "missing.mp4", _spans(1), tmp_path / "out", grabber=TruncatedGrabber()
         )
+
+
+def test_an_unreached_outer_candidate_does_not_fail_the_clip(tmp_path: Path) -> None:
+    """자리 안의 다른 후보로 채워지는 초과분은 실패가 아니다.
+
+    자리를 2 개에서 5 개로 늘리면서 마지막 자리가 창의 75% 에서 90% 로 옮겨 갔다.
+    컨테이너가 선언한 길이가 실제 디코드 가능 구간보다 긴 파일(TS, 잘린 꼬리, 추정
+    duration)에서 바깥쪽 후보가 미디어 밖으로 나가는 일이 그만큼 흔해진다. 막으려는 것은
+    자리가 사라져 장 수가 주는 일이므로, 자리가 남아 있으면 실패시키지 않는다.
+    """
+
+    class OuterCandidateMissingGrabber(FakeGrabber):
+        def measure(
+            self,
+            video_path: Path,
+            requests: Sequence[SceneRequest],
+            cfg: FrameExtractionConfig,
+        ) -> Mapping[int, SceneMeasurement]:
+            unreached = {
+                max(slot.frame_numbers)
+                for request in requests
+                for slot in request.slots
+                if len(slot.frame_numbers) > 1
+            }
+            return {
+                index: SceneMeasurement(
+                    frames={
+                        number: frame
+                        for number, frame in measurement.frames.items()
+                        if number not in unreached
+                    },
+                    changes={},
+                )
+                for index, measurement in super().measure(video_path, requests, cfg).items()
+            }
+
+    result = extract_keyframes(
+        tmp_path / "missing.mp4",
+        _spans(1),
+        tmp_path / "out",
+        grabber=OuterCandidateMissingGrabber(),
+    )
+
+    assert len(result.scenes[0].keyframes) >= load_config().min_keyframes_per_scene
 
 
 # ── 장 수 보증: 어떤 scene 길이도 기대치를 밑돌지 않는다 ──────────────────
@@ -704,19 +996,22 @@ class _AllCandidatesGrabber:
         video_path: Path,
         requests: Sequence[SceneRequest],
         cfg: FrameExtractionConfig,
-    ) -> Mapping[int, Mapping[int, ScoredFrame]]:
+    ) -> Mapping[int, SceneMeasurement]:
         self.requests.extend(requests)
         return {
-            request.scene_index: {
-                number: ScoredFrame(
-                    frame_number=number,
-                    timestamp_ms=frames_to_ms(number, self.frame_rate),
-                    score=1.0 + number,
-                    luma_std=40.0,
-                )
-                for slot in request.slots
-                for number in slot.frame_numbers
-            }
+            request.scene_index: SceneMeasurement(
+                frames={
+                    number: ScoredFrame(
+                        frame_number=number,
+                        timestamp_ms=frames_to_ms(number, self.frame_rate),
+                        score=1.0 + number,
+                        luma_std=40.0,
+                    )
+                    for slot in request.slots
+                    for number in slot.frame_numbers
+                },
+                changes={},
+            )
             for request in requests
         }
 
@@ -805,7 +1100,7 @@ def test_a_scene_just_past_twice_the_edge_margin_gets_the_lower_bound(
     )
 
     (scene,) = result.scenes
-    assert len(scene.keyframes) == load_config().min_keyframes_per_scene
+    assert len(scene.keyframes) >= load_config().min_keyframes_per_scene
     assert len({keyframe.timestamp_ms for keyframe in scene.keyframes}) == len(scene.keyframes)
     assert all(0 <= keyframe.timestamp_ms < duration_ms for keyframe in scene.keyframes)
 
@@ -824,21 +1119,18 @@ def test_extract_gets_two_keyframes_from_a_narrow_window_scene(
 
 
 @pytest.mark.parametrize("frame_rate", SWEEP_FRAME_RATES)
-def test_normal_scenes_keep_the_margin_and_the_interval_count(frame_rate: float) -> None:
+def test_normal_scenes_keep_the_margin_and_the_planned_count(frame_rate: float) -> None:
     """상류 최소 길이(1000ms) 이상인 scene 의 계획은 프레임 상한에 걸리지 않는다.
 
     프레임 기준으로 옮긴 것이 정상 구간의 계획을 건드리지 않았다는 뜻이다. 옛 계획을
-    스냅샷으로 떠 두는 대신 두 성질로 잠근다 — 여백이 유지되고, 장 수가 간격·상하한만으로
-    정해진다. 스냅샷은 옛 코드가 사라지면 자기 자신을 확인하는 셈이 된다.
+    스냅샷으로 떠 두는 대신 두 성질로 잠근다 — 여백이 유지되고, 자리 수가 설정값
+    그대로다. 스냅샷은 옛 코드가 사라지면 자기 자신을 확인하는 셈이 된다.
     """
     config = load_config()
     for start in SWEEP_SCENE_STARTS:
         for duration in (1000, 1500, 2999, 3000, 9000, 60_000):
             slots = _plan(_span(start, start + duration), config, frame_rate)
-            assert len(slots) == min(
-                max(duration // config.interval_ms, config.min_keyframes_per_scene),
-                config.max_keyframes_per_scene,
-            ), (frame_rate, start, duration)
+            assert len(slots) == config.planned_slots_per_scene, (frame_rate, start, duration)
             for slot in slots:
                 for candidate_ms in slot.candidates_ms:
                     assert (

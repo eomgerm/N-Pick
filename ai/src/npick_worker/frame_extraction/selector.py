@@ -54,6 +54,25 @@ class ScoredFrame:
 
 
 @dataclass(frozen=True, slots=True)
+class SceneMeasurement:
+    """scene 하나에서 백엔드가 잰 것 전부.
+
+    후보 한 장의 성질과 후보 **두 장 사이**의 성질을 함께 담는다. 변화량이 프레임이
+    아니라 값으로 오는 것이 이 모양의 핵심이다 — 픽셀을 맞대어 보는 일은 프레임을 손에
+    든 백엔드가 하고, 이 모듈은 그 값으로 몇 장을 남길지만 정한다.
+    """
+
+    frames: Mapping[int, ScoredFrame]
+    #: `(작은 프레임 번호, 큰 프레임 번호) → content_val`. 같은 scene 안의 후보 쌍 전부.
+    #: 키를 정렬된 순서쌍으로 두어 조회할 때 방향을 신경 쓰지 않게 한다.
+    changes: Mapping[tuple[int, int], float]
+
+    def change_between(self, left: int, right: int) -> float | None:
+        """두 프레임 사이의 변화량. 재지 않은 쌍이면 `None`."""
+        return self.changes.get((left, right) if left <= right else (right, left))
+
+
+@dataclass(frozen=True, slots=True)
 class ChosenFrame:
     frame_number: int
     timestamp_ms: int
@@ -81,10 +100,15 @@ def plan_slots(
     정수 산술만 쓴다. 부동소수로 중심을 계산하면 같은 입력에서 실행마다 1ms 가
     흔들릴 수 있고, 그러면 `timestamp_ms` 가 바뀌어 재처리 결과를 비교할 수 없다.
 
-    프레임레이트가 필요한 이유는 장 수의 상한이 창의 **ms** 가 아니라 창 안의 **프레임
+    프레임레이트가 필요한 이유는 자리 수의 상한이 창의 **ms** 가 아니라 창 안의 **프레임
     수** 여야 하기 때문이다. `_check_keyframe_count` 의 기대치가 프레임 수이므로 여기서
     ms 로 세면 두 곳이 다른 단위로 같은 것을 말한다 — 그 상태에서는 30fps 501ms scene 이
     슬롯 1개를 받는데 검사는 2장을 요구했고, 치명 단계라 그 clip 은 영구 실패했다.
+
+    **여기서 정하는 것은 장 수가 아니라 자리 수다.** 장면 길이에 비례해 장 수를 정하던
+    것이 v1 이고, v2 는 자리를 `planned_slots_per_scene` 개 놓기만 한 뒤 그중 몇 개를
+    남길지를 `prune_by_change` 가 장면 안의 변화량으로 정한다(FRD v3.2 F-03,
+    `docs/frd.md:131`). 길이는 더 이상 장 수를 정하지 않는다.
     """
     duration_ms = scene.duration_ms
     if duration_ms <= 0:
@@ -107,8 +131,7 @@ def plan_slots(
 
     window_len = window.end_ms - window.start_ms
     slot_count = min(
-        max(duration_ms // cfg.interval_ms, cfg.min_keyframes_per_scene),
-        cfg.max_keyframes_per_scene,
+        cfg.planned_slots_per_scene,
         # 창에 프레임이 n 장이면 서로 다른 프레임을 받을 수 있는 슬롯도 최대 n 개다.
         # 없는 프레임을 만들지 않는다.
         window.frame_count,
@@ -231,6 +254,161 @@ def _best(candidates: Sequence[ScoredFrame], min_luma_std: float) -> ScoredFrame
     """
     usable = [frame for frame in candidates if frame.luma_std >= min_luma_std]
     return max(usable or candidates, key=lambda frame: frame.score)
+
+
+def prune_by_change(
+    chosen: Sequence[ChosenFrame],
+    measurement: SceneMeasurement,
+    cfg: FrameExtractionConfig,
+) -> tuple[ChosenFrame, ...]:
+    """자리마다 고른 프레임 중 **서로 충분히 다른 것만** 남긴다.
+
+    이것이 FRD v3.2 F-03 의 "장 수는 장면 안의 변화량으로 정한다" 를 이행하는 곳이다
+    (`docs/frd.md:131`). 정적 장면은 뒤 자리들이 앞과 비슷해 떨어져 나가 하한만 남고,
+    동적 장면은 계속 달라 상한까지 채운다.
+
+    변화량 척도는 **scene 분할이 쓰는 content score 와 같다** — FRD 가 권고한 통일이다.
+    그래서 `change_threshold` 와 scene 분할의 `content.threshold` 가 같은 자 위의 값이고,
+    "컷으로 볼 만큼" 과 "새 keyframe 으로 볼 만큼" 을 같은 단위로 말할 수 있다.
+
+    `select` 가 이미 자리마다 **선명도로** 한 장을 확정한 뒤에 도는 이유는, 변화량을
+    자리의 중심 프레임이 아니라 **실제로 저장될 프레임**에서 재야 하기 때문이다. 중심에서
+    재고 이웃을 저장하면 "이 두 장은 충분히 다르다" 의 근거가 저장된 이미지가 아닌 다른
+    프레임의 성질이 된다.
+
+    규칙 넷이다.
+    1. **시드는 가운데 자리**다. 원 설계(`581f6e3`)의 "중앙(50%) 프레임을 시드로" 를
+       잇는다. 장면의 성격을 한 장으로 말하는 데는 시작·끝보다 가운데가 낫다. 가운데가
+       블랭크면 가장 가까운 비블랭크 자리로 옮긴다(`_seed_index`).
+    2. 나머지를 시각 순으로 훑어 **이미 남긴 것들과의 최소 거리**가 `change_threshold`
+       이상이면 남긴다. 이미 남긴 것 **전부**와 비교하는 이유는 직전 한 장과만 비교하면
+       A→B→A 로 오가는 장면에서 같은 화면이 두 번 남기 때문이다. **블랭크는 여기서
+       제외한다** — 아래 「블랭크를 거리로만 보면 안 되는 이유」.
+    3. `max_keyframes_per_scene` 을 넘으면 **최원점으로 추린다**(`_thin_to`). 시각 순으로
+       자르지 않는 이유는 시드가 가운데라 앞쪽 자리가 먼저 상한을 채우기 때문이다. 그렇게
+       자르면 상한이 `planned_slots_per_scene` 보다 작을 때 장면 뒷부분이 통째로 사라진다.
+    4. `min_keyframes_per_scene` 에 못 미치면 **떨어진 것 중 가장 덜 닮은 것부터**
+       되돌린다(최원점 추가). 아무거나 채우면 되돌린 장이 남긴 장과 거의 같은 화면일 수
+       있고, 그러면 하한을 숫자로만 맞추고 실제로는 같은 그림을 두 번 저장한다. 여기서도
+       **비블랭크가 먼저**다. 블랭크는 다른 장이 하나도 없을 때만 온다.
+
+    상한과 하한이 **같은 규칙(최원점)** 을 쓴다. 한쪽만 시각 순이면 같은 설정에서 장면의
+    앞뒤가 비대칭으로 대표된다.
+
+    **블랭크를 거리로만 보면 안 되는 이유.** 블랭크(암전·화이트아웃)는 다른 어떤 화면과도
+    `content_val` 이 최대에 가깝다 — 검정과 유채색의 채널 평균 절대차는 임계를 한참 넘는다.
+    그래서 거리만 보면 블랭크가 규칙 2 를 **항상** 통과하고 규칙 4 에서 **항상** 1 등이
+    된다. `select` 가 "이 자리엔 쓸 만한 게 없었다" 고 표시해 둔 장을 다음 단계가 오히려
+    선호하는 꼴이고, 실제 화면 여러 장을 버리고 검정 JPEG 을 남긴다. 하류 OCR·VLM 에 글자
+    없는 장이 간다.
+
+    변화량을 재지 못한 쌍이 하나라도 있으면 **판정하지 않고 전부 남긴다.** 재지 못한 것을
+    "안 달라졌다" 로 읽으면 측정 사고가 장 수 감소로 둔갑한다.
+    """
+    if len(chosen) <= cfg.min_keyframes_per_scene:
+        return tuple(chosen)
+
+    ordered = sorted(chosen, key=lambda frame: frame.timestamp_ms)
+    distances = _distance_table(ordered, measurement)
+    if distances is None:
+        return tuple(chosen)
+
+    seed = ordered[_seed_index(ordered)]
+    kept = [seed]
+    for frame in ordered:
+        if frame is seed or frame.blank:
+            continue
+        if _min_distance(frame, kept, distances) >= cfg.change_threshold:
+            kept.append(frame)
+
+    if len(kept) > cfg.max_keyframes_per_scene:
+        kept = _thin_to(kept, seed, cfg.max_keyframes_per_scene, distances)
+
+    taken = {frame.frame_number for frame in kept}
+    rejected = [frame for frame in ordered if frame.frame_number not in taken]
+    while len(kept) < cfg.min_keyframes_per_scene and rejected:
+        # 비블랭크 우선, 그다음 최원점. 동점이면 이른 시각이 이긴다 — 동점 규칙이 없으면
+        # 같은 입력에서 되돌아오는 장이 실행마다 바뀐다.
+        best = max(
+            rejected,
+            key=lambda frame: (
+                not frame.blank,
+                _min_distance(frame, kept, distances),
+                -frame.timestamp_ms,
+            ),
+        )
+        rejected.remove(best)
+        kept.append(best)
+
+    return tuple(sorted(kept, key=lambda frame: frame.timestamp_ms))
+
+
+def _seed_index(ordered: Sequence[ChosenFrame]) -> int:
+    """시드로 쓸 자리. 가운데가 원칙이고, 가운데가 블랭크면 가장 가까운 비블랭크로 옮긴다.
+
+    시드는 무조건 살아남는 자리다. 거기에 블랭크를 두면 그 장면의 keyframe 한 장이
+    확정적으로 검정이 된다. 전부 블랭크면 옮길 곳이 없으므로 가운데를 그대로 쓴다.
+
+    거리가 같으면 이른 자리가 이긴다. 동점 규칙이 없으면 같은 입력에서 시드가 흔들린다.
+    """
+    middle = len(ordered) // 2
+    if not ordered[middle].blank:
+        return middle
+    usable = [index for index, frame in enumerate(ordered) if not frame.blank]
+    if not usable:
+        return middle
+    return min(usable, key=lambda index: (abs(index - middle), index))
+
+
+def _thin_to(
+    kept: Sequence[ChosenFrame],
+    seed: ChosenFrame,
+    limit: int,
+    distances: Mapping[tuple[int, int], float],
+) -> list[ChosenFrame]:
+    """상한을 넘긴 자리를 `limit` 장으로 추린다. 최원점 선택이고 시드는 반드시 남는다.
+
+    하한 채우기와 같은 규칙을 반대 방향으로 쓴다 — 채울 때 가장 덜 닮은 것을 데려오듯이,
+    줄일 때도 서로 가장 덜 닮은 조합을 남긴다. 그래서 상한이 자리 수보다 작아도 남는 장이
+    장면 전체에 퍼진다.
+    """
+    picked = [seed]
+    remaining = [frame for frame in kept if frame is not seed]
+    while len(picked) < limit and remaining:
+        best = max(
+            remaining,
+            key=lambda frame: (_min_distance(frame, picked, distances), -frame.timestamp_ms),
+        )
+        remaining.remove(best)
+        picked.append(best)
+    return picked
+
+
+def _distance_table(
+    ordered: Sequence[ChosenFrame], measurement: SceneMeasurement
+) -> dict[tuple[int, int], float] | None:
+    """고른 프레임끼리의 거리표. 한 쌍이라도 재지 않았으면 `None`."""
+    table: dict[tuple[int, int], float] = {}
+    for index, frame in enumerate(ordered):
+        for other in ordered[index + 1 :]:
+            distance = measurement.change_between(frame.frame_number, other.frame_number)
+            if distance is None:
+                return None
+            table[_pair(frame.frame_number, other.frame_number)] = distance
+    return table
+
+
+def _pair(left: int, right: int) -> tuple[int, int]:
+    return (left, right) if left <= right else (right, left)
+
+
+def _min_distance(
+    frame: ChosenFrame,
+    kept: Sequence[ChosenFrame],
+    distances: Mapping[tuple[int, int], float],
+) -> float:
+    """`frame` 과 이미 남긴 것들 사이의 가장 가까운 거리."""
+    return min(distances[_pair(frame.frame_number, other.frame_number)] for other in kept)
 
 
 def order_for_output(chosen: Sequence[ChosenFrame]) -> tuple[ChosenFrame, ...]:

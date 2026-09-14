@@ -42,11 +42,13 @@ from npick_worker.frame_extraction.models import (
 from npick_worker.frame_extraction.pyav_backend import PyAvFrameGrabber
 from npick_worker.frame_extraction.selector import (
     ChosenFrame,
+    SceneMeasurement,
     ScoredFrame,
     SlotCandidates,
     SlotPlan,
     order_for_output,
     plan_slots,
+    prune_by_change,
     select,
 )
 from npick_worker.timecode import frames_in_range, ms_to_frame
@@ -63,6 +65,7 @@ __all__ = [
     "MediaProfile",
     "PyAvFrameGrabber",
     "SceneKeyframes",
+    "SceneMeasurement",
     "SceneRequest",
     "SceneSpan",
     "ScoredFrame",
@@ -75,6 +78,7 @@ __all__ = [
     "load_config",
     "order_for_output",
     "plan_slots",
+    "prune_by_change",
     "select",
 ]
 
@@ -114,10 +118,12 @@ def extract_keyframes(
         for scene in scenes
     )
 
+    empty = SceneMeasurement(frames={}, changes={})
     measured = engine.measure(video_path, requests, config)
+    _check_measured(requests, measured)
     ordered = {
         request.scene_index: order_for_output(
-            select(request.slots, measured.get(request.scene_index, {}), config)
+            _choose(request.slots, measured.get(request.scene_index, empty), config)
         )
         for request in requests
     }
@@ -144,6 +150,60 @@ def extract_keyframes(
         image_width=profile.width,
         image_height=profile.height,
     )
+
+
+def _check_measured(
+    requests: Sequence[SceneRequest],
+    measured: Mapping[int, SceneMeasurement],
+) -> None:
+    """**자리 하나가 통째로** 미디어 밖이면 멈춘다.
+
+    디코드는 0번부터 순차로 훑으므로(`pyav_backend._decode_until`) 요청한 프레임에 닿지
+    못하는 경우는 하나뿐이다 — **미디어가 그 전에 끝났다.** 즉 상류 scene 목록이 이
+    미디어의 것이 아니다(길이가 다른 파일, 잘린 입력).
+
+    이 사실을 장 수로 추론하지 않는 이유가 있다. 예전에는 `_check_keyframe_count` 가
+    "하한보다 적다" 로 함께 걸러 줬는데, 그건 자리를 2 개만 놓던 시절에 그중 하나가
+    미디어 밖이라 성립한 우연이었다. 자리 수가 늘면 앞쪽 자리만으로 하한이 채워져 같은
+    입력이 조용히 성공한다 — **같은 사실이 자리 수에 따라 실패와 성공으로 갈린다.**
+    측정이 닿았는지를 직접 보면 자리 수와 무관하게 같은 답이 나온다.
+
+    **후보 하나가 아니라 자리 하나를 본다.** 막으려는 것은 자리가 조용히 사라져 장 수가
+    주는 일이고, `select` 는 자리 안의 다른 후보로 그 자리를 채울 수 있다. 후보 단위로
+    보면 그렇게 채워지는 경우까지 clip 전체를 영구 실패시킨다 — 자리를 2 개에서
+    5 개로 늘리면서 마지막 자리가 창의 75% 에서 90% 로 옮겨 갔기 때문에, 컨테이너가
+    선언한 길이가 실제 디코드 가능 구간보다 긴 파일(TS, 잘린 꼬리, 추정 duration)에서
+    닿을 확률이 그만큼 커졌다. 자리 단위로 보면 **막으려던 것은 그대로 막고**(자리가
+    사라지면 실패) 대체 가능한 초과분은 통과한다.
+
+    다시 시도해도 같은 결과이므로 `ValueError` 이고 잡 레이어가 영구 오류로 번역한다.
+    """
+    for request in requests:
+        measurement = measured.get(request.scene_index)
+        reached = measurement.frames if measurement is not None else {}
+        for slot in request.slots:
+            if any(frame_number in reached for frame_number in slot.frame_numbers):
+                continue
+            msg = (
+                f"미디어가 scene 보다 먼저 끝났다: scene_index={request.scene_index} "
+                f"(자리 {slot.slot_index} 의 후보 {sorted(slot.frame_numbers)} 에 닿지 못했다)"
+            )
+            raise ValueError(msg)
+
+
+def _choose(
+    slots: Sequence[SlotCandidates],
+    measurement: SceneMeasurement,
+    config: FrameExtractionConfig,
+) -> tuple[ChosenFrame, ...]:
+    """자리마다 선명도로 한 장을 고른 뒤, 서로 충분히 다른 것만 남긴다.
+
+    순서가 중요하다. 선명도가 **무엇을** 저장할지 정하고 변화량이 **몇 장을** 남길지
+    정한다. 두 기준이 최적화하는 대상이 다르기 때문에 한 단계로 합치지 않는다 —
+    변화량은 장 수·위치를 내용으로 정하고(FRD v3.2 F-03), 선명도는 그 자리에서 뽑는
+    프레임의 품질을 보장한다.
+    """
+    return prune_by_change(select(slots, measurement.frames, config), measurement, config)
 
 
 def _validate_scenes(scenes: Sequence[SceneSpan]) -> None:
@@ -247,12 +307,13 @@ def _check_keyframe_count(
 ) -> None:
     """그 scene 에서 뽑을 수 있는 만큼 뽑았는지 본다. 아니면 멈춘다.
 
-    `min_keyframes_per_scene` 은 **슬롯 하한이라 출력 하한이 아니다.** `select` 는 후보가
-    `scored` 에 없으면(디코드가 그 프레임에 닿지 못한 경우) 그 슬롯을 버리므로, scene 구간이
-    미디어 끝을 넘으면 뒤쪽 슬롯이 조용히 사라져 한 장으로 성공한다. 그건 "상류 scene 이 이
-    미디어의 것이 아니다" 라는 사실이고(길이가 다른 파일·잘린 입력), 전부 놓쳤을 때만 멈추면
-    같은 사실이 정도에 따라 실패와 성공으로 갈린다. 부족한 채 성공하면 BE 는 그 장면의
-    keyframe 이 원래 그만큼인 줄 안다.
+    `prune_by_change` 가 하한을 보장하므로 변화량 때문에 여기 걸리는 일은 없다. 남는 것은
+    **선정 단계에서 자리가 사라지는** 경우다 — `select` 는 이미 다른 자리가 고른 프레임을
+    다시 고르지 않으므로, 창이 좁아 자리들의 후보가 한 프레임으로 몰리면 자리가 버려진다.
+    부족한 채 성공하면 BE 는 그 장면의 keyframe 이 원래 그만큼인 줄 안다.
+
+    미디어가 scene 보다 먼저 끝나는 경우는 여기가 아니라 `_check_measured` 가 잡는다. 그
+    사실을 장 수로 추론하면 자리 수에 따라 실패와 성공으로 갈리기 때문이다.
 
     기대치에 `min` 을 쓰는 이유는 구간에 프레임이 한 장뿐인 scene 도 있기 때문이다. 그때
     1 장은 결함이 아니라 그 구간의 전부다 — 없는 프레임을 요구하지 않는다.

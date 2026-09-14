@@ -112,9 +112,9 @@ result = extract_keyframes(
 scene = result.scenes[0]
 scene.representative  # Keyframe(...) ← 결과 카드에 쓸 한 장
 scene.keyframes[0]  # 같은 객체. 대표는 **목록의 첫 원소**다
-len(scene.keyframes)  # 2 이상 (FRD 의 "복수 키프레임")
+len(scene.keyframes)  # 2 이상. 장 수는 장면 안의 변화량이 정한다 (docs/frame-extraction.md §3.1)
 result.image_width  # 원본 해상도. 다운스케일하지 않는다
-result.config_version  # 'frame-extract/v1:5b266b10'
+result.config_version  # 'frame-extract/v2:a0684794'
 result.engine_version  # '18.1.0+numpy2.5.2'  ← PyAV + numpy (둘 다 결과를 바꾼다)
 ```
 
