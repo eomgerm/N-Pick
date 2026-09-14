@@ -159,6 +159,10 @@ NPICK_AI_EMBEDDING_MODEL=dragonkue/snowflake-arctic-embed-l-v2.0-ko \
 샘플 장면 둘(텍스트 있는 것 하나, 없는 것 하나)로 벡터 산출·차원·정규화·버전 기록을 한 번에
 확인한다. 모델 이름을 주지 않으면 skip 한다 — 테스트도 모델을 고르지 않는다.
 
+골드셋으로 산출 지표를 재는 것은 [../eval/text_embedding/](../eval/text_embedding/README.md)
+다 — 파이프라인이 모델 성능을 보존하는지(-175 수치와 대조), 1024 차원을 실제로 얼마나
+쓰는지, 잘림이 일어나는지를 잰다.
+
 나머지 테스트(`tests/test_text_embedding.py`)는 전부 가짜 인코더를 쓴다. 이 단계에서 규약인
 것은 "어떤 벡터가 나오는가" 가 아니라 **무엇을 인코더에 넣고 무엇을 기록하는가**이고, 그건
 가중치 없이 검증된다.
