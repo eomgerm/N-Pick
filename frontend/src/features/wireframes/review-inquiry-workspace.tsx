@@ -67,7 +67,7 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
         </nav>
 
         {feedbackId ? (
-          <InquiryDetail feedbackId={feedbackId} />
+          <InquiryDetail feedbackId={feedbackId} theme={theme} />
         ) : list.isPending ? (
           <p aria-busy="true" className="py-24 text-center" role="status">
             문의 목록을 불러오는 중…

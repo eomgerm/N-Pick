@@ -5,16 +5,14 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Flag,
   LoaderCircle,
-  Pause,
   Play,
-  RotateCcw,
   X,
 } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
+import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
   inquiryResolutionLabels,
   inquiryStatusLabels,
@@ -34,6 +32,7 @@ import { SearchResultNotices } from '@/features/wireframes/search-result-notices
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
+import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
 
 interface SceneDialogProps {
   children: ReactNode;
@@ -41,6 +40,7 @@ interface SceneDialogProps {
   describedBy?: string;
   labelledBy: string;
   theme: WireframeTheme;
+  isLocked?: boolean;
   onClose: () => void;
 }
 
@@ -50,6 +50,7 @@ function SceneDialog({
   describedBy,
   labelledBy,
   theme,
+  isLocked = false,
   onClose,
 }: SceneDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -77,10 +78,10 @@ function SceneDialog({
       data-theme={theme}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        if (!isLocked) onClose();
       }}
       onMouseDown={(event) => {
-        if (event.target !== event.currentTarget) return;
+        if (isLocked || event.target !== event.currentTarget) return;
         const bounds = event.currentTarget.getBoundingClientRect();
         if (
           event.clientX < bounds.left ||
@@ -111,7 +112,10 @@ type ScenePreviewResult = Pick<
   Partial<
     Pick<
       SearchResult,
+      | 'additionalEvidence'
+      | 'clipId'
       | 'clip'
+      | 'searchResultId'
       | 'totalSeconds'
       | 'totalDuration'
       | 'broadcastDate'
@@ -131,13 +135,13 @@ interface ScenePreviewDialogProps {
   scenes?: ScenePreviewResult[];
   theme: WireframeTheme;
   isSubmitted?: boolean;
+  isSubmitting?: boolean;
   onInquiry?: () => void;
   contextLabel?: string;
   notice?: string;
   autoPlay?: boolean;
   searchExecution?: SearchExecutionPresentation;
   onClose: () => void;
-  keepLoading?: boolean;
 }
 
 export function ScenePreviewDialog({
@@ -145,12 +149,12 @@ export function ScenePreviewDialog({
   scenes,
   theme,
   isSubmitted,
+  isSubmitting = false,
   onInquiry,
   onClose,
-  keepLoading = false,
   contextLabel,
   notice,
-  autoPlay = false,
+  autoPlay = true,
   searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
@@ -160,19 +164,12 @@ export function ScenePreviewDialog({
   const evidenceValue = result.matchEvidence?.value ?? result.evidence;
   const evidenceSource = result.matchEvidence?.source ?? result.source;
   const selectedSceneIndex = scenes?.findIndex((scene) => scene.id === result.id) ?? -1;
-  const [loadedSceneId, setLoadedSceneId] = useState<string | number | null>(null);
-  const isLoading = keepLoading || loadedSceneId !== result.id;
-  const [isPlaying, setIsPlaying] = useState(autoPlay);
-  const [replayCount, setReplayCount] = useState(0);
   const sceneListRef = useRef<HTMLOListElement>(null);
   const inquiryUnavailableReasonId = useId();
-  const isInquiryUnavailable = !isSubmitted && !canCreateInquiry(searchExecution);
-  useEffect(() => {
-    if (keepLoading) return;
-    // 미디어 API 연결 전, 로딩 → 준비 화면 전환을 보여 주는 데모입니다.
-    const timer = window.setTimeout(() => setLoadedSceneId(result.id), 1000);
-    return () => window.clearTimeout(timer);
-  }, [keepLoading, result.id]);
+  const hasSavedResult =
+    typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
+  const isInquiryUnavailable =
+    !isSubmitted && (!hasSavedResult || !canCreateInquiry(searchExecution));
   useEffect(() => {
     const list = sceneListRef.current;
     const selected = list?.querySelector<HTMLElement>('[aria-current="true"]');
@@ -185,26 +182,9 @@ export function ScenePreviewDialog({
       list.scrollTop += selectedBounds.bottom - listBounds.bottom;
     }
   }, [result.id]);
-  const previewTimelineStyle = {
-    '--scene-start': result.totalSeconds
-      ? `${(result.sceneStart / result.totalSeconds) * 100}%`
-      : '0%',
-    '--scene-width': result.totalSeconds
-      ? `${((result.sceneEnd - result.sceneStart) / result.totalSeconds) * 100}%`
-      : '100%',
-  } as CSSProperties;
-
-  function handleReplay() {
-    setReplayCount((current) => current + 1);
-    setIsPlaying(true);
-  }
-
   function handleSceneSelect(scene: ScenePreviewResult) {
     if (scene.id === result.id) return;
     setSelectedSceneId(scene.id);
-    setLoadedSceneId(null);
-    setIsPlaying(autoPlay);
-    setReplayCount(0);
   }
 
   return (
@@ -225,27 +205,45 @@ export function ScenePreviewDialog({
         <div className={styles.previewHeaderActions}>
           {onInquiry ? (
             <button
+              aria-busy={isSubmitting}
+              aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
               className={styles.previewReportButton}
               data-state={
-                isSubmitted ? 'submitted' : isInquiryUnavailable ? 'unavailable' : 'ready'
+                isSubmitted
+                  ? 'submitted'
+                  : isSubmitting
+                    ? 'submitting'
+                    : isInquiryUnavailable
+                      ? 'unavailable'
+                      : 'ready'
               }
-              disabled={isSubmitted || isInquiryUnavailable}
+              disabled={isSubmitted || isSubmitting || isInquiryUnavailable}
               onClick={onInquiry}
               type="button"
             >
               {isSubmitted ? (
                 <Check aria-hidden="true" />
+              ) : isSubmitting ? (
+                <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
               ) : isInquiryUnavailable ? (
                 <AlertTriangle aria-hidden="true" />
               ) : (
                 <Flag aria-hidden="true" />
               )}
-              {isSubmitted ? '접수됨' : isInquiryUnavailable ? '문의 불가' : '이상해요'}
+              {isSubmitted
+                ? '접수됨'
+                : isSubmitting
+                  ? '접수 중'
+                  : isInquiryUnavailable
+                    ? '문의 불가'
+                    : '이상해요'}
             </button>
           ) : null}
           {onInquiry && isInquiryUnavailable ? (
             <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
-              검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.
+              {!canCreateInquiry(searchExecution)
+                ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+                : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
             </p>
           ) : null}
           <button
@@ -262,102 +260,14 @@ export function ScenePreviewDialog({
 
       <div className={styles.previewModalBody}>
         <div className={styles.previewPlayer}>
-          {isLoading ? (
-            <div aria-busy="true" className={shinhanStyles.previewLoading} role="status">
-              <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-              <strong>장면을 불러오고 있어요</strong>
-              <p>
-                {formatTimestamp(result.sceneStart)}부터 시작하는 영상을 준비하고 있어요.
-                <br />
-                잠시만 기다려 주세요.
-              </p>
-            </div>
-          ) : (
-            <div
-              aria-label={result.imageLabel}
-              className={`${styles.previewMedia} ${result.imageClass}`}
-              key={`media-${result.id}-${replayCount}`}
-              role="group"
-            >
-              <button
-                aria-label={isPlaying ? '일시정지' : '재생'}
-                className={styles.previewPlay}
-                onClick={() => setIsPlaying((current) => !current)}
-                title={isPlaying ? '일시정지' : '재생'}
-                type="button"
-              >
-                {isPlaying ? (
-                  <Pause aria-hidden="true" fill="currentColor" />
-                ) : (
-                  <Play aria-hidden="true" fill="currentColor" />
-                )}
-              </button>
-              <span className={styles.playingBadge} data-playing={isPlaying}>
-                <span aria-hidden="true" /> {isPlaying ? '재생 중' : '일시 정지'}
-              </span>
-            </div>
-          )}
-          {!notice ? (
-            <p className={shinhanStyles.previewNote}>
-              화면 미리보기용 영상 상태입니다. 실제 영상 재생은 연결 전이에요.
-            </p>
-          ) : null}
-
-          <div
-            aria-label={`${result.totalDuration ? `전체 ${result.totalDuration} 중 ` : ''}${formatTimestamp(
-              result.sceneStart,
-            )}부터 ${formatTimestamp(result.sceneEnd)}까지 재생 구간`}
-            className={`${styles.timelinePanel} ${isPlaying && !isLoading ? styles.timelinePlaying : ''}`}
-            key={`timeline-${result.id}-${replayCount}`}
-            style={previewTimelineStyle}
-          >
-            <div className={styles.timelineHeading}>
-              <strong>{result.totalSeconds ? '전체 영상' : '문의한 영상 구간'}</strong>
-              <span>
-                선택 구간 <b>{result.duration}</b>
-              </span>
-            </div>
-            {result.totalSeconds ? (
-              <div className={styles.timelineTrack}>
-                <span className={styles.sceneRange}>
-                  <span className={styles.sceneProgress} />
-                  <span className={styles.timelinePlayhead} />
-                </span>
-              </div>
-            ) : null}
-            {result.totalDuration ? (
-              <div className={styles.timelineLabels}>
-                <span>00:00</span>
-                <span>{result.totalDuration}</span>
-              </div>
-            ) : null}
-            <div className={styles.sceneBounds}>
-              <span>IN {formatTimestamp(result.sceneStart)}</span>
-              <span>OUT {formatTimestamp(result.sceneEnd)}</span>
-            </div>
-          </div>
-
-          <div className={`${styles.previewControls} ${shinhanStyles.playbackControls}`}>
-            <div className={styles.previewControlButtons}>
-              <button
-                className={styles.playbackButton}
-                disabled={isLoading}
-                onClick={() => setIsPlaying((current) => !current)}
-                type="button"
-              >
-                {isPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                {isPlaying ? '일시정지' : '재생'}
-              </button>
-              <button disabled={isLoading} onClick={handleReplay} type="button">
-                <RotateCcw aria-hidden="true" /> 구간 다시 재생
-              </button>
-            </div>
-            {result.totalDuration ? (
-              <span>
-                <Clock3 aria-hidden="true" /> 원본 {result.totalDuration}
-              </span>
-            ) : null}
-          </div>
+          <ScenePreviewPlayer
+            key={`${result.id}:${result.clipId ?? ''}`}
+            clipId={result.clipId}
+            sceneStart={result.sceneStart}
+            sceneEnd={result.sceneEnd}
+            title={result.title}
+            autoPlay={autoPlay}
+          />
         </div>
 
         <div className={styles.previewSidebar}>
@@ -460,6 +370,16 @@ export function ScenePreviewDialog({
               <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
           </div>
+          {result.additionalEvidence?.map((evidence, index) => (
+            <div className={styles.previewEvidence} key={index}>
+              <strong>
+                {evidence.field} · {evidence.value}
+              </strong>
+              <p>
+                {evidence.source} · {getVerificationStatusLabel(evidence.status)}
+              </p>
+            </div>
+          ))}
           <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
       </div>
@@ -479,7 +399,10 @@ interface InquiryDialogProps {
   theme: WireframeTheme;
   query: string;
   history?: InquiryDetails;
-  onSubmit: (comment: string) => void;
+  error?: unknown;
+  isSubmitting?: boolean;
+  onCommentChange?: () => void;
+  onSubmit: (comment: string) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -488,10 +411,15 @@ export function InquiryDialog({
   theme,
   query,
   history,
+  error,
+  isSubmitting = false,
+  onCommentChange,
   onSubmit,
   onClose,
 }: InquiryDialogProps) {
   const [comment, setComment] = useState(history?.comment ?? '');
+  const errorId = useId();
+  const hasError = error !== undefined && error !== null;
   const statusMessage = !history
     ? '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'
     : history.status === 'open'
@@ -505,6 +433,7 @@ export function InquiryDialog({
       theme={theme}
       className={styles.modal}
       labelledBy="inquiry-title"
+      isLocked={isSubmitting}
       onClose={onClose}
     >
       <div className={styles.modalHeader}>
@@ -515,6 +444,7 @@ export function InquiryDialog({
         <button
           aria-label="문의 창 닫기"
           className={styles.iconButton}
+          disabled={isSubmitting}
           onClick={onClose}
           type="button"
         >
@@ -540,6 +470,7 @@ export function InquiryDialog({
         <dd>{query}</dd>
       </dl>
       <form
+        aria-busy={isSubmitting}
         onSubmit={(event) => {
           event.preventDefault();
           if (!history) onSubmit(comment);
@@ -547,10 +478,14 @@ export function InquiryDialog({
       >
         <label htmlFor="inquiry-comment">{history ? '문의 내용' : '설명 (선택)'}</label>
         <textarea
-          aria-describedby="inquiry-status-message"
+          aria-describedby={`inquiry-status-message${hasError ? ` ${errorId}` : ''}`}
+          disabled={isSubmitting}
           id="inquiry-comment"
           onChange={(event) => {
-            if (!history) setComment(event.target.value);
+            if (!history) {
+              setComment(event.target.value);
+              onCommentChange?.();
+            }
           }}
           placeholder={
             !history
@@ -562,6 +497,11 @@ export function InquiryDialog({
           value={comment}
         />
         <p id="inquiry-status-message">{statusMessage}</p>
+        {hasError ? (
+          <div className={styles.inquiryError}>
+            <ApiErrorNotice error={error} id={errorId} />
+          </div>
+        ) : null}
         {history?.status === 'closed' ? (
           <section aria-labelledby="inquiry-resolution-title" className={styles.inquiryResolution}>
             <h3 id="inquiry-resolution-title">
@@ -574,13 +514,17 @@ export function InquiryDialog({
           </section>
         ) : null}
         <div className={styles.modalActions}>
-          <button onClick={onClose} type="button">
+          <button disabled={isSubmitting} onClick={onClose} type="button">
             {history ? '닫기' : '취소'}
           </button>
           {!history ? (
-            <button className={styles.submitInquiry} type="submit">
-              <Flag aria-hidden="true" />
-              문의 접수
+            <button className={styles.submitInquiry} disabled={isSubmitting} type="submit">
+              {isSubmitting ? (
+                <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+              ) : (
+                <Flag aria-hidden="true" />
+              )}
+              {isSubmitting ? '접수 중' : hasError ? '다시 시도' : '문의 접수'}
             </button>
           ) : null}
         </div>

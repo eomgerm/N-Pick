@@ -1,0 +1,35 @@
+# 임베딩 모델 비교 하네스 전용 의존성 (S15P21A501-175)
+#
+# 왜 pyproject.toml 의 의존성 그룹이 아닌가
+# ----------------------------------------
+# 처음에는 `eval` 그룹으로 넣었다가 되돌렸다. 그룹은 **설치 여부**만 가르지만
+# uv.lock 은 패키지당 버전이 하나다. 그래서 평가용 mlflow 를 그룹에 넣자
+#
+#     mlflow-skinny -> opentelemetry-proto -> protobuf   7.36.1 -> 6.33.6
+#
+# 으로 lock 전체의 protobuf 가 내려갔고, 그 protobuf 는 런타임 의존인 onnxruntime
+# (rapidocr, OCR 단계)이 쓴다. 배포 이미지는 `uv sync --no-dev` 라 mlflow 를 안 받지만
+# **내려간 protobuf 는 받는다.** 평가 도구가 제품 런타임의 버전을 움직이는 경로다.
+#
+# 버전을 핀해둔 것은 2026-09-11 측정에 실제로 쓴 조합이다. 결과를 재현하려면 이대로 쓴다.
+#
+# 사용법 (프로젝트 venv 와 섞지 않는다)
+# ------------------------------------
+#     cd ai
+#     uv venv .venv-eval
+#     uv pip install --python .venv-eval -r eval/embedding/requirements.txt
+#     .venv-eval/bin/python eval/embedding/embedding_bench.py --self-check
+#
+# CUDA 드라이버가 12.8 이면(SSAFY GPU 서버 jupyter05) torch 기본 휠(cu130)이 GPU 를
+# 못 잡는다. 그때만 아래를 덧붙인다:
+#
+#     uv pip install --python .venv-eval --index-url https://download.pytorch.org/whl/cu128 \
+#         --reinstall-package torch torch
+#
+# 지표 단위 테스트(tests/test_embedding_metrics.py)는 numpy 만 있으면 돌아서
+# 프로젝트 기본 venv 의 pytest 로 실행된다 — 이 파일이 없어도 된다.
+
+mlflow==3.16.0
+sentence-transformers==5.7.0
+torch==2.11.0
+numpy>=2,<3

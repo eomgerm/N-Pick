@@ -257,3 +257,17 @@ export async function claimReviewInquiry(
     signal,
   });
 }
+
+export async function resolveReviewInquiry(
+  feedbackId: string,
+  selectedResolution: InquiryResolution,
+  note: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  identifier(feedbackId);
+  await fetchJson<void>(`/review/inquiries/${feedbackId}/resolution`, {
+    method: 'PUT',
+    body: { resolution: selectedResolution, note: note.trim() || null },
+    signal,
+  });
+}

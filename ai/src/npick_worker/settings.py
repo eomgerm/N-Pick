@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     #: 품질을 바꾸는 값이 아니라 경로이므로 버전이 붙는 설정 파일이 아니라 여기 있다.
     ocr_model_dir: Path | None = None
 
-    # ── VLM 장면 metadata (3단계) ────────────────────────────────────
+    # ── VLM 장면 metadata (7단계) ────────────────────────────────────
     # 어느 어댑터로 장면을 설명하는가. 기본은 **자체 호스팅**이다 —
     # `docs/architecture/02-container.md` 요소 표가 VLM 을 워커의 자체 GPU 에 두고,
     # 외부 제공자는 PRD §12.4 의 조건을 전부 만족할 때만 쓸 수 있는 대체 경로다.

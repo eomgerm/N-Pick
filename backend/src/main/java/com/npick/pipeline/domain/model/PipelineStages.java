@@ -8,11 +8,11 @@ public final class PipelineStages {
     public static final List<String> NAMES = List.of(
             "scene_detection",
             "frame_extraction",
-            "vlm_metadata",
             "ocr",
             "transcript_selection",
             "asr",
             "scene_transcript_mapping",
+            "vlm_metadata",
             "entity_extraction",
             "text_embedding",
             "indexing");
@@ -21,6 +21,6 @@ public final class PipelineStages {
     private PipelineStages() {}
 
     public static String outputSchema(String stage) {
-        return "npick.stage." + stage + ".output/v1";
+        return "npick.stage." + stage + (stage.equals("vlm_metadata") ? ".output/v2" : ".output/v1");
     }
 }

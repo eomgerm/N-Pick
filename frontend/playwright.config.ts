@@ -16,6 +16,7 @@ export default defineConfig({
   use: {
     baseURL: frontendUrl,
     trace: 'retain-on-failure',
+    channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
   },
   projects: [
     {

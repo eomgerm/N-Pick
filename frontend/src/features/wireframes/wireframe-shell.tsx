@@ -1,18 +1,26 @@
 'use client';
 
+import { ApiErrorNotice } from '@/components/api-error-notice';
 import { AppShell } from '@/components/app-shell';
 
 import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
-import { results } from '@/features/wireframes/demo-scenes';
+import { results as demoResults, type SearchResult } from '@/features/wireframes/demo-scenes';
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
 } from '@/features/wireframes/search-navigation';
+import {
+  createInquirySubmission,
+  isSameInquiryRequest,
+  submitInquiry,
+  type InquirySubmission,
+} from '@/features/wireframes/inquiry-api';
+import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
@@ -39,6 +47,16 @@ export interface SearchScreenParams {
 }
 
 interface WireframeShellProps {
+  api?: {
+    presentation?: {
+      results: SearchResult[];
+      execution: SearchExecutionPresentation;
+      details: SearchResultDetails;
+    };
+    state: 'loading' | 'failed' | 'ready';
+    error: unknown;
+    retry: () => void;
+  };
   initialQuery?: string;
   theme: WireframeTheme;
   initialParams?: SearchScreenParams;
@@ -50,9 +68,11 @@ export function WireframeShell({
   initialQuery,
   theme,
   initialParams = {},
+  api,
   execution,
   resultDetails,
 }: WireframeShellProps) {
+  const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -70,10 +90,16 @@ export function WireframeShell({
   const [selectedResultId, setSelectedResultId] = useState(1);
   const [isPreviewOpen, setIsPreviewOpen] = useState(initialParams.preview === 'loading');
   const [inquiryResultId, setInquiryResultId] = useState<number | null>(null);
-  const [submittedInquiryIds, setSubmittedInquiryIds] = useState<number[]>([]);
+  const [submittedInquiryIds, setSubmittedInquiryIds] = useState<string[]>([]);
+  const isSearchPending = isNavigating || api?.state === 'loading';
+  const [inquirySubmission, setInquirySubmission] = useState<InquirySubmission | null>(null);
+  const [inquiryError, setInquiryError] = useState<unknown>();
+  const [isInquirySubmitting, setIsInquirySubmitting] = useState(false);
+  const [inquirySuccessNotice, setInquirySuccessNotice] = useState('');
+  const inquirySubmittingRef = useRef(false);
 
   useEffect(() => {
-    if (isNavigating) {
+    if (isSearchPending) {
       hasObservedNavigationRef.current = true;
       return;
     }
@@ -81,32 +107,34 @@ export function WireframeShell({
       navigationLockRef.current = false;
       hasObservedNavigationRef.current = false;
     }
-  }, [isNavigating]);
+  }, [isSearchPending]);
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
-    [selectedResultId],
+    [results, selectedResultId],
   );
   const inquiryResult = results.find(({ id }) => id === inquiryResultId);
-  const displayedResults = demoState === 'empty' ? [] : results;
-  const resultState = isNavigating
-    ? 'loading'
-    : demoState === 'failed'
-      ? 'failed'
-      : displayedResults.length === 0
-        ? 'empty'
-        : 'populated';
+  const displayedResults = !api && demoState === 'empty' ? [] : results;
+  const resultState =
+    isNavigating || api?.state === 'loading'
+      ? 'loading'
+      : api?.state === 'failed' || (!api && demoState === 'failed')
+        ? 'failed'
+        : displayedResults.length === 0
+          ? 'empty'
+          : 'populated';
   const searchExecution =
     resultState === 'populated' || resultState === 'empty'
-      ? (execution ?? demoSearchExecution)
+      ? (api?.presentation?.execution ?? execution ?? demoSearchExecution)
       : successfulSearchExecution;
+  const effectiveResultDetails = api?.presentation?.details ?? resultDetails;
   const details: SearchResultDetails = {
-    ...resultDetails,
+    ...effectiveResultDetails,
     resolverStatus:
       searchExecution.status === 'degraded' &&
       searchExecution.degradedReasons.includes('resolver-fallback')
         ? 'fallback'
-        : resultDetails?.resolverStatus,
+        : effectiveResultDetails?.resolverStatus,
   };
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
@@ -123,15 +151,25 @@ export function WireframeShell({
   }
 
   function handleSearchNavigation(nextQuery: string, broadcast: DateRange, filming: DateRange) {
-    if (navigationLockRef.current || isNavigating) return;
+    if (navigationLockRef.current || isSearchPending) return;
 
     const href = createSearchResultsHref({ query: nextQuery, broadcast, filming });
     if (!href) return;
     if (
       typeof window !== 'undefined' &&
       isSameSearchDestination(`${window.location.pathname}${window.location.search}`, href)
-    )
+    ) {
+      if (api) {
+        navigationLockRef.current = true;
+        try {
+          api.retry();
+        } catch (error) {
+          navigationLockRef.current = false;
+          throw error;
+        }
+      }
       return;
+    }
 
     navigationLockRef.current = true;
     try {
@@ -147,27 +185,78 @@ export function WireframeShell({
       <DateRangePicker
         label="방송일"
         value={broadcastRange}
-        isDisabled={isNavigating}
+        isDisabled={isSearchPending}
         onChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
       />
       <DateRangePicker
         label="촬영일"
         value={filmingRange}
-        isDisabled={isNavigating}
+        isDisabled={isSearchPending}
         onChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
       />
     </>
   );
 
-  function handleInquirySubmit() {
-    if (inquiryResultId === null || !canCreateInquiry(searchExecution)) {
+  async function handleInquirySubmit(comment: string) {
+    if (
+      inquirySubmittingRef.current ||
+      inquiryResultId === null ||
+      !inquiryResult ||
+      !inquiryResult.searchResultId ||
+      !canCreateInquiry(searchExecution)
+    ) {
       return;
     }
 
-    setSubmittedInquiryIds((current) =>
-      current.includes(inquiryResultId) ? current : [...current, inquiryResultId],
-    );
+    const submission =
+      inquirySubmission &&
+      isSameInquiryRequest(inquirySubmission, inquiryResult.searchResultId, comment)
+        ? inquirySubmission
+        : createInquirySubmission(inquiryResult.searchResultId, comment);
+
+    inquirySubmittingRef.current = true;
+    setInquirySubmission(submission);
+    setInquiryError(undefined);
+    setIsInquirySubmitting(true);
+
+    try {
+      const response = await submitInquiry(submission);
+      setSubmittedInquiryIds((current) =>
+        current.includes(submission.snapshot.resultId)
+          ? current
+          : [...current, submission.snapshot.resultId],
+      );
+      setInquirySuccessNotice(
+        `문의 #${response.inquiryId}의 접수가 확인되었습니다. 현재 상태: ${inquiryStatusLabels[response.status]}. 문의 접수 자체로 검색 결과는 변경되지 않습니다.`,
+      );
+      setInquirySubmission(null);
+      setInquiryResultId(null);
+    } catch (error) {
+      setInquiryError(error);
+    } finally {
+      inquirySubmittingRef.current = false;
+      setIsInquirySubmitting(false);
+    }
+  }
+
+  function handleInquiryOpen(resultId: number) {
+    const result = results.find(({ id }) => id === resultId);
+    if (
+      !result?.searchResultId ||
+      !canCreateInquiry(searchExecution) ||
+      submittedInquiryIds.includes(result.searchResultId)
+    )
+      return;
+    setInquiryResultId(resultId);
+    setInquirySubmission(null);
+    setInquiryError(undefined);
+  }
+
+  function handleInquiryClose() {
+    if (inquirySubmittingRef.current) return;
     setInquiryResultId(null);
+    setInquirySubmission(null);
+    setInquiryError(undefined);
   }
 
   function handlePreviewSelect(resultId: number) {
@@ -182,7 +271,7 @@ export function WireframeShell({
   function handlePreviewInquiry() {
     if (!canCreateInquiry(searchExecution)) return;
     setIsPreviewOpen(false);
-    setInquiryResultId(selectedResult.id);
+    if (selectedResult) handleInquiryOpen(selectedResult.id);
   }
 
   return (
@@ -210,7 +299,7 @@ export function WireframeShell({
                 <span className={styles.visuallyHidden}>검색어</span>
                 <input
                   aria-label="뉴스 장면 검색어"
-                  disabled={isNavigating}
+                  disabled={isSearchPending}
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
                   value={query}
@@ -219,11 +308,11 @@ export function WireframeShell({
               </label>
               <button
                 className={styles.searchButton}
-                disabled={!query.trim() || isNavigating}
+                disabled={!query.trim() || isSearchPending}
                 type="submit"
               >
                 <Search aria-hidden="true" />
-                <span>{isNavigating ? '검색 중' : '검색'}</span>
+                <span>{isSearchPending ? '검색 중' : '검색'}</span>
               </button>
             </form>
           </section>
@@ -275,13 +364,20 @@ export function WireframeShell({
                 </h2>
               </div>
               <div className={styles.resultsMeta}>
-                <span>화면 미리보기 · 예시 데이터</span>
+                <span>{api ? '검색 결과' : '화면 미리보기 · 예시 데이터'}</span>
               </div>
             </div>
 
+            {api?.error ? <ApiErrorNotice error={api.error} /> : null}
             {resultState === 'empty' || resultState === 'populated' ? (
               <SearchResultNotices execution={searchExecution} variant="results" />
             ) : null}
+            {inquirySuccessNotice ? (
+              <p className={styles.inquirySuccessNotice} role="status">
+                {inquirySuccessNotice}
+              </p>
+            ) : null}
+
             {resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
@@ -292,7 +388,10 @@ export function WireframeShell({
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
-                onRetry={() => handleSearchNavigation(submittedQuery, broadcastRange, filmingRange)}
+                onRetry={
+                  api?.retry ??
+                  (() => handleSearchNavigation(submittedQuery, broadcastRange, filmingRange))
+                }
                 onEditQuery={() => {
                   searchInputRef.current?.focus();
                   searchInputRef.current?.select();
@@ -325,15 +424,15 @@ export function WireframeShell({
             : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
 
-      {isPreviewOpen ? (
+      {isPreviewOpen && selectedResult ? (
         <ScenePreviewDialog
           result={selectedResult}
           theme={theme}
-          isSubmitted={submittedInquiryIds.includes(selectedResult.id)}
+          isSubmitted={submittedInquiryIds.includes(selectedResult.searchResultId ?? '')}
+          isSubmitting={isInquirySubmitting && inquiryResultId === selectedResult.id}
           searchExecution={searchExecution}
           onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
-          keepLoading={initialParams.preview === 'loading'}
         />
       ) : null}
       {inquiryResult ? (
@@ -341,8 +440,14 @@ export function WireframeShell({
           result={inquiryResult}
           theme={theme}
           query={submittedQuery}
+          error={inquiryError}
+          isSubmitting={isInquirySubmitting}
+          onCommentChange={() => {
+            setInquirySubmission(null);
+            setInquiryError(undefined);
+          }}
           onSubmit={handleInquirySubmit}
-          onClose={() => setInquiryResultId(null)}
+          onClose={handleInquiryClose}
         />
       ) : null}
     </AppShell>

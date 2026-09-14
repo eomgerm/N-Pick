@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import { useMember } from '@/components/session-boundary';
 import { inquiryResolutionLabels, inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import {
   claimReviewInquiry,
@@ -17,6 +18,7 @@ import {
   SearchInterpretation,
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
+import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -26,15 +28,19 @@ import {
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
 import styles from '@/features/wireframes/reviewer.module.css';
+import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
 interface InquiryDetailProps {
   feedbackId: string;
+  theme: WireframeTheme;
 }
 
-export function InquiryDetail({ feedbackId }: InquiryDetailProps) {
+export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
+  const member = useMember();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -155,6 +161,7 @@ export function InquiryDetail({ feedbackId }: InquiryDetailProps) {
 
         <section className="rounded-2xl border border-(--line) p-5">
           <h2 className="font-bold">문의 장면</h2>
+          <ReviewInquiryPreview key={inquiry.feedbackId} inquiry={inquiry} theme={theme} />
           <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
             <div>
               <dt className="text-(--muted)">클립 / 장면 ID</dt>
@@ -227,6 +234,14 @@ export function InquiryDetail({ feedbackId }: InquiryDetailProps) {
                 : '시작 시각 확인 중'}
             </p>
           </section>
+        ) : null}
+
+        {inquiry.status === 'reviewing' ? (
+          <InquiryResolutionForm
+            inquiry={inquiry}
+            key={`${inquiry.feedbackId}-${inquiry.resolution ?? 'new'}`}
+            memberLoginId={member.loginId}
+          />
         ) : null}
 
         {inquiry.resolution ? (

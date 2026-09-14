@@ -18,6 +18,7 @@
 from dataclasses import dataclass
 from typing import Final
 
+from npick_worker.vlm_metadata.grounding import OcrRef, OcrText, TranscriptRef, TranscriptText
 from npick_worker.vlm_metadata.schema import ShotType, TagCandidateType
 
 #: `tag_evidence.confidence` 가 `numeric(5,4)` 다. 다섯째 자리를 보내면 DB 가 반올림해
@@ -59,6 +60,8 @@ class SceneKeyframes:
 
     scene_index: int
     keyframes: tuple[KeyframeRef, ...]
+    ocr: tuple[OcrText, ...] = ()
+    transcripts: tuple[TranscriptText, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.keyframes:
@@ -84,7 +87,7 @@ class Judgement:
     #: 0~1. 넷째 자리까지 반올림돼 있다.
     confidence: float
     #: 이 판단의 근거가 된 keyframe. `shot_type` 이 `unknown` 일 때만 비어 있을 수 있다.
-    evidence: tuple[KeyframeRef, ...]
+    evidence: tuple[KeyframeRef | OcrRef | TranscriptRef, ...]
 
 
 @dataclass(frozen=True, slots=True)
