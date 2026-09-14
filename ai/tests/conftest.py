@@ -59,6 +59,12 @@ def _panel(kind: PanelKind) -> np.ndarray:
         frame[:, :] = rng.integers(0, 256, frame.shape, dtype=np.uint8)
     elif kind == "gray":
         frame[:, :] = 128
+    elif kind == "split":
+        # 왼쪽 절반만 흰색. `bars`·`noise` 와 구조가 다르면서 균일색이 아니다 —
+        # 적응형 테스트에는 **비블랭크인** 화면이 셋 이상 필요하다. `white`·`gray` 는
+        # 휘도 표준편차가 0 이라 `select` 가 블랭크로 표시하고, 블랭크는 장 수를 늘리는
+        # 근거가 되지 못한다(`selector.prune_by_change`).
+        frame[:, : VIDEO_WIDTH // 2] = 235
     else:  # pragma: no cover - 오타 방지용
         msg = f"알 수 없는 패널: {kind}"
         raise ValueError(msg)

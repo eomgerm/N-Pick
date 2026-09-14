@@ -320,9 +320,9 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
   "stage": "frame_extraction",
   "status": "succeeded",
   "versions": {
-    "stageVersion": "npick.stage.frame_extraction/v1:595427d7",
+    "stageVersion": "npick.stage.frame_extraction/v1:5fa70a50",
     "outputSchemaVersion": "npick.stage.frame_extraction.output/v1",
-    "configVersion": "frame-extract/v1:5b266b10",
+    "configVersion": "frame-extract/v2:a0684794",
     "modelVersion": null,
     "promptVersion": null,
     "detail": { "engine": "pyav", "engineVersion": "18.1.0+numpy2.5.2" },
@@ -356,7 +356,13 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 `timestamp_ms` 순으로 정렬해 저장하면 이 규약이 조용히 깨진다 — 대표는 선명도로 뽑히므로 시각이 가장 이르지 않다. 그래서 `representativeTimestampMs`를 함께 싣는다. BE는 저장 직전에 `keyframes[0].timestampMs`와 대조해 어긋나면 `JOB_400_001`로 거부한다. 워커도 보내기 전에 같은 검사를 한다.
 
-**장 수** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. 구간이 미디어 끝을 넘으면 뒤쪽 슬롯의 후보가 디코드에 닿지 못해 앞쪽만 살아 한 장이 되는데, 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호이므로 적은 장 수로 통과시키지 않는다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다. 이 보증은 워커가 슬롯 수의 상한을 창의 ms가 아니라 **구간의 프레임 수**로 두는 데 기댄다. 그래서 프레임이 2장 이상인 구간은 항상 2장 이상을 낸다.
+**장 수는 장면 안의 변화량으로 정해진다.** 고정 개수도, 장면 길이에 비례하는 값도 아니다 — 정적 장면은 적게, 동적 장면은 많게 나온다(FRD v3.2 F-03, `docs/frd.md:131`). **BE는 장면마다 장 수가 다른 것을 정상으로 받는다.** 길이가 같은 두 장면이 다른 장 수를 내는 것도 정상이다.
+
+변화량 척도는 `scene_detection`이 컷을 판정할 때 쓰는 `content_val`과 같다(FRD의 척도 통일 권고). 기본 임계도 그 단계의 컷 임계와 같은 값이라, 규칙이 한 문장으로 선다 — **장면 안의 두 장을 따로 남기려면 scene 분할이 컷으로 봤을 만큼 달라야 한다.** 판정에 쓴 임계값은 `configVersion`에 들어가므로 어떤 설정으로 뽑은 결과인지는 그 값으로 되짚는다. 근거는 `ai/docs/frame-extraction.md` §3.1이다.
+
+**하한과 상한** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖에는 변화량이 아무리 작아도 `min_keyframes_per_scene`(기본 2)을 보장한다 — FRD F-03의 "장면의 복수 키프레임"이 변화량 판정으로 깨지지 않아야 하기 때문이다. 상한은 `max_keyframes_per_scene`(기본 5)이고 이것이 곧 후속 VLM·OCR의 비용 상한이다.
+
+그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. scene 구간이 미디어 끝을 넘으면 워커가 **재 달라고 한 프레임에 디코드가 닿지 못한 것을 직접 검출해** 실패시킨다(장 수로 추론하지 않는다). 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다.
 
 **남은 어긋남 — `stages.py`의 "thumbnail"과 축소본의 자리.** 단계 표는 2단계 필수 출력을 "복수 keyframe·thumbnail"로 적고 FRD §3 F-03은 "축소된 대표 이미지 대신 원본 해상도의 프레임"이라 쓰므로 축소본의 존재를 전제한다. 그런데 **축소본 경로를 담을 컬럼이 스키마에 없다.** 이번 구현은 축소본 파일을 만들지 않고 keyframe을 원본 해상도로만 저장한다. 근거는 둘이다 — 작은 글자 OCR이 요구하는 것이 원본 해상도 프레임이고(그것이 이 자산의 1차 소비자다), 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있어 저장이 필요 없다. **컬럼을 새로 만들지 않았으므로 BE는 대표 keyframe을 축소해 카드에 제공한다.** 이 판단을 바꾸려면 스키마가 먼저 바뀌어야 하므로 여기 적어 둔다.
 
@@ -695,8 +701,8 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | --- | --- |
 | `scene_detection.v1.toml` 기본 설정 | `configVersion` = `scene-detect/v1:20dfc0a6` |
 | `{configVersion: scene-detect/v1:20dfc0a6, detector: content, engine: pyscenedetect, engineVersion: 0.7.1}` | `stageVersion` = `npick.stage.scene_detection/v1:3ab4bebe` |
-| `frame_extraction.v1.toml` 기본 설정 | `configVersion` = `frame-extract/v1:5b266b10` |
-| `{configVersion: frame-extract/v1:5b266b10, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:595427d7` |
+| `frame_extraction.v2.toml` 기본 설정 | `configVersion` = `frame-extract/v2:a0684794` |
+| `{configVersion: frame-extract/v2:a0684794, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:5fa70a50` |
 | `vlm_metadata.v1.toml` 기본 설정 | `configVersion` = `vlm-metadata-config/v1:fcd15e10` |
 | 같은 설정의 **렌더링된** 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v1:587f345d` |
 | `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0+torch2.13.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:325198af` |
@@ -718,7 +724,14 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 
 > 같은 `Idempotency-Key`로 도착한 `complete`는 **최초 1회만** 정본을 바꾼다. 두 번째부터는 최초에 저장한 결과를 그대로 돌려주며 `duplicate: true`를 붙인다(200, 오류가 아니다). 본문이 최초와 다르면 — 정규화 JSON의 sha256 비교 — 정본을 바꾸지 않고 `JOB_409_003`으로 거절한다.
 
-별도 멱등성 테이블을 만들지 않는다. `stage_states_json`의 `lastIdempotencyKey` + `lastRequestSha256`에 넣고, `complete` 처리를 `SELECT … FOR UPDATE` 안의 조건부 UPDATE로 한다. 행 하나가 잠기므로 원자성이 공짜다.
+별도 멱등성 테이블을 만들지 않는다. 단계별 `completions`에 멱등성 키를 인덱스로 하여
+수락된 요청의 `requestSha256`·`leaseId`·`workerId`·`response`를 보존한다.
+`lastIdempotencyKey`·`lastRequestSha256`·`completedLeaseId`·`completedWorkerId`·`completion`은
+마지막 완료 정보로 유지한다. 구 기록은 다음 배정에서 worker를 덮기 전에 보존한다.
+`complete` 처리는 `SELECT … FOR UPDATE` 안에서 정본 저장과 같은 트랜잭션으로 수행한다.
+다음 attempt의 배정·완료나 프로세스 재기동 이후에도 이미 수락한 원래 lease·worker의 동일 요청은
+원래 응답을 반환한다. 다른 worker·lease는 `JOB_409_002`, 같은 키의 다른 본문은 `JOB_409_003`이다.
+아직 수락하지 않은 회수된 lease 결과는 완료 이력이 없으므로 fencing으로 거절한다.
 
 "재시도가 성공 산출물을 중복 생성하지 않는다"([docs/frd.md](../frd.md) §3 F-03)가 성립하는 이유는 세 겹이다.
 
@@ -787,6 +800,32 @@ BE의 실제 `ErrorType`(`BAD_REQUEST`, `LENGTH_REQUIRED`, `UNAUTHORIZED`, `FORB
 v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념이 없고 `JOB_401`/`JOB_403_002`가 같은 사실을 더 정확히 말한다.
 
 **재시도 정책** — 영구는 `attempts`를 동결하고 재claim하지 않는다. 일시는 `attempts < maxAttempts`일 때만 재claim한다. 치명 단계(`stages.py`의 `fatal=True`: `scene_detection`·`frame_extraction`·`indexing`)의 최종 실패는 run을 `failed`로 만들고, 비치명 단계 실패는 run을 계속 진행시킨다([docs/frd.md](../frd.md) §3 F-03).
+
+BE는 `pipeline.yml`의 `defaults.retry_count`와 단계별 `stage_overrides.<stage>.retry_count`를 읽는다.
+`null`은 추가 시도 0회, 정수 N은 최초 시도를 포함한 `maxAttempts=N+1`이다.
+`transient_errors`는 횟수와 별도의 허용 목록이며, 위 오류 계약상 일시 오류이면서
+워커가 `retryable=true`로 신고한 `failed` 결과만 예산 안에서 재시도한다.
+영구·미등록 코드와 `skipped`는 설정으로 재시도할 수 없다. `MEDIA_UNAVAILABLE`의 파일 부재와
+`ARTIFACT_UPLOAD_FAILED`의 해시 불일치처럼 `retryable=false`인 상세 분류도 재시도하지 않는다.
+
+재시도 수락 시 해당 단계만 `pending`이 되고 `retryScheduled=true`를 기록한다.
+`attempts`는 완료한 시도 번호를 유지하며 다음 claim에서 한 번 증가한다. 이때 멱등성 키와
+`outputKeyPrefix`도 새 attempt 값으로 바뀐다. lease 회수는 같은 attempt를 재배정한다.
+이전 실패는 같은 단계의 `failedAttempts`에 attempt·오류·종료 시각·멱등성 키로 보존한다.
+최종 실패·누락은 기존 단계 `status`·`error`·`errorCode`에 남고 성공 결과만 upstream으로 전달된다.
+`retryScheduled`는 BE 판단이며 기존 `errorRetryable`은 워커 신고 의미를 유지한다.
+
+각 단계의 최초 배정에서 `retryPolicy`에 `maxAttempts`와 `transientErrors`를 저장한다.
+배정 응답·완료 판정·lease 재배정은 이 정책을 사용한다. 프로파일 변경은 아직 배정하지 않은
+단계부터 적용되며, 이미 시작한 단계의 예산이나 일시 오류 목록을 재기동 시 바꾸지 않는다.
+정책 기록 전에 시작한 구 단계는 기존 시도(이미 예약된 다음 시도가 있으면 그 1회)까지만
+보존하고 추가 자동 재시도를 새로 허용하지 않는다.
+
+BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 오류로 감싼 내부 원인까지 확인하여
+잘못된 자막은 `INVALID_TRANSCRIPT`·`retryable=false`, 영구 입력·권한 오류와 파일 부재도
+`retryable=false`로 기록한다. 서비스 일시 불가·시간 초과는 설정된 예산 안에서 재시도할 수 있다.
+일시 여부가 확인되지 않은 오류는 재시도하지 않는다. 원본 예외 메시지 대신 기존 오류 코드만
+`error.detail.sourceErrorCode`에 남기며 준비 실패라는 사실은 `phase=input_preparation`으로 구분한다.
 
 ## 10. 시간 수치
 

@@ -3,6 +3,7 @@ package com.npick.search.application.port;
 import java.util.List;
 
 import com.npick.search.application.error.QueryResolverErrorCode;
+import com.npick.search.domain.model.QueryResolution;
 
 /**
  * 리졸버 호출 한 번의 결과.

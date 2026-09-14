@@ -9,7 +9,7 @@ import java.util.UUID;
 import com.npick.common.error.BusinessException;
 import com.npick.pipeline.domain.error.PipelineErrorCode;
 
-/** 한 행을 잠근 트랜잭션 안에서만 변경한다. 자동 재시도 예산은 후속 정책의 책임이다. */
+/** 한 행을 잠근 트랜잭션 안에서만 변경한다. */
 public final class PipelineRun {
     public static final String SCHEMA = "npick.stage_states/v1";
     private final long id;
@@ -85,10 +85,23 @@ public final class PipelineRun {
     }
 
     public void claim(String stage, String worker, UUID lease, Map<String, Object> device, Instant now) {
+        claim(stage, worker, lease, device, now, StageRetrySettings.disabled());
+    }
+
+    public void claim(
+            String stage,
+            String worker,
+            UUID lease,
+            Map<String, Object> device,
+            Instant now,
+            StageRetrySettings configured) {
         if (!Objects.equals(nextStage(), stage)) fail(PipelineErrorCode.INVALID_STATE);
         Map<String, Object> state = stages.get(stage);
+        preserveLegacyCompletion(state);
+        bindRetryPolicy(stage, configured);
         // lease 회수는 실행 실패가 아니므로 같은 attempt를 다시 배정한다.
         int attempt = Math.max(1, ((Number) state.get("attempts")).intValue());
+        if (Boolean.TRUE.equals(state.remove("retryPending"))) attempt = Math.addExact(attempt, 1);
         state.put("status", "running");
         state.put("attempts", attempt);
         state.put("leaseId", lease.toString());
@@ -142,15 +155,23 @@ public final class PipelineRun {
     public Map<String, Object> duplicate(String stage, UUID lease, String worker, String key, String hash) {
         Map<String, Object> state = stages.get(stage);
         if (state == null) fail(PipelineErrorCode.INVALID_RESULT);
-        if (!key.equals(state.get("lastIdempotencyKey"))) return null;
+        preserveLegacyCompletion(state);
+        var accepted =
+                JsonValues.object(JsonValues.object(state.get("completions")).get(key));
+        if (accepted.isEmpty()) return null;
         // 완료된 동일 lease의 재전송만 허용한다. 회수된 이전 lease는 같은 attempt라도 거절한다.
-        if (!lease.toString().equals(state.get("completedLeaseId")) || !worker.equals(state.get("workerId")))
+        if (!lease.toString().equals(accepted.get("leaseId")) || !worker.equals(accepted.get("workerId")))
             fail(PipelineErrorCode.STALE_LEASE);
-        if (!hash.equals(state.get("lastRequestSha256"))) fail(PipelineErrorCode.IDEMPOTENCY_CONFLICT);
-        return JsonValues.copy(JsonValues.object(state.get("completion")));
+        if (!hash.equals(accepted.get("requestSha256"))) fail(PipelineErrorCode.IDEMPOTENCY_CONFLICT);
+        return JsonValues.copy(JsonValues.object(accepted.get("response")));
     }
 
     public void complete(String stage, Map<String, Object> result, String hash, Instant now) {
+        complete(stage, result, hash, now, StageRetrySettings.disabled());
+    }
+
+    public void complete(
+            String stage, Map<String, Object> result, String hash, Instant now, StageRetrySettings retries) {
         if (!java.util.List.of("succeeded", "failed", "skipped").contains(result.get("status")))
             fail(PipelineErrorCode.INVALID_STATE);
         Map<String, Object> state = stages.get(stage);
@@ -180,6 +201,7 @@ public final class PipelineRun {
         state.remove("stage");
         state.put("leaseId", null);
         state.put("completedLeaseId", leaseId.toString());
+        state.put("completedWorkerId", workerId);
         state.put("lastIdempotencyKey", idempotencyKey(stage));
         state.put("lastRequestSha256", hash);
         state.put(
@@ -193,6 +215,27 @@ public final class PipelineRun {
         state.put("errorRetryable", error.get("retryable"));
         state.put("errorMessage", error.get("message"));
         clearLease();
+        bindRetryPolicy(stage, retries);
+        boolean retry = "failed".equals(state.get("status"))
+                && retryPolicy(stage).permits(stage, ((Number) state.get("attempts")).intValue(), error);
+        state.put("retryScheduled", retry);
+        if (retry) {
+            var failures = new java.util.ArrayList<Object>(
+                    state.get("failedAttempts") instanceof java.util.List<?> previous ? previous : java.util.List.of());
+            failures.add(JsonValues.copy(Map.of(
+                    "attempt",
+                    state.get("attempts"),
+                    "error",
+                    error,
+                    "finishedAt",
+                    state.get("finishedAt"),
+                    "idempotencyKey",
+                    state.get("lastIdempotencyKey"))));
+            state.put("failedAttempts", failures);
+            state.put("status", "pending");
+            state.put("retryPending", true);
+            return;
+        }
         if (!"succeeded".equals(state.get("status")) && PipelineStages.FATAL.contains(stage)) {
             finish("failed", Objects.toString(error.get("code"), "STAGE_FAILED"), now);
         }
@@ -223,6 +266,59 @@ public final class PipelineRun {
 
     public void rememberCompletion(String stage, Map<String, Object> response) {
         stages.get(stage).put("completion", JsonValues.copy(response));
+        preserveLegacyCompletion(stages.get(stage));
+    }
+
+    private static void preserveLegacyCompletion(Map<String, Object> state) {
+        if (!(state.get("lastIdempotencyKey") instanceof String key) || state.get("completion") == null) return;
+        var completions = new LinkedHashMap<>(JsonValues.object(state.get("completions")));
+        completions.putIfAbsent(
+                key,
+                JsonValues.copy(Map.of(
+                        "leaseId", state.get("completedLeaseId"),
+                        "workerId", state.getOrDefault("completedWorkerId", state.get("workerId")),
+                        "requestSha256", state.get("lastRequestSha256"),
+                        "response", state.get("completion"))));
+        state.put("completions", completions);
+    }
+
+    private void bindRetryPolicy(String stage, StageRetrySettings configured) {
+        var state = stages.get(stage);
+        if (state.containsKey("retryPolicy")) return;
+        int attempts = ((Number) state.get("attempts")).intValue();
+        // 정책 기록 전 시작된 구 run은 배정 당시 기본 계약(추가 재시도 없음)을 유지한다.
+        // 이미 예약된 재시도가 있다면 그 1회까지만 보존한다.
+        int budget = attempts == 0
+                ? configured.attemptsFor(stage)
+                : Math.addExact(attempts, Boolean.TRUE.equals(state.get("retryPending")) ? 1 : 0);
+        state.put(
+                "retryPolicy",
+                Map.of(
+                        "maxAttempts",
+                        Math.max(1, budget),
+                        "transientErrors",
+                        attempts == 0
+                                ? configured.transientErrors().stream().sorted().toList()
+                                : java.util.List.of()));
+    }
+
+    private StageRetrySettings retryPolicy(String stage) {
+        var policy = JsonValues.object(stages.get(stage).get("retryPolicy"));
+        var codes = new java.util.HashSet<String>();
+        if (!(policy.get("maxAttempts") instanceof Number max)
+                || max.intValue() < 1
+                || max.doubleValue() != max.intValue()
+                || !(policy.get("transientErrors") instanceof java.util.List<?>)) fail(PipelineErrorCode.INVALID_STATE);
+        for (Object value : (java.util.List<?>) policy.get("transientErrors")) {
+            if (!(value instanceof String)) fail(PipelineErrorCode.INVALID_STATE);
+            codes.add((String) value);
+        }
+        return new StageRetrySettings(Map.of(stage, ((Number) policy.get("maxAttempts")).intValue()), codes);
+    }
+
+    public int maxAttempts(String stage) {
+        bindRetryPolicy(stage, StageRetrySettings.disabled());
+        return retryPolicy(stage).attemptsFor(stage);
     }
 
     public boolean versionsMatch() {
