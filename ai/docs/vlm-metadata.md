@@ -9,7 +9,7 @@ FRD `F-03` 영상 설명 생성 구현 근거. 구현은 `src/npick_worker/vlm_m
 
 > **2026-09-13 실제 smoke 비교 반영:** 동일한 10개 scene·23장 selected keyframe으로
 > Qwen3.5-4B, Qwen3.5-9B, Qwen3-VL-8B-Instruct를 비교했다. 세 모델 모두 schema 10/10을
-> 통과했다. **조건부 주 후보는 Qwen3.5-9B**, 메모리 제약 시 대체 평가 후보는 Qwen3.5-4B다.
+> 통과했다. **이번 이슈의 선정 모델은 Qwen3.5-9B**, 메모리 제약 시 대체 모델은 Qwen3.5-4B다.
 > 9B는 4B의 복수 프레임 혼합·동작 오인을 줄였고, 평균 14.432초/scene,
 > peak reserved 18.58 GiB였다. Qwen3-VL-8B는 가장 빨랐지만 샷 유형 오류가 확인됐다.
 > 상세 수치·장면별 AI 예비 판정·원시 결과는 §9.6에 있다. 사람의 품질 검수와 별도 Gold Set은
@@ -39,8 +39,8 @@ FRD `F-03` 영상 설명 생성 구현 근거. 구현은 `src/npick_worker/vlm_m
 
 | 역할 | 모델 | 선택 |
 | --- | --- | --- |
-| 조건부 주 후보 | `Qwen/Qwen3.5-9B` | 실제 smoke 10/10. 이번 AI 예비 검토에서 caption 오류가 가장 적고 20 GiB allocator 예산 내 실행 (§9.6) |
-| 메모리 제약 시 대체 평가 후보 | `Qwen/Qwen3.5-4B` | 실제 smoke 10/10, reserved 9.58 GiB. 품질 저하가 있어 동등한 품질의 fallback으로 간주하지 않음 |
+| 선정 모델 | `Qwen/Qwen3.5-9B` | 실제 smoke 10/10. 이번 AI 예비 검토에서 caption 오류가 가장 적고 20 GiB allocator 예산 내 실행 (§9.6) |
+| 메모리 제약 시 대체 모델 | `Qwen/Qwen3.5-4B` | 실제 smoke 10/10, reserved 9.58 GiB. 품질 저하를 감수하는 별도 실행용 fallback이며 자동 전환은 아님 |
 | 비교 완료 baseline | `Qwen/Qwen3-VL-8B-Instruct` | 실제 smoke 10/10, 평균 6.776초로 가장 빠름. 기자·스크린 장면의 샷 유형 오류로 주 후보에서 제외 |
 | 향후 다른 계열 비교 | `google/gemma-4-12B-it` | 이번 실측에 포함하지 않음. 추가 GPU 예산·품질 개선 필요 시 검토 |
 | 향후 최신 품질 비교 | `Qwen/Qwen3.8-27B` | 이번 실측에 포함하지 않음. 추가 GPU 예산·품질 개선 필요 시 검토 |
@@ -54,10 +54,16 @@ NPICK_AI_VLM_MODEL=Qwen/Qwen3.5-9B
 NPICK_AI_VLM_MODEL_REVISION=c202236235762e1c871ad0ccb60c8ee5ba337b9a
 ```
 
-이 선택은 **Gold Set 합격 전 조건부 기술 선정**이다. 공개 benchmark는 일반 VQA·OCR·문서·
+이 선택으로 **이번 이슈의 기술 선정을 확정**한다. 운영 품질 승인은 별도다. 공개 benchmark는 일반 VQA·OCR·문서·
 추론 성능을 보여 줄 뿐, 한국어 뉴스의 `anchor / interview / b_roll / unknown` Macro F1이나
 N-Pick caption 판정률을 대신하지 못한다. 최종 품질 판정은 장면 100개 이상의 별도 Gold
 Set에서 shot type Macro F1 0.80 이상, 설명 정확+부분정확 85% 이상을 확인한다(FRD §8.2).
+
+이번 이슈(S15P21A501-92)는 후보 비교·모델 선정·구조화 prompt/schema·버전 관리와 실제
+복수 keyframe smoke를 다룬다. 검증기·실패 처리의 기반 코드도 이 브랜치에 포함되어 있지만,
+정본 저장의 부분 적용 방지와 오케스트레이터 누락 채널 연동의 실제 동작 확인은 후속
+검증 이슈에서 다룬다. 100개 이상 scene Gold Set 최종 품질 판정도 별도 작업이다.
+원시 출력은 Git 밖에서 보존하며, 전달되지 않은 실행 설정·로그의 보존 상태는 §9.6에 명시한다.
 
 ### 2.2 후보 비교 — 공개 사양과 사전 판단
 
@@ -665,16 +671,17 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
 
 **선정과 남은 검증**
 
-- **주 후보: Qwen3.5-9B.** 이번 예비 caption 판정이 가장 좋고, scene 0의 시간·공간 구분과
+- **선정 모델: Qwen3.5-9B.** 이번 예비 caption 판정이 가장 좋고, scene 0의 시간·공간 구분과
   scene 2의 동작 설명이 개선됐다. 4B 대비 평균 시간은 약 29.6% 증가하고 reserved 메모리는
   약 9.00 GiB 증가했지만 이번 20 GiB allocator 조건에서 10/10 실행됐다.
   `weather=조명` 등 태그 오류가 있어 현재 출력의 무검수 사실 확정은 허용하지 않는다.
-- **메모리 제약 시 대체 평가 후보: Qwen3.5-4B.** reserved 9.58 GiB로 자원 여유가 크다.
+- **메모리 제약 시 대체 모델: Qwen3.5-4B.** reserved 9.58 GiB로 자원 여유가 크다.
   caption 오류가 더 많아 동일 품질 fallback으로 승인한 것은 아니다. 별도 실행·검수로만 사용한다.
 - **속도 비교 후보: Qwen3-VL-8B-Instruct.** 평균은 9B보다 약 53.0% 짧지만,
   reserved 차이는 약 1.03 GiB뿐이고 샷 유형·화면 맥락 오인이 있어 이번 주 후보로 고르지 않았다.
-- 세 모델 모두 `10 scene × 복수 selected keyframe` 실제 smoke는 완료했다. 품질 검수,
-  class-balanced 개발 평가, 100개 이상 별도 Gold Set, 운영 부하 검증, PR 승인·머지는 별도 남은 일이다.
+- 세 모델 모두 `10 scene × 복수 selected keyframe` 실제 smoke는 완료했다. 이번 이슈는
+  리뷰어 승인·MR 머지 후 종료한다. 추가 사람 품질 검수, class-balanced 개발 평가,
+  100개 이상 Gold Set과 운영 부하 검증은 후속 평가이며 이번 기술 선정과 구분한다.
   학습은 수행하지 않았으므로 learning rate·학습 시간은 비교 항목이 아니다.
 
 전달된 것은 후보별 JSON 4종뿐이다. `gitCommit=unavailable`이고 원격 `source-hashes.json`,
