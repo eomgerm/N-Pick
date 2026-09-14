@@ -5,3 +5,7 @@
 # Gradle wrapper 예외
 *.bat text eol=crlf
 *.jar binary
+
+# 랜딩 미디어는 Windows 체크아웃에서도 원본 바이트를 유지한다.
+frontend/public/media/landing-hero* binary
+frontend/public/images/role-*.jpg binary
