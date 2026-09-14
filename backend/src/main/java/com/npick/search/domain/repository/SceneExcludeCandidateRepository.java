@@ -11,7 +11,12 @@ import com.npick.search.domain.model.SceneExcludeCandidate;
  */
 public interface SceneExcludeCandidateRepository {
 
-    long save(SceneExcludeCandidate candidate);
+    /**
+     * 후보를 저장하고 생성된 id 를 준다. 같은 신고·요청키의 후보가 이미 있으면 아무것도 하지 않고 {@link Optional#empty()} 를 준다.
+     *
+     * <p>{@code ON CONFLICT DO NOTHING} 으로 충돌을 예외 없이 흡수한다 — 어떤 propagation 에서도 안전하고 동시 재시도가 500 이 되지 않는다.
+     */
+    Optional<Long> insertIfAbsent(SceneExcludeCandidate candidate);
 
     Optional<Long> findId(long sourceFeedbackId, String requestKey);
 }

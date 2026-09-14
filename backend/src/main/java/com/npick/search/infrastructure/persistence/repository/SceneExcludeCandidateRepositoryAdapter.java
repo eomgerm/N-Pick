@@ -19,12 +19,13 @@ public class SceneExcludeCandidateRepositoryAdapter implements SceneExcludeCandi
         this.jpaRepository = jpaRepository;
     }
 
-    // INSERT 를 자기 트랜잭션으로 격리한다. 유니크 위반이 나도 이 트랜잭션만 롤백되고 호출부는 abort 되지 않아 복구 조회가 가능하다.
+    // ON CONFLICT DO NOTHING 이라 유니크 위반이 예외로 터지지 않는다. 삽입되면 1, 충돌이면 0 이 온다.
+    // @Modifying 은 트랜잭션을 요구하므로 REQUIRED 로 연다. 예외가 없으니 바깥 트랜잭션에 합류해도 오염 위험이 없다.
     @Override
     @Transactional
-    public long save(SceneExcludeCandidate candidate) {
+    public Optional<Long> insertIfAbsent(SceneExcludeCandidate candidate) {
         long id = TsidGenerator.generate();
-        jpaRepository.insertCandidate(
+        int inserted = jpaRepository.insertCandidate(
                 id,
                 candidate.queryFingerprint(),
                 candidate.normalizedQuery(),
@@ -34,7 +35,7 @@ public class SceneExcludeCandidateRepositoryAdapter implements SceneExcludeCandi
                 candidate.sourceFeedbackId(),
                 candidate.requestKey(),
                 Instant.now());
-        return id;
+        return inserted == 1 ? Optional.of(id) : Optional.empty();
     }
 
     @Override

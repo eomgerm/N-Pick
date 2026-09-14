@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,7 +17,6 @@ import com.npick.search.domain.repository.SceneExcludeCandidateRepository;
 import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // 실 PostgreSQL(paradedb) 대상. exclude_scene 후보 쓰기 어댑터(-82) 통합 테스트.
 @DataJpaTest
@@ -47,7 +45,7 @@ class SceneExcludeCandidateRepositoryAdapterDbTest {
     void savesInactiveExcludeCandidate() {
         seed();
 
-        long id = repository.save(candidate());
+        long id = repository.insertIfAbsent(candidate()).orElseThrow();
 
         Object[] row = (Object[]) em.createNativeQuery(
                         "SELECT action, active, target_scene_id, source_feedback_id, request_key, query_fingerprint, "
@@ -67,12 +65,17 @@ class SceneExcludeCandidateRepositoryAdapterDbTest {
 
     @Test
     @Transactional
-    @DisplayName("같은 신고·요청키로 두 번 저장하면 유니크 제약이 막는다")
-    void rejectsDuplicateRequestKey() {
+    @DisplayName("같은 신고·요청키로 두 번 저장하면 두 번째는 예외 없이 empty 로 흡수된다 (ON CONFLICT)")
+    void secondInsertIsAbsorbedAsEmpty() {
         seed();
-        repository.save(candidate());
+        assertThat(repository.insertIfAbsent(candidate())).isPresent();
 
-        assertThatThrownBy(() -> repository.save(candidate())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(repository.insertIfAbsent(candidate())).isEmpty();
+
+        Number count = (Number) em.createNativeQuery(
+                        "SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901 AND request_key = 'rk-1'")
+                .getSingleResult();
+        assertThat(count.intValue()).isEqualTo(1);
     }
 
     private void seed() {

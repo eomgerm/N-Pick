@@ -24,7 +24,8 @@ public interface SceneExcludeCandidateJpaRepository extends JpaRepository<Search
                     + "normalized_filters_json, normalization_version, action, target_scene_id, "
                     + "source_feedback_id, active, created_at, updated_at, request_key) "
                     + "VALUES (:id, :fingerprint, :normalizedQuery, CAST(:filters AS jsonb), :version, "
-                    + "'exclude_scene', :sceneId, :feedbackId, false, :now, :now, :requestKey)",
+                    + "'exclude_scene', :sceneId, :feedbackId, false, :now, :now, :requestKey) "
+                    + "ON CONFLICT (source_feedback_id, request_key) DO NOTHING",
             nativeQuery = true)
     int insertCandidate(
             @Param("id") long id,

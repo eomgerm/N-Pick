@@ -6,7 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.dao.DuplicateKeyException;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.SceneExcludeCandidateErrorCode;
@@ -51,14 +50,14 @@ class CreateSceneExcludeCandidateServiceTest {
     void createsInactiveCandidate() {
         reviewingExclude();
         when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
-        when(candidateRepository.save(any())).thenReturn(777L);
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.of(777L));
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, 300L));
 
         assertThat(outcome.searchRuleId()).isEqualTo(777L);
         assertThat(outcome.created()).isTrue();
         ArgumentCaptor<SceneExcludeCandidate> captor = ArgumentCaptor.forClass(SceneExcludeCandidate.class);
-        verify(candidateRepository).save(captor.capture());
+        verify(candidateRepository).insertIfAbsent(captor.capture());
         assertThat(captor.getValue().targetSceneId()).isEqualTo(300L);
         assertThat(captor.getValue().queryFingerprint()).isEqualTo("fp-1");
         assertThat(captor.getValue().normalizationVersion()).isEqualTo("v1");
@@ -71,7 +70,7 @@ class CreateSceneExcludeCandidateServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(SceneExcludeCandidateErrorCode.EDITOR_FORBIDDEN));
-        verify(candidateRepository, never()).save(any());
+        verify(candidateRepository, never()).insertIfAbsent(any());
     }
 
     @Test
@@ -127,7 +126,7 @@ class CreateSceneExcludeCandidateServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(SceneExcludeCandidateErrorCode.WRONG_TARGET_SCENE));
-        verify(candidateRepository, never()).save(any());
+        verify(candidateRepository, never()).insertIfAbsent(any());
     }
 
     @Test
@@ -140,7 +139,7 @@ class CreateSceneExcludeCandidateServiceTest {
 
         assertThat(outcome.searchRuleId()).isEqualTo(555L);
         assertThat(outcome.created()).isFalse();
-        verify(candidateRepository, never()).save(any());
+        verify(candidateRepository, never()).insertIfAbsent(any());
     }
 
     @Test
@@ -150,7 +149,7 @@ class CreateSceneExcludeCandidateServiceTest {
         when(candidateRepository.findId(1L, "rk-1"))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(999L));
-        when(candidateRepository.save(any())).thenThrow(new DuplicateKeyException("uq_search_rule_feedback_request"));
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.empty());
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, 300L));
 

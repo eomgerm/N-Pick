@@ -70,7 +70,8 @@ public class SceneExcludeCandidateController {
     /** 장면 ID 는 64bit 라 FE 가 문자열로 보낼 수 있다. 숫자·양의 정수 문자열 둘 다 받는다. */
     private long readSceneId(JsonNode node) {
         if (node != null && !node.isNull()) {
-            if (node.canConvertToLong()) {
+            // isIntegralNumber 로 정수 노드만 통과. canConvertToLong 단독은 1.9 같은 DoubleNode 도 통과시켜 소수부가 잘린다.
+            if (node.isIntegralNumber() && node.canConvertToLong()) {
                 return node.asLong();
             }
             if (node.isTextual() && node.asText().matches("[1-9]\\d*")) {
