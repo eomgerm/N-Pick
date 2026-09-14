@@ -20,6 +20,7 @@ import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
 import com.npick.search.application.CreateParsePatchCandidateService;
+import com.npick.search.application.ParseCandidateOutcome;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -50,6 +51,8 @@ class ParsePatchCandidateControllerTest {
               "operations":[{"op":"remove_item","axis":"locations","type":"location","value":"○○공장"}]}}
             """;
 
+    private static final AuthenticatedMember REVIEWER = new AuthenticatedMember(9L, "reviewer01", "h", "REVIEWER");
+
     @Autowired
     MockMvc mockMvc;
 
@@ -57,12 +60,12 @@ class ParsePatchCandidateControllerTest {
     CreateParsePatchCandidateService service;
 
     @Test
-    @DisplayName("검수자가 후보를 만들면 201 과 생성 id 를 준다")
+    @DisplayName("검수자가 새 후보를 만들면 201 과 생성 id 를 준다")
     void reviewerCreatesCandidate() throws Exception {
-        given(service.create(any())).willReturn(777L);
+        given(service.create(any())).willReturn(ParseCandidateOutcome.created(777L));
 
         mockMvc.perform(post("/api/v1/review/inquiries/1/parse-patch-candidate")
-                        .with(user(new AuthenticatedMember(9L, "reviewer01", "h", "REVIEWER")))
+                        .with(user(REVIEWER))
                         .with(csrf())
                         .header("Idempotency-Key", "rk-1")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -70,6 +73,33 @@ class ParsePatchCandidateControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.searchRuleId").value(777))
                 .andExpect(jsonPath("$.data.active").value(false));
+    }
+
+    @Test
+    @DisplayName("멱등 재생이면 200 으로 기존 후보를 돌려준다")
+    void idempotentReplayReturns200() throws Exception {
+        given(service.create(any())).willReturn(ParseCandidateOutcome.existing(777L));
+
+        mockMvc.perform(post("/api/v1/review/inquiries/1/parse-patch-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .header("Idempotency-Key", "rk-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.searchRuleId").value(777));
+    }
+
+    @Test
+    @DisplayName("빈 Idempotency-Key 는 400 으로 거부한다")
+    void blankIdempotencyKeyRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/review/inquiries/1/parse-patch-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .header("Idempotency-Key", "")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

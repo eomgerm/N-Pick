@@ -11,9 +11,17 @@ import com.npick.search.domain.model.ParseRuleCandidate;
  */
 public interface ParseRuleCandidateRepository {
 
-    /** 후보를 저장하고 생성된 {@code search_rule_id} 를 준다. */
+    /**
+     * 후보를 저장하고 생성된 {@code search_rule_id} 를 준다.
+     *
+     * <p>자기 트랜잭션 안에서 실행된다. 유니크 위반(같은 신고·요청키의 동시 저장)이면 그 트랜잭션만 롤백되고
+     * {@link org.springframework.dao.DuplicateKeyException} 이 호출부로 전파된다 — 호출부 트랜잭션을 오염시키지 않아 복구 조회가 가능하다.
+     */
     long save(ParseRuleCandidate candidate);
 
     /** 같은 신고·요청키로 이미 만든 후보의 id. 멱등 처리에 쓴다. */
     Optional<Long> findId(long sourceFeedbackId, String requestKey);
+
+    /** 교체 대상이 켜져 있는 patch_parse 규칙인지. */
+    boolean existsActivePatchParse(long searchRuleId);
 }

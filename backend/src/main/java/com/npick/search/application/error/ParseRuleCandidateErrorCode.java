@@ -25,7 +25,11 @@ public enum ParseRuleCandidateErrorCode implements ErrorCode {
     /** 해석 교정(patch_parse)으로 처리된 신고가 아니다. */
     NOT_PATCH_PARSE(ErrorType.CONFLICT, "SRCH_409_202", "해석 교정으로 처리된 신고가 아니다"),
     /** 후보 본문(condition/patch)이 문법·출력 계약에 맞지 않는다. */
-    INVALID_CANDIDATE(ErrorType.BAD_REQUEST, "SRCH_400_201", "규칙 후보 본문이 올바르지 않다");
+    INVALID_CANDIDATE(ErrorType.BAD_REQUEST, "SRCH_400_201", "규칙 후보 본문이 올바르지 않다"),
+    /** 교체 대상이 켜져 있는 patch_parse 규칙이 아니다 (없음·비활성·다른 action). */
+    REPLACES_NOT_FOUND(ErrorType.BAD_REQUEST, "SRCH_400_202", "교체 대상 규칙을 찾을 수 없다"),
+    /** 원 검색에 교정 전 AI 해석(resolver_output)이 없어 후보 본문을 대조할 수 없다. */
+    RESOLVER_OUTPUT_ABSENT(ErrorType.CONFLICT, "SRCH_409_203", "원 검색에 교정할 해석 출력이 없다");
 
     private final ErrorType type;
     private final String code;

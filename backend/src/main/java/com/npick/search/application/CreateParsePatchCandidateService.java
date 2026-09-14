@@ -5,9 +5,8 @@ import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.ParseRuleCandidateErrorCode;
@@ -25,6 +24,8 @@ import com.npick.search.infrastructure.persistence.mapper.ParseRuleJsonMapper;
  * <p>검증은 두 가지다 — 전제(검수 중·해석 교정·담당 검수자)와 본문(parse-rule/v1 문법·출력 계약 호환). 조건 매칭과 explicit_filter 보호는 <b>발화 시점(-49)</b>
  * 소관이다: resolver_output 에는 explicit_filter 값이 없고(validator 가 강등, F-05), patch_parse 는 이번 신고가 아니라 조건이 맞는 미래 검색에
  * 적용되므로(F-11) 대상이 지금 해석에 실재할 것을 생성 시점에 요구하지 않는다.
+ *
+ * <p><b>트랜잭션 경계는 저장소가 갖는다.</b> 이 서비스는 트랜잭션을 열지 않는다. 유니크 위반이 저장소 트랜잭션 안에서만 롤백되어야 복구 조회(멱등)가 오염 없이 성립하기 때문이다.
  */
 @Service
 public class CreateParsePatchCandidateService {
@@ -44,8 +45,7 @@ public class CreateParsePatchCandidateService {
         this.jsonMapper = jsonMapper;
     }
 
-    @Transactional
-    public long create(CreateParsePatchCandidateCommand command) {
+    public ParseCandidateOutcome create(CreateParsePatchCandidateCommand command) {
         if (!command.reviewerRole()) {
             throw new BusinessException(ParseRuleCandidateErrorCode.EDITOR_FORBIDDEN);
         }
@@ -64,25 +64,34 @@ public class CreateParsePatchCandidateService {
 
         Optional<Long> existing = candidateRepository.findId(command.feedbackId(), command.requestKey());
         if (existing.isPresent()) {
-            return existing.get();
+            return ParseCandidateOutcome.existing(existing.get());
         }
 
+        if (context.resolverOutputJson() == null || context.resolverOutputJson().isBlank()) {
+            // 원본 해석이 없으면 본문을 대조할 대상이 없다. 본문 오류가 아니라 전제 부재이므로 별도 코드로 정직하게 알린다.
+            throw new BusinessException(ParseRuleCandidateErrorCode.RESOLVER_OUTPUT_ABSENT);
+        }
         ParseRule rule = jsonMapper.toDomain(0L, command.conditionJson(), command.patchJson());
         if (rule.parseError() != null || rule.incompatibleReason(probe(context.resolverOutputJson())) != null) {
             throw new BusinessException(ParseRuleCandidateErrorCode.INVALID_CANDIDATE);
         }
+        if (command.replacesRuleId() != null && !candidateRepository.existsActivePatchParse(command.replacesRuleId())) {
+            throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_NOT_FOUND);
+        }
 
         try {
-            return candidateRepository.save(new ParseRuleCandidate(
+            long id = candidateRepository.save(new ParseRuleCandidate(
                     command.feedbackId(),
                     command.requestKey(),
                     command.conditionJson(),
                     command.patchJson(),
                     command.replacesRuleId()));
-        } catch (DataIntegrityViolationException race) {
-            // 같은 요청키의 동시 저장. 유니크 제약이 하나만 남기므로 이미 만들어진 후보를 돌려준다.
+            return ParseCandidateOutcome.created(id);
+        } catch (DuplicateKeyException race) {
+            // 같은 요청키의 동시 저장. 저장소 트랜잭션만 롤백됐으므로 여기서 다시 조회하면 이미 만들어진 후보가 보인다.
             return candidateRepository
                     .findId(command.feedbackId(), command.requestKey())
+                    .map(ParseCandidateOutcome::existing)
                     .orElseThrow(() -> race);
         }
     }
@@ -105,9 +114,6 @@ public class CreateParsePatchCandidateService {
     }
 
     private String schemaVersionOf(String resolverOutputJson) {
-        if (resolverOutputJson == null || resolverOutputJson.isBlank()) {
-            return null;
-        }
         try {
             JsonNode node = OBJECT_MAPPER.readTree(resolverOutputJson);
             return node.hasNonNull("schema_version")

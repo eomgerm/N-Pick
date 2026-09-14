@@ -69,7 +69,7 @@ class ParsePatchCandidateLifecycleDbTest {
                         .header("Idempotency-Key", "rk-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
-                .andExpect(status().isCreated());
+                .andExpect(status().isOk()); // 멱등 재생은 201 이 아니라 200
 
         Integer total =
                 jdbc.queryForObject("SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901", Integer.class);

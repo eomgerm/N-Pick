@@ -41,4 +41,11 @@ public interface ParseRuleCandidateJpaRepository extends JpaRepository<SearchRul
                     + "WHERE source_feedback_id = :feedbackId AND request_key = :requestKey",
             nativeQuery = true)
     List<Long> findIds(@Param("feedbackId") long sourceFeedbackId, @Param("requestKey") String requestKey);
+
+    /** 교체 대상이 켜져 있는 patch_parse 규칙인지. 검증 조합(활성 규칙 − R1 + R2)의 R1 이 실제로 그 자리에 있는지 본다. */
+    @Query(
+            value = "SELECT count(*) > 0 FROM search_rule "
+                    + "WHERE search_rule_id = :id AND action = 'patch_parse' AND active = true",
+            nativeQuery = true)
+    boolean existsActivePatchParse(@Param("id") long searchRuleId);
 }
