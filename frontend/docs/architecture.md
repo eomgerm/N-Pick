@@ -50,6 +50,11 @@ src/
 │     ├─ entry-chrome.tsx         로그인 헤더와 로그인·검색 공통 푸터
 │     ├─ entry.module.css         신한 로그인·검색 반응형 레이아웃
 │     ├─ reviewer-shell.tsx    처리 상태·문의 검수 로컬 상호작용
+│     ├─ review-inquiry-workspace.tsx 문의 목록 조회·URL 보정·목록/상세 조합
+│     ├─ review-inquiry-list.tsx 문의 목록·상태 필터·페이지 이동
+│     ├─ review-inquiry-detail.tsx 문의 상세 조회·선점·오류 복구와 캐시 갱신
+│     ├─ review-inquiry-snapshots.tsx 당시 필터·검색 해석·결과 기록 표시
+│     ├─ review-inquiry-view.ts 화면 매핑·목록 URL 상태·페이지 보정·처리 결과 색상
 │     ├─ reviewer-scene-preview.tsx 문의 장면 카드와 공통 영상 팝업 연결
 │     ├─ reviewer-progress.tsx 처리 현황 요약과 문의·영상 진행 목록
 │     ├─ reviewer-progress-state.ts 진행 목록 선택과 건수 집계
@@ -145,6 +150,8 @@ app ───────→ features ───────→ lib
 - 두 기능에 필요한 코드가 생기면 UI는 `components`, 기반 로직은 `lib`로 이동할 수 있는지 검토합니다. 앱 전역 shell과 layout UI도 `components`에 둘 수 있습니다.
 
 ## Feature 내부 확장
+
+검수 문의 화면은 목록·상세·스냅샷 표시를 분리하고 `review-inquiry-view.ts`에서 순수 매핑과 URL 상태 계산을 관리합니다. 상세의 선점 재시도는 같은 멱등성 키를 사용하며, 최신 상태 확인은 이전 mutation 오류를 초기화한 뒤 상세와 목록을 갱신합니다. 조회 실패는 조회 오류로 안내합니다. 처리 결과 색상은 `Record<InquiryResolution, string>`으로 모든 값을 명시합니다. 검색 해석은 `SearchInterpretation`에서 한 번 계산하고 `ResolutionSummaryView`에 전달하며, 기록 없음과 계산 실패를 구분합니다. 파서의 `endTimeMs > startTimeMs`, `processingNo >= 1`, `resultRank >= 1` 검증은 DB CHECK 제약과 일치하므로 유지합니다. 순수 상태·파싱·렌더링은 단위 테스트로, 선점 복구·서버 재조회·페이지와 필터 URL 복원은 `e2e/review-inquiry.spec.ts`로 검증합니다.
 
 기능이 커지면 필요한 디렉터리만 추가합니다. 다음 구조는 의무적인 초기 골격이 아닙니다.
 
