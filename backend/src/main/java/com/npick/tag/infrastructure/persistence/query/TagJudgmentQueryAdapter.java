@@ -40,6 +40,9 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
      * <p>{@code tag_evidence} 를 {@code INNER JOIN} 으로 붙인다. 근거가 하나도 없는 태깅은 어차피 유효하지 않으므로(F-04 "값만 저장하지 않고 출처와 확인 가능한 근거
      * 위치를 연결한다") 줄을 만들 필요가 없다.
      *
+     * <p><b>{@code e.confirmed} 로 좁힌다.</b> 검수자 교정 후보({@code confirmed=false}, S15P21A501-160)는 확정(-84) 전까지 검색·해석에 반영되면
+     * 안 된다(F-08/F-12 "신고·후보만으로 태그를 바꾸지 않는다"). 확정된 근거만 우선순위 판정에 들어간다.
+     *
      * <p>정렬하지 않는다. 최신 판단 고르기는 판정기가 한다. {@code ix_evidence_tagging_latest} 는 여기서도 {@code (tagging_id, ...)} 접근에 그대로 쓰인다.
      */
     private static final String SELECT_JUDGMENTS = """
@@ -53,7 +56,7 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             JOIN npick.clip c ON c.clip_id = s.clip_id
                 AND c.active_pipeline_run_id = s.pipeline_run_id
                 AND c.deleted_at IS NULL
-            JOIN npick.tag_evidence e ON e.tagging_id = tg.tagging_id
+            JOIN npick.tag_evidence e ON e.tagging_id = tg.tagging_id AND e.confirmed
             WHERE""";
 
     private static final RowMapper<TagJudgment> ROW_MAPPER = (row, rowNumber) -> new TagJudgment(
