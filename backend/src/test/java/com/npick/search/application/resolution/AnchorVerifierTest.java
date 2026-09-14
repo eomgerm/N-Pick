@@ -260,6 +260,29 @@ class AnchorVerifierTest {
     }
 
     @Test
+    @DisplayName("상대 표현은 사용자 시간대 기준으로 푼다 — 연말 자정 전후")
+    void resolvesRelativePeriodInUserZone() {
+        // 2025-12-31T15:30Z 는 KST 로 2026-01-01 00:30 이다. 한국 사용자에게 "작년" 은 2025년이다.
+        // UTC 로 세면 오늘이 아직 2025-12-31 이라 "작년" 이 2024년이 되고, 맞게 쓴 조건이 강등된다.
+        AnchorVerifier seoulVerifier =
+                new AnchorVerifier(Clock.fixed(Instant.parse("2025-12-31T15:30:00Z"), ZoneId.of("Asia/Seoul")));
+
+        QueryResolutionResult result = seoulVerifier.verify(
+                "작년 여름 침수 현장",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2025, 6, 1),
+                                LocalDate.of(2025, 9, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 5),
+                                0.8)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
     @DisplayName("숫자가 있어도 기간을 읽어낼 수 없으면 강등한다")
     void demotesDateWindowAnchoredOnNonPeriodNumber() {
         // "3명" 의 3 은 인원수다. 숫자가 있다는 것만으로는 날짜의 근거가 되지 않는다.

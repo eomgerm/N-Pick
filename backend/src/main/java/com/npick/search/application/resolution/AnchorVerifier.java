@@ -74,7 +74,13 @@ public final class AnchorVerifier {
 
     private final Clock clock;
 
-    /** @param clock {@code "작년"} 같은 상대 표현을 풀 기준 시각. 리졸버가 푼 값을 베끼지 않고 여기서 <b>따로 계산해</b> 대조하기 위한 것이다 */
+    /**
+     * @param clock {@code "작년"} 같은 상대 표현을 풀 기준 시각. 리졸버가 푼 값을 베끼지 않고 여기서 <b>따로 계산해</b> 대조하기 위한 것이다.
+     *     <p><b>사용자가 있는 시간대(KST)여야 한다</b> — {@link Clock#systemDefaultZone()}. 검색하는 사람이 {@code "작년"} 이라고 쓸 때의 작년은 한국
+     *     기준이다. {@code systemUTC()} 를 넘기면 12월 31일 09시부터 자정까지 아홉 시간 동안 UTC 는 아직 전날이라 {@code "작년"} 이 한 해 밀리고, 사용자가 맞게 쓴
+     *     조건이 통째로 강등된다. 파이프라인 쪽({@code PipelineConfiguration})이 {@code systemUTC()} 를 쓰는 것과 목적이 다르다 — 그쪽은 실행 시각 기록이라
+     *     시간대가 없어야 맞다.
+     */
     public AnchorVerifier(Clock clock) {
         this.clock = Objects.requireNonNull(clock, "clock");
     }
