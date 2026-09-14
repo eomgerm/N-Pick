@@ -107,7 +107,7 @@ export default async function globalSetup() {
         message: '요청에 성공했습니다.',
         data: {
           memberId: '1',
-          loginId: 'e2e-editor',
+          loginId: isReviewer ? 'e2e-reviewer' : 'e2e-editor',
           role: isReviewer ? 'REVIEWER' : 'EDITOR',
         },
       });
