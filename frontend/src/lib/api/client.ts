@@ -32,7 +32,8 @@ const parseJsonWithSource = JSON.parse as unknown as (
 
 function parseApiJson(text: string): unknown {
   return parseJsonWithSource(text, (key, value, context) => {
-    if (key === 'memberId' && typeof value === 'number') {
+    const isIdentifier = key === 'id' || key.endsWith('Id') || key.endsWith('_id');
+    if (isIdentifier && typeof value === 'number') {
       if (typeof context?.source === 'string' && /^-?\d+$/.test(context.source)) {
         return context.source;
       }

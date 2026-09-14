@@ -24,8 +24,8 @@ const videoItems = ['queued', 'running', 'failed', 'succeeded'].map((status) => 
 test('문의 처리 중은 검수 중인 문의만 표시하고 전체 진행 건수를 집계한다', () => {
   const summary = getProgressOverview(inquiryItems, videoItems);
   assert.equal(summary.inquiries.total, 23);
-  assert.equal(summary.inquiries.completed, 8);
-  assert.equal(summary.inquiries.pending, 11);
+  assert.equal(summary.inquiries.closed, 8);
+  assert.equal(summary.inquiries.open, 11);
   assert.equal(summary.inquiries.active.length, 4);
   assert.ok(summary.inquiries.active.every((item) => item.status === 'reviewing'));
 });
@@ -43,14 +43,14 @@ test('영상 등록 목록은 완료를 제외하고 대기·진행·실패를 �
   );
 });
 
-test('문의 완료 상태 변경은 진행 목록과 완료 건수에 즉시 반영된다', () => {
+test('문의 종료 상태 변경은 진행 목록과 종료 건수에 즉시 반영된다', () => {
   const activeId = inquiryItems.find((item) => item.status === 'reviewing').id;
-  for (const status of ['resolved', 'dismissed', 'deferred']) {
-    const updated = inquiryItems.map((item) => (item.id === activeId ? { ...item, status } : item));
-    const summary = getProgressOverview(updated, videoItems);
-    assert.equal(summary.inquiries.active.length, 3);
-    assert.equal(summary.inquiries.completed, 9);
-  }
+  const updated = inquiryItems.map((item) =>
+    item.id === activeId ? { ...item, status: 'closed' } : item,
+  );
+  const summary = getProgressOverview(updated, videoItems);
+  assert.equal(summary.inquiries.active.length, 3);
+  assert.equal(summary.inquiries.closed, 9);
   assert.equal(getProgressOverview(inquiryItems, videoItems).inquiries.active.length, 4);
 });
 

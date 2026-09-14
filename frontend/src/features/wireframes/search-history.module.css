@@ -211,7 +211,7 @@
   font-weight: 650;
   white-space: nowrap;
 }
-.status[data-status='pending'] {
+.status[data-status='open'] {
   background: #fff4dc;
   color: #88620e;
 }
@@ -219,7 +219,7 @@
   background: color-mix(in srgb, var(--accent) 9%, white);
   color: var(--action);
 }
-.status[data-status='resolved'] {
+.status[data-status='closed'] {
   background: #e8f6ef;
   color: #227150;
 }

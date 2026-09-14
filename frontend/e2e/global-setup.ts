@@ -20,7 +20,8 @@ export default async function globalSetup() {
     const url = new URL(request.url ?? '/', `http://${host}:${mockApiPort}`);
 
     if (request.method === 'GET' && url.pathname === '/api/v1/auth/me') {
-      if (!request.headers.cookie?.includes('JSESSIONID=e2e-editor')) {
+      const isReviewer = request.headers.cookie?.includes('JSESSIONID=e2e-reviewer');
+      if (!isReviewer && !request.headers.cookie?.includes('JSESSIONID=e2e-editor')) {
         sendJson(response, 401, {
           isSuccess: false,
           code: 'COMM_401',
@@ -35,8 +36,8 @@ export default async function globalSetup() {
         message: '요청에 성공했습니다.',
         data: {
           memberId: '1',
-          loginId: 'e2e-editor',
-          role: 'EDITOR',
+          loginId: isReviewer ? 'e2e-reviewer' : 'e2e-editor',
+          role: isReviewer ? 'REVIEWER' : 'EDITOR',
         },
       });
       return;
