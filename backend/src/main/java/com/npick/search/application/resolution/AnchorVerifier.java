@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -77,7 +78,7 @@ public final class AnchorVerifier {
             List.of("재작년", "지난해", "작년", "올해", "금년", "내년", "그저께", "그제", "어제", "오늘", "지난달", "이번달", "이달", "지난주", "이번주");
 
     /**
-     * 기간을 더 좁히지만 그 경계를 여기서 셀 수 없는 말. 이 말이 조각에 있으면 리졸버가 좁힌 구간을 받아들인다.
+     * 기간을 더 좁히지만 그 경계를 여기서 셀 수 없는 말. 이 말이 조각에 <b>낱말로</b> 있으면 리졸버가 좁힌 구간을 받아들인다.
      *
      * <p>목록에 없는 한정 표현은 "좁힐 근거 없음" 으로 읽혀 일치를 요구받고, 그러면 강등된다. 빠뜨려도 안전한 쪽으로 틀린다.
      */
@@ -95,6 +96,16 @@ public final class AnchorVerifier {
      */
     public AnchorVerifier(Clock clock) {
         this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /**
+     * {@code "작년"} 같은 말을 어느 시간대 기준으로 푸는가.
+     *
+     * <p>배선이 맞는지 <b>동작 대신 이걸로</b> 확인한다. 시간대를 틀려도 답이 갈리는 것은 연말 아홉 시간뿐이라, {@code "작년"} 이 몇 년으로 풀리는지로 보면 나머지 기간에는 UTC 배선도
+     * 그냥 통과한다.
+     */
+    public ZoneId zone() {
+        return clock.getZone();
     }
 
     /**
@@ -241,7 +252,10 @@ public final class AnchorVerifier {
             findings.add(new AnchorFinding(
                     path,
                     SPAN_CORRECTED,
-                    "모델 span %s 을 원문에서 찾은 [%d, %d) 로 고쳤다".formatted(describe(hint), located.start(), located.end())));
+                    // 모델이 보낸 좌표를 그대로 남긴다. hint 는 범위 밖이면 비워둔 값이라, 그걸 찍으면
+                    // §7.2 기록에서 "모델이 무엇을 주장했는지" 가 사라진다.
+                    "모델 span %s 을 원문에서 찾은 [%d, %d) 로 고쳤다"
+                            .formatted(describe(claimed), located.start(), located.end())));
         }
         return new Checked(Origin.EXPLICIT_QUERY, located);
     }
@@ -329,7 +343,7 @@ public final class AnchorVerifier {
      * 강등된다 — 목록이 비어 있어도 안전한 쪽으로 틀린다.
      */
     private Denoted denotedPeriod(String text) {
-        boolean narrowable = PERIOD_QUALIFIER_WORDS.stream().anyMatch(text::contains);
+        boolean narrowable = PERIOD_QUALIFIER_WORDS.stream().anyMatch(word -> containsAsWord(text, word));
 
         Period numeric = numericPeriod(text);
         if (numeric != null) {
@@ -377,6 +391,31 @@ public final class AnchorVerifier {
         }
     }
 
+    /**
+     * {@code word} 가 이 글에 <b>낱말로</b> 들어 있는가. 앞이나 뒤에 다른 한글 음절이 붙어 있으면 그 단어의 일부지 이 낱말이 아니다.
+     *
+     * <p>그냥 {@link String#contains} 로 보면 {@code "초등학교"} 의 {@code 초}, {@code "말레이시아"} 의 {@code 말}, {@code "돌아봄"} 의
+     * {@code 봄} 이 한정어로 잡힌다. 그러면 좁힐 근거가 없는 조각이 "좁힐 근거 있음" 으로 읽혀 일치 검사가 포함 검사로 풀리고, 리졸버가 임의로 좁힌 하루짜리 구간도 명시 조건이 된다 — 이
+     * 클래스가 막으려는 바로 그 구멍이다.
+     *
+     * <p>대신 {@code "여름철"} 처럼 뒤에 한글이 붙은 형태는 한정어로 안 쳐서 일치를 요구받고 강등된다. 못 알아보는 쪽은 hard 제외 권한만 잃으므로 안전한 방향이다.
+     */
+    private boolean containsAsWord(String text, String word) {
+        for (int at = text.indexOf(word); at >= 0; at = text.indexOf(word, at + 1)) {
+            boolean gluedBefore = at > 0 && isHangul(text.charAt(at - 1));
+            int after = at + word.length();
+            boolean gluedAfter = after < text.length() && isHangul(text.charAt(after));
+            if (!gluedBefore && !gluedAfter) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isHangul(char character) {
+        return Character.UnicodeScript.of(character) == Character.UnicodeScript.HANGUL;
+    }
+
     /** {@code "작년"} 처럼 오늘을 기준으로 풀어야 하는 기간. 리졸버가 푼 값을 믿지 않고 여기서 다시 센다. */
     private Period relativePeriod(String word) {
         LocalDate today = LocalDate.now(clock);
@@ -392,7 +431,9 @@ public final class AnchorVerifier {
             case "그저께", "그제" -> new Period(today.minusDays(2), today.minusDays(1));
             case "어제" -> new Period(today.minusDays(1), today);
             case "오늘" -> new Period(today, today.plusDays(1));
-            default -> null;
+            // 목록과 이 switch 가 두 군데라 어긋날 수 있다. null 을 흘려보내면 강등이 아니라
+            // 검색 요청이 NPE 로 죽으므로, 빠뜨린 자리를 여기서 드러낸다.
+            default -> throw new IllegalStateException("기간을 풀 수 없는 상대 표현이다: " + word);
         };
     }
 
@@ -427,10 +468,12 @@ public final class AnchorVerifier {
             while (index < text.length() && Character.isDigit(text.charAt(index))) {
                 index++;
             }
-            if (index < text.length() && !isDateUnitOrSeparator(text.charAt(index))) {
-                return List.of();
+            // 날짜가 아닌 덩어리는 그것만 건너뛴다. "2023년 태풍 3명 사망" 에서 "3명" 때문에
+            // "2023년" 까지 버리면 사용자가 직접 친 조건이 사라진다. "2023명 구조" 는 남는
+            // 덩어리가 없어 그대로 강등된다.
+            if (index == text.length() || isDateUnitOrSeparator(text.charAt(index))) {
+                runs.add(text.substring(start, index));
             }
-            runs.add(text.substring(start, index));
         }
         return runs;
     }

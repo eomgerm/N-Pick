@@ -365,6 +365,62 @@ class AnchorVerifierTest {
     }
 
     @Test
+    @DisplayName("다른 낱말 속 음절은 좁히는 말로 치지 않는다")
+    void ignoresQualifierSyllableInsideAnotherWord() {
+        // "초등학교" 의 "초" 가 한정어로 잡히면 일치 검사가 포함 검사로 풀려,
+        // 리졸버가 임의로 좁힌 하루짜리 구간이 명시 조건으로 통과한다.
+        QueryResolutionResult result = verifier.verify(
+                "2023년 초등학교 화재",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 7, 1),
+                                LocalDate.of(2023, 7, 2),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 10),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.INFERRED);
+    }
+
+    @Test
+    @DisplayName("낱말로 선 좁히는 말은 그대로 인정한다")
+    void acceptsQualifierStandingAsItsOwnWord() {
+        QueryResolutionResult result = verifier.verify(
+                "2023년 초 폭설",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2023, 3, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 7),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("날짜 아닌 숫자가 섞여도 날짜 숫자는 살린다")
+    void keepsDateNumberDespiteNonDateNumberInSpan() {
+        // "3명" 때문에 "2023년" 까지 버리면 사용자가 직접 친 조건이 사라진다.
+        QueryResolutionResult result = verifier.verify(
+                "2023년 태풍 3명 사망",
+                resolved(resolution()
+                        .dateWindows(List.of(new DateWindow(
+                                DateField.BROADCAST_DATE,
+                                LocalDate.of(2023, 1, 1),
+                                LocalDate.of(2024, 1, 1),
+                                Origin.EXPLICIT_QUERY,
+                                new QuerySpan(0, 13),
+                                0.9)))));
+
+        assertThat(result.resolution().dateWindows().getFirst().origin()).isEqualTo(Origin.EXPLICIT_QUERY);
+        assertThat(result.findings()).isEmpty();
+    }
+
+    @Test
     @DisplayName("숫자 뒤에 날짜 단위가 없으면 연도로 읽지 않는다")
     void demotesNumberWithoutDateUnit() {
         // "2023명" 은 인원수다. 네 자리라는 이유로 연도가 되면 안 된다.

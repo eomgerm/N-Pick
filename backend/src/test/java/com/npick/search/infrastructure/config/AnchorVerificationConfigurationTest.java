@@ -23,24 +23,19 @@ class AnchorVerificationConfigurationTest {
 
     /**
      * {@code backend/Dockerfile} 의 {@code ENTRYPOINT} 가 {@code -Duser.timezone=UTC} 라 운영에서 JVM 기본 시간대는 UTC 다. 그 환경을 재현해
-     * 시계가 여전히 서울인지 본다.
+     * 빈에 실제로 들어간 시계가 서울인지 본다.
      *
      * <p>동작이 아니라 시간대를 직접 본다. {@code "작년"} 이 몇 년으로 풀리는지로 확인하면 UTC 시계가 들어와도 연말 아홉 시간 밖에서는 답이 같아 통과해 버린다.
      */
     @Test
-    void keepsUserZoneEvenWhenJvmDefaultIsUtc() {
-        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
-
-        assertThat(AnchorVerificationConfiguration.userClock().getZone()).isEqualTo(ZoneId.of("Asia/Seoul"));
-    }
-
-    /** 그 시계가 실제로 빈에 들어가는지. 위 검증이 배선과 떨어져 있으면 의미가 없다. */
-    @Test
-    void registersVerifierBean() {
+    void wiresUserZoneClockEvenWhenJvmDefaultIsUtc() {
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
 
         new ApplicationContextRunner()
                 .withUserConfiguration(AnchorVerificationConfiguration.class)
-                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(AnchorVerifier.class));
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(AnchorVerifier.class);
+                    assertThat(context.getBean(AnchorVerifier.class).zone()).isEqualTo(ZoneId.of("Asia/Seoul"));
+                });
     }
 }

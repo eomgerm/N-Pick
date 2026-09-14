@@ -33,16 +33,8 @@ public class AnchorVerificationConfiguration {
      */
     private static final ZoneId USER_ZONE = ZoneId.of("Asia/Seoul");
 
-    /**
-     * 검증기에 넣을 시계. 빈 메서드와 나눠 둔 이유는 시간대를 <b>결정적으로</b> 검증하기 위해서다 — {@link Clock#system} 은 실제 현재 시각이라 시간대를 틀려도 연말 아홉 시간
-     * 동안에만 답이 갈린다. 동작으로만 확인하면 그 창 밖에서는 잘못된 배선도 통과한다.
-     */
-    static Clock userClock() {
-        return Clock.system(USER_ZONE);
-    }
-
     @Bean
     AnchorVerifier anchorVerifier() {
-        return new AnchorVerifier(userClock());
+        return new AnchorVerifier(Clock.system(USER_ZONE));
     }
 }
