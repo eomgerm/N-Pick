@@ -34,7 +34,12 @@ from npick_worker.text_embedding.config import (
     get_default_config,
     load_config,
 )
-from npick_worker.text_embedding.embedder import compose_text, embed_scenes
+from npick_worker.text_embedding.embedder import (
+    DIALOGUE_SEPARATOR,
+    SECTION_SEPARATOR,
+    compose_text,
+    embed_scenes,
+)
 from npick_worker.text_embedding.encoder import (
     EmbeddingCallError,
     EmbeddingModelUnavailableError,
@@ -52,6 +57,8 @@ from npick_worker.text_embedding.sentence_transformers_backend import (
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
+    "DIALOGUE_SEPARATOR",
+    "SECTION_SEPARATOR",
     "EmbeddingCallError",
     "EmbeddingModelUnavailableError",
     "SceneEmbedding",

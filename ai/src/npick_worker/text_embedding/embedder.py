@@ -2,18 +2,26 @@
 
 import math
 from collections.abc import Sequence
+from typing import Final
 
 from npick_worker.text_embedding.config import TextEmbeddingConfig, get_default_config
 from npick_worker.text_embedding.encoder import TextEncoder
 from npick_worker.text_embedding.models import SceneEmbedding, SceneText, TextEmbeddingResult
 
+#: 캡션 덩어리와 대사 뭉치를 나누는 구분자. 설정으로 빼지 않는다 — 바꾸면 전체 재색인인데
+#: 바꿀 이유가 없고, 버전 붙는 설정에 두면 실수로 움직였을 때 대가가 크다.
+SECTION_SEPARATOR: Final[str] = "\n"
+
+#: 대사 줄끼리 잇는 구분자. 위와 같은 이유로 상수다.
+DIALOGUE_SEPARATOR: Final[str] = " "
+
 
 def compose_text(scene: SceneText, config: TextEmbeddingConfig) -> str:
     """캡션과 대사를 벡터 하나의 입력으로 합친다 (FRD §11.4).
 
-    캡션과 대사 뭉치를 `section_separator` 로 나누고 대사 줄끼리는
-    `dialogue_separator` 로 잇는다. 둘을 같은 구분자로 이으면 "설명" 과 "발화" 의
-    경계가 사라지는데, 그 경계는 모델이 문장 구조를 읽는 단서다.
+    캡션과 대사 뭉치를 `SECTION_SEPARATOR` 로 나누고 대사 줄끼리는 `DIALOGUE_SEPARATOR`
+    로 잇는다. 둘을 같은 구분자로 이으면 "설명" 과 "발화" 의 경계가 사라지는데, 그
+    경계는 모델이 문장 구조를 읽는 단서다.
 
     공백만 있는 값은 없는 것으로 본다. 그대로 두면 공백을 임베딩하게 되고, 그러면
     "텍스트가 없는 장면" 이 벡터를 갖게 된다.
@@ -26,14 +34,12 @@ def compose_text(scene: SceneText, config: TextEmbeddingConfig) -> str:
     caption = scene.caption.strip()
     if caption:
         sections.append(caption)
-    dialogue = config.dialogue_separator.join(
-        line.strip() for line in scene.dialogue if line.strip()
-    )
+    dialogue = DIALOGUE_SEPARATOR.join(line.strip() for line in scene.dialogue if line.strip())
     if dialogue:
         sections.append(dialogue)
     if not sections:
         return ""
-    return config.document_prefix + config.section_separator.join(sections)
+    return config.document_prefix + SECTION_SEPARATOR.join(sections)
 
 
 def embed_scenes(
@@ -55,12 +61,15 @@ def embed_scenes(
         되어 보조 채널이 오염된다. `scene.embedding` 이 nullable 인 이유가 그것이다.
 
     Raises:
-        ValueError: 모델 차원이 설정과 다르거나, 0 벡터가 나왔거나, `scene_index` 가
-            중복이다. 셋 다 부분 결과를 반납하면 안 되는 상태다 — 잘못된 차원은 BE 의
-            INSERT 를 통째로 실패시키고, 중복 index 는 한 행을 두 번 덮어쓴다.
+        ValueError: 모델 차원이 설정과 다르거나, 못 쓰는 벡터(0·NaN)가 나왔거나,
+            `scene_index` 가 중복이거나, 인코더가 입력과 다른 수의 벡터를 돌려줬다.
+            전부 부분 결과를 반납하면 안 되는 상태다 — 잘못된 차원은 BE 의 INSERT 를
+            통째로 실패시키고, 중복 index 는 한 행을 두 번 덮어쓴다. **이것들은 "이
+            장면에 텍스트가 없다"(`skipped`)와 다른 사실이다.** 그쪽은 정상 입력이고
+            이쪽은 설정이나 모델이 잘못됐다는 신호라, 조용히 넘기면 원인을 찾을 수 없다.
     """
     settings = config if config is not None else get_default_config()
-    model = encoder if encoder is not None else _default_encoder(settings)
+    model = encoder if encoder is not None else _default_encoder()
 
     seen: set[int] = set()
     for scene in scenes:
@@ -83,6 +92,8 @@ def embed_scenes(
     # 빈 배치로 가중치를 깨우지 않는다. 장면이 0 개인 클립에서도 재현 정보는 남는다.
     vectors = model.encode(texts) if texts else ()
     if len(vectors) != len(texts):
+        # 여기서 걸리지 않으면 아래 zip 이 짧은 쪽에 맞춰 잘리거나(strict 가 없다면)
+        # 어느 장면이 밀렸는지 알 수 없는 예외가 난다.
         msg = f"인코더가 입력과 다른 수의 벡터를 돌려줬다: {len(texts)} → {len(vectors)}"
         raise ValueError(msg)
 
@@ -100,19 +111,18 @@ def embed_scenes(
         scenes=tuple(results),
         skipped=tuple(skipped),
         config_version=settings.version_id,
-        adapter=model.name,
-        adapter_version=model.version,
+        engine=model.name,
+        engine_version=model.version,
         model_version=model.model_version,
         dimension=settings.dimension,
     )
 
 
 def _finalize(vector: Sequence[float], config: TextEmbeddingConfig) -> tuple[float, ...]:
-    """차원을 확인하고 필요하면 L2 정규화한다.
+    """차원과 값을 확인하고 필요하면 L2 정규화한다.
 
-    차원 검사를 여기서 하는 이유는 `TextEncoder.dimension` 을 믿지 않기 위해서다. 그
-    값은 모델이 선언한 것이고, 실제로 나온 벡터와 다를 수 있다(차원을 잘라 쓰는
-    Matryoshka 설정이 그렇다). 검사는 실제 값으로 한다.
+    차원 검사를 `TextEncoder` 가 선언한 값이 아니라 **실제로 나온 벡터의 길이**로 한다.
+    선언값은 모델이 말한 것이고 실제와 다를 수 있다.
     """
     if len(vector) != config.dimension:
         msg = (
@@ -121,23 +131,34 @@ def _finalize(vector: Sequence[float], config: TextEmbeddingConfig) -> tuple[flo
             f"어긋나면 저장이 통째로 실패한다"
         )
         raise ValueError(msg)
-    if not config.normalize:
-        return tuple(float(value) for value in vector)
-    norm = math.sqrt(sum(float(value) * float(value) for value in vector))
-    if norm == 0.0:
-        # pgvector 의 코사인 거리가 0 벡터에서 NaN 이 된다. 저장하면 그 장면이
-        # 모든 질의에서 조용히 빠지고, 원인은 검색 결과가 아니라 벡터에 있다.
-        msg = "모델이 0 벡터를 냈다. 정규화할 수 없고 코사인 거리가 정의되지 않는다"
+
+    values = [float(value) for value in vector]
+    norm = math.sqrt(sum(value * value for value in values))
+
+    # **정규화 여부와 무관한 검사다.** 아래 둘은 저장되면 pgvector 의 코사인 거리가
+    # NaN 이 되고, 그러면 그 장면이 모든 질의에서 조용히 빠진다. 증상이 검색 결과에만
+    # 나타나 원인을 벡터에서 찾기까지가 멀다. `normalize` 분기 안에 두면 정규화를 끈
+    # 설정에서 그대로 DB 로 간다.
+    if not all(math.isfinite(value) for value in values):
+        # fp16 에서 NaN 이 나오는 경로다. `norm` 도 NaN 이 되는데 `norm == 0.0` 은
+        # False 라 0 벡터 검사만으로는 빠져나간다.
+        msg = "모델이 유한하지 않은 성분(NaN·inf)을 낸 벡터를 냈다"
         raise ValueError(msg)
-    return tuple(float(value) / norm for value in vector)
+    if norm == 0.0:
+        msg = "모델이 0 벡터를 냈다. 코사인 거리가 정의되지 않는다"
+        raise ValueError(msg)
+
+    if not config.normalize:
+        return tuple(values)
+    return tuple(value / norm for value in values)
 
 
-def _default_encoder(config: TextEmbeddingConfig) -> TextEncoder:
-    """기본 backend. 지연 임포트로 sentence-transformers 비용을 호출 시점까지 미룬다.
+def _default_encoder() -> TextEncoder:
+    """기본 backend. 지연 임포트는 `sentence_transformers_backend._load` 안에 있다.
 
     **프로세스가 공유하는 인스턴스를 받는다**(`shared_encoder`). 잡마다 새로 만들면
     수 GB 가중치를 잡마다 읽는다 — `ocr` 의 `shared_engine` 과 같은 판단이다.
     """
     from npick_worker.text_embedding.sentence_transformers_backend import shared_encoder
 
-    return shared_encoder(config)
+    return shared_encoder()

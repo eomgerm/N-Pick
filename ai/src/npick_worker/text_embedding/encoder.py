@@ -34,6 +34,10 @@ class EmbeddingModelUnavailableError(Exception):
     `NO_ADAPTER`(영구)와 갈라야 한다 — 계약 §9.2 의 `MODEL_UNAVAILABLE` 은 일시다.
     캐시 볼륨이 안 붙었거나 내려받기가 실패한 것이라 다른 파드에서 성공할 수 있다.
     `NPICK_AI_EMBEDDING_MODEL` 이 비어 있는 경우도 여기다(`vlm_model` 과 같은 판단).
+
+    **그 번역은 아직 배선되지 않았다.** `jobs/registry.py` 에 이 단계의 핸들러가 없어
+    계약 §9.2 의 `MODEL_UNAVAILABLE` 로 옮겨 주는 자리가 없다(ocr 은 `_run_ocr`, vlm 은
+    `_run_vlm_metadata` 가 그 일을 한다). 배선 티켓이 그 번역을 함께 넣는다.
     """
 
 
@@ -60,16 +64,6 @@ class TextEncoder(Protocol):
         """
         ...
 
-    @property
-    def dimension(self) -> int:
-        """이 모델이 내는 벡터의 차원.
-
-        호출부가 이 값을 설정의 `dimension` 과 대조한다. 모델이 스스로 말하지 않으면
-        차원이 어긋난 것을 BE 의 INSERT 실패로만 알게 되고, 그때는 이미 잡 하나가
-        통째로 날아간 뒤다.
-        """
-        ...
-
     def encode(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
         """입력 순서대로 벡터를 돌려준다. 길이는 입력과 같다.
 
@@ -79,6 +73,10 @@ class TextEncoder(Protocol):
 
         **numpy 배열을 돌려주지 않는다.** 경계 밖으로 배열 타입이 새면 호출부가
         어댑터의 런타임을 알게 된다.
+
+        **차원을 선언하지 않는다.** 호출부는 실제로 나온 벡터의 길이를 설정과 대조한다
+        (`embedder._finalize`). 모델이 선언한 값은 실제와 다를 수 있고, 그 값을 읽으려고
+        가중치를 올리게 만들면 Protocol 이 부작용을 갖는다.
 
         Raises:
             EmbeddingCallError: 호출 자체가 실패했다(일시).

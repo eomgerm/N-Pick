@@ -699,7 +699,7 @@ dev = [
 gpu = [
     { name = "faster-whisper", specifier = ">=1.2,<2" },
     { name = "pillow", specifier = ">=11,<13" },
-    { name = "sentence-transformers", specifier = ">=5,<6" },
+    { name = "sentence-transformers", specifier = ">=5.7,<6" },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.13,<3" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.13,<3", index = "https://download.pytorch.org/whl/cu130" },
     { name = "transformers", specifier = ">=5,<6" },

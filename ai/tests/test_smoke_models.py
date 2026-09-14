@@ -87,7 +87,7 @@ def test_scene_embedding_with_the_selected_model() -> None:
         pytest.skip("NPICK_AI_EMBEDDING_MODEL 미설정")
 
     config = get_default_config()
-    encoder = shared_encoder(config)
+    encoder = shared_encoder()
     scenes = [
         SceneText(
             scene_index=0,
@@ -100,7 +100,7 @@ def test_scene_embedding_with_the_selected_model() -> None:
 
     result = embed_scenes(scenes, encoder=encoder, config=config)
 
-    print(f"\nmodel={result.model_version} adapter={result.adapter}/{result.adapter_version}")
+    print(f"\nmodel={result.model_version} engine={result.engine}/{result.engine_version}")
     print(f"config={result.config_version} dim={result.dimension}")
 
     # 산출 — 텍스트가 있는 장면에만 벡터가 있다.
@@ -112,5 +112,5 @@ def test_scene_embedding_with_the_selected_model() -> None:
     assert sum(value * value for value in result.scenes[0].vector) == pytest.approx(1.0, abs=1e-5)
     # 버전 정보 — FR-PRC-061. 어느 값도 비어 있으면 재현할 수 없다.
     assert result.model_version.startswith(os.environ["NPICK_AI_EMBEDDING_MODEL"] + "@")
-    assert result.adapter == "sentence-transformers"
+    assert result.engine == "sentence-transformers"
     assert result.config_version.startswith("text-embedding/v1:")

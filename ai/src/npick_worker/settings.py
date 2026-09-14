@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
     #: `vlm_model_dir` 과 같은 이유다(`03-deployment.md`: 가중치는 네트워크 볼륨에 상주).
     embedding_model_dir: Path | None = None
+    #: 어댑터가 한 번에 모델에 넣는 문장 수. **버전 붙는 설정 파일에 두지 않는다** —
+    #: VRAM 사정으로 움직이는 값이고 결과를 바꾸지 않는데, 설정 파일에 있으면 16→8 로
+    #: 내리는 것만으로 `config_version` 과 `stageVersion` 이 달라져 계약 §7 의 버전
+    #: 불일치가 난다. `ocr_model_dir` 과 같은 판단이다.
+    embedding_batch_size: int = Field(default=16, gt=0)
 
     # ── 외부 VLM 처리 (PRD §12.4) ────────────────────────────────────
     # 아래 값이 전부 맞아도 **그것만으로 승인이 성립하지 않는다.** clip 별 외부 처리

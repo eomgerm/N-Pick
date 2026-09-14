@@ -25,9 +25,13 @@ COMMENT: '캡션+대사를 합친 dense 벡터. pgvector 로 색인하고 BM25 �
 | 어느 장면인가 | `scene_id` | 워커는 `scene_index` 로 말한다 — DB 에 접속하지 않는다 |
 | 무엇을 임베딩했나 | **없음** | `SceneEmbedding.source_text` 로 결과에만 싣는다 |
 
-차원 1024 는 이제 임시값이 아니다. `S15P21A501-175` 가 선정 모델의 차원으로 확정했고 FRD
-§11.1 의 미결이 그것으로 닫혔다. **컬럼 주석은 아직 "임시값" 이라고 적고 있다** — 문구 정리는
-이 단계의 몫이 아니므로 고치지 않았다.
+차원 1024 는 `S15P21A501-175` 가 선정 모델의 차원으로 정한 값이고 컬럼도 그 값이다.
+
+**정본 세 곳은 아직 "임시값" 으로 열려 있다.** `docs/frd.md:618` 은 미결 "임베딩 모델과
+벡터 차원" 의 담당을 -175 가 아니라 **이 일감(`S15P21A501-100`)** 으로 지정한 채 남아
+있고, 마이그레이션 주석(`V20260907092019__baseline.sql:381`)도 "임시값" 그대로다. 노션
+FRD 가 상위 정본이라 그쪽도 함께 봐야 한다. 이 문서가 그 미결을 닫지 않는다 — FRD 개정은
+별도 작업이고, `ai/AGENTS.md` 규칙대로 어긋난 지점을 적어 두는 데까지가 여기 몫이다.
 
 ## 2. 무엇을 입력으로 넣는가 — 캡션과 대사
 
@@ -51,9 +55,9 @@ OCR 을 넣지 않는 이유는 문서가 그렇게 말해서만이 아니다. �
 되어** 보조 채널이 오염된다. `scene.embedding` 이 nullable 인 이유가 그것이고, 그 장면은
 BM25 채널로만 검색된다. 공백만 있는 캡션도 없는 것으로 본다.
 
-조립 규칙은 `compose_text()` 하나다. 캡션 덩어리와 대사 뭉치를 `section_separator` 로
-나누고 대사 줄끼리는 `dialogue_separator` 로 잇는다. 둘을 같은 구분자로 이으면 "설명" 과
-"발화" 의 경계가 사라지는데, 그 경계는 모델이 문장 구조를 읽는 단서다.
+조립 규칙은 `compose_text()` 하나다. 캡션 덩어리와 대사 뭉치를 `SECTION_SEPARATOR`(줄바꿈)
+로 나누고 대사 줄끼리는 `DIALOGUE_SEPARATOR`(공백)로 잇는다. 둘을 같은 구분자로 이으면
+"설명" 과 "발화" 의 경계가 사라지는데, 그 경계는 모델이 문장 구조를 읽는 단서다.
 
 ## 3. 모델은 코드가 고르지 않는다
 
@@ -62,8 +66,9 @@ BM25 채널로만 검색된다. 공백만 있는 캡션도 없는 것으로 본�
 리뷰어 승인 전이며, 일감 제약이 "선정 동결은 Gate B 시점 — 그 전까지 어댑터로 교체 가능해야
 함" 이다. 코드가 하나를 고르면 그게 곧 근거 없는 동결이다.
 
-값이 비어 있으면 이 단계는 `MODEL_UNAVAILABLE`(일시)로 실패한다. 구현이 없는
-`NO_ADAPTER`(영구)와 다른 사실이다.
+값이 비어 있으면 어댑터가 `EmbeddingModelUnavailableError` 를 낸다. 배선되면 계약 §9.2 의
+`MODEL_UNAVAILABLE`(일시)이 되도록 옮겨야 한다 — 구현이 없는 `NO_ADAPTER`(영구)와 다른
+사실이기 때문이다. **그 번역은 아직 없다**(§7).
 
 ### 교체 층이 둘이다
 
@@ -89,8 +94,15 @@ L2 정규화를 어댑터가 아니라 `embedder.py` 에서 한다. `SentenceTra
 모든 질의에서 조용히 빠진다. 증상이 "검색 결과에 안 나온다" 라서 원인을 벡터에서 찾기까지가
 멀다.
 
-차원 검사는 `TextEncoder.dimension` 이 아니라 **실제로 나온 벡터의 길이**로 한다. 선언값은
-모델이 말한 것이고 실제와 다를 수 있다 — 차원을 잘라 쓰는 Matryoshka 설정이 그렇다.
+NaN·inf 성분도 거부한다. fp16 에서 NaN 이 나오면 norm 도 NaN 이 되는데 `norm == 0.0` 은
+False 라 0 벡터 검사만으로는 빠져나가고, 저장 후 증상은 0 벡터와 **정확히 같다**. 두 검사
+모두 `normalize` 분기 **밖**에 있다 — 못 쓰는 벡터인 것은 정규화 여부와 무관하다.
+
+차원 검사는 **실제로 나온 벡터의 길이**로 한다. `TextEncoder` 는 차원을 선언하지 않는다 —
+모델이 말한 값은 실제와 다를 수 있고, 그 값을 읽으려고 가중치를 올리게 만들면 Protocol 이
+부작용을 갖는다. 그래서 선언 차원과 실제가 다른 모델(차원을 잘라 쓰는 Matryoshka 설정)은
+자동으로 맞춰지지 않고 `ValueError` 가 된다 — 그런 모델로 갈아 끼우려면 어댑터가
+`truncate_dim` 을 넘기도록 고쳐야 한다.
 
 ## 5. 설정과 버전
 
@@ -101,21 +113,35 @@ L2 정규화를 어댑터가 아니라 `embedder.py` 에서 한다. `SentenceTra
 | `dimension` | `1024` | **전체 재색인.** `scene.embedding vector(N)` 도 함께 고쳐야 한다 |
 | `normalize` | `true` | 코사인 검색이 깨진다. 끄는 경우는 실험뿐 |
 | `document_prefix` | `""` | 전체 재색인. 모델 카드가 요구할 때만 |
-| `section_separator` | `"\n"` | 전체 재색인 |
-| `dialogue_separator` | `" "` | 전체 재색인 |
-| `batch_size` | `16` | 결과는 그대로. VRAM·처리 시간만 움직인다 |
 
-재현 식별자는 네 축이다.
+**결과를 바꾸지 않는 값은 이 파일에 없다.** 배치 크기(`NPICK_AI_EMBEDDING_BATCH_SIZE`,
+기본 16)와 모델 경로는 `settings.py` 다. VRAM 사정으로 배치를 16→8 로 내리는 것만으로
+`config_version` 이 바뀌면 그 값이 들어간 `stageVersion` 도 달라지고, 계약 §7 의 버전
+불일치로 배정이 끊기거나 전 클립이 재처리 대상이 된다. `ocr_model_dir` 이 설정 파일 밖에
+있는 것과 같은 판단이다.
+
+구분자는 `embedder.py` 의 상수(`SECTION_SEPARATOR`·`DIALOGUE_SEPARATOR`)다. 바꾸면 전체
+재색인인데 바꿀 이유가 없고, 버전 붙는 설정에 두면 실수로 움직였을 때 대가가 크다.
+
+재현 식별자는 네 축이다 — `(config_version, engine, engine_version, model_version)`.
 
 | 축 | 어디서 | 무엇이 바뀌면 움직이나 |
 | --- | --- | --- |
-| `config_version` | 위 toml 해시 | 조립 규칙·차원·접두 |
-| `adapter` / `adapter_version` | `TextEncoder.name` / `.version` | 런타임 교체·라이브러리 업그레이드 |
+| `config_version` | 위 toml 해시 | 차원·정규화·접두 |
+| `engine` | `TextEncoder.name` | 런타임 교체 (예: ONNX·원격 API) |
+| `engine_version` | `TextEncoder.version` | 라이브러리 업그레이드 |
 | `model_version` | `TextEncoder.model_version` | **가중치** — `<repo>@<SHA>` |
+
+어휘가 `engine`/`engine_version` 인 것은 계약 §7 의 재현 튜플 키가 그것이고
+`ocr`·`vlm_metadata` 도 같은 말을 쓰기 때문이다.
 
 `config_version` 만으로는 부족하다. 그 값은 설정 파일만 해시하므로 가중치가 바뀌면 값이
 그대로인데 벡터는 달라진다. 일감의 "모델 교체 시 재생성 흐름 — 버전 다르면 다른 산출물"
 요구가 성립하는 자리가 `model_version` 이다.
+
+실측 확인 — 선정 모델로 돌린 smoke 가 `dragonkue/snowflake-arctic-embed-l-v2.0-ko@55ec6e93…`
+처럼 40자리 SHA 를 기록한다. 어댑터가 `main` 으로 받은 실행에서도 실제로 올라간 가중치의
+commit 을 찾아 적는다.
 
 **운영에는 리비전을 SHA 로 고정한다.** `main` 으로 두면 원격이 갱신될 때 같은
 `<모델>@main` 이 다른 가중치를 가리키는데 기록은 그대로다. 임베딩에서 이것이 특히 아픈

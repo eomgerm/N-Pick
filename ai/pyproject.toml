@@ -71,7 +71,9 @@ gpu = [
     # 않는다 — NPICK_AI_EMBEDDING_MODEL 이 정하고 후보 비교는 S15P21A501-175 다.
     # gpu 그룹에 두는 이유는 torch 를 끌어오기 때문이다. 이 단계 자체는 CPU 에서도
     # 돌아가지만(실측 p95 110~120ms) torch 없이는 어느 쪽도 못 돈다.
-    "sentence-transformers>=5,<6",
+    # 5.7 에서 `get_sentence_embedding_dimension` 이 `get_embedding_dimension` 으로
+    # 바뀌었다(옛 이름은 FutureWarning). 어댑터가 새 이름을 쓰므로 하한이 5.7 이다.
+    "sentence-transformers>=5.7,<6",
 ]
 
 [tool.uv]

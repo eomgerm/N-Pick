@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from npick_worker.settings import DeviceChoice, Settings, get_settings
-from npick_worker.text_embedding.config import TextEmbeddingConfig
 from npick_worker.text_embedding.encoder import (
     EmbeddingCallError,
     EmbeddingModelUnavailableError,
@@ -46,6 +45,10 @@ DEFAULT_REVISION: Final[str] = "main"
 
 #: 고정된 가중치를 가리키는 리비전의 모양. hub 의 commit SHA 다.
 _PINNED_REVISION: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}")
+
+#: CUDA OOM 을 알아보는 표식. `jobs/errors.py` 의 `_CUDA_OOM_MARKER` 와 같은 문자열이어야
+#: 한다 — 여기서 통과시킨 예외를 그쪽 `classify` 가 받아 `OUT_OF_MEMORY` 로 옮긴다.
+_CUDA_OOM_MARKER: Final[str] = "out of memory"
 
 
 class SentenceTransformerEncoder:
@@ -95,19 +98,6 @@ class SentenceTransformerEncoder:
         """가중치의 식별자. 로딩 전에는 선언한 리비전, 로딩 후에는 확정된 SHA 다."""
         return f"{self._model_id}@{self._resolved_revision or self._revision}"
 
-    @property
-    def dimension(self) -> int:
-        """모델이 선언한 차원. **읽으면 가중치를 올린다** — 모델만이 아는 값이다."""
-        if self._dimension is None:
-            self._ensure_loaded()
-        assert self._dimension is not None
-        return self._dimension
-
-    @property
-    def is_loaded(self) -> bool:
-        """가중치가 준비됐는가. 조회 시 로딩하지 않는다."""
-        return self._model is not None
-
     def encode(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
         """문장 목록을 벡터 목록으로 바꾼다.
 
@@ -128,15 +118,30 @@ class SentenceTransformerEncoder:
                 normalize_embeddings=False,
                 show_progress_bar=False,
             )
-        except Exception as exc:  # OOM·런타임 오류. 다음 시도에서 성공할 수 있다
+            return tuple(tuple(float(value) for value in row) for row in vectors.tolist())
+        except MemoryError:
+            # **감싸지 않고 그대로 올린다.** `ocr/rapidocr_backend.py` 와 같은 판단이다.
+            # `EmbeddingCallError` 로 감싸면 `jobs/errors.classify` 가 `STAGE_FAILED` 로
+            # 떨어뜨리는데, 계약 §9.2 는 `OUT_OF_MEMORY`(일시)를 따로 두고 있다. 그대로
+            # 올리면 `classify` 가 MemoryError → OUT_OF_MEMORY 로 옮긴다 — 더 큰 파드나
+            # 작은 배치에서는 성공했을 잡이다.
+            raise
+        except RuntimeError as exc:
+            # CUDA OOM 은 `RuntimeError("CUDA out of memory. ...")` 로 온다. `classify` 가
+            # 그 문자열을 보고 OUT_OF_MEMORY 로 옮기므로 여기서도 그대로 올린다.
+            # 큰 `batch_size` 와 긴 대사가 겹치면 실제로 VRAM 을 터뜨릴 수 있는 조합이다.
+            if _CUDA_OOM_MARKER in str(exc).lower():
+                raise
             msg = f"임베딩 호출이 실패했다: {type(exc).__name__}: {exc}"
             raise EmbeddingCallError(msg) from exc
-        return tuple(tuple(float(value) for value in row) for row in vectors.tolist())
+        except Exception as exc:  # 런타임 오류. 다음 시도에서 성공할 수 있다
+            msg = f"임베딩 호출이 실패했다: {type(exc).__name__}: {exc}"
+            raise EmbeddingCallError(msg) from exc
 
     def warm_up(self) -> str:
-        """첫 잡 전에 가중치를 올린다. 기동 시 1회 호출한다."""
+        """첫 잡 전에 가중치를 올린다. 배선 티켓의 `_warm_*` 자리가 이것을 부른다."""
         self._ensure_loaded()
-        return f"model={self.model_version} adapter={self.name} {self.version} dim={self.dimension}"
+        return f"model={self.model_version} engine={self.name} {self.version} dim={self._dimension}"
 
     def _ensure_loaded(self) -> Any:
         if self._model is None:
@@ -186,7 +191,8 @@ def _load(
         msg = f"임베딩 가중치를 준비하지 못했다: {model_id}@{revision} ({type(exc).__name__})"
         raise EmbeddingModelUnavailableError(msg) from exc
 
-    dimension = model.get_sentence_embedding_dimension() or 0
+    # ST 5.7 에서 `get_sentence_embedding_dimension` 이 이 이름으로 바뀌었다(FutureWarning).
+    dimension = model.get_embedding_dimension() or 0
     if dimension <= 0:
         msg = f"모델이 임베딩 차원을 말하지 않는다: {model_id}@{revision}"
         raise EmbeddingModelUnavailableError(msg)
@@ -224,7 +230,7 @@ def _resolve_revision(model: Any, revision: str) -> str:
     return revision
 
 
-def shared_encoder(config: TextEmbeddingConfig, settings: Settings | None = None) -> "TextEncoder":
+def shared_encoder(settings: Settings | None = None) -> "TextEncoder":
     """프로세스가 공유하는 인코더. 설정이 같으면 같은 인스턴스다."""
     resolved = settings if settings is not None else get_settings()
     return _shared_encoder(
@@ -232,7 +238,7 @@ def shared_encoder(config: TextEmbeddingConfig, settings: Settings | None = None
         resolved.embedding_model_revision or DEFAULT_REVISION,
         resolved.embedding_model_dir,
         resolved.device,
-        config.batch_size,
+        resolved.embedding_batch_size,
     )
 
 

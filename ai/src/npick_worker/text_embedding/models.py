@@ -55,9 +55,13 @@ class SceneEmbedding:
 class TextEmbeddingResult:
     """단계 산출물 전체.
 
-    재현성 식별자는 `(config_version, adapter, adapter_version, model_version)` 튜플이다.
+    재현성 식별자는 `(config_version, engine, engine_version, model_version)` 튜플이다.
     `config_version` 은 설정 파일만 해시하므로 가중치가 바뀌면 값이 그대로인데 벡터는
     달라진다 — `model_version` 이 따로 있는 이유다(`ocr/models.py` 의 같은 지적).
+
+    **어휘는 계약 §7 의 재현 튜플과 같다.** `ocr/models.py`·`vlm_metadata/models.py` 도
+    같은 자리를 `engine`/`engine_version` 으로 부른다. 여기만 다른 말을 쓰면 배선할 때
+    이름을 갈아야 하고, 그때 두 어휘가 로그와 DB 에 섞인다.
     """
 
     scenes: tuple[SceneEmbedding, ...]
@@ -67,9 +71,9 @@ class TextEmbeddingResult:
     skipped: tuple[int, ...]
     config_version: str
     #: 벡터를 실제로 만든 구현 이름 (`TextEncoder.name`). 예: `sentence-transformers`
-    adapter: str
+    engine: str
     #: 그 구현과 런타임의 버전 (`TextEncoder.version`).
-    adapter_version: str
+    engine_version: str
     #: 가중치의 식별자 (`TextEncoder.model_version`). 예: `dragonkue/...-ko@<revision>`
     model_version: str
     #: 만든 벡터의 차원. `scene.embedding vector(N)` 과 같아야 한다.

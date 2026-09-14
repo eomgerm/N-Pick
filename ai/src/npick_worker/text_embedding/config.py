@@ -3,7 +3,13 @@
 `ocr/config.py` 와 같은 규약이다. 임계값을 코드에 두지 않는다. 값은 전부
 `config/text_embedding.v*.toml` 에 있고 그 해시가 `version_id` 가 된다.
 
-**모델 이름은 여기 없다.** 가중치 식별자는 `settings.py` 의 `NPICK_AI_EMBEDDING_MODEL`
+**결과를 바꾸지 않는 값은 여기 없다.** 배치 크기는 VRAM 사정으로 움직이는 실행 설정이라
+`settings.py` 에 있다. 이 파일에 두면 배치를 16→8 로 내리는 것만으로 `config_version` 이
+바뀌고, 그 값이 들어간 `stageVersion` 이 달라져 계약 §7 의 버전 불일치가 난다 — 배정이
+끊기거나 전 클립이 재처리 대상이 된다. `ocr_model_dir` 이 설정 파일 밖에 있는 것과 같은
+판단이다.
+
+**모델 이름도 여기 없다.** 가중치 식별자는 `settings.py` 의 `NPICK_AI_EMBEDDING_MODEL`
 이 정한다. `vlm_model` 과 같은 판단이다 — 선정이 아직 동결 전이고(S15P21A501-175 는
 잠정 선정) 모델만 바꾸려고 설정 파일을 고치면 `config_version` 이 함께 움직여
 "설정이 바뀌었나" 와 "모델이 바뀌었나" 를 나중에 구분할 수 없다. 두 값은 `jobs/versions.py`
@@ -44,10 +50,6 @@ class TextEmbeddingConfig(BaseModel):
     normalize: bool
     #: 문서측 접두. 모델 카드가 요구할 때만 값이 있다.
     document_prefix: str = ""
-    section_separator: str = Field(min_length=1)
-    dialogue_separator: str = Field(min_length=1)
-    #: 어댑터가 한 번에 모델에 넣는 문장 수. 결과를 바꾸지 않는 실행 설정이다.
-    batch_size: int = Field(gt=0)
 
     @property
     def version_id(self) -> str:
