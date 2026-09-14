@@ -45,6 +45,80 @@ test('검색 실패를 데모 카드로 대체하지 않고 수동 재시도한�
   await expect(page.getByRole('button', { name: '1위 실제 응답 장면 Preview 열기' })).toBeVisible();
 });
 
+test('Preview 문의는 저장 결과 ID로 접수하고 재시도 키와 재검색 결과를 구분한다', async ({
+  page,
+}) => {
+  const requests: { url: string; key: string | undefined; body: unknown }[] = [];
+  await page.route('**/api/v1/search/results/*/inquiries', async (route) => {
+    const request = route.request();
+    requests.push({
+      url: request.url(),
+      key: request.headers()['idempotency-key'],
+      body: request.postDataJSON(),
+    });
+    await route.fulfill(
+      requests.length === 1
+        ? {
+            status: 503,
+            json: { isSuccess: false, code: 'COMM_503', message: '잠시 후 다시 시도해 주세요.' },
+          }
+        : {
+            json: {
+              isSuccess: true,
+              code: 'COMM_200',
+              message: '성공',
+              data: { feedbackId: '501', status: 'OPEN' },
+            },
+          },
+    );
+  });
+  await page.goto('/search/results?q=장면');
+  const previewButton = page.getByRole('button', { name: '1위 실제 응답 장면 Preview 열기' });
+  await previewButton.click();
+  await page.getByRole('button', { name: '이상해요', exact: true }).click();
+  const inquiry = page.getByRole('dialog', { name: '이 장면에 이상이 있나요?' });
+  await inquiry.getByRole('textbox').fill('  장면을 확인해 주세요  ');
+  await inquiry.getByRole('button', { name: '문의 접수', exact: true }).click();
+  await inquiry.getByRole('button', { name: '다시 시도', exact: true }).click();
+  await expect(inquiry).not.toBeVisible();
+  await expect(page.getByText(/문의 #501의 접수가 확인되었습니다/)).toBeVisible();
+  expect(requests).toHaveLength(2);
+  expect(requests[0].url).toMatch(/\/search\/results\/101\/inquiries$/);
+  expect(requests[0].body).toEqual({ comment: '장면을 확인해 주세요' });
+  expect(requests[0].key).toBeTruthy();
+  expect(requests[1]).toEqual(requests[0]);
+
+  await previewButton.click();
+  await expect(page.getByRole('button', { name: '접수됨', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Preview 닫기' }).click();
+  await page.route('**/api/v1/search', (route) =>
+    route.fulfill({
+      json: {
+        isSuccess: true,
+        code: 'COMM_200',
+        message: '성공',
+        data: {
+          ...searchFixture,
+          search_execution_id: '200',
+          results: searchFixture.results.map((result) => ({ ...result, search_result_id: '201' })),
+        },
+      },
+    }),
+  );
+  const searchResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/api/v1/search'),
+  );
+  await page.getByRole('button', { name: '검색', exact: true }).click();
+  await searchResponse;
+  await previewButton.click();
+  await page.getByRole('button', { name: '이상해요', exact: true }).click();
+  await inquiry.getByRole('button', { name: '문의 접수', exact: true }).click();
+  await expect(inquiry).not.toBeVisible();
+  expect(requests).toHaveLength(3);
+  expect(requests[2].url).toMatch(/\/search\/results\/201\/inquiries$/);
+  expect(requests[2].key).not.toBe(requests[0].key);
+});
+
 test('degraded 검색은 Preview에서도 같은 경고를 유지한다', async ({ page }) => {
   await page.route('**/api/v1/search', (route) =>
     route.fulfill({

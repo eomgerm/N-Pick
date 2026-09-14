@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { searchFixture } from './search-fixture';
 
 async function openAsEditor(page: Page, path: string) {
   await page.context().addCookies([
@@ -19,6 +20,39 @@ async function applyDateRange(page: Page, label: string, from: string, to: strin
   await dialog.getByRole('button', { name: '적용' }).click();
   await expect(dialog).not.toBeVisible();
 }
+
+test('저장에 실패한 검색 결과 Preview는 문의 요청을 보내지 않는다', async ({ page }) => {
+  const inquiryRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/inquiries')) {
+      inquiryRequests.push(request.url());
+    }
+  });
+  await page.route('**/api/v1/search', (route) =>
+    route.fulfill({
+      json: {
+        isSuccess: true,
+        code: 'COMM_200',
+        message: '성공',
+        data: {
+          ...searchFixture,
+          search_execution_id: null,
+          status: 'degraded',
+          degraded_reasons: ['snapshot_save_failed'],
+          results: searchFixture.results.map((result) => ({ ...result, search_result_id: null })),
+        },
+      },
+    }),
+  );
+  await openAsEditor(page, '/search/results?q=장면');
+  await page.getByRole('button', { name: '1위 실제 응답 장면 Preview 열기' }).click();
+  const preview = page.getByRole('dialog');
+  await expect(preview.getByRole('button', { name: '문의 불가' })).toBeDisabled();
+  await expect(
+    preview.getByText('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'),
+  ).toBeVisible();
+  expect(inquiryRequests).toEqual([]);
+});
 
 test('검색어와 방송일·촬영일을 결과 URL과 화면에 보존한다', async ({ page }) => {
   await openAsEditor(page, '/search');

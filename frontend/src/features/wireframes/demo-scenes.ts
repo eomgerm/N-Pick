@@ -30,9 +30,9 @@ export function getVerificationStatusLabel(status: VerificationStatus) {
 export interface SearchResult {
   clipId?: string;
   sceneId?: string;
-  searchResultId?: string | null;
   additionalEvidence?: SearchEvidenceMatch[];
   id: number;
+  searchResultId?: string | null;
   rank: number;
   displayName: string;
   title: string;

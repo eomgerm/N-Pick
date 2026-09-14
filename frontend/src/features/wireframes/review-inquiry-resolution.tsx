@@ -52,7 +52,11 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
   if (!isOwner) {
     return (
       <section className="rounded-2xl border border-(--line) bg-(--surface-muted) p-5">
-        <h2 className="font-bold">다른 검수자가 처리 중입니다.</h2>
+        <h2 className="font-bold">
+          {inquiry.history.reviewerLoginId
+            ? '다른 검수자가 처리 중입니다.'
+            : '담당자 정보를 확인할 수 없습니다.'}
+        </h2>
         <p className="mt-2 text-sm text-(--muted)">담당자만 판정을 저장할 수 있습니다.</p>
       </section>
     );

@@ -1,8 +1,18 @@
 'use client';
 
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Flag, Play, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Flag,
+  LoaderCircle,
+  Play,
+  X,
+} from 'lucide-react';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
+import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
   inquiryResolutionLabels,
   inquiryStatusLabels,
@@ -21,6 +31,7 @@ import {
 import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
+import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
 import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
 
 interface SceneDialogProps {
@@ -29,6 +40,7 @@ interface SceneDialogProps {
   describedBy?: string;
   labelledBy: string;
   theme: WireframeTheme;
+  isLocked?: boolean;
   onClose: () => void;
 }
 
@@ -38,6 +50,7 @@ function SceneDialog({
   describedBy,
   labelledBy,
   theme,
+  isLocked = false,
   onClose,
 }: SceneDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -65,10 +78,10 @@ function SceneDialog({
       data-theme={theme}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        if (!isLocked) onClose();
       }}
       onMouseDown={(event) => {
-        if (event.target !== event.currentTarget) return;
+        if (isLocked || event.target !== event.currentTarget) return;
         const bounds = event.currentTarget.getBoundingClientRect();
         if (
           event.clientX < bounds.left ||
@@ -102,6 +115,7 @@ type ScenePreviewResult = Pick<
       | 'additionalEvidence'
       | 'clipId'
       | 'clip'
+      | 'searchResultId'
       | 'totalSeconds'
       | 'totalDuration'
       | 'broadcastDate'
@@ -121,6 +135,7 @@ interface ScenePreviewDialogProps {
   scenes?: ScenePreviewResult[];
   theme: WireframeTheme;
   isSubmitted?: boolean;
+  isSubmitting?: boolean;
   onInquiry?: () => void;
   contextLabel?: string;
   notice?: string;
@@ -134,6 +149,7 @@ export function ScenePreviewDialog({
   scenes,
   theme,
   isSubmitted,
+  isSubmitting = false,
   onInquiry,
   onClose,
   contextLabel,
@@ -150,7 +166,10 @@ export function ScenePreviewDialog({
   const selectedSceneIndex = scenes?.findIndex((scene) => scene.id === result.id) ?? -1;
   const sceneListRef = useRef<HTMLOListElement>(null);
   const inquiryUnavailableReasonId = useId();
-  const isInquiryUnavailable = !isSubmitted && !canCreateInquiry(searchExecution);
+  const hasSavedResult =
+    typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
+  const isInquiryUnavailable =
+    !isSubmitted && (!hasSavedResult || !canCreateInquiry(searchExecution));
   useEffect(() => {
     const list = sceneListRef.current;
     const selected = list?.querySelector<HTMLElement>('[aria-current="true"]');
@@ -186,27 +205,45 @@ export function ScenePreviewDialog({
         <div className={styles.previewHeaderActions}>
           {onInquiry ? (
             <button
+              aria-busy={isSubmitting}
+              aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
               className={styles.previewReportButton}
               data-state={
-                isSubmitted ? 'submitted' : isInquiryUnavailable ? 'unavailable' : 'ready'
+                isSubmitted
+                  ? 'submitted'
+                  : isSubmitting
+                    ? 'submitting'
+                    : isInquiryUnavailable
+                      ? 'unavailable'
+                      : 'ready'
               }
-              disabled={isSubmitted || isInquiryUnavailable}
+              disabled={isSubmitted || isSubmitting || isInquiryUnavailable}
               onClick={onInquiry}
               type="button"
             >
               {isSubmitted ? (
                 <Check aria-hidden="true" />
+              ) : isSubmitting ? (
+                <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
               ) : isInquiryUnavailable ? (
                 <AlertTriangle aria-hidden="true" />
               ) : (
                 <Flag aria-hidden="true" />
               )}
-              {isSubmitted ? '접수됨' : isInquiryUnavailable ? '문의 불가' : '이상해요'}
+              {isSubmitted
+                ? '접수됨'
+                : isSubmitting
+                  ? '접수 중'
+                  : isInquiryUnavailable
+                    ? '문의 불가'
+                    : '이상해요'}
             </button>
           ) : null}
           {onInquiry && isInquiryUnavailable ? (
             <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
-              검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.
+              {!canCreateInquiry(searchExecution)
+                ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+                : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
             </p>
           ) : null}
           <button
@@ -362,7 +399,10 @@ interface InquiryDialogProps {
   theme: WireframeTheme;
   query: string;
   history?: InquiryDetails;
-  onSubmit: (comment: string) => void;
+  error?: unknown;
+  isSubmitting?: boolean;
+  onCommentChange?: () => void;
+  onSubmit: (comment: string) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -371,10 +411,15 @@ export function InquiryDialog({
   theme,
   query,
   history,
+  error,
+  isSubmitting = false,
+  onCommentChange,
   onSubmit,
   onClose,
 }: InquiryDialogProps) {
   const [comment, setComment] = useState(history?.comment ?? '');
+  const errorId = useId();
+  const hasError = error !== undefined && error !== null;
   const statusMessage = !history
     ? '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'
     : history.status === 'open'
@@ -388,6 +433,7 @@ export function InquiryDialog({
       theme={theme}
       className={styles.modal}
       labelledBy="inquiry-title"
+      isLocked={isSubmitting}
       onClose={onClose}
     >
       <div className={styles.modalHeader}>
@@ -398,6 +444,7 @@ export function InquiryDialog({
         <button
           aria-label="문의 창 닫기"
           className={styles.iconButton}
+          disabled={isSubmitting}
           onClick={onClose}
           type="button"
         >
@@ -423,6 +470,7 @@ export function InquiryDialog({
         <dd>{query}</dd>
       </dl>
       <form
+        aria-busy={isSubmitting}
         onSubmit={(event) => {
           event.preventDefault();
           if (!history) onSubmit(comment);
@@ -430,10 +478,14 @@ export function InquiryDialog({
       >
         <label htmlFor="inquiry-comment">{history ? '문의 내용' : '설명 (선택)'}</label>
         <textarea
-          aria-describedby="inquiry-status-message"
+          aria-describedby={`inquiry-status-message${hasError ? ` ${errorId}` : ''}`}
+          disabled={isSubmitting}
           id="inquiry-comment"
           onChange={(event) => {
-            if (!history) setComment(event.target.value);
+            if (!history) {
+              setComment(event.target.value);
+              onCommentChange?.();
+            }
           }}
           placeholder={
             !history
@@ -445,6 +497,11 @@ export function InquiryDialog({
           value={comment}
         />
         <p id="inquiry-status-message">{statusMessage}</p>
+        {hasError ? (
+          <div className={styles.inquiryError}>
+            <ApiErrorNotice error={error} id={errorId} />
+          </div>
+        ) : null}
         {history?.status === 'closed' ? (
           <section aria-labelledby="inquiry-resolution-title" className={styles.inquiryResolution}>
             <h3 id="inquiry-resolution-title">
@@ -457,13 +514,17 @@ export function InquiryDialog({
           </section>
         ) : null}
         <div className={styles.modalActions}>
-          <button onClick={onClose} type="button">
+          <button disabled={isSubmitting} onClick={onClose} type="button">
             {history ? '닫기' : '취소'}
           </button>
           {!history ? (
-            <button className={styles.submitInquiry} type="submit">
-              <Flag aria-hidden="true" />
-              문의 접수
+            <button className={styles.submitInquiry} disabled={isSubmitting} type="submit">
+              {isSubmitting ? (
+                <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+              ) : (
+                <Flag aria-hidden="true" />
+              )}
+              {isSubmitting ? '접수 중' : hasError ? '다시 시도' : '문의 접수'}
             </button>
           ) : null}
         </div>
