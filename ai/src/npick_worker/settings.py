@@ -119,6 +119,23 @@ class Settings(BaseSettings):
     #: 승인된 주입 방식으로 들어온 secret. 로그·예외에 싣지 않는다.
     vlm_external_api_key: SecretStr = SecretStr("")
 
+    # ── ASR (자막·CC 미커버 구간 보완) ─────────────────────────────
+    #: 가중치 식별자. faster-whisper 가 받는 이름이거나 로컬 모델 디렉터리 경로다
+    #: (예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기는 결과와 처리
+    #: 시간을 바꾸는 값이고 실측 후 확정 대상이라(FRD §11), 코드가 임의로 고르면 그게
+    #: 곧 근거 없는 동결이다(`vlm_model`·`ollama_model` 과 같은 판단). 비어 있으면 이
+    #: 단계는 capabilities 에서 빠지고 배정되지 않는다.
+    asr_model: str = ""
+    #: 연산 정밀도(예: `float16`·`int8_float16`·`int8`). 비우면 장치 기본값을 쓴다 —
+    #: CUDA 는 `float16`, CPU 는 `int8` 이다. 이 값도 결과를 바꾸므로 재현 식별자의
+    #: `model_version` 에 함께 들어간다.
+    asr_compute_type: str = ""
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: 파드 디스크가 휘발성이라 파드를 띄울 때마다 수 GB 를 다시 받는다
+    #: (`03-deployment.md`: 모델 가중치는 네트워크 볼륨에 상주). `vlm_model_dir` 과
+    #: 같은 성격이라 버전이 붙는 설정 파일이 아니라 여기 있다.
+    asr_model_dir: Path | None = None
+
     # ── Query Resolver LLM (local 또는 승인된 GMS) ──
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만
     # 난다(ai/AGENTS.md — GPU 없이도 기동하는 성질을 깨지 않는다).

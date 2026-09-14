@@ -40,6 +40,7 @@ from npick_worker.settings import get_settings
 from npick_worker.versioning import service_version
 
 if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(ocr 은 onnxruntime 이 딸려 온다).
+    from npick_worker.asr.engine import AsrEngine
     from npick_worker.ocr.models import KeyframeRef
     from npick_worker.vlm_metadata.client import VlmClient
     from npick_worker.vlm_metadata.models import SceneKeyframes
@@ -681,6 +682,144 @@ def _warm_vlm_metadata() -> str:
     return f"config={config.version_id} prompt={prompt_version(config)} {loaded}"
 
 
+def _run_asr(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. faster-whisper 는 `gpu` 그룹의 선택 의존성이라 없는 환경에서도
+    # 이 모듈이 임포트돼야 한다(`ai/AGENTS.md`).
+    from npick_worker.asr import (
+        AsrCallError,
+        AsrModelUnavailableError,
+        get_default_config,
+        transcribe_media,
+    )
+    from npick_worker.jobs.models import AsrOutput, AsrUpstream
+
+    config = get_default_config()
+    upstream = _parse_upstream(AsrUpstream, ctx.upstream)
+    selection = upstream.transcript
+    candidates = () if selection is None else selection.candidate_ranges
+
+    if selection is not None and selection.asr_required is False:
+        # **그래도 돌린다.** 배정이 곧 실행 지시이고(BE 가 이 단계를 pending 으로 두고
+        # 골랐다), 무엇을 채택할지는 우선순위를 아는 하류가 정한다(계약 §4.5). 다만
+        # 판정과 배정이 어긋난 사실은 남긴다 — 조용히 넘기면 나중에 GPU 분이 어디로
+        # 갔는지 알 수 없다.
+        logger.info(
+            "transcript_selection 은 ASR 이 필요 없다고 판정했으나 배정됐다 (reasonCode=%s)",
+            selection.reason_code,
+        )
+
+    engine = _asr_engine()
+    try:
+        result = transcribe_media(ctx.require_video(), engine, config)
+    except AsrModelUnavailableError as exc:
+        # 가중치를 못 받은 것은 이 클립의 문제가 아니다 — 다른 파드나 다음 시도에서
+        # 성공할 수 있다(계약 §9.2 의 일시 오류).
+        raise ModelUnavailableError(str(exc)) from exc
+    except AsrCallError as exc:
+        # 실행의 실패다. **빈 결과와 다른 사실이므로** 성공으로 반납하지 않는다 —
+        # 발화 미감지 정상 종료로 바꾸면 티켓이 금지한 일이 된다.
+        raise TransientStageError(str(exc)) from exc
+    # 오디오를 디코드할 수 없으면 `MediaUnreadableError` 가 그대로 올라간다.
+    # `classify` 가 `UNSUPPORTED_MEDIA`(영구)로 옮긴다 — 같은 파일은 다시 열어도 같다.
+
+    identity = _asr_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+        model_version=result.model_version,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        # `exclude_none=True` 인 이유는 `reasonCode` 다. 발화를 찾은 실행에 `null` 을
+        # 실어 보내면 BE 의 사유 allowlist 에 없는 값이 되고, "빈 segments 만으로 사유를
+        # 만들지 않는다" 는 구분이 와이어에서 흐려진다.
+        output=AsrOutput.from_result(result).model_dump(
+            by_alias=True, mode="json", exclude_none=True
+        ),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            model_version=result.model_version,
+            # 이 단계는 프롬프트를 쓰지 않는다. 키는 남기고 값만 비운다.
+            prompt_version=None,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "segments": len(result.segments),
+            # 엔진이 낸 수. `segments` 보다 크면 계약을 못 지켜 버린 구간이 있다.
+            "rawSegments": result.raw_segment_count,
+            "droppedBlank": result.dropped_blank,
+            "droppedDegenerate": result.dropped_degenerate,
+            # 발화로 판정된 총 길이. 무음 표본에서 이 값이 크면 환각을 의심한다.
+            "speechMs": result.speech_ms,
+            "vadEnabled": result.vad_enabled,
+            # 상류 판정. 없으면 `null` 이고, 그것도 사실이다 — 선택 단계 없이 돈 run 이다.
+            "asrRequired": None if selection is None else selection.asr_required,
+            "candidateRanges": len(candidates),
+        },
+    )
+
+
+def _asr_engine() -> "AsrEngine":
+    """엔진을 가져온다. **실패의 종류를 여기서 가른다.**
+
+    라이브러리가 없는 것과 가중치가 없는 것은 다른 사실이다. 앞엣것은 이 이미지의
+    성질이라 재시도가 고칠 수 없고(`NO_ADAPTER`, 영구 → `skipped`), 뒤엣것은 캐시
+    볼륨·내려받기의 문제라 다른 파드에서 성공할 수 있다(`MODEL_UNAVAILABLE`, 일시).
+    한 코드로 합치면 "이 워커에 ASR 이 없다" 와 "지금 없다" 를 구분할 수 없다.
+    """
+    from npick_worker.asr import AsrModelUnavailableError
+    from npick_worker.asr.faster_whisper_backend import AsrRuntimeMissingError, shared_engine
+
+    try:
+        return shared_engine()
+    except AsrRuntimeMissingError as exc:
+        raise StageUnavailableError(str(exc)) from exc
+    except AsrModelUnavailableError as exc:
+        raise ModelUnavailableError(str(exc)) from exc
+
+
+def _asr_identity(
+    *, config_version: str, engine: str, engine_version: str, model_version: str
+) -> dict[str, str]:
+    """asr 의 재현 튜플. 축이 넷이다.
+
+    `modelVersion` 이 있는 이유는 `vlm_metadata` 와 같다 — 가중치가 바뀌면 같은 오디오에서
+    다른 문장이 나온다. 여기서는 compute type 까지 그 값에 들어간다(`float16` 과 `int8` 은
+    같은 모델의 다른 수치다).
+
+    `tokenizer` 축이 **없다.** 이 단계는 색인 토큰을 만들지 않는다 — 대사의 토큰화는
+    채택된 구간을 다루는 하류의 일이고, 여기 넣으면 이 단계와 무관한 변경으로
+    `stageVersion` 이 바뀌어 재처리가 도는 자리가 생긴다(`ocr` 과 반대 방향의 판단).
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+        "modelVersion": model_version,
+    }
+
+
+def _warm_asr() -> str:
+    """설정을 미리 읽고 가중치를 미리 올린다.
+
+    `ocr`·`vlm_metadata` 와 같은 이유다 — 첫 잡에서 수 GB 를 내려받으면 그 시간이 통째로
+    그 잡의 처리 시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다. 기동 때
+    하면 `/health` 로 드러난다. 이 단계도 VRAM 을 실제로 잡는다.
+    """
+    from npick_worker.asr import get_default_config
+    from npick_worker.asr.faster_whisper_backend import shared_engine
+
+    config = get_default_config()
+    engine = shared_engine()
+    return (
+        f"config={config.version_id} engine={engine.name} {engine.version} "
+        f"model={engine.model_version}"
+    )
+
+
 def _parse_upstream[T: BaseModel](model: type[T], payload: Mapping[str, Any]) -> T:
     """`inputs.upstream` 을 단계가 기대하는 모양으로 검증한다.
 
@@ -784,6 +923,11 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
                 # 이 단계는 영상을 열지 않는다. 상류가 올린 keyframe JPEG 만 읽는다.
                 needs_video=False,
             ),
+            # `required_inputs` 가 없다. 상류 자막 스냅샷 파일을 읽지 않고 판정
+            # (`asrRequired`·`candidateRanges`)만 보기 때문이다 — 그 값은 `upstream` 에
+            # 인라인으로 오고, 무엇을 채택할지 정하는 일은 하류의 몫이다(계약 §4.5).
+            # `needs_video` 는 기본값 True 다. 오디오가 원본 파일 안에 있다.
+            StageHandler("asr", _run_asr, _warm_asr),
         )
     }
 )
@@ -929,6 +1073,28 @@ def _declared_version(stage: str) -> str:
                 engine_version=vlm_client.version,
                 model_version=vlm_client.model_version,
                 tokenizer=korean_tokens.tokenizer_version(),
+            ),
+        )
+    if stage == "asr":
+        from npick_worker.asr import get_default_config as get_asr_config
+
+        asr_config = get_asr_config()
+        # **엔진을 만들어 본다.** `ocr` 과 같은 이유다 — 라이브러리가 없거나 가중치를
+        # 준비하지 못한 워커는 여기서 걸려 `capability_versions` 가 이 단계를 목록에서
+        # 빼야 한다. 배정받지 못하는 편이 배정받아 매번 죽는 것보다 낫다. `gpu` 그룹을
+        # 설치하지 않은 개발 환경이 정확히 이 경로로 빠진다.
+        #
+        # **반드시 `shared_engine` 이어야 한다**(`_asr_engine` 이 그것을 부른다). 이
+        # 함수는 claim long-poll 한 바퀴마다, 그리고 실패마다 불린다. 매번 모델을 새로
+        # 올리면 수 GB 로딩을 그 주기로 내고 VRAM 이 두 벌 잡힌다.
+        asr_engine = _asr_engine()
+        return stage_version(
+            stage,
+            _asr_identity(
+                config_version=asr_config.version_id,
+                engine=asr_engine.name,
+                engine_version=asr_engine.version,
+                model_version=asr_engine.model_version,
             ),
         )
     msg = f"버전을 선언할 수 없는 단계다: {stage}"
