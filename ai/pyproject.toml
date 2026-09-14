@@ -67,6 +67,11 @@ gpu = [
     # transformers 의 이미지 처리가 PIL 을 쓴다. 전이 의존에 기대지 않는다 —
     # 어댑터가 keyframe JPEG 을 직접 열기 때문에 없으면 첫 호출에서 죽는다.
     "pillow>=11,<13",
+    # text_embedding 이 scene 텍스트를 dense 벡터로 바꾼다. 모델 이름은 여기서 고르지
+    # 않는다 — NPICK_AI_EMBEDDING_MODEL 이 정하고 후보 비교는 S15P21A501-175 다.
+    # gpu 그룹에 두는 이유는 torch 를 끌어오기 때문이다. 이 단계 자체는 CPU 에서도
+    # 돌아가지만(실측 p95 110~120ms) torch 없이는 어느 쪽도 못 돈다.
+    "sentence-transformers>=5,<6",
 ]
 
 [tool.uv]
@@ -122,7 +127,14 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
-module = ["torch.*", "numpy.*", "transformers.*", "huggingface_hub.*", "PIL.*"]
+module = [
+    "torch.*",
+    "numpy.*",
+    "transformers.*",
+    "sentence_transformers.*",
+    "huggingface_hub.*",
+    "PIL.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

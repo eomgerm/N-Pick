@@ -99,6 +99,18 @@ class Settings(BaseSettings):
     #: (`03-deployment.md`: 모델 가중치는 네트워크 볼륨에 상주).
     vlm_model_dir: Path | None = None
 
+    # ── 텍스트 임베딩 (9단계) ────────────────────────────────────────
+    #: 가중치 식별자. **기본값을 두지 않는다.** `vlm_model` 과 같은 판단이다 —
+    #: S15P21A501-175 의 선정(`dragonkue/snowflake-arctic-embed-l-v2.0-ko`)은 잠정이고
+    #: Gate B 전까지 교체 가능해야 한다. 비어 있으면 이 단계는 `MODEL_UNAVAILABLE` 이다.
+    embedding_model: str = ""
+    #: 가중치 리비전(커밋 해시·태그). 같은 이름이라도 리비전이 바뀌면 다른 벡터가 나오고,
+    #: 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다. 운영에는 SHA 를 고정한다.
+    embedding_model_revision: str = ""
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: `vlm_model_dir` 과 같은 이유다(`03-deployment.md`: 가중치는 네트워크 볼륨에 상주).
+    embedding_model_dir: Path | None = None
+
     # ── 외부 VLM 처리 (PRD §12.4) ────────────────────────────────────
     # 아래 값이 전부 맞아도 **그것만으로 승인이 성립하지 않는다.** clip 별 외부 처리
     # 권리 확인은 deployment 수준 허용으로 대신할 수 없고(PRD §12.4) 그 확인을 담는 DB

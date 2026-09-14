@@ -4,6 +4,7 @@
 모듈 레벨에서 torch 를 임포트하면 기본 테스트 실행도 수 초 느려진다.
 """
 
+import os
 import sys
 
 import pytest
@@ -64,3 +65,52 @@ def test_faster_whisper_tiny_cpu() -> None:
     assert 0.0 <= info.language_probability <= 1.0
     # 제너레이터를 소진해 디코더까지 실행한다. 무음이라 세그먼트 수는 단언하지 않는다.
     assert isinstance(list(segments), list)
+
+
+def test_scene_embedding_with_the_selected_model() -> None:
+    """선정 모델로 샘플 scene 에서 **버전 정보를 포함한** embedding 을 산출한다.
+
+    S15P21A501-100 의 완료 조건이자 S15P21A501-175 의 마지막 확인 항목이다.
+
+    모델 이름은 `NPICK_AI_EMBEDDING_MODEL` 이 준다 — 코드도 테스트도 모델을 고르지
+    않는다(`text_embedding/config.py` 의 판단). 잠정 선정값으로 돌리려면:
+
+        NPICK_AI_EMBEDDING_MODEL=dragonkue/snowflake-arctic-embed-l-v2.0-ko \
+            uv run pytest -m smoke -k scene_embedding
+    """
+    pytest.importorskip("sentence_transformers", reason=_GPU_GROUP_HINT)
+
+    from npick_worker.text_embedding import SceneText, embed_scenes, get_default_config
+    from npick_worker.text_embedding.sentence_transformers_backend import shared_encoder
+
+    if not os.environ.get("NPICK_AI_EMBEDDING_MODEL"):
+        pytest.skip("NPICK_AI_EMBEDDING_MODEL 미설정")
+
+    config = get_default_config()
+    encoder = shared_encoder(config)
+    scenes = [
+        SceneText(
+            scene_index=0,
+            caption="광화문 광장에 모인 집회 참가자들",
+            dialogue=("현장에 나가 있는 기자 연결합니다",),
+        ),
+        # 텍스트가 없는 장면. 벡터를 만들지 않는 쪽이 정상이다.
+        SceneText(scene_index=1, caption="", dialogue=()),
+    ]
+
+    result = embed_scenes(scenes, encoder=encoder, config=config)
+
+    print(f"\nmodel={result.model_version} adapter={result.adapter}/{result.adapter_version}")
+    print(f"config={result.config_version} dim={result.dimension}")
+
+    # 산출 — 텍스트가 있는 장면에만 벡터가 있다.
+    assert [scene.scene_index for scene in result.scenes] == [0]
+    assert result.skipped == (1,)
+    # 차원이 scene.embedding vector(1024) 와 맞는가. 여기서 어긋나면 저장이 실패한다.
+    assert len(result.scenes[0].vector) == config.dimension
+    # 정규화됐는가. pgvector 코사인 검색의 전제다.
+    assert sum(value * value for value in result.scenes[0].vector) == pytest.approx(1.0, abs=1e-5)
+    # 버전 정보 — FR-PRC-061. 어느 값도 비어 있으면 재현할 수 없다.
+    assert result.model_version.startswith(os.environ["NPICK_AI_EMBEDDING_MODEL"] + "@")
+    assert result.adapter == "sentence-transformers"
+    assert result.config_version.startswith("text-embedding/v1:")
