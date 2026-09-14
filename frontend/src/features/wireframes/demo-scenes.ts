@@ -1,5 +1,32 @@
 import styles from '@/features/wireframes/wireframe.module.css';
 
+export type VerificationStatus = 'verified' | 'unverified' | 'unknown' | 'rejected' | 'withdrawn';
+
+export type EvidenceVerificationStatus = Extract<VerificationStatus, 'verified' | 'unverified'>;
+export type InformationVerificationStatus = Extract<
+  VerificationStatus,
+  'verified' | 'unverified' | 'unknown'
+>;
+
+export interface SearchEvidenceMatch {
+  field: '화면 속 글자 (OCR)' | '장면 설명' | '대사';
+  value: string;
+  source: string;
+  status: EvidenceVerificationStatus;
+}
+
+const verificationStatusLabels: Record<VerificationStatus, string> = {
+  verified: '검증됨',
+  unverified: '미검증',
+  unknown: '미상',
+  rejected: '반려됨',
+  withdrawn: '개입 해제',
+};
+
+export function getVerificationStatusLabel(status: VerificationStatus) {
+  return verificationStatusLabels[status];
+}
+
 export interface SearchResult {
   id: number;
   rank: number;
@@ -14,11 +41,12 @@ export interface SearchResult {
   totalSeconds: number;
   broadcastDate: string | null;
   filmedDate: string | null;
-  filmingState: 'verified' | 'unknown' | 'unverified';
+  filmingState: InformationVerificationStatus;
   shotType: string;
   sceneType: string;
   evidenceType: 'OCR' | '화면 설명' | 'Transcript';
   evidence: string;
+  matchEvidence: SearchEvidenceMatch;
   matchedKeywords: string[];
   source: string;
   score: number;
@@ -46,6 +74,12 @@ export const results: SearchResult[] = [
     sceneType: '역사 인파',
     evidenceType: 'OCR',
     evidence: '서울역 · 설 연휴 귀성객',
+    matchEvidence: {
+      field: '화면 속 글자 (OCR)',
+      value: '서울역 · 설 연휴 귀성객',
+      source: 'Keyframe OCR',
+      status: 'verified',
+    },
     matchedKeywords: ['서울역', '귀성객'],
     source: 'Keyframe OCR · 검증됨',
     score: 96,
@@ -71,6 +105,12 @@ export const results: SearchResult[] = [
     sceneType: '도로 교통',
     evidenceType: '화면 설명',
     evidence: '해 질 무렵 정체된 고속도로',
+    matchEvidence: {
+      field: '장면 설명',
+      value: '해 질 무렵 정체된 고속도로',
+      source: 'VLM caption',
+      status: 'unverified',
+    },
     matchedKeywords: ['정체', '고속도로'],
     source: 'VLM caption · 미검증',
     score: 89,
@@ -96,6 +136,12 @@ export const results: SearchResult[] = [
     sceneType: '관제실',
     evidenceType: 'Transcript',
     evidence: '귀성길 주요 구간 소통 상황입니다',
+    matchEvidence: {
+      field: '대사',
+      value: '귀성길 주요 구간 소통 상황입니다',
+      source: '방송 자막',
+      status: 'unverified',
+    },
     matchedKeywords: ['귀성길', '소통 상황'],
     source: '방송 자막 · 미검증',
     score: 84,
@@ -121,6 +167,12 @@ export const results: SearchResult[] = [
     sceneType: '톨게이트 교통',
     evidenceType: 'OCR',
     evidence: '귀성길 정체 시작 · 서울요금소',
+    matchEvidence: {
+      field: '화면 속 글자 (OCR)',
+      value: '귀성길 정체 시작 · 서울요금소',
+      source: 'Keyframe OCR',
+      status: 'verified',
+    },
     matchedKeywords: ['귀성길', '정체'],
     source: 'Keyframe OCR · 검증됨',
     score: 81,
@@ -146,6 +198,12 @@ export const results: SearchResult[] = [
     sceneType: '휴게소 인파',
     evidenceType: '화면 설명',
     evidence: '휴게소 주차장과 매장을 가득 메운 귀성객',
+    matchEvidence: {
+      field: '장면 설명',
+      value: '휴게소 주차장과 매장을 가득 메운 귀성객',
+      source: 'VLM caption',
+      status: 'unverified',
+    },
     matchedKeywords: ['휴게소', '귀성객'],
     source: 'VLM caption · 미검증',
     score: 78,
@@ -171,6 +229,12 @@ export const results: SearchResult[] = [
     sceneType: '터미널 인파',
     evidenceType: 'Transcript',
     evidence: '버스를 기다리는 귀성객 행렬이 길게 이어집니다',
+    matchEvidence: {
+      field: '대사',
+      value: '버스를 기다리는 귀성객 행렬이 길게 이어집니다',
+      source: '방송 자막',
+      status: 'verified',
+    },
     matchedKeywords: ['귀성객', '버스터미널'],
     source: '방송 자막 · 검증됨',
     score: 75,
@@ -196,6 +260,12 @@ export const results: SearchResult[] = [
     sceneType: '교통 안내',
     evidenceType: 'OCR',
     evidence: '경부선 정체 · 우회도로 이용',
+    matchEvidence: {
+      field: '화면 속 글자 (OCR)',
+      value: '경부선 정체 · 우회도로 이용',
+      source: 'Keyframe OCR',
+      status: 'verified',
+    },
     matchedKeywords: ['경부선', '정체'],
     source: 'Keyframe OCR · 검증됨',
     score: 72,
@@ -221,6 +291,12 @@ export const results: SearchResult[] = [
     sceneType: '자료화면 교통',
     evidenceType: '화면 설명',
     evidence: '명절 연휴 차량으로 가득 찬 고속도로',
+    matchEvidence: {
+      field: '장면 설명',
+      value: '명절 연휴 차량으로 가득 찬 고속도로',
+      source: 'VLM caption',
+      status: 'unverified',
+    },
     matchedKeywords: ['명절', '고속도로'],
     source: 'VLM caption · 미검증',
     score: 69,
@@ -246,6 +322,12 @@ export const results: SearchResult[] = [
     sceneType: '도로 사고',
     evidenceType: 'Transcript',
     evidence: '사고 수습 여파로 두 개 차로가 통제되고 있습니다',
+    matchEvidence: {
+      field: '대사',
+      value: '사고 수습 여파로 두 개 차로가 통제되고 있습니다',
+      source: '방송 자막',
+      status: 'unverified',
+    },
     matchedKeywords: ['차로 통제', '정체'],
     source: '방송 자막 · 미검증',
     score: 66,
@@ -271,6 +353,12 @@ export const results: SearchResult[] = [
     sceneType: '도로 교통',
     evidenceType: '화면 설명',
     evidence: '새벽 시간 원활하게 이동하는 고속도로 차량',
+    matchEvidence: {
+      field: '장면 설명',
+      value: '새벽 시간 원활하게 이동하는 고속도로 차량',
+      source: 'VLM caption',
+      status: 'unverified',
+    },
     matchedKeywords: ['경부고속도로', '차량 흐름'],
     source: 'VLM caption · 미검증',
     score: 63,

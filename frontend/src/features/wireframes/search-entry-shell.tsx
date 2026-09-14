@@ -1,14 +1,19 @@
 'use client';
 
-import { routes } from '@/lib/routes';
 import { AppShell } from '@/components/app-shell';
 
 import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState, useTransition } from 'react';
 
+import { DateRangePicker } from '@/features/wireframes/date-range-picker';
+import { emptyDateRange } from '@/features/wireframes/date-range';
 import { EntryFooter } from '@/features/wireframes/entry-chrome';
 import { SearchHistory } from '@/features/wireframes/search-history';
+import {
+  createSearchResultsHref,
+  isSameSearchDestination,
+} from '@/features/wireframes/search-navigation';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/entry.module.css';
 
@@ -18,12 +23,48 @@ interface SearchEntryShellProps {
 
 export function SearchEntryShell({ theme }: SearchEntryShellProps) {
   const router = useRouter();
+  const [isNavigating, startNavigation] = useTransition();
   const [query, setQuery] = useState('');
+  const [broadcastRange, setBroadcastRange] = useState(emptyDateRange);
+  const [filmingRange, setFilmingRange] = useState(emptyDateRange);
   const inputRef = useRef<HTMLInputElement>(null);
+  const navigationLockRef = useRef(false);
+  const hasObservedNavigationRef = useRef(false);
+
+  useEffect(() => {
+    if (isNavigating) {
+      hasObservedNavigationRef.current = true;
+      return;
+    }
+    if (hasObservedNavigationRef.current) {
+      navigationLockRef.current = false;
+      hasObservedNavigationRef.current = false;
+    }
+  }, [isNavigating]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (query.trim()) router.push(`${routes.searchResults}?q=${encodeURIComponent(query.trim())}`);
+    if (navigationLockRef.current || isNavigating) return;
+
+    const href = createSearchResultsHref({
+      query,
+      broadcast: broadcastRange,
+      filming: filmingRange,
+    });
+    if (!href) return;
+    if (
+      typeof window !== 'undefined' &&
+      isSameSearchDestination(`${window.location.pathname}${window.location.search}`, href)
+    )
+      return;
+
+    navigationLockRef.current = true;
+    try {
+      startNavigation(() => router.push(href));
+    } catch (error) {
+      navigationLockRef.current = false;
+      throw error;
+    }
   }
 
   return (
@@ -44,41 +85,83 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
             찾고 싶은 뉴스 장면을 자연스럽게 설명해 주세요.
           </p>
           <form
+            aria-busy={isNavigating}
             aria-label="뉴스 장면 검색"
-            className={styles.searchForm}
+            className={styles.searchPanel}
             onSubmit={handleSubmit}
             role="search"
           >
-            <Search aria-hidden="true" className={styles.searchIcon} />
-            <label className={styles.srOnly} htmlFor="scene-search">
-              뉴스 장면 검색어
-            </label>
-            <input
-              autoComplete="off"
-              enterKeyHint="search"
-              id="scene-search"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="예: 비 내리는 출근길 광화문 횡단보도"
-              ref={inputRef}
-              type="search"
-              value={query}
-            />
-            <button
-              aria-label="검색어 지우기"
-              className={styles.clearButton}
-              disabled={!query}
-              onClick={() => {
-                setQuery('');
-                inputRef.current?.focus();
+            <div className={styles.searchForm}>
+              <Search aria-hidden="true" className={styles.searchIcon} />
+              <label className={styles.srOnly} htmlFor="scene-search">
+                뉴스 장면 검색어
+              </label>
+              <input
+                autoComplete="off"
+                disabled={isNavigating}
+                enterKeyHint="search"
+                id="scene-search"
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="예: 비 내리는 출근길 광화문 횡단보도"
+                ref={inputRef}
+                type="search"
+                value={query}
+              />
+              <button
+                aria-label="검색어 지우기"
+                className={styles.clearButton}
+                disabled={!query || isNavigating}
+                onClick={() => {
+                  setQuery('');
+                  inputRef.current?.focus();
+                }}
+                type="button"
+              >
+                <X aria-hidden="true" />
+              </button>
+              <button
+                className={styles.primaryButton}
+                disabled={!query.trim() || isNavigating}
+                type="submit"
+              >
+                {isNavigating ? '검색 중' : '장면 찾기'}
+                <ArrowRight aria-hidden="true" />
+              </button>
+            </div>
+            <fieldset
+              className={styles.searchFilters}
+              disabled={isNavigating}
+              onKeyDown={(event) => {
+                if (
+                  event.key === 'Enter' &&
+                  event.target instanceof HTMLInputElement &&
+                  event.target.type === 'date'
+                ) {
+                  event.preventDefault();
+                }
               }}
-              type="button"
             >
-              <X aria-hidden="true" />
-            </button>
-            <button className={styles.primaryButton} disabled={!query.trim()} type="submit">
-              장면 찾기
-              <ArrowRight aria-hidden="true" />
-            </button>
+              <legend>
+                날짜 필터 <span>선택</span>
+              </legend>
+              <div className={styles.searchFilterGrid}>
+                <DateRangePicker
+                  label="방송일"
+                  value={broadcastRange}
+                  isDisabled={isNavigating}
+                  onChange={setBroadcastRange}
+                />
+                <DateRangePicker
+                  label="촬영일"
+                  value={filmingRange}
+                  isDisabled={isNavigating}
+                  onChange={setFilmingRange}
+                />
+              </div>
+            </fieldset>
+            <p aria-live="polite" className={styles.srOnly}>
+              {isNavigating ? '검색 중입니다. 검색 결과 화면을 준비하고 있습니다.' : ''}
+            </p>
           </form>
         </div>
         <SearchHistory theme={theme} />

@@ -115,6 +115,17 @@ class StageUnavailableError(PermanentStageError):
     error_code: ClassVar[str] = "NO_ADAPTER"
 
 
+class ModelUnavailableError(TransientStageError):
+    """가중치를 준비하지 못했다. 구현은 있는데 모델이 없는 상태다.
+
+    `NO_ADAPTER`(영구)와 갈라야 한다. 구현이 없는 것은 이 이미지의 성질이라 재시도가
+    고칠 수 없지만, 가중치는 캐시 볼륨이 안 붙었거나 내려받기가 실패한 것이라 다른
+    파드나 다음 시도에서 성공할 수 있다(계약 §9.2).
+    """
+
+    error_code: ClassVar[str] = "MODEL_UNAVAILABLE"
+
+
 class UnknownStageError(PermanentStageError):
     """FRD 단계 표에 없는 이름을 배정받았다. 재시도가 고칠 수 없다."""
 
@@ -135,6 +146,12 @@ class ArtifactKeyRejectedError(PermanentStageError):
     """
 
     error_code: ClassVar[str] = "VALIDATION_ERROR"
+
+
+class ArtifactHashMismatchError(PermanentStageError):
+    """The server rejected artifact integrity, including after one bounded upload retry."""
+
+    error_code: ClassVar[str] = "ARTIFACT_UPLOAD_FAILED"
 
 
 class JobApiError(WorkerError):
@@ -177,6 +194,10 @@ class JobApiConflictError(JobApiError):
 
     error_code: ClassVar[str] = "JOB_API_CONFLICT"
     retryable: ClassVar[bool] = False
+
+
+class JobApiInvalidRequestError(JobApiConflictError):
+    """Invalid request/output contract (JOB_400_001/411_001); sending it again cannot help."""
 
 
 class LeaseLostError(JobApiError):

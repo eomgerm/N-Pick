@@ -33,6 +33,7 @@ import com.npick.clip.infrastructure.transcript.SubtitleParser;
 import com.npick.clip.infrastructure.transcript.SubtitleProcess;
 import com.npick.common.error.BusinessException;
 import com.npick.common.persistence.TsidGenerator;
+import com.npick.pipeline.application.query.definition.GetPipelineDefinitionUseCase;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ClipRegistrationProperties.class)
@@ -63,7 +64,9 @@ public class ClipRegistrationConfiguration {
 
     @Bean
     ClipRegistrationContextPort clipRegistrationContext(
-            ClipRegistrationProperties properties, ObjectProvider<RegistrationActorPort> actors) {
+            ClipRegistrationProperties properties,
+            ObjectProvider<RegistrationActorPort> actors,
+            GetPipelineDefinitionUseCase definitions) {
         return () -> {
             var actor = actors.getIfAvailable();
             if (actor == null) throw new BusinessException(ClipRuntimeErrorCode.AUTHENTICATION_UNAVAILABLE);
@@ -74,8 +77,8 @@ public class ClipRegistrationConfiguration {
                     memberId,
                     TsidGenerator.generate(),
                     TsidGenerator.generate(),
-                    properties.pipelineVersion(),
-                    properties.stageNames(),
+                    definitions.get().version(),
+                    definitions.get().stages(),
                     properties.externalProcessingRequired());
         };
     }

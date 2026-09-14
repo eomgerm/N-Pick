@@ -183,7 +183,7 @@ async def test_claim_declares_the_stage_it_can_run(
 
     body = json.loads(fake_backend.calls("claim")[0].content)
     declared = {c["stage"]: c["stageVersion"] for c in body["capabilities"]}
-    assert set(declared) == {"scene_detection", "frame_extraction"}
+    assert set(declared) == {"scene_detection", "frame_extraction", "ocr"}
     for stage, version in declared.items():
         assert version.startswith(f"npick.stage.{stage}/v1:")
 
@@ -205,7 +205,7 @@ async def test_unimplemented_stage_is_skipped_not_failed(
     job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
 ) -> None:
     """FRD 표에는 있으나 구현이 없는 단계. 비치명 단계의 생략은 run 을 멈추지 않는다."""
-    fake_backend.enqueue_claim(make_job(stage="ocr"))
+    fake_backend.enqueue_claim(make_job(stage="vlm_metadata"))
 
     await _runner(job_client, media_root).run_once()
 
@@ -313,11 +313,16 @@ async def test_lease_lost_during_complete_is_swallowed(
 
 
 @pytest.mark.asyncio
-async def test_run_stops_on_unauthorized(
-    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+@pytest.mark.parametrize("status,code", [(401, "JOB_401"), (400, "JOB_400_001")])
+async def test_run_stops_on_permanent_claim_rejection(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    status: int,
+    code: str,
 ) -> None:
-    """토큰이 거절되는데 계속 두드려도 열리지 않는다."""
-    fake_backend.enqueue_status("claim", 401, code="JOB_401")
+    """A rejected token or malformed claim must not start an endless polling loop."""
+    fake_backend.enqueue_status("claim", status, code=code)
 
     await asyncio.wait_for(_runner(job_client, media_root).run(), timeout=5)
 
@@ -1080,3 +1085,161 @@ async def test_unopenable_media_is_a_permanent_failure(
     assert body["error"]["code"] == "UNSUPPORTED_MEDIA"
     assert body["error"]["retryable"] is False
     assert not fake_backend.calls("artifact_put")
+
+
+# ── 상류 산출물 입력 (ocr) ──────────────────────────────────────────
+
+
+def _ocr_job(**overrides: object) -> dict[str, object]:
+    """`ocr` 배정. 상류 keyframe 한 장을 인라인으로 되돌려 준다."""
+    job = make_job(
+        stage="ocr",
+        idempotencyKey=f"{RUN_ID}:ocr:1",
+        outputKeyPrefix=f"runs/{RUN_ID}/ocr/a1/",
+    )
+    job["inputs"] = {
+        "media": {
+            "storageKey": "clips/398021840012345/source.mp4",
+            "transport": "shared-volume",
+            "localPath": "clips/398021840012345/source.mp4",
+        },
+        "upstream": {
+            "frameExtraction": {
+                "scenes": [
+                    {
+                        "sceneIndex": 0,
+                        "keyframes": [
+                            {
+                                "sceneIndex": 0,
+                                "timestampMs": 4200,
+                                "storageKey": KEYFRAME_KEY,
+                            }
+                        ],
+                    }
+                ],
+                "imageWidth": 1920,
+                "imageHeight": 1080,
+            }
+        },
+    }
+    job.update(overrides)
+    return job
+
+
+KEYFRAME_KEY = f"runs/{RUN_ID}/frame_extraction/a1/s0000/kf-000004200.jpg"
+
+
+def _recording_handler(
+    seen: dict[str, Path], contents: dict[str, bytes] | None = None
+) -> StageHandler:
+    """단계가 실제로 받은 `upstream_files` 를 기록한다. 모델을 돌리지 않는다.
+
+    바이트를 단계 안에서 읽는 이유는 작업 디렉터리가 잡이 끝나면 지워지기 때문이다.
+    경로만 들고 나가면 테스트가 이미 없는 파일을 열게 된다.
+    """
+
+    def run(ctx: StageContext) -> StageOutcome:
+        seen.update(ctx.upstream_files)
+        if contents is not None:
+            contents.update({key: path.read_bytes() for key, path in ctx.upstream_files.items()})
+        return StageOutcome(
+            output={"observations": [], "keyframesRead": 0, "minConfidence": 0.7},
+            versions=StageVersion(
+                stage_version="npick.stage.ocr/v1:test",
+                output_schema_version="npick.stage.ocr.output/v1",
+            ),
+        )
+
+    return StageHandler(
+        "ocr",
+        run,
+        required_inputs=registry.HANDLERS["ocr"].required_inputs,
+        # 실제 등록과 같아야 한다. 여기서 어긋나면 러너가 영상을 받는지 여부를
+        # 테스트가 다르게 보게 된다.
+        needs_video=registry.HANDLERS["ocr"].needs_video,
+    )
+
+
+@pytest.mark.asyncio
+async def test_upstream_artifacts_come_from_the_shared_mount_without_copying(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """keyframe 은 장면 수백 개에 장 수를 곱한 만큼이다. 같은 볼륨에 있으면 복사하지 않는다."""
+    _plant_default_media(media_root)
+    planted = media_root / KEYFRAME_KEY
+    planted.parent.mkdir(parents=True, exist_ok=True)
+    planted.write_bytes(JPEG_MAGIC)
+
+    seen: dict[str, Path] = {}
+    monkeypatch.setattr(registry, "HANDLERS", {"ocr": _recording_handler(seen)})
+    fake_backend.enqueue_claim(_ocr_job())
+
+    await _runner(job_client, media_root).run_once()
+
+    assert seen[KEYFRAME_KEY] == planted.resolve()
+    assert fake_backend.calls("artifact_get") == []
+    assert _complete_body(fake_backend)["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_upstream_artifacts_are_downloaded_when_there_is_no_mount(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RunPod 파드에는 공유 볼륨이 없다. 계약 §5 의 http 경로다."""
+    seen: dict[str, Path] = {}
+    contents: dict[str, bytes] = {}
+    monkeypatch.setattr(registry, "HANDLERS", {"ocr": _recording_handler(seen, contents)})
+
+    job = _ocr_job()
+    inputs = job["inputs"]
+    assert isinstance(inputs, dict)
+    inputs["media"] = {
+        "storageKey": "clips/398021840012345/source.mp4",
+        "transport": "http",
+    }
+    fake_backend.enqueue_claim(job)
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=JPEG_MAGIC))
+
+    await _runner(job_client, None).run_once()
+
+    downloaded = [request.url.params.get("key") for request in fake_backend.calls("artifact_get")]
+    assert KEYFRAME_KEY in downloaded
+    assert contents[KEYFRAME_KEY] == JPEG_MAGIC
+    # 잡이 끝나면 작업 디렉터리와 함께 지워진다 — 파드 디스크는 휘발성인데 한 파드가
+    # 잡을 여러 개 처리하므로 keyframe 수백 장이 남으면 금방 찬다.
+    assert not seen[KEYFRAME_KEY].exists()
+
+
+@pytest.mark.asyncio
+async def test_a_stage_that_does_not_need_the_video_never_fetches_it(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`ocr` 은 상류 keyframe 만 읽는다. 원본 영상을 받는 것은 순수한 낭비다.
+
+    `transport: "http"` 에서 이것이 드러난다 — 공유 볼륨이면 어차피 복사가 없지만
+    RunPod 파드는 http 이고(계약 §5), 거기서는 700MB 를 받아서 열지도 않고 버린다.
+    """
+    seen: dict[str, Path] = {}
+    monkeypatch.setattr(registry, "HANDLERS", {"ocr": _recording_handler(seen)})
+
+    job = _ocr_job()
+    inputs = job["inputs"]
+    assert isinstance(inputs, dict)
+    media_key = "clips/398021840012345/source.mp4"
+    inputs["media"] = {"storageKey": media_key, "transport": "http"}
+    fake_backend.enqueue_claim(job)
+    fake_backend.enqueue("artifact_get", httpx2.Response(200, content=JPEG_MAGIC))
+
+    await _runner(job_client, None).run_once()
+
+    downloaded = [request.url.params.get("key") for request in fake_backend.calls("artifact_get")]
+    assert downloaded == [KEYFRAME_KEY]
+    assert media_key not in downloaded
+    assert _complete_body(fake_backend)["status"] == "succeeded"

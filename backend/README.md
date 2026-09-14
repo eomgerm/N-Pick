@@ -1,5 +1,23 @@
 # N-Pick Backend
 
+## 내부 워커 잡 API
+
+`NPICK_WORKER_JOBS_ENABLED`는 기본 `false`다. 활성화하면 기존 실행기의 배정·heartbeat·완료 UseCase에
+HTTP 전송을 연결한다. 단계 정본 저장 어댑터는 실행기의 fencing·멱등성 검사가 끝난 완료 트랜잭션
+안에서 호출된다. 저장 어댑터는 HTTP 활성화와 독립적으로 제공된다. 저장 미지원 단계는 HTTP 배정에서
+제외하며, 내부 호출로 들어온 미지원 출력도 성공으로 저장하지 않는다.
+
+`NPICK_WORKER_JOBS_TOKENS`는 쉼표로 구분한 32바이트 이상 Bearer 토큰 목록이며 회전 중 두 토큰을
+함께 둘 수 있다. `NPICK_WORKER_JOBS_FLEET`는 기본 `local`이다. 운영에는 운영 토큰만 설정한다.
+HTTP 전송이 기본이며 `NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME=true`와 워커의 공유 볼륨 선언이
+모두 참일 때만 공유 경로를 배정한다. artifact GET·PUT은 `X-Job-Lease-Id`를 함께 보낸다.
+상세 입출력은 [잡 계약](../docs/contracts/job-api.md)을 따른다.
+
+HTTP 왕복 테스트는 `ffmpeg`·`ffprobe`가 PATH에 있고 AI 테스트 의존성이 설치되어 있어야 한다.
+`NPICK_TEST_PYTHON`으로 해당 Python 실행 파일을 지정한다(기본: Windows `../ai/.venv/Scripts/python.exe`,
+Linux `../ai/.venv/bin/python`).
+이 테스트는 실제 실행기·DB와 Python 워커를 연결하고 AI 단계 함수만 테스트 대역으로 실행한다.
+
 Spring Boot 기반 N-Pick API 서버.
 
 ## 요구 사항
@@ -113,6 +131,10 @@ java -jar build/libs/npick-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 | `LOCAL_DB_USERNAME` | `npick` | `.env` 의 `POSTGRES_USER` 와 같아야 한다 |
 | `LOCAL_DB_PASSWORD` | **없음** | `.env` 의 `POSTGRES_PASSWORD` 를 넘긴다 |
 | `LOCAL_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 허용 origin |
+| `NPICK_MEDIA_ROOT` | **없음** | 영상 원본 저장 위치. 등록·재생이 같은 값을 읽는다 |
+| `CLIP_MEDIA_ROOT` | `NPICK_MEDIA_ROOT` | 재생 전용 오버라이드. 보통 쓰지 않는다 |
+| `CLIP_MEDIA_NGINX_ACCEL` | `false` | `true` 면 재생 바이트 전송을 nginx 에 위임한다 |
+| `CLIP_MEDIA_INTERNAL_LOCATION` | `/internal-media/` | 위임 대상 location. nginx 설정과 같아야 한다 |
 
 prod 프로파일은 `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` / `CORS_ALLOWED_ORIGINS` 를 쓰며
 넷 다 기본값이 없다.
@@ -120,6 +142,30 @@ prod 프로파일은 `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` / `CORS_ALLOWED_OR
 ```bash
 SERVER_PORT=8081 ./gradlew bootRun
 ```
+
+## Preview 영상 재생 (S15P21A501-133)
+
+`GET /api/v1/media/{clipId}` 하나다. 로그인한 사용자면 역할과 무관하게 재생할 수 있다(FRD F-07).
+
+- **ID 로만 접근한다.** 경로를 받지 않는다. `clip.storage_key` 를 media root 안에서 해석하며,
+  정규화 후 또는 심볼릭 링크를 따라간 뒤 root 를 벗어나면 파일이 있어도 거부한다. 서버 절대 경로는
+  응답과 로그에 나가지 않는다 (FR-RES-013, FR-ING-009 연계).
+- **Range 를 지원한다.** 만족시킬 수 있는 구간은 `206` + `Content-Range`, 없으면 `200` 전체다.
+  이해할 수 없는 range unit 과 여러 구간 요청은 무시하고 전체를 보낸다(RFC 9110 §14.2). 만족시킬 수
+  없는 구간과 깨진 문법은 `416 CLIP_416_001` 이다 (FR-RES-014).
+- **실패 코드를 구분한다** (FR-RES-015). 영상 없음 `CLIP_404_001`, 원본 파일 누락 `CLIP_404_002`,
+  구간 오류 `CLIP_416_001`, 저장 위치 이탈 `CLIP_500_003`, 전송 실패 `CLIP_503_010`,
+  설정 누락 `CLIP_503_011`. 성공 응답만 공통 Envelope 를 쓰지 않는다(본문이 영상 바이트다).
+
+바이트 전송 경로는 둘이다. `CLIP_MEDIA_NGINX_ACCEL=true` 면 `X-Accel-Redirect` 로
+`/internal-media/` 에 위임하고(`docs/architecture/03-deployment.md` §31), 기본값 `false` 면
+애플리케이션이 직접 쓴다. **어느 쪽이든 clip 조회·경로 이탈 차단·Range 검증은 API 가 한다.**
+nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본값은 `false` 다.
+`COMPOSE_PROFILES=proxy` 를 켜는 배포 환경에서만 `.env` 에 `true` 를 넣는다.
+
+첫 프레임 예산의 서버 몫(NFR-PERF-002)은 `com.npick` DEBUG 로그의
+`preview first-byte ... elapsedMs=` 로 측정한다. 요청 진입부터 본문 첫 바이트 직전까지, 즉 clip
+조회·경로 해석·Range 검증까지이며 전송 시간과 클라이언트 디코딩은 포함하지 않는다.
 
 ## 패키지 구조
 
@@ -141,6 +187,21 @@ com.npick
 필요한 도메인 패키지만 생성하며 빈 패키지를 미리 만들지 않는다.
 
 ## 등록 운영
+
+- 실행 버전은 빌드에 포함한 `infra/compose/profiles/pipeline.yml`의 `stage_versions`로 계산한다.
+  외부 파일은 `NPICK_PIPELINE_PROFILE=file:/absolute/path/pipeline.yml`로 지정한다.
+  기대 버전이 없는 단계는 `unknown`으로 남고 배정되지 않는다. 기존 `CLIP_PIPELINE_VERSION`·
+  `CLIP_STAGE_NAMES` 설정 대신 이 프로파일을 사용한다.
+- 실행기는 내부 claim/heartbeat/complete 유스케이스를 제공한다. 성공 결과 수락에는
+  `StageOutputPort`의 단계별 형식 검사·정본 저장 어댑터가 필요하며, 없으면 성공을 기록하지 않는다.
+  HTTP·artifact 전송은 위 설정으로 활성화한다. 실제 AI 단계와 해당 출력 저장 지원은 함께 연결한다.
+- `transcript_selection` 배정은 보관 영상의 ffprobe 길이와 DB 자막 키로 입력을 준비한 뒤
+  `inputs.upstream.transcript`를 전달한다. 준비 중에는 DB 트랜잭션을 열지 않고 lease를 갱신한다.
+  준비 산출물은 배정 기록 성공 또는 커밋 결과 불명확 시 보존하며, 회수된 lease의 입력은 반영하지 않는다.
+- 기존 10개 단계의 평면 JSON은 실행 시 버전 봉투로 읽고 저장한다. 단계나 기대 버전을 확인할 수 없는
+  과거 run은 임의로 현재 버전으로 바꾸지 않는다. 현재 프로파일과 일치하는 기존 run만 버전을 보완한다.
+- mock 전체 흐름은 `./gradlew test --tests 'com.npick.pipeline.*'`로 검증한다.
+  PostgreSQL은 Testcontainers를 사용하고 mock 단계는 실제 AI를 호출하지 않는다.
 
 - 영상 검사에 `ffmpeg`·`ffprobe`가 필요하다. 등록용 저장 경로·입력 제한·파이프라인 설정은
   [환경 변수 예시](.env.example)와 [애플리케이션 설정](src/main/resources/application.yml)을 참고한다.

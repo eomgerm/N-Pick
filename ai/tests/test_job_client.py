@@ -15,10 +15,12 @@ import pytest
 
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.errors import (
+    ArtifactHashMismatchError,
     ArtifactKeyRejectedError,
     InputDownloadError,
     InputUnavailableError,
     JobApiConflictError,
+    JobApiInvalidRequestError,
     JobApiUnauthorizedError,
     JobApiUnavailableError,
     LeaseLostError,
@@ -73,6 +75,52 @@ def _no_real_sleep(monkeypatch: pytest.MonkeyPatch) -> list[float]:
 
 
 # ── claim ────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_invalid_request_is_permanent_and_not_retried(
+    job_client: JobApiClient, fake_backend: FakeBackend
+) -> None:
+    fake_backend.enqueue_status("claim", 400, code="JOB_400_001")
+    with pytest.raises(JobApiInvalidRequestError) as failure:
+        await job_client.claim(_claim_request())
+    assert failure.value.retryable is False
+    assert len(fake_backend.calls("claim")) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recovers", [True, False])
+async def test_hash_rejection_has_one_transport_retry(
+    job_client: JobApiClient, fake_backend: FakeBackend, recovers: bool
+) -> None:
+    fake_backend.enqueue_status("artifact_put", 400, code="JOB_400_002")
+    if not recovers:
+        fake_backend.enqueue_status("artifact_put", 400, code="JOB_400_002")
+
+    async def send() -> None:
+        await job_client.upload_artifact(
+            "1", "runs/1/asr/a1/x", b"x", content_type="application/json", content_sha256="0" * 64
+        )
+
+    if recovers:
+        await send()
+    else:
+        with pytest.raises(ArtifactHashMismatchError) as failure:
+            await send()
+        assert failure.value.retryable is False
+        assert failure.value.error_code == "ARTIFACT_UPLOAD_FAILED"
+    assert len(fake_backend.calls("artifact_put")) == 2
+
+
+def test_poll_wait_limit_is_checked_in_request_and_settings() -> None:
+    from pydantic import ValidationError
+
+    from npick_worker.settings import Settings
+
+    with pytest.raises(ValidationError):
+        ClaimRequest.model_validate({**_claim_request().model_dump(), "wait_seconds": 26})
+    with pytest.raises(ValidationError):
+        Settings(job_poll_wait_seconds=26)
 
 
 @pytest.mark.asyncio

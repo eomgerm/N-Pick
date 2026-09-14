@@ -82,9 +82,9 @@ def _context(
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_implemented_stages_are_exactly_the_two_earliest() -> None:
-    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 여덟은 resolve() 가 None 이다."""
-    assert set(HANDLERS) == {"scene_detection", "frame_extraction"}
+def test_implemented_stages_are_exactly_the_three_present() -> None:
+    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 일곱은 resolve() 가 None 이다."""
+    assert set(HANDLERS) == {"scene_detection", "frame_extraction", "ocr"}
 
 
 def test_every_handler_is_an_frd_stage() -> None:
@@ -93,7 +93,7 @@ def test_every_handler_is_an_frd_stage() -> None:
 
 
 def test_resolve_returns_none_for_unimplemented_stages() -> None:
-    assert resolve("ocr") is None
+    assert resolve("vlm_metadata") is None
     assert resolve("nope") is None
 
 
@@ -105,7 +105,7 @@ def test_resolve_returns_the_handler_for_scene_detection() -> None:
 
 def test_handlers_mapping_is_not_mutable() -> None:
     with pytest.raises(TypeError):
-        HANDLERS["ocr"] = HANDLERS["scene_detection"]  # type: ignore[index]
+        HANDLERS["vlm_metadata"] = HANDLERS["scene_detection"]  # type: ignore[index]
 
 
 # ── 패키지 배치 (ai/AGENTS.md 의 기계 가드) ─────────────────────────
@@ -150,7 +150,7 @@ def test_warm_up_reports_the_scene_detection_identity() -> None:
 
 def test_warm_up_marks_unimplemented_stages_as_not_warmed() -> None:
     # 없는 것을 있는 척하지 않는다.
-    report = warm_up(["ocr"])
+    report = warm_up(["vlm_metadata"])
     assert report.stages[0].warmed is False
     assert report.ready is False
 
@@ -181,6 +181,37 @@ def test_warm_up_reports_the_resolved_device() -> None:
 
 def test_capability_versions_cover_exactly_the_implemented_stages() -> None:
     assert set(capability_versions()) == set(HANDLERS)
+
+
+def test_capability_versions_do_not_build_an_ocr_engine_per_poll(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """이 함수는 claim long-poll 한 바퀴마다, 그리고 실패마다 불린다.
+
+    `runner._claim_request` 와 `runner._failure_versions` 가 호출부다. 여기서 엔진을
+    새로 만들면 ONNX 세션 생성 비용을 폴링 주기로 내고, 동기 호출이라 이벤트 루프가
+    그동안 멈춘다 — OCR 잡을 한 건도 받지 않는 워커도 그 비용을 영구히 낸다.
+    선언에 쓰는 값(`name` 은 상수, `version` 은 importlib.metadata)은 인스턴스와
+    무관하므로 두 번째 호출부터는 만들 이유가 없다.
+    """
+    from npick_worker.ocr import rapidocr_backend
+
+    built = [0]
+
+    class _Counted:
+        name = "rapidocr"
+        version = "counted"
+
+        def __init__(self, config: object | None = None) -> None:
+            built[0] += 1
+
+    monkeypatch.setattr(rapidocr_backend, "RapidOcrEngine", _Counted)
+    rapidocr_backend.shared_engine.cache_clear()
+    try:
+        assert capability_versions()["ocr"] == capability_versions()["ocr"]
+        assert built[0] == 1
+    finally:
+        rapidocr_backend.shared_engine.cache_clear()
 
 
 def test_capability_version_matches_what_the_run_reports(
@@ -295,3 +326,171 @@ def test_handler_without_warm_still_declares_its_version(
     monkeypatch.setattr(registry, "HANDLERS", {"scene_detection": cold})
 
     assert "scene_detection" in capability_versions()
+
+
+# ── ocr 의 상류 입력 선언 ───────────────────────────────────────────
+
+
+def _ocr_upstream(*keyframes: tuple[int, int]) -> dict[str, object]:
+    """`(sceneIndex, timestampMs)` 목록을 상류 산출물 모양으로 만든다."""
+    scenes: dict[int, list[dict[str, object]]] = {}
+    for scene_index, timestamp_ms in keyframes:
+        scenes.setdefault(scene_index, []).append(
+            {
+                "sceneIndex": scene_index,
+                "timestampMs": timestamp_ms,
+                "storageKey": (
+                    f"runs/1/frame_extraction/a1/s{scene_index:04d}/kf-{timestamp_ms:09d}.jpg"
+                ),
+            }
+        )
+    return {
+        "frameExtraction": {
+            "scenes": [
+                {"sceneIndex": index, "keyframes": items} for index, items in scenes.items()
+            ],
+            "imageWidth": 1920,
+            "imageHeight": 1080,
+        }
+    }
+
+
+def test_only_ocr_skips_the_source_video() -> None:
+    """`needs_video` 는 러너가 원본 영상을 받을지를 정한다.
+
+    `ocr` 은 상류 keyframe 만 읽으므로 False 다. 나머지 둘은 영상을 열어야 하고,
+    거기서 False 가 되면 `require_video()` 가 실행 중에 터진다.
+    """
+    assert {name: handler.needs_video for name, handler in HANDLERS.items()} == {
+        "scene_detection": True,
+        "frame_extraction": True,
+        "ocr": False,
+    }
+
+
+def test_require_video_refuses_when_the_stage_declared_it_needs_none(tmp_path: Path) -> None:
+    """등록과 구현이 어긋난 것이다. None 을 그대로 넘기면 벤더 라이브러리에서 터진다."""
+    context = StageContext(
+        stage="ocr",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/ocr/a1/",
+    )
+    with pytest.raises(AssertionError, match="needs_video"):
+        context.require_video()
+
+
+def test_ocr_declares_the_keyframes_it_must_read() -> None:
+    """러너가 이 목록만 받아 온다. 빠지면 그 프레임을 읽지 못한다."""
+    handler = resolve("ocr")
+    assert handler is not None
+    assert handler.required_inputs is not None
+
+    keys = handler.required_inputs(_ocr_upstream((0, 4200), (1, 7300)))
+
+    assert keys == (
+        "runs/1/frame_extraction/a1/s0000/kf-000004200.jpg",
+        "runs/1/frame_extraction/a1/s0001/kf-000007300.jpg",
+    )
+
+
+def test_ocr_does_not_ask_for_the_same_file_twice() -> None:
+    upstream = _ocr_upstream((0, 4200), (0, 4200))
+    handler = resolve("ocr")
+    assert handler is not None
+    assert handler.required_inputs is not None
+    assert len(handler.required_inputs(upstream)) == 1
+
+
+def test_ocr_rejects_upstream_without_frame_extraction() -> None:
+    """영구 오류다. BE 가 다시 보내도 같은 것을 보낸다."""
+    handler = resolve("ocr")
+    assert handler is not None
+    assert handler.required_inputs is not None
+    with pytest.raises(UpstreamOutputInvalidError):
+        handler.required_inputs({"sceneDetection": {}})
+
+
+def test_ocr_refuses_to_read_when_an_image_was_not_fetched(tmp_path: Path) -> None:
+    """일부만 읽고 성공으로 반납하면 "글자가 없었다" 는 거짓이 정본에 남는다."""
+    handler = resolve("ocr")
+    assert handler is not None
+    context = StageContext(
+        stage="ocr",
+        # 러너가 `needs_video=False` 를 보고 영상을 해석하지 않는다.
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/ocr/a1/",
+        upstream=_ocr_upstream((0, 4200)),
+        upstream_files={},
+    )
+    with pytest.raises(UpstreamOutputInvalidError, match="받지 못했다"):
+        handler.run(context)
+
+
+def test_ocr_reports_counts_and_versions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """어댑터가 순수 산출물을 봉투로 옮기는 부분. 모델 없이 확인한다."""
+    import npick_worker.ocr as ocr_module
+    from npick_worker.ocr import KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    box = ((0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0))
+
+    def fake_read(keyframes: object, image_paths: object, **kwargs: object) -> OcrResult:
+        keyframe = KeyframeRef(
+            scene_index=0,
+            timestamp_ms=4200,
+            storage_key="runs/1/frame_extraction/a1/s0000/kf-000004200.jpg",
+        )
+        return OcrResult(
+            keyframes=(
+                to_observations(
+                    keyframe,
+                    [
+                        TextDetection(text="강원도", confidence=0.99, points=box),
+                        TextDetection(text="RG", confidence=0.29, points=box),
+                    ],
+                    min_confidence=0.7,
+                ),
+            ),
+            config_version="ocr/v1:test",
+            engine="fake",
+            engine_version="0",
+            tokenizer="query-norm/v1:test",
+            min_confidence=0.7,
+        )
+
+    monkeypatch.setattr(ocr_module, "read_keyframes", fake_read)
+
+    handler = resolve("ocr")
+    assert handler is not None
+    image = tmp_path / "kf.jpg"
+    image.touch()
+    outcome = handler.run(
+        StageContext(
+            stage="ocr",
+            video_path=None,
+            storage_key="clips/1/source.mp4",
+            work_dir=tmp_path,
+            output_key_prefix="runs/1/ocr/a1/",
+            upstream=_ocr_upstream((0, 4200)),
+            upstream_files={"runs/1/frame_extraction/a1/s0000/kf-000004200.jpg": image},
+        )
+    )
+
+    assert outcome.metrics == {
+        "keyframes": 1,
+        "observations": 2,
+        "unverifiedObservations": 1,
+        "textGroups": 2,
+        "minConfidence": 0.7,
+    }
+    # 이 단계는 파일을 올리지 않는다. 관측은 전부 payload 로 간다.
+    assert outcome.uploads == ()
+    assert outcome.versions.config_version == "ocr/v1:test"
+    # 가중치를 쓰는 첫 단계다. 앞의 둘과 달리 modelVersion 이 비어 있지 않다.
+    assert outcome.versions.model_version == "fake/0"
+    assert outcome.versions.prompt_version is None
+    assert outcome.versions.detail["tokenizer"] == "query-norm/v1:test"
