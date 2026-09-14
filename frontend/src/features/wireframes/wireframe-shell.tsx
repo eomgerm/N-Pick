@@ -23,8 +23,10 @@ import {
   getDemoSearchExecution,
   getSearchExecutionAnnouncement,
   successfulSearchExecution,
+  type SearchExecutionPresentation,
 } from '@/features/wireframes/search-execution-status';
 import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
+import type { SearchResultDetails } from '@/features/wireframes/search-result-details';
 
 export interface SearchScreenParams {
   q?: string;
@@ -40,9 +42,17 @@ interface WireframeShellProps {
   initialQuery?: string;
   theme: WireframeTheme;
   initialParams?: SearchScreenParams;
+  execution?: SearchExecutionPresentation;
+  resultDetails?: SearchResultDetails;
 }
 
-export function WireframeShell({ initialQuery, theme, initialParams = {} }: WireframeShellProps) {
+export function WireframeShell({
+  initialQuery,
+  theme,
+  initialParams = {},
+  execution,
+  resultDetails,
+}: WireframeShellProps) {
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -87,7 +97,17 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
         ? 'empty'
         : 'populated';
   const searchExecution =
-    resultState === 'populated' ? demoSearchExecution : successfulSearchExecution;
+    resultState === 'populated' || resultState === 'empty'
+      ? (execution ?? demoSearchExecution)
+      : successfulSearchExecution;
+  const details: SearchResultDetails = {
+    ...resultDetails,
+    resolverStatus:
+      searchExecution.status === 'degraded' &&
+      searchExecution.degradedReasons.includes('resolver-fallback')
+        ? 'fallback'
+        : resultDetails?.resolverStatus,
+  };
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
     [submittedQuery],
@@ -259,12 +279,16 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
               </div>
             </div>
 
+            {resultState === 'empty' || resultState === 'populated' ? (
+              <SearchResultNotices execution={searchExecution} variant="results" />
+            ) : null}
             {resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
                 query={submittedQuery}
                 broadcastRange={broadcastRange}
                 filmingRange={filmingRange}
+                details={details}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
@@ -276,7 +300,6 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
               />
             ) : (
               <>
-                <SearchResultNotices execution={searchExecution} variant="results" />
                 <div className={styles.resultsGrid}>
                   {displayedResults.map((result, index) => (
                     <SearchResultCard
