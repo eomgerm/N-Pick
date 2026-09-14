@@ -18,7 +18,7 @@ from npick_worker.versioning import version_id
 
 #: 패키지에 동봉된 기본 설정. 휠에 포함되도록 src/npick_worker/config/ 아래 둔다.
 DEFAULT_CONFIG_PATH: Final[Path] = (
-    Path(__file__).resolve().parent.parent / "config" / "frame_extraction.v1.toml"
+    Path(__file__).resolve().parent.parent / "config" / "frame_extraction.v2.toml"
 )
 
 _VERSIONED_CONFIG_NAME: Final[re.Pattern[str]] = re.compile(
@@ -38,10 +38,18 @@ class FrameExtractionConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     schema_: str = Field(alias="schema")
-    interval_ms: int = Field(gt=0)
+    #: 변화량을 재기 전에 놓는 자리 수. 장 수가 아니라 장 수의 후보 해상도다.
+    planned_slots_per_scene: int = Field(ge=2)
     #: FRD F-03 의 "복수 키프레임" 이 하한 2 의 근거다. 1 을 허용하지 않는다.
     min_keyframes_per_scene: int = Field(ge=2)
     max_keyframes_per_scene: int = Field(ge=2)
+    #: `content_val` 눈금이다. scene 분할의 `content.threshold` 와 **같은 자** 위에 있다
+    #: (FRD F-03 척도 통일 권고). 다만 재는 거리가 달라 같은 값이 맞지는 않는다.
+    change_threshold: float = Field(ge=0.0, le=255.0)
+    #: 변화량 계산 시 픽셀을 솎는 간격. 솎기는 평균 절대차의 불편추정이라 눈금을 바꾸지
+    #: 않는다. 선명도의 `score_stride` 와 따로 두는 이유는 후보 평면을 들고 있어야 하는
+    #: 쪽이라 메모리가 이 값에 제곱으로 달리기 때문이다.
+    change_stride: int = Field(ge=1)
     edge_margin_ms: int = Field(ge=0)
     candidates_per_slot: int = Field(ge=1)
     candidate_step_ms: int = Field(gt=0)
@@ -51,15 +59,27 @@ class FrameExtractionConfig(BaseModel):
 
     @model_validator(mode="after")
     def _bounds_are_ordered(self) -> "FrameExtractionConfig":
-        """상한이 하한보다 작으면 clamp 가 하한을 조용히 이긴다.
+        """`planned >= max >= min` 이어야 한다.
 
-        그 상태에서도 코드는 돌지만 실제 장 수가 `max` 도 `min` 도 아닌 값이 되고,
-        설정 파일을 읽은 사람은 그것을 예측할 수 없다.
+        상한이 하한보다 작으면 clamp 가 하한을 조용히 이긴다. 그 상태에서도 코드는
+        돌지만 실제 장 수가 `max` 도 `min` 도 아닌 값이 되고, 설정 파일을 읽은 사람은
+        그것을 예측할 수 없다.
+
+        자리 수가 상한보다 적으면 **상한에 닿을 수 없다.** `max_keyframes_per_scene = 5`
+        라고 적어 두고 자리를 3 개만 놓으면 아무리 동적인 장면도 3 장에서 멈추는데,
+        설정만 읽어서는 그 사실이 드러나지 않는다. 같은 종류의 조용한 어긋남이다.
         """
         if self.max_keyframes_per_scene < self.min_keyframes_per_scene:
             msg = (
                 "max_keyframes_per_scene 가 min_keyframes_per_scene 보다 작다: "
                 f"{self.max_keyframes_per_scene} < {self.min_keyframes_per_scene}"
+            )
+            raise ValueError(msg)
+        if self.planned_slots_per_scene < self.max_keyframes_per_scene:
+            msg = (
+                "planned_slots_per_scene 가 max_keyframes_per_scene 보다 적다: "
+                f"{self.planned_slots_per_scene} < {self.max_keyframes_per_scene} "
+                "— 상한에 닿을 수 없는 설정이다"
             )
             raise ValueError(msg)
         return self

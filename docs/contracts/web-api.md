@@ -29,7 +29,9 @@
 | 검수 시작                  | POST   | `/review/inquiries/{feedbackId}/claim`      | BE 구현   | 검수 흐름 바인딩                    |
 | 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
 | 검색·문의 기록             | 미정   | 미정                                        | 명세 필요 | 편집자 하단 기록 시트 영속화        |
-| 영상 처리 목록·상세·재시도 | 미정   | 미정                                        | 명세 필요 | 처리 화면 영속화·polling            |
+| 영상 처리 목록             | GET    | `/clips`                                    | BE 구현   | 처리 화면 목록 바인딩               |
+| 영상 처리 상세             | GET    | `/clips/{id}`                               | BE 구현   | 처리 상세 바인딩·polling            |
+| 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
 | 교정 후보 검증·확정        | 미정   | 미정                                        | 명세 필요 | 검수 재검색·확정 바인딩             |
 | 검색 규칙 사용 중단·재검증 | 미정   | 미정                                        | 명세 필요 | 검수 규칙 관리 바인딩               |
 
@@ -432,6 +434,18 @@ body는 생략하거나 다음처럼 보낸다.
 | `FEEDBACK_409_002` | 409  | 수정 가능한 상태 아님           |
 | `FEEDBACK_409_003` | 409  | 처리 결과를 기록할 수 없는 상태 |
 
+### 6.5 영상 처리 조회
+
+검수자 전용 `GET /clips`, `GET /clips/{id}`. 필드별 스키마는 서버 OpenAPI의 `ClipPageResponse`, `ClipSummaryResponse`, `ClipDetailResponse`, `ProcessingDetailsResponse`, `ProcessingProgressResponse`를 따른다.
+
+- 목록은 `page=0`, `size=20` 기본값이며 size는 1~100이다. `status=queued,running` 또는 반복 status 파라미터로 최신 run 상태를 OR 필터링한다. 허용값은 `queued/running/failed/succeeded/no_run`, 생략하면 전체다. `no_run`은 run이 없는 클립이다.
+- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 필터·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
+- `items[].progress`는 해당 `latest_run`의 기록 요약이다. `current_stage`는 running 단계가 정확히 하나일 때 그 이름이며, 그 외에는 null이다. `total_steps/succeeded_steps/skipped_steps/failed_steps`는 저장된 단계 상태의 수이며 생략은 실패 수에 중복 포함하지 않는다. 필수 단계 생략으로 run 자체가 실패할 수 있다.
+- run이 없으면 progress는 null이다. 기록이 부분·미확인·지원하지 않는 버전이면 `record_status`로 구분하고 단계 수는 null이다. 이 값을 0%나 완료로 추정하지 않는다. 진행 수는 소요 시간 기반 백분율이 아니다.
+- `search_available`과 `active_pipeline_run_id`는 현재 검색 제공 결과, `latest_run`·`progress`·`processing_details`는 최신 처리 시도다. 재처리 실패가 활성 결과를 무효화하지 않으며 검색 준비와 검수 완료는 별개다. 상세의 기본 대사 출처는 활성 결과 기준이다.
+- 처리 상세는 단계 상태·실패 사유·누락 채널·실제 채택 대사 출처를 반환한다. `automatic_retryable`은 승인된 다음 자동 시도가 대기 중인지 나타낸다. 수동 재처리 가능 여부 `retryable`은 저장된 판정이 없어 null이며 재처리 API에서 별도로 연결한다.
+- 잘못된 페이지는 `CLIP_QUERY_400`, 허용하지 않는 상태는 `CLIP_QUERY_400_001`, 없는/삭제된 클립은 `CLIP_QUERY_404`를 반환한다.
+
 ## 7. 앞으로 명세·구현할 API
 
 아래는 [FRD](../frd.md) F-03, F-05, F-08~F-14와 현재 FE 화면이 요구하는 기능 목록이다. 경로·method·JSON·오류 코드는 담당 이슈에서 확정한 뒤 이 문서의 별도 절로 승격한다.
@@ -444,8 +458,8 @@ body는 생략하거나 다음처럼 보낸다.
 | 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
 | 5        | 영상 재생                            | §6.1 공통 Preview·문의 상세·검색 결과 clipId 바인딩 완료                               | 배포 BE endpoint 확인 필요      |
 | 6        | 검수 문의 목록·상세·claim·resolution | §6.3~6.4 응답을 검수 화면 모델로 mapping                                                       | 23건 고정 문의                |
-| 7        | 영상 처리 목록                       | 최신 run 상태, 현재 제공 가능 여부, 완료 단계 수, 실패 이유, 재시도 가능 여부, pagination      | 고정 진행·완료 영상           |
-| 8        | 영상 처리 상세·polling               | clip·run·stage·누락 channel·장면 목록·완료 시각을 반환하고 terminal 상태에서 polling 종료      | 등록 응답을 memory로 합성     |
+| 7        | 영상 처리 목록 FE 연결               | §6.5 상태 필터·진행 요약·전체 상태 건수·pagination을 화면에 연결                             | 고정 진행·완료 영상           |
+| 8        | 영상 처리 상세·polling               | §6.5 처리 기록을 연결하고 terminal 상태에서 polling 종료. 장면 목록은 별도 조회 계약 필요      | 등록 응답을 memory로 합성     |
 | 9        | 처리 재시도                          | 일시/영구 실패 구분, 중복 클릭 방지, 기존 제공 run 보존, 새 run 식별자 반환                    | 버튼 demo                     |
 | 10       | 교정 후보 작성·검증                  | 태그·해석 patch·장면 제외 후보, 원 문의 검색 조건 서버 재사용, 일반 검색과 분리된 검증 실행 ID | 로컬 검수 state               |
 | 11       | 교정 확정                            | 검증 실행 ID만 입력받고 서버에 저장된 후보를 원자적으로 확정, stale 검증 거부                  | 로컬 완료 state               |
@@ -464,7 +478,7 @@ body는 생략하거나 다음처럼 보낸다.
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
 | 검색·문의 기록     | 화면 필드는 있으나 목록 endpoint 없음                                | pagination, 정렬, 상세 분리, ID와 nullable 규칙 확정                                      |
-| 처리 조회          | UI 모델만 있고 endpoint 없음                                         | run/stage 상태 enum, polling 간격·종료 조건, 재시도 응답 확정                             |
+| 처리 조회          | BE 조회는 §6.5, FE는 아직 UI 데모 모델                                  | 공개 DTO를 화면에 mapping하고 unknown/null을 보존. polling·수동 재처리 연결은 별도 구현    |
 | thumbnail          | 검색 응답에 URL을 넣지 않는 것만 확정                                | `scene_id` 기반 endpoint와 응답 cache 정책 확정                                           |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.
