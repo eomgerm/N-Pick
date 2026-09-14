@@ -8,15 +8,15 @@ import java.util.List;
 import java.util.Objects;
 
 import com.npick.search.application.port.AnchorFinding;
-import com.npick.search.application.port.QueryResolution;
-import com.npick.search.application.port.QueryResolution.Classification;
-import com.npick.search.application.port.QueryResolution.DateWindow;
-import com.npick.search.application.port.QueryResolution.Entity;
-import com.npick.search.application.port.QueryResolution.IncidentName;
-import com.npick.search.application.port.QueryResolution.Location;
-import com.npick.search.application.port.QueryResolution.Origin;
-import com.npick.search.application.port.QueryResolution.QuerySpan;
 import com.npick.search.application.port.QueryResolutionResult;
+import com.npick.search.domain.model.QueryResolution;
+import com.npick.search.domain.model.QueryResolution.Classification;
+import com.npick.search.domain.model.QueryResolution.DateWindow;
+import com.npick.search.domain.model.QueryResolution.Entity;
+import com.npick.search.domain.model.QueryResolution.IncidentName;
+import com.npick.search.domain.model.QueryResolution.Location;
+import com.npick.search.domain.model.QueryResolution.Origin;
+import com.npick.search.domain.model.QueryResolution.QuerySpan;
 
 /**
  * anchor 의 출처 주장을 원문과 대조해 확정한다 (FRD v3.1 F-05).
