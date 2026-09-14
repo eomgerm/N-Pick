@@ -1,7 +1,6 @@
 'use client';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
-import type { SearchExecutionPresentation } from '@/features/wireframes/search-execution-status';
 import { AppShell } from '@/components/app-shell';
 
 import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
@@ -25,8 +24,10 @@ import {
   getDemoSearchExecution,
   getSearchExecutionAnnouncement,
   successfulSearchExecution,
+  type SearchExecutionPresentation,
 } from '@/features/wireframes/search-execution-status';
 import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
+import type { SearchResultDetails } from '@/features/wireframes/search-result-details';
 
 export interface SearchScreenParams {
   q?: string;
@@ -40,7 +41,11 @@ export interface SearchScreenParams {
 
 interface WireframeShellProps {
   api?: {
-    presentation?: { results: SearchResult[]; execution: SearchExecutionPresentation };
+    presentation?: {
+      results: SearchResult[];
+      execution: SearchExecutionPresentation;
+      details: SearchResultDetails;
+    };
     state: 'loading' | 'failed' | 'ready';
     error: unknown;
     retry: () => void;
@@ -48,6 +53,8 @@ interface WireframeShellProps {
   initialQuery?: string;
   theme: WireframeTheme;
   initialParams?: SearchScreenParams;
+  execution?: SearchExecutionPresentation;
+  resultDetails?: SearchResultDetails;
 }
 
 export function WireframeShell({
@@ -55,6 +62,8 @@ export function WireframeShell({
   theme,
   initialParams = {},
   api,
+  execution,
+  resultDetails,
 }: WireframeShellProps) {
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
@@ -102,8 +111,18 @@ export function WireframeShell({
           ? 'empty'
           : 'populated';
   const searchExecution =
-    api?.presentation?.execution ??
-    (resultState === 'populated' ? demoSearchExecution : successfulSearchExecution);
+    resultState === 'populated' || resultState === 'empty'
+      ? (api?.presentation?.execution ?? execution ?? demoSearchExecution)
+      : successfulSearchExecution;
+  const effectiveResultDetails = api?.presentation?.details ?? resultDetails;
+  const details: SearchResultDetails = {
+    ...effectiveResultDetails,
+    resolverStatus:
+      searchExecution.status === 'degraded' &&
+      searchExecution.degradedReasons.includes('resolver-fallback')
+        ? 'fallback'
+        : effectiveResultDetails?.resolverStatus,
+  };
   const resolutionTokens = useMemo(
     () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
     [submittedQuery],
@@ -276,12 +295,16 @@ export function WireframeShell({
             </div>
 
             {api?.error ? <ApiErrorNotice error={api.error} /> : null}
+            {resultState === 'empty' || resultState === 'populated' ? (
+              <SearchResultNotices execution={searchExecution} variant="results" />
+            ) : null}
             {resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
                 query={submittedQuery}
                 broadcastRange={broadcastRange}
                 filmingRange={filmingRange}
+                details={details}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
@@ -296,7 +319,6 @@ export function WireframeShell({
               />
             ) : (
               <>
-                <SearchResultNotices execution={searchExecution} variant="results" />
                 <div className={styles.resultsGrid}>
                   {displayedResults.map((result, index) => (
                     <SearchResultCard

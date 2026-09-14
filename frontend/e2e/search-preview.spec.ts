@@ -62,3 +62,35 @@ test('degraded 검색은 Preview에서도 같은 경고를 유지한다', async 
     page.getByRole('dialog').getByText('의미 검색 일부 누락', { exact: true }),
   ).toBeVisible();
 });
+
+test('실제 검색 응답이 빈 결과여도 resolver fallback 안내와 선택 기간을 유지한다', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/search', (route) =>
+    route.fulfill({
+      json: {
+        isSuccess: true,
+        code: 'COMM_200',
+        message: '성공',
+        data: {
+          ...searchFixture,
+          status: 'degraded',
+          degraded_reasons: ['resolver_fallback'],
+          query_resolution_status: 'fallback',
+          results: [],
+        },
+      },
+    }),
+  );
+  await page.goto('/search/results?q=장면&broadcastFrom=2026-09-01&broadcastTo=2026-09-11');
+  await expect(page.getByRole('heading', { name: '조건에 맞는 장면이 없어요' })).toBeVisible();
+  await expect(page.getByText('검색어 해석 일부 누락', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('해석을 사용할 수 없어 기본 단어 검색으로 전환', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '방송일 기간 선택: 2026.09.01 – 2026.09.11' }).first(),
+  ).toBeVisible();
+  await expect(page.getByText('0건', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Preview 열기/ })).toHaveCount(0);
+});

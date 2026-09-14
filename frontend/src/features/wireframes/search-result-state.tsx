@@ -2,12 +2,18 @@ import { CircleAlert, LoaderCircle, SearchX } from 'lucide-react';
 
 import { type DateRange, formatDateRange } from '@/features/wireframes/date-range';
 import styles from '@/features/wireframes/shinhan-search.module.css';
+import {
+  getResolverLabel,
+  SearchExclusionDetails,
+  type SearchResultDetails,
+} from '@/features/wireframes/search-result-details';
 
 interface SearchResultStateProps {
   state: 'empty' | 'failed' | 'loading';
   query: string;
   broadcastRange: DateRange;
   filmingRange: DateRange;
+  details?: SearchResultDetails;
   onReset: () => void;
   onRetry: () => void;
   onEditQuery: () => void;
@@ -18,6 +24,7 @@ export function SearchResultState({
   query,
   broadcastRange,
   filmingRange,
+  details,
   onReset,
   onRetry,
   onEditQuery,
@@ -47,7 +54,7 @@ export function SearchResultState({
           ? '검색어와 선택한 기간을 확인하고 있어요. 잠시만 기다려 주세요.'
           : isFailed
             ? '일시적인 연결 문제로 검색을 완료하지 못했어요. 입력한 검색어와 기간은 그대로 유지돼요.'
-            : '기간을 넓히거나 검색어를 조금 더 간단하게 바꿔 보세요.'}
+            : '이번 검색에서 반환된 장면은 0개예요. 적용 조건과 검색 상태를 확인해 주세요.'}
       </p>
       {isLoading ? (
         <div aria-hidden="true" className={styles.loadingBars}>
@@ -72,8 +79,9 @@ export function SearchResultState({
             </div>
             <div>
               <dt>검색 해석</dt>
-              <dd>{isFailed ? '확인하지 못함' : '검색 완료'}</dd>
+              <dd>{isFailed ? '확인하지 못함' : getResolverLabel(details?.resolverStatus)}</dd>
             </div>
+            {!isFailed ? <SearchExclusionDetails details={details} /> : null}
           </dl>
           <div className={styles.stateActions}>
             <button

@@ -47,6 +47,11 @@ test('실제 검색 adapter는 clip ID와 소수 초, 추가 근거와 degraded 
   assert.equal(view.results[0].sceneEnd, 2.7);
   assert.equal(view.results[0].additionalEvidence[0].field, '태그');
   assert.deepEqual(view.execution.degradedReasons, ['dense-unavailable']);
+  assert.deepEqual(view.details, {
+    resolverStatus: 'succeeded',
+    excludedCount: 0,
+    exclusionReasons: [],
+  });
 });
 
 test('검색 API는 요청 객체를 한 번만 JSON 직렬화한다', async () => {
@@ -207,6 +212,12 @@ test('fallback과 guard·부족 사유를 분리해 보존한다', () => {
   assert.equal(parsed.hasAppliedReviewRule, true);
   assert.equal(parsed.guardSummary.excludedResultCount, 2);
   assert.deepEqual(parsed.shortageReasons, ['guard_excluded']);
+
+  assert.deepEqual(presentSearchResponse(parsed).details, {
+    resolverStatus: 'fallback',
+    excludedCount: 2,
+    exclusionReasons: ['명시한 날짜와 검증된 날짜가 일치하지 않음', '승인된 장면 제외 규칙에 해당'],
+  });
 });
 
 test('결과 0건은 빈 배열과 후보 부족 사유로 정상 응답한다', () => {

@@ -10,6 +10,7 @@ import type {
   DegradedReason,
   SearchExecutionPresentation,
 } from '@/features/wireframes/search-execution-status';
+import type { SearchResultDetails } from '@/features/wireframes/search-result-details';
 import { formatMediaTime, toScenePreviewMedia } from '@/features/wireframes/scene-preview-media';
 
 export async function searchScenes(body: SearchRequestBody, signal?: AbortSignal) {
@@ -25,6 +26,7 @@ export async function searchScenes(body: SearchRequestBody, signal?: AbortSignal
 export function presentSearchResponse(response: SearchResponse): {
   results: SearchResult[];
   execution: SearchExecutionPresentation;
+  details: SearchResultDetails;
 } {
   const reasons: Record<string, DegradedReason> = {
     resolver_fallback: 'resolver-fallback',
@@ -36,6 +38,11 @@ export function presentSearchResponse(response: SearchResponse): {
     ocr: '화면 속 글자 (OCR)',
     transcript: '대사',
     tag: '태그',
+  } as const;
+  const guardReasons = {
+    explicit_date_conflict: '명시한 날짜와 검증된 날짜가 일치하지 않음',
+    approved_incident_conflict: '승인된 사건 충돌 규칙에 해당',
+    approved_scene_exclusion: '승인된 장면 제외 규칙에 해당',
   } as const;
   const results = response.results.map((scene): SearchResult => {
     const evidence: SearchEvidenceMatch[] = scene.matchEvidence.map((item) => ({
@@ -84,6 +91,11 @@ export function presentSearchResponse(response: SearchResponse): {
   });
   return {
     results,
+    details: {
+      resolverStatus: response.queryResolutionStatus === 'resolved' ? 'succeeded' : 'fallback',
+      excludedCount: response.guardSummary.excludedResultCount,
+      exclusionReasons: response.guardSummary.reasons.map((reason) => guardReasons[reason]),
+    },
     execution:
       response.status === 'succeeded'
         ? {
