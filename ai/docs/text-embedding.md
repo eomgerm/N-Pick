@@ -151,7 +151,7 @@ commit 을 찾아 적는다.
 ## 6. 돌려 보기
 
 ```bash
-uv sync --group gpu
+uv sync --group gpu --group cu130   # 드라이버가 CUDA 12.8 이면 cu128
 NPICK_AI_EMBEDDING_MODEL=dragonkue/snowflake-arctic-embed-l-v2.0-ko \
     uv run pytest -m smoke -k scene_embedding -s
 ```

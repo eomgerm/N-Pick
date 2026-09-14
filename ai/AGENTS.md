@@ -23,6 +23,7 @@
 - **실행 설정은 FRD §11에 따라 실측 후 확정한다.** 임계값·timeout은 `src/npick_worker/config/*.toml`에 두고 설정 해시를 버전으로 노출해 §7.2 기록을 지원한다. §8.2 품질 목표는 유지한다.
 - **HTTP 표면은 헬스·운영용과 검색 시점 질의 해석뿐이다.** 잡 수신은 반대 방향이다 — 워커가 BE 의 claim/heartbeat/complete/artifacts 를 호출한다. 계약 정본은 [../docs/contracts/job-api.md](../docs/contracts/job-api.md) 다. **인바운드 잡 엔드포인트를 추가하지 않는다.** 질의 해석(`POST /query/resolve`, S15P21A501-45)은 잡 수신이 아니라 검색의 동기 호출이므로 이 금지에 걸리지 않는다.
 - **`ai/` 는 배포 단위 둘을 담는다.** 질의 리졸버(동기 호출 전용·재시도 없음)와 파이프라인 워커(long-poll). `stages.py`·`<stage_name>/`·`jobs/` 는 워커의 것이고 리졸버 코드는 자기 패키지에 둔다. 둘이 공유하는 것은 `versioning.py` 의 버전 형식과 `korean_tokens.py` 의 색인 토큰 규칙뿐이다. **후자는 공유가 요구다** — `docs/architecture/02-container.md` 가 색인과 질의에 동일한 Kiwi 설정을 요구하고, 어긋나면 검색이 0 건이 된다. 새 공유 모듈을 이 둘 밖으로 늘리지 않는다.
-- `gpu` 그룹(torch·faster-whisper)은 선택 의존성이다. GPU 없이도 워커가 기동하는 성질을 깨지 않는다.
+- `gpu` 그룹(faster-whisper·transformers·sentence-transformers)은 선택 의존성이다. GPU 없이도 워커가 기동하는 성질을 깨지 않는다.
+- **torch 는 `gpu` 가 아니라 `cu128`/`cu130` 에 있고 둘은 배타다.** PyTorch 휠이 빌드된 CUDA 이상의 드라이버를 요구해서다 — RunPod 파드는 `cu130`, 드라이버가 12.8 인 SSAFY GPU 서버는 `cu128` 이다(`docs/architecture/03-deployment.md` 의 GPU 노드 둘). `uv sync --group gpu --group cu130` 처럼 **반드시 짝지어** 쓴다. `--group gpu` 만 주면 CPU torch 가 끌려온다. 설치 표는 [README.md](README.md) 다.
 
 정본과 어긋나는 내용을 발견하면 정본을 따르고 어긋난 지점을 보고한다. 정본에 없는 규칙을 임의로 만들지 않는다.

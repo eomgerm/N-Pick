@@ -177,7 +177,7 @@ result.model_version  # '<모델>@<리비전>'
 
 **모델 이름은 코드에 없다.** `NPICK_AI_VLM_MODEL` 로 준다 — 후보 비교로 정할 값이라
 코드가 고르면 근거 없는 동결이 된다(FRD §11). 비어 있으면 이 단계는 `capabilities` 에서
-빠지고 BE 가 배정하지 않는다. 가중치 실행에는 `uv sync --group gpu` 가 필요하다.
+빠지고 BE 가 배정하지 않는다. 가중치 실행에는 `uv sync --group gpu --group cu130`(또는 `cu128`)이 필요하다.
 
 형식·어휘·근거 중 하나라도 어긋난 출력은 **통째로 거부한다**(계약 §9.2 `VLM_SCHEMA_INVALID`,
 영구). 일부 필드만 골라 쓰지 않는다.
@@ -282,7 +282,7 @@ uv run --directory ai python -m npick_worker.query_resolver.report
 
 ```bash
 uv run pytest                  # 기본. smoke 제외, 1초 내
-uv run pytest -m smoke         # 실제 모델 로딩·GPU 확인. gpu 그룹 필요
+uv run pytest -m smoke         # 실제 모델 로딩·GPU 확인. gpu + cu12x/cu130 그룹 필요
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
@@ -296,7 +296,25 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 | --- | --- | --- | --- |
 | 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av·kiwipiepy·rapidocr·onnxruntime·httpx2 | 설치 약 240MB + OCR 약 90MB |
 | `dev` | `uv sync` (기본 포함) | ruff·mypy·pytest·pytest-asyncio | |
-| `gpu` | `uv sync --group gpu` | torch(cu130)·faster-whisper·transformers·pillow | 약 1.8GB, 최초 1회. **가중치는 별도** |
+| `gpu` | `uv sync --group gpu --group cu130` | faster-whisper·transformers·pillow·sentence-transformers | 약 1.8GB, 최초 1회. **가중치는 별도** |
+| `cu130` | 위와 함께 | torch(cu130) | 드라이버 **CUDA 13+** 노드용 (RunPod 파드) |
+| `cu128` | `uv sync --group gpu --group cu128` | torch(cu128) | 드라이버 **CUDA 12.8** 노드용 (SSAFY GPU 서버) |
+
+**CUDA 빌드는 반드시 하나를 함께 고른다.** PyTorch 휠은 빌드된 CUDA 이상의 드라이버를
+요구한다 — cu130 휠은 CUDA 13+ 가 있어야 하고, 드라이버가 12.8 인 SSAFY GPU 서버에서는
+GPU 를 못 잡는다. 그래서 `torch` 는 `gpu` 그룹에 없고 `cu128`/`cu130` 으로 갈려 있으며,
+둘은 `[tool.uv] conflicts` 로 배타 선언돼 한 환경에 같이 깔리지 않는다.
+
+`--group gpu` 만 주면 `transformers`·`sentence-transformers` 가 PyPI 의 **CPU torch** 를
+끌어온다. 반드시 짝지어 쓴다.
+
+| 노드 | 드라이버 | 명령 |
+| --- | --- | --- |
+| RunPod GPU 파드 (실시간 구동) | CUDA 13+ | `uv sync --group gpu --group cu130` |
+| SSAFY GPU 서버 (개발 검증) | CUDA 12.8 | `uv sync --group gpu --group cu128` |
+
+cu128 쪽 torch 상한이 낮은 것(`>=2.11,<2.12`)은 의도가 아니라 제약이다 — cu128 인덱스가
+제공하는 최신이 2.11 이고 2.13 빌드가 없다. 드라이버가 올라가면 함께 올린다.
 
 `scenedetect` 는 PyAV 백엔드만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. GUI 라이브러리가 붙은 `opencv-python` 이면 헤드리스 컨테이너에서 `libGL.so` 로 죽으므로 headless 변종을 쓴다 — 0.7 부터 이건 extra 가 아니라 **`scenedetect-headless` 별도 배포판**이다. 임포트 이름은 그대로 `scenedetect` 이고, 두 배포판을 같이 설치하면 임포트 이름을 다투므로 한쪽만 선언한다.
 
@@ -319,7 +337,7 @@ OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/pro
 
 ```powershell
 $env:UV_HTTP_TIMEOUT = "600"
-uv sync --directory ai --group gpu
+uv sync --directory ai --group gpu --group cu130
 ```
 
 ## 환경 변수
