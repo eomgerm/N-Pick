@@ -78,14 +78,18 @@ def render_system_prompt(cfg: VlmMetadataConfig) -> str:
     )
 
 
-def render_user_prompt(cfg: VlmMetadataConfig, keyframe_count: int) -> str:
+def render_user_prompt(
+    cfg: VlmMetadataConfig, keyframe_count: int, grounding_text: str = ""
+) -> str:
     """그 scene 에 실제로 넣은 장 수를 채운 user prompt.
 
     장 수를 말해 주는 이유는 모델이 받은 이미지를 전부 보았는지 스스로 대조할 수 있게
     하기 위해서다. 장면당 장 수가 고정이 아니므로(F-03 은 장 수를 장면 안의 변화량으로
     정한다) 프롬프트에 상수로 적을 수 없다.
     """
-    return cfg.prompt.user.replace("{keyframe_count}", str(keyframe_count))
+    return cfg.prompt.user.replace("{keyframe_count}", str(keyframe_count)).replace(
+        "{grounding}", grounding_text or '{"ocr": [], "transcript": []}'
+    )
 
 
 def prompt_version(cfg: VlmMetadataConfig) -> str:
@@ -94,7 +98,7 @@ def prompt_version(cfg: VlmMetadataConfig) -> str:
     입력이 **렌더링된** system prompt 와 user 템플릿이다. 템플릿만 해시하면 어휘를 바꿔도
     값이 그대로여서 기록이 거짓이 된다(`config.py` 모듈 docstring).
 
-    user 쪽은 템플릿 그대로 넣는다. 채워지는 값이 `keyframe_count` 하나이고 그것은 장면마다
+    user 쪽은 템플릿 그대로 넣는다. 채워지는 값은 장 수와 grounding 데이터이고 그것은 장면마다
     다른 **입력**이다 — 장면 수만큼 다른 `prompt_version` 이 생기면 그 값으로 무엇도 비교할
     수 없다.
     """

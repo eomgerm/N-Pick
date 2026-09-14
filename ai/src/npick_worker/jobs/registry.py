@@ -461,8 +461,17 @@ def _vlm_scenes(upstream: Mapping[str, Any]) -> tuple["SceneKeyframes", ...]:
     from npick_worker.jobs.models import VlmMetadataUpstream
     from npick_worker.vlm_metadata import KeyframeRef as VlmKeyframeRef
     from npick_worker.vlm_metadata import SceneKeyframes as VlmSceneKeyframes
+    from npick_worker.vlm_metadata.grounding import OcrRef, OcrText
 
     parsed = _parse_upstream(VlmMetadataUpstream, upstream)
+    observations = parsed.ocr.observations if parsed.ocr is not None else ()
+    frames = {
+        (scene.scene_index, frame.timestamp_ms, frame.storage_key)
+        for scene in parsed.frame_extraction.scenes
+        for frame in scene.keyframes
+    }
+    if any((o.scene_index, o.timestamp_ms, o.storage_key) not in frames for o in observations):
+        raise UpstreamOutputInvalidError("OCR 관측이 상류 키프레임을 참조하지 않는다")
     return tuple(
         VlmSceneKeyframes(
             scene_index=scene.scene_index,
@@ -473,6 +482,16 @@ def _vlm_scenes(upstream: Mapping[str, Any]) -> tuple["SceneKeyframes", ...]:
                     storage_key=keyframe.storage_key,
                 )
                 for keyframe in scene.keyframes
+            ),
+            ocr=tuple(
+                OcrText(
+                    ref=OcrRef(o.scene_index, o.timestamp_ms, o.storage_key, index),
+                    raw_text=o.raw_text,
+                    text_key=o.text_key,
+                    confidence=o.confidence,
+                )
+                for index, o in enumerate(observations)
+                if o.scene_index == scene.scene_index
             ),
         )
         for scene in parsed.frame_extraction.scenes
@@ -500,6 +519,7 @@ def _run_vlm_metadata(ctx: StageContext) -> StageOutcome:
     # 지연 임포트. transformers·torch 는 헬스체크만 하는 프로세스가 낼 비용이 아니다
     # (ocr 의 onnxruntime 과 같은 이유).
     from npick_worker.jobs.models import VlmMetadataOutput
+    from npick_worker.jobs.vlm_inputs import attach_mapped_transcripts
     from npick_worker.vlm_metadata import (
         VlmCallError,
         VlmModelUnavailableError,
@@ -509,7 +529,9 @@ def _run_vlm_metadata(ctx: StageContext) -> StageOutcome:
     )
 
     config = get_default_config()
-    scenes = _vlm_scenes(ctx.upstream)
+    scenes = attach_mapped_transcripts(
+        _vlm_scenes(ctx.upstream), ctx.upstream, ctx.artifact_documents
+    )
     selected = _vlm_selected_keys(ctx.upstream)
 
     missing = [key for key in selected if key not in ctx.upstream_files]

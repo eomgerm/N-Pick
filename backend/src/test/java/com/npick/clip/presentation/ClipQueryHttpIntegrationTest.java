@@ -109,9 +109,13 @@ class ClipQueryHttpIntegrationTest {
         stages.put("vlm_metadata", state("running"));
         fixture(101, 1001, "running", stages);
         JsonNode progressing = detail(101);
-        assertThat(progressing.at("/processing_details/stages/2/status").asString())
+        assertThat(progressing
+                        .at("/processing_details/stages/" + PipelineStages.NAMES.indexOf("vlm_metadata") + "/status")
+                        .asString())
                 .isEqualTo("running");
-        assertThat(progressing.at("/processing_details/stages/5/status").asString())
+        assertThat(progressing
+                        .at("/processing_details/stages/" + PipelineStages.NAMES.indexOf("asr") + "/status")
+                        .asString())
                 .isEqualTo("pending");
         assertThat(progressing
                         .at("/processing_details/transcript/asr_segment_count")
@@ -168,14 +172,18 @@ class ClipQueryHttpIntegrationTest {
         JsonNode degraded = detail(105).path("processing_details");
         assertThat(degraded.path("missing_channels").toString()).isEqualTo("[\"asr\"]");
         assertThat(degraded.path("failed_stages").toString()).isEqualTo("[\"asr\"]");
-        assertThat(degraded.at("/stages/5/automatic_retryable").booleanValue()).isFalse();
+        assertThat(degraded.at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/automatic_retryable")
+                        .booleanValue())
+                .isFalse();
         assertThat(degraded.path("retryable").isNull()).isTrue();
         assertThat(degraded.toString()).doesNotContain("/srv", "errorRetryable", "message", "token");
 
         var noAdapter = stages();
         noAdapter.put("asr", Map.of("status", "skipped", "attempts", 0, "errorCode", "NO_ADAPTER"));
         fixture(106, 1006, "running", noAdapter);
-        assertThat(detail(106).at("/processing_details/stages/5/error_code").asString())
+        assertThat(detail(106)
+                        .at("/processing_details/stages/" + PipelineStages.NAMES.indexOf("asr") + "/error_code")
+                        .asString())
                 .isEqualTo("NO_ADAPTER");
         assertThat(detail(106).at("/processing_details/missing_channels").toString())
                 .isEqualTo("[\"asr\"]");
@@ -341,9 +349,15 @@ class ClipQueryHttpIntegrationTest {
                 "{\"scene_detect\":{\"status\":\"succeeded\",\"attempts\":1},\"asr\":{\"status\":\"skipped\",\"error_code\":\"NO_ADAPTER\"}}");
         JsonNode legacy = detail(301).path("processing_details");
         assertThat(legacy.path("record_status").asString()).isEqualTo("partial");
-        assertThat(legacy.at("/stages/0/status").asString()).isEqualTo("succeeded");
-        assertThat(legacy.at("/stages/1/status").asString()).isEqualTo("unknown");
-        assertThat(legacy.at("/stages/5/error_code").asString()).isEqualTo("NO_ADAPTER");
+        assertThat(legacy.at("/stages/" + PipelineStages.NAMES.indexOf("scene_detection") + "/status")
+                        .asString())
+                .isEqualTo("succeeded");
+        assertThat(legacy.at("/stages/" + PipelineStages.NAMES.indexOf("frame_extraction") + "/status")
+                        .asString())
+                .isEqualTo("unknown");
+        assertThat(legacy.at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/error_code")
+                        .asString())
+                .isEqualTo("NO_ADAPTER");
         jdbc.update(
                 "UPDATE npick.pipeline_run SET stage_states_json='{\"schemaVersion\":\"future/v2\",\"stages\":{}}' WHERE pipeline_run_id=3001");
         JsonNode future = detail(301).path("processing_details");
@@ -379,7 +393,9 @@ class ClipQueryHttpIntegrationTest {
             assertThat(details.path("record_status").asString()).isEqualTo("partial");
             assertThat(details.path("missing_channels").isNull()).isTrue();
             assertThat(details.path("failed_stages").toString()).isEqualTo(failed ? "[\"asr\"]" : "[]");
-            assertThat(details.at("/stages/4/status").asString()).isEqualTo("unknown");
+            assertThat(details.at("/stages/" + PipelineStages.NAMES.indexOf("transcript_selection") + "/status")
+                            .asString())
+                    .isEqualTo("unknown");
             assertThat(details.at("/transcript/used_sources").isNull()).isTrue();
         }
     }
@@ -430,10 +446,17 @@ class ClipQueryHttpIntegrationTest {
         JsonNode detail = detail(602);
         assertThat(detail.at("/clip/latest_run/status").asString()).isEqualTo("failed");
         assertThat(detail.at("/processing_details/failed_stages").toString()).isEqualTo("[\"scene_detection\"]");
-        assertThat(detail.at("/processing_details/stages/0/status").asString()).isEqualTo("skipped");
-        assertThat(detail.at("/processing_details/stages/0/error_code").asString())
+        assertThat(detail.at("/processing_details/stages/" + PipelineStages.NAMES.indexOf("scene_detection")
+                                + "/status")
+                        .asString())
+                .isEqualTo("skipped");
+        assertThat(detail.at("/processing_details/stages/" + PipelineStages.NAMES.indexOf("scene_detection")
+                                + "/error_code")
+                        .asString())
                 .isEqualTo("NO_ADAPTER");
-        assertThat(detail.at("/processing_details/stages/0/automatic_retryable").booleanValue())
+        assertThat(detail.at("/processing_details/stages/" + PipelineStages.NAMES.indexOf("scene_detection")
+                                + "/automatic_retryable")
+                        .booleanValue())
                 .isFalse();
     }
 
@@ -470,14 +493,20 @@ class ClipQueryHttpIntegrationTest {
             completeAttempt(run, true, now.plusSeconds(1), policy);
             saveRecord(run);
             JsonNode waiting = detail(clipId).path("processing_details");
-            assertThat(waiting.at("/stages/5/automatic_retryable").booleanValue())
+            assertThat(waiting.at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/automatic_retryable")
+                            .booleanValue())
                     .isTrue();
-            assertThat(waiting.at("/stages/5/max_attempts").intValue()).isEqualTo(2);
-            assertThat(waiting.at("/stages/5/failed_attempts/0/attempt").intValue())
+            assertThat(waiting.at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/max_attempts")
+                            .intValue())
+                    .isEqualTo(2);
+            assertThat(waiting.at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/failed_attempts/0/attempt")
+                            .intValue())
                     .isEqualTo(1);
-            assertThat(waiting.at("/stages/5/failed_attempts/0/error_code").asString())
+            assertThat(waiting.at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/failed_attempts/0/error_code")
+                            .asString())
                     .isEqualTo("ASR_FAILED");
-            assertThat(waiting.at("/stages/5/failed_attempts/0/finished_at").asString())
+            assertThat(waiting.at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/failed_attempts/0/finished_at")
+                            .asString())
                     .isEqualTo(now.plusSeconds(1).toString());
             assertThat(waiting.path("failed_stages").isEmpty()).isTrue();
             assertThat(waiting.path("missing_channels").isEmpty()).isTrue();
@@ -488,7 +517,7 @@ class ClipQueryHttpIntegrationTest {
                     Map.of("asr", 99), java.util.Set.of("ASR_FAILED"));
             run.claim("asr", "private-worker", UUID.randomUUID(), Map.of(), now.plusSeconds(2), changed);
             saveRecord(run);
-            JsonNode running = detail(clipId).at("/processing_details/stages/5");
+            JsonNode running = detail(clipId).at("/processing_details/stages/" + PipelineStages.NAMES.indexOf("asr"));
             assertThat(running.path("status").asString()).isEqualTo("running");
             assertThat(running.path("automatic_retryable").booleanValue()).isFalse();
             assertThat(running.path("attempts").intValue()).isEqualTo(2);
@@ -496,10 +525,18 @@ class ClipQueryHttpIntegrationTest {
             completeAttempt(run, finalFailure, now.plusSeconds(3), changed);
             saveRecord(run);
             JsonNode completed = detail(clipId).path("processing_details");
-            assertThat(completed.at("/stages/5/status").asString()).isEqualTo(finalFailure ? "failed" : "succeeded");
-            assertThat(completed.at("/stages/5/automatic_retryable").booleanValue())
+            assertThat(completed
+                            .at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/status")
+                            .asString())
+                    .isEqualTo(finalFailure ? "failed" : "succeeded");
+            assertThat(completed
+                            .at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/automatic_retryable")
+                            .booleanValue())
                     .isFalse();
-            assertThat(completed.at("/stages/5/failed_attempts").size()).isEqualTo(1);
+            assertThat(completed
+                            .at("/stages/" + PipelineStages.NAMES.indexOf("asr") + "/failed_attempts")
+                            .size())
+                    .isEqualTo(1);
             assertThat(completed.path("missing_channels").toString()).isEqualTo(finalFailure ? "[\"asr\"]" : "[]");
             assertThat(completed.toString())
                     .doesNotContain(
@@ -559,7 +596,8 @@ class ClipQueryHttpIntegrationTest {
     @Test
     void listProgressMatchesDetailAndNeverReadsTranscriptArtifacts() throws Exception {
         var initial = stages();
-        for (String name : PipelineStages.NAMES.subList(0, 4)) initial.put(name, state("succeeded"));
+        for (String name : PipelineStages.NAMES.subList(0, PipelineStages.NAMES.indexOf("transcript_selection")))
+            initial.put(name, state("succeeded"));
         initial.put("transcript_selection", state("skipped"));
         initial.put("asr", state("running"));
         fixture(701, 7001, "running", initial);
@@ -586,7 +624,8 @@ class ClipQueryHttpIntegrationTest {
                     .isEqualTo(page.at("/run_counts/running").asLong());
             if (version < 2) {
                 assertThat(progress.path("total_steps").intValue()).isEqualTo(10);
-                assertThat(progress.path("succeeded_steps").intValue()).isEqualTo(4);
+                assertThat(progress.path("succeeded_steps").intValue())
+                        .isEqualTo(PipelineStages.NAMES.indexOf("transcript_selection"));
                 assertThat(progress.path("skipped_steps").intValue()).isEqualTo(1);
                 assertThat(progress.path("failed_steps").intValue()).isEqualTo(version);
                 if (version == 0)

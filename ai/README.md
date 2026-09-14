@@ -170,8 +170,8 @@ result = describe_scenes([scene], paths, shared_client())
 result.scenes[0].shot_type.value  # 'anchor' | 'interview' | 'b_roll' | 'unknown'
 result.scenes[0].caption  # Caption(...) 또는 None — 근거가 없으면 비운다
 result.scenes[0].scene_type  # type='scene_type' 인 **태그 후보**. scene 컬럼이 아니다
-result.scenes[0].caption.evidence  # 이 판단의 근거가 된 keyframe 들
-result.config_version  # 'vlm-metadata-config/v1:...'
+result.scenes[0].caption.evidence  # 이 판단의 근거가 된 keyframe·OCR 관측·대사 구간 참조
+result.config_version  # 'vlm-metadata-config/v2:...'
 result.model_version  # '<모델>@<리비전>'
 ```
 
@@ -396,7 +396,7 @@ ai/
 │   ├── config/
 │   │   ├── scene_detection.v1.toml   임계값 정본 (실측 후 확정)
 │   │   ├── frame_extraction.v1.toml  임계값 정본 (실측 후 확정)
-│   │   ├── vlm_metadata.v1.toml      프롬프트·어휘·상한 정본 (실측 후 확정)
+│   │   ├── vlm_metadata.v2.toml      프롬프트·어휘·상한 정본 (실측 후 확정)
 │   │   ├── ocr.v1.toml               임계값 정본 (실측 후 확정)
 │   │   ├── query_normalization.v1.toml  정규화 규칙 정본
 │   │   └── query_resolver.v1.toml    프롬프트 정본 (실측 후 확정)
