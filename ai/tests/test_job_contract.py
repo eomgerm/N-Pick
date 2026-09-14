@@ -429,10 +429,10 @@ def test_frame_upstream_tolerates_fields_it_does_not_know() -> None:
 
 
 def test_frame_extraction_config_version_matches_recorded_vector() -> None:
-    """`frame_extraction.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
+    """`frame_extraction.v2.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
     from npick_worker.frame_extraction import get_default_config
 
-    assert get_default_config().version_id == "frame-extract/v1:5b266b10"
+    assert get_default_config().version_id == "frame-extract/v2:a0684794"
 
 
 def test_frame_extraction_stage_version_matches_recorded_vector() -> None:
@@ -446,12 +446,12 @@ def test_frame_extraction_stage_version_matches_recorded_vector() -> None:
         stage_version(
             "frame_extraction",
             {
-                "configVersion": "frame-extract/v1:5b266b10",
+                "configVersion": "frame-extract/v2:a0684794",
                 "engine": "pyav",
                 "engineVersion": "18.1.0+numpy2.5.2",
             },
         )
-        == "npick.stage.frame_extraction/v1:595427d7"
+        == "npick.stage.frame_extraction/v1:5fa70a50"
     )
 
 
