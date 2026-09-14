@@ -83,7 +83,7 @@ src/
       └─ error.ts          안전한 ApiClientError와 개발용 진단 정보 분리
 ```
 
-현재 와이어프레임 UI를 제품 화면으로 사용하며 디자인은 신한(`shinhan`)을 유지합니다. `/`는 `/landing`으로 이동하고 역할 카드는 `/login?role=editor|reviewer`로 연결합니다. 로그인 후 실제 계정의 역할에 따라 편집자는 `/search`, 검수자는 `/review`로 이동합니다. 권한이 있는 내부 `returnTo`가 있으면 우선 복귀합니다. 검색 결과는 `/search/results`에서 표시합니다. 화면 경로 상수는 `src/lib/routes.ts`가 소유합니다. 기존 테마 주소는 `next.config.ts`의 307 redirect로 새 화면에 연결하고 query를 보존하며 알 수 없는 테마는 404로 처리합니다. 인증·영상 등록 POST·검수 문의 목록·상세·선점 API는 연결되어 있으며 검색·문의 접수·처리 조회는 아직 로컬 데모입니다. 비밀번호와 세션 토큰은 프론트 저장소에 저장하지 않습니다.
+현재 와이어프레임 UI를 제품 화면으로 사용하며 디자인은 신한(`shinhan`)을 유지합니다. `/`는 `/landing`으로 이동하고 역할 카드는 `/login?role=editor|reviewer`로 연결합니다. 로그인 후 실제 계정의 역할에 따라 편집자는 `/search`, 검수자는 `/review`로 이동합니다. 권한이 있는 내부 `returnTo`가 있으면 우선 복귀합니다. 검색 결과는 `/search/results`에서 표시합니다. 화면 경로 상수는 `src/lib/routes.ts`가 소유합니다. 기존 테마 주소는 `next.config.ts`의 307 redirect로 새 화면에 연결하고 query를 보존하며 알 수 없는 테마는 404로 처리합니다. 인증·영상 등록 POST·검수 문의 목록·상세·선점·판정 API는 연결되어 있으며 검색·문의 접수·처리 조회는 아직 로컬 데모입니다. 비밀번호와 세션 토큰은 프론트 저장소에 저장하지 않습니다.
 
 랜딩의 Three.js 유리 큐브는 `landing-shell.tsx`의 Client Component 경계에서 `next/dynamic({ ssr: false })`로 지연 로드합니다. Three.js physical material과 rounded box geometry로 굴절·두께·분산·무지갯빛 테두리를 표현하며, 투명 Canvas texture의 N-Pick 타이포그래피를 큐브 뒤에 배치합니다. 글자는 알파 컷아웃으로 불투명 렌더 패스에 포함해 유리의 굴절 대상이 되며, 큐브는 알파 블렌딩 없이 앞면의 transmission으로 글자를 굴절시킵니다. `Need? Pick!`의 글자 폭을 줄여 `N-Pick`으로 합치는 CSS 인트로 뒤에 큐브와 역할 카드가 나타납니다. 인트로는 WebGL 준비 여부와 무관하게 끝나고 CSS 유리 큐브는 로딩·WebGL 실패 fallback으로 유지합니다. WebGL render loop와 CSS animation은 `prefers-reduced-motion`에서 정지하고 Canvas의 DPR을 제한합니다.
 
@@ -94,6 +94,8 @@ src/
 검수자는 `/review`에서 Spring의 `GET /review/inquiries`를 통해 최근 접수 순 10개 단위 문의 목록과 전체 상태 건수를 봅니다. 상태는 전체·접수(`open`)·검수 중(`reviewing`)·종료(`closed`)로 서버 필터링하며 `status/page/inquiry`를 URL에 보존합니다. 상세는 `GET /review/inquiries/{feedbackId}`로 문의 당시 검색 실행·필터·근거·처리 이력을 읽고, 접수 상태에서는 `POST /review/inquiries/{feedbackId}/claim`으로 선점합니다. 선점 버튼은 요청 중 중복 입력을 막고 동일 재시도에 같은 멱등성 키를 사용하며 성공 후 목록과 상세를 다시 읽습니다. 선점 충돌·권한·연결 실패는 성공 상태로 바꾸지 않고 최신 상태 확인·목록 복귀·안전한 재시도 중 다음 행동을 안내합니다. 종료 여부와 `resolution`은 분리해 표시합니다. `no_action`과 `deferred`는 수정 완료 색상으로 표현하지 않습니다. 현재 백엔드 목록 계약에 검색·임의 정렬 조건이 없어 해당 조작은 제공하지 않습니다. 페이지는 `useSearchParams`를 위한 Suspense 경계를 제공하고 현재 계정은 `/auth/me`의 `loginId`를 사용합니다.
 
 문의 목록과 상세의 장면 요약은 API의 `clipTitle`, `startTimeMs`, `endTimeMs`를 사용하며 제목이 없으면 `제목 없는 영상`으로 표시합니다. 썸네일은 합성하지 않습니다. 문의 상세의 `ReviewInquiryPreview`는 실제 `clipId`와 밀리초 구간을 공통 Preview에 전달하며 `/media/{clipId}`로 원본을 재생합니다. 상세는 문의 당시 검색 결과·필터·해석·적용 기록과 현재 태그를 분리합니다. 과거 JSON과 `resolverOutputJson`은 화면에 원문으로 노출하지 않으며, 현재 근거는 태그별 출처·검증 상태·장면/클립 범위를 함께 표시합니다. 당시 결과와 적용 기록은 허용된 항목을 읽기 전용 목록으로 표시하며, 미지원 형식은 기록 없음과 구분합니다. 미지원 JSON 구조는 BE snapshot 내부 계약 확정 후 확장해야 합니다. 선점 후 담당자를 로그인 계정으로 합성하지 않고 상세 재조회 응답만 표시합니다. 과거 검색 기록은 읽기 전용이고 현재 태그로 다시 계산해 덮어쓰지 않습니다.
+
+선점한 검수자는 `PUT /review/inquiries/{feedbackId}/resolution`으로 판정과 최대 2,000자의 사유를 저장합니다. `no_action/deferred`는 사유가 필수이며 즉시 `closed`로 종료됩니다. `tag_correction/patch_parse/exclude_scene`는 판정만 저장하고 후속 교정·검증 API가 완료될 때까지 `reviewing`을 유지합니다. 프론트는 서버 응답 뒤 목록과 상세를 다시 읽어 상태를 확정하고 요청 중 중복 입력과 다른 검수자의 저장을 막습니다.
 
 검수 화면 상단의 문의·처리 이동 메뉴는 URL로 선택 상태를 계산합니다. 기본 `/review`는 문의, `view=processing`은 처리이며 `view=upload` 등록 화면도 처리 영역으로 표시합니다. 상위 메뉴 이동은 `getReviewTabUrl`로 상세 선택(`inquiry/clip`)과 처리 하위 `tab`을 지우고 목록 조건과 나머지 query를 유지합니다. 처리 하위 탭은 기존 `tab=uploads/completed`를 사용하며 생략하거나 알 수 없는 값이면 문의 처리 중을 표시합니다. 문의·처리 이동은 브라우저 이력에 남고 새로고침·뒤로가기·앞으로가기로 복원됩니다. URL 변경에 따른 재마운트 없이 기존 검수 초안을 유지하며, 등록 취소는 문의 목록으로 돌아갑니다.
 
