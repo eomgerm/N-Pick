@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.context.annotation.Import;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,7 +17,6 @@ import com.npick.search.domain.repository.ParseRuleCandidateRepository;
 import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // 실 PostgreSQL(paradedb) 대상. patch_parse 후보 쓰기 어댑터(-81) 통합 테스트.
 @DataJpaTest
@@ -49,7 +47,9 @@ class ParseRuleCandidateRepositoryAdapterDbTest {
     void savesInactiveCandidateAndFindsById() {
         seedFeedback();
 
-        long id = repository.save(new ParseRuleCandidate(9901L, "rk-1", CONDITION, PATCH, null));
+        long id = repository
+                .insertIfAbsent(new ParseRuleCandidate(9901L, "rk-1", CONDITION, PATCH, null))
+                .orElseThrow();
 
         Object[] row = (Object[]) em.createNativeQuery(
                         "SELECT action, active, source_feedback_id, request_key, CAST(condition_json AS text) "
@@ -66,13 +66,19 @@ class ParseRuleCandidateRepositoryAdapterDbTest {
 
     @Test
     @Transactional
-    @DisplayName("같은 신고·요청키로 두 번 저장하면 유니크 제약이 막는다")
-    void rejectsDuplicateRequestKey() {
+    @DisplayName("같은 신고·요청키로 두 번 저장하면 두 번째는 예외 없이 empty 로 흡수된다 (ON CONFLICT)")
+    void secondInsertIsAbsorbedAsEmpty() {
         seedFeedback();
-        repository.save(new ParseRuleCandidate(9901L, "rk-1", CONDITION, PATCH, null));
+        assertThat(repository.insertIfAbsent(new ParseRuleCandidate(9901L, "rk-1", CONDITION, PATCH, null)))
+                .isPresent();
 
-        assertThatThrownBy(() -> repository.save(new ParseRuleCandidate(9901L, "rk-1", CONDITION, PATCH, null)))
-                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(repository.insertIfAbsent(new ParseRuleCandidate(9901L, "rk-1", CONDITION, PATCH, null)))
+                .isEmpty();
+
+        Number count = (Number) em.createNativeQuery(
+                        "SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901 AND request_key = 'rk-1'")
+                .getSingleResult();
+        assertThat(count.intValue()).isEqualTo(1);
     }
 
     private void seedFeedback() {

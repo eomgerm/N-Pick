@@ -6,7 +6,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.dao.DuplicateKeyException;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.ParseRuleCandidateErrorCode;
@@ -62,14 +61,14 @@ class CreateParsePatchCandidateServiceTest {
     void createsInactiveCandidate() {
         reviewingPatchParse();
         when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
-        when(candidateRepository.save(any())).thenReturn(777L);
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.of(777L));
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, CONDITION, PATCH, null));
 
         assertThat(outcome.searchRuleId()).isEqualTo(777L);
         assertThat(outcome.created()).isTrue();
         ArgumentCaptor<ParseRuleCandidate> captor = ArgumentCaptor.forClass(ParseRuleCandidate.class);
-        verify(candidateRepository).save(captor.capture());
+        verify(candidateRepository).insertIfAbsent(captor.capture());
         assertThat(captor.getValue().conditionJson()).contains("parse-rule/v1");
     }
 
@@ -80,7 +79,7 @@ class CreateParsePatchCandidateServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ParseRuleCandidateErrorCode.EDITOR_FORBIDDEN));
-        verify(candidateRepository, never()).save(any());
+        verify(candidateRepository, never()).insertIfAbsent(any());
     }
 
     @Test
@@ -146,7 +145,7 @@ class CreateParsePatchCandidateServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ParseRuleCandidateErrorCode.INVALID_CANDIDATE));
-        verify(candidateRepository, never()).save(any());
+        verify(candidateRepository, never()).insertIfAbsent(any());
     }
 
     @Test
@@ -159,7 +158,7 @@ class CreateParsePatchCandidateServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ParseRuleCandidateErrorCode.REPLACES_NOT_FOUND));
-        verify(candidateRepository, never()).save(any());
+        verify(candidateRepository, never()).insertIfAbsent(any());
     }
 
     @Test
@@ -172,7 +171,7 @@ class CreateParsePatchCandidateServiceTest {
 
         assertThat(outcome.searchRuleId()).isEqualTo(555L);
         assertThat(outcome.created()).isFalse();
-        verify(candidateRepository, never()).save(any());
+        verify(candidateRepository, never()).insertIfAbsent(any());
     }
 
     @Test
@@ -182,7 +181,7 @@ class CreateParsePatchCandidateServiceTest {
         when(candidateRepository.findId(1L, "rk-1"))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(999L));
-        when(candidateRepository.save(any())).thenThrow(new DuplicateKeyException("uq_search_rule_feedback_request"));
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.empty());
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, CONDITION, PATCH, null));
 

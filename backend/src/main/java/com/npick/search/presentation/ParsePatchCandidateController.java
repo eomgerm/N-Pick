@@ -81,7 +81,8 @@ public class ParsePatchCandidateController {
         if (node == null || node.isNull()) {
             return null;
         }
-        if (node.canConvertToLong()) {
+        // isIntegralNumber 로 정수 노드만 통과시킨다. canConvertToLong 단독은 1.9 같은 DoubleNode 도 통과시켜 소수부가 잘린다.
+        if (node.isIntegralNumber() && node.canConvertToLong()) {
             return node.asLong();
         }
         if (node.isTextual() && node.asText().matches("[1-9]\\d*")) {

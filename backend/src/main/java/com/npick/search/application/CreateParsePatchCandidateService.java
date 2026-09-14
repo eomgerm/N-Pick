@@ -5,7 +5,6 @@ import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import com.npick.common.error.BusinessException;
@@ -79,21 +78,20 @@ public class CreateParsePatchCandidateService {
             throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_NOT_FOUND);
         }
 
-        try {
-            long id = candidateRepository.save(new ParseRuleCandidate(
-                    command.feedbackId(),
-                    command.requestKey(),
-                    command.conditionJson(),
-                    command.patchJson(),
-                    command.replacesRuleId()));
-            return ParseCandidateOutcome.created(id);
-        } catch (DuplicateKeyException race) {
-            // 같은 요청키의 동시 저장. 저장소 트랜잭션만 롤백됐으므로 여기서 다시 조회하면 이미 만들어진 후보가 보인다.
-            return candidateRepository
-                    .findId(command.feedbackId(), command.requestKey())
-                    .map(ParseCandidateOutcome::existing)
-                    .orElseThrow(() -> race);
+        Optional<Long> inserted = candidateRepository.insertIfAbsent(new ParseRuleCandidate(
+                command.feedbackId(),
+                command.requestKey(),
+                command.conditionJson(),
+                command.patchJson(),
+                command.replacesRuleId()));
+        if (inserted.isPresent()) {
+            return ParseCandidateOutcome.created(inserted.get());
         }
+        // 동시 저장으로 방금 충돌했다. ON CONFLICT 가 예외 없이 흡수했으므로 다시 조회하면 먼저 만들어진 후보가 보인다.
+        return candidateRepository
+                .findId(command.feedbackId(), command.requestKey())
+                .map(ParseCandidateOutcome::existing)
+                .orElseThrow(() -> new IllegalStateException("insert conflict but no existing candidate found"));
     }
 
     /**

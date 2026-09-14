@@ -103,6 +103,25 @@ class ParsePatchCandidateControllerTest {
     }
 
     @Test
+    @DisplayName("replacesRuleId 가 소수면 400 으로 거부한다 (asLong 이 소수부를 삼키지 않는다)")
+    void fractionalReplacesRuleIdRejected() throws Exception {
+        String body =
+                "{\"condition\":{\"syntax_version\":\"parse-rule/v1\",\"resolution_schema_version\":\"query-resolver/v2\","
+                        + "\"all\":[{\"axis\":\"locations\",\"op\":\"has_value\",\"value\":\"공장\"}]},"
+                        + "\"patch\":{\"syntax_version\":\"parse-rule/v1\",\"operations\":"
+                        + "[{\"op\":\"remove_item\",\"axis\":\"locations\",\"type\":\"location\",\"value\":\"공장\"}]},"
+                        + "\"replacesRuleId\":1.9}";
+
+        mockMvc.perform(post("/api/v1/review/inquiries/1/parse-patch-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .header("Idempotency-Key", "rk-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("편집기자는 후보 생성 경로에 접근할 수 없다")
     void editorForbidden() throws Exception {
         mockMvc.perform(post("/api/v1/review/inquiries/1/parse-patch-candidate")

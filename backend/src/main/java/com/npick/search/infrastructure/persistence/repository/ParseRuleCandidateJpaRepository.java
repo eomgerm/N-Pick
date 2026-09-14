@@ -25,7 +25,8 @@ public interface ParseRuleCandidateJpaRepository extends JpaRepository<SearchRul
                     + "normalized_filters_json, normalization_version, action, source_feedback_id, active, "
                     + "created_at, updated_at, condition_json, patch_json, replaces_rule_id, request_key) "
                     + "VALUES (:id, '', '', '{}', '', 'patch_parse', :feedbackId, false, :now, :now, "
-                    + "CAST(:condition AS jsonb), CAST(:patch AS jsonb), :replaces, :requestKey)",
+                    + "CAST(:condition AS jsonb), CAST(:patch AS jsonb), :replaces, :requestKey) "
+                    + "ON CONFLICT (source_feedback_id, request_key) DO NOTHING",
             nativeQuery = true)
     int insertCandidate(
             @Param("id") long id,
