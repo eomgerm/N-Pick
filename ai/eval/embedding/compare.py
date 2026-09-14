@@ -45,6 +45,12 @@ def paired_bootstrap(
     return float(diff.mean()), float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
 
 
+def dataset_hashes(path: Path) -> set[str]:
+    """결과 파일이 어느 골드셋으로 만들어졌는지. 섞이면 짝이 깨진다."""
+    runs = json.loads(path.read_text(encoding="utf-8"))
+    return {r["params"].get("dataset_hash", "unknown") for r in runs}
+
+
 def load(path: Path, level: str) -> dict[str, np.ndarray]:
     """전체 차원 run 만 쓴다. 잘린 차원은 같은 인코딩에서 파생돼 비교 대상이 아니다."""
     runs = json.loads(path.read_text(encoding="utf-8"))
@@ -69,16 +75,24 @@ def main() -> None:
 
     merged: dict[str, list[np.ndarray]] = {}
     for path in args.results:
-        for name, arr in load(path, args.level).items():
+        per_file = load(path, args.level)
+        # **파일마다** 모델별 질의 수가 같아야 짝이 유지된다. 합계만 보면
+        # A 가 300+100, B 가 100+300 인 경우를 통과시켜 조용히 잘못된 짝이 나온다.
+        sizes = {name: len(arr) for name, arr in per_file.items()}
+        if len(set(sizes.values())) > 1:
+            raise SystemExit(f"{path.name}: 모델마다 질의 수가 다르다 — {sizes}")
+        hashes = dataset_hashes(path)
+        if len(hashes) > 1:
+            raise SystemExit(f"{path.name}: 골드셋이 섞여 있다 — dataset_hash {hashes}")
+        for name, arr in per_file.items():
             merged.setdefault(name, []).append(arr)
 
     # 골드셋이 여러 개면 이어 붙인다. 질의 수가 늘어 구간이 좁아진다.
-    scores: dict[str, np.ndarray] = {}
-    lengths = {name: sum(len(a) for a in arrs) for name, arrs in merged.items()}
-    if len(set(lengths.values())) > 1:
-        raise SystemExit(f"모델마다 질의 수가 다르다 — 같은 골드셋인지 확인: {lengths}")
-    for name, arrs in merged.items():
-        scores[name] = np.concatenate(arrs)
+    if len({len(v) for v in merged.values()}) > 1:
+        raise SystemExit(
+            f"파일마다 등장하는 모델이 다르다: { {k: len(v) for k, v in merged.items()} }"
+        )
+    scores: dict[str, np.ndarray] = {name: np.concatenate(a) for name, a in merged.items()}
 
     if len(scores) < 2:
         raise SystemExit(f"level={args.level} 에서 비교할 모델이 2개 미만이다")
@@ -95,7 +109,9 @@ def main() -> None:
         mean, lo, hi = paired_bootstrap(a, b)
         wins = int((a > b).sum())
         losses = int((a < b).sum())
-        verdict = "유의함" if lo > 0 or hi < 0 else "차이 없음"
+        # "차이 없음"이 아니라 "검출 못 함"이다. 구간이 0 을 포함한다는 것은 차이가
+        # 없다는 증명이 아니라 이 표본으로는 구분하지 못했다는 뜻이다.
+        verdict = "유의함" if lo > 0 or hi < 0 else "차이 검출 못 함"
         print(f"  {x} vs {y}")
         print(
             f"    {mean:+.4f}  [{lo:+.4f}, {hi:+.4f}]  {verdict}"

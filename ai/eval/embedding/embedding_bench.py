@@ -1,7 +1,10 @@
 """임베딩 모델 비교 — S15P21A501-175.
 
-워커 런타임이 아니다. `eval` 그룹에서만 돌고 `src/npick_worker` 를 import 하지 않는다
-(fixture 경로 하나만 읽는다). 배포 이미지에 들어가지 않는다.
+워커 런타임이 아니다. 의존성은 `requirements.txt` 로 **별도 venv** 에 깐다 — 프로젝트
+의존성 그룹에 두면 uv.lock 이 하나라서 평가용 mlflow 가 런타임 protobuf 를 끌어내린다
+(그 파일 머리말). `src/npick_worker` 도 import 하지 않는다(fixture 경로 하나만 읽는다).
+
+지표 함수의 단위 테스트는 `tests/test_embedding_metrics.py` 에 있고 프로젝트 pytest 로 돈다.
 
 측정 두 갈래:
 
@@ -14,8 +17,7 @@
 (03-deployment). 그래서 CPU 스레드를 4로 못 박고 잰다. 안 그러면 개발 노트북 코어 수만큼
 낙관적인 숫자가 나온다.
 
-    uv run --group eval python eval/embedding/embedding_bench.py --self-check
-    uv run --group eval python eval/embedding/embedding_bench.py --gold eval/embedding/gold.json
+    .venv-eval/bin/python eval/embedding/embedding_bench.py --gold eval/embedding/gold.json
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import statistics
 import sys
@@ -43,6 +46,8 @@ QUERY_FIXTURE = AI_DIR / "src/npick_worker/query_resolver/fixtures/representativ
 # EC2 4 vCPU (03-deployment). 노트북 코어를 다 쓰면 배포 환경보다 빠른 수치가 나온다.
 CPU_THREADS = 4
 TOP_K = 10
+# 질의 20건 x 20회 = 400 표본. 60 표본에서는 p95 가 run 마다 24% 흔들렸다.
+LATENCY_REPEATS = 20
 
 
 @dataclass(frozen=True)
@@ -52,15 +57,42 @@ class ModelSpec:
     repo: str
     query_prefix: str = ""
     note: str = ""
+    # HF 커밋 해시. 주면 그 리비전으로 핀해서 로드한다 — 재현이 보장되고,
+    # trust_remote_code=True 로 실행되는 원격 코드도 그 시점 것으로 고정된다.
+    revision: str | None = None
 
 
 # 공식 MTEB(kor, v2) Retrieval 상위 + ko-embedding-leaderboard 상위 교집합에서
 # 0.6B 급·1024차원·오픈웨이트만. 선정 근거는 Notion "한국어 임베딩 모델 선정 조사".
+# revision 은 2026-09-14 측정에 실제로 쓴 커밋이다. 핀해두면 재현이 고정되고
+# trust_remote_code=True 로 도는 원격 코드도 그 시점 것으로 묶인다.
 CANDIDATES = [
-    ModelSpec("nlpai-lab/KURE-v1", note="MIT. 접두어 불필요 — 색인/질의 어긋날 자리가 없다"),
-    ModelSpec("dragonkue/snowflake-arctic-embed-l-v2.0-ko", query_prefix="query: "),
-    ModelSpec("telepix/PIXIE-Rune-v1.5", query_prefix="query: "),
+    ModelSpec(
+        "nlpai-lab/KURE-v1",
+        revision="8b418a58414668e75532ed045c22d9ca018ae2b2",
+        note="MIT. 접두어 불필요. 세 골드셋에서 품질 3위라 탈락",
+    ),
+    ModelSpec(
+        "dragonkue/snowflake-arctic-embed-l-v2.0-ko",
+        query_prefix="query: ",
+        revision="55ec6e9358a56d56af759bc8372e970caf8c305f",
+        note="선정. PIXIE 와 품질 차이를 검출하지 못해 학습 데이터 오염 공개로 갈랐다",
+    ),
+    ModelSpec(
+        "telepix/PIXIE-Rune-v1.5",
+        query_prefix="query: ",
+        revision="29dd334196af53e6cfc16674379e743334f5fa66",
+        note="공동 1위. 캡션을 붙인 뒤 재평가하면 이쪽으로 뒤집힐 수 있다",
+    ),
 ]
+
+# Qwen3-Embedding 2종은 실측 후 제외했다. 후보 목록에 두지 않는 이유를 남겨둔다 —
+# 다음 사람이 같은 조사를 반복하지 않도록.
+#   Qwen/Qwen3-Embedding-4B   기본 차원 2560 이라 pgvector `vector` 인덱스 한도(2,000)를
+#                             넘고, CPU 질의 p95 가 551.9ms 다. 이긴 축이 하나도 없었다.
+#   Qwen/Qwen3-Embedding-0.6B dtype 을 fp32 로 맞추면 가장 느리고(p95 235.8ms) VRAM 도
+#                             가장 많다(2929MB). 모델 카드 기본 bf16 이 유리해 보이게 했다.
+# MLflow experiment `search-eval-fp32` / `search-eval-dims` 에 run 이 남아 있다.
 
 # 지연·처리량 전용 합성 장면 텍스트. 캡션 + 대사 형태이고 OCR 은 넣지 않는다(FRD §11).
 # **라벨이 아니다** — 길이 분포만 현실적이면 되는 자리라서 내용의 진위는 무관하다.
@@ -98,7 +130,7 @@ INDEX_CORPUS_SIZE = 2_200
 
 
 # ── 검색 지표 ────────────────────────────────────────────────────────
-# 골드셋이 있을 때만 쓴다. --self-check 가 이 셋을 검증한다.
+# 골드셋이 있을 때만 쓴다. 단위 테스트는 tests/test_embedding_metrics.py.
 
 
 def recall_at_k(ranked: list[int], relevant: set[int], k: int) -> float:
@@ -130,46 +162,6 @@ def reciprocal_rank(ranked: list[int], relevant: set[int]) -> float:
     return 0.0
 
 
-def self_check() -> None:
-    """지표 3종을 손으로 계산한 값과 맞춘다. 모델도 GPU 도 필요 없다."""
-    ranked = [7, 3, 1, 9, 2]
-    relevant = {3, 2}
-
-    assert recall_at_k(ranked, relevant, 10) == 1.0
-    assert recall_at_k(ranked, relevant, 2) == 0.5  # 상위 2개 중 3만 정답
-    assert recall_at_k(ranked, relevant, 1) == 0.0
-
-    assert precision_at_k(ranked, relevant, 2) == 0.5  # 2개 중 1개
-    assert precision_at_k(ranked, relevant, 10) == 0.2  # 10칸 중 2개 — 분모는 k 로 고정
-    # 정답이 k 보다 많으면 recall 은 눌리고 precision 은 살아 있다
-    many = set(range(100))
-    assert recall_at_k(list(range(100)), many, 10) == 0.1
-    assert precision_at_k(list(range(100)), many, 10) == 1.0
-
-    # 정답이 2위·5위 → DCG = 1/log2(3) + 1/log2(6), IDCG = 1/log2(2) + 1/log2(3)
-    expected = (1 / np.log2(3) + 1 / np.log2(6)) / (1 / np.log2(2) + 1 / np.log2(3))
-    assert abs(ndcg_at_k(ranked, relevant, 10) - expected) < 1e-9
-    # 완벽한 순위는 1.0
-    assert abs(ndcg_at_k([3, 2, 7], relevant, 10) - 1.0) < 1e-9
-    # 정답이 하나도 안 들어오면 0
-    assert ndcg_at_k([7, 1, 9], relevant, 10) == 0.0
-
-    assert reciprocal_rank(ranked, relevant) == 0.5  # 3 이 2위
-    assert reciprocal_rank([7, 1, 9], relevant) == 0.0
-
-    # truncate: 자른 뒤 단위 벡터여야 한다. 재정규화를 빼면 여기서 걸린다.
-    v = np.array([[3.0, 4.0, 12.0], [1.0, 0.0, 0.0]])
-    v = v / np.linalg.norm(v, axis=1, keepdims=True)
-    cut = truncate(v, 2)
-    assert cut.shape == (2, 2)
-    assert np.allclose(np.linalg.norm(cut, axis=1), 1.0)
-    assert np.allclose(cut[0], [0.6, 0.8])  # 3,4 를 살린 뒤 정규화 -> 3-4-5 삼각형
-    # 0 벡터가 되는 경우에도 나눗셈이 터지지 않아야 한다
-    assert np.all(np.isfinite(truncate(np.array([[0.0, 0.0, 1.0]]), 2)))
-
-    print("self-check OK — recall/ndcg/mrr + truncate 통과")
-
-
 # ── 측정 ─────────────────────────────────────────────────────────────
 
 
@@ -180,6 +172,28 @@ class Result:
     metrics: dict[str, float] = field(default_factory=dict)
     # 질의별 ndcg@10. 모델 간 짝지은 비교(compare.py)용이며 MLflow 에는 싣지 않는다.
     per_query: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _host_info() -> dict[str, Any]:
+    """측정 장비를 남긴다.
+
+    CPU_THREADS=4 로 EC2 4 vCPU 를 흉내내는 설계라서 **어떤 CPU 의 4스레드였는지가
+    그 설계의 전제**다. 이걸 안 남기면 지연 수치가 모델 특성인지 장비 차이인지
+    결과 파일만으로 구분할 수 없다(2026-09-11 리뷰 지적).
+    """
+    info: dict[str, Any] = {
+        "host_platform": f"{platform.system()} {platform.machine()}",
+        "host_cpu": platform.processor() or "unknown",
+        "host_cpu_count": os.cpu_count() or 0,
+    }
+    try:
+        import torch
+
+        info["host_gpu"] = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "none"
+        info["torch_version"] = torch.__version__
+    except Exception:
+        info["host_gpu"] = "unknown"
+    return info
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -199,14 +213,33 @@ def _resolve_prefix(model: Any, spec: ModelSpec) -> tuple[str, str]:
     return spec.query_prefix, "spec_literal" if spec.query_prefix else "none"
 
 
-def _revision(repo: str) -> str:
-    """태그가 아니라 커밋 해시를 남긴다. 태그는 조용히 움직인다."""
-    try:
-        from huggingface_hub import HfApi
+def _revision(model: Any, repo: str) -> str:
+    """**로드된 모델**의 커밋 해시를 남긴다.
 
-        return HfApi().model_info(repo).sha or "unknown"
-    except Exception:  # 오프라인·권한 등 — 측정 자체를 막을 이유는 아니다
-        return "unknown"
+    전에는 `HfApi().model_info(repo).sha` 로 현재 main 의 sha 를 따로 조회했는데, 그건
+    로드된 가중치와 다를 수 있다 — 로컬 캐시가 옛 커밋이면 기록된 sha 가 거짓말을 한다.
+    "태그는 조용히 움직인다"를 막으려고 sha 를 남기는 건데 그 sha 자체가 조회 시점의
+    것이면 의미가 없다. 그래서 로드된 config 에서 꺼낸다.
+
+    확실히 하려면 `ModelSpec.revision` 으로 핀하는 쪽이 낫다. 핀하면 이 값과 항상 같다.
+    """
+    for obj in (model[0] if len(model) else None, model):
+        cfg = getattr(getattr(obj, "auto_model", None), "config", None)
+        sha = getattr(cfg, "_commit_hash", None)
+        if sha:
+            return str(sha)
+    # config 에 없으면 스냅샷 경로에서 캐낸다(HF 캐시는 snapshots/<sha>/ 구조다).
+    for attr in ("model_card_vars", "_model_card_vars"):
+        if getattr(model, attr, None):
+            break
+    path = Path(getattr(model, "model_card_path", "") or "").resolve()
+    if path.parent.parent.name == "snapshots":
+        return path.parent.name
+    print(
+        f"  경고: {repo} 의 커밋 해시를 확인하지 못했다 — 재현 시 리비전이 다를 수 있다",
+        file=sys.stderr,
+    )
+    return "unknown"
 
 
 def benchmark(
@@ -227,7 +260,11 @@ def benchmark(
     # dtype 을 안 주면 모델 카드의 torch_dtype 이 쓰인다 — 그러면 모델마다 달라져서
     # 지연·VRAM 비교가 공정하지 않다(2026-09-11: Qwen 만 bf16, 나머지 fp32 로 로드돼
     # Qwen 이 VRAM 38% 적게 나왔다). 비교할 때는 명시적으로 하나로 맞춘다.
+    # trust_remote_code=True 는 HF 리포의 임의 코드를 실행한다. spec.revision 으로
+    # 핀하면 그 시점 코드로 고정되므로 위험이 줄어든다 — 후보를 확정했으면 핀해둔다.
     kwargs: dict[str, Any] = {"device": "cpu", "trust_remote_code": True}
+    if spec.revision:
+        kwargs["revision"] = spec.revision
     if dtype:
         kwargs["model_kwargs"] = {"torch_dtype": getattr(torch, dtype)}
 
@@ -241,7 +278,8 @@ def benchmark(
 
     result.params = {
         "model": spec.repo,
-        "model_revision": _revision(spec.repo),
+        "model_revision": _revision(model, spec.repo),
+        "revision_pinned": bool(spec.revision),
         "embedding_dim": dim,
         "max_seq_length": model.max_seq_length,
         "params_m": round(n_params / 1e6, 1),
@@ -256,8 +294,12 @@ def benchmark(
     warmup = queries[:2]
     model.encode([prefix + q for q in warmup], batch_size=1, show_progress_bar=False)
 
+    # 표본 수가 지표의 안정성을 정한다. 60 표본(20 x 3)으로 쟀을 때 **같은 모델·같은
+    # dtype·같은 host 인데 run 간 p95 가 111.0~137.6ms 로 24% 흔들렸다**(2026-09-11).
+    # p95 가 사실상 "세 번째로 느린 값"이라 단일 outlier 가 그대로 지표가 된 탓이다.
+    # 모델 간 차이(약 10ms)보다 run 간 변동이 커서 선정 근거로 쓸 수 없었다.
     latencies: list[float] = []
-    for _ in range(3):  # 질의 20건 x 3회 = 60 표본
+    for _ in range(LATENCY_REPEATS):
         for q in queries:
             t = time.perf_counter()
             model.encode(prefix + q, show_progress_bar=False)
@@ -266,6 +308,10 @@ def benchmark(
     result.metrics["query_embed_p50_ms"] = round(statistics.median(latencies), 1)
     result.metrics["query_embed_p95_ms"] = round(_percentile(latencies, 95), 1)
     result.metrics["query_embed_max_ms"] = round(max(latencies), 1)
+    # 지연을 비교에 쓰려면 이 둘을 함께 봐야 한다. 표준편차가 모델 간 차이보다 크면
+    # 그 run 의 지연 수치로는 순위를 말할 수 없다.
+    result.metrics["query_embed_stdev_ms"] = round(statistics.stdev(latencies), 1)
+    result.metrics["query_embed_samples"] = len(latencies)
 
     # ── GPU 색인 처리량·peak VRAM ──
     if torch.cuda.is_available():
@@ -375,7 +421,8 @@ def _score_vecs(
         if not relevant:
             continue  # 정답이 코퍼스에 없는 질의는 분모가 0 이라 건너뛴다
         col = scores[:, i]
-        top = np.argpartition(-col, TOP_K)[:TOP_K]
+        kth = min(TOP_K, len(col) - 1)  # 코퍼스가 TOP_K 이하면 kth out of bounds
+        top = np.argpartition(-col, kth)[:TOP_K]
         ranked = [int(d) for d in top[np.argsort(-col[top])]]
 
         bucket = by_level.setdefault(q.get("level", "all"), {})
@@ -405,6 +452,11 @@ def _score_vecs(
 
 
 def load_queries() -> list[str]:
+    if not QUERY_FIXTURE.exists():
+        raise SystemExit(
+            f"질의 fixture 가 없다: {QUERY_FIXTURE}\n"
+            "리졸버가 v3 를 내면 이 경로가 바뀐다. 새 파일명으로 QUERY_FIXTURE 를 고칠 것."
+        )
     data = json.loads(QUERY_FIXTURE.read_text(encoding="utf-8"))
     return [q["query"] for q in data["queries"]]
 
@@ -416,6 +468,34 @@ def load_gold(path: Path | None) -> dict | None:
     if not gold.get("scenes") or not gold.get("queries"):
         raise SystemExit(f"{path}: scenes·queries 가 모두 있어야 한다")
     return gold
+
+
+def gold_params(gold: dict | None, path: Path | None) -> dict[str, Any]:
+    """골드셋을 **어떻게 만들었는지**를 결과에 남긴다.
+
+    골드셋 파일 자체는 저장소에 없다(AI-Hub/KBS 자막 원문). 그래서 재현이 전적으로
+    build_gold.py + seed + CLI 인자에 달리는데, 전에는 `dataset_hash` 12자만 남겼다 —
+    그 해시는 gold 파일이 있어야 검증되고 그 파일이 바로 gitignore 대상이라, 사실상
+    아무 것도 기록하지 않은 것과 같았다(2026-09-11 리뷰 지적).
+
+    build_gold.py 가 이미 source/seed/category 를 gold JSON 에 넣으므로 그대로 옮긴다.
+    """
+    if not gold:
+        return {"gold_file": "none"}
+    params: dict[str, Any] = {
+        "gold_file": path.name if path else "unknown",
+        "gold_source": gold.get("source", "unknown"),
+        "gold_seed": gold.get("seed", "unknown"),
+        "gold_corpus_size": len(gold.get("scenes", [])),
+        "gold_query_count": len(gold.get("queries", [])),
+    }
+    if gold.get("category"):
+        params["gold_category"] = gold["category"]
+    levels: dict[str, int] = {}
+    for q in gold.get("queries", []):
+        levels[q.get("level", "all")] = levels.get(q.get("level", "all"), 0) + 1
+    params["gold_levels"] = ",".join(f"{k}:{v}" for k, v in sorted(levels.items()))
+    return params
 
 
 def dataset_hash(gold: dict | None) -> str:
@@ -480,7 +560,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="한국어 임베딩 모델 비교 (S15P21A501-175)")
     parser.add_argument("--gold", type=Path, help="골드셋 JSON. 없으면 검색 품질은 건너뛴다")
     parser.add_argument("--experiment", default="search-eval-dev")
-    parser.add_argument("--tracking-uri", default="http://127.0.0.1:5000")
+    # env 우선. 팀 서버는 EC2 의 /mlflow 이고 nginx basic auth 뒤에 있다 —
+    # MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD 를 함께 넘겨야 한다.
+    parser.add_argument(
+        "--tracking-uri", default=os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
+    )
     parser.add_argument("--no-mlflow", action="store_true", help="콘솔 출력만")
     parser.add_argument("--models", nargs="*", help="기본 후보 3종 대신 지정한 repo 만")
     parser.add_argument(
@@ -496,15 +580,10 @@ def main() -> None:
         choices=["float32", "float16", "bfloat16"],
         help="모델 dtype 을 하나로 맞춘다. 생략하면 모델 카드 기본값",
     )
-    parser.add_argument("--self-check", action="store_true", help="지표 검증만 하고 끝낸다")
     args = parser.parse_args()
 
     # Windows 기본 콘솔이 cp949 라 한글·em dash 출력에서 죽는다. 측정 결과를 잃을 이유가 없다.
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-
-    if args.self_check:
-        self_check()
-        return
 
     specs = [ModelSpec(m) for m in args.models] if args.models else CANDIDATES
     queries = load_queries()
@@ -512,9 +591,13 @@ def main() -> None:
     ds_hash = dataset_hash(gold)
 
     if not gold:
-        print(
-            "골드셋 없음 → recall/ndcg/mrr 건너뜀 (S15P21A501-104 대기). 지연·VRAM·차원만 측정한다."
-        )
+        print("골드셋 없음 → recall/ndcg/mrr 건너뜀. 지연·VRAM·차원만 측정한다.")
+        if args.dims:
+            # 차원 스윕은 골드셋 채점을 잘라서 재는 것이라 --gold 없이는 할 일이 없다.
+            print(
+                f"  경고: --dims {args.dims} 는 --gold 없이는 아무 일도 하지 않는다.",
+                file=sys.stderr,
+            )
 
     mlflow = None
     if not args.no_mlflow:
@@ -524,12 +607,14 @@ def main() -> None:
         mlflow.set_tracking_uri(args.tracking_uri)
         mlflow.set_experiment(args.experiment)
 
+    host = _host_info()
     results: list[Result] = []
     for spec in specs:
         print(f"\n=== {spec.repo} ===")
         for result in benchmark(spec, queries, gold, args.dims, args.dtype):
             result.params["dataset_hash"] = ds_hash
-            result.params["host"] = f"{platform.system()} {platform.machine()}"
+            result.params.update(gold_params(gold, args.gold))
+            result.params.update(host)
             results.append(result)
 
             dim = result.params["embedding_dim"]

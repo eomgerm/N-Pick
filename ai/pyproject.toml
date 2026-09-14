@@ -60,14 +60,14 @@ gpu = [
     "torch>=2.13,<3",
     "faster-whisper>=1.2,<2",
 ]
-# 임베딩 모델 비교(S15P21A501-175) 전용. eval/ 만 쓰고 워커 런타임은 건드리지 않는다 —
-# Dockerfile 의 `uv sync --no-dev` 에도, gpu 그룹에도 들어가지 않으므로 배포 이미지가
-# mlflow·sentence-transformers 를 받지 않는다.
-eval = [
-    "mlflow>=3.15,<4",
-    "sentence-transformers>=5,<6",
-    "torch>=2.13,<3",
-]
+# 임베딩 모델 비교(S15P21A501-175)의 의존성은 **이 프로젝트에 두지 않는다.**
+# eval/embedding/requirements.txt 를 별도 venv 에 설치해서 쓴다.
+#
+# 의존성 그룹으로 뒀다가 되돌렸다. 그룹은 설치 여부만 가르지만 uv.lock 은 패키지당 버전이
+# 하나다 — 평가용 mlflow 를 넣자 mlflow-skinny → opentelemetry-proto 를 거쳐 protobuf 가
+# 7.36.1 에서 6.33.6 으로 내려갔고, 그 protobuf 는 런타임 의존인 onnxruntime(OCR)이 쓴다.
+# 배포 이미지는 mlflow 를 안 받지만 내려간 protobuf 는 받는다. 평가 도구가 제품 런타임의
+# 버전을 움직이는 경로라서 lock 자체를 분리했다.
 
 [tool.uv]
 required-version = ">=0.12"

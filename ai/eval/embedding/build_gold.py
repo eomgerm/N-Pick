@@ -113,7 +113,10 @@ def build(source: Path, curation_path: Path, summary_queries: int, seed: int) ->
                 }
             )
 
-    # ── category: 날짜와 무관한 의미 검색. 모델이 갈리는 자리 ──
+    # ── category: 날짜와 무관한 의미 검색 ──
+    # 축 질의는 event 레벨과 달리 `event_ready` 를 거르지 않는다. 의도한 비대칭이다 —
+    # `event_ready` 는 "그 사건 하나로 질의가 성립하는가"인데, 축 질의는 전 사건의
+    # 클립을 합쳐 하나의 주제로 묻기 때문에 개별 사건의 성립 여부와 무관하다.
     for key, text in AXIS_QUERIES.items():
         relevant = sorted({c for e in curation["events"] for c in e.get(key, [])} & usable)
         if relevant:
@@ -242,7 +245,9 @@ def main() -> None:
         help="curation=큐레이션 3레벨, broad=전체 무작위, hard=한 카테고리 한정",
     )
     parser.add_argument("--category", default="사건사고뉴스", help="hard 모드 카테고리")
-    parser.add_argument("--corpus-size", type=int, default=50_000, help="broad 모드 코퍼스 크기")
+    parser.add_argument(
+        "--corpus-size", type=int, default=50_000, help="broad·hard 모드 코퍼스 크기"
+    )
     parser.add_argument("--summary-queries", type=int, default=300)
     parser.add_argument("--seed", type=int, default=175)
     args = parser.parse_args()
