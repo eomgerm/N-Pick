@@ -1,6 +1,6 @@
 """VLM 단계가 **모델에게 요구하는** 출력 계약 (FRD F-03 영상 설명 생성, F-04 태그와 근거).
 
-`stages.py` 3단계 `vlm_metadata` 의 필수 출력은 "schema-valid metadata·confidence·frame
+`stages.py`의 `vlm_metadata` 의 필수 출력은 "schema-valid metadata·confidence·image/text
 evidence" 다. 이 파일이 그 schema 의 정본이고, 검증을 통과한 값의 어휘는 `models.py` 에 있다.
 
 두 층을 나누는 이유는 `query_resolver` 와 같다 — 검증되지 않은 값이 정본으로 새는 경로를
@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 #: `query_resolver/schema.py` 와 같은 판단이다. 해시로 만들면 주석 한 줄만 고쳐도 값이
 #: 달라져 "호환된다" 를 표현할 방법이 없다. 필드가 늘거나 의미가 바뀔 때만 올린다.
 #: FRD F-14 의 출력 형식 비호환 처리를 지원한다.
-SCHEMA_VERSION: Final[str] = "vlm-metadata/v1"
+SCHEMA_VERSION: Final[str] = "vlm-metadata/v2"
 
 #: `scene.shot_type` 의 값. **태그가 아니라 컬럼이다** (`docs/frd.md:159`).
 #: 분류값 중 유일하게 칸으로 남은 것이라(baseline 의 컬럼 주석) 어휘가 FRD 에 확정돼 있다.
@@ -59,12 +59,12 @@ TagCandidateType = Literal[
     "scene_type",
 ]
 
-#: 근거 keyframe 을 가리키는 이름. 프롬프트가 이미지마다 이 형식의 라벨을 붙여 준다.
+#: 입력 이미지·OCR·대사를 가리키는 이름. 프롬프트가 이미지마다 이 형식의 라벨을 붙여 준다.
 #:
 #: **모델에게 `timestamp_ms` 를 말하게 하지 않는다.** 그 값은 화면에 없으므로 물으면
 #: 지어낸다. 라벨은 우리가 준 것이라 대조가 가능하고, 실제 keyframe 으로 되돌리는 일은
 #: `validator.py` 가 한다.
-EVIDENCE_LABEL_PATTERN: Final[str] = r"^kf_[0-9]+$"
+EVIDENCE_LABEL_PATTERN: Final[str] = r"^(kf|ocr|tr)_[0-9]+$"
 
 #: 근거 라벨의 타입. 모양이 다른 문자열은 pydantic 이 먼저 거부한다 — 모양이 맞는데 입력에
 #: 없는 라벨(`kf_9` 을 3장만 준 장면에서)을 거부하는 일은 `validator.py` 가 한다.
@@ -78,7 +78,7 @@ class _Raw(BaseModel):
 
 
 class RawJudgement(_Raw):
-    """판단 하나의 공통 부분 — 신뢰도와 근거 프레임.
+    """판단 하나의 공통 부분 — 신뢰도와 원본 근거.
 
     둘 다 필수인 이유가 다르다. `confidence` 는 `tag_evidence.confidence` 가 될 값이고,
     `evidence` 는 FRD F-04 의 "값만 저장하지 않고 출처와 확인 가능한 근거 위치를 연결한다"

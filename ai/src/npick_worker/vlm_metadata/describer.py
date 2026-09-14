@@ -8,6 +8,7 @@
 요구하는 입력 단위도 "scene 의 selected keyframe 들" 이다.
 """
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ from pathlib import Path
 from npick_worker import korean_tokens
 from npick_worker.vlm_metadata.client import LabeledImage, VlmClient
 from npick_worker.vlm_metadata.config import VlmMetadataConfig, get_default_config
+from npick_worker.vlm_metadata.grounding import prepare_grounding
 from npick_worker.vlm_metadata.models import (
     KeyframeRef,
     SceneKeyframes,
@@ -95,6 +97,18 @@ def describe_scene(
     """
     config = cfg if cfg is not None else get_default_config()
     selected = select_keyframes(scene, config)
+    grounding = prepare_grounding(
+        scene.scene_index,
+        scene.ocr,
+        scene.transcripts,
+        max_ocr_chars=config.max_ocr_chars,
+        max_transcript_chars=config.max_transcript_chars,
+    )
+    context_data = json.loads(grounding.text)
+    context_data["keyframes"] = [
+        {"label": label_for(position), "timestampMs": keyframe.timestamp_ms}
+        for position, keyframe in enumerate(selected)
+    ]
     images = tuple(
         LabeledImage(label=label_for(position), path=_image_path(keyframe, image_paths))
         for position, keyframe in enumerate(selected)
@@ -102,11 +116,13 @@ def describe_scene(
     raw_output = client.describe(
         images,
         render_system_prompt(config),
-        render_user_prompt(config, len(images)),
+        render_user_prompt(config, len(images), json.dumps(context_data, ensure_ascii=False)),
         config.call,
     )
     try:
-        metadata = validate(parse_raw(raw_output), scene.scene_index, selected, config)
+        metadata = validate(
+            parse_raw(raw_output), scene.scene_index, selected, config, grounding.references
+        )
     except VlmSchemaInvalidError as exc:
         # 어휘·근거 검사에서 떨어진 경우 `validate` 는 원문을 모른다(`RawSceneMetadata` 만
         # 받는다). 원문을 아는 곳이 여기뿐이라 여기서 붙인다 — 거부된 출력이야말로 프롬프트를

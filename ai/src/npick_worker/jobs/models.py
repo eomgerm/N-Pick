@@ -18,6 +18,7 @@ if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(scene_
     from npick_worker.frame_extraction.models import FrameExtractionResult
     from npick_worker.ocr.models import OcrResult
     from npick_worker.scene_detection.models import SceneDetectionResult
+    from npick_worker.vlm_metadata.grounding import OcrRef, TranscriptRef
     from npick_worker.vlm_metadata.models import KeyframeRef as VlmKeyframeRef
     from npick_worker.vlm_metadata.models import VlmResult
 
@@ -547,11 +548,12 @@ class OcrOutput(WireModel):
 class VlmMetadataUpstream(WireResponse):
     """`inputs.upstream` 중 `vlm_metadata` 가 쓰는 부분.
 
-    `ocr` 과 같은 상류를 쓴다. 없으면 이 단계는 무엇을 볼지 모르고, 빈 결과를 성공으로
-    반납하면 "이 영상에는 설명할 장면이 없다" 는 거짓이 정본에 남으므로 필수로 둔다.
+    키프레임은 필수이고 OCR은 비치명 상류의 선택 입력이다.
+    대사는 jobs.transcripts의 장면 매핑 계약과 기존 artifact 로더로 연결한다.
     """
 
     frame_extraction: UpstreamFrameExtraction
+    ocr: OcrOutput | None = None
 
 
 class EvidenceKeyframeOut(WireModel):
@@ -569,6 +571,28 @@ class EvidenceKeyframeOut(WireModel):
     storage_key: str = Field(min_length=1)
 
 
+class EvidenceOcrOut(WireModel):
+    """현재 run의 OCR observations 원소와 원본 프레임을 가리킨다."""
+
+    source_ref_type: Literal["ocr_observation"] = "ocr_observation"
+    scene_index: int = Field(ge=0)
+    timestamp_ms: int = Field(ge=0)
+    storage_key: str = Field(min_length=1)
+    observation_index: int = Field(ge=0)
+
+
+class EvidenceTranscriptOut(WireModel):
+    """scene 근거와 기존 snapshot/segmentId를 보존한다. DB ID를 생성하지 않는다."""
+
+    source_ref_type: Literal["scene"] = "scene"
+    scene_index: int = Field(ge=0)
+    storage_key: str = Field(min_length=1)
+    segment_id: str = Field(min_length=1)
+    s: int = Field(ge=0)
+    e: int = Field(gt=0)
+    source_detail: Literal["uploaded", "embedded", "asr"]
+
+
 class CaptionOut(WireModel):
     """`scene.caption`·`scene.caption_tokens` 가 될 값."""
 
@@ -578,7 +602,9 @@ class CaptionOut(WireModel):
     #: 설정의 식별자를 함께 싣는다(`ocr` 과 같은 규약).
     tokens: str
     confidence: float = Field(ge=0, le=1)
-    evidence: Sequence[EvidenceKeyframeOut] = Field(min_length=1)
+    evidence: Sequence[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut] = Field(
+        min_length=1
+    )
 
 
 class ShotTypeOut(WireModel):
@@ -615,7 +641,9 @@ class TagCandidateOut(WireModel):
     ]
     value: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
-    evidence: Sequence[EvidenceKeyframeOut] = Field(min_length=1)
+    evidence: Sequence[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut] = Field(
+        min_length=1
+    )
 
 
 class SceneMetadataOut(WireModel):
@@ -654,7 +682,7 @@ class VlmMetadataOutput(WireModel):
                     shot_type=ShotTypeOut(
                         value=scene.shot_type.value,
                         confidence=scene.shot_type.confidence,
-                        evidence=_evidence(scene.shot_type.evidence),
+                        evidence=_shot_evidence(scene.shot_type.evidence),
                     ),
                     caption=(
                         None
@@ -682,13 +710,31 @@ class VlmMetadataOutput(WireModel):
         )
 
 
-def _evidence(keyframes: Sequence["VlmKeyframeRef"]) -> list[EvidenceKeyframeOut]:
-    """근거 keyframe 을 와이어 모양으로. 조립을 한 곳에 둔다."""
-    return [
-        EvidenceKeyframeOut(
-            scene_index=keyframe.scene_index,
-            timestamp_ms=keyframe.timestamp_ms,
-            storage_key=keyframe.storage_key,
-        )
-        for keyframe in keyframes
-    ]
+def _shot_evidence(
+    references: Sequence["VlmKeyframeRef | OcrRef | TranscriptRef"],
+) -> list[EvidenceKeyframeOut]:
+    result: list[EvidenceKeyframeOut] = []
+    for ref in _evidence(references):
+        if not isinstance(ref, EvidenceKeyframeOut):
+            raise ValueError("shot_type에 텍스트 근거를 반환할 수 없다")
+        result.append(ref)
+    return result
+
+
+def _evidence(
+    keyframes: Sequence["VlmKeyframeRef | OcrRef | TranscriptRef"],
+) -> list[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut]:
+    """키프레임·OCR·대사 근거를 와이어 모양으로 옮긴다."""
+    from dataclasses import asdict
+
+    from npick_worker.vlm_metadata.grounding import OcrRef, TranscriptRef
+
+    result: list[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut] = []
+    for ref in keyframes:
+        if isinstance(ref, OcrRef):
+            result.append(EvidenceOcrOut(**asdict(ref)))
+        elif isinstance(ref, TranscriptRef):
+            result.append(EvidenceTranscriptOut(**asdict(ref)))
+        else:
+            result.append(EvidenceKeyframeOut(**asdict(ref)))
+    return result

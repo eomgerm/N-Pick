@@ -667,13 +667,13 @@ def test_vlm_stage_reports_every_version_and_metric(
 
     versions = outcome.versions
     assert versions.stage_version.startswith("npick.stage.vlm_metadata/v1:")
-    assert versions.output_schema_version == "npick.stage.vlm_metadata.output/v1"
+    assert versions.output_schema_version == "npick.stage.vlm_metadata.output/v2"
     assert versions.config_version is not None
-    assert versions.config_version.startswith("vlm-metadata-config/v1:")
+    assert versions.config_version.startswith("vlm-metadata-config/v2:")
     # 앞의 세 단계에서 비어 있던 두 키가 여기서 처음 채워진다.
     assert versions.model_version == "fake-model@0"
     assert versions.prompt_version is not None
-    assert versions.prompt_version.startswith("vlm-metadata-prompt/v1:")
+    assert versions.prompt_version.startswith("vlm-metadata-prompt/v2:")
     assert versions.detail["tokenizer"]
     assert "configVersion" not in versions.detail
 

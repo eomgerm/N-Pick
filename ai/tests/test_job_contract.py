@@ -758,16 +758,24 @@ def test_vlm_output_allows_a_scene_without_a_caption() -> None:
 
 def test_vlm_config_version_matches_recorded_vector() -> None:
     """`vlm_metadata.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
-    from npick_worker.vlm_metadata import get_default_config
+    from npick_worker.vlm_metadata import load_config
+    from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH
 
-    assert get_default_config().version_id == "vlm-metadata-config/v1:13d50f07"
+    assert (
+        load_config(DEFAULT_CONFIG_PATH.with_name("vlm_metadata.v1.toml")).version_id
+        == "vlm-metadata-config/v1:13d50f07"
+    )
 
 
 def test_vlm_prompt_version_matches_recorded_vector() -> None:
     """**렌더링된** 프롬프트의 벡터다. 어휘를 고치면 템플릿이 그대로여도 바뀐다."""
-    from npick_worker.vlm_metadata import get_default_config, prompt_version
+    from npick_worker.vlm_metadata import load_config, prompt_version
+    from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH
 
-    assert prompt_version(get_default_config()) == "vlm-metadata-prompt/v1:78a02dbd"
+    assert (
+        prompt_version(load_config(DEFAULT_CONFIG_PATH.with_name("vlm_metadata.v1.toml")))
+        == "vlm-metadata-prompt/v1:78a02dbd"
+    )
 
 
 def test_vlm_stage_version_matches_recorded_vector() -> None:

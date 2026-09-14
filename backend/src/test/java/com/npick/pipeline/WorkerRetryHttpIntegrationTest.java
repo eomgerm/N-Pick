@@ -67,7 +67,9 @@ class WorkerRetryHttpIntegrationTest {
                         stage,
                         Map.of(
                                 "status",
-                                run == 916 && PipelineStages.NAMES.indexOf(stage) < 5 ? "succeeded" : "pending",
+                                run == 916 && PipelineStages.NAMES.indexOf(stage) < PipelineStages.NAMES.indexOf("asr")
+                                        ? "succeeded"
+                                        : "pending",
                                 "attempts",
                                 0,
                                 "expectedStageVersion",

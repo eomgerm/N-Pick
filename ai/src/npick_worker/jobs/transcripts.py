@@ -47,6 +47,54 @@ class TranscriptDecisions(WireModel):
     decisions: list[TranscriptDecision]
 
 
+class TranscriptSnapshot(WireModel):
+    """원본과 최종 채택 결과의 기존 artifact 참조."""
+
+    segments_artifact: ArtifactRef
+    decisions_artifact: ArtifactRef
+
+    @model_validator(mode="after")
+    def artifact_kinds(self) -> "TranscriptSnapshot":
+        if self.segments_artifact.kind != "transcript_segments":
+            raise ValueError("invalid segments artifact kind")
+        if self.decisions_artifact.kind != "transcript_decisions":
+            raise ValueError("invalid decisions artifact kind")
+        if self.segments_artifact.storage_key == self.decisions_artifact.storage_key:
+            raise ValueError("snapshot artifacts must have distinct storage keys")
+        return self
+
+
+class MappedSegment(WireModel):
+    segment_id: str = Field(min_length=1)
+    overlap_ms: StrictInt = Field(gt=0)
+
+
+class SceneTranscriptLinks(WireModel):
+    scene_index: StrictInt = Field(ge=0)
+    segments: list[MappedSegment]
+
+    @model_validator(mode="after")
+    def unique_links(self) -> "SceneTranscriptLinks":
+        ids = [segment.segment_id for segment in self.segments]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate segment in scene")
+        return self
+
+
+class SceneTranscriptMappingOutput(WireModel):
+    """장면 연결 결과 계약. 선택·겹침 계산은 생산 단계가 담당한다."""
+
+    transcript: TranscriptSnapshot
+    scenes: list[SceneTranscriptLinks] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def unique_scenes(self) -> "SceneTranscriptMappingOutput":
+        ids = [scene.scene_index for scene in self.scenes]
+        if len(ids) != len(set(ids)):
+            raise ValueError("duplicate scene in transcript mapping")
+        return self
+
+
 def validate_snapshot(
     segments_ref: ArtifactRef,
     segments: TranscriptSegments,
@@ -81,6 +129,10 @@ def validate_snapshot(
 
 
 def transcript_refs(upstream: Mapping[str, Any]) -> tuple[ArtifactRef, ...]:
+    # 상위 transcript 별칭이 이전 snapshot이어도 최종 매핑의 참조가 정본이다.
+    if "scene_transcript_mapping" in upstream:
+        mapping = SceneTranscriptMappingOutput.model_validate(upstream["scene_transcript_mapping"])
+        return (mapping.transcript.segments_artifact, mapping.transcript.decisions_artifact)
     transcript = upstream.get("transcript")
     if transcript is None:
         return ()

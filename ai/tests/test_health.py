@@ -12,11 +12,11 @@ from npick_worker.jobs.runner import JobRunner
 EXPECTED_STAGE_NAMES = [
     "scene_detection",
     "frame_extraction",
-    "vlm_metadata",
     "ocr",
     "transcript_selection",
     "asr",
     "scene_transcript_mapping",
+    "vlm_metadata",
     "entity_extraction",
     "text_embedding",
     "indexing",
