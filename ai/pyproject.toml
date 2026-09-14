@@ -130,7 +130,14 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
-module = ["torch.*", "numpy.*", "transformers.*", "huggingface_hub.*", "PIL.*"]
+module = [
+    "torch.*",
+    "numpy.*",
+    "transformers.*",
+    "huggingface_hub.*",
+    "PIL.*",
+    "faster_whisper.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
