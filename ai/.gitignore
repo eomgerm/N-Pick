@@ -37,3 +37,11 @@ samples/*
 # ground truth 는 사람이 화면을 보고 적은 라벨이라 영상이 아니다. 이것이 없으면
 # docs/ocr.md 의 재현율·임계값 표를 아무도 다시 잴 수 없다.
 !samples/ocr-ground-truth.*.json
+!samples/asr-ground-truth.*.json
+# ASR 표본(A1~A3)은 합성물이라 **결과물 대신 만드는 법을 커밋한다.** wav 는 원본
+# 방송분의 오디오 조각을 담고 있어 영상과 같은 취급이고, 씨앗과 자르는 위치가 고정돼
+# 있어 누가 돌려도 같은 파일이 나온다. 이것이 없으면 docs/asr.md §5 를 다시 못 잰다.
+!samples/build_asr_samples.py
+# 그 라벨도 같은 이유로 뺀다 — 위 스크립트가 상수에서 계산해 내는 파생물이라 사람이 담은
+# 정보가 없다. 사람이 듣고 적은 라벨(A4 등)만 위 규칙으로 커밋된다.
+samples/asr-ground-truth.asr-A[123]-*.json
