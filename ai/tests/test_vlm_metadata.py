@@ -239,7 +239,9 @@ def test_prompt_hides_the_dedicated_tag_type() -> None:
     assert "person" in prompt_tag_types()
     rendered = render_system_prompt(get_default_config())
     tag_line = next(
-        line for line in rendered.splitlines() if "tag_candidates" in line and "type" in line
+        line
+        for line in rendered.splitlines()
+        if "쓸 수 있는 값:" in line and "tag_candidates" in line
     )
     assert "scene_type" not in tag_line.split("쓸 수 있는 값:")[-1]
 
@@ -443,6 +445,58 @@ def test_too_many_tag_candidates_is_rejected() -> None:
     ]
     with pytest.raises(VlmSchemaInvalidError, match="상한을 넘는다"):
         validate(parse_raw(_raw(tag_candidates=tags)), 0, _scene().keyframes, config)
+
+
+@pytest.mark.parametrize("has_scene_type", [False, True])
+def test_tag_limit_includes_scene_type(has_scene_type: bool) -> None:
+    config = get_default_config()
+    count = config.max_tag_candidates_per_scene - int(has_scene_type)
+    tags = [
+        {"type": "keyword", "value": f"값{i}", "confidence": 0.5, "evidence": ["kf_1"]}
+        for i in range(count + 1)
+    ]
+    scene_type = _payload()["scene_type"] if has_scene_type else None
+    accepted = validate(
+        parse_raw(_raw(scene_type=scene_type, tag_candidates=tags[:count])),
+        0,
+        _scene().keyframes,
+        config,
+    )
+    assert len(accepted.tag_candidates) == config.max_tag_candidates_per_scene
+    with pytest.raises(VlmSchemaInvalidError, match="상한을 넘는다"):
+        validate(
+            parse_raw(_raw(scene_type=scene_type, tag_candidates=tags)),
+            0,
+            _scene().keyframes,
+            config,
+        )
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_parse_error_keeps_raw_output_out_of_message(malformed: bool) -> None:
+    marker = "PRIVATE_NEWS_CONTENT"
+    payload = marker + "{" if malformed else _raw(caption=marker, **{marker: marker})
+    with pytest.raises(VlmSchemaInvalidError) as caught:
+        parse_raw(payload)
+    assert marker not in str(caught.value)
+    assert caught.value.raw_output == payload
+
+
+def test_denied_authorization_preserves_record() -> None:
+    request = ExternalCallRequest(
+        model="test/model",
+        endpoint="https://example.test",
+        payload_category="selected_keyframes",
+        payload_bytes=123,
+        clip_rights_confirmed=False,
+    )
+    with pytest.raises(ExternalProcessingNotAllowedError) as caught:
+        authorize(request, Settings())
+    record = caught.value.record
+    assert record.allowed is False
+    assert record.model == request.model
+    assert record.payload_bytes == 123
+    assert record.reason
 
 
 def test_valid_fields_of_an_invalid_output_are_not_partially_applied() -> None:

@@ -592,6 +592,60 @@ def test_vlm_rejects_upstream_without_frame_extraction() -> None:
         handler.required_inputs({})
 
 
+def test_vlm_capability_excludes_failed_warmup_until_recovered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from npick_worker.vlm_metadata import transformers_backend as backend
+    from npick_worker.vlm_metadata.client import VlmModelUnavailableError
+
+    client = backend.TransformersVlmClient("test/model", revision="main")
+    monkeypatch.setattr(registry, "_vlm_client", lambda _: client)
+    monkeypatch.setattr(backend.TransformersVlmClient, "version", property(lambda _: "fake"))
+    monkeypatch.setattr(registry, "HANDLERS", {"vlm_metadata": HANDLERS["vlm_metadata"]})
+
+    def fail(*args: object) -> object:
+        raise VlmModelUnavailableError("load failed")
+
+    monkeypatch.setattr(backend, "_load", fail)
+    assert warm_up(["vlm_metadata"]).ready is False
+    assert capability_versions() == {}
+    sha = "a" * 40
+    monkeypatch.setattr(backend, "_load", lambda *args: (object(), object(), sha))
+    assert warm_up(["vlm_metadata"]).ready is True
+    declared = capability_versions()["vlm_metadata"]
+    assert client.model_version == f"test/model@{sha}"
+    # 선언 조회가 모델을 다시 올리지 않으며 성공한 identity가 유지된다.
+    monkeypatch.setattr(backend, "_load", fail)
+    assert capability_versions()["vlm_metadata"] == declared
+
+
+def test_vlm_payload_preflight_uses_largest_scene_not_clip_sum(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upstream = _ocr_upstream((0, 1000), (0, 2000), (1, 3000), (1, 4000))
+    keys = registry._vlm_selected_keys(upstream)
+    files = _vlm_files(tmp_path, *keys)
+    sizes = []
+
+    def client(payload_bytes: int) -> _FakeVlmClient:
+        sizes.append(payload_bytes)
+        return _FakeVlmClient()
+
+    monkeypatch.setattr(registry, "_vlm_client", client)
+    ctx = StageContext(
+        stage="vlm_metadata",
+        video_path=None,
+        storage_key="clip.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="out/",
+        upstream=upstream,
+        upstream_files=files,
+    )
+    registry._run_vlm_metadata(ctx)
+    assert sizes == [2 * len(b"jpeg-bytes")]
+
+
 def test_vlm_stage_reports_every_version_and_metric(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -669,12 +723,20 @@ def test_unclassified_vlm_failure_is_not_labelled_a_schema_error() -> None:
     assert classify(RuntimeError("무슨 일인지 모른다"), "vlm_metadata") == ("STAGE_FAILED", True)
 
 
-def test_external_backend_fails_closed_before_sending(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_external_backend_fails_closed_before_sending(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """PRD §12.4 — 조건이 확인되지 않으면 전송 전에 멈춘다."""
     monkeypatch.setenv("NPICK_AI_VLM_BACKEND", "external")
     get_settings.cache_clear()
     try:
         with pytest.raises(ExternalProcessingRefusedError, match="clip 의 외부 처리 권리"):
             registry._vlm_client(1024)
+        record = next(r for r in caplog.records if hasattr(r, "authorization"))
+        assert record.authorization["allowed"] is False
+        assert record.authorization["payloadBytes"] == 1024
+        assert record.authorization["payloadCategory"] == "selected_keyframes"
+        assert "1024" in record.getMessage()
     finally:
         get_settings.cache_clear()

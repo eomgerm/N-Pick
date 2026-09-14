@@ -114,7 +114,7 @@ JSON 객체 하나만 출력한다. 설명 문장, 코드 블록 표시, 주석�
 6. `scene_type` 과 `shot_type` 은 아래 목록에 있는 값만 쓴다. 비슷한 다른 표현을 쓰지 않는다.
 7. `caption` 은 한국어 한두 문장, {caption_max_chars}자 이내로 쓴다. 화면에 보이는 것을
    적는다 — 뉴스의 의미나 배경 지식을 덧붙이지 않는다.
-8. `tag_candidates` 는 최대 {max_tag_candidates}개까지 낸다. 확실한 것부터 적고 없으면 빈
+8. `scene_type`이 null이 아니면 1개로 세어, `tag_candidates`와 합계 최대 {max_tag_candidates}개까지 낸다. 확실한 것부터 적고 없으면 빈
    배열로 둔다. **장면 유형은 여기 넣지 않는다** — `scene_type` 전용 필드로 낸다.
 
 `shot_type` 의 뜻:

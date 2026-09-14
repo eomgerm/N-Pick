@@ -62,6 +62,10 @@ class ExternalProcessingNotAllowedError(Exception):
 
     code = EXTERNAL_PROCESSING_NOT_ALLOWED
 
+    def __init__(self, message: str, record: "AuthorizationRecord") -> None:
+        super().__init__(message)
+        self.record = record
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderProfile:
@@ -177,7 +181,7 @@ def authorize(
         reason=reason,
     )
     if reason is not None:
-        raise ExternalProcessingNotAllowedError(f"외부 전송을 하지 않았다: {reason}")
+        raise ExternalProcessingNotAllowedError(f"외부 전송을 하지 않았다: {reason}", record)
     return record
 
 

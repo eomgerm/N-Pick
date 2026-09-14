@@ -263,7 +263,7 @@ Qwen3.6-27B는 같은 규모의 더 최근 후보 Qwen3.8-27B를 우선해 별�
 | --- | --- | --- |
 | `schema` | 설정 스키마 이름 | `config_version` 앞부분 |
 | `max_keyframes_per_scene` | 한 장면에서 모델에 넣을 최대 장 수 | VRAM·추론 시간·외부 payload 상한이 전부 여기 걸린다 |
-| `max_tag_candidates_per_scene` | 태그 후보 상한 | 프롬프트에도 같은 값이 나간다 |
+| `max_tag_candidates_per_scene` | `scene_type` 포함 전체 태그 후보 상한 | 중복 제거 전 검사하며 초과 시 전체 거부. 프롬프트에도 같은 값이 나간다 |
 | `caption_max_chars` | 설명 글자 수 상한 | 넘으면 자르지 않고 거부한다 |
 | `scene_type_vocabulary` | 장면 유형 닫힌 어휘 **초안** | 실측 후 확정 |
 | `call.temperature` | 0.0 | 품질이 아니라 **재현성** 때문이다(계약 §8 멱등성) |
@@ -286,6 +286,15 @@ Qwen3.6-27B는 같은 규모의 더 최근 후보 Qwen3.8-27B를 우선해 별�
 SHA가 들어간다**. `main` 같은 움직이는 ref를 그대로 남기면 원격이 갱신돼도 기록이 같아서,
 다른 가중치로 만든 결과가 같은 `modelVersion`·`stageVersion`을 달게 된다 — 재현도 처리 버전
 구분도 거짓이 된다. SHA를 알아내지 못한 실행은 경고를 남긴다.
+
+워커는 VLM 워밍업이 성공한 뒤에만 capability에 해당 버전을 싣는다. 워밍업 실패 시
+VLM을 배정받지 않으며, 재워밍업 또는 워커 재시작으로 복구한다. claim과 실패 기록을
+만드는 도중에는 가중치를 로딩하지 않는다.
+
+리뷰 반영으로 `scene_type`을 포함한 태그 상한을 명시한 현재 설정은
+`vlm-metadata-config/v1:13d50f07`, 프롬프트는 `vlm-metadata-prompt/v1:78a02dbd`이다.
+§9.6의 기존 GPU 비교는 변경 전 설정의 실측이며 해당 원시 결과와 버전은 그대로 보존한다.
+변경된 프롬프트로 실제 GPU smoke를 재실행한 결과는 아직 없다.
 
 `prompt_version`을 템플릿만으로 만들지 않는 이유가 있다. 템플릿은 `{scene_types}` 같은 자리만
 갖고 실제 목록은 렌더링할 때 채워지므로, 템플릿만 해시하면 어휘를 바꿔도 값이 그대로다 —

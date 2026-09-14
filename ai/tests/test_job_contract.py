@@ -760,14 +760,14 @@ def test_vlm_config_version_matches_recorded_vector() -> None:
     """`vlm_metadata.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
     from npick_worker.vlm_metadata import get_default_config
 
-    assert get_default_config().version_id == "vlm-metadata-config/v1:fcd15e10"
+    assert get_default_config().version_id == "vlm-metadata-config/v1:13d50f07"
 
 
 def test_vlm_prompt_version_matches_recorded_vector() -> None:
     """**렌더링된** 프롬프트의 벡터다. 어휘를 고치면 템플릿이 그대로여도 바뀐다."""
     from npick_worker.vlm_metadata import get_default_config, prompt_version
 
-    assert prompt_version(get_default_config()) == "vlm-metadata-prompt/v1:587f345d"
+    assert prompt_version(get_default_config()) == "vlm-metadata-prompt/v1:78a02dbd"
 
 
 def test_vlm_stage_version_matches_recorded_vector() -> None:

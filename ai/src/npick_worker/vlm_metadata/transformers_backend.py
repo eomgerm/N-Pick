@@ -113,6 +113,11 @@ class TransformersVlmClient:
         return f"{self._model_id}@{self._resolved_revision or self._revision}"
 
     @property
+    def is_loaded(self) -> bool:
+        """가중치와 실제 revision이 준비됐는가. 조회 시 로딩하지 않는다."""
+        return self._loaded is not None
+
+    @property
     def device(self) -> str | None:
         """가중치를 올릴 장치. `None` 이면 옮기지 않는다(= CPU 추론).
 

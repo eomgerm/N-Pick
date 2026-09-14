@@ -104,6 +104,8 @@ def test_benchmark_preserves_run_identity_and_load_failures(
         return Client()
 
     monkeypatch.setattr(benchmark, "build_client", build)
+    cache_dir = tmp_path / "shared-model-cache"
+    monkeypatch.setattr(benchmark, "get_settings", lambda: SimpleNamespace(vlm_model_dir=cache_dir))
     out = tmp_path / "result"
     args = [str(frames), "--model", "test/model", "--out", str(out), "--memory-budget-gib", "20"]
     if load_fails:
@@ -118,6 +120,7 @@ def test_benchmark_preserves_run_identity_and_load_failures(
     assert run["status"] == ("failed" if load_fails else "succeeded")
     assert run["modelRevision"] == sha
     assert options["revision"] == sha
+    assert options["model_dir"] == cache_dir
     assert options["dtype"] == "bfloat16"
     assert options["enable_thinking"] is False
     assert options["fraction"] == pytest.approx(20 / 48)

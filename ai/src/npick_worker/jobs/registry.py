@@ -519,7 +519,21 @@ def _run_vlm_metadata(ctx: StageContext) -> StageOutcome:
         msg = f"keyframe 이미지를 받지 못했다: {len(missing)}건"
         raise UpstreamOutputInvalidError(msg)
 
-    client = _vlm_client(sum(ctx.upstream_files[key].stat().st_size for key in selected))
+    from npick_worker.vlm_metadata import select_keyframes
+
+    # 한 호출은 한 scene이다. 클립 합계 대신 가장 큰 scene 입력을 사전 검사한다.
+    # 외부 어댑터 구현 시에는 직렬화된 실제 요청 크기도 전송 직전에 검사해야 한다.
+    max_scene_bytes = max(
+        (
+            sum(
+                ctx.upstream_files[k.storage_key].stat().st_size
+                for k in select_keyframes(s, config)
+            )
+            for s in scenes
+        ),
+        default=0,
+    )
+    client = _vlm_client(max_scene_bytes)
 
     try:
         result = describe_scenes(scenes, ctx.upstream_files, client, config)
@@ -606,10 +620,9 @@ def _vlm_client(payload_bytes: int) -> "VlmClient":
     except ExternalProcessingNotAllowedError as exc:
         # 원문·secret 을 싣지 않는다. 사유·크기·판정만 남는다(PRD §12.4 감사 기록).
         logger.warning(
-            "외부 VLM 전송을 하지 않았다: profile=%s bytes=%d 사유=%s",
-            settings.vlm_external_provider_profile,
-            payload_bytes,
-            exc,
+            "외부 VLM 전송을 하지 않았다: %s",
+            exc.record.as_log_fields(),
+            extra={"authorization": exc.record.as_log_fields()},
         )
         raise ExternalProcessingRefusedError(str(exc)) from exc
     # 조건이 전부 맞았더라도 보낼 구현이 없다. 없는 것을 있는 척하지 않는다 —
@@ -900,9 +913,14 @@ def _declared_version(stage: str) -> str:
         # 빼야 한다. 배정받지 못하는 편이 배정받아 매번 `MODEL_UNAVAILABLE` 로 죽는
         # 것보다 낫다. 외부 백엔드로 설정된 워커도 여기서 걸린다(전송 조건 미충족).
         #
-        # 가중치를 여기서 올리지는 않는다. 생성자는 이름만 검사하고 로딩은 첫 호출까지
-        # 미룬다 — 이 함수가 claim 한 바퀴마다 불리기 때문이다(`ocr` 분기의 같은 지적).
+        # 미로딩 상태의 main을 광고하면 첫 성공 뒤 SHA로 버전이 바뀐다.
+        # 워밍업 성공 전에는 capability에서 제외한다. 폴링/실패 기록 중 로딩하지 않는다.
+        # 워밍업 실패 복구는 재워밍업 또는 워커 재시작으로 수행한다.
         vlm_client = _vlm_client(0)
+        from npick_worker.vlm_metadata.transformers_backend import TransformersVlmClient
+
+        if isinstance(vlm_client, TransformersVlmClient) and not vlm_client.is_loaded:
+            raise ModelUnavailableError("VLM 워밍업이 완료되지 않아 버전을 선언할 수 없다")
         return stage_version(
             stage,
             _vlm_identity(

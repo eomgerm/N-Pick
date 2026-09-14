@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from npick_worker import korean_tokens
+from npick_worker.settings import get_settings
 from npick_worker.vlm_metadata import report
 from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH, load_config
 from npick_worker.vlm_metadata.describer import select_keyframes
@@ -191,6 +192,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         client = build_client(
             args.model,
             revision=revision,
+            model_dir=get_settings().vlm_model_dir,
             device_choice="cuda",
             dtype=args.dtype,
             enable_thinking={"off": False, "on": True, "default": None}[args.thinking],

@@ -47,8 +47,6 @@ from npick_worker.vlm_metadata.schema import RawJudgement, RawSceneMetadata
 #: 모듈 오류 코드. 잡 레이어가 계약 §9.2 의 같은 이름으로 번역한다.
 VLM_SCHEMA_INVALID: Final[str] = "VLM_SCHEMA_INVALID"
 
-#: 거부 사유에 실을 원문의 길이 상한. 전부 넣으면 로그가 모델 출력으로 뒤덮인다.
-_RAW_EXCERPT_LIMIT: Final[int] = 400
 
 #: 근거가 비어 있어도 되는 유일한 값.
 _SHOT_TYPE_WITHOUT_EVIDENCE: Final[str] = "unknown"
@@ -86,7 +84,7 @@ def parse_raw(payload: str) -> RawSceneMetadata:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        msg = f"VLM 출력이 JSON 이 아니다: {exc} · 원문 {_excerpt(payload)}"
+        msg = f"VLM 출력이 JSON 이 아니다: line={exc.lineno} column={exc.colno}"
         raise VlmSchemaInvalidError(msg, payload) from exc
     if not isinstance(data, dict):
         msg = f"VLM 출력이 객체가 아니다: {type(data).__name__}"
@@ -94,7 +92,11 @@ def parse_raw(payload: str) -> RawSceneMetadata:
     try:
         return RawSceneMetadata.model_validate(data)
     except ValidationError as exc:
-        msg = f"VLM 출력이 schema 와 맞지 않는다: {exc.error_count()}건 · {exc}"
+        # input/ctx와 알 수 없는 필드명에는 원문이 들어갈 수 있다. 오류 종류만 요약한다.
+        kinds = sorted(
+            {error["type"] for error in exc.errors(include_input=False, include_context=False)}
+        )
+        msg = f"VLM 출력이 schema 와 맞지 않는다: {exc.error_count()}건 · {', '.join(kinds)}"
         raise VlmSchemaInvalidError(msg, payload) from exc
 
 
@@ -203,9 +205,10 @@ def _to_tag_candidates(
             )
         )
 
-    if len(raw.tag_candidates) > cfg.max_tag_candidates_per_scene:
+    total = len(raw.tag_candidates) + len(candidates)
+    if total > cfg.max_tag_candidates_per_scene:
         msg = (
-            f"태그 후보가 상한을 넘는다: {len(raw.tag_candidates)}개 "
+            f"태그 후보가 상한을 넘는다: {total}개 (scene_type 포함) "
             f"(상한 {cfg.max_tag_candidates_per_scene})"
         )
         raise VlmSchemaInvalidError(msg)
@@ -308,10 +311,3 @@ def _strip_code_fence(text: str) -> str:
     if body:
         body.pop()
     return "\n".join(body).strip()
-
-
-def _excerpt(payload: str) -> str:
-    text = payload.strip()
-    if len(text) <= _RAW_EXCERPT_LIMIT:
-        return repr(text)
-    return repr(text[:_RAW_EXCERPT_LIMIT] + "…")
