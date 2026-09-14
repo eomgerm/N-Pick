@@ -11,7 +11,7 @@ import pytest
 
 pytestmark = pytest.mark.smoke
 
-_GPU_GROUP_HINT = "gpu 그룹 미설치: uv sync --group gpu"
+_GPU_GROUP_HINT = "gpu 그룹 미설치: uv sync --group gpu --group cu130|cu128"
 
 
 def test_torch_is_cuda_build() -> None:

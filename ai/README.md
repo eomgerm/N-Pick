@@ -305,8 +305,9 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 GPU 를 못 잡는다. 그래서 `torch` 는 `gpu` 그룹에 없고 `cu128`/`cu130` 으로 갈려 있으며,
 둘은 `[tool.uv] conflicts` 로 배타 선언돼 한 환경에 같이 깔리지 않는다.
 
-`--group gpu` 만 주면 `transformers`·`sentence-transformers` 가 PyPI 의 **CPU torch** 를
-끌어온다. 반드시 짝지어 쓴다.
+`--group gpu` 만 주면 `transformers`·`sentence-transformers` 가 **PyPI 의 torch** 를
+끌어온다 — Windows 는 CPU 전용, **Linux 는 CUDA 13 번들**이라 드라이버 12.8 노드에서
+GPU 를 못 잡는다. 반드시 짝지어 쓴다.
 
 | 노드 | 드라이버 | 명령 |
 | --- | --- | --- |
@@ -329,7 +330,7 @@ OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/pro
 `vlm_metadata` 를 싣지 않으므로(`jobs/registry.py`) 배정 자체가 오지 않는다. 가중치는 패키지에
 들어 있지 않고 `NPICK_AI_VLM_MODEL_DIR` 이 가리키는 곳에 받는다.
 
-**torch 는 PyPI 가 아니라 `download.pytorch.org/whl/cu130` 에서 온다.** PyPI 의 Windows torch 휠은 CPU 전용(약 122MB)이라 그대로 설치하면 CUDA 가 조용히 비활성화된다. `pyproject.toml` 의 `[[tool.uv.index]]` 와 `[tool.uv.sources]` 가 이걸 막는다. macOS 는 CUDA 휠이 없으므로 marker 로 제외되어 PyPI 의 arm64(MPS) 휠로 해석된다.
+**torch 는 `cu128`/`cu130` 그룹을 함께 줄 때만 `download.pytorch.org` 에서 온다.** `[tool.uv.sources]` 가 group 으로 키잉돼 있어 `--group gpu` 만 주면 PyPI 로 해석된다 — Windows 에서는 CPU 전용 휠(약 122MB)이라 CUDA 가 조용히 비활성화되고, **Linux 에서는 CUDA 13 번들 빌드**라 드라이버가 12.8 인 노드에서 `torch.cuda.is_available()` 이 거짓이 된다. 증상이 다르므로 진단할 때 구분한다. macOS 는 CUDA 휠이 없으므로 marker 로 제외되어 PyPI 의 arm64(MPS) 휠로 해석된다.
 
 `uv lock` 은 설치 여부와 무관하게 모든 그룹을 함께 해석한다. 따라서 **`gpu` 를 한 번도 설치하지 않는 사람의 `uv.lock` 에도 torch 엔트리가 있다** — 다운로드는 하지 않으니 정상이다.
 
@@ -361,6 +362,10 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_VLM_MODEL` | (없음) | VLM 가중치 식별자. **기본값을 두지 않는다** — 후보 비교로 정할 값이라 코드가 고르면 근거 없는 동결이다(FRD §11). 비어 있으면 이 단계가 `capabilities` 에서 빠진다 |
 | `NPICK_AI_VLM_MODEL_REVISION` | `main` | 가중치 리비전. 재현 식별자에 들어간다 |
 | `NPICK_AI_VLM_MODEL_DIR` | 없음 | VLM 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — 파드 디스크가 휘발성이라 띄울 때마다 수 GB 를 다시 받는다 |
+| `NPICK_AI_EMBEDDING_MODEL` | (없음) | 임베딩 가중치 식별자. **기본값을 두지 않는다** — `S15P21A501-175` 의 선정이 잠정이고 Gate B 전까지 교체 가능해야 한다. 비어 있으면 `MODEL_UNAVAILABLE` |
+| `NPICK_AI_EMBEDDING_MODEL_REVISION` | `main` | 가중치 리비전. 재현 식별자에 들어간다. **운영에는 SHA 를 고정한다** — 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다 |
+| `NPICK_AI_EMBEDDING_MODEL_DIR` | 없음 | 임베딩 가중치를 둘 곳. 컨테이너에서는 반드시 준다 |
+| `NPICK_AI_EMBEDDING_BATCH_SIZE` | `16` | 한 번에 모델에 넣는 문장 수. **결과를 바꾸지 않으므로** 버전 붙는 설정 파일이 아니라 여기 있다 |
 | `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
 | `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
 | `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §6.4 |

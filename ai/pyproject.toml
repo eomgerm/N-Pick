@@ -57,7 +57,8 @@ dev = [
     "pytest-asyncio>=1.4,<2",
 ]
 # torch 는 여기 없다. CUDA 빌드는 드라이버가 정하는 값이라 아래 cu128/cu130 으로 갈랐다.
-# **이 그룹만 설치하면 transformers·sentence-transformers 가 PyPI 의 CPU torch 를 끌어온다.**
+# **이 그룹만 설치하면 transformers·sentence-transformers 가 PyPI torch 를 끌어온다.**
+# Windows 는 CPU 전용 휠이고 Linux 는 CUDA 13 번들이라 12.8 드라이버에서 GPU 를 못 잡는다.
 # 언제나 `--group gpu --group cu128` 또는 `--group cu130` 처럼 짝지어 쓴다.
 gpu = [
     "faster-whisper>=1.2,<2",

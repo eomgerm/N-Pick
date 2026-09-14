@@ -18,6 +18,11 @@ skip 판정·L2 정규화·검증이다 — -175 는 `model.encode` 를 직접 �
   걸리지 않는다" 로 판정했는데 그 근거를 실데이터로 확인한다. 잘림이 있으면
   `SceneEmbedding.source_text` 에 남는 전문과 실제 임베딩된 것이 달라진다.
 
+**모델을 바꾸면 두 값을 확인한다.** 어댑터 경계를 넘지 않으려고 근사한 것들이다 —
+잘림 기준은 `tokenizer.model_max_length`(ST 가 실제로 자르는 것은 `model.max_seq_length`),
+질의 접두는 `"query: "` 하드코딩(-175 는 모델 카드 `prompts.query` 를 읽는다). 현재 모델은
+둘 다 같은 값이지만 갈면 어긋나고, 특히 접두 비대칭은 오류 없이 품질만 떨어뜨린다.
+
 **이 코퍼스의 한계.** 골드셋 `note` 가 적어 둔 그대로다 — 텍스트가 자막 전사뿐이고
 캡션이 없다. `SceneText(caption="", dialogue=(text,))` 로 넣으므로 **N-Pick 임베딩 입력의
 절반만 잰다.** 캡션을 넣은 장면 단위 골드셋은 S15P21A501-175 의 재평가 조건이다.
@@ -25,7 +30,6 @@ skip 판정·L2 정규화·검증이다 — -175 는 `model.encode` 를 직접 �
 
 import argparse
 import json
-import os
 import platform
 import statistics
 import time
@@ -34,6 +38,7 @@ from typing import Any
 
 import numpy as np
 
+from npick_worker.settings import get_settings
 from npick_worker.text_embedding import SceneText, embed_scenes, get_default_config
 from npick_worker.text_embedding.sentence_transformers_backend import shared_encoder
 
@@ -123,9 +128,16 @@ def main() -> None:
     gold = json.loads(Path(args.gold).read_text(encoding="utf-8"))
     docs = gold["scenes"][: args.limit] if args.limit else gold["scenes"]
     doc_ids = [d["id"] for d in docs]
-    keep = set(doc_ids)
 
     config = get_default_config()
+    if not config.normalize:
+        # `uniformity`·`mean_pairwise_cosine` 는 L2 정규화된 벡터에서만 각각 제곱거리·
+        # 코사인이다. 정규화가 꺼지면 두 지표가 **오류 없이 틀린 값**을 낸다.
+        msg = "normalize=false 설정으로는 내재 지표를 잴 수 없다"
+        raise SystemExit(msg)
+    settings = get_settings()
+    if not settings.embedding_model:
+        raise SystemExit("NPICK_AI_EMBEDDING_MODEL 이 비어 있다")
     encoder = shared_encoder()
 
     # ── 산출: 우리 모듈을 그대로 탄다 ──────────────────────────────
@@ -134,18 +146,33 @@ def main() -> None:
         SceneText(scene_index=i, caption="", dialogue=(d["text"],)) for i, d in enumerate(docs)
     ]
 
-    torch.cuda.reset_peak_memory_stats()
+    # **워밍업이 먼저다.** `shared_encoder()` 는 인스턴스만 만들고 가중치는 첫 `encode`
+    # 에서 올라간다. 워밍업 없이 재면 1.7GB 로딩과 CUDA 컨텍스트 초기화가 처리량에
+    # 통째로 들어가고, 코퍼스가 작을수록 그 몫이 커져 값이 흔들린다.
+    encoder.encode([d["text"] for d in docs[:64]])
+
+    on_gpu = torch.cuda.is_available()
+    if on_gpu:
+        torch.cuda.reset_peak_memory_stats()
     started = time.perf_counter()
     result = embed_scenes(scenes, encoder=encoder, config=config)
     elapsed = time.perf_counter() - started
-    vram_peak_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
+    vram_peak_mb = torch.cuda.max_memory_allocated() / (1024 * 1024) if on_gpu else 0.0
 
     vectors = np.asarray([s.vector for s in result.scenes], dtype=np.float32)
     embedded_ids = [doc_ids[s.scene_index] for s in result.scenes]
+    if not len(vectors):
+        raise SystemExit("벡터가 하나도 만들어지지 않았다")
+
+    # **색인에 실제로 들어간 것만 정답으로 센다.** skip 된 장면은 검색될 수 없는데
+    # 분모에 남으면 recall 과 IDCG 가 조용히 내려간다(-175 의 `index` 필터와 같은 판단).
+    keep = set(embedded_ids)
 
     # ── 품질: 질의는 접두가 다르다(`query: `). 문서측 모듈을 쓰지 않는다 ──
     prefix = "query: "
     queries = [q for q in gold["queries"] if set(q["relevant"]) & keep]
+    if not queries:
+        raise SystemExit("정답이 코퍼스 안에 있는 질의가 없다 (--limit 이 너무 작다)")
     query_vectors = np.asarray(
         encoder.encode([prefix + q["query"] for q in queries]), dtype=np.float32
     )
@@ -167,7 +194,9 @@ def main() -> None:
         bucket = by_level.setdefault(query.get("level", "all"), {})
         bucket.setdefault("ndcg", []).append(ndcg_at_k(ranked, relevant, 10))
         bucket.setdefault("recall", []).append(recall_at_k(ranked, relevant, 10))
-        bucket.setdefault("mrr", []).append(reciprocal_rank(ranked, relevant))
+        # **mrr 도 @10 이다.** -175 가 상위 K 만 남기고 자르므로 11위의 정답은 0 으로
+        # 센다. 여기서 100위까지 보면 같은 이름의 다른 값이 되어 대조가 성립하지 않는다.
+        bucket.setdefault("mrr", []).append(reciprocal_rank(ranked[:10], relevant))
 
     # 대표값은 summary 다(-175 비교표와 같은 자리). 레벨이 하나뿐인 골드셋에서는
     # 그것이 곧 전체다.
@@ -188,8 +217,13 @@ def main() -> None:
     # ── 입력 형상: 잘림이 실제로 일어나는가 ───────────────────────
     from transformers import AutoTokenizer
 
-    model_id = os.environ["NPICK_AI_EMBEDDING_MODEL"]
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    # `os.environ` 을 직접 읽지 않는다 — `.env` 로 준 실행에서 KeyError 가 나고,
+    # 그때는 이미 임베딩·채점·지연 측정을 다 끝낸 뒤다. 리비전도 함께 넘겨야 인코더가
+    # 로드한 가중치와 tokenizer 가 같은 리비전이 된다.
+    model_id = settings.embedding_model
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_id, revision=settings.embedding_model_revision or "main"
+    )
     max_len = getattr(tokenizer, "model_max_length", 0)
     lengths = [len(tokenizer.encode(s.source_text, add_special_tokens=True)) for s in result.scenes]
     truncated = sum(1 for length in lengths if length > max_len)
@@ -199,6 +233,9 @@ def main() -> None:
     # 드라이버가 CUDA 12.8 이라 프로젝트 lock 의 cu130 휠로는 GPU 를 못 잡고 cu128 로
     # 내려야 한다(eval/embedding/README.md 가 적어 둔 함정). 그래서 **측정 환경과 배포
     # 환경의 torch 빌드는 원래 다를 수 있다** — 숨기지 말고 기록해 해석에 쓴다.
+    # SVD 는 한 번만 돈다. (N,1024) 분해가 코퍼스 크기에 따라 수 초다.
+    effective_rank = rankme(vectors)
+
     params: dict[str, Any] = {
         "torch_version": torch.__version__,
         "torch_cuda": torch.version.cuda,
@@ -217,7 +254,7 @@ def main() -> None:
         "query_count": len(queries),
         "primary_level": primary,
         "gold_levels": ",".join(f"{k}:{len(v['ndcg'])}" for k, v in sorted(by_level.items())),
-        "device": "cuda",
+        "device": "cuda" if on_gpu else "cpu",
         "max_seq_length": max_len,
     }
     metrics: dict[str, float] = {
@@ -231,8 +268,14 @@ def main() -> None:
         **{f"ndcg_at_10_{level}": float(np.mean(vals["ndcg"])) for level, vals in by_level.items()},
         **{f"query_count_{level}": float(len(vals["ndcg"])) for level, vals in by_level.items()},
         # 내재 — 라벨 없이 운영에서 감시 가능
-        "rankme": rankme(vectors),
-        "rankme_ratio": rankme(vectors) / result.dimension,
+        "rankme": effective_rank,
+        # 표본 수가 랭크의 상한이라 문서가 차원보다 적으면 비율이 뜻을 잃는다.
+        # (`--limit` 을 작게 준 예비 실행이 그렇다)
+        **(
+            {"rankme_ratio": effective_rank / result.dimension}
+            if len(vectors) >= result.dimension
+            else {}
+        ),
         "uniformity": uniformity(vectors),
         "mean_pairwise_cosine": mean_pairwise_cosine(vectors),
         # 운영

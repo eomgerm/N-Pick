@@ -185,6 +185,17 @@ def _load(
         kwargs["device"] = device
     try:
         model = SentenceTransformer(model_id, **kwargs)
+    except MemoryError:
+        # **감싸지 않고 그대로 올린다.** `encode` 와 같은 정책이다 — 생성자가 가중치를
+        # GPU 로 올리므로 1.7GB 를 VRAM 에 넣는 자리가 바로 여기다. 감싸면 `classify` 가
+        # `STAGE_FAILED` 로 떨어뜨려 원인이 "가중치를 못 받았다" 로 기록되는데, 실제로는
+        # 메모리가 모자랐던 것이라 더 큰 파드에서는 성공한다(계약 §9.2 `OUT_OF_MEMORY`).
+        raise
+    except RuntimeError as exc:
+        if _CUDA_OOM_MARKER in str(exc).lower():
+            raise
+        msg = f"임베딩 가중치를 준비하지 못했다: {model_id}@{revision} ({type(exc).__name__})"
+        raise EmbeddingModelUnavailableError(msg) from exc
     except Exception as exc:
         # 가중치를 못 받은 것은 이 클립의 문제가 아니다. 다른 파드나 다음 시도에서
         # 성공할 수 있다 — 계약 §9.2 의 `MODEL_UNAVAILABLE`(일시)이다.

@@ -5,7 +5,10 @@
 
 ## `eval/embedding/` 과 무엇이 다른가
 
-옆 디렉터리(`eval/embedding/`, S15P21A501-175)와 묻는 질문이 다르다. 둘 다 필요하다.
+`eval/embedding/`(S15P21A501-175)과 묻는 질문이 다르다. 둘 다 필요하다.
+
+**그 디렉터리는 아직 이 저장소에 없다** — `ai/feat/embedding-model-benchmark-S15P21A501-175`
+브랜치(MR !62)에만 있고 dev 에 머지되지 않았다. 아래 참조는 그 브랜치 기준이다.
 
 | | `eval/embedding/` (-175) | **여기** (-100) |
 | --- | --- | --- |
@@ -40,8 +43,9 @@ export NPICK_AI_DEVICE=cuda PYTHONPATH=src
 
 **골드셋은 저장소에 없다.** AI-Hub 71699·KBS 자막 전사 원문이 들어가고 FRD §6.4 와
 `S15P21A501-134` 가 dataset 권리를 Gate S 조건으로 걸어 두었다 — -175 가 같은 이유로
-제외했다. 만드는 절차는 `eval/embedding/README.md` 의 `build_gold.py` 항목이고, SSAFY GPU
-서버에는 `~/npick/eval/embedding/gold{,_hard,_broad}.json` 으로 이미 있다.
+제외했다. 만드는 절차는 -175 브랜치의 `eval/embedding/README.md` 와 `build_gold.py` 이고
+(`git show ai/feat/embedding-model-benchmark-S15P21A501-175:ai/eval/embedding/README.md`),
+SSAFY GPU 서버에는 `~/npick/eval/embedding/gold{,_hard,_broad}.json` 으로 이미 있다.
 
 ### 왜 mlflow 가 lock 에 없는가
 
@@ -54,9 +58,16 @@ protobuf 를 `7.36.1 → 6.33.6` 으로 내렸고, 그 protobuf 를 런타임 �
 내려가도 lock 과 배포 이미지는 그대로이고, 이 스크립트는 onnxruntime 을 임포트하지 않아
 측정도 깨지지 않는다.
 
-**venv 자체는 반드시 lock 에서 파생시킨다.** `-175` 의 `requirements.txt` 처럼 별도 pin
-목록을 두면 운영과 조용히 갈라진다 — 그 목록으로 만든 환경은 `numpy` 도 `pydantic` 도
-운영과 다른 값이었다.
+**venv 자체는 lock 에서 파생시킨다.** `-175` 의 `requirements.txt` 는 비주석 4줄
+(`mlflow` `sentence-transformers` `torch` `numpy`)로 **측정에 쓴 조합을 고정하는 것**이
+목적이고 그 자체로 타당하다. 다만 목록에 없는 패키지(`pydantic` 등)는 해상도 시점에 따라
+정해지므로 운영과 같다는 보장이 없다. lock 에서 파생시키면 그 축이 통째로 사라진다.
+
+**대신 이 방식은 -175 의 "프로젝트 venv 와 섞지 않는다" 를 뒤집는다.** mlflow 가 끌어내린
+protobuf 가 lock 이 아니라 **개발자 작업 venv** 에 남고, 그 venv 에는 `onnxruntime`·
+`rapidocr` 가 함께 있다(기본 그룹). 로컬 OCR 테스트를 같은 venv 에서 돌린다면
+`uv venv .venv-eval` 을 만들고 거기에 lock 파생 설치를 하는 쪽이 안전하다 — 목표(lock 파생)와
+격리를 둘 다 지킨다. 또 `uv sync` 를 다시 돌리면 mlflow 가 prune 되므로 그때 다시 넣는다.
 
 ## 무엇을 재는가
 
@@ -64,7 +75,7 @@ protobuf 를 `7.36.1 → 6.33.6` 으로 내렸고, 그 protobuf 를 런타임 �
 
 | 갈래 | 지표 | 왜 |
 | --- | --- | --- |
-| 품질(라벨 필요) | `ndcg_at_10`·`recall_at_10`·`mrr` | **-175 수치와 대조**하는 것이 목적. 모델을 다시 고르려는 것이 아니다 |
+| 품질(라벨 필요) | `ndcg_at_10`·`recall_at_10`·`mrr` | **-175 수치와 대조**하는 것이 목적. 모델을 다시 고르려는 것이 아니다. 셋 다 **@10** 이다 — `mrr` 도 상위 10 만 보고 11 위의 정답은 0 으로 센다(-175 와 같은 정의) |
 | 내재(라벨 불필요) | `rankme`·`uniformity`·`mean_pairwise_cosine` | 배선 후 운영에서 **골드셋 없이** 감시할 수 있는 값 |
 | 운영 | 처리량·단건 지연·`vram_peak_mb`·`skip_ratio` | -175 는 **질의측** 지연만 쟀다. 문서측은 배치라 다르다 |
 | 입력 형상 | `token_len_*`·`truncated_scenes` | 잘림이 있으면 `source_text` 에 남는 전문과 실제 임베딩된 것이 달라진다(FRD §7.2) |
@@ -114,11 +125,20 @@ MLflow experiment `stage-text-embedding-v1`.
 
 ### 운영·입력 형상
 
+운영 수치는 **워밍업 후** 값이다. `shared_encoder()` 가 인스턴스만 만들고 가중치는 첫
+`encode` 에서 올라가므로, 워밍업 없이 `embed_scenes` 를 재면 1.7GB 로딩과 CUDA 컨텍스트
+초기화가 처리량에 통째로 들어간다.
+
 | | curation | hard | broad |
 | --- | --- | --- | --- |
-| 처리량 (scene/s) | 162 | 269 | 275 |
-| 단건 p50 / p95 (ms) | 10.7 / 14.7 | 10.7 / 11.9 | 10.7 / 12.2 |
-| `vram_peak_mb` | 2,527 | 3,571 | 2,804 |
+| 처리량 (scene/s) | 300 | 288 | 291 |
+| 단건 p50 / p95 (ms) | 10.9 / 14.7 | 10.9 / 12.5 | 10.8 / 11.9 |
+| `vram_peak_mb` | 2,526 | 3,572 | 2,804 |
+| `mrr`(@10) | 0.9397 | 0.9518 | 0.9680 |
+
+처리량이 코퍼스 크기와 무관하게 290 전후로 모이는 것이 **워밍업이 실제로 듣고 있다는
+신호**다. 워밍업 전에는 5,537 건 코퍼스가 162/s 로 나왔는데, 가중치 로딩 시간이 분모에
+들어가 작은 코퍼스일수록 크게 깎였기 때문이다.
 | 토큰 p50 / p95 / max | 100 / 205 / 504 | 98 / 212 / **1,945** | 96 / 212 / 896 |
 | `truncated_scenes` | 0 | 0 | 0 |
 
@@ -130,6 +150,21 @@ MLflow experiment `stage-text-embedding-v1`.
 curation 의 `event` 레벨(방송일로만 갈리는 사건) `ndcg_at_10 = 0.1208`. -175 가 전 모델
 0.115~0.125 로 측정한 범위 안이다. dense 가 날짜를 못 보는 것이 정상이고, **그 성질이
 파이프라인을 거쳐도 그대로**라는 것이 여기서 확인된다.
+
+## 모델을 바꾸면 확인할 것
+
+이 스크립트가 **어댑터 경계를 넘지 않으려고** 근사한 값이 둘이다. 현재 모델에서는 실제와
+같지만 모델을 갈면 조용히 어긋난다.
+
+| 값 | 여기서 쓰는 것 | 실제 | 현재 모델 |
+| --- | --- | --- | --- |
+| 잘림 기준 | `tokenizer.model_max_length` | ST 는 `model.max_seq_length` 로 자른다 | 둘 다 8192 |
+| 질의 접두 | `"query: "` 하드코딩 | 모델 카드 `prompts.query` (-175 는 이걸 읽는다) | 둘 다 `"query: "` |
+
+tokenizer 가 길이를 선언하지 않으면 `model_max_length` 가 `VERY_LARGE_INTEGER`(≈1e30)라
+`truncated_scenes` 가 영원히 0 이 된다 — 이 스크립트의 목적 하나가 무력화되므로 param 에
+찍힌 `max_seq_length` 를 함께 본다. 접두 비대칭은 -175 가 "오류 없이 품질만 떨어지는" 최대
+운영 리스크로 지목한 자리다.
 
 ## 이 수치의 한계
 

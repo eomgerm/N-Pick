@@ -12,8 +12,10 @@
 
 import hashlib
 import math
+import sys
 from collections.abc import Sequence
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -26,9 +28,13 @@ from npick_worker.text_embedding import (
     load_config,
 )
 from npick_worker.text_embedding.config import DEFAULT_CONFIG_PATH
-from npick_worker.text_embedding.encoder import EmbeddingModelUnavailableError
+from npick_worker.text_embedding.encoder import (
+    EmbeddingCallError,
+    EmbeddingModelUnavailableError,
+)
 from npick_worker.text_embedding.sentence_transformers_backend import (
     SentenceTransformerEncoder,
+    _load,
     _resolve_revision,
 )
 
@@ -427,3 +433,125 @@ def test_pinned_revision_is_kept_as_is() -> None:
 def test_unresolvable_revision_falls_back_to_the_declared_value() -> None:
     """SHA 를 알아내지 못해도 기록은 남긴다. 값을 비우면 재현 근거가 사라진다."""
     assert _resolve_revision(object(), "main") == "main"
+
+
+# ── 어댑터 예외 분류 ────────────────────────────────────────────────
+# `encode` 와 **로딩** 두 경로 모두 OOM 을 그대로 올려야 한다. 감싸면
+# `jobs/errors.classify` 가 `STAGE_FAILED`(원인이 "가중치를 못 받았다" 로 기록됨)로
+# 떨어뜨리는데, 계약 §9.2 는 `OUT_OF_MEMORY`(일시)를 따로 두고 있다.
+
+
+class _RaisingModel:
+    """`encode` 가 정해진 예외를 던지는 가짜 런타임."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    def encode(self, *args: object, **kwargs: object) -> object:
+        raise self._exc
+
+
+def _loaded_encoder(exc: BaseException) -> SentenceTransformerEncoder:
+    """가중치가 이미 올라간 상태의 어댑터. 로딩 경로를 타지 않는다."""
+    encoder = SentenceTransformerEncoder("some/model", batch_size=4)
+    encoder._model = _RaisingModel(exc)
+    encoder._dimension = 4
+    encoder._resolved_revision = "main"
+    return encoder
+
+
+def test_encode_lets_host_oom_through() -> None:
+    with pytest.raises(MemoryError):
+        _loaded_encoder(MemoryError("host")).encode(("가",))
+
+
+def test_encode_lets_cuda_oom_through() -> None:
+    """CUDA OOM 은 `RuntimeError("CUDA out of memory. ...")` 로 온다."""
+    with pytest.raises(RuntimeError, match="out of memory"):
+        _loaded_encoder(RuntimeError("CUDA out of memory. Tried to allocate 1 GiB")).encode(("가",))
+
+
+def test_encode_wraps_other_runtime_errors() -> None:
+    """OOM 이 아닌 런타임 오류는 어댑터 경계에서 번역한다."""
+    with pytest.raises(EmbeddingCallError, match="임베딩 호출이 실패했다"):
+        _loaded_encoder(RuntimeError("shape mismatch")).encode(("가",))
+
+
+def test_encode_wraps_unexpected_exceptions() -> None:
+    with pytest.raises(EmbeddingCallError):
+        _loaded_encoder(ValueError("무언가")).encode(("가",))
+
+
+def _fake_sentence_transformers(exc: BaseException) -> ModuleType:
+    """`SentenceTransformer(...)` 가 정해진 예외를 던지는 가짜 모듈."""
+    module = ModuleType("sentence_transformers")
+
+    def _ctor(*args: object, **kwargs: object) -> object:
+        raise exc
+
+    module.SentenceTransformer = _ctor  # type: ignore[attr-defined]
+    return module
+
+
+def test_loading_lets_host_oom_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    """가중치를 올리다 난 OOM 도 `encode` 와 같은 정책이어야 한다.
+
+    `SentenceTransformer(..., device="cuda")` 는 생성자에서 가중치를 GPU 로 올린다.
+    1.7GB 를 VRAM 에 넣는 바로 그 자리가 정책 밖이면 `encode` 쪽만 고친 것이 무의미하다.
+    """
+    fake = _fake_sentence_transformers(MemoryError("vram"))
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake)
+    with pytest.raises(MemoryError):
+        _load("some/model", "main", None, "cuda")
+
+
+def test_loading_lets_cuda_oom_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    exc = RuntimeError("CUDA out of memory. Tried to allocate 2 GiB")
+    monkeypatch.setitem(sys.modules, "sentence_transformers", _fake_sentence_transformers(exc))
+    with pytest.raises(RuntimeError, match="out of memory"):
+        _load("some/model", "main", None, "cuda")
+
+
+def test_loading_wraps_other_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """가중치를 못 받은 것은 일시 오류다(계약 §9.2 `MODEL_UNAVAILABLE`)."""
+    exc = OSError("연결이 끊겼다")
+    monkeypatch.setitem(sys.modules, "sentence_transformers", _fake_sentence_transformers(exc))
+    with pytest.raises(EmbeddingModelUnavailableError, match="가중치를 준비하지 못했다"):
+        _load("some/model", "main", None, "cuda")
+
+
+# ── 회귀 방지 ───────────────────────────────────────────────────────
+
+
+def test_blank_scene_is_skipped_even_with_a_document_prefix() -> None:
+    """접두가 있으면 빈 장면이 접두만 임베딩될 수 있다.
+
+    `compose_text` 가 빈 판정을 접두보다 **먼저** 해야 한다. 그렇지 않으면 e5 계열
+    (`passage: `)로 갈아 끼웠을 때 모든 빈 장면이 같은 벡터를 받아 서로 최근접이 되고,
+    `scene.embedding` 이 nullable 인 설계가 통째로 무너진다.
+    """
+    encoder = _FakeEncoder()
+    result = embed_scenes(
+        [SceneText(scene_index=0, caption="   ", dialogue=("", "  "))],
+        encoder=encoder,
+        config=_config(document_prefix="passage: "),
+    )
+    assert result.scenes == ()
+    assert result.skipped == (0,)
+    # 접두만 남은 문자열이 인코더로 가지 않는다.
+    assert encoder.calls == []
+
+
+def test_resolve_revision_finds_the_commit_sha_from_the_loaded_model() -> None:
+    """`main` 으로 받은 실행도 실제 가중치의 SHA 를 기록해야 한다.
+
+    sentence-transformers 의 `Transformer.config` 는 `self.model.config`(HF
+    `PretrainedConfig`)를 돌려주는 property 라 `_commit_hash` 가 거기 붙는다.
+    **비공개 속성에 기대는 경로**이므로 라이브러리가 바뀌면 조용히 깨진다 — 그때
+    이 테스트가 잡는다.
+    """
+    sha = "a1b2c3d4" * 5
+    model = SimpleNamespace(
+        _modules={"0": SimpleNamespace(config=SimpleNamespace(_commit_hash=sha))}
+    )
+    assert _resolve_revision(model, "main") == sha

@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     embedding_model: str = ""
     #: 가중치 리비전(커밋 해시·태그). 같은 이름이라도 리비전이 바뀌면 다른 벡터가 나오고,
     #: 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다. 운영에는 SHA 를 고정한다.
+    #: 비어 있으면 `main` 을 쓴 것으로 기록한다(`vlm_model_revision` 과 같다).
     embedding_model_revision: str = ""
     #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
     #: `vlm_model_dir` 과 같은 이유다(`03-deployment.md`: 가중치는 네트워크 볼륨에 상주).
