@@ -20,6 +20,20 @@ async function applyDateRange(page: Page, label: string, from: string, to: strin
   await expect(dialog).not.toBeVisible();
 }
 
+test('저장 ID가 없는 데모 Preview는 실제 문의 요청을 보내지 않는다', async ({ page }) => {
+  const inquiryRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/inquiries')) {
+      inquiryRequests.push(request.url());
+    }
+  });
+  await openAsEditor(page, '/search/results?preview=loading');
+  const preview = page.getByRole('dialog');
+  await expect(preview.getByRole('button', { name: '문의 불가' })).toBeDisabled();
+  await expect(preview.getByText('저장된 검색 결과가 아니므로 문의할 수 없습니다.')).toBeVisible();
+  expect(inquiryRequests).toEqual([]);
+});
+
 test('검색어와 방송일·촬영일을 결과 URL과 화면에 보존한다', async ({ page }) => {
   await openAsEditor(page, '/search');
 

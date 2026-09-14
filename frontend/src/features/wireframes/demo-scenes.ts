@@ -29,6 +29,7 @@ export function getVerificationStatusLabel(status: VerificationStatus) {
 
 export interface SearchResult {
   id: number;
+  searchResultId?: string | null;
   rank: number;
   displayName: string;
   title: string;

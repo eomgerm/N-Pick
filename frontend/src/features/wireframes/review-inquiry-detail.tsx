@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import { useMember } from '@/components/session-boundary';
 import { inquiryResolutionLabels, inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import {
   claimReviewInquiry,
@@ -17,6 +18,7 @@ import {
   SearchInterpretation,
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
+import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -35,6 +37,7 @@ interface InquiryDetailProps {
 }
 
 export function InquiryDetail({ feedbackId }: InquiryDetailProps) {
+  const member = useMember();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -227,6 +230,14 @@ export function InquiryDetail({ feedbackId }: InquiryDetailProps) {
                 : '시작 시각 확인 중'}
             </p>
           </section>
+        ) : null}
+
+        {inquiry.status === 'reviewing' ? (
+          <InquiryResolutionForm
+            inquiry={inquiry}
+            key={`${inquiry.feedbackId}-${inquiry.resolution ?? 'new'}`}
+            memberLoginId={member.loginId}
+          />
         ) : null}
 
         {inquiry.resolution ? (

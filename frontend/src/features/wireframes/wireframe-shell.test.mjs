@@ -88,6 +88,8 @@ test('검수 규칙 demo는 정상 결과와 적용 사실만 함께 표시한�
   const html = renderShell({ state: 'review-rule' });
 
   assert.equal((html.match(/class="resultCard/g) ?? []).length, 10);
+  assert.equal((html.match(/class="cardInquiryButton"/g) ?? []).length, 0);
+  assert.ok(!html.includes('이상해요'));
   assert.ok(html.includes('정상 검색'));
   assert.ok(html.includes('검수 규칙 적용'));
   assert.doesNotMatch(html, /rule[_ -]?id|condition|JSON|오류 코드/i);
@@ -97,7 +99,9 @@ test('snapshot 실패 Preview는 통합 경로에서도 문의를 비활성화�
   const html = renderShell({ preview: 'loading', state: 'degraded-snapshot' });
 
   assert.match(html, /data-state="unavailable"/);
+  assert.equal((html.match(/data-state="unavailable"/g) ?? []).length, 1);
   assert.ok(html.includes('문의 불가'));
+  assert.ok(!html.includes('id="inquiry-unavailable-'));
   assert.match(html, /<dialog aria-describedby="[^"]+"/);
 });
 
