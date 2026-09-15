@@ -60,7 +60,7 @@ class SceneExcludeCandidateRepositoryAdapterDbTest {
         assertThat(row[5]).isEqualTo("fp-9701");
         assertThat(row[6]).isNull();
         assertThat(row[7]).isNull();
-        assertThat(repository.findId(9901L, "rk-1")).contains(id);
+        assertThat(repository.findByTargetScene(9901L, 9301L)).contains(id);
     }
 
     @Test
@@ -74,6 +74,24 @@ class SceneExcludeCandidateRepositoryAdapterDbTest {
 
         Number count = (Number) em.createNativeQuery(
                         "SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901 AND request_key = 'rk-1'")
+                .getSingleResult();
+        assertThat(count.intValue()).isEqualTo(1);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("요청키가 달라도 같은 신고·장면이면 두 번째는 흡수된다 (부분 유니크로 장면당 하나)")
+    void differentRequestKeySameSceneIsAbsorbed() {
+        seed();
+        assertThat(repository.insertIfAbsent(candidate())).isPresent();
+
+        // FE 가 새 Idempotency-Key 로 재시도한 상황 — 대상 장면은 그대로다.
+        SceneExcludeCandidate retryWithNewKey =
+                new SceneExcludeCandidate(9901L, "rk-2", 9301L, "fp-9701", "제주 불꽃놀이", "{}", "v1");
+        assertThat(repository.insertIfAbsent(retryWithNewKey)).isEmpty();
+
+        Number count = (Number) em.createNativeQuery(
+                        "SELECT count(*) FROM search_rule WHERE source_feedback_id = 9901 AND target_scene_id = 9301")
                 .getSingleResult();
         assertThat(count.intValue()).isEqualTo(1);
     }

@@ -98,6 +98,30 @@ class SceneExcludeCandidateControllerTest {
     }
 
     @Test
+    @DisplayName("long 범위를 넘는 문자열 targetSceneId 는 500 이 아니라 400 으로 막는다")
+    void overflowStringSceneIdRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/review/inquiries/1/scene-exclude-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .header("Idempotency-Key", "rk-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetSceneId\":\"99999999999999999999\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("targetSceneId 누락은 400 으로 막는다 (장면 불일치와 구분)")
+    void missingSceneIdRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/review/inquiries/1/scene-exclude-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .header("Idempotency-Key", "rk-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("편집기자는 제외 후보 생성 경로에 접근할 수 없다")
     void editorForbidden() throws Exception {
         mockMvc.perform(post("/api/v1/review/inquiries/1/scene-exclude-candidate")

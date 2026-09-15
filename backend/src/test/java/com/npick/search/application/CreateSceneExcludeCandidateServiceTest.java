@@ -49,7 +49,7 @@ class CreateSceneExcludeCandidateServiceTest {
     @DisplayName("전제·대상이 맞으면 비활성 후보로 저장하고 생성 id 를 준다")
     void createsInactiveCandidate() {
         reviewingExclude();
-        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
+        when(candidateRepository.findByTargetScene(1L, 300L)).thenReturn(Optional.empty());
         when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.of(777L));
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, 300L));
@@ -121,7 +121,6 @@ class CreateSceneExcludeCandidateServiceTest {
     @DisplayName("신고 장면과 다른 장면을 지정하면 거부한다")
     void rejectsWrongTargetScene() {
         reviewingExclude();
-        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.create(command(true, 9L, 999L)))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
@@ -130,10 +129,10 @@ class CreateSceneExcludeCandidateServiceTest {
     }
 
     @Test
-    @DisplayName("같은 요청키로 다시 부르면 저장하지 않고 기존 후보 id 를 준다")
+    @DisplayName("같은 신고·장면으로 다시 부르면 저장하지 않고 기존 후보 id 를 준다 (요청키가 달라도)")
     void idempotentReturnsExisting() {
         reviewingExclude();
-        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.of(555L));
+        when(candidateRepository.findByTargetScene(1L, 300L)).thenReturn(Optional.of(555L));
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, 300L));
 
@@ -146,7 +145,7 @@ class CreateSceneExcludeCandidateServiceTest {
     @DisplayName("동시 저장으로 유니크 위반이 나면 500 이 아니라 기존 후보를 existing 으로 복구한다")
     void recoversFromConcurrentDuplicate() {
         reviewingExclude();
-        when(candidateRepository.findId(1L, "rk-1"))
+        when(candidateRepository.findByTargetScene(1L, 300L))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(999L));
         when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.empty());

@@ -51,7 +51,9 @@ public class CreateSceneExcludeCandidateService {
             throw new BusinessException(SceneExcludeCandidateErrorCode.WRONG_TARGET_SCENE);
         }
 
-        Optional<Long> existing = candidateRepository.findId(command.feedbackId(), command.requestKey());
+        // 멱등은 (신고, 대상 장면) 단위다 — exclude 후보는 내용이 전부 신고 컨텍스트에서 파생돼 장면당 하나뿐이다.
+        // request_key 가 달라진 재시도도 같은 장면이면 기존 후보를 돌려준다(부분 유니크 인덱스가 DB 에서도 보장).
+        Optional<Long> existing = candidateRepository.findByTargetScene(command.feedbackId(), command.targetSceneId());
         if (existing.isPresent()) {
             return ParseCandidateOutcome.existing(existing.get());
         }
@@ -69,7 +71,7 @@ public class CreateSceneExcludeCandidateService {
         }
         // 동시 저장으로 방금 충돌했다. ON CONFLICT 가 예외 없이 흡수했으므로 다시 조회하면 먼저 만들어진 후보가 보인다.
         return candidateRepository
-                .findId(command.feedbackId(), command.requestKey())
+                .findByTargetScene(command.feedbackId(), command.targetSceneId())
                 .map(ParseCandidateOutcome::existing)
                 .orElseThrow(() -> new IllegalStateException("insert conflict but no existing candidate found"));
     }

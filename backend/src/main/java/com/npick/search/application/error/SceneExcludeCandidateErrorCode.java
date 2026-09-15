@@ -25,7 +25,9 @@ public enum SceneExcludeCandidateErrorCode implements ErrorCode {
     /** 장면 제외(exclude_scene)로 처리된 신고가 아니다. */
     NOT_EXCLUDE_SCENE(ErrorType.CONFLICT, "SRCH_409_212", "장면 제외로 처리된 신고가 아니다"),
     /** 신고가 참조한 장면과 다른 장면을 제외 대상으로 지정했다 (FR-FBK-022). */
-    WRONG_TARGET_SCENE(ErrorType.BAD_REQUEST, "SRCH_400_211", "신고 장면과 다른 장면은 제외할 수 없다");
+    WRONG_TARGET_SCENE(ErrorType.BAD_REQUEST, "SRCH_400_211", "신고 장면과 다른 장면은 제외할 수 없다"),
+    /** 요청 본문 형식이 잘못됐다 — JSON 파싱 실패, targetSceneId 누락, 정수·양수 범위를 벗어난 값. 장면 불일치(WRONG_TARGET_SCENE)와 구분한다. */
+    MALFORMED_REQUEST(ErrorType.BAD_REQUEST, "SRCH_400_212", "요청 형식이 올바르지 않다");
 
     private final ErrorType type;
     private final String code;

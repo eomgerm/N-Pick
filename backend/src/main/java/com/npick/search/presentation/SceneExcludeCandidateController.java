@@ -67,7 +67,7 @@ public class SceneExcludeCandidateController {
                 .body(ApiResponse.success(SceneExcludeCandidateResponse.of(outcome.searchRuleId(), feedbackId)));
     }
 
-    /** 장면 ID 는 64bit 라 FE 가 문자열로 보낼 수 있다. 숫자·양의 정수 문자열 둘 다 받는다. */
+    /** 장면 ID 는 64bit 라 FE 가 문자열로 보낼 수 있다. 숫자·양의 정수 문자열 둘 다 받는다. 형식 문제는 장면 불일치가 아니라 MALFORMED_REQUEST 로 구분한다. */
     private long readSceneId(JsonNode node) {
         if (node != null && !node.isNull()) {
             // isIntegralNumber 로 정수 노드만 통과. canConvertToLong 단독은 1.9 같은 DoubleNode 도 통과시켜 소수부가 잘린다.
@@ -75,17 +75,23 @@ public class SceneExcludeCandidateController {
                 return node.asLong();
             }
             if (node.isTextual() && node.asText().matches("[1-9]\\d*")) {
-                return Long.parseLong(node.asText());
+                try {
+                    // 20자리 등 long 범위를 넘는 문자열은 여기서 NumberFormatException 이 난다. 숫자 노드의 canConvertToLong 과 강도를 맞춘다.
+                    return Long.parseLong(node.asText());
+                } catch (NumberFormatException overflow) {
+                    throw new BusinessException(SceneExcludeCandidateErrorCode.MALFORMED_REQUEST);
+                }
             }
         }
-        throw new BusinessException(SceneExcludeCandidateErrorCode.WRONG_TARGET_SCENE);
+        // targetSceneId 누락·형식 오류. "신고 장면과 다르다"(WRONG_TARGET_SCENE)와 구분해 FE 가 원인을 알 수 있게 한다.
+        throw new BusinessException(SceneExcludeCandidateErrorCode.MALFORMED_REQUEST);
     }
 
     private JsonNode parse(String rawBody) {
         try {
             return OBJECT_MAPPER.readTree(rawBody);
         } catch (JacksonException malformed) {
-            throw new BusinessException(SceneExcludeCandidateErrorCode.WRONG_TARGET_SCENE);
+            throw new BusinessException(SceneExcludeCandidateErrorCode.MALFORMED_REQUEST);
         }
     }
 }

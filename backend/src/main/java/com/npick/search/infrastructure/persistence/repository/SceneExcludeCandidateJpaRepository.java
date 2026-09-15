@@ -25,7 +25,8 @@ public interface SceneExcludeCandidateJpaRepository extends JpaRepository<Search
                     + "source_feedback_id, active, created_at, updated_at, request_key) "
                     + "VALUES (:id, :fingerprint, :normalizedQuery, CAST(:filters AS jsonb), :version, "
                     + "'exclude_scene', :sceneId, :feedbackId, false, :now, :now, :requestKey) "
-                    + "ON CONFLICT (source_feedback_id, request_key) DO NOTHING",
+                    // 멱등은 (신고, 장면) 부분 유니크로 건다 — exclude 후보는 장면당 하나뿐이라 request_key 가 바뀐 재시도도 중복을 만들지 않는다.
+                    + "ON CONFLICT (source_feedback_id, target_scene_id) WHERE action = 'exclude_scene' DO NOTHING",
             nativeQuery = true)
     int insertCandidate(
             @Param("id") long id,
@@ -40,7 +41,8 @@ public interface SceneExcludeCandidateJpaRepository extends JpaRepository<Search
 
     @Query(
             value = "SELECT search_rule_id FROM search_rule "
-                    + "WHERE source_feedback_id = :feedbackId AND request_key = :requestKey",
+                    + "WHERE source_feedback_id = :feedbackId AND target_scene_id = :sceneId "
+                    + "AND action = 'exclude_scene'",
             nativeQuery = true)
-    List<Long> findIds(@Param("feedbackId") long sourceFeedbackId, @Param("requestKey") String requestKey);
+    List<Long> findIdsByScene(@Param("feedbackId") long sourceFeedbackId, @Param("sceneId") long targetSceneId);
 }
