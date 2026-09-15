@@ -220,7 +220,7 @@ def _load(
     try:
         from transformers import AutoModelForImageTextToText, AutoProcessor
     except ImportError as exc:
-        msg = "gpu 그룹이 설치되지 않았다: uv sync --group gpu"
+        msg = "gpu 그룹이 설치되지 않았다: uv sync --group gpu --group cu130|cu128"
         raise VlmModelUnavailableError(msg) from exc
 
     kwargs: dict[str, Any] = {"revision": revision}
