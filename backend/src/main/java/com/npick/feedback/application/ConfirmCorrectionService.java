@@ -82,10 +82,13 @@ public class ConfirmCorrectionService {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
 
-        if (FeedbackResolution.TAG_CORRECTION.value().equals(target.resolution())) {
-            confirmTag.confirm(command.feedbackId(), run.approvedEvidenceIds());
-        } else {
+        // patch_parse(태그·해석 모두 잘못, F-09)는 규칙과 태그를 함께 확정한다. tag_correction 은 태그만. 배타 분기가 아니라,
+        // 규칙 확정은 patch_parse 일 때, 태그 확정은 검증이 승인한 근거가 있을 때 각각 일어난다.
+        if (FeedbackResolution.PATCH_PARSE.value().equals(target.resolution())) {
             confirmParseRule.confirm(command.feedbackId(), run.approvedRuleId(), run.replacedRuleId());
+        }
+        if (!run.approvedEvidenceIds().isEmpty()) {
+            confirmTag.confirm(command.feedbackId(), run.approvedEvidenceIds());
         }
         if (feedbackRepository.confirm(command.feedbackId(), command.reviewerId(), command.executionId(), Instant.now())
                 == 0) {

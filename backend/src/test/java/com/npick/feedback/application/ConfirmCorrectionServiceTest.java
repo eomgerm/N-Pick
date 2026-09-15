@@ -177,6 +177,20 @@ class ConfirmCorrectionServiceTest {
     }
 
     @Test
+    @DisplayName("patch_parse(태그·해석 모두 잘못)는 규칙과 태그를 함께 확정한다 (F-09)")
+    void confirmsParseRuleWithTagCorrection() {
+        target("REVIEWING", "patch_parse", null);
+        verificationRun("patch_parse", List.of(7901L, 7902L), 6602L, 6601L);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any())).thenReturn(1);
+
+        service.confirm(command(true));
+
+        verify(confirmParseRule).confirm(FEEDBACK, 6602L, 6601L);
+        verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
+        verify(feedbackRepository).confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(Instant.class));
+    }
+
+    @Test
     @DisplayName("이미 같은 검증 실행으로 확정된 신고는 다시 쓰지 않고 성공한다 (멱등)")
     void idempotentWhenAlreadyConfirmed() {
         target("CLOSED", "tag_correction", EXECUTION);

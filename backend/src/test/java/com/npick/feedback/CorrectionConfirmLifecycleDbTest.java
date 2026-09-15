@@ -79,6 +79,30 @@ class CorrectionConfirmLifecycleDbTest {
 
     @Test
     @Transactional
+    @DisplayName("patch_parse 확정: 규칙 활성화·교체와 태그 근거 확정을 한 트랜잭션으로 (F-09 조합)")
+    void confirmsParseRuleWithTags() throws Exception {
+        seedCommon("patch_parse");
+        seedRuleCandidate();
+        seedTagCandidate();
+        seedReplay("{\"resolution\":\"patch_parse\",\"approved_evidence_ids\":[7901],"
+                + "\"approved_rule_id\":6602,\"replaced_rule_id\":6601,\"state_fingerprint\":\"rules=6601;tags=\"}");
+
+        confirm(9702L).andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6602",
+                        Boolean.class))
+                .isTrue();
+        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6601",
+                        Boolean.class))
+                .isFalse();
+        assertThat(jdbc.queryForObject("SELECT confirmed FROM npick.tag_evidence WHERE evidence_id = 7901",
+                        Boolean.class))
+                .isTrue();
+        assertClosedAndLinked();
+    }
+
+    @Test
+    @Transactional
     @DisplayName("검증 이후 상태가 바뀌었으면 확정을 거부하고 아무것도 바꾸지 않는다")
     void rejectsWhenStateDrifted() throws Exception {
         seedCommon("tag_correction");
