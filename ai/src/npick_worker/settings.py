@@ -155,6 +155,11 @@ class Settings(BaseSettings):
     # SecretStr: 로그·repr·예외 메시지로 토큰이 새는 경로를 타입으로 막는다.
     # 값을 쓰려면 .get_secret_value() 를 명시적으로 불러야 한다.
     gms_api_key: SecretStr = SecretStr("")
+    #: **기본값을 두지 않는다.** 선정은 끝났지만(`gpt-4o-mini`, S15P21A501-102) 이름을
+    #: 코드에 박지 않는 것은 `asr_model`·`ollama_model` 과 같은 규칙이다 — 그리고 여기에는
+    #: 이유가 하나 더 있다. 비어 있으면 `GmsResolver` 가 기동 시점에 거절하므로
+    #: `resolver_backend=gms` 로 뒤집으면서 모델을 안 넣은 배포가 조용히 도는 일이 없다.
+    #: 확정값과 근거는 `ai/.env.example` 과 `eval/query_resolver/README.md` 에 있다.
     gms_model: str = ""
     # 게이트웨이가 response_format 을 받지 않으면 false 로 끈다. 그러면 JSON 강제가
     # 프롬프트 지시뿐이라 RESOLVER_SCHEMA_INVALID 가 늘어난다.
