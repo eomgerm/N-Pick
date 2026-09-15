@@ -39,7 +39,10 @@ from npick_worker.text_embedding.sentence_transformers_backend import (
     _load,
     _resolve_revision,
 )
-from tests.conftest import SCENE_EMBEDDING_DIMENSION
+
+#: `scene.embedding vector(1024)` 와 같아야 하는 값. 마이그레이션
+#: `V20260907092019__baseline.sql:83` 이 정본이다.
+SCENE_EMBEDDING_DIMENSION = 1024
 
 
 class _FakeEncoder:

@@ -19,7 +19,6 @@ from functools import lru_cache
 
 from pydantic import BaseModel
 
-from npick_worker.query_embedding import QueryEmbedding, embed_query
 from npick_worker.query_normalization import normalize
 from npick_worker.query_resolver import (
     QueryResolver,
@@ -33,24 +32,11 @@ from npick_worker.query_resolver.gms_backend import GmsResolver
 from npick_worker.query_resolver.ollama_backend import OllamaResolver
 from npick_worker.query_resolver.validator import RESOLVER_SCHEMA_INVALID
 from npick_worker.settings import Settings, get_settings
-from npick_worker.text_embedding.encoder import TextEncoder
 
 logger = logging.getLogger(__name__)
 
 #: 해석 경로 전체가 죽었을 때 쓰는 사유. 백엔드가 분류하지 못한 실패다.
 RESOLVER_FAILED = "RESOLVER_FAILED"
-
-#: 질의 임베딩이 죽었을 때 쓰는 사유. **한 종류뿐이다.**
-#:
-#: 어댑터는 호출 실패(`EmbeddingCallError`)와 가중치 부재(`EmbeddingModelUnavailableError`)
-#: 를 가르지만 리졸버는 동기 호출 전용이고 재시도가 없다(`02-container.md`). 둘 다 호출부가
-#: 할 일이 같다 — BM25 로 이어간다. BE 가 실제로 갈라서 처리할 일이 생기면 그때 쪼갠다.
-#:
-#: **사용자에게 보이는 이름은 이것이 아니다.** `docs/contracts/web-api.md` §5.1 이
-#: 검색 응답의 `degraded_reasons` 값을 `dense_unavailable` 로 이미 닫아 두었고, 그 값을
-#: 붙이는 것은 BE(`SearchDegradedReason`, S15P21A501-53)다. 이쪽은 워커가 BE 에 말하는
-#: category 이고 `RESOLVER_*` 가 `QueryResolverErrorCode` 로 옮겨지는 것과 같은 층이다.
-EMBEDDING_FAILED = "EMBEDDING_FAILED"
 
 
 class QueryNotNormalizableError(ValueError):
@@ -95,24 +81,14 @@ class ResolverError(BaseModel):
     category: str
 
 
-class EmbeddingError(BaseModel):
-    """질의 임베딩 실패 사유. 호출부가 degraded 사유로 기록한다 (FRD v3.1 §7.2).
-
-    `ResolverError` 와 타입을 나눈 이유는 **두 실패가 독립이기 때문**이다. 해석은
-    성공하고 임베딩만 죽을 수 있고 그 반대도 된다. 한 필드에 섞으면 호출부가 어느
-    채널을 포기해야 하는지 알 수 없다 — 해석이 죽으면 지문·필터를 잃고, 임베딩이
-    죽으면 dense 채널만 잃는다.
-    """
-
-    #: 지금은 `EMBEDDING_FAILED` 하나뿐이다.
-    category: str
-
-
 class QueryResolveResponse(BaseModel):
-    """정규화는 항상, 해석과 임베딩은 되는 만큼 채운다.
+    """정규화는 항상, 해석은 성공했을 때만 채운다.
 
-    `resolution` 이 `None` 이면 `error` 가 있고, 그 반대도 성립한다. `embedding` 과
-    `embedding_error` 도 같은 관계이되 **해석과는 독립된 축**이다.
+    `resolution` 이 `None` 이면 `error` 가 있고, 그 반대도 성립한다.
+
+    TODO(S15P21A501-164): 질의 임베딩 필드가 여기 들어온다. 모델과 차원은
+    `S15P21A501-100` 이 확정하기 전까지 정하지 않는다 — 색인 측과 다른 모델을 쓰면
+    유사도가 무의미해진다.
     """
 
     normalization: Normalization
@@ -122,15 +98,6 @@ class QueryResolveResponse(BaseModel):
     prompt_version: str | None = None
     model_version: str | None = None
     error: ResolverError | None = None
-
-    #: dense 검색 채널의 질의 측 재료 (S15P21A501-164). 색인 측 `scene.embedding` 과
-    #: 같은 모델·차원이라 그대로 코사인 비교가 된다. 실패하면 `None` 이고 호출부는
-    #: BM25 로 이어간다 (FRD v3.1 §6.2).
-    embedding: tuple[float, ...] | None = None
-    #: 그 벡터를 만든 가중치. 색인 측 값과 다르면 유사도가 무의미하므로 호출부가
-    #: 대조할 수 있어야 한다.
-    embedding_model_version: str | None = None
-    embedding_error: EmbeddingError | None = None
 
 
 @lru_cache(maxsize=1)
@@ -153,54 +120,10 @@ def _resolver() -> QueryResolver:
     return OllamaResolver(base_url=settings.ollama_url, model=settings.ollama_model, params=params)
 
 
-def _encoder() -> TextEncoder:
-    """프로세스가 공유하는 인코더 하나. **색인 측과 같은 인스턴스다.**
-
-    `shared_encoder()` 가 이미 `lru_cache` 라 여기서 또 캐시하지 않는다. 이 함수가
-    따로 있는 이유는 테스트가 갈아 끼울 자리를 주기 위해서다 — 그게 없으면 이 파일의
-    모든 테스트가 1.7GB 가중치를 내려받는다.
-
-    지연 임포트다. `sentence_transformers` 는 함수 안에서 끌어오지만 이 모듈은 앱
-    기동 경로에 있어 임포트 시점에 어댑터 모듈까지 끌 이유가 없다.
-    """
-    from npick_worker.text_embedding.sentence_transformers_backend import shared_encoder
-
-    return shared_encoder()
-
-
-def warm_query_encoder() -> bool:
-    """가중치를 미리 올린다. 기동 시 1회 부른다. 성공 여부를 돌려준다.
-
-    **리졸버 배포 단위는 `jobs.warm_up()` 을 타지 않는다.** 그쪽은 `job_poll_enabled`
-    가 켜진 프로세스에서만 도는데 리졸버는 폴링하지 않는다(`app.lifespan`). 어댑터는
-    인스턴스만 만들고 가중치는 첫 `encode` 에서 올라가므로, 워밍업이 없으면 **부팅 후
-    첫 검색**이 1.7GB 로딩과 CUDA 컨텍스트 초기화를 통째로 물고 동기 예산(p95 10초)을
-    날린다. 이후 호출은 실측 p95 110~120ms 다(S15P21A501-175).
-
-    `encode` 로 깨운다. `SentenceTransformerEncoder.warm_up()` 을 부르려면 Protocol 에
-    없는 메서드를 `getattr` 로 찾아야 하는데, 어차피 가중치를 올리는 것은 `encode` 이고
-    `eval/text_embedding/measure.py` 도 같은 방법을 쓴다.
-
-    **실패해도 예외를 올리지 않는다.** 가중치가 없어도 리졸버는 떠야 한다 —
-    `ai/AGENTS.md` 의 "GPU 없이도 워커가 기동하는 성질" 과 같은 요구이고, 그런 프로세스의
-    검색은 임베딩 없이 BM25 로 이어진다(FRD v3.1 §6.2).
-    """
-    try:
-        _encoder().encode([get_settings().embedding_query_prefix + "워밍업"])
-    except Exception as exc:
-        logger.warning(
-            "질의 임베딩 워밍업 실패: %s: %s. 이 프로세스의 검색은 dense 채널 없이 돈다",
-            type(exc).__name__,
-            exc,
-        )
-        return False
-    return True
-
-
 def _degraded(
-    base: QueryResolveResponse, category: str, cause: Exception | None
+    normalization: Normalization, category: str, cause: Exception | None
 ) -> QueryResolveResponse:
-    """해석 실패를 응답으로 만든다. 정규화와 임베딩은 살려서 보낸다.
+    """해석 실패를 응답으로 만든다. 정규화는 살려서 보낸다.
 
     **응답에는 `category` 만 싣는다.** 백엔드 예외 메시지에는 GMS 엔드포인트 URL 과 응답 본문
     조각이 들어 있어(`gms_backend.py`), 그대로 내보내면 FRD v3.1 §6.4 의 "서버 절대 경로·전체
@@ -208,82 +131,45 @@ def _degraded(
     """
     if cause is not None:
         logger.warning("질의 해석 실패 category=%s: %s", category, cause)
-    return base.model_copy(update={"error": ResolverError(category=category)})
-
-
-def _embed(raw_query: str) -> QueryEmbedding | None:
-    """dense 채널의 질의 벡터. 실패하면 `None` 이고 검색은 BM25 로 이어진다.
-
-    FRD v3.1 §6.2 가 "텍스트 의미 검색 실패 → 단어 검색과 사용 가능한 신호로 결과 제공"
-    으로 정한다. 그래서 **모든 예외를 삼킨다** — 어댑터의 일시 오류(호출 실패·가중치
-    부재)뿐 아니라 설정 오류와 우리 쪽 버그까지다. 버그를 조용히 넘기면 모든 검색이
-    dense 채널 없이 돌면서 아무도 모르게 되므로 스택트레이스를 남긴다(`_resolver` 의
-    같은 판단).
-
-    `ValueError` 도 여기서 잡힌다. 정규화가 이미 빈 질의를 400 으로 걸러 내므로 남는
-    것은 차원 불일치·0 벡터 같은 설정·모델 문제이고, 그것으로 검색 전체를 죽일 이유가
-    없다 — 다만 로그에는 남아야 한다.
-    """
-    try:
-        return embed_query(raw_query, encoder=_encoder())
-    except Exception:
-        logger.exception("질의 임베딩이 실패했다. dense 채널 없이 검색한다")
-        return None
+    return QueryResolveResponse(normalization=normalization, error=ResolverError(category=category))
 
 
 def resolve(request: QueryResolveRequest) -> QueryResolveResponse:
-    """정규화는 반드시, 해석과 임베딩은 되는 만큼.
+    """정규화는 반드시, 해석은 되는 만큼.
 
     정규화가 실패하면 `QueryNotNormalizableError` 로 올린다 — 지문을 만들 수 없어 검색
-    자체가 성립하지 않는다. 라우터가 그 타입만 400 으로 바꾼다. 그 뒤로는 어떤 실패도
-    200 이다.
-
-    **해석과 임베딩은 순차가 아니라 각자 원문에서 출발한다.** 둘 다 원문을 쓰고 서로의
-    결과를 보지 않는다 — 하나가 죽어도 다른 하나가 살아 나가야 하고, 정규화 질의를
-    넣으면 해석은 `query_span` 이 어긋나고 임베딩은 색인 측과 입력 분포가 어긋난다.
+    자체가 성립하지 않는다. 라우터가 그 타입만 400 으로 바꾼다.
     """
     try:
         normalized = normalize(request.query)
     except ValueError as exc:
         raise QueryNotNormalizableError(str(exc)) from exc
-
-    # 임베딩 결과를 먼저 담아 둔다. 아래 해석이 어느 갈래로 빠지든 이 값은 그대로
-    # 실려 나간다 — 두 축이 독립이라는 것을 구조로 만든 자리다.
-    embedding = _embed(request.query)
-    base = QueryResolveResponse(
-        normalization=Normalization(
-            normalized_query=normalized.normalized_query,
-            search_tokens=normalized.search_tokens,
-            normalization_version=normalized.normalization_version,
-        ),
-        embedding=embedding.vector if embedding is not None else None,
-        embedding_model_version=embedding.model_version if embedding is not None else None,
-        embedding_error=None
-        if embedding is not None
-        else EmbeddingError(category=EMBEDDING_FAILED),
+    normalization = Normalization(
+        normalized_query=normalized.normalized_query,
+        search_tokens=normalized.search_tokens,
+        normalization_version=normalized.normalization_version,
     )
 
     try:
         result = resolve_query(request.query, _resolver())
     except ResolverCallError as exc:
-        return _degraded(base, exc.category, exc)
+        return _degraded(normalization, exc.category, exc)
     except ResolverSchemaInvalidError as exc:
-        return _degraded(base, RESOLVER_SCHEMA_INVALID, exc)
+        return _degraded(normalization, RESOLVER_SCHEMA_INVALID, exc)
     except Exception:  # 해석 실패가 검색을 죽이지 않게 한다 (FRD v3.1 §6.2)
         # 분류되지 않은 실패다. 여기에는 모델 미설정 같은 설정 문제와 **우리 쪽 버그**가
         # 함께 걸린다. 버그를 조용히 degraded 로 넘기면 모든 검색이 해석 없이 돌면서
         # 아무도 모르게 되므로 스택트레이스를 남긴다.
         logger.exception("질의 해석이 분류되지 않은 이유로 실패했다")
-        return _degraded(base, RESOLVER_FAILED, None)
+        return _degraded(normalization, RESOLVER_FAILED, None)
 
-    return base.model_copy(
-        update={
-            "resolution": result.resolution,
-            "findings": tuple(
-                {"path": f.path, "action": f.action, "reason": f.reason} for f in result.findings
-            ),
-            "resolution_schema_version": result.resolution_schema_version,
-            "prompt_version": result.prompt_version,
-            "model_version": result.model_version,
-        }
+    return QueryResolveResponse(
+        normalization=normalization,
+        resolution=result.resolution,
+        findings=tuple(
+            {"path": f.path, "action": f.action, "reason": f.reason} for f in result.findings
+        ),
+        resolution_schema_version=result.resolution_schema_version,
+        prompt_version=result.prompt_version,
+        model_version=result.model_version,
     )
