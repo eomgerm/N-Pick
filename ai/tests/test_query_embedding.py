@@ -29,12 +29,9 @@ from npick_worker.text_embedding.encoder import (
     EmbeddingCallError,
     EmbeddingModelUnavailableError,
 )
+from tests.conftest import SCENE_EMBEDDING_DIMENSION
 
 RAW_QUERY = "작년 여름에 부산 침수됐던 장면 좀 찾아줘"
-
-#: `scene.embedding vector(1024)` 와 같아야 하는 값. 마이그레이션
-#: `V20260907092019__baseline.sql:83` 이 정본이다.
-SCENE_EMBEDDING_DIMENSION = 1024
 
 
 class _FakeEncoder:
@@ -97,7 +94,7 @@ def test_encoder_receives_prefix_and_raw_query() -> None:
     """접두 + 원문 하나. 문장 한 개만 인코더에 간다."""
     encoder = _FakeEncoder()
 
-    result = embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
+    result = embed_query(RAW_QUERY, encoder=encoder, config=_config())
 
     assert encoder.calls == [("query: " + RAW_QUERY,)]
     assert result.source_text == "query: " + RAW_QUERY
@@ -111,7 +108,7 @@ def test_embedded_text_is_not_the_normalized_query() -> None:
     """
     encoder = _FakeEncoder()
 
-    result = embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
+    result = embed_query(RAW_QUERY, encoder=encoder, config=_config())
 
     normalized = normalize(RAW_QUERY)
     assert normalized.normalized_query not in result.source_text
@@ -122,19 +119,22 @@ def test_surrounding_whitespace_does_not_change_the_vector() -> None:
     """`" 부산 "` 과 `"부산"` 이 다른 벡터가 되면 같은 질의가 다른 검색이 된다."""
     config = _config()
 
-    padded = embed_query(
-        f"  {RAW_QUERY}  ", encoder=_FakeEncoder(), prefix="query: ", config=config
-    )
-    bare = embed_query(RAW_QUERY, encoder=_FakeEncoder(), prefix="query: ", config=config)
+    padded = embed_query(f"  {RAW_QUERY}  ", encoder=_FakeEncoder(), config=config)
+    bare = embed_query(RAW_QUERY, encoder=_FakeEncoder(), config=config)
 
     assert padded.vector == bare.vector
 
 
-def test_empty_prefix_sends_the_query_unchanged() -> None:
-    """접두는 모델이 요구할 때만 붙는다. 코드에 박혀 있지 않다."""
+def test_empty_prefix_sends_the_query_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """접두는 모델이 요구할 때만 붙는다. 코드에 박혀 있지 않다.
+
+    접두 없는 모델로 갈아 끼우는 경로이고, 그때 바뀌는 것은 환경변수 하나다.
+    """
+    monkeypatch.setenv("NPICK_AI_EMBEDDING_QUERY_PREFIX", "")
+    get_settings.cache_clear()
     encoder = _FakeEncoder()
 
-    embed_query(RAW_QUERY, encoder=encoder, prefix="", config=_config())
+    embed_query(RAW_QUERY, encoder=encoder, config=_config())
 
     assert encoder.calls == [(RAW_QUERY,)]
 
@@ -145,7 +145,7 @@ def test_blank_query_is_rejected_before_the_model(raw: str) -> None:
     encoder = _FakeEncoder()
 
     with pytest.raises(ValueError, match="질의"):
-        embed_query(raw, encoder=encoder, prefix="query: ", config=_config())
+        embed_query(raw, encoder=encoder, config=_config())
 
     assert encoder.calls == []
 
@@ -157,7 +157,7 @@ def test_model_version_comes_from_the_encoder() -> None:
     """가중치가 바뀌면 벡터가 달라진다. 호출부가 그 사실을 알 수 있어야 한다."""
     encoder = _FakeEncoder(model_version="dragonkue/arctic@abc123")
 
-    result = embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
+    result = embed_query(RAW_QUERY, encoder=encoder, config=_config())
 
     assert result.model_version == "dragonkue/arctic@abc123"
 
@@ -167,7 +167,7 @@ def test_model_version_comes_from_the_encoder() -> None:
 
 def test_vector_is_l2_normalized() -> None:
     """pgvector 코사인 검색의 전제. 색인 측과 같은 크기여야 한다."""
-    result = embed_query(RAW_QUERY, encoder=_FakeEncoder(), prefix="query: ", config=_config())
+    result = embed_query(RAW_QUERY, encoder=_FakeEncoder(), config=_config())
 
     assert math.isclose(math.sqrt(sum(v * v for v in result.vector)), 1.0, rel_tol=1e-9)
 
@@ -176,7 +176,6 @@ def test_normalize_off_keeps_the_raw_magnitude() -> None:
     result = embed_query(
         RAW_QUERY,
         encoder=_FakeEncoder(vector=[3.0, 4.0, 0.0, 0.0]),
-        prefix="query: ",
         config=_config(normalize=False),
     )
 
@@ -188,7 +187,7 @@ def test_dimension_mismatch_is_rejected() -> None:
     encoder = _FakeEncoder(dimension=8)
 
     with pytest.raises(ValueError, match="차원"):
-        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config(dimension=4))
+        embed_query(RAW_QUERY, encoder=encoder, config=_config(dimension=4))
 
 
 def test_zero_vector_is_rejected() -> None:
@@ -196,7 +195,7 @@ def test_zero_vector_is_rejected() -> None:
     encoder = _FakeEncoder(vector=[0.0, 0.0, 0.0, 0.0])
 
     with pytest.raises(ValueError, match="0 벡터"):
-        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
+        embed_query(RAW_QUERY, encoder=encoder, config=_config())
 
 
 @pytest.mark.parametrize("bad", [math.nan, math.inf])
@@ -205,7 +204,7 @@ def test_non_finite_component_is_rejected(bad: float) -> None:
     encoder = _FakeEncoder(vector=[bad, 1.0, 1.0, 1.0])
 
     with pytest.raises(ValueError, match="유한"):
-        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
+        embed_query(RAW_QUERY, encoder=encoder, config=_config())
 
 
 # ── 실패는 감싸지 않는다 ────────────────────────────────────────────────
@@ -220,7 +219,7 @@ def test_encoder_failures_propagate_unchanged(failure: Exception) -> None:
     encoder = _FakeEncoder(failure=failure)
 
     with pytest.raises(type(failure)):
-        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
+        embed_query(RAW_QUERY, encoder=encoder, config=_config())
 
 
 # ── 설정 ────────────────────────────────────────────────────────────────

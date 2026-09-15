@@ -17,6 +17,15 @@ from npick_worker.jobs.models import StageResult
 from npick_worker.jobs.versions import StageVersion
 from npick_worker.settings import get_settings
 
+#: `scene.embedding vector(1024)` 의 차원. 마이그레이션
+#: `V20260907092019__baseline.sql:83` 이 정본이다.
+#:
+#: **여기 한 곳에만 둔다.** 색인 측과 질의 측 테스트가 같은 숫자를 각자 적고 있으면
+#: 컬럼이 바뀔 때 한쪽만 고쳐질 수 있다 — 설정에서 `dimension` 복제를 없앤 것과 같은
+#: 이유다(S15P21A501-164). 이 값이 설정과 맞는지는
+#: `test_query_embedding.py::test_index_dimension_still_matches_the_column` 이 본다.
+SCENE_EMBEDDING_DIMENSION = 1024
+
 
 @pytest.fixture(autouse=True)
 def reset_settings() -> Iterator[None]:

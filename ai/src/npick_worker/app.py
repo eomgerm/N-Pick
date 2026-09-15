@@ -161,6 +161,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # 상한을 넘겨도 버리는 일이 아니다. `wait_for` 는 대기만 끊고 스레드는 계속 돌아
         # 로딩을 끝낸다. 그 사이의 검색만 dense 채널 없이 BM25 로 돈다 (FRD v3.1 §6.2).
         # 실패도 마찬가지로 기동을 막지 않는다 — `warm_query_encoder` 가 삼킨다.
+        #
+        # **끊는 것은 기동뿐이고 종료는 아니다.** 스레드는 취소할 수 없어서 계속 도는데,
+        # `asyncio.run` 의 종료가 `loop.shutdown_default_executor(THREAD_JOIN_TIMEOUT)` 로
+        # 그 스레드를 기다린다(3.12 기준 300초). 그래서 상한을 넘긴 상태에서 SIGTERM 이
+        # 오면 이번에는 **종료가** 로딩이 끝날 때까지 막힌다. 하필 이 상한이 겨냥하는
+        # 상황(캐시가 빈 콜드 스타트)이 재배포·롤백과 겹치기 쉬운 때라 짚어 둔다.
+        # k8s 기본 grace period 30초면 SIGKILL 로 잘리므로 지금은 받아들인다.
+        #
+        # **워커 갈래(아래)에는 이 상한이 없다.** `warm_up()` 도 같은 모양으로 `yield`
+        # 앞에서 무제한 블록하고 ASR·VLM 가중치를 올린다 — 같은 결함이다. 리졸버가
+        # 사용자 검색의 동기 경로 앞단이라 먼저 막았고, 워커 쪽은 이 일감에서 건드리지
+        # 않았다. 거기도 필요하다고 판단되면 별건으로 연다.
         try:
             await asyncio.wait_for(
                 asyncio.to_thread(warm_query_encoder),

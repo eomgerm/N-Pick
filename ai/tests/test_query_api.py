@@ -26,12 +26,9 @@ from npick_worker.text_embedding.encoder import (
     EmbeddingCallError,
     EmbeddingModelUnavailableError,
 )
+from tests.conftest import SCENE_EMBEDDING_DIMENSION
 
 RAW_QUERY = "작년 여름에 부산 침수됐던 장면 좀 찾아줘"
-
-#: `scene.embedding vector(1024)` 와 같아야 하는 값. 마이그레이션
-#: `V20260907092019__baseline.sql:83` 이 정본이다.
-SCENE_EMBEDDING_DIMENSION = 1024
 
 
 class StubResolver:

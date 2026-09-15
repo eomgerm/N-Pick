@@ -25,7 +25,6 @@ def embed_query(
     raw_query: str,
     *,
     encoder: TextEncoder,
-    prefix: str | None = None,
     config: TextEmbeddingConfig | None = None,
 ) -> QueryEmbedding:
     """검색어 하나를 벡터로 만든다.
@@ -47,7 +46,6 @@ def embed_query(
         raw_query: 사용자가 친 원문. 앞뒤 공백은 벗긴다.
         encoder: 벡터를 만들 인코더. **색인 측과 같은 인스턴스여야 한다** —
             호출부가 `shared_encoder()` 로 받는다.
-        prefix: 질의측 접두. 없으면 `NPICK_AI_EMBEDDING_QUERY_PREFIX`.
         config: 벡터 공간(`dimension`·`normalize`). 없으면 **색인 측 정본**이다.
             질의가 자기 값을 갖지 않는 이유가 이것이다 — 두 곳에 적히면 갈릴 수 있고,
             갈리면 코사인 유사도가 조용히 무의미해진다.
@@ -62,7 +60,6 @@ def embed_query(
         EmbeddingModelUnavailableError: 가중치를 준비하지 못했다(일시).
     """
     space = config if config is not None else vector_space()
-    marker = prefix if prefix is not None else get_settings().embedding_query_prefix
 
     # 공백만 있는 질의를 임베딩하면 의미 없는 벡터가 검색에 쓰인다. 색인 측이 빈 장면을
     # `skipped` 로 두는 것과 같은 판단인데, 질의에는 "건너뛴다" 가 없어 오류가 된다.
@@ -71,7 +68,7 @@ def embed_query(
         msg = "질의가 비어 있다"
         raise ValueError(msg)
 
-    text = marker + stripped
+    text = get_settings().embedding_query_prefix + stripped
     vectors = encoder.encode([text])
     if len(vectors) != 1:
         msg = f"인코더가 질의 하나에 벡터 {len(vectors)} 개를 돌려줬다"
