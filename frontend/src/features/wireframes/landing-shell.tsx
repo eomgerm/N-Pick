@@ -260,15 +260,11 @@ export function LandingShell() {
               </span>
               <span className={styles.cardBody}>
                 <strong className={styles.cardTitle}>편집자로 시작하기</strong>
-                <em className={styles.cardTagline}>Find the scene</em>
                 <span className={styles.cardText}>필요한 뉴스 장면을 빠르게 찾아보세요.</span>
                 <span className={styles.cardCta}>편집 시작하기</span>
               </span>
             </Link>
-            <Link
-              className={`${styles.roleCard} ${styles.reviewerCard}`}
-              href={`${routes.login}?role=reviewer`}
-            >
+            <Link className={styles.roleCard} href={`${routes.login}?role=reviewer`}>
               <span className={styles.cardMedia}>
                 <Image
                   alt=""
@@ -280,7 +276,6 @@ export function LandingShell() {
               </span>
               <span className={styles.cardBody}>
                 <strong className={styles.cardTitle}>검수자로 시작하기</strong>
-                <em className={styles.cardTagline}>Review the cut</em>
                 <span className={styles.cardText}>검수가 필요한 장면을 확인해 주세요.</span>
                 <span className={styles.cardCta}>검수 시작하기</span>
               </span>
