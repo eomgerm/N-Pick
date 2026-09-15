@@ -743,7 +743,12 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   return (
-    <AppShell className={styles.shell} data-theme={theme} isInteractionLocked={isInteractionLocked}>
+    <AppShell
+      backdropTone="muted"
+      className={styles.shell}
+      data-theme={theme}
+      isInteractionLocked={isInteractionLocked}
+    >
       <main className={styles.page}>
         <nav aria-label="검수 화면" className="mb-7 flex gap-2 border-b border-(--line)">
           {(['inquiries', 'processing'] as const).map((tab) => (

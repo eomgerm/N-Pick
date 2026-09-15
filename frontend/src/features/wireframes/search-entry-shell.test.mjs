@@ -69,7 +69,7 @@ test('검색 진입 form은 검색어와 두 날짜 명시 필터를 제공한�
   assert.match(html, /<label[^>]*for="scene-search">뉴스 장면 검색어<\/label>/);
   assert.match(html, /aria-label="방송일 기간 선택: 전체 기간"/);
   assert.match(html, /aria-label="촬영일 기간 선택: 전체 기간"/);
-  assert.match(html, /날짜 필터/);
+  assert.match(html, /검색 도구/);
   assert.match(html, /aria-live="polite"/);
   assert.match(html, /<button[^>]*disabled=""[^>]*type="submit"/);
 });

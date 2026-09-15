@@ -6,7 +6,7 @@
 *.bat text eol=crlf
 *.jar binary
 
-# 랜딩 미디어는 Windows 체크아웃에서도 원본 바이트를 유지한다.
-frontend/public/media/landing-hero* binary
-frontend/public/images/role-*.jpg binary
-frontend/public/images/landing-app-icon.png binary
+# 미디어 자산은 이진 파일로 다룬다 (Windows 체크아웃에서 손상되지 않도록).
+*.mp4 binary
+*.jpg binary
+*.png binary
