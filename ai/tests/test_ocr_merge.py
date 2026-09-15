@@ -207,6 +207,7 @@ def test_default_merge_identity_matches_contract_vector() -> None:
                 engine="rapidocr",
                 engine_version="rapidocr3.9.2+onnxruntime1.29.0",
                 tokenizer="query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0",
+                merge_version=get_merge_config().version_id,
             ),
         )
         == "npick.stage.ocr/v1:bc75979d"

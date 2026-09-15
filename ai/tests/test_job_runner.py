@@ -1166,11 +1166,19 @@ async def test_ocr_v2_uploads_replayable_result_before_complete(
     image = media_root / KEYFRAME_KEY
     image.parent.mkdir(parents=True, exist_ok=True)
     image.write_bytes(JPEG_MAGIC)
-    fake_backend.enqueue_claim(_ocr_job())
+    # BE 가 실제로 싣는 값이다 — `StageExecutionService` 는 모든 단계에
+    # `PipelineStages.outputSchema()` = `.../output/v1` 를 넣는다. 배정을 비워 두면
+    # 러너가 제 기본값으로 메워서 아래 어긋남이 테스트에서 사라진다.
+    fake_backend.enqueue_claim(_ocr_job(outputSchemaVersion="npick.stage.ocr.output/v1"))
     await _runner(job_client, media_root).run_once()
 
     body = _complete_body(fake_backend)
     assert body["status"] == "succeeded"
+    # **배정은 v1 인데 봉투는 v2 다.** BE 는 이 둘을 동등 비교해 성공 complete 를
+    # `INVALID_OUTPUT` 으로 거부한다(계약 §11 item 12 의 미해결 항목). fake backend 는
+    # 봉투를 검증하지 않으므로 단언을 걸어 두지 않으면 이 어긋남이 드러나지 않는다.
+    # 워커를 v1 로 되돌리든 BE 가 단계별 스키마를 읽든, 정리되는 순간 여기가 깨진다.
+    assert body["versions"]["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
     uploads = fake_backend.calls("artifact_put")
     assert len(uploads) == 1
     saved = uploads[0].content
@@ -1206,7 +1214,9 @@ def _recording_handler(
             output={"observations": [], "keyframesRead": 0, "minConfidence": 0.7},
             versions=StageVersion(
                 stage_version="npick.stage.ocr/v1:test",
-                output_schema_version="npick.stage.ocr.output/v1",
+                # 실제 ocr 핸들러가 내는 것과 같은 스키마여야 한다. 여기만 v1 로 남으면
+                # 상류 입력 테스트가 진짜 핸들러와 다른 봉투를 보게 된다.
+                output_schema_version="npick.stage.ocr.output/v2",
             ),
         )
 

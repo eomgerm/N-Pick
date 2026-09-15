@@ -6,6 +6,7 @@ uv run --directory ai python samples/evaluate_ocr_merge.py
 import argparse
 import hashlib
 import json
+import sys
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -77,6 +78,8 @@ def main() -> int:
     result = read_result(data)
     baseline = OcrOutput.from_result(result).model_dump(mode="json", by_alias=True)["observations"]
     trials = []
+    preserved: list[bool] = []
+    deterministic: list[bool] = []
     args.out.mkdir(parents=True, exist_ok=True)
     for threshold in (1.0, 0.95, 0.9, 0.85, 0.8):
         config = get_merge_config().model_copy(update={"similarity_threshold": threshold})
@@ -86,9 +89,16 @@ def main() -> int:
         elapsed_ms = (time.perf_counter() - started) * 1000
         encoded = output.model_dump_json(by_alias=True, indent=2)
         restored = OcrOutput.model_validate_json(encoded)
-        assert restored.model_dump(mode="json", by_alias=True)["observations"] == baseline
-        assert output.model_dump(mode="json") == restored.model_dump(mode="json")
-        assert encoded == OcrOutput.from_result(candidate).model_dump_json(by_alias=True, indent=2)
+        # 아래 두 값이 리포트의 `allOriginalsPreserved`·`deterministicReplay` 가 되고,
+        # `ai/docs/ocr.md` §4 가 그것을 기본 임계값 유지의 근거로 인용한다. assert 로 두면
+        # `python -O` 에서 검사만 사라지고 단언은 남아, 확인한 적 없는 보존성을 주장하는
+        # 리포트가 나온다. 그래서 검사 결과를 값으로 들고 다닌다.
+        originals_kept = restored.model_dump(mode="json", by_alias=True)["observations"] == baseline
+        replay_stable = output.model_dump(mode="json") == restored.model_dump(mode="json") and (
+            encoded == OcrOutput.from_result(candidate).model_dump_json(by_alias=True, indent=2)
+        )
+        preserved.append(originals_kept)
+        deterministic.append(replay_stable)
         membership = {
             index: g
             for g, group in enumerate(output.text_groups)
@@ -117,6 +127,8 @@ def main() -> int:
                 "configVersion": config.version_id,
                 "groups": len(output.text_groups),
                 "elapsedMs": elapsed_ms,
+                "originalsPreserved": originals_kept,
+                "deterministicReplay": replay_stable,
                 "scores": scores,
             }
         )
@@ -127,14 +139,18 @@ def main() -> int:
         "observations": len(result.observations),
         "labelStatus": labels["labelStatus"],
         "trials": trials,
-        "allOriginalsPreserved": True,
-        "deterministicReplay": True,
+        "allOriginalsPreserved": all(preserved),
+        "deterministicReplay": all(deterministic),
         "note": "임계값별 시간은 병합과 출력 검증만 포함. OCR 실행 및 BE 연동 시간은 제외.",
     }
     (args.out / "evaluation.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not (report["allOriginalsPreserved"] and report["deterministicReplay"]):
+        # 리포트는 남긴다 — 어느 임계값에서 깨졌는지가 `trials` 에 있다.
+        print("보존·재현 검사가 실패했다. evaluation.json 의 trials 를 보라.", file=sys.stderr)
+        return 1
     return 0
 
 

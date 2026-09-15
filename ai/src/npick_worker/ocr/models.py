@@ -174,6 +174,11 @@ class OcrResult:
     #: 판정에 쓴 임계값. 결과에 실어야 나중에 "그때 무엇이 unverified 였나" 를 안다.
     min_confidence: float
     merge_config: OcrMergeConfig = field(default_factory=get_merge_config)
+    #: `text_groups` 의 계산 결과. 생성자·비교·표시에서 뺀다 — 이 값은 다른 필드에서
+    #: 유도되므로 같은 결과 두 개가 캐시 상태 때문에 달라 보이면 안 된다.
+    _groups: tuple[OcrTextGroup, ...] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     @property
     def observations(self) -> tuple[OcrObservation, ...]:
@@ -181,7 +186,18 @@ class OcrResult:
 
     @property
     def text_groups(self) -> tuple[OcrTextGroup, ...]:
-        return merge_observations(self.observations, self.merge_config)
+        """Scene별 병합 그룹. 한 번만 계산한다.
+
+        결과가 불변이라 매번 다시 돌려도 같은 값이지만, 잡 하나가 이 property 를 여러 번
+        본다(`jobs/registry._run_ocr` 2회, `ocr/report` 3회). 기본 임계값 1.0 은 문자열
+        비교라 싸고, `similarity_threshold < 1` 로 내리면 한 번이 관측 쌍마다
+        `SequenceMatcher.ratio()` 2회라 그 배수가 그대로 실행 시간이 된다.
+        """
+        groups = self._groups
+        if groups is None:
+            groups = merge_observations(self.observations, self.merge_config)
+            object.__setattr__(self, "_groups", groups)
+        return groups
 
     @property
     def observation_count(self) -> int:
