@@ -1,0 +1,30 @@
+# 질의 임베딩 설정 (S15P21A501-164). 검색 시점 모듈이라 `stages.py` 에 없다.
+#
+# 이 파일의 해시가 `version_id` 다. 값을 고치면 버전이 바뀐다.
+#
+# **왜 text_embedding.v1.toml 과 파일이 다른가.** 질의측 접두는 색인 결과를 바꾸지 않는다.
+# 그 값을 색인 설정에 넣으면 `config_version` 이 움직여 `stageVersion` 이 달라지고, 계약
+# §7 의 버전 불일치로 배정이 끊기거나 전 클립이 재처리 대상이 된다. 반대로 색인 설정을
+# 질의가 그대로 읽으면 리졸버가 워커 단계의 설정 타입을 알게 된다(`ai/AGENTS.md` 의
+# 배포 단위 분리).
+#
+# 그 대가로 `dimension` 과 `normalize` 가 두 파일에 적힌다. 두 값이 갈리면 코사인
+# 유사도가 조용히 무의미해지므로 `tests/test_query_embedding.py` 의
+# `test_query_and_scene_configs_agree_on_vector_space` 가 일치를 강제한다.
+#
+# 모델 이름은 여기 없다 — `NPICK_AI_EMBEDDING_MODEL` 이 정하고 색인과 질의가 그 하나를
+# 공유한다. 그것이 "같은 모델" 제약의 실제 집행 수단이다.
+
+schema = "query-embedding/v1"
+
+# `text_embedding.v1.toml` 의 dimension 과 **같아야 한다**.
+dimension = 1024
+
+# `text_embedding.v1.toml` 의 normalize 와 **같아야 한다**.
+# 한쪽만 끄면 코사인이 아니라 내적이 되어 순위가 벡터 크기에 끌린다.
+normalize = true
+
+# 질의측 접두. arctic-ko 는 질의에만 `query: ` 를 요구한다(문서측은 접두 없음).
+# S15P21A501-175 의 비교표가 이 접두로 측정한 값이라 바꾸면 그 수치가 보장되지 않는다.
+# 세 후보(arctic·PIXIE·KURE)가 같은 접두를 쓰므로 모델 교체로는 움직이지 않는다.
+query_prefix = "query: "

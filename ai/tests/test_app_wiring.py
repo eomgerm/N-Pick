@@ -2,7 +2,9 @@
 
 from pathlib import Path
 
-from npick_worker.app import build_worker
+from fastapi.testclient import TestClient
+
+from npick_worker.app import build_worker, create_app
 from npick_worker.settings import Settings
 
 
@@ -61,3 +63,18 @@ def test_no_media_root_is_not_declared_as_shared() -> None:
     _, runner = build_worker(_settings())
 
     assert runner._claim_request().worker.shared_media_volume is False
+
+
+# ── 리졸버 기동 (S15P21A501-164) ─────────────────────────────────────
+
+
+def test_resolver_boot_warms_the_query_encoder(query_encoder_warmup: list[bool]) -> None:
+    """폴링이 꺼진 프로세스가 질의 리졸버다. 그쪽은 `jobs.warm_up()` 을 타지 않는다.
+
+    어댑터는 인스턴스만 만들고 가중치는 첫 `encode` 에서 올라가므로, 기동 시 깨우지
+    않으면 **부팅 후 첫 검색**이 1.7GB 로딩을 물고 동기 예산(p95 10초)을 날린다.
+    """
+    with TestClient(create_app()):
+        pass
+
+    assert query_encoder_warmup == [True]

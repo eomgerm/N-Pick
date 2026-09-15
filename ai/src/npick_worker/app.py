@@ -27,6 +27,7 @@ from npick_worker.query_api import (
     QueryResolveRequest,
     QueryResolveResponse,
     resolve,
+    warm_query_encoder,
 )
 from npick_worker.schemas import (
     DeviceStatus,
@@ -148,6 +149,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     if not settings.job_poll_enabled or not settings.job_api_base_url:
         logger.info("잡 폴링 비활성 (NPICK_AI_JOB_POLL_ENABLED / NPICK_AI_JOB_API_BASE_URL)")
+        # 이 갈래가 질의 리졸버다. 단계 워밍업(`jobs.warm_up`)은 타지 않지만 질의 임베딩
+        # 가중치는 여기서 올린다 — 어댑터는 첫 `encode` 에서 모델을 읽으므로, 이게 없으면
+        # **부팅 후 첫 검색**이 1.7GB 로딩을 물고 동기 예산을 날린다. 스레드로 보내는
+        # 이유는 `warm_up()` 과 같다 — 로딩이 이벤트 루프를 막으면 헬스체크도 막힌다.
+        # 실패해도 계속 뜬다. 그 프로세스의 검색은 BM25 로 이어진다 (FRD v3.1 §6.2).
+        await asyncio.to_thread(warm_query_encoder)
         yield
         return
 

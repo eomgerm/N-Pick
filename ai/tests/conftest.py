@@ -27,6 +27,29 @@ def reset_settings() -> Iterator[None]:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def query_encoder_warmup(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """앱 기동이 실제 임베딩 가중치를 올리지 않게 막는다.
+
+    리졸버 갈래(`job_poll_enabled=False`, 테스트의 기본값)는 lifespan 에서 질의 임베딩을
+    워밍업한다. 그대로 두면 `TestClient` 를 쓰는 모든 테스트가 1.7GB 를 내려받는다 —
+    **실제 가중치를 돌리는 것은 `smoke` 뿐**이라는 이 저장소의 방침과 어긋난다.
+
+    `app` 이 이름으로 임포트했으므로 `app` 쪽을 갈아 끼운다. `query_api.warm_query_encoder`
+    자체는 그대로라 그 함수의 동작은 `test_query_api.py` 가 직접 부르며 검증한다.
+
+    호출 기록을 돌려주므로 배선을 확인하는 테스트가 그대로 쓸 수 있다.
+    """
+    calls: list[bool] = []
+
+    def record() -> bool:
+        calls.append(True)
+        return True
+
+    monkeypatch.setattr("npick_worker.app.warm_query_encoder", record)
+    return calls
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     with TestClient(create_app()) as test_client:
