@@ -848,3 +848,151 @@ class AsrOutput(WireModel):
             ],
             reason_code="NO_SPEECH_DETECTED" if result.no_speech_detected else None,
         )
+
+
+# ── text_embedding · indexing (S15P21A501-183) ───────────────────────
+
+
+class UpstreamSceneCaption(WireResponse):
+    """`vlm_metadata` 가 낸 캡션 중 하류가 실제로 읽는 부분.
+
+    `confidence`·`evidence` 를 선언하지 않는다. **검증은 값을 쓰는 곳의 일이지 지나가는
+    곳의 일이 아니다**(`CandidateRange` 의 같은 판단). 여기서 전체 모양을 다시 걸면
+    `vlm_metadata` 가 필드를 늘릴 때마다 하류 두 단계가 `VALIDATION_ERROR` 로 죽는다.
+    """
+
+    #: 산문. `text_embedding` 이 임베딩하는 값이다.
+    value: str
+    #: Kiwi 색인 토큰. `indexing` 이 세는 값이고 곧 `scene.caption_tokens` 가 된다.
+    #: **`value` 와 다른 축이다** — 조사·기호뿐인 설명은 `value` 가 있어도 여기가 빈다.
+    #: 기본값을 두는 이유는 이 모델을 쓰는 두 단계 중 `text_embedding` 이 읽지 않아서다.
+    tokens: str = ""
+
+
+class UpstreamSceneMetadata(WireResponse):
+    scene_index: int = Field(ge=0)
+    #: VLM 이 시각 근거를 찾지 못한 장면은 캡션이 없다. 정상 입력이다(계약 §4.3.3).
+    caption: UpstreamSceneCaption | None = None
+
+
+class UpstreamVlmMetadata(WireResponse):
+    scenes: Sequence[UpstreamSceneMetadata] = Field(min_length=1)
+
+
+class TextEmbeddingUpstream(WireResponse):
+    """`inputs.upstream` 중 `text_embedding` 이 쓰는 부분.
+
+    `vlmMetadata` 가 없으면 이 단계는 임베딩할 캡션을 모른다. 빈 결과를 성공으로
+    반납하면 "이 클립에는 임베딩할 텍스트가 없다" 는 거짓이 정본에 남는다.
+    대사는 `scene_transcript_mapping` 에서 따로 온다 — 그쪽은 비치명 상류라 선택이다.
+    """
+
+    vlm_metadata: UpstreamVlmMetadata
+
+
+class SceneEmbeddingOut(WireModel):
+    """`scene.embedding` 한 칸이 될 값. artifact 문서 안에만 있다."""
+
+    scene_index: int = Field(ge=0)
+    #: 길이는 문서의 `dimension` 과 같다. `scene.embedding vector(N)` 과 어긋나면
+    #: BE 의 UPDATE 가 통째로 실패한다.
+    vector: Sequence[float] = Field(min_length=1)
+    #: 이 벡터를 만든 원문(FRD §7.2). 담을 컬럼이 없으므로 BE 는 저장하지 않지만,
+    #: "그때 무엇을 임베딩했나" 를 나중에 물으려면 artifact 에는 남아야 한다.
+    source_text: str = Field(min_length=1)
+
+
+class SceneEmbeddingsDocument(WireModel):
+    """`text_embedding` 이 올리는 artifact 의 본문.
+
+    **벡터를 `output` 에 인라인하지 않는 이유가 크기다.** 1024 차원 float 하나가 JSON
+    으로 20KB 급이라 장면 수십 개면 `stage_states_json` 한 행이 MB 단위가 된다. 그 컬럼은
+    run 을 읽을 때마다 통째로 오간다. `transcript_selection` 이 세그먼트를 artifact 로
+    빼는 것과 같은 판단이다(계약 §4.5).
+    """
+
+    schema_version: Literal["npick.scene.embeddings/v1"] = "npick.scene.embeddings/v1"
+    dimension: int = Field(gt=0)
+    scenes: Sequence[SceneEmbeddingOut]
+
+
+class TextEmbeddingOutput(WireModel):
+    """`text_embedding` 단계의 payload. 벡터 자체는 `embeddingsArtifact` 안에 있다."""
+
+    embeddings_artifact: ArtifactRef
+    #: 만든 벡터의 차원. BE 는 artifact 의 벡터 길이를 이 값과 대조한다.
+    dimension: int = Field(gt=0)
+    embedded_count: int = Field(ge=0)
+    #: 캡션도 대사도 없어 벡터를 만들지 않은 장면. **실패가 아니다** —
+    #: `scene.embedding` 은 nullable 이고 그 장면은 BM25 채널로만 검색된다.
+    skipped_scene_indexes: Sequence[int]
+
+
+class UpstreamIndexedScenes(WireResponse):
+    """`indexing` 이 보는 1단계 산출물. **장면 수만 센다.**
+
+    위 `UpstreamSceneDetection` 을 쓰지 않는다. 그쪽은 경계 시각과 클립 길이까지 다시
+    거는데 이 단계는 그 값을 하나도 읽지 않는다 — 쓰지 않는 필드를 검증하면
+    `scene_detection` 이 모양을 조금 바꿀 때 색인 단계가 `VALIDATION_ERROR` 로 죽는다.
+    """
+
+    scenes: Sequence[Mapping[str, Any]] = Field(min_length=1)
+
+
+class UpstreamOcrTokens(WireResponse):
+    scene_index: int = Field(ge=0)
+    tokens: str
+
+
+class UpstreamOcrChannel(WireResponse):
+    observations: Sequence[UpstreamOcrTokens] = ()
+
+
+class UpstreamMappedScene(WireResponse):
+    #: 연결된 세그먼트. `indexing` 은 **있는지 없는지만** 본다 — 본문도 장면 번호도
+    #: 읽지 않으므로 여기서 걸지 않는다. 그 값을 실제로 쓰는 `text_embedding` 이
+    #: `resolve_mapping` 으로 snapshot 까지 대조한다.
+    segments: Sequence[Mapping[str, Any]] = ()
+
+
+class UpstreamSceneDialogue(WireResponse):
+    """`indexing` 이 보는 대사 연결. **snapshot 을 다시 검증하지 않는다.**
+
+    세그먼트 본문을 읽지 않고 "이 장면에 연결된 대사가 있나" 만 센다. artifact 를
+    받아 대조하는 일은 그 값을 실제로 쓰는 `vlm_metadata`·`text_embedding` 의 몫이다.
+    """
+
+    scenes: Sequence[UpstreamMappedScene] = ()
+
+
+class UpstreamTextEmbedding(WireResponse):
+    embedded_count: int = Field(default=0, ge=0)
+
+
+class IndexingUpstream(WireResponse):
+    """`inputs.upstream` 중 `indexing` 이 쓰는 부분.
+
+    `sceneDetection` 말고는 전부 선택이다 — 나머지 넷은 비치명 단계라 없을 수 있고,
+    없는 것은 실패가 아니라 그 채널이 비었다는 사실이다.
+    """
+
+    scene_detection: UpstreamIndexedScenes
+    vlm_metadata: UpstreamVlmMetadata | None = None
+    ocr: UpstreamOcrChannel | None = None
+    scene_transcript_mapping: UpstreamSceneDialogue | None = None
+    text_embedding: UpstreamTextEmbedding | None = None
+
+
+class IndexingOutput(WireModel):
+    """`indexing` 단계의 payload. 색인 재료가 얼마나 찼는지의 요약이다.
+
+    **게시 가능 판정이 아니다.** 그 판정의 정본은 BE 의 `JdbcClipPublicationAdapter` 이고
+    거기에는 워커가 볼 수 없는 것(keyframe 파일이 디스크에 실제로 있는가)이 들어간다.
+    같은 판정을 두 곳에서 하면 둘이 갈라지는 날 원인을 찾을 수 없다.
+    """
+
+    scene_count: int = Field(gt=0)
+    captioned_scenes: int = Field(ge=0)
+    dialogue_scenes: int = Field(ge=0)
+    ocr_scenes: int = Field(ge=0)
+    embedded_scenes: int = Field(ge=0)
