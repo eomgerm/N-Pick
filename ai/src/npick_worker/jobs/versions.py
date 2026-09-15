@@ -96,9 +96,14 @@ def stage_version(stage: str, reproducibility: Mapping[str, Any]) -> str:
 
 
 def output_schema_version(stage: str) -> str:
-    """단계 산출물 payload 의 schema 문자열."""
-    if stage == "ocr":
-        return "npick.stage.ocr.output/v2"
+    """단계 산출물 payload 의 schema 문자열.
+
+    단계별 예외를 두지 않는다. BE 는 이 값을 배정과 `complete` 양쪽에서 같은 규칙으로
+    유도해 대조하므로(`PipelineStages.outputSchema`), 워커만 한 단계를 다르게 부르면
+    성공 결과가 거부되고 실패 결과는 통과하는 상태가 된다. OCR 병합 결과처럼 v1 봉투에
+    담을 수 없는 것은 `ocr_result` 처럼 자기 스키마를 선언하는 산출물로 내보낸다
+    (`jobs/models.OCR_RESULT_SCHEMA_VERSION`).
+    """
     return OUTPUT_SCHEMA.format(stage=stage)
 
 

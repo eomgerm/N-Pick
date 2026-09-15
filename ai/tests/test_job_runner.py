@@ -1138,7 +1138,7 @@ async def test_ocr_v2_uploads_replayable_result_before_complete(
 ) -> None:
     """실제 OCR 핸들러·러너의 JSON 보존 경로. 엔진과 BE만 fake다."""
     import npick_worker.ocr as ocr_module
-    from npick_worker.jobs.models import OcrOutput
+    from npick_worker.jobs.models import OcrResultOutput
     from npick_worker.ocr import KeyframeRef, TextDetection, to_observations
     from npick_worker.ocr.models import OcrResult
 
@@ -1167,29 +1167,36 @@ async def test_ocr_v2_uploads_replayable_result_before_complete(
     image.parent.mkdir(parents=True, exist_ok=True)
     image.write_bytes(JPEG_MAGIC)
     # BE 가 실제로 싣는 값이다 — `StageExecutionService` 는 모든 단계에
+    # BE 가 실제로 싣는 값이다 — `StageExecutionService` 는 모든 단계에
     # `PipelineStages.outputSchema()` = `.../output/v1` 를 넣는다. 배정을 비워 두면
-    # 러너가 제 기본값으로 메워서 아래 어긋남이 테스트에서 사라진다.
+    # 러너가 제 기본값으로 메워서 "봉투가 배정과 같은가" 를 확인하지 못한다.
     fake_backend.enqueue_claim(_ocr_job(outputSchemaVersion="npick.stage.ocr.output/v1"))
     await _runner(job_client, media_root).run_once()
 
     body = _complete_body(fake_backend)
     assert body["status"] == "succeeded"
-    # **배정은 v1 인데 봉투는 v2 다.** BE 는 이 둘을 동등 비교해 성공 complete 를
-    # `INVALID_OUTPUT` 으로 거부한다(계약 §11 item 12 의 미해결 항목). fake backend 는
-    # 봉투를 검증하지 않으므로 단언을 걸어 두지 않으면 이 어긋남이 드러나지 않는다.
-    # 워커를 v1 로 되돌리든 BE 가 단계별 스키마를 읽든, 정리되는 순간 여기가 깨진다.
-    assert body["versions"]["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+    # **봉투는 배정과 같은 v1 이다.** fake backend 는 봉투를 검증하지 않으므로, 단언을
+    # 걸어 두지 않으면 워커가 BE 가 거절할 값을 실어도 여기서 드러나지 않는다.
+    assert body["versions"]["outputSchemaVersion"] == "npick.stage.ocr.output/v1"
+    assert "textGroups" not in body["output"]
     uploads = fake_backend.calls("artifact_put")
     assert len(uploads) == 1
     saved = uploads[0].content
     document = json.loads(saved)
-    assert document["output"] == body["output"]
+    # 산출물은 봉투 payload 의 상위 집합이다. 봉투에 담지 못한 병합 결과가 여기 있고,
+    # 봉투와 겹치는 부분은 한 글자도 달라지면 안 된다 — 달라지면 이 문서로 재현한 것이
+    # complete 로 보낸 것과 다른 결과가 된다.
+    assert document["output"] | body["output"] == document["output"]
+    assert document["output"]["textGroups"]
+    assert (
+        document["output"]["mergeConfigVersion"] == body["versions"]["detail"]["mergeConfigVersion"]
+    )
     assert document["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
     assert body["artifacts"][0]["contentHash"] == hashlib.sha256(saved).hexdigest()
     assert body["artifacts"][0]["byteSize"] == len(saved)
     assert body["artifacts"][0]["kind"] == "ocr_result"
     assert uploads[0].headers["content-type"] == "application/json"
-    output = OcrOutput.model_validate(document["output"])
+    output = OcrResultOutput.model_validate(document["output"])
     original = output.observations[output.text_groups[0].representative_index]
     assert original.raw_text == "  원문 보존  "
     assert original.unverified
@@ -1214,9 +1221,9 @@ def _recording_handler(
             output={"observations": [], "keyframesRead": 0, "minConfidence": 0.7},
             versions=StageVersion(
                 stage_version="npick.stage.ocr/v1:test",
-                # 실제 ocr 핸들러가 내는 것과 같은 스키마여야 한다. 여기만 v1 로 남으면
+                # 실제 ocr 핸들러가 내는 것과 같은 스키마여야 한다. 여기가 갈리면
                 # 상류 입력 테스트가 진짜 핸들러와 다른 봉투를 보게 된다.
-                output_schema_version="npick.stage.ocr.output/v2",
+                output_schema_version="npick.stage.ocr.output/v1",
             ),
         )
 

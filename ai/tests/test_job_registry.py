@@ -521,9 +521,16 @@ def test_ocr_reports_counts_and_versions(tmp_path: Path, monkeypatch: pytest.Mon
     assert upload.ref.storage_key == "runs/1/ocr/a1/ocr-result.json"
     assert upload.ref.content_hash == hashlib.sha256(saved).hexdigest()
     assert upload.ref.byte_size == len(saved)
-    assert json.loads(saved)["output"] == outcome.output
+    document = json.loads(saved)["output"]
+    # 산출물은 봉투 payload 의 상위 집합이다. 겹치는 부분이 달라지면 이 문서로 재현한
+    # 것이 complete 로 보낸 것과 다른 결과가 된다.
+    assert document | outcome.output == document
+    assert set(document) - set(outcome.output) == {"textGroups", "mergeConfigVersion"}
     assert json.loads(saved)["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
-    assert outcome.versions.detail["mergeConfigVersion"] == outcome.output["mergeConfigVersion"]
+    # 봉투는 v1 이라 그룹을 담지 못하지만, 어느 병합 설정으로 돌렸는지는 봉투의
+    # 재현 튜플에 남는다 — 산출물을 못 읽어도 재현 조건은 알 수 있어야 한다.
+    assert "textGroups" not in outcome.output
+    assert outcome.versions.detail["mergeConfigVersion"] == document["mergeConfigVersion"]
     assert outcome.versions.config_version == "ocr/v1:test"
     # 가중치를 쓰는 첫 단계다. 앞의 둘과 달리 modelVersion 이 비어 있지 않다.
     assert outcome.versions.model_version == "fake/0"

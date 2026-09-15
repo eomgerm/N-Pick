@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from npick_worker.jobs.models import OcrOutput
+from npick_worker.jobs.models import (
+    OCR_RESULT_SCHEMA_VERSION,
+    OcrOutput,
+    OcrResultOutput,
+)
 from npick_worker.jobs.registry import _ocr_identity
 from npick_worker.jobs.versions import output_schema_version, stage_version
 from npick_worker.ocr.merge import OcrMergeConfig, get_merge_config, merge_observations
@@ -50,7 +54,7 @@ def test_normalized_merge_preserves_all_originals_and_confidence() -> None:
         observation("life style", 20, confidence=0.6),
     ]
     result = result_of(items)
-    output = OcrOutput.from_result(result)
+    output = OcrResultOutput.from_result(result)
     group = output.text_groups[0]
     assert list(group.observation_indices) == [0, 1]
     assert group.representative_index == 1
@@ -58,9 +62,9 @@ def test_normalized_merge_preserves_all_originals_and_confidence() -> None:
     assert [obs.confidence for obs in output.observations] == [0.5, 0.6]
     assert all(obs.unverified for obs in output.observations)
     assert result.observations == tuple(items)
-    assert OcrOutput.model_validate_json(output.model_dump_json()).model_dump(mode="json") == (
-        output.model_dump(mode="json")
-    )
+    assert OcrResultOutput.model_validate_json(output.model_dump_json()).model_dump(
+        mode="json"
+    ) == (output.model_dump(mode="json"))
 
 
 def test_same_text_key_is_not_sufficient_and_scenes_never_mix() -> None:
@@ -132,7 +136,7 @@ def test_shuffling_input_does_not_change_group_members_or_representative() -> No
 
 
 def test_empty_and_single_observations() -> None:
-    assert OcrOutput.from_result(result_of([])).text_groups == []
+    assert OcrResultOutput.from_result(result_of([])).text_groups == []
     assert merge_observations([observation("!", 1)])[0].observation_indices == (0,)
 
 
@@ -153,7 +157,7 @@ def test_invalid_group_references_are_rejected(
     representative: int,
     scene: int,
 ) -> None:
-    output = OcrOutput.from_result(
+    output = OcrResultOutput.from_result(
         result_of(
             [
                 observation("뉴스", 1),
@@ -165,11 +169,13 @@ def test_invalid_group_references_are_rejected(
         {"sceneIndex": scene, "observationIndices": members, "representativeIndex": representative}
     ]
     with pytest.raises(ValueError):
-        OcrOutput.model_validate(output)
+        OcrResultOutput.model_validate(output)
 
 
 def test_same_frame_or_cross_scene_wire_group_is_rejected() -> None:
-    payload = OcrOutput.from_result(result_of([observation("뉴스", 1), observation("뉴스", 2)]))
+    payload = OcrResultOutput.from_result(
+        result_of([observation("뉴스", 1), observation("뉴스", 2)])
+    )
     for changed in (
         replace(observation("뉴스", 2), keyframe=KeyframeRef(1, 2, "other.jpg")),
         observation("뉴스", 1),
@@ -178,10 +184,10 @@ def test_same_frame_or_cross_scene_wire_group_is_rejected() -> None:
         data["observations"][1]["scene_index"] = changed.keyframe.scene_index
         data["observations"][1]["timestamp_ms"] = changed.keyframe.timestamp_ms
         with pytest.raises(ValueError):
-            OcrOutput.model_validate(data)
+            OcrResultOutput.model_validate(data)
 
 
-def test_merge_setting_changes_stage_version_and_output_is_v2() -> None:
+def test_merge_setting_changes_stage_version_and_groups_ride_the_artifact() -> None:
     config = get_merge_config()
     changed = config.model_copy(update={"similarity_threshold": 0.9})
     kwargs = {
@@ -193,8 +199,16 @@ def test_merge_setting_changes_stage_version_and_output_is_v2() -> None:
     assert stage_version("ocr", _ocr_identity(**kwargs, merge_version=config.version_id)) != (
         stage_version("ocr", _ocr_identity(**kwargs, merge_version=changed.version_id))
     )
-    assert output_schema_version("ocr") == "npick.stage.ocr.output/v2"
+    # 봉투는 다른 단계와 같은 v1 이다. 병합 결과는 봉투가 아니라 자기 스키마를 선언하는
+    # `ocr_result` 산출물로 나간다 — 계약 §4.3 거부 조건 3 이 "output 은 선언한
+    # outputSchemaVersion 과 맞아야 한다" 이므로 v1 봉투에 필드를 더 실을 수 없다.
+    assert output_schema_version("ocr") == "npick.stage.ocr.output/v1"
     assert output_schema_version("asr") == "npick.stage.asr.output/v1"
+    assert OCR_RESULT_SCHEMA_VERSION == "npick.stage.ocr.output/v2"
+    assert set(OcrResultOutput.model_fields) - set(OcrOutput.model_fields) == {
+        "text_groups",
+        "merge_config_version",
+    }
 
 
 def test_default_merge_identity_matches_contract_vector() -> None:

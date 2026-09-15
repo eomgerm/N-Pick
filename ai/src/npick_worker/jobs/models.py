@@ -508,12 +508,47 @@ class OcrTextGroupOut(WireModel):
     representative_index: int = Field(ge=0)
 
 
-class OcrOutput(WireModel):
-    """`ocr` 단계의 payload.
+def _ocr_envelope_fields(result: "OcrResult") -> dict[str, Any]:
+    """봉투(v1)와 `ocr_result` 산출물(v2)이 함께 쓰는 부분.
 
-    개별 관측을 평평하게 보존하고 text_groups가 그 배열의 0-based 인덱스를 참조한다.
-    대표 문구·confidence·bbox·미검증 표시는 대표 관측에서 읽는다. 그룹은 검증 상태를
-    승격하지 않으며, 전체 배열과 그룹을 함께 저장해야 참조가 유지된다.
+    두 벌로 적어 두면 언젠가 갈라지고, 그때 산출물이 "complete 로 보낸 것" 이 아니게
+    된다 — 재현용 문서가 재현하지 못하는 상태다.
+    """
+    return {
+        "observations": [
+            OcrObservationOut(
+                scene_index=observation.keyframe.scene_index,
+                timestamp_ms=observation.keyframe.timestamp_ms,
+                storage_key=observation.keyframe.storage_key,
+                raw_text=observation.raw_text,
+                tokens=observation.tokens_text,
+                confidence=observation.confidence,
+                unverified=observation.unverified,
+                text_key=observation.text_key,
+                # 상자 모양을 여기서 다시 조립하지 않는다. `to_json()` 이
+                # `ocr_observation.bounding_box_json` 의 컬럼 모양 정본이고
+                # `ocr/report.py` 도 그것을 쓴다. 두 벌이면 언젠가 갈라지고,
+                # 그때 report 출력과 와이어 payload 가 조용히 달라진다.
+                bounding_box=BoundingBoxOut(**observation.box.to_json()),
+            )
+            for keyframe in result.keyframes
+            for observation in keyframe.observations
+        ],
+        "keyframes_read": len(result.keyframes),
+        "min_confidence": result.min_confidence,
+    }
+
+
+class OcrOutput(WireModel):
+    """`ocr` 단계 봉투의 payload. `npick.stage.ocr.output/v1` 이다.
+
+    **병합 그룹은 여기 없다.** 계약 §4.3 의 거부 조건 3 이 "`output` 이 선언한
+    `outputSchemaVersion` 과 맞지 않으면 거부한다" 이므로, v1 이라 선언하면서 필드를 더
+    실을 수 없다. 그룹은 `ocr_result` 산출물(`OcrResultOutput`)이 나른다.
+
+    어느 병합 설정으로 돌렸는지는 `versions.detail.mergeConfigVersion` 과 `stageVersion`
+    에 그대로 있으므로, 봉투만 보는 소비자도 재현 조건은 안다 — 모르는 것은 그룹의 내용
+    뿐이고 그것은 산출물 참조를 따라가면 있다.
     """
 
     observations: Sequence[OcrObservationOut]
@@ -522,11 +557,32 @@ class OcrOutput(WireModel):
     keyframes_read: int = Field(ge=0)
     #: 판정에 쓴 임계값. 이 값이 없으면 나중에 `unverified` 를 재현할 수 없다.
     min_confidence: float = Field(ge=0, le=1)
+
+    @classmethod
+    def from_result(cls, result: "OcrResult") -> "OcrOutput":
+        """단계의 순수 산출물을 봉투 모양으로 옮긴다."""
+        return OcrOutput(**_ocr_envelope_fields(result))
+
+
+#: `ocr-result.json` 이 자기 안에 선언하는 스키마. 봉투의 `outputSchemaVersion` 과 다른
+#: 값이라 `versions.output_schema_version()` 으로 만들지 않는다.
+OCR_RESULT_SCHEMA_VERSION: Final[str] = "npick.stage.ocr.output/v2"
+
+
+class OcrResultOutput(OcrOutput):
+    """`ocr-result.json` 의 `output`. `npick.stage.ocr.output/v2` 다.
+
+    봉투 payload 에 병합 결과를 더한 상위 집합이다. 개별 관측을 평평하게 보존하고
+    `text_groups` 가 그 배열의 0-based 인덱스를 참조한다. 대표 문구·confidence·bbox·
+    미검증 표시는 대표 관측에서 읽는다. 그룹은 검증 상태를 승격하지 않으며, 전체 배열과
+    그룹을 함께 저장해야 참조가 유지된다.
+    """
+
     text_groups: Sequence[OcrTextGroupOut]
     merge_config_version: str = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_groups(self) -> "OcrOutput":
+    def validate_groups(self) -> "OcrResultOutput":
         seen: set[int] = set()
         for group in self.text_groups:
             members = group.observation_indices
@@ -552,30 +608,10 @@ class OcrOutput(WireModel):
         return self
 
     @classmethod
-    def from_result(cls, result: "OcrResult") -> "OcrOutput":
-        """단계의 순수 산출물을 와이어 모양으로 옮긴다."""
-        return cls(
-            observations=[
-                OcrObservationOut(
-                    scene_index=observation.keyframe.scene_index,
-                    timestamp_ms=observation.keyframe.timestamp_ms,
-                    storage_key=observation.keyframe.storage_key,
-                    raw_text=observation.raw_text,
-                    tokens=observation.tokens_text,
-                    confidence=observation.confidence,
-                    unverified=observation.unverified,
-                    text_key=observation.text_key,
-                    # 상자 모양을 여기서 다시 조립하지 않는다. `to_json()` 이
-                    # `ocr_observation.bounding_box_json` 의 컬럼 모양 정본이고
-                    # `ocr/report.py` 도 그것을 쓴다. 두 벌이면 언젠가 갈라지고,
-                    # 그때 report 출력과 와이어 payload 가 조용히 달라진다.
-                    bounding_box=BoundingBoxOut(**observation.box.to_json()),
-                )
-                for keyframe in result.keyframes
-                for observation in keyframe.observations
-            ],
-            keyframes_read=len(result.keyframes),
-            min_confidence=result.min_confidence,
+    def from_result(cls, result: "OcrResult") -> "OcrResultOutput":
+        """봉투 payload 에 병합 결과를 더해 보존 문서 모양으로 옮긴다."""
+        return OcrResultOutput(
+            **_ocr_envelope_fields(result),
             text_groups=[
                 OcrTextGroupOut(
                     scene_index=group.scene_index,
