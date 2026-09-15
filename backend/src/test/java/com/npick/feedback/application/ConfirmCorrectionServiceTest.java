@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -153,13 +154,14 @@ class ConfirmCorrectionServiceTest {
     void confirmsTagCorrection() {
         target("REVIEWING", "tag_correction", null);
         verificationRun("tag_correction", List.of(7901L, 7902L), null, null);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
         verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
         verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
-        verify(feedbackRepository).confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(Instant.class));
+        // 태그만 교정하면 created_rule_id 는 NULL 이다.
+        verify(feedbackRepository).confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), isNull(), any(Instant.class));
     }
 
     @Test
@@ -167,13 +169,15 @@ class ConfirmCorrectionServiceTest {
     void confirmsParseRule() {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(), 6602L, 6601L);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
         verify(confirmParseRule).confirm(FEEDBACK, 6602L, 6601L);
         verify(confirmTag, never()).confirm(anyLong(), any());
-        verify(feedbackRepository).confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(Instant.class));
+        // patch_parse 는 최종 승인 규칙을 created_rule_id 에 기록한다.
+        verify(feedbackRepository)
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), any(Instant.class));
     }
 
     @Test
@@ -181,13 +185,14 @@ class ConfirmCorrectionServiceTest {
     void confirmsParseRuleWithTagCorrection() {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(7901L, 7902L), 6602L, 6601L);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
         verify(confirmParseRule).confirm(FEEDBACK, 6602L, 6601L);
         verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
-        verify(feedbackRepository).confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(Instant.class));
+        verify(feedbackRepository)
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), any(Instant.class));
     }
 
     @Test
@@ -199,6 +204,6 @@ class ConfirmCorrectionServiceTest {
 
         verify(confirmTag, never()).confirm(anyLong(), any());
         verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
-        verify(feedbackRepository, never()).confirm(anyLong(), anyLong(), anyLong(), any());
+        verify(feedbackRepository, never()).confirm(anyLong(), anyLong(), anyLong(), any(), any());
     }
 }

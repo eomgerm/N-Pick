@@ -55,6 +55,10 @@ class CorrectionConfirmLifecycleDbTest {
                         Boolean.class))
                 .isTrue();
         assertClosedAndLinked();
+        // 태그만 교정하면 created_rule_id 는 NULL 이다.
+        assertThat(jdbc.queryForObject("SELECT created_rule_id FROM npick.feedback WHERE feedback_id = 9901",
+                        Long.class))
+                .isNull();
     }
 
     @Test
@@ -75,6 +79,9 @@ class CorrectionConfirmLifecycleDbTest {
                         Boolean.class))
                 .isFalse();
         assertClosedAndLinked();
+        assertThat(jdbc.queryForObject("SELECT created_rule_id FROM npick.feedback WHERE feedback_id = 9901",
+                        Long.class))
+                .isEqualTo(6602L);
     }
 
     @Test
@@ -99,6 +106,9 @@ class CorrectionConfirmLifecycleDbTest {
                         Boolean.class))
                 .isTrue();
         assertClosedAndLinked();
+        assertThat(jdbc.queryForObject("SELECT created_rule_id FROM npick.feedback WHERE feedback_id = 9901",
+                        Long.class))
+                .isEqualTo(6602L);
     }
 
     @Test
