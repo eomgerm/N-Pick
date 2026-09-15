@@ -140,10 +140,10 @@ class CreateTagCorrectionCandidateServiceTest {
     }
 
     @Test
-    @DisplayName("태그 교정으로 처리된 신고가 아니면 거부한다")
+    @DisplayName("태그·해석 교정이 아닌 판정(장면 제외 등)은 거부한다")
     void rejectsNotTagCorrection() {
         when(tagContextPort.find(1L))
-                .thenReturn(Optional.of(new TagContext("REVIEWING", "patch_parse", 9L, 300L, 100L)));
+                .thenReturn(Optional.of(new TagContext("REVIEWING", "exclude_scene", 9L, 300L, 100L)));
         assertThatThrownBy(() -> service.create(command(
                         true,
                         9L,
@@ -151,6 +151,61 @@ class CreateTagCorrectionCandidateServiceTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.NOT_TAG_CORRECTION));
+    }
+
+    @Test
+    @DisplayName("patch_parse(태그·해석 모두 잘못) 신고에서도 태그 변경안을 만든다 (F-09)")
+    void acceptsPatchParseResolution() {
+        when(tagContextPort.find(1L))
+                .thenReturn(Optional.of(new TagContext("REVIEWING", "patch_parse", 9L, 300L, 100L)));
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+
+        List<Long> ids = service.create(command(
+                true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
+
+        assertThat(ids).containsExactly(5001L);
+    }
+
+    @Test
+    @DisplayName("11종에 없는 tagType 은 400 으로 거부한다 (읽기측 500 위험 차단)")
+    void rejectsUnknownTagType() {
+        reviewingTagCorrection();
+        assertThatThrownBy(() -> service.create(command(
+                        true,
+                        9L,
+                        new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "Location", "제주도", "제주도"))))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.INVALID_TAG_TYPE));
+    }
+
+    @Test
+    @DisplayName("matchValue 를 저장 전에 정규화한다 (쓰기/읽기 표기 일치)")
+    void normalizesMatchValueBeforeSave() {
+        reviewingTagCorrection();
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+        ArgumentCaptor<ReviewerTagJudgment> captor = ArgumentCaptor.forClass(ReviewerTagJudgment.class);
+
+        service.create(command(
+                true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "㈜한화", "㈜한화")));
+
+        verify(candidateRepository).addJudgment(captor.capture());
+        assertThat(captor.getValue().matchValue()).isEqualTo("(주)한화");
+    }
+
+    @Test
+    @DisplayName("정규화하면 비는 matchValue 는 400 으로 거부한다")
+    void rejectsBlankMatchValueAfterNormalize() {
+        reviewingTagCorrection();
+        // 공백류·불가시 문자는 정규화(TagMatchValue)에서 전부 제거된다 — 결과가 빈 값이면 저장 전에 400.
+        String whitespaceOnly = "​  ";
+        assertThatThrownBy(() -> service.create(command(
+                        true,
+                        9L,
+                        new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", whitespaceOnly, "x"))))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.INVALID_MATCH_VALUE));
     }
 
     @Test

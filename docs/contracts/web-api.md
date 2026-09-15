@@ -435,6 +435,33 @@ body는 생략하거나 다음처럼 보낸다.
 | `FEEDBACK_409_002` | 409  | 수정 가능한 상태 아님           |
 | `FEEDBACK_409_003` | 409  | 처리 결과를 기록할 수 없는 상태 |
 
+`POST /review/inquiries/{feedbackId}/tag-correction-candidate` (S15P21A501-160)
+
+검수 중(`REVIEWING`)이고 처리 결과가 `tag_correction` 또는 `patch_parse`(태그·해석 모두 잘못, F-09)인 신고에서, 담당 검수자가 태그 변경안 목록을 후보로 저장한다. 저장 근거는 `confirmed=false`로 대기하며 확정(-84) 전까지 검색·해석에 반영되지 않는다.
+
+```json
+{
+  "operations": [
+    { "action": "APPROVE", "scope": "SCENE", "tagType": "location", "matchValue": "제주도", "displayName": "제주도" }
+  ]
+}
+```
+
+- `operations`는 최소 1개. 교체는 `REJECT`+`APPROVE` 두 항목으로 보낸다. `action`은 `APPROVE|REJECT|WITHDRAW`, `scope`는 `SCENE|CLIP`.
+- `tagType`은 11종 어휘, `matchValue`는 서버가 정규화한다(NFKC·불가시 문자 제거). 범위는 신고 컨텍스트의 장면/클립으로만 한정되어 임의 대상을 지정할 수 없다.
+- 성공 `201` body `data`: `{ feedbackId, created, evidenceIds }`. id는 정밀도 보존을 위해 문자열(TSID)이다.
+
+| 오류               | HTTP | 의미                              |
+| ------------------ | ---- | --------------------------------- |
+| `TAG_400_001`      | 400  | 변경안이 비어 있음                |
+| `TAG_400_002`      | 400  | 알 수 없는 태그 유형              |
+| `TAG_400_003`      | 400  | 정규화 후 빈 태그 값              |
+| `TAG_403_001`      | 403  | 검수자 아님                       |
+| `TAG_403_002`      | 403  | 담당 검수자 아님                  |
+| `TAG_404_001`      | 404  | 신고 없음                         |
+| `TAG_409_001`      | 409  | 검수 중이 아님                    |
+| `TAG_409_002`      | 409  | 태그·해석 교정으로 처리된 신고 아님 |
+
 ### 6.5 영상 처리 조회
 
 검수자 전용 `GET /clips`, `GET /clips/{id}`. 필드별 스키마는 서버 OpenAPI의 `ClipPageResponse`, `ClipSummaryResponse`, `ClipDetailResponse`, `ProcessingDetailsResponse`, `ProcessingProgressResponse`를 따른다.

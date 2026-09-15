@@ -75,6 +75,21 @@ class TagCorrectionCandidateControllerTest {
     }
 
     @Test
+    @DisplayName("변경안 요소 필드가 누락되면 서비스에 닿기 전에 400 으로 막는다")
+    void rejectsInvalidOperationElement() throws Exception {
+        // action 누락 — @Valid 캐스케이드가 없으면 서비스에서 NPE→500 이 되던 자리
+        String missingAction =
+                "{\"operations\":[{\"scope\":\"SCENE\",\"tagType\":\"location\",\"matchValue\":\"x\",\"displayName\":\"x\"}]}";
+
+        mockMvc.perform(post("/api/v1/review/inquiries/1/tag-correction-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(missingAction))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("변경안이 비어 있으면 400 으로 거부한다")
     void emptyOperationsRejected() throws Exception {
         mockMvc.perform(post("/api/v1/review/inquiries/1/tag-correction-candidate")

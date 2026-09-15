@@ -35,7 +35,9 @@ public class TagCorrectionCandidateRepositoryAdapter implements TagCorrectionCan
         jpaRepository.insertTag(id, judgment.tagType(), judgment.matchValue(), judgment.displayName());
         return jpaRepository.findTagId(judgment.tagType(), judgment.matchValue()).stream()
                 .findFirst()
-                .orElseThrow();
+                // 방금 ON CONFLICT DO NOTHING 으로 넣었는데 곧바로 조회가 비었다 — 어떤 태그였는지 남겨 진단할 수 있게 한다.
+                .orElseThrow(() -> new IllegalStateException(
+                        "tag upsert 후 조회 실패: tagType=" + judgment.tagType() + " matchValue=" + judgment.matchValue()));
     }
 
     private long ensureTaggingId(ReviewerTagJudgment judgment, long tagId) {
@@ -43,6 +45,7 @@ public class TagCorrectionCandidateRepositoryAdapter implements TagCorrectionCan
         jpaRepository.insertTagging(id, judgment.clipId(), judgment.sceneId(), tagId, Instant.now());
         return jpaRepository.findTaggingId(judgment.clipId(), judgment.sceneId(), tagId).stream()
                 .findFirst()
-                .orElseThrow();
+                .orElseThrow(() -> new IllegalStateException("tagging upsert 후 조회 실패: clipId=" + judgment.clipId()
+                        + " sceneId=" + judgment.sceneId() + " tagId=" + tagId));
     }
 }

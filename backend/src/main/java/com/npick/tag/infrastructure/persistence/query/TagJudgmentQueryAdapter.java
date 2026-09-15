@@ -20,8 +20,9 @@ import com.npick.tag.domain.model.TagType;
  * <p>JPA Entity 도 Spring Data Repository 도 만들지 않는다. 돌려주는 것이 Aggregate 가 아니라 Projection 이고(설계 정본 §9), 이 조회만을 위해
  * {@code TaggingJpaEntity} 를 만드는 것은 정본 §17 이 금지한 보일러플레이트다.
  *
- * <p>{@link NamedParameterJdbcTemplate} 은 Spring 이 관리하는 {@code DataSource} 를 통해 주변 트랜잭션의 커넥션을 쓴다. 후보 검증 검색(F-12)이 후보
- * 태깅을 {@code INSERT} 한 뒤 같은 트랜잭션에서 검색하고 {@code ROLLBACK} 하는 방식이라(FRD §11) 이 성질이 계약의 일부다.
+ * <p>{@link NamedParameterJdbcTemplate} 은 Spring 이 관리하는 {@code DataSource} 를 통해 주변 트랜잭션의 커넥션을 쓴다. 후보 검증 검색(F-12)이 한
+ * 트랜잭션 안에서 후보를 적용하고 검색한 뒤 되돌리는 방식이라(FRD §11) 이 성질이 계약의 일부다. (검수자 태그 교정 후보는 S15P21A501-160 이후 {@code confirmed=false} 로
+ * 저장되고, 아래 조인의 {@code e.confirmed} 가 그 후보를 일반 검색에서 제외한다.)
  */
 @Repository
 class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
