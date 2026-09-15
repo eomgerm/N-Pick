@@ -11,10 +11,12 @@ import com.npick.feedback.application.error.ConfirmCorrectionErrorCode;
 import com.npick.feedback.application.port.ConfirmationTarget;
 import com.npick.feedback.application.port.ConfirmationTargetPort;
 import com.npick.feedback.application.port.CurrentCorrectionStatePort;
+import com.npick.feedback.application.port.ExcludeTargetValidityPort;
 import com.npick.feedback.application.port.VerificationRun;
 import com.npick.feedback.application.port.VerificationRunPort;
 import com.npick.feedback.domain.model.FeedbackResolution;
 import com.npick.feedback.domain.model.FeedbackStatus;
+import com.npick.search.application.ConfirmExcludeSceneUseCase;
 import com.npick.search.application.ConfirmParseRuleUseCase;
 import com.npick.tag.application.ConfirmTagCorrectionUseCase;
 
@@ -32,6 +34,8 @@ public class ConfirmCorrectionService {
     private final CurrentCorrectionStatePort currentStatePort;
     private final ConfirmTagCorrectionUseCase confirmTag;
     private final ConfirmParseRuleUseCase confirmParseRule;
+    private final ConfirmExcludeSceneUseCase confirmExcludeScene;
+    private final ExcludeTargetValidityPort excludeValidity;
     private final CorrectionStateLock correctionStateLock;
     private final com.npick.feedback.domain.repository.FeedbackRepository feedbackRepository;
 
@@ -41,6 +45,8 @@ public class ConfirmCorrectionService {
             CurrentCorrectionStatePort currentStatePort,
             ConfirmTagCorrectionUseCase confirmTag,
             ConfirmParseRuleUseCase confirmParseRule,
+            ConfirmExcludeSceneUseCase confirmExcludeScene,
+            ExcludeTargetValidityPort excludeValidity,
             CorrectionStateLock correctionStateLock,
             com.npick.feedback.domain.repository.FeedbackRepository feedbackRepository) {
         this.targetPort = targetPort;
@@ -48,6 +54,8 @@ public class ConfirmCorrectionService {
         this.currentStatePort = currentStatePort;
         this.confirmTag = confirmTag;
         this.confirmParseRule = confirmParseRule;
+        this.confirmExcludeScene = confirmExcludeScene;
+        this.excludeValidity = excludeValidity;
         this.correctionStateLock = correctionStateLock;
         this.feedbackRepository = feedbackRepository;
     }
@@ -73,7 +81,8 @@ public class ConfirmCorrectionService {
             throw new BusinessException(ConfirmCorrectionErrorCode.NOT_REVIEWING);
         }
         boolean isCorrection = FeedbackResolution.TAG_CORRECTION.value().equals(target.resolution())
-                || FeedbackResolution.PATCH_PARSE.value().equals(target.resolution());
+                || FeedbackResolution.PATCH_PARSE.value().equals(target.resolution())
+                || FeedbackResolution.EXCLUDE_SCENE.value().equals(target.resolution());
         if (!isCorrection) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NOT_A_CORRECTION);
         }
@@ -92,12 +101,24 @@ public class ConfirmCorrectionService {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
 
-        // patch_parse(태그·해석 모두 잘못, F-09)는 규칙과 태그를 함께 확정한다. tag_correction 은 태그만. 배타 분기가 아니라,
-        // 규칙 확정은 patch_parse 일 때, 태그 확정은 검증이 승인한 근거가 있을 때 각각 일어난다.
-        // 실제 적용 행 수가 승인 대상 수와 다르면 후보가 그대로 적용되지 않은 것이라 확정을 막는다(F-12). 검증 이후 근거·규칙이 사라진 경우다.
         boolean isPatchParse = FeedbackResolution.PATCH_PARSE.value().equals(target.resolution());
+        boolean isExcludeScene = FeedbackResolution.EXCLUDE_SCENE.value().equals(target.resolution());
+
+        // 장면 제외는 확정 직전에 대상 장면이 여전히 유효한지 다시 확인한다(F-14). 검증과 확정 사이에 재처리가 끼면 대상 장면이
+        // 사라지므로, 쓰기 전에 막아 신고를 reviewing 으로 남긴다. drift(규칙·근거 변경)와 구분되는 제외 고유 게이트다.
+        if (isExcludeScene && !excludeValidity.targetSceneActive(run.approvedRuleId())) {
+            throw new BusinessException(ConfirmCorrectionErrorCode.TARGET_SCENE_GONE);
+        }
+
+        // patch_parse(태그·해석 모두 잘못, F-09)는 규칙과 태그를 함께 확정한다. tag_correction 은 태그만. exclude_scene 은 제외 규칙만.
+        // 배타 분기가 아니라, 규칙/제외 확정은 해당 판정일 때, 태그 확정은 검증이 승인한 근거가 있을 때 각각 일어난다.
+        // 실제 적용 행 수가 승인 대상 수와 다르면 후보가 그대로 적용되지 않은 것이라 확정을 막는다(F-12). 검증 이후 근거·규칙이 사라진 경우다.
         if (isPatchParse
                 && confirmParseRule.confirm(command.feedbackId(), run.approvedRuleId(), run.replacedRuleId()) != 1) {
+            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+        }
+        if (isExcludeScene
+                && confirmExcludeScene.confirm(command.feedbackId(), run.approvedRuleId()) != 1) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
         if (!run.approvedEvidenceIds().isEmpty()
@@ -105,8 +126,8 @@ public class ConfirmCorrectionService {
                         != run.approvedEvidenceIds().size()) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
-        // 최종 승인한 교정 규칙을 신고에 기록한다. 태그만 교정하면 NULL 이다(F-13·baseline 주석).
-        Long createdRuleId = isPatchParse ? run.approvedRuleId() : null;
+        // 최종 승인한 교정 규칙을 신고에 기록한다. patch_parse·exclude_scene 은 규칙 id, 태그만 교정하면 NULL 이다(F-13·baseline 주석).
+        Long createdRuleId = (isPatchParse || isExcludeScene) ? run.approvedRuleId() : null;
         if (feedbackRepository.confirm(
                         command.feedbackId(),
                         command.reviewerId(),

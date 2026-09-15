@@ -113,6 +113,50 @@ class CorrectionConfirmLifecycleDbTest {
 
     @Test
     @Transactional
+    @DisplayName("장면 제외 확정: 대상 장면이 유효하면 제외 규칙 활성화·신고 종료·created_rule_id 기록")
+    void confirmsExcludeScene() throws Exception {
+        seedCommon("exclude_scene");
+        jdbc.update("UPDATE npick.clip SET active_pipeline_run_id = 9201 WHERE clip_id = 9101");
+        seedExcludeRule();
+        seedReplay("{\"resolution\":\"exclude_scene\",\"approved_evidence_ids\":[],"
+                + "\"approved_rule_id\":6601,\"replaced_rule_id\":null,\"state_fingerprint\":\"rules=;tags=\"}");
+
+        confirm(9702L).andExpect(status().isOk());
+
+        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6601",
+                        Boolean.class))
+                .isTrue();
+        assertClosedAndLinked();
+        assertThat(jdbc.queryForObject("SELECT created_rule_id FROM npick.feedback WHERE feedback_id = 9901",
+                        Long.class))
+                .isEqualTo(6601L);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("장면 제외 확정: 대상 장면이 재처리로 사라졌으면 409 거부하고 신고는 reviewing 유지")
+    void rejectsExcludeWhenSceneGone() throws Exception {
+        seedCommon("exclude_scene");
+        // 재처리: 새 처리(9202)가 활성으로 승격. 제외 대상 장면(9301)은 옛 처리(9201) 소속이라 이제 검색 대상 아님.
+        jdbc.execute("INSERT INTO npick.pipeline_run (pipeline_run_id, clip_id, processing_no, pipeline_version,"
+                + " status, stage_states_json, created_at, updated_at) VALUES (9202, 9101, 4, 'v1', 'succeeded',"
+                + " '{}'::jsonb, now(), now())");
+        jdbc.update("UPDATE npick.clip SET active_pipeline_run_id = 9202 WHERE clip_id = 9101");
+        seedExcludeRule();
+        seedReplay("{\"resolution\":\"exclude_scene\",\"approved_evidence_ids\":[],"
+                + "\"approved_rule_id\":6601,\"replaced_rule_id\":null,\"state_fingerprint\":\"rules=;tags=\"}");
+
+        confirm(9702L).andExpect(status().isConflict());
+
+        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6601",
+                        Boolean.class))
+                .isFalse();
+        assertThat(jdbc.queryForObject("SELECT status FROM npick.feedback WHERE feedback_id = 9901", String.class))
+                .isEqualTo("REVIEWING");
+    }
+
+    @Test
+    @Transactional
     @DisplayName("검증 이후 상태가 바뀌었으면 확정을 거부하고 아무것도 바꾸지 않는다")
     void rejectsWhenStateDrifted() throws Exception {
         seedCommon("tag_correction");
@@ -229,6 +273,14 @@ class CorrectionConfirmLifecycleDbTest {
                 + " active, created_at, updated_at, condition_json, patch_json, replaces_rule_id, request_key)"
                 + " VALUES (6602, 'fp-r2', 'q', '{}'::jsonb, 'v1', 'patch_parse', NULL, 9901, false, now(), now(),"
                 + " '{}'::jsonb, '{}'::jsonb, 6601, 'req-1')");
+    }
+
+    private void seedExcludeRule() {
+        // 비활성 exclude_scene 후보 규칙, 대상 장면 9301
+        exec("INSERT INTO npick.search_rule (search_rule_id, query_fingerprint, normalized_query,"
+                + " normalized_filters_json, normalization_version, action, target_scene_id, source_feedback_id,"
+                + " active, created_at, updated_at) VALUES (6601, 'fp-x1', 'q', '{}'::jsonb, 'v1', 'exclude_scene',"
+                + " 9301, 9901, false, now(), now())");
     }
 
     private void seedReplay(String verificationContextJson) {
