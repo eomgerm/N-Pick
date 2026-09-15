@@ -27,6 +27,7 @@ src/
 │  ├─ error.tsx            서버 조회 실패 안내·재시도
 │  └─ globals.css          전역 토큰과 전역 스타일
 ├─ components/             여러 기능에서 공유하는 UI
+│  ├─ app-backdrop.tsx      검색·검색 결과·검수의 공통 정지 산 배경
 │  ├─ app-shell.tsx        제품 공통 헤더·역할별 메뉴와 페이지 본문 조합
 │  ├─ api-error-notice.tsx  한국어 오류·코드·요청 ID 공통 표시
 │  ├─ query-provider.tsx   TanStack Query와 인증 만료·탭 간 세션 변경 처리
@@ -41,6 +42,8 @@ src/
 │     ├─ landing-cube.tsx         이전 유리 큐브 시안 (현재 랜딩에서 사용하지 않음)
 │     ├─ landing.module.css       영상 히어로·타이포그래피 인트로·역할 카드
 │     ├─ login-shell.tsx          로그인 form·mutation·오류와 안전한 복귀
+│     ├─ login-mountain-backdrop.tsx 로그인 전용 하늘·설산·전경 파라랙스
+│     ├─ login-mountain-backdrop.module.css 레이어 마스크·깊이·모션 감소
 │     ├─ search-entry-shell.tsx   편집자 검색 입력과 결과 진입
 │     ├─ search-navigation.ts     검색어·명시 날짜 필터의 결과 URL 생성
 │     ├─ search-api-contract.ts   검색 요청 변환·응답 타입과 런타임 계약 검증
@@ -144,6 +147,10 @@ src/
 | `public`     | 브라우저에 그대로 제공하는 정적 파일                | 빌드가 필요한 소스 파일                 |
 
 ## 의존 방향
+
+로그인(`/login`)은 사용자 요청에 따라 `LoginMountainBackdrop`의 산 파라랙스를 표시합니다. 사진을 바탕으로 재구성한 하늘·설산·숲과 호수 이미지는 `public/images/login-mountains/`에 보관하며, SVG 능선 마스크로 레이어를 합성합니다. 미세 포인터와 실제 문서 스크롤에 깊이 0.12/0.45/1로 반응하고, 64px 여유 영역 안에서 이동량을 제한합니다. `requestAnimationFrame`은 이동 중에만 실행하며 모션 감소·숨긴 탭에서는 멈추고 unmount 때 이벤트를 정리합니다. 레이어를 모두 읽기 전이나 이미지 로딩 실패 시 원본 사진을 표시합니다. 배경은 포커스·클릭·인증 상태를 소유하지 않습니다. 현재는 로그인에만 적용하며 동작·폼·모바일 검증은 `e2e/login-mountain-backdrop.spec.ts`가 담당합니다.
+
+검색(`/search`)·검색 결과(`/search/results`)·문의와 처리 현황(`/review`)은 `AppBackdrop`에서 공통 정지 산 배경을 표시합니다. `public/images/app-mountain-backdrop.webp`는 로그인 파라랙스 레이어를 기본 위치에서 브라우저로 합성해 저장한 한 장의 이미지입니다. 로그인과 같은 64px 여유 영역과 중앙 크롭을 사용하며, 마우스나 스크롤에 반응하지 않습니다. 기존 화면별 가독성 베일은 유지합니다. 검색 화면의 물방울 연결과 `hasMetaballs` 옵션을 제거해 공통 배경이 Three.js·Rapier·텍스처를 불러오지 않습니다. 세 화면의 정지 상태·모바일·검색 이동은 `e2e/app-backdrop.spec.ts`로 검증합니다. 파라랙스 동작은 로그인에만 존재합니다.
 
 ```text
 app ───────→ features ───────→ lib
