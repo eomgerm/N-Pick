@@ -119,17 +119,16 @@ def test_scene_embedding_with_the_selected_model() -> None:
 def test_query_embedding_shares_the_index_vector_space() -> None:
     """선정 모델로 샘플 질의에서 **버전 정보를 포함한** 벡터를 산출한다.
 
-    S15P21A501-164 의 완료 조건이다. "차원이 S15P21A501-100 과 일치" 를 상수가 아니라
-    **같은 모델로 실제 장면을 임베딩해서** 확인한다 — 두 설정 파일이 같은 숫자를 적고
-    있는 것은 `tests/test_query_embedding.py` 가 이미 보므로, 여기서 볼 것은 그 숫자가
-    실물과 맞는가다.
+    S15P21A501-164 의 완료 조건이다. "차원이 S15P21A501-100 과 일치" 를 설정값이 아니라
+    **같은 모델로 실제 장면을 임베딩해서** 확인한다 — 두 경로가 같은 설정을 읽는 것은
+    `tests/test_query_embedding.py` 가 이미 보므로, 여기서 볼 것은 그 값이 실물과
+    맞는가다.
 
         uv run pytest -m smoke -k query_embedding
     """
     pytest.importorskip("sentence_transformers", reason=_GPU_GROUP_HINT)
 
     from npick_worker.query_embedding import embed_query
-    from npick_worker.query_embedding import get_default_config as query_config
     from npick_worker.settings import get_settings
     from npick_worker.text_embedding import SceneText, embed_scenes
     from npick_worker.text_embedding import get_default_config as scene_config
@@ -141,7 +140,7 @@ def test_query_embedding_shares_the_index_vector_space() -> None:
 
     # **같은 인코더다.** 색인과 질의가 가중치 한 벌을 공유한다.
     encoder = shared_encoder()
-    config = query_config()
+    config = scene_config()
 
     query = embed_query("광화문 집회 현장 스케치", encoder=encoder, config=config)
     scene = embed_scenes(
@@ -153,7 +152,7 @@ def test_query_embedding_shares_the_index_vector_space() -> None:
             )
         ],
         encoder=encoder,
-        config=scene_config(),
+        config=config,
     )
 
     print(f"\nmodel={query.model_version} config={config.version_id}")
@@ -164,7 +163,7 @@ def test_query_embedding_shares_the_index_vector_space() -> None:
     assert query.model_version == scene.model_version
 
     # 접두가 실제로 붙었는가. 모델 카드가 요구하는 값이다.
-    assert query.source_text.startswith(config.query_prefix)
+    assert query.source_text.startswith(get_settings().embedding_query_prefix)
 
     # 차원이 색인 측과 같은가. 여기서 갈리면 코사인 비교 자체가 불가능하다.
     assert len(query.vector) == len(scene.scenes[0].vector) == config.dimension

@@ -18,16 +18,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from npick_worker import query_api
-from npick_worker.query_embedding import get_default_config as get_embedding_config
 from npick_worker.query_resolver import ResolverCallError, ResolverSchemaInvalidError
 from npick_worker.query_resolver.gms_backend import _NETWORK, _RATE_LIMITED, _TIMEOUT
 from npick_worker.query_resolver.ollama_backend import _NETWORK as _OLLAMA_NETWORK
+from npick_worker.settings import get_settings
 from npick_worker.text_embedding.encoder import (
     EmbeddingCallError,
     EmbeddingModelUnavailableError,
 )
 
 RAW_QUERY = "작년 여름에 부산 침수됐던 장면 좀 찾아줘"
+
+#: `scene.embedding vector(1024)` 와 같아야 하는 값. 마이그레이션
+#: `V20260907092019__baseline.sql:83` 이 정본이다.
+SCENE_EMBEDDING_DIMENSION = 1024
 
 
 class StubResolver:
@@ -93,8 +97,9 @@ def stub(monkeypatch: pytest.MonkeyPatch) -> StubFactory:
 class StubEncoder:
     """`TextEncoder` 스텁. 받은 텍스트를 기록하고 고정 벡터를 돌려준다.
 
-    **정본 차원으로 만든다.** 4 차원 같은 값으로 줄이면 응답이 실제 `vector(1024)` 와
-    맞는지를 이 파일이 확인하지 못한다.
+    **차원을 상수로 박는다.** 설정에서 읽으면 "응답 길이가 설정과 같다" 는 단정이
+    순환이 된다 — 스텁과 단정이 같은 출처를 보므로 어떤 값이든 통과한다. 여기 1024 는
+    `scene.embedding vector(1024)` 컬럼의 값이고 그것이 정본이다.
     """
 
     name = "stub"
@@ -103,7 +108,7 @@ class StubEncoder:
 
     def __init__(self, failure: Exception | None = None) -> None:
         self._failure = failure
-        self._dimension = get_embedding_config().dimension
+        self._dimension = SCENE_EMBEDDING_DIMENSION
         self.texts: list[str] = []
 
     def encode(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
@@ -256,7 +261,7 @@ def test_response_carries_the_query_embedding(
 
     body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
 
-    assert len(body["embedding"]) == get_embedding_config().dimension
+    assert len(body["embedding"]) == SCENE_EMBEDDING_DIMENSION
     assert body["embedding_model_version"] == "stub/embedding@0"
     assert body["embedding_error"] is None
 
@@ -269,7 +274,7 @@ def test_embedding_uses_the_raw_query_with_the_model_prefix(
 
     body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
 
-    assert encoder.texts == [get_embedding_config().query_prefix + RAW_QUERY]
+    assert encoder.texts == [get_settings().embedding_query_prefix + RAW_QUERY]
     assert body["normalization"]["normalized_query"] not in encoder.texts[0]
 
 
@@ -317,7 +322,7 @@ def test_resolver_failure_does_not_kill_the_embedding(
 
     assert body["resolution"] is None
     assert body["error"]["category"] == _TIMEOUT
-    assert len(body["embedding"]) == get_embedding_config().dimension
+    assert len(body["embedding"]) == SCENE_EMBEDDING_DIMENSION
     assert body["embedding_error"] is None
 
 

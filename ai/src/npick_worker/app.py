@@ -151,10 +151,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("잡 폴링 비활성 (NPICK_AI_JOB_POLL_ENABLED / NPICK_AI_JOB_API_BASE_URL)")
         # 이 갈래가 질의 리졸버다. 단계 워밍업(`jobs.warm_up`)은 타지 않지만 질의 임베딩
         # 가중치는 여기서 올린다 — 어댑터는 첫 `encode` 에서 모델을 읽으므로, 이게 없으면
-        # **부팅 후 첫 검색**이 1.7GB 로딩을 물고 동기 예산을 날린다. 스레드로 보내는
-        # 이유는 `warm_up()` 과 같다 — 로딩이 이벤트 루프를 막으면 헬스체크도 막힌다.
-        # 실패해도 계속 뜬다. 그 프로세스의 검색은 BM25 로 이어진다 (FRD v3.1 §6.2).
-        await asyncio.to_thread(warm_query_encoder)
+        # **부팅 후 첫 검색**이 1.7GB 로딩을 물고 동기 예산을 날린다.
+        #
+        # `yield` 앞이라 이 동안 서버는 연결을 받지 않는다. 그게 의도다 — 뒤로 미루면
+        # 첫 검색이 로딩과 겹친다. 대신 **상한을 둔다**: 캐시 볼륨이 비어 원격에서 받는
+        # 콜드 스타트가 startup probe 유예를 넘기면 재시작 루프가 되고, 리졸버는 사용자
+        # 검색의 동기 경로 앞단이라 그 루프가 바로 장애로 보인다.
+        #
+        # 상한을 넘겨도 버리는 일이 아니다. `wait_for` 는 대기만 끊고 스레드는 계속 돌아
+        # 로딩을 끝낸다. 그 사이의 검색만 dense 채널 없이 BM25 로 돈다 (FRD v3.1 §6.2).
+        # 실패도 마찬가지로 기동을 막지 않는다 — `warm_query_encoder` 가 삼킨다.
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(warm_query_encoder),
+                timeout=settings.embedding_warmup_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "질의 임베딩 워밍업이 %.1f초 안에 끝나지 않아 기동을 계속한다. "
+                "로딩은 계속되며 그때까지의 검색은 dense 채널 없이 돈다",
+                settings.embedding_warmup_timeout_seconds,
+            )
         yield
         return
 

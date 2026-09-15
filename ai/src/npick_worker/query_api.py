@@ -20,7 +20,6 @@ from functools import lru_cache
 from pydantic import BaseModel
 
 from npick_worker.query_embedding import QueryEmbedding, embed_query
-from npick_worker.query_embedding import get_default_config as get_embedding_config
 from npick_worker.query_normalization import normalize
 from npick_worker.query_resolver import (
     QueryResolver,
@@ -154,13 +153,12 @@ def _resolver() -> QueryResolver:
     return OllamaResolver(base_url=settings.ollama_url, model=settings.ollama_model, params=params)
 
 
-@lru_cache(maxsize=1)
 def _encoder() -> TextEncoder:
     """프로세스가 공유하는 인코더 하나. **색인 측과 같은 인스턴스다.**
 
-    `shared_encoder()` 자체가 이미 캐시하지만 한 겹 더 두는 이유는 `_resolver()` 와
-    같다 — 테스트가 갈아 끼울 자리가 필요하고, 그게 없으면 이 파일의 모든 테스트가
-    1.7GB 가중치를 내려받는다.
+    `shared_encoder()` 가 이미 `lru_cache` 라 여기서 또 캐시하지 않는다. 이 함수가
+    따로 있는 이유는 테스트가 갈아 끼울 자리를 주기 위해서다 — 그게 없으면 이 파일의
+    모든 테스트가 1.7GB 가중치를 내려받는다.
 
     지연 임포트다. `sentence_transformers` 는 함수 안에서 끌어오지만 이 모듈은 앱
     기동 경로에 있어 임포트 시점에 어댑터 모듈까지 끌 이유가 없다.
@@ -188,7 +186,7 @@ def warm_query_encoder() -> bool:
     검색은 임베딩 없이 BM25 로 이어진다(FRD v3.1 §6.2).
     """
     try:
-        _encoder().encode([get_embedding_config().query_prefix + "워밍업"])
+        _encoder().encode([get_settings().embedding_query_prefix + "워밍업"])
     except Exception as exc:
         logger.warning(
             "질의 임베딩 워밍업 실패: %s: %s. 이 프로세스의 검색은 dense 채널 없이 돈다",

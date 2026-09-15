@@ -1,11 +1,18 @@
 """앱 합성부. 클라이언트와 러너가 같은 것을 말하는지 본다."""
 
+import threading
+import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from npick_worker.app import build_worker, create_app
-from npick_worker.settings import Settings
+from npick_worker.settings import Settings, get_settings
+
+#: 느린 워밍업을 흉내내는 시간. 상한(0.1초)보다 충분히 커서 둘을 구분할 수 있어야 하고,
+#: 테스트가 실제로 이만큼 기다리지는 않는다 — 단정을 끝내자마자 풀어 준다.
+SLOW_WARM_UP_SECONDS = 10.0
 
 
 def _settings(**overrides: object) -> Settings:
@@ -78,3 +85,48 @@ def test_resolver_boot_warms_the_query_encoder(query_encoder_warmup: list[bool])
         pass
 
     assert query_encoder_warmup == [True]
+
+
+def test_slow_warm_up_does_not_block_the_boot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """**워밍업에 상한이 있다.**
+
+    워밍업은 `yield` 앞이라 끝날 때까지 서버가 연결을 받지 않는다. 캐시 볼륨이 비어
+    가중치를 원격에서 받는 콜드 스타트면 그 시간이 몇 분이 되고, 플랫폼의 startup probe
+    유예를 넘기면 **재시작 루프**가 된다. 리졸버는 사용자 검색의 동기 경로 앞단이라
+    그 루프가 바로 장애로 보인다.
+
+    상한을 넘겨도 기동은 계속한다. 로딩은 스레드에서 이어지므로 버린 일이 아니고,
+    그 사이의 검색만 dense 채널 없이 돈다(FRD v3.1 §6.2).
+    """
+    started = threading.Event()
+    release = threading.Event()
+
+    def never_finishes() -> bool:
+        started.set()
+        # 테스트가 풀어 준다. 타임아웃은 그래도 안 풀렸을 때의 안전장치다.
+        release.wait(timeout=SLOW_WARM_UP_SECONDS)
+        return True
+
+    monkeypatch.setattr("npick_worker.app.warm_query_encoder", never_finishes)
+    monkeypatch.setenv("NPICK_AI_EMBEDDING_WARMUP_TIMEOUT_SECONDS", "0.1")
+    get_settings.cache_clear()
+
+    begin = time.perf_counter()
+    try:
+        with TestClient(create_app()) as client:
+            # **기동에 걸린 시간을 여기서 잰다.** "결국 200 이 나왔다" 로는 부족하다 —
+            # 상한이 없어도 워밍업이 끝나기만 하면 그 단정은 통과한다. 재시작 루프를
+            # 만드는 것은 실패가 아니라 **지연**이다.
+            boot_seconds = time.perf_counter() - begin
+            # 스레드를 먼저 풀어 준다. lifespan 종료가 기본 executor 를 기다리므로
+            # 잡아 둔 채 빠져나가면 이번에는 종료가 막힌다.
+            release.set()
+            assert client.get("/health").status_code == 200
+    finally:
+        release.set()
+
+    assert started.is_set(), "워밍업이 시작조차 하지 않았다"
+    assert boot_seconds < SLOW_WARM_UP_SECONDS / 2, (
+        f"워밍업이 끝날 때까지 기동이 막혔다 ({boot_seconds:.1f}초). "
+        "상한이 없으면 콜드 스타트가 startup probe 를 넘긴다"
+    )

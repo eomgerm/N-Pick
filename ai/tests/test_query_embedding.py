@@ -9,26 +9,21 @@
 - `test_encoder_receives_prefix_and_raw_query` — 접두 `query: ` 와 **원문**이 들어간다.
   정규화 질의를 넣으면 색인 측(캡션+대사라는 자연어 문장)과 입력 분포가 어긋나고,
   S15P21A501-175 의 비교표가 `"query: " + 원질의` 로 측정된 값이라 그 수치도 보장되지 않는다.
-- `test_query_and_scene_configs_agree_on_vector_space` — 두 설정 파일이 같은 벡터 공간을
-  말하는지. 차원이나 정규화가 갈리면 코사인 유사도가 조용히 무의미해진다. 색인 측과 질의
-  측이 설정 파일을 따로 갖는 대가를 이 테스트 하나로 치른다.
+- `test_vector_space_comes_from_the_index_config` — 차원과 정규화를 질의 측이 따로 갖지
+  않고 색인 정본에서 읽는다. 복제해 두고 감시하는 것보다 복제를 만들지 않는 쪽이 짧고
+  어길 수 없다.
 """
 
 import hashlib
 import math
 from collections.abc import Sequence
-from pathlib import Path
 
 import pytest
 
-from npick_worker.query_embedding import (
-    QueryEmbeddingConfig,
-    embed_query,
-    get_default_config,
-    load_config,
-)
-from npick_worker.query_embedding.config import DEFAULT_CONFIG_PATH
+from npick_worker.query_embedding import embed_query
 from npick_worker.query_normalization import normalize
+from npick_worker.settings import get_settings
+from npick_worker.text_embedding import TextEmbeddingConfig
 from npick_worker.text_embedding import get_default_config as get_scene_config
 from npick_worker.text_embedding.encoder import (
     EmbeddingCallError,
@@ -36,6 +31,10 @@ from npick_worker.text_embedding.encoder import (
 )
 
 RAW_QUERY = "작년 여름에 부산 침수됐던 장면 좀 찾아줘"
+
+#: `scene.embedding vector(1024)` 와 같아야 하는 값. 마이그레이션
+#: `V20260907092019__baseline.sql:83` 이 정본이다.
+SCENE_EMBEDDING_DIMENSION = 1024
 
 
 class _FakeEncoder:
@@ -75,16 +74,20 @@ class _FakeEncoder:
         return tuple(float(digest[index % len(digest)] + 1) for index in range(self._dimension))
 
 
-def _config(**overrides: object) -> QueryEmbeddingConfig:
-    """테스트용 설정. 차원을 작게 줄여 조립 규칙만 본다."""
+def _config(**overrides: object) -> TextEmbeddingConfig:
+    """테스트용 벡터 공간. 차원을 작게 줄여 조립 규칙만 본다.
+
+    **색인 측 설정 타입이다.** 질의 측은 자기 설정을 갖지 않는다 — `dimension` 과
+    `normalize` 는 `text_embedding.v1.toml` 하나가 정하고 양쪽이 그것을 읽는다.
+    """
     values: dict[str, object] = {
-        "schema": "query-embedding/v1",
+        "schema": "text-embedding/v1",
         "dimension": 4,
         "normalize": True,
-        "query_prefix": "query: ",
+        "document_prefix": "",
     }
     values.update(overrides)
-    return QueryEmbeddingConfig.model_validate(values)
+    return TextEmbeddingConfig.model_validate(values)
 
 
 # ── 무엇을 인코더에 넣는가 ──────────────────────────────────────────────
@@ -94,7 +97,7 @@ def test_encoder_receives_prefix_and_raw_query() -> None:
     """접두 + 원문 하나. 문장 한 개만 인코더에 간다."""
     encoder = _FakeEncoder()
 
-    result = embed_query(RAW_QUERY, encoder=encoder, config=_config())
+    result = embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
 
     assert encoder.calls == [("query: " + RAW_QUERY,)]
     assert result.source_text == "query: " + RAW_QUERY
@@ -108,7 +111,7 @@ def test_embedded_text_is_not_the_normalized_query() -> None:
     """
     encoder = _FakeEncoder()
 
-    result = embed_query(RAW_QUERY, encoder=encoder, config=_config())
+    result = embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
 
     normalized = normalize(RAW_QUERY)
     assert normalized.normalized_query not in result.source_text
@@ -119,8 +122,10 @@ def test_surrounding_whitespace_does_not_change_the_vector() -> None:
     """`" 부산 "` 과 `"부산"` 이 다른 벡터가 되면 같은 질의가 다른 검색이 된다."""
     config = _config()
 
-    padded = embed_query(f"  {RAW_QUERY}  ", encoder=_FakeEncoder(), config=config)
-    bare = embed_query(RAW_QUERY, encoder=_FakeEncoder(), config=config)
+    padded = embed_query(
+        f"  {RAW_QUERY}  ", encoder=_FakeEncoder(), prefix="query: ", config=config
+    )
+    bare = embed_query(RAW_QUERY, encoder=_FakeEncoder(), prefix="query: ", config=config)
 
     assert padded.vector == bare.vector
 
@@ -129,7 +134,7 @@ def test_empty_prefix_sends_the_query_unchanged() -> None:
     """접두는 모델이 요구할 때만 붙는다. 코드에 박혀 있지 않다."""
     encoder = _FakeEncoder()
 
-    embed_query(RAW_QUERY, encoder=encoder, config=_config(query_prefix=""))
+    embed_query(RAW_QUERY, encoder=encoder, prefix="", config=_config())
 
     assert encoder.calls == [(RAW_QUERY,)]
 
@@ -140,7 +145,7 @@ def test_blank_query_is_rejected_before_the_model(raw: str) -> None:
     encoder = _FakeEncoder()
 
     with pytest.raises(ValueError, match="질의"):
-        embed_query(raw, encoder=encoder, config=_config())
+        embed_query(raw, encoder=encoder, prefix="query: ", config=_config())
 
     assert encoder.calls == []
 
@@ -152,7 +157,7 @@ def test_model_version_comes_from_the_encoder() -> None:
     """가중치가 바뀌면 벡터가 달라진다. 호출부가 그 사실을 알 수 있어야 한다."""
     encoder = _FakeEncoder(model_version="dragonkue/arctic@abc123")
 
-    result = embed_query(RAW_QUERY, encoder=encoder, config=_config())
+    result = embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
 
     assert result.model_version == "dragonkue/arctic@abc123"
 
@@ -162,7 +167,7 @@ def test_model_version_comes_from_the_encoder() -> None:
 
 def test_vector_is_l2_normalized() -> None:
     """pgvector 코사인 검색의 전제. 색인 측과 같은 크기여야 한다."""
-    result = embed_query(RAW_QUERY, encoder=_FakeEncoder(), config=_config())
+    result = embed_query(RAW_QUERY, encoder=_FakeEncoder(), prefix="query: ", config=_config())
 
     assert math.isclose(math.sqrt(sum(v * v for v in result.vector)), 1.0, rel_tol=1e-9)
 
@@ -171,6 +176,7 @@ def test_normalize_off_keeps_the_raw_magnitude() -> None:
     result = embed_query(
         RAW_QUERY,
         encoder=_FakeEncoder(vector=[3.0, 4.0, 0.0, 0.0]),
+        prefix="query: ",
         config=_config(normalize=False),
     )
 
@@ -182,7 +188,7 @@ def test_dimension_mismatch_is_rejected() -> None:
     encoder = _FakeEncoder(dimension=8)
 
     with pytest.raises(ValueError, match="차원"):
-        embed_query(RAW_QUERY, encoder=encoder, config=_config(dimension=4))
+        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config(dimension=4))
 
 
 def test_zero_vector_is_rejected() -> None:
@@ -190,7 +196,7 @@ def test_zero_vector_is_rejected() -> None:
     encoder = _FakeEncoder(vector=[0.0, 0.0, 0.0, 0.0])
 
     with pytest.raises(ValueError, match="0 벡터"):
-        embed_query(RAW_QUERY, encoder=encoder, config=_config())
+        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
 
 
 @pytest.mark.parametrize("bad", [math.nan, math.inf])
@@ -199,7 +205,7 @@ def test_non_finite_component_is_rejected(bad: float) -> None:
     encoder = _FakeEncoder(vector=[bad, 1.0, 1.0, 1.0])
 
     with pytest.raises(ValueError, match="유한"):
-        embed_query(RAW_QUERY, encoder=encoder, config=_config())
+        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
 
 
 # ── 실패는 감싸지 않는다 ────────────────────────────────────────────────
@@ -214,64 +220,45 @@ def test_encoder_failures_propagate_unchanged(failure: Exception) -> None:
     encoder = _FakeEncoder(failure=failure)
 
     with pytest.raises(type(failure)):
-        embed_query(RAW_QUERY, encoder=encoder, config=_config())
+        embed_query(RAW_QUERY, encoder=encoder, prefix="query: ", config=_config())
 
 
 # ── 설정 ────────────────────────────────────────────────────────────────
 
 
-def test_query_and_scene_configs_agree_on_vector_space() -> None:
-    """**설정 파일을 둘로 나눈 대가를 치르는 자리다.**
+def test_vector_space_comes_from_the_index_config() -> None:
+    """**차원과 정규화는 한 곳에만 적혀 있다.**
 
-    질의측 접두는 색인 결과를 바꾸지 않으므로 `text_embedding.v1.toml` 에 넣을 수 없다 —
-    넣으면 `config_version` 이 움직여 `stageVersion` 이 달라지고 계약 §7 의 버전 불일치로
-    전 클립이 재처리 대상이 된다. 그래서 파일이 둘인데, 그러면 `dimension` 이 두 곳에
-    적힌다. 그 둘이 갈리는 것을 막는 것이 이 테스트다.
+    질의 측이 자기 값을 갖지 않고 색인 정본(`text_embedding.v1.toml`)을 그대로 읽는다.
+    복제해 두고 두 값이 같은지 감시하는 것보다, 복제를 만들지 않는 쪽이 짧고 어길 수 없다.
+
+    이 모듈은 이미 `text_embedding` 에서 Protocol·`finalize_vector`·어댑터를 가져다 쓴다.
+    행동 셋을 공유하면서 값 둘만 복제할 이유가 없었다.
     """
-    query = get_default_config()
     scene = get_scene_config()
+    encoder = _FakeEncoder(dimension=scene.dimension)
 
-    assert query.dimension == scene.dimension
-    assert query.normalize == scene.normalize
+    result = embed_query(RAW_QUERY, encoder=encoder)
 
-
-def test_default_config_is_the_packaged_file() -> None:
-    assert get_default_config() == load_config(DEFAULT_CONFIG_PATH)
-
-
-def test_version_id_moves_with_the_values() -> None:
-    """접두가 바뀌면 다른 벡터가 나온다. 버전이 그대로면 기록이 거짓이 된다."""
-    assert _config().version_id != _config(query_prefix="passage: ").version_id
+    assert len(result.vector) == scene.dimension
+    if scene.normalize:
+        assert math.isclose(math.sqrt(sum(v * v for v in result.vector)), 1.0, rel_tol=1e-9)
 
 
-def test_unknown_key_is_rejected() -> None:
-    """오타가 조용히 무시되면 version_id 는 바뀌는데 동작은 그대로다."""
-    with pytest.raises(ValueError, match=r"query_prefx|[Ee]xtra"):
-        QueryEmbeddingConfig.model_validate(
-            {
-                "schema": "query-embedding/v1",
-                "dimension": 4,
-                "normalize": True,
-                "query_prefix": "query: ",
-                "query_prefx": "오타",
-            }
-        )
+def test_prefix_comes_from_settings() -> None:
+    """`embedding_model` 과 같은 자리다. 버전 붙는 설정 파일에 두면 색인 측
+    `config_version` 이 질의 접두 때문에 움직인다."""
+    encoder = _FakeEncoder(dimension=get_scene_config().dimension)
+
+    embed_query(RAW_QUERY, encoder=encoder)
+
+    assert encoder.calls == [(get_settings().embedding_query_prefix + RAW_QUERY,)]
 
 
-def test_schema_must_match_the_file_version(tmp_path: Path) -> None:
-    """`v2.toml` 에 `v1` schema 가 든 파일은 버전 기록을 거짓으로 만든다."""
-    target = tmp_path / "query_embedding.v2.toml"
-    target.write_text(
-        "\n".join(
-            [
-                'schema = "query-embedding/v1"',
-                "dimension = 4",
-                "normalize = true",
-                'query_prefix = "query: "',
-            ]
-        ),
-        encoding="utf-8",
-    )
+def test_index_dimension_still_matches_the_column() -> None:
+    """`scene.embedding vector(1024)` 와 같아야 한다.
 
-    with pytest.raises(ValueError, match="query-embedding/v2"):
-        load_config(target)
+    질의 측이 색인 설정을 읽게 됐으므로 이 값 하나가 양쪽을 동시에 정한다. 어긋나면
+    색인은 INSERT 가 실패하고 질의는 비교가 불가능해진다.
+    """
+    assert get_scene_config().dimension == SCENE_EMBEDDING_DIMENSION
