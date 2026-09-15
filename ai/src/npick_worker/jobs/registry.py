@@ -21,9 +21,14 @@ from pydantic import BaseModel, ValidationError
 
 from npick_worker.device import detect_device
 from npick_worker.jobs.errors import (
+    AsrFailedError,
+    ExternalProcessingRefusedError,
     ModelUnavailableError,
+    StageUnavailableError,
+    TransientStageError,
     UnsupportedMediaError,
     UpstreamOutputInvalidError,
+    VlmOutputInvalidError,
 )
 from npick_worker.jobs.models import ArtifactRef
 from npick_worker.jobs.versions import (
@@ -36,7 +41,10 @@ from npick_worker.settings import get_settings
 from npick_worker.versioning import service_version
 
 if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(ocr 은 onnxruntime 이 딸려 온다).
+    from npick_worker.asr.engine import AsrEngine
     from npick_worker.ocr.models import KeyframeRef
+    from npick_worker.vlm_metadata.client import VlmClient
+    from npick_worker.vlm_metadata.models import SceneKeyframes
 
 logger = logging.getLogger(__name__)
 
@@ -445,6 +453,401 @@ def _warm_ocr() -> str:
     return f"config={config.version_id} engine={engine.name} {engine.version}"
 
 
+def _vlm_scenes(upstream: Mapping[str, Any]) -> tuple["SceneKeyframes", ...]:
+    """상류 `frameExtraction` 산출물을 장면별 keyframe 묶음으로 옮긴다.
+
+    `required_inputs` 와 `_run_vlm_metadata` 가 둘 다 부른다. 조립을 한 함수에 두는
+    이유는 `_ocr_keyframes` 와 같다 — 두 곳에서 따로 파싱하면 받아 온 파일과 실제로
+    모델에 넣는 대상이 어긋날 수 있다.
+    """
+    from npick_worker.jobs.models import VlmMetadataUpstream
+    from npick_worker.vlm_metadata import KeyframeRef as VlmKeyframeRef
+    from npick_worker.vlm_metadata import SceneKeyframes as VlmSceneKeyframes
+    from npick_worker.vlm_metadata.grounding import OcrRef, OcrText
+
+    parsed = _parse_upstream(VlmMetadataUpstream, upstream)
+    observations = parsed.ocr.observations if parsed.ocr is not None else ()
+    frames = {
+        (scene.scene_index, frame.timestamp_ms, frame.storage_key)
+        for scene in parsed.frame_extraction.scenes
+        for frame in scene.keyframes
+    }
+    if any((o.scene_index, o.timestamp_ms, o.storage_key) not in frames for o in observations):
+        raise UpstreamOutputInvalidError("OCR 관측이 상류 키프레임을 참조하지 않는다")
+    return tuple(
+        VlmSceneKeyframes(
+            scene_index=scene.scene_index,
+            keyframes=tuple(
+                VlmKeyframeRef(
+                    scene_index=keyframe.scene_index,
+                    timestamp_ms=keyframe.timestamp_ms,
+                    storage_key=keyframe.storage_key,
+                )
+                for keyframe in scene.keyframes
+            ),
+            ocr=tuple(
+                OcrText(
+                    ref=OcrRef(o.scene_index, o.timestamp_ms, o.storage_key, index),
+                    raw_text=o.raw_text,
+                    text_key=o.text_key,
+                    confidence=o.confidence,
+                )
+                for index, o in enumerate(observations)
+                if o.scene_index == scene.scene_index
+            ),
+        )
+        for scene in parsed.frame_extraction.scenes
+    )
+
+
+def _vlm_selected_keys(upstream: Mapping[str, Any]) -> tuple[str, ...]:
+    """모델에 **실제로 넣을** keyframe 의 키. 순서를 지키며 중복을 없앤다.
+
+    상류가 준 전부가 아니라 고른 것만이다. 장면당 상한(`max_keyframes_per_scene`)을
+    넘으면 `select_keyframes` 가 골라내므로, 전부 받아 오면 쓰지 않을 이미지를 내려받아
+    lease 시간을 쓴다. 외부 어댑터에서는 그 차이가 payload size 판정에도 들어간다.
+    """
+    from npick_worker.vlm_metadata import get_default_config, select_keyframes
+
+    config = get_default_config()
+    seen: dict[str, None] = {}
+    for scene in _vlm_scenes(upstream):
+        for keyframe in select_keyframes(scene, config):
+            seen.setdefault(keyframe.storage_key, None)
+    return tuple(seen)
+
+
+def _run_vlm_metadata(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. transformers·torch 는 헬스체크만 하는 프로세스가 낼 비용이 아니다
+    # (ocr 의 onnxruntime 과 같은 이유).
+    from npick_worker.jobs.models import VlmMetadataOutput
+    from npick_worker.jobs.vlm_inputs import attach_mapped_transcripts
+    from npick_worker.vlm_metadata import (
+        VlmCallError,
+        VlmModelUnavailableError,
+        VlmSchemaInvalidError,
+        describe_scenes,
+        get_default_config,
+    )
+
+    config = get_default_config()
+    scenes = attach_mapped_transcripts(
+        _vlm_scenes(ctx.upstream), ctx.upstream, ctx.artifact_documents
+    )
+    selected = _vlm_selected_keys(ctx.upstream)
+
+    missing = [key for key in selected if key not in ctx.upstream_files]
+    if missing:
+        # 러너가 `required_inputs` 로 받아 왔어야 하는 파일이다. 일부만 보고 성공으로
+        # 반납하면 "그 장면은 이렇게 보였다" 는 거짓이 정본에 남는다.
+        msg = f"keyframe 이미지를 받지 못했다: {len(missing)}건"
+        raise UpstreamOutputInvalidError(msg)
+
+    from npick_worker.vlm_metadata import select_keyframes
+
+    # 한 호출은 한 scene이다. 클립 합계 대신 가장 큰 scene 입력을 사전 검사한다.
+    # 외부 어댑터 구현 시에는 직렬화된 실제 요청 크기도 전송 직전에 검사해야 한다.
+    max_scene_bytes = max(
+        (
+            sum(
+                ctx.upstream_files[k.storage_key].stat().st_size
+                for k in select_keyframes(s, config)
+            )
+            for s in scenes
+        ),
+        default=0,
+    )
+    client = _vlm_client(max_scene_bytes)
+
+    try:
+        result = describe_scenes(scenes, ctx.upstream_files, client, config)
+    except VlmModelUnavailableError as exc:
+        # 가중치를 못 받은 것은 이 클립의 문제가 아니다 — 다른 파드나 다음 시도에서
+        # 성공할 수 있다(계약 §9.2 의 일시 오류).
+        raise ModelUnavailableError(str(exc)) from exc
+    except VlmSchemaInvalidError as exc:
+        # 형식·어휘·근거가 어긋났다. temperature 0 이므로 다시 물어도 같은 답이 온다.
+        raise VlmOutputInvalidError(str(exc)) from exc
+    except VlmCallError as exc:
+        # 호출 자체의 실패(타임아웃·런타임 오류)다. 출력 내용의 문제와 갈라야 한다.
+        raise TransientStageError(str(exc)) from exc
+
+    identity = _vlm_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+        model_version=result.model_version,
+        tokenizer=result.tokenizer,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        output=VlmMetadataOutput.from_result(result).model_dump(by_alias=True, mode="json"),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            # 가중치와 프롬프트를 **둘 다** 쓰는 첫 단계다. 앞의 세 단계에서 값이 비어
+            # 있던 두 키가 여기서 처음 채워진다.
+            model_version=result.model_version,
+            prompt_version=result.prompt_version,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "scenes": result.scene_count,
+            # 설명이 만들어진 장면 수. `scenes` 보다 작으면 근거가 없어 비운 장면이 있다.
+            "captionedScenes": result.caption_count,
+            "tagCandidates": result.tag_candidate_count,
+            # `unknown` 으로 남은 장면 수. 이 비율이 튀면 프롬프트나 모델을 사람이 봐야
+            # 한다는 신호다(`ocr` 의 `unverifiedObservations` 와 같은 용도).
+            "unknownShotTypes": result.unknown_shot_type_count,
+            "keyframesSent": len(selected),
+        },
+    )
+
+
+def _vlm_client(payload_bytes: int) -> "VlmClient":
+    """어느 어댑터로 나갈지 고른다. **외부 전송 판정이 여기 있다.**
+
+    판정을 모듈이 아니라 여기서 하는 이유는 `vlm_metadata/__init__.py` 가 적어 둔
+    경계다 — 단계 구현은 어느 provider 로 나가는지 모르고, 고르는 쪽이 PRD §12.4 의
+    조건을 책임진다.
+
+    외부 경로는 **지금 항상 거절된다.** clip 별 외부 처리 권리 확인을 실어 보내는 자리가
+    잡 계약에 없고(`external_policy.py` 모듈 docstring), deployment 수준 허용이 그것을
+    대신할 수 없다. 거절은 `EXTERNAL_PROCESSING_NOT_ALLOWED`(영구)이고 **전송 전**이다.
+    """
+    from npick_worker.vlm_metadata.external_policy import (
+        PAYLOAD_CATEGORY_SELECTED_KEYFRAMES,
+        ExternalCallRequest,
+        ExternalProcessingNotAllowedError,
+        authorize,
+    )
+
+    settings = get_settings()
+    if settings.vlm_backend == "transformers":
+        from npick_worker.vlm_metadata.transformers_backend import shared_client
+
+        return shared_client(settings)
+
+    request = ExternalCallRequest(
+        model=settings.vlm_external_model,
+        endpoint=settings.vlm_external_endpoint,
+        payload_category=PAYLOAD_CATEGORY_SELECTED_KEYFRAMES,
+        payload_bytes=payload_bytes,
+        # 설정에서 읽지 않는다. 전역 플래그가 clip 별 권리 확인을 대신하는 것이 PRD 가
+        # 금지한 것이다(`external_policy.py`).
+        clip_rights_confirmed=False,
+    )
+    try:
+        authorize(request, settings)
+    except ExternalProcessingNotAllowedError as exc:
+        # 원문·secret 을 싣지 않는다. 사유·크기·판정만 남는다(PRD §12.4 감사 기록).
+        logger.warning(
+            "외부 VLM 전송을 하지 않았다: %s",
+            exc.record.as_log_fields(),
+            extra={"authorization": exc.record.as_log_fields()},
+        )
+        raise ExternalProcessingRefusedError(str(exc)) from exc
+    # 조건이 전부 맞았더라도 보낼 구현이 없다. 없는 것을 있는 척하지 않는다 —
+    # `NO_ADAPTER`(영구 → skipped)가 이 사실의 코드다.
+    msg = "외부 VLM 어댑터 구현이 없다"
+    raise StageUnavailableError(msg)
+
+
+def _vlm_identity(
+    *,
+    config_version: str,
+    engine: str,
+    engine_version: str,
+    model_version: str,
+    tokenizer: str,
+) -> dict[str, str]:
+    """vlm_metadata 의 재현 튜플. 축이 다섯이다.
+
+    앞 단계들보다 둘 많다. `modelVersion` 은 가중치가 바뀌면 같은 프레임에서 다른 문장이
+    나오기 때문이고, `tokenizer` 는 `scene.caption_tokens` 가 이 단계의 산출물이기
+    때문이다 — Kiwi 설정이 바뀌면 설명이 같아도 색인이 달라진다(`ocr` 과 같은 이유).
+
+    `promptVersion` 은 여기 없다. `configVersion` 이 설정 파일 전체의 해시이고 프롬프트가
+    그 파일의 한 절이므로, 프롬프트가 바뀌면 `configVersion` 도 바뀐다. 두 값을 다 넣으면
+    해시에 같은 정보가 두 번 들어간다 — `versions.promptVersion` 으로는 그대로 보고한다.
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+        "modelVersion": model_version,
+        "tokenizer": tokenizer,
+    }
+
+
+def _warm_vlm_metadata() -> str:
+    """설정을 미리 읽고 가중치를 미리 올린다.
+
+    `ocr` 과 같은 이유다 — 첫 잡에서 모델을 내려받으면 그 시간이 통째로 그 잡의 처리
+    시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다. 기동 때 하면
+    `/health` 로 드러난다. 이 단계는 앞의 셋과 달리 **VRAM 을 실제로 잡는다.**
+
+    외부 백엔드로 설정돼 있으면 워밍업할 것이 없다. 예외를 던져 `warmed=False` 로
+    보고한다 — 없는 것을 있는 척하지 않는다(`warm_up` 이 예외를 잡아 기록한다).
+    """
+    from npick_worker.vlm_metadata import get_default_config, prompt_version
+    from npick_worker.vlm_metadata.transformers_backend import TransformersVlmClient
+
+    config = get_default_config()
+    client = _vlm_client(0)
+    loaded = (
+        client.warm_up()
+        if isinstance(client, TransformersVlmClient)
+        else f"model={client.model_version}"
+    )
+    return f"config={config.version_id} prompt={prompt_version(config)} {loaded}"
+
+
+def _run_asr(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. faster-whisper 는 `gpu` 그룹의 선택 의존성이라 없는 환경에서도
+    # 이 모듈이 임포트돼야 한다(`ai/AGENTS.md`).
+    from npick_worker.asr import (
+        AsrCallError,
+        AsrModelUnavailableError,
+        get_default_config,
+        transcribe_media,
+    )
+    from npick_worker.jobs.models import AsrOutput, AsrUpstream
+
+    config = get_default_config()
+    upstream = _parse_upstream(AsrUpstream, ctx.upstream)
+    selection = upstream.transcript
+    candidates = () if selection is None else selection.candidate_ranges
+
+    if selection is not None and selection.asr_required is False:
+        # **그래도 돌린다.** 배정이 곧 실행 지시이고(BE 가 이 단계를 pending 으로 두고
+        # 골랐다), 무엇을 채택할지는 우선순위를 아는 하류가 정한다(계약 §4.5). 다만
+        # 판정과 배정이 어긋난 사실은 남긴다 — 조용히 넘기면 나중에 GPU 분이 어디로
+        # 갔는지 알 수 없다.
+        logger.info(
+            "transcript_selection 은 ASR 이 필요 없다고 판정했으나 배정됐다 (reasonCode=%s)",
+            selection.reason_code,
+        )
+
+    engine = _asr_engine()
+    try:
+        result = transcribe_media(ctx.require_video(), engine, config)
+    except AsrModelUnavailableError as exc:
+        # 가중치를 못 받은 것은 이 클립의 문제가 아니다 — 다른 파드나 다음 시도에서
+        # 성공할 수 있다(계약 §9.2 의 일시 오류).
+        raise ModelUnavailableError(str(exc)) from exc
+    except AsrCallError as exc:
+        # 실행의 실패다. **빈 결과와 다른 사실이므로** 성공으로 반납하지 않는다 —
+        # 발화 미감지 정상 종료로 바꾸면 티켓이 금지한 일이 된다. 계약이 이 자리에 준
+        # 코드는 `ASR_FAILED` 이고, 맨 `TransientStageError` 는 "분류를 미룬다" 는 뜻의
+        # `STAGE_FAILED` 로 적힌다 — 분류된 실패를 미분류로 적을 이유가 없다.
+        raise AsrFailedError(str(exc)) from exc
+    # 오디오를 디코드할 수 없으면 `MediaUnreadableError` 가 그대로 올라간다.
+    # `classify` 가 `UNSUPPORTED_MEDIA`(영구)로 옮긴다 — 같은 파일은 다시 열어도 같다.
+
+    identity = _asr_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+        model_version=result.model_version,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        # `exclude_none=True` 인 이유는 `reasonCode` 다. 발화를 찾은 실행에 `null` 을
+        # 실어 보내면 BE 의 사유 allowlist 에 없는 값이 되고, "빈 segments 만으로 사유를
+        # 만들지 않는다" 는 구분이 와이어에서 흐려진다.
+        output=AsrOutput.from_result(result).model_dump(
+            by_alias=True, mode="json", exclude_none=True
+        ),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            model_version=result.model_version,
+            # 이 단계는 프롬프트를 쓰지 않는다. 키는 남기고 값만 비운다.
+            prompt_version=None,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "segments": len(result.segments),
+            # 엔진이 낸 수. `segments` 보다 크면 계약을 못 지켜 버린 구간이 있다.
+            "rawSegments": result.raw_segment_count,
+            "droppedBlank": result.dropped_blank,
+            "droppedDegenerate": result.dropped_degenerate,
+            # 내보낸 구간의 총 길이. 무음 표본에서 이 값이 크면 환각을 의심한다.
+            "speechMs": result.speech_ms,
+            "vadEnabled": result.vad_enabled,
+            # VAD 가 발화로 남긴 오디오 길이. `null` 이면 VAD 를 끄고 돌아 판정이 없다.
+            # **이 값이 크고 `speechMs` 가 0 인 실행이 "무음" 이 아니다** — 말은 있었는데
+            # 임계에 걸려 문장이 안 나온 것이고, 그 구분이 여기 남아야 나중에 보인다.
+            "vadSpeechMs": result.vad_speech_ms,
+            # 상류 판정. 없으면 `null` 이고, 그것도 사실이다 — 선택 단계 없이 돈 run 이다.
+            "asrRequired": None if selection is None else selection.asr_required,
+            "candidateRanges": len(candidates),
+        },
+    )
+
+
+def _asr_engine() -> "AsrEngine":
+    """엔진을 가져온다. **실패의 종류를 여기서 가른다.**
+
+    라이브러리가 없는 것과 가중치가 없는 것은 다른 사실이다. 앞엣것은 이 이미지의
+    성질이라 재시도가 고칠 수 없고(`NO_ADAPTER`, 영구 → `skipped`), 뒤엣것은 캐시
+    볼륨·내려받기의 문제라 다른 파드에서 성공할 수 있다(`MODEL_UNAVAILABLE`, 일시).
+    한 코드로 합치면 "이 워커에 ASR 이 없다" 와 "지금 없다" 를 구분할 수 없다.
+    """
+    from npick_worker.asr import AsrModelUnavailableError
+    from npick_worker.asr.faster_whisper_backend import AsrRuntimeMissingError, shared_engine
+
+    try:
+        return shared_engine()
+    except AsrRuntimeMissingError as exc:
+        raise StageUnavailableError(str(exc)) from exc
+    except AsrModelUnavailableError as exc:
+        raise ModelUnavailableError(str(exc)) from exc
+
+
+def _asr_identity(
+    *, config_version: str, engine: str, engine_version: str, model_version: str
+) -> dict[str, str]:
+    """asr 의 재현 튜플. 축이 넷이다.
+
+    `modelVersion` 이 있는 이유는 `vlm_metadata` 와 같다 — 가중치가 바뀌면 같은 오디오에서
+    다른 문장이 나온다. 여기서는 compute type 까지 그 값에 들어간다(`float16` 과 `int8` 은
+    같은 모델의 다른 수치다).
+
+    `tokenizer` 축이 **없다.** 이 단계는 색인 토큰을 만들지 않는다 — 대사의 토큰화는
+    채택된 구간을 다루는 하류의 일이고, 여기 넣으면 이 단계와 무관한 변경으로
+    `stageVersion` 이 바뀌어 재처리가 도는 자리가 생긴다(`ocr` 과 반대 방향의 판단).
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+        "modelVersion": model_version,
+    }
+
+
+def _warm_asr() -> str:
+    """설정을 미리 읽고 가중치를 미리 올린다.
+
+    `ocr`·`vlm_metadata` 와 같은 이유다 — 첫 잡에서 수 GB 를 내려받으면 그 시간이 통째로
+    그 잡의 처리 시간이 되고, 내려받기가 실패하면 잡 하나가 그 이유로 죽는다. 기동 때
+    하면 `/health` 로 드러난다. 이 단계도 VRAM 을 실제로 잡는다.
+    """
+    from npick_worker.asr import get_default_config
+    from npick_worker.asr.faster_whisper_backend import shared_engine
+
+    config = get_default_config()
+    engine = shared_engine()
+    # **여기가 가중치를 올리는 유일한 자리다.** 생성자는 라이브러리·모델 설정만 보고
+    # 끝나므로(`faster_whisper_backend`), 이 호출을 빼면 로딩이 첫 잡으로 미뤄진다.
+    return f"config={config.version_id} {engine.warm_up()}"
+
+
 def _parse_upstream[T: BaseModel](model: type[T], payload: Mapping[str, Any]) -> T:
     """`inputs.upstream` 을 단계가 기대하는 모양으로 검증한다.
 
@@ -533,6 +936,14 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
             StageHandler("scene_detection", _run_scene_detection, _warm_scene_detection),
             StageHandler("frame_extraction", _run_frame_extraction, _warm_frame_extraction),
             StageHandler(
+                "vlm_metadata",
+                _run_vlm_metadata,
+                _warm_vlm_metadata,
+                required_inputs=_vlm_selected_keys,
+                # 이 단계도 영상을 열지 않는다. 상류가 올린 keyframe JPEG 만 본다.
+                needs_video=False,
+            ),
+            StageHandler(
                 "ocr",
                 _run_ocr,
                 _warm_ocr,
@@ -540,6 +951,11 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
                 # 이 단계는 영상을 열지 않는다. 상류가 올린 keyframe JPEG 만 읽는다.
                 needs_video=False,
             ),
+            # `required_inputs` 가 없다. 상류 자막 스냅샷 파일을 읽지 않고 판정
+            # (`asrRequired`·`candidateRanges`)만 보기 때문이다 — 그 값은 `upstream` 에
+            # 인라인으로 오고, 무엇을 채택할지 정하는 일은 하류의 몫이다(계약 §4.5).
+            # `needs_video` 는 기본값 True 다. 오디오가 원본 파일 안에 있다.
+            StageHandler("asr", _run_asr, _warm_asr),
         )
     }
 )
@@ -657,6 +1073,64 @@ def _declared_version(stage: str) -> str:
                 engine=ocr_engine.name,
                 engine_version=ocr_engine.version,
                 tokenizer=korean_tokens.tokenizer_version(),
+            ),
+        )
+    if stage == "vlm_metadata":
+        from npick_worker import korean_tokens
+        from npick_worker.vlm_metadata import get_default_config as get_vlm_config
+
+        vlm_config = get_vlm_config()
+        # **클라이언트를 만들어 본다.** `ocr` 과 같은 이유다 — 모델이 설정되지 않았거나
+        # 런타임이 없는 워커는 여기서 걸려 `capability_versions` 가 이 단계를 목록에서
+        # 빼야 한다. 배정받지 못하는 편이 배정받아 매번 `MODEL_UNAVAILABLE` 로 죽는
+        # 것보다 낫다. 외부 백엔드로 설정된 워커도 여기서 걸린다(전송 조건 미충족).
+        #
+        # 미로딩 상태의 main을 광고하면 첫 성공 뒤 SHA로 버전이 바뀐다.
+        # 워밍업 성공 전에는 capability에서 제외한다. 폴링/실패 기록 중 로딩하지 않는다.
+        # 워밍업 실패 복구는 재워밍업 또는 워커 재시작으로 수행한다.
+        vlm_client = _vlm_client(0)
+        from npick_worker.vlm_metadata.transformers_backend import TransformersVlmClient
+
+        if isinstance(vlm_client, TransformersVlmClient) and not vlm_client.is_loaded:
+            raise ModelUnavailableError("VLM 워밍업이 완료되지 않아 버전을 선언할 수 없다")
+        return stage_version(
+            stage,
+            _vlm_identity(
+                config_version=vlm_config.version_id,
+                engine=vlm_client.name,
+                engine_version=vlm_client.version,
+                model_version=vlm_client.model_version,
+                tokenizer=korean_tokens.tokenizer_version(),
+            ),
+        )
+    if stage == "asr":
+        from npick_worker.asr import get_default_config as get_asr_config
+
+        asr_config = get_asr_config()
+        # **엔진을 만들어 본다.** `ocr` 과 같은 이유다 — 라이브러리가 없거나 모델을
+        # 고르지 않은 워커는 여기서 걸려 `capability_versions` 가 이 단계를 목록에서
+        # 빼야 한다. 배정받지 못하는 편이 배정받아 매번 죽는 것보다 낫다. `gpu` 그룹을
+        # 설치하지 않은 개발 환경이 정확히 이 경로로 빠진다. 생성자는 그 둘만 보므로
+        # 싸다 — 수 GB 가중치는 `warm_up()` 이 올린다.
+        #
+        # **가중치가 올라오기 전에는 선언하지 않는다**(`vlm_metadata` 와 같은 가드). 이
+        # 함수는 claim long-poll 한 바퀴마다, 그리고 실패마다 **동기로** 불린다. 여기서
+        # 로딩을 트리거하면 수 GB 내려받기가 이벤트 루프를 통째로 멈추고, 실패 기록
+        # 경로에서는 lease 를 든 채 heartbeat 가 못 뛰어 lease 만료 → 재배정이 된다.
+        # 워밍업이 한 번 실패한 워커가 폴링마다 내려받기를 재시도하는 자리도 여기다.
+        # 워밍업 실패 복구는 재워밍업 또는 워커 재시작으로 한다.
+        asr_engine = _asr_engine()
+        from npick_worker.asr.faster_whisper_backend import FasterWhisperEngine
+
+        if isinstance(asr_engine, FasterWhisperEngine) and not asr_engine.is_loaded:
+            raise ModelUnavailableError("ASR 워밍업이 완료되지 않아 버전을 선언할 수 없다")
+        return stage_version(
+            stage,
+            _asr_identity(
+                config_version=asr_config.version_id,
+                engine=asr_engine.name,
+                engine_version=asr_engine.version,
+                model_version=asr_engine.model_version,
             ),
         )
     msg = f"버전을 선언할 수 없는 단계다: {stage}"

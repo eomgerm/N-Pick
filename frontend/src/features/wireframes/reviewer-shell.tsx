@@ -11,7 +11,6 @@ import {
   CircleAlert,
   Clock3,
   History,
-  Layers3,
   RefreshCw,
   Search,
   Sparkles,
@@ -33,6 +32,12 @@ import {
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from './reviewer.module.css';
 import { inquiries } from '@/features/wireframes/reviewer-inquiries';
+import {
+  inquiryResolutionLabels,
+  inquiryStatusLabels,
+  type InquiryResolution,
+  type InquiryStatus,
+} from '@/features/wireframes/inquiry-state';
 import { ReviewerBoard } from '@/features/wireframes/reviewer-board';
 import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
@@ -54,14 +59,14 @@ import {
   hasValidResolutionDates,
   normalizeResolution,
 } from '@/features/wireframes/reviewer-resolution-state';
+import { ReviewInquiryWorkspace } from '@/features/wireframes/review-inquiry-workspace';
 
 interface ReviewerShellProps {
   theme: WireframeTheme;
 }
 
 type WorkspaceTab = 'processing' | 'inquiries';
-type InquiryStatus = 'pending' | 'reviewing' | 'resolved' | 'dismissed' | 'deferred';
-type ReviewAction = 'resolution_patch' | 'exclude_scene' | 'no_action' | 'deferred_p1';
+type ReviewAction = Exclude<InquiryResolution, 'tag_correction'>;
 type DeferredField = '' | 'entity' | 'ocr' | 'caption' | 'date' | 'other';
 type ReviewStep = 'inspect' | 'edit' | 'verify';
 
@@ -76,7 +81,7 @@ interface InquiryDraft {
 }
 
 interface OverrideCandidate {
-  action: 'resolution_patch' | 'exclude_scene';
+  action: Extract<ReviewAction, 'patch_parse' | 'exclude_scene'>;
   id: string;
   payload: string;
   version: number;
@@ -89,7 +94,6 @@ interface ReplayResult {
 }
 
 interface TerminalOutcome {
-  action: ReviewAction;
   appliedPayload?: string;
   closedAt: string;
   deferredSummary?: string;
@@ -97,8 +101,8 @@ interface TerminalOutcome {
   overrideId?: string;
   overrideVersion?: number;
   reason: string;
+  resolution: InquiryResolution;
   targetSummary?: string;
-  status: Extract<InquiryStatus, 'resolved' | 'dismissed' | 'deferred'>;
 }
 
 interface InquiryWork {
@@ -200,17 +204,17 @@ const processingClips: ProcessingClip[] = [
 ];
 
 const actionLabels: Record<ReviewAction, string> = {
-  resolution_patch: '검색어의 의미 바로잡기',
+  patch_parse: '검색어의 의미 바로잡기',
   exclude_scene: '이 검색에서 장면 제외',
-  no_action: '수정 없이 마무리',
-  deferred_p1: '담당팀 확인 요청',
+  no_action: '조치 없이 종료',
+  deferred: '담당팀 확인 요청',
 };
 
 const actionDescriptions: Record<ReviewAction, string> = {
-  resolution_patch: '검색어를 잘못 이해했을 때',
+  patch_parse: '검색어를 잘못 이해했을 때',
   exclude_scene: '검색과 관계없는 장면이 나올 때',
   no_action: '결과에 문제가 없거나 확인하기 어려울 때',
-  deferred_p1: '영상에 기록된 정보 자체가 잘못됐을 때',
+  deferred: '영상에 기록된 정보 자체가 잘못됐을 때',
 };
 
 const deferredFieldLabels: Record<Exclude<DeferredField, ''>, string> = {
@@ -219,14 +223,6 @@ const deferredFieldLabels: Record<Exclude<DeferredField, ''>, string> = {
   caption: '장면 설명',
   date: '날짜 정보',
   other: '기타',
-};
-
-const statusLabels: Record<InquiryStatus, string> = {
-  pending: '접수',
-  reviewing: '검수 중',
-  resolved: '수정 완료',
-  dismissed: '수정 없이 완료',
-  deferred: '담당팀 확인 필요',
 };
 
 const stageLabels: Record<PipelineStage['status'] | 'queued', string> = {
@@ -240,7 +236,7 @@ const stageLabels: Record<PipelineStage['status'] | 'queued', string> = {
 function getStatusIcon(
   status: InquiryStatus | PipelineStage['status'] | 'ready' | 'queued',
 ): ReactNode {
-  if (status === 'resolved' || status === 'succeeded' || status === 'ready') {
+  if (status === 'closed' || status === 'succeeded' || status === 'ready') {
     return <CheckCircle2 aria-hidden="true" />;
   }
   if (status === 'failed') {
@@ -249,11 +245,8 @@ function getStatusIcon(
   if (status === 'reviewing' || status === 'running') {
     return <RefreshCw aria-hidden="true" />;
   }
-  if (status === 'pending' || status === 'queued') {
+  if (status === 'open' || status === 'pending' || status === 'queued') {
     return <Clock3 aria-hidden="true" />;
-  }
-  if (status === 'deferred') {
-    return <Layers3 aria-hidden="true" />;
   }
   return <CircleAlert aria-hidden="true" />;
 }
@@ -304,12 +297,11 @@ function createInitialWork(): Record<string, InquiryWork> {
           deferredDescription: '',
         },
         outcome:
-          inquiry.initialStatus === 'dismissed'
+          inquiry.initialStatus === 'closed'
             ? {
-                action: 'no_action',
                 reason: '같은 검색 조건에서 확인했으며 별도 조치가 필요하지 않아 종료했습니다.',
                 closedAt: inquiry.receivedAt,
-                status: 'dismissed',
+                resolution: inquiry.initialOutcome ?? 'no_action',
               }
             : null,
         replay: null,
@@ -377,11 +369,9 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     : selectedClip.latestRunLabel;
   const queueCounts = useMemo(
     () => ({
-      pending: Object.values(inquiryWork).filter(({ status }) => status === 'pending').length,
+      open: Object.values(inquiryWork).filter(({ status }) => status === 'open').length,
       reviewing: Object.values(inquiryWork).filter(({ status }) => status === 'reviewing').length,
-      completed: Object.values(inquiryWork).filter(({ status }) =>
-        ['resolved', 'dismissed', 'deferred'].includes(status),
-      ).length,
+      closed: Object.values(inquiryWork).filter(({ status }) => status === 'closed').length,
     }),
     [inquiryWork],
   );
@@ -524,7 +514,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   }
 
   function handleClaim() {
-    if (selectedWork.status !== 'pending') return;
+    if (selectedWork.status !== 'open') return;
     updateSelectedWork((current) => ({ ...current, status: 'reviewing' }));
     setLiveMessage(
       `${selectedInquiry.id} 문의를 맡았습니다. 당시 결과를 살펴보고 같은 조건으로 다시 검색해 주세요.`,
@@ -584,14 +574,14 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     const errors: ValidationErrors = {};
 
     if (!draft.reason.trim()) errors.reason = '처리 이유를 입력해 주세요.';
-    if (draft.action === 'resolution_patch' && !isValidResolutionSnapshot(draft.resolutionPatch)) {
+    if (draft.action === 'patch_parse' && !isValidResolutionSnapshot(draft.resolutionPatch)) {
       errors.patch =
         '기간의 시작일과 종료일을 모두 입력하고, 종료일이 시작일보다 빠르지 않은지 확인해 주세요.';
     }
     if (draft.action === 'exclude_scene' && draft.excludeTargetId !== selectedInquiry.sceneId) {
       errors.target = '문의가 참조한 장면을 제외 대상으로 선택해 주세요.';
     }
-    if (draft.action === 'deferred_p1') {
+    if (draft.action === 'deferred') {
       if (!draft.deferredField) errors.field = '확인이 필요한 정보 종류를 선택해 주세요.';
       if (!selectedInquiry.contextIds.includes(draft.deferredTarget.trim())) {
         errors.target = '확인이 필요한 대상을 선택해 주세요.';
@@ -624,29 +614,27 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       updateSelectedWork((current) => ({
         ...current,
         outcome: {
-          action,
           closedAt: '2026.09.04 15:08',
           reason,
-          status: 'dismissed',
+          resolution: action,
         },
-        status: 'dismissed',
+        status: 'closed',
       }));
-      setLiveMessage(`${selectedInquiry.id} 문의를 수정 없이 완료했습니다.`);
+      setLiveMessage(`${selectedInquiry.id} 문의를 조치 없이 종료했습니다.`);
       return;
     }
 
-    if (action === 'deferred_p1') {
+    if (action === 'deferred') {
       const { deferredDescription, deferredField, deferredTarget } = selectedWork.draft;
       updateSelectedWork((current) => ({
         ...current,
         outcome: {
-          action,
           closedAt: '2026.09.04 15:08',
           deferredSummary: `${deferredField ? deferredFieldLabels[deferredField] : ''} · ${deferredTarget === selectedInquiry.sceneId ? selectedInquiry.sceneTitle : selectedInquiry.evidence} · ${deferredDescription}`,
           reason,
-          status: 'deferred',
+          resolution: action,
         },
-        status: 'deferred',
+        status: 'closed',
       }));
       setLiveMessage(
         `${selectedInquiry.id} 문의에 담당팀 확인이 필요한 내용을 기록했습니다. 영상 정보가 수정된 상태는 아닙니다.`,
@@ -659,7 +647,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       action,
       id: `ovr_${selectedInquiry.id.toLowerCase().replace('-', '_')}_v${version}`,
       payload:
-        action === 'resolution_patch'
+        action === 'patch_parse'
           ? normalizeResolution(selectedWork.draft.resolutionPatch)
           : JSON.stringify({
               processing_version: selectedInquiry.sceneVersion,
@@ -674,7 +662,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       replay: null,
       step: 'verify',
     }));
-    setLiveMessage('수정 내용을 저장했어요. 수정 후 결과를 확인한 뒤 완료해 주세요.');
+    setLiveMessage('수정 내용을 저장했어요. 수정 후 결과를 확인한 뒤 문의를 종료해 주세요.');
   }
 
   function handleReplay() {
@@ -689,7 +677,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       selectedWork.candidate.action !== 'exclude_scene' ||
       !selectedInquiry.afterTop10SceneIds.includes(selectedInquiry.sceneId);
     const isPatchValid =
-      selectedWork.candidate.action !== 'resolution_patch' ||
+      selectedWork.candidate.action !== 'patch_parse' ||
       isValidResolutionSnapshot(selectedWork.candidate.payload);
 
     if (!isExcludeValid || !isPatchValid) {
@@ -714,7 +702,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       },
       replayAttempt,
     }));
-    setLiveMessage('수정 후 예시 결과를 표시했어요. 결과를 비교한 뒤 수정을 완료할 수 있어요.');
+    setLiveMessage('수정 후 예시 결과를 표시했어요. 결과를 비교한 뒤 문의를 종료할 수 있어요.');
   }
 
   function handleResolve() {
@@ -728,26 +716,30 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       selectedWork.candidate.version !== selectedWork.replay.overrideVersion
     )
       return;
-    const { action, reason } = selectedWork.draft;
+    const { reason } = selectedWork.draft;
+    const { action } = selectedWork.candidate;
     updateSelectedWork((current) => ({
       ...current,
       outcome: {
-        action,
-        appliedPayload: action === 'resolution_patch' ? current.candidate!.payload : undefined,
+        appliedPayload: action === 'patch_parse' ? current.candidate!.payload : undefined,
         closedAt: '2026.09.04 15:08',
         executionId: current.replay!.executionId,
         overrideId: current.replay!.overrideId,
         overrideVersion: current.replay!.overrideVersion,
         reason,
+        resolution: action,
         targetSummary:
-          action === 'resolution_patch'
+          action === 'patch_parse'
             ? '문의 당시와 같은 검색어와 필터에 검색 해석 적용'
             : `${selectedInquiry.sceneTitle} · ${selectedInquiry.timecode} · 문의 당시와 같은 검색에서만 제외`,
-        status: 'resolved',
       },
-      status: 'resolved',
+      status: 'closed',
     }));
-    setLiveMessage(`${selectedInquiry.id} 문의의 수정 결과를 확인하고 완료했습니다.`);
+    setLiveMessage(`${selectedInquiry.id} 문의의 수정 결과를 확인하고 종료했습니다.`);
+  }
+
+  if (!isProcessing && !isRegistration) {
+    return <ReviewInquiryWorkspace theme={theme} />;
   }
 
   return (
@@ -1107,7 +1099,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                 <div className={styles.queueSummary}>
                   <span>
                     <Clock3 aria-hidden="true" />
-                    <strong>{queueCounts.pending}</strong> 접수 대기
+                    <strong>{queueCounts.open}</strong> 접수
                   </span>
                   <span>
                     <RefreshCw aria-hidden="true" />
@@ -1115,7 +1107,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                   </span>
                   <span>
                     <CheckCircle2 aria-hidden="true" />
-                    <strong>{queueCounts.completed}</strong> 완료된 문의
+                    <strong>{queueCounts.closed}</strong> 종료된 문의
                   </span>
                   <p>문의 내용을 확인하고 처리 방법을 선택해 주세요.</p>
                 </div>
@@ -1133,7 +1125,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                       </div>
                       <span className={styles.largeStatus} data-status={selectedWork.status}>
                         {getStatusIcon(selectedWork.status)}
-                        {statusLabels[selectedWork.status]}
+                        {inquiryStatusLabels[selectedWork.status]}
                       </span>
                     </div>
 
@@ -1169,7 +1161,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                     </section>
                     <ResolutionSummary value={selectedInquiry.initialResolution} />
 
-                    {selectedWork.status !== 'pending' ? (
+                    {selectedWork.status !== 'open' ? (
                       <ol className={styles.reviewSteps} aria-label="검수 진행 단계">
                         {(['inspect', 'edit', 'verify', 'complete'] as const).map((step, index) => (
                           <li
@@ -1182,14 +1174,14 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                           >
                             <b>{index + 1}</b>
                             <span>
-                              {['검색 결과 확인', '수정안 작성', '수정 후 확인', '완료'][index]}
+                              {['검색 결과 확인', '수정안 작성', '수정 후 확인', '종료'][index]}
                             </span>
                           </li>
                         ))}
                       </ol>
                     ) : null}
 
-                    {selectedWork.status === 'pending' ? (
+                    {selectedWork.status === 'open' ? (
                       <section className={styles.claimPanel}>
                         <UserCheck aria-hidden="true" />
                         <div>
@@ -1317,7 +1309,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                               ))}
                             </fieldset>
                             <form className={styles.actionForm} onSubmit={handleDecisionSubmit}>
-                              {selectedWork.draft.action === 'resolution_patch' ? (
+                              {selectedWork.draft.action === 'patch_parse' ? (
                                 <ResolutionEditor
                                   value={selectedWork.draft.resolutionPatch}
                                   error={validationErrors.patch}
@@ -1378,7 +1370,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                                   )}
                                 </fieldset>
                               ) : null}
-                              {selectedWork.draft.action === 'deferred_p1' ? (
+                              {selectedWork.draft.action === 'deferred' ? (
                                 <>
                                   <div className={styles.formColumns}>
                                     <label>
@@ -1475,7 +1467,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                                 <span>
                                   {selectedWork.draft.action === 'no_action'
                                     ? '수정하지 않는 이유'
-                                    : selectedWork.draft.action === 'deferred_p1'
+                                    : selectedWork.draft.action === 'deferred'
                                       ? '확인이 필요한 이유'
                                       : '처리 이유'}
                                 </span>
@@ -1500,15 +1492,15 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                               <button
                                 className={
                                   selectedWork.draft.action === 'no_action' ||
-                                  selectedWork.draft.action === 'deferred_p1'
+                                  selectedWork.draft.action === 'deferred'
                                     ? styles.primaryButton
                                     : styles.secondaryButton
                                 }
                                 type="submit"
                               >
                                 {selectedWork.draft.action === 'no_action' ? (
-                                  '수정 없이 완료하기'
-                                ) : selectedWork.draft.action === 'deferred_p1' ? (
+                                  '조치 없이 종료하기'
+                                ) : selectedWork.draft.action === 'deferred' ? (
                                   '확인 요청 기록하기'
                                 ) : (
                                   <>
@@ -1522,7 +1514,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                         ) : null}
 
                         {selectedWork.step === 'verify' &&
-                        (selectedWork.draft.action === 'resolution_patch' ||
+                        (selectedWork.draft.action === 'patch_parse' ||
                           selectedWork.draft.action === 'exclude_scene') &&
                         selectedWork.candidate ? (
                           <section
@@ -1559,7 +1551,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                                 전이에요.
                               </small>
                             </div>
-                            {selectedWork.candidate.action === 'resolution_patch' ? (
+                            {selectedWork.candidate.action === 'patch_parse' ? (
                               <ResolutionSummary
                                 value={selectedWork.candidate.payload}
                                 title="저장한 검색 해석"
@@ -1592,7 +1584,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                                 ) : (
                                   <>
                                     <Clock3 aria-hidden="true" />
-                                    수정 후 결과를 확인한 뒤 완료해 주세요.
+                                    수정 후 결과를 확인한 뒤 문의를 종료해 주세요.
                                   </>
                                 )}
                               </span>
@@ -1602,7 +1594,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                                 onClick={handleResolve}
                                 type="button"
                               >
-                                수정 완료하기
+                                수정 확인 후 종료하기
                               </button>
                             </div>
                           </section>
@@ -1615,11 +1607,10 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                         <History aria-hidden="true" />
                         <div>
                           <span className={styles.cardLabel}>처리 내역</span>
-                          <strong>
-                            {getStatusIcon(selectedWork.outcome.status)}접수 → 검수 중 →{' '}
-                            {statusLabels[selectedWork.outcome.status]}
-                          </strong>
-                          <p>조치 · {actionLabels[selectedWork.outcome.action]}</p>
+                          <strong>{getStatusIcon('closed')}접수 → 검수 중 → 종료</strong>
+                          <p>
+                            처리 결과 · {inquiryResolutionLabels[selectedWork.outcome.resolution]}
+                          </p>
                           <p>사유 · {selectedWork.outcome.reason}</p>
                           {selectedWork.outcome.targetSummary ? (
                             <p>적용 범위 · {selectedWork.outcome.targetSummary}</p>
@@ -1627,7 +1618,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                           {selectedWork.outcome.deferredSummary ? (
                             <p>확인 요청 · {selectedWork.outcome.deferredSummary}</p>
                           ) : null}
-                          {selectedWork.outcome.status === 'deferred' ? (
+                          {selectedWork.outcome.resolution === 'deferred' ? (
                             <p>
                               담당팀이 확인할 내용을 기록했어요. 영상 정보는 아직 수정되지 않았어요.
                             </p>
@@ -1644,7 +1635,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                               <dd>{member.loginId}</dd>
                             </div>
                             <div>
-                              <dt>완료 시각</dt>
+                              <dt>종료 시각</dt>
                               <dd>{selectedWork.outcome.closedAt}</dd>
                             </div>
                             <div>
@@ -1656,12 +1647,13 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                               </dd>
                             </div>
                           </dl>
-                          {selectedWork.outcome.status === 'resolved' ? (
+                          {selectedWork.outcome.resolution === 'patch_parse' ||
+                          selectedWork.outcome.resolution === 'exclude_scene' ? (
                             <Top10Comparison
                               after={selectedInquiry.afterTop10}
                               before={selectedInquiry.beforeTop10}
                               excludedTitle={
-                                selectedWork.outcome.action === 'exclude_scene'
+                                selectedWork.outcome.resolution === 'exclude_scene'
                                   ? selectedInquiry.sceneTitle
                                   : null
                               }

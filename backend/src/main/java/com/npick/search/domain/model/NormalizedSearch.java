@@ -4,7 +4,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.Normalizer;
 import java.util.Collections;
 import java.util.HexFormat;
 import java.util.List;
@@ -22,6 +21,7 @@ import lombok.experimental.Accessors;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.domain.error.SearchErrorCode;
+import com.npick.tag.domain.model.TagMatchValue;
 
 /**
  * 정규화된 검색 하나. "이 검색과 저 검색이 같은가" 를 판정한다 (FR-QRY-002, FR-QRY-003).
@@ -140,8 +140,14 @@ public final class NormalizedSearch {
      *   <li>빈 선택 제거 — {@code {"tag": []}} 는 tag 필터를 안 건 것이다
      * </ul>
      *
-     * <p>키와 값에 NFKC 를 건다. 질의는 Python 정규화기가 이미 NFKC 를 거쳤는데 필터만 안 걸면, macOS 가 보낸 NFD 한글과 Windows 가 보낸 NFC 한글이 다른 바이트가 되어
-     * 같은 선택이 다른 지문을 갖는다. casefold 는 걸지 않는다 — 질의는 자유 텍스트지만 필터 값은 태그·enum 이라 대소문자가 의미를 가를 수 있다.
+     * <p>키와 값에 {@link TagMatchValue#normalize} 를 건다 — <b>태그 값과 같은 규칙</b>이다(NFKC + 보이지 않는 문자 제거). 필터 값은 자유 텍스트가 아니라
+     * 태그·enum 이고, 태그 채널은 그 값을 {@code tag.match_value} 에 정확 일치로 맞춘다. 두 규칙이 갈리면 <b>같은 태그로 조회되는 두 표기가 다른 지문을 갖는다</b> —
+     * {@code "이태원 참사"} 와 {@code "이태원참사"} 가 같은 장면을 찾아오면서 쌓인 장면 제외 규칙은 공유하지 못한다 (S15P21A501-169).
+     *
+     * <p>casefold 는 여전히 걸지 않는다 — 질의는 자유 텍스트지만 필터 값은 태그·enum 이라 대소문자가 의미를 가를 수 있다. 태그 정규화가 casefold 를 뺀 이유와 같다.
+     *
+     * <p>질의({@code normalized_query})는 이 규칙을 타지 않는다. 그쪽은 Kiwi 형태소 분석의 입력이고 색인이 공백 토크나이저를 쓰므로 공백이 의미를 갖는다. 정규화 형태는 둘이다 —
+     * <b>정확 일치 키</b>(태그 값·필터 값)와 <b>토큰화 질의</b>.
      *
      * <p>여기의 널 검사만 손으로 쓴다. Lombok {@code @NonNull} 은 메서드 파라미터와 필드에만 붙고 맵 항목·리스트 원소에는 붙일 수 없다.
      */
@@ -162,9 +168,10 @@ public final class NormalizedSearch {
         return Collections.unmodifiableSortedMap(copy);
     }
 
+    /** 널 검사를 먼저 한다. {@link TagMatchValue#normalize} 는 널을 빈 문자열로 접으므로 위임하면 널이 조용히 통과한다. */
     private static String canonicalText(String value) {
         requireNotNull(value);
-        return Normalizer.normalize(value, Normalizer.Form.NFKC);
+        return TagMatchValue.normalize(value);
     }
 
     private static void requireNotNull(Object value) {

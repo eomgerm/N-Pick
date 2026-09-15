@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Flag, LoaderCircle, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 
 import {
   formatTimestamp,
@@ -12,13 +12,8 @@ interface SearchResultCardProps {
   result: SearchResult;
   position: number;
   isSelected: boolean;
-  inquiryState?: InquiryButtonState;
-  inquiryUnavailableReason?: string;
-  onInquiry?: (resultId: number) => void;
   onSelect: (resultId: number) => void;
 }
-
-export type InquiryButtonState = 'ready' | 'submitting' | 'submitted' | 'unavailable';
 
 function getEvidenceFieldLabel(field: SearchResult['matchEvidence']['field']) {
   return field === '화면 속 글자 (OCR)' ? '화면 속 글자' : field;
@@ -32,23 +27,10 @@ export function SearchResultCard({
   result,
   position,
   isSelected,
-  inquiryState = 'ready',
-  inquiryUnavailableReason,
-  onInquiry,
   onSelect,
 }: SearchResultCardProps) {
   const keyframeTimes = getKeyframeTimes(result);
   const evidenceTooltipId = `match-evidence-${result.id}`;
-  const inquiryUnavailableReasonId = `inquiry-unavailable-${result.id}`;
-  const isInquiryDisabled = inquiryState !== 'ready';
-  const inquiryLabel =
-    inquiryState === 'submitting'
-      ? '접수 중'
-      : inquiryState === 'submitted'
-        ? '접수됨'
-        : inquiryState === 'unavailable'
-          ? '문의 불가'
-          : '이상해요';
 
   return (
     <article className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}>
@@ -103,40 +85,6 @@ export function SearchResultCard({
             </span>
           </span>
         </div>
-        {onInquiry ? (
-          <div className={styles.cardInquiryArea}>
-            <button
-              aria-busy={inquiryState === 'submitting'}
-              aria-describedby={
-                inquiryState === 'unavailable' && inquiryUnavailableReason
-                  ? inquiryUnavailableReasonId
-                  : undefined
-              }
-              aria-label={`${position}위 ${result.title} ${inquiryLabel}`}
-              className={styles.cardInquiryButton}
-              data-state={inquiryState}
-              disabled={isInquiryDisabled}
-              onClick={() => onInquiry(result.id)}
-              type="button"
-            >
-              {inquiryState === 'submitting' ? (
-                <LoaderCircle aria-hidden="true" />
-              ) : inquiryState === 'submitted' ? (
-                <Check aria-hidden="true" />
-              ) : inquiryState === 'unavailable' ? (
-                <AlertTriangle aria-hidden="true" />
-              ) : (
-                <Flag aria-hidden="true" />
-              )}
-              {inquiryLabel}
-            </button>
-            {inquiryState === 'unavailable' && inquiryUnavailableReason ? (
-              <p className={styles.cardInquiryReason} id={inquiryUnavailableReasonId}>
-                {inquiryUnavailableReason}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
       </div>
       <button
         aria-expanded={isSelected}

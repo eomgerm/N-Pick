@@ -25,11 +25,9 @@ test('기본 검색 결과는 고유 ID와 순위 1~10을 가진 유효한 장�
     Array.from({ length: 10 }, (_, index) => index + 1),
   );
   assert.equal(new Set(results.map(({ id }) => id)).size, 10);
-  assert.equal(new Set(results.map(({ resultId }) => resultId)).size, 10);
   assert.equal(new Set(results.map(({ rank }) => rank)).size, 10);
 
   for (const result of results) {
-    assert.match(result.resultId, /^[1-9]\d*$/);
     assert.ok(result.sceneStart >= 0);
     assert.ok(result.sceneStart < result.sceneEnd);
     assert.ok(result.sceneEnd <= result.totalSeconds);

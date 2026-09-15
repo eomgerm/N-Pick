@@ -320,9 +320,9 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
   "stage": "frame_extraction",
   "status": "succeeded",
   "versions": {
-    "stageVersion": "npick.stage.frame_extraction/v1:595427d7",
+    "stageVersion": "npick.stage.frame_extraction/v1:5fa70a50",
     "outputSchemaVersion": "npick.stage.frame_extraction.output/v1",
-    "configVersion": "frame-extract/v1:5b266b10",
+    "configVersion": "frame-extract/v2:a0684794",
     "modelVersion": null,
     "promptVersion": null,
     "detail": { "engine": "pyav", "engineVersion": "18.1.0+numpy2.5.2" },
@@ -356,7 +356,13 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 `timestamp_ms` 순으로 정렬해 저장하면 이 규약이 조용히 깨진다 — 대표는 선명도로 뽑히므로 시각이 가장 이르지 않다. 그래서 `representativeTimestampMs`를 함께 싣는다. BE는 저장 직전에 `keyframes[0].timestampMs`와 대조해 어긋나면 `JOB_400_001`로 거부한다. 워커도 보내기 전에 같은 검사를 한다.
 
-**장 수** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. 구간이 미디어 끝을 넘으면 뒤쪽 슬롯의 후보가 디코드에 닿지 못해 앞쪽만 살아 한 장이 되는데, 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호이므로 적은 장 수로 통과시키지 않는다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다. 이 보증은 워커가 슬롯 수의 상한을 창의 ms가 아니라 **구간의 프레임 수**로 두는 데 기댄다. 그래서 프레임이 2장 이상인 구간은 항상 2장 이상을 낸다.
+**장 수는 장면 안의 변화량으로 정해진다.** 고정 개수도, 장면 길이에 비례하는 값도 아니다 — 정적 장면은 적게, 동적 장면은 많게 나온다(FRD v3.2 F-03, `docs/frd.md:131`). **BE는 장면마다 장 수가 다른 것을 정상으로 받는다.** 길이가 같은 두 장면이 다른 장 수를 내는 것도 정상이다.
+
+변화량 척도는 `scene_detection`이 컷을 판정할 때 쓰는 `content_val`과 같다(FRD의 척도 통일 권고). 기본 임계도 그 단계의 컷 임계와 같은 값이라, 규칙이 한 문장으로 선다 — **장면 안의 두 장을 따로 남기려면 scene 분할이 컷으로 봤을 만큼 달라야 한다.** 판정에 쓴 임계값은 `configVersion`에 들어가므로 어떤 설정으로 뽑은 결과인지는 그 값으로 되짚는다. 근거는 `ai/docs/frame-extraction.md` §3.1이다.
+
+**하한과 상한** — `scenes[].keyframes`는 최소 1개다. 다만 **1개가 정상인 경우는 하나뿐이다**: 그 scene 구간에 정규 시각이 들어오는 프레임이 한 장뿐인 경우다. 그 밖에는 변화량이 아무리 작아도 `min_keyframes_per_scene`(기본 2)을 보장한다 — FRD F-03의 "장면의 복수 키프레임"이 변화량 판정으로 깨지지 않아야 하기 때문이다. 상한은 `max_keyframes_per_scene`(기본 5)이고 이것이 곧 후속 VLM·OCR의 비용 상한이다.
+
+그 밖의 부족은 성공으로 반납되지 않고 `VALIDATION_ERROR`(영구)로 실패한다. scene 구간이 미디어 끝을 넘으면 워커가 **재 달라고 한 프레임에 디코드가 닿지 못한 것을 직접 검출해** 실패시킨다(장 수로 추론하지 않는다). 그건 상류 scene 목록이 이 미디어의 것이 아니라는 신호다. **BE는 "장 수가 줄어든 성공"을 처리할 필요가 없다** — 그런 결과는 오지 않는다.
 
 **남은 어긋남 — `stages.py`의 "thumbnail"과 축소본의 자리.** 단계 표는 2단계 필수 출력을 "복수 keyframe·thumbnail"로 적고 FRD §3 F-03은 "축소된 대표 이미지 대신 원본 해상도의 프레임"이라 쓰므로 축소본의 존재를 전제한다. 그런데 **축소본 경로를 담을 컬럼이 스키마에 없다.** 이번 구현은 축소본 파일을 만들지 않고 keyframe을 원본 해상도로만 저장한다. 근거는 둘이다 — 작은 글자 OCR이 요구하는 것이 원본 해상도 프레임이고(그것이 이 자산의 1차 소비자다), 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있어 저장이 필요 없다. **컬럼을 새로 만들지 않았으므로 BE는 대표 keyframe을 축소해 카드에 제공한다.** 이 판단을 바꾸려면 스키마가 먼저 바뀌어야 하므로 여기 적어 둔다.
 
@@ -464,6 +470,110 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 **비치명이다.** `stages.py`가 이 단계를 `fatal=False`로 둔다. 실패해도 run은 계속 가고 그 사실이 `stage_states_json`에 남는다("VLM·OCR·음성인식 중 하나가 실패해도 나머지 결과를 사용할 수 있으면 처리를 계속한다", [docs/frd.md](../frd.md) §3 F-03).
 
+### 4.3.3 `vlm_metadata` — 장면 설명과 샷 유형
+
+VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 설명한다. OCR·대사 추출 및 선택·매핑은 상류 책임이며 이 단계에서 반복하지 않는다(FRD F-03).
+
+**입력** — `inputs.upstream.frameExtraction`이 필수다. 모양은 §4.3.2와 같다. 없으면 워커는 `VALIDATION_ERROR`(영구)로 실패를 신고한다. 빈 결과를 성공으로 반납하면 "이 영상에는 설명할 장면이 없다"는 거짓이 정본에 남는다.
+
+이미지 전용 v1 등 `{grounding}`이 없는 사용자 프롬프트는 텍스트를 전달하지 않으며 OCR·대사 라벨도 근거로 허용하지 않는다.
+
+**Grounding 입력** — 기존 `inputs.upstream.ocr.observations`를 `sceneIndex`로 나눠 사용한다. `rawText`·`textKey`·`confidence`·프레임 참조를 재사용하며 검색 토큰은 프롬프트에 넣지 않는다. 동일 `textKey`와 동일 원문만 묶고, 원본 배열 위치와 프레임 참조를 모두 보존한다. `max_ocr_chars`·`max_transcript_chars`는 원문을 자르지 않는 항목 단위 제한이며 0은 제한 없음이다. 운영 상한은 개발 샘플 실측으로 정한다.
+
+대사는 §4.5의 `inputs.upstream.scene_transcript_mapping`을 소비한다. 기존 artifact 로더로 최종 snapshot의 원본·채택 결과를 읽고, `scenes[].segments[].segmentId`가 가리키는 채택 구간의 원문·시간·출처를 VLM에 전달한다. 상위 `upstream.transcript` 별칭이 이전 snapshot을 가리켜도 최종 매핑 안의 참조를 사용한다. VLM은 선택·매핑을 다시 계산하지 않는다. 이 매핑 검증은 VLM 소비에만 적용하며 다른 단계의 공용 artifact 로딩에서 강제하지 않는다. 매핑 단계 결과 자체가 없으면 OCR·이미지로 진행하며, 존재하는 결과가 잘못됐으면 `VALIDATION_ERROR`로 거부한다. 원본 대사를 임의로 장면에 배정하지 않는다.
+
+**실행 순서** — `scene_detection → frame_extraction → ocr → transcript_selection → asr → scene_transcript_mapping → vlm_metadata → entity_extraction → text_embedding → indexing`. 각 단계의 기존 fatal 분류와 재시도 정책은 유지한다.
+
+**장면당 keyframe을 여러 장 넣는다.** 한 장씩 따로 보면 "앵커에서 자료 화면으로 넘어간다" 같은 판단이 불가능하고, 그 판단이 이 단계가 존재하는 이유다. 장면당 장 수는 상류가 내용으로 정하므로(F-03) 고정이 아니고, 워커가 설정 상한(`max_keyframes_per_scene`)까지만 넣는다.
+
+**러너는 고른 것만 받아 온다.** `StageHandler.required_inputs`가 돌려주는 목록이 상류 keyframe 전부가 아니라 **모델에 실제로 넣을 것**이다. 상한을 넘는 장면에서는 시간순으로 양 끝을 포함해 고르게 고른다 — 앞에서 자르면 장면 뒷부분이 통째로 빠진다. 고르는 규칙은 결정론이다(§8).
+
+**결과** — 이 단계는 `artifacts`를 만들지 않는다. 전부 `output`으로 간다.
+
+```json
+{
+  "stage": "vlm_metadata",
+  "status": "succeeded",
+  "versions": {
+    "stageVersion": "npick.stage.vlm_metadata/v1:2f0d224e",
+    "outputSchemaVersion": "npick.stage.vlm_metadata.output/v2",
+    "configVersion": "vlm-metadata-config/v2:c3b7d840",
+    "modelVersion": "example/vlm@main",
+    "promptVersion": "vlm-metadata-prompt/v2:2c686602",
+    "detail": {
+      "engine": "transformers",
+      "engineVersion": "transformers5.0.0+torch2.13.0",
+      "modelVersion": "example/vlm@main",
+      "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0"
+    },
+    "runtime": { "worker": "0.1.0", "python": "3.12.14", "torch": "2.13.0+cu130", "cuda": "13.0" }
+  },
+  "metrics": {
+    "scenes": 10, "captionedScenes": 9, "tagCandidates": 24,
+    "unknownShotTypes": 1, "keyframesSent": 23
+  },
+  "output": {
+    "metadataSchemaVersion": "vlm-metadata/v2",
+    "scenes": [
+      {
+        "sceneIndex": 8,
+        "shotType": {
+          "value": "b_roll",
+          "confidence": 0.82,
+          "evidence": [{ "sceneIndex": 8, "timestampMs": 71833,
+                         "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }]
+        },
+        "caption": {
+          "value": "취재진이 모인 현장에서 관계자가 무언가를 가리키고 있다",
+          "tokens": "취재진 모이다 현장 관계자 가리키다",
+          "confidence": 0.77,
+          "evidence": [{ "sceneIndex": 8, "timestampMs": 71833,
+                         "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }]
+        },
+        "tagCandidates": [
+          { "type": "scene_type", "value": "사고 현장", "confidence": 0.61,
+            "evidence": [{ "sceneIndex": 8, "timestampMs": 71833,
+                           "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }] }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**`promptVersion`이 처음으로 채워지는 단계다.** 앞의 세 단계는 가중치도 프롬프트도 쓰지 않아 두 키가 `null`이었다(§7). 여기서는 둘 다 값이 있고, `configVersion`과 `promptVersion`은 **다른 값**이다 — 앞엣것은 설정 파일 전체의 해시이고 뒤엣것은 어휘까지 채워 **렌더링된** 프롬프트의 해시다. 어휘를 바꾸면 템플릿이 그대로여도 `promptVersion`이 움직인다.
+
+**`metadataSchemaVersion`은 또 다른 값이다.** `outputSchemaVersion`이 이 payload의 형식이라면, 이쪽은 **모델에게 요구한 JSON**의 버전이다(워커의 `vlm_metadata/schema.py`가 정본). 프롬프트를 고치지 않고도 바뀔 수 있고, 반대도 된다.
+
+**keyframe은 `(sceneIndex, timestampMs)`로 가리킨다.** §4.3.2와 같은 이유다 — `keyframe_id`는 BE가 발급하고 `assignedIds`는 scene만 돌려준다. BE는 이 쌍으로 행을 찾아 `tag_evidence.source_ref_type='keyframe'`·`source_ref_id`를 채운다.
+
+**텍스트 근거(v2)** — 모델은 제공된 `ocr_N`·`tr_N` 라벨을 기존 `evidence` 배열에서 인용한다. 라벨은 모델 출력용이며 DB ID가 아니다. 입력에 없는 라벨은 기존 근거 해석 경로에서 거부한다. `shotType`은 이미지 라벨만 사용한다. 기존 이미지 근거 객체는 유지하며 caption·tagCandidates의 근거에 다음 객체가 추가된다.
+
+- OCR: `{sourceRefType: "ocr_observation", sceneIndex, timestampMs, storageKey, observationIndex}`. `observationIndex`는 현재 run의 원본 `ocr.observations` 배열 위치이며 DB ID가 아니다. OCR을 묶은 라벨은 해당 원본 관측 전부로 되돌린다.
+- 대사: `{sourceRefType: "scene", sceneIndex, storageKey, segmentId, s, e, sourceDetail}`. `storageKey`는 원본 segments snapshot이며 `segmentId`는 그 안에서만 유일하다. 저장 시 scene 근거를 사용하되 구간 참조를 손실시키지 않는다.
+
+출력 payload는 `npick.stage.vlm_metadata.output/v2`, 모델 schema는 `vlm-metadata/v2`다. 기존 이미지 전용 v1 소비자가 이 출력을 정상 데이터로 받아서는 안 된다. BE 저장·부분 저장 방지 및 대사 매핑 결과 생성은 각 담당 연동 구현에서 이 계약과 맞춰야 한다. 이 확장만으로 해당 저장 경로가 완성됐음을 의미하지 않는다.
+
+**`shotType`은 항상 있고 `caption`은 없을 수 있다.** `scene.shot_type`이 `NOT NULL`이고 근거가 없을 때 쓸 값이 어휘 안에 있기 때문이다(`unknown`). 반대로 캡션과 태그는 없으면 없는 것이라 `null`·빈 배열이 정상 payload다. **`evidence`가 빈 배열일 수 있는 곳은 `shotType`의 `unknown` 하나뿐이다.**
+
+**단계가 실패해도 `scene.shot_type`은 채워져야 한다.** 그 컬럼이 `NOT NULL`인데 이 단계는 비치명이므로, VLM이 실패한 run에서도 scene 행은 만들어진다. 그때 BE가 쓰는 값은 `unknown`이다 — 워커가 그 사실을 보고할 자리가 없으므로 여기 적어 둔다.
+
+**`caption.tokens`는 워커가 만든다.** BE에 Kiwi가 없고([02-container.md](../architecture/02-container.md)) 색인과 질의가 같은 설정을 써야 한다. `ocr_observation.tokens`와 같은 규약이고 `versions.detail.tokenizer`가 그 설정의 식별자를 싣는다. 공백으로 이어진 문자열이 그대로 `scene.caption_tokens`가 된다.
+
+**`tagCandidates`는 태그가 아니다.** `tag`·`tagging` 행을 만드는 일과 `tag.match_value` 정규화(NFKC + 공백 제거)는 BE의 몫이고, 이 값은 8단계 `entity_extraction`이 모으는 후보와 같은 성격이다. **날짜 유형(`filmed_date`·`broadcast_date`)은 이 payload에 올 수 없다** — 워커 쪽 schema에 그 유형이 없다. 화면에 날짜가 보인다는 사실과 그것이 방송일·촬영일이라는 판단은 다르고, 후자는 OCR 신뢰도와 원본 문맥을 확인한 뒤의 일이다([docs/frd.md](../frd.md) §3 F-04).
+
+**전부 미검증이다.** 이 payload에 검증 상태 필드가 없는 것은 빠뜨려서가 아니라 값이 하나이기 때문이다. 저장할 때 `tag_evidence.source`는 `vlm`, `verification_status`는 `unverified`다. **BE는 confidence가 높다는 이유로 `verified`로 올리지 않는다**([docs/frd.md](../frd.md) §3 F-04: "ASR·VLM·일반 추론 규칙은 기본 미검증"). 사람의 승인 판단은 `reviewer_feedback`으로 따로 남는다.
+
+**형식이 틀린 출력은 통째로 버린다.** 워커가 JSON·schema·어휘·근거를 검사하고, 하나라도 어긋나면 그 출력의 **어떤 필드도** 쓰지 않는다([docs/frd.md](../frd.md) §3 F-03: "형식이 잘못된 출력을 정상 데이터에 부분 적용하지 않는다"). 거부는 `VLM_SCHEMA_INVALID`이고 §9.2대로 **영구**다 — 워커가 `temperature: 0`으로 부르므로 다시 물어도 같은 답이 온다.
+
+**장면 하나가 깨지면 그 단계 전체가 실패한다.** 깨진 장면만 빼고 나머지를 반납하면 그 장면은 "설명이 없는 장면"으로 저장되어, 실패가 정상 데이터로 보인다. 비치명 단계이므로 run은 계속 가고 OCR·ASR 결과는 그대로 쓰인다.
+
+**오류 코드** — 이 단계 전용 코드는 §9.2의 `VLM_SCHEMA_INVALID` 하나다. 나머지는 공통 어휘를 쓴다: 상류 산출물이 잘못됐으면 `VALIDATION_ERROR`(영구), keyframe JPEG을 열 수 없으면 `UNSUPPORTED_MEDIA`(영구), 가중치를 준비하지 못했으면 `MODEL_UNAVAILABLE`(일시), VRAM이 모자라면 `OUT_OF_MEMORY`(일시), 외부 전송 조건이 확인되지 않으면 `EXTERNAL_PROCESSING_NOT_ALLOWED`(영구), 그 밖의 실패는 `STAGE_FAILED`(일시)다.
+
+**외부 제공자는 기본 경로가 아니다.** [02-container.md](../architecture/02-container.md)의 *요소* 표가 이 단계를 워커의 자체 GPU에 두고, 외부 호출은 PRD §12.4의 조건을 **전부** 만족할 때만 쓰는 대체 경로다. 그 조건 중 하나인 clip별 외부 처리 권리 확인을 실어 보내는 자리가 이 계약에 없으므로, 지금 워커의 외부 경로는 항상 전송 전에 fail-closed한다. 자리를 만들려면 이 문서와 §4.1을 함께 고쳐야 한다.
+
+**배정 조건** — 워커는 가중치 이름이 설정돼 있을 때만 이 단계를 `capabilities`에 싣는다. 모델이 없는 워커가 배정받아 매번 `MODEL_UNAVAILABLE`로 죽는 것보다 배정받지 않는 편이 낫다. CPU 전용 워커가 scene 분할·keyframe 추출·OCR만 도는 구성이 그래서 성립한다.
+
 ### 4.4 artifacts — 입력 내려받기 / 산출물 올리기
 
 ```
@@ -523,8 +633,28 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 
 ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정상이다. 실제 발화 미감지 판정에만
 `NO_SPEECH_DETECTED`를 기록한다. ASR 미배정과 실행 후 빈 결과, 실패 및 `NO_ADAPTER`는 구분한다.
-최종 선택은 워커 `scene_transcript_mapping` 직전에 수행하며 기존 단계 목록·순서를 유지한다.
-장면별 출력 봉투가 확정되기 전에는 해당 단계의 성공 정본 저장을 수락하지 않는다.
+최종 선택은 워커 `scene_transcript_mapping` 직전에 수행한다. VLM은 그 단계 이후 실행한다.
+`scene_transcript_mapping`의 output은 다음 구조다. 정본 타입은 워커 `jobs/transcripts.py`의 `SceneTranscriptMappingOutput`이며 단계 출력 버전은 `npick.stage.scene_transcript_mapping.output/v1`이다.
+
+```json
+{
+  "transcript": {
+    "segmentsArtifact": {"kind": "transcript_segments", "storageKey": "runs/…/segments.json", "byteSize": 1234, "contentHash": "<sha256>"},
+    "decisionsArtifact": {"kind": "transcript_decisions", "storageKey": "runs/…/decisions.json", "byteSize": 567, "contentHash": "<sha256>"}
+  },
+  "scenes": [
+    {"sceneIndex": 0, "segments": [{"segmentId": "s1", "overlapMs": 1500}]},
+    {"sceneIndex": 1, "segments": []}
+  ]
+}
+```
+
+- `transcript`는 최종 선택 snapshot의 두 ArtifactRef다. 기존 원본·선택 JSON 형식과 무결성 검증을 재사용하고, 두 참조를 단계 결과의 `artifacts`에도 등록한다.
+- `scenes`에는 해당 실행의 모든 장면이 정확히 한 번씩 존재한다. 대사가 없으면 `segments: []`다. 같은 장면 안의 구간 ID 중복은 금지한다.
+- 각 연결은 해당 snapshot에서 `selected=true`인 구간만 가리킨다. `overlapMs`는 양의 정수이고 원본 구간 길이를 넘을 수 없다. 생산 단계가 장면과 실제로 겹치는 구간만 연결하고 정확한 겹침 시간을 계산한다. 여러 장면과 겹치면 같은 ID를 각각 연결하며, 겹치지 않는 구간은 연결하지 않는다.
+- 원문 `t`·정수 ms `s/e`·`sourceDetail`은 원본 snapshot에서 구간 ID로 읽는다. 장면 연결 목록에는 중복 복사하지 않는다. ID의 범위는 segments artifact 하나다.
+- 소비자는 snapshot 관계·채택 여부·장면 및 구간 ID를 검사한다. 알 수 없는 구간·보관 전용 구간·누락/중복 장면·잘못된 artifact는 빈 결과로 처리하지 않는다.
+- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. 토큰 생성·저장 및 실제 매핑 알고리즘은 해당 단계/저장 어댑터 책임이며 VLM 소비자가 대신 수행하지 않는다.
 
 **PUT의 키는 경로 세그먼트로 들어가므로 워커가 퍼센트 인코딩한다** — 구분자 `/`는 남기고 `?`·`#`는 인코딩한다. 인코딩하지 않으면 `?`가 질의로 갈려 경로가 잘리고, BE의 접두 검사(`JOB_403_001`)가 의도한 경로에 대해 돌지 않는다. `..`나 절대 경로가 든 키는 인코딩으로 막히지 않으므로(구분자를 남기는 한 정규화된다) **워커가 보내기 전에 거절한다.** GET은 `?key=`로 실으므로 이 문제가 없다.
 
@@ -582,6 +712,8 @@ compose에서는 backend와 ai-worker가 `media:/srv/npick/media`를 함께 마�
 
 입력은 그 단계의 **재현 튜플 전체**다. `scene_detection`이면 `{configVersion, detector, engine, engineVersion}`, `frame_extraction`이면 `{configVersion, engine, engineVersion}`다 — 후자에 `detector` 같은 축이 없는 것은 고를 구현이 하나뿐이어서다. 항상 같은 값인 축을 넣으면 해시에 아무 정보도 들어가지 않는다.
 
+`vlm_metadata`는 축이 다섯이다 — `{configVersion, engine, engineVersion, modelVersion, tokenizer}`. `modelVersion`이 있는 이유는 가중치가 바뀌면 같은 프레임에서 다른 문장이 나오기 때문이고, `tokenizer`는 `scene.caption_tokens`가 이 단계의 산출물이기 때문이다. `promptVersion`은 축이 아니다 — 프롬프트가 설정 파일의 한 절이라 `configVersion`이 이미 그것을 덮는다. 위 벡터의 `engineVersion`·`modelVersion`은 **예시 값**이다. 실제 값은 설치된 런타임과 설정에서 오므로, 이 벡터가 고정하는 것은 해시 함수와 키 이름이다.
+
 `ocr`은 축이 넷이다 — `{configVersion, engine, engineVersion, tokenizer}`. `tokenizer`가 있는 이유는 `ocr_observation.tokens`가 그 단계의 산출물이기 때문이다. Kiwi 설정이 바뀌면 화면에서 읽은 글자가 같아도 색인이 달라지고, 그건 검색이 0건이 되는 종류의 변화다([02-container.md](../architecture/02-container.md)).
 
 설정 해시만으로는 부족하다. 그 값은 설정 파일만 해시하므로 **라이브러리가 바뀌면 값이 그대로인데 경계는 달라질 수 있다**. 원본 튜플은 `versions.detail`에 그대로 남겨 조사할 수 있게 한다.
@@ -604,12 +736,20 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | --- | --- |
 | `scene_detection.v1.toml` 기본 설정 | `configVersion` = `scene-detect/v1:20dfc0a6` |
 | `{configVersion: scene-detect/v1:20dfc0a6, detector: content, engine: pyscenedetect, engineVersion: 0.7.1}` | `stageVersion` = `npick.stage.scene_detection/v1:3ab4bebe` |
-| `frame_extraction.v1.toml` 기본 설정 | `configVersion` = `frame-extract/v1:5b266b10` |
-| `{configVersion: frame-extract/v1:5b266b10, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:595427d7` |
+| `frame_extraction.v2.toml` 기본 설정 | `configVersion` = `frame-extract/v2:a0684794` |
+| `{configVersion: frame-extract/v2:a0684794, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:5fa70a50` |
+| 보존된 `vlm_metadata.v1.toml` 이미지 전용 설정 | `configVersion` = `vlm-metadata-config/v1:13d50f07` |
+| 보존된 v1 설정의 **렌더링된** 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v1:78a02dbd` |
+| `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0+torch2.13.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:325198af` |
+| `vlm_metadata.v2.toml` 기본 설정 | `configVersion` = `vlm-metadata-config/v2:c3b7d840` |
+| v2 기본 설정의 렌더링된 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v2:2c686602` |
+| 위 v2 configVersion과 기존 예시 engine·engineVersion·modelVersion·tokenizer | `stageVersion` = `npick.stage.vlm_metadata/v1:2f0d224e` |
 | `ocr.v1.toml` 기본 설정 | `configVersion` = `ocr/v1:daaf4c83` |
 | `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.ocr/v1:449d6928` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, ocr: npick.stage.ocr/v1:bbbbbbbb}` | `pipelineVersion` = `npick-pipeline/v1:64960bae4565` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, frame_extraction: npick.stage.frame_extraction/v1:cccccccc}` | `pipelineVersion` = `npick-pipeline/v1:32d2389f906a` |
+
+v1의 기존 해시 재현을 위해 `version_number="1"`인 설정은 값이 0인 `max_ocr_chars`·`max_transcript_chars` 키를 config 해시 payload에서 각각 제외한다. 0이 아닌 값은 포함하며 v2는 두 키를 항상 포함한다. Java에서 config 해시를 재현할 때도 같은 규칙을 적용한다. v1 stageVersion 행은 명시된 예시 configVersion을 입력으로 사용하는 기존 해시 함수 벡터이며, 현재 보존된 v1 설정 파일의 해시와 구분한다.
 
 ### 버전 불일치
 
@@ -624,7 +764,14 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 
 > 같은 `Idempotency-Key`로 도착한 `complete`는 **최초 1회만** 정본을 바꾼다. 두 번째부터는 최초에 저장한 결과를 그대로 돌려주며 `duplicate: true`를 붙인다(200, 오류가 아니다). 본문이 최초와 다르면 — 정규화 JSON의 sha256 비교 — 정본을 바꾸지 않고 `JOB_409_003`으로 거절한다.
 
-별도 멱등성 테이블을 만들지 않는다. `stage_states_json`의 `lastIdempotencyKey` + `lastRequestSha256`에 넣고, `complete` 처리를 `SELECT … FOR UPDATE` 안의 조건부 UPDATE로 한다. 행 하나가 잠기므로 원자성이 공짜다.
+별도 멱등성 테이블을 만들지 않는다. 단계별 `completions`에 멱등성 키를 인덱스로 하여
+수락된 요청의 `requestSha256`·`leaseId`·`workerId`·`response`를 보존한다.
+`lastIdempotencyKey`·`lastRequestSha256`·`completedLeaseId`·`completedWorkerId`·`completion`은
+마지막 완료 정보로 유지한다. 구 기록은 다음 배정에서 worker를 덮기 전에 보존한다.
+`complete` 처리는 `SELECT … FOR UPDATE` 안에서 정본 저장과 같은 트랜잭션으로 수행한다.
+다음 attempt의 배정·완료나 프로세스 재기동 이후에도 이미 수락한 원래 lease·worker의 동일 요청은
+원래 응답을 반환한다. 다른 worker·lease는 `JOB_409_002`, 같은 키의 다른 본문은 `JOB_409_003`이다.
+아직 수락하지 않은 회수된 lease 결과는 완료 이력이 없으므로 fencing으로 거절한다.
 
 "재시도가 성공 산출물을 중복 생성하지 않는다"([docs/frd.md](../frd.md) §3 F-03)가 성립하는 이유는 세 겹이다.
 
@@ -694,6 +841,32 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
 
 **재시도 정책** — 영구는 `attempts`를 동결하고 재claim하지 않는다. 일시는 `attempts < maxAttempts`일 때만 재claim한다. 치명 단계(`stages.py`의 `fatal=True`: `scene_detection`·`frame_extraction`·`indexing`)의 최종 실패는 run을 `failed`로 만들고, 비치명 단계 실패는 run을 계속 진행시킨다([docs/frd.md](../frd.md) §3 F-03).
 
+BE는 `pipeline.yml`의 `defaults.retry_count`와 단계별 `stage_overrides.<stage>.retry_count`를 읽는다.
+`null`은 추가 시도 0회, 정수 N은 최초 시도를 포함한 `maxAttempts=N+1`이다.
+`transient_errors`는 횟수와 별도의 허용 목록이며, 위 오류 계약상 일시 오류이면서
+워커가 `retryable=true`로 신고한 `failed` 결과만 예산 안에서 재시도한다.
+영구·미등록 코드와 `skipped`는 설정으로 재시도할 수 없다. `MEDIA_UNAVAILABLE`의 파일 부재와
+`ARTIFACT_UPLOAD_FAILED`의 해시 불일치처럼 `retryable=false`인 상세 분류도 재시도하지 않는다.
+
+재시도 수락 시 해당 단계만 `pending`이 되고 `retryScheduled=true`를 기록한다.
+`attempts`는 완료한 시도 번호를 유지하며 다음 claim에서 한 번 증가한다. 이때 멱등성 키와
+`outputKeyPrefix`도 새 attempt 값으로 바뀐다. lease 회수는 같은 attempt를 재배정한다.
+이전 실패는 같은 단계의 `failedAttempts`에 attempt·오류·종료 시각·멱등성 키로 보존한다.
+최종 실패·누락은 기존 단계 `status`·`error`·`errorCode`에 남고 성공 결과만 upstream으로 전달된다.
+`retryScheduled`는 BE 판단이며 기존 `errorRetryable`은 워커 신고 의미를 유지한다.
+
+각 단계의 최초 배정에서 `retryPolicy`에 `maxAttempts`와 `transientErrors`를 저장한다.
+배정 응답·완료 판정·lease 재배정은 이 정책을 사용한다. 프로파일 변경은 아직 배정하지 않은
+단계부터 적용되며, 이미 시작한 단계의 예산이나 일시 오류 목록을 재기동 시 바꾸지 않는다.
+정책 기록 전에 시작한 구 단계는 기존 시도(이미 예약된 다음 시도가 있으면 그 1회)까지만
+보존하고 추가 자동 재시도를 새로 허용하지 않는다.
+
+BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 오류로 감싼 내부 원인까지 확인하여
+잘못된 자막은 `INVALID_TRANSCRIPT`·`retryable=false`, 영구 입력·권한 오류와 파일 부재도
+`retryable=false`로 기록한다. 서비스 일시 불가·시간 초과는 설정된 예산 안에서 재시도할 수 있다.
+일시 여부가 확인되지 않은 오류는 재시도하지 않는다. 원본 예외 메시지 대신 기존 오류 코드만
+`error.detail.sourceErrorCode`에 남기며 준비 실패라는 사실은 `phase=input_preparation`으로 구분한다.
+
 ## 10. 시간 수치
 
 실측 후 확정할 품질 임계값이 아니라 **프로토콜 타임아웃**이므로 실측 없이 고정해도 "실행 환경 수치를 만들지 않는다"를 위반하지 않는다. 품질 수치(`retry_count`·`timeout_seconds`·`concurrency`)는 `pipeline.yml`에 `null`로 남는다.
@@ -732,6 +905,9 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
    현재 `SecurityConfig`는 `anyRequest().permitAll()`이고 nginx가 `/api/`를 공개로 프록시한다. **인증 없이 잡 API를 배포하면 claim/complete가 인터넷에 열린다.** 이 항목은 엔드포인트와 같은 MR에 들어가야 한다.
 10. **artifacts 저장소 어댑터** — 미디어 루트 정규화·경로 이탈 차단·sha256 검증.
 11. **`pipeline.yml`에 `stage_versions:` 키 신설**, 기동 시 롤업 계산·로그.
+12. **stage output 저장 어댑터가 지원하는 단계를 늘린다.** BE는 `StageOutputPort.supports(stage)`가 거짓인 단계를 워커 `capabilities`에서 **제거한다**(`WorkerExecutionBinding`). 그래서 워커가 구현하고 버전을 선언해도 그 단계는 배정되지 않고, 강제로 결과를 보내도 `validateAndStore`의 `default` 분기에서 거절된다.
+    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`transcript_selection`·`asr` 넷이다. **`ocr`(`S15P21A501-94`, dev 머지됨)과 `vlm_metadata`(`S15P21A501-92`)는 워커 쪽이 끝났고 BE 저장 경로만 없다.** 둘 다 §4.3.2·§4.3.3이 저장 자리를 이미 지정한다 — `ocr`은 `ocr_observation` 행, `vlm_metadata`는 `scene.caption`·`scene.caption_tokens`·`scene.shot_type` 갱신과 `tag`·`tagging`·`tag_evidence` 후보(`source='vlm'`, `verification_status='unverified'`, `source_ref_type='keyframe'`)다.
+    이건 설계 미결이 아니라 **미구현**이다. 계약이 정한 payload를 받아 쓰는 쪽이 아직 없다는 뜻이므로, 두 단계의 end-to-end 확인은 이 항목이 끝나야 가능하다.
 
 ## 12. 워커 쪽 구현
 
@@ -749,7 +925,7 @@ v2.2의 `ROLE_FORBIDDEN`은 **승계하지 않는다.** 워커에 역할 개념�
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 7단계 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다 |
+| 미구현 6단계 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 

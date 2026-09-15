@@ -139,24 +139,33 @@
   width: min(1440px, 100%);
   margin: 0 auto;
   padding: clamp(110px, 16vh, 180px) var(--edge) clamp(52px, 8vh, 96px);
-  /* 자리를 지킨 채 서서히 사라진다. --hero-fade는 landing-shell이 스크롤에 맞춰 갱신한다. */
+  /* 로고는 역할 카드보다 위에서 이동하며 카드 클릭을 가로채지 않는다. */
   position: sticky;
   top: 0;
-  z-index: 0;
-  opacity: var(--hero-fade, 1);
-  transform: translate3d(0, calc((1 - var(--hero-fade, 1)) * 24px), 0);
-  will-change: opacity, transform;
+  z-index: 2;
+  pointer-events: none;
 }
 
-.hero[data-faded='true'] {
+.hero[data-faded='true'] .scrollCue {
   visibility: hidden;
   pointer-events: none;
 }
 
+.brandMotion {
+  position: relative;
+  width: max-content;
+  transform: translate3d(var(--brand-x, 0px), var(--brand-y, 0px), 0) scale(var(--brand-scale, 1));
+  transform-origin: top left;
+  transition: transform 140ms ease-out;
+  will-change: transform;
+}
+
 .heroTitle {
+  position: relative;
   display: flex;
   flex-direction: column;
   margin: 0;
+  padding-left: calc(1.24em + 1cap);
   /* 히어로 헤드라인 전용 디스플레이 서체. 400 한 종뿐이라 굵기 합성을 끈다. */
   font-family: 'Black Han Sans', 'Apple SD Gothic Neo', 'Malgun Gothic', Arial, sans-serif;
   font-synthesis-weight: none;
@@ -172,6 +181,30 @@
 
 .shell[data-intro='done'] .heroTitle {
   transform: none;
+}
+
+.heroIcon {
+  position: absolute;
+  inset: 0 auto auto 0;
+  /* 줄 간격(0.95em) + 대문자 높이 + 둥근 획 끝의 여유(0.04em). */
+  width: calc(0.99em + 1cap);
+  height: calc(0.99em + 1cap);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.shell[data-intro='done'] .heroIcon {
+  opacity: 1;
+}
+
+.heroIconImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* 원본 PNG의 투명 여백을 제외한 아이콘 높이를 두 줄에 맞춘다. */
+  transform: translateY(2.2%) scale(1.193);
 }
 
 .heroLine {
@@ -196,7 +229,7 @@
 }
 
 /* 첫 줄이 끝난 뒤 둘째 줄이 같은 방식으로 이어진다. */
-.heroLine:nth-child(2) {
+.heroLine:last-child {
   animation-delay: 1300ms;
 }
 
@@ -236,6 +269,11 @@
   color: rgba(255, 255, 255, 0.8);
   background: none;
   transition: color 180ms;
+  pointer-events: auto;
+}
+
+.shell[data-intro='done'] .scrollCue {
+  opacity: var(--hero-fade, 1);
 }
 
 .scrollCue:hover {
@@ -285,22 +323,25 @@
 }
 
 .roles[data-revealed='false'] {
+  visibility: hidden;
   pointer-events: none;
 }
 
 .rolesBrand {
   grid-column: 1;
   grid-row: 1;
-  /* 페이드가 진행될수록 우측에서 제자리(좌측)로 들어온다. */
-  transform: translate3d(calc((1 - var(--roles-fade, 1)) * 44px), 0, 0);
 }
 
-.wordmark {
-  margin: 0;
-  font-size: clamp(46px, 5.6vw, 96px);
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.05em;
+.rolesBrand > :not(.wordmarkTarget) {
+  /* 이동 중인 로고 아래로 안내 문구가 겹치지 않도록 도착 무렵에 보여 준다. */
+  opacity: var(--brand-copy-fade, 0);
+  transition: opacity 140ms ease-out;
+}
+
+.wordmarkTarget {
+  /* 같은 로고가 도착할 자리를 실제 레이아웃 안에 확보한다. */
+  height: 1.9em;
+  font-size: clamp(42px, 7vw, 120px);
 }
 
 .wordmarkTagline {
@@ -551,7 +592,8 @@
   .hero {
     padding-right: calc(var(--edge) + 40px);
   }
-  .heroTitle {
+  .heroTitle,
+  .wordmarkTarget {
     font-size: clamp(38px, 12.5vw, 66px);
   }
   .scrollCue {
@@ -593,6 +635,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .brandMotion,
+  .rolesBrand > :not(.wordmarkTarget) {
+    transition: none;
+  }
+  .heroIcon {
+    transition: none;
+  }
   .heroLine {
     animation: none;
     transform: none;

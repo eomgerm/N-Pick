@@ -1,6 +1,13 @@
 # N-Pick AI Worker
 
-헬스체크, `scene_detection`, `frame_extraction`, Query Resolver 프롬프트·출력 계약(FRD v3.1 F-04~06)이 구현되어 있다.
+실제 세 후보의 품질·속도·메모리 비교는 [VLM 문서 §9.6](docs/vlm-metadata.md#96-2026-09-13-실제-세-후보-비교)에 있다.
+Qwen3.5-9B를 선정하고 Qwen3.5-4B를 메모리 제약 시 대체 모델로 정했다. 품질 수치는 AI 예비 검토로 사람 검수·Gold Set 합격과 구분한다.
+
+외부 Linux GPU에서 VLM 후보를 비교하려면 [VLM 문서 §9.5](docs/vlm-metadata.md#95-linux-gpu-서버에서-직접-실행하기)를 따른다.
+`bash run-vlm-smoke.sh <frames-dir> <out-root> <memory-budget-gib> [model ...]`로
+BE 없이 10장면 smoke와 실행 기록을 생성한다.
+
+헬스체크, `scene_detection`, `frame_extraction`, `vlm_metadata`, `ocr`, Query Resolver 프롬프트·출력 계약(FRD F-04~06)이 구현되어 있다.
 
 Query Resolver는 검색 시점에 쓰이며 파이프라인 단계가 아니다. 배포 경계는
 [Container 요소 표](../docs/architecture/02-container.md#요소)를 따른다. 이 모듈은
@@ -112,9 +119,9 @@ result = extract_keyframes(
 scene = result.scenes[0]
 scene.representative  # Keyframe(...) ← 결과 카드에 쓸 한 장
 scene.keyframes[0]  # 같은 객체. 대표는 **목록의 첫 원소**다
-len(scene.keyframes)  # 2 이상 (FRD 의 "복수 키프레임")
+len(scene.keyframes)  # 2 이상. 장 수는 장면 안의 변화량이 정한다 (docs/frame-extraction.md §3.1)
 result.image_width  # 원본 해상도. 다운스케일하지 않는다
-result.config_version  # 'frame-extract/v1:5b266b10'
+result.config_version  # 'frame-extract/v2:a0684794'
 result.engine_version  # '18.1.0+numpy2.5.2'  ← PyAV + numpy (둘 다 결과를 바꾼다)
 ```
 
@@ -139,6 +146,55 @@ uv run --directory ai python -m npick_worker.frame_extraction.report \
 scene 마다 대표(`*`)와 전체 keyframe 시각을 표로 출력하고 `--out` 에 `keyframes.json` 과 JPEG 을
 남긴다. `--scenes` 로 `scene_detection.report` 가 만든 `scenes.json` 을 주면 분할을 다시 돌리지
 않는다. 선정 근거·인코딩 실측·설정 키는 [docs/frame-extraction.md](docs/frame-extraction.md).
+
+## 장면 metadata 생성 (FRD F-03)
+
+scene 마다 **복수 keyframe 을 함께** 모델에 넣어 장면 설명·샷 유형·태그 후보를 만든다.
+근거가 없는 값은 지어내지 않고 `null`·`unknown` 으로 둔다.
+
+```python
+from pathlib import Path
+from npick_worker.vlm_metadata import KeyframeRef, SceneKeyframes, describe_scenes
+from npick_worker.vlm_metadata.transformers_backend import shared_client
+
+scene = SceneKeyframes(
+    scene_index=0,
+    keyframes=(
+        KeyframeRef(scene_index=0, timestamp_ms=4200, storage_key="s0000/kf-000004200.jpg"),
+        KeyframeRef(scene_index=0, timestamp_ms=9100, storage_key="s0000/kf-000009100.jpg"),
+    ),
+)
+paths = {kf.storage_key: Path("out") / kf.storage_key for kf in scene.keyframes}
+
+result = describe_scenes([scene], paths, shared_client())
+result.scenes[0].shot_type.value  # 'anchor' | 'interview' | 'b_roll' | 'unknown'
+result.scenes[0].caption  # Caption(...) 또는 None — 근거가 없으면 비운다
+result.scenes[0].scene_type  # type='scene_type' 인 **태그 후보**. scene 컬럼이 아니다
+result.scenes[0].caption.evidence  # 이 판단의 근거가 된 keyframe·OCR 관측·대사 구간 참조
+result.config_version  # 'vlm-metadata-config/v2:...'
+result.model_version  # '<모델>@<리비전>'
+```
+
+**모델 이름은 코드에 없다.** `NPICK_AI_VLM_MODEL` 로 준다 — 후보 비교로 정할 값이라
+코드가 고르면 근거 없는 동결이 된다(FRD §11). 비어 있으면 이 단계는 `capabilities` 에서
+빠지고 BE 가 배정하지 않는다. 가중치 실행에는 `uv sync --group gpu` 가 필요하다.
+
+형식·어휘·근거 중 하나라도 어긋난 출력은 **통째로 거부한다**(계약 §9.2 `VLM_SCHEMA_INVALID`,
+영구). 일부 필드만 골라 쓰지 않는다.
+
+샘플 클립으로 확인·후보 비교:
+
+```bash
+uv run --directory ai python -m npick_worker.vlm_metadata.report \
+    samples/out/KNI_02205-frames --out samples/out/KNI_02205-vlm --model <후보> --smoke
+```
+
+`--smoke` 는 티켓의 조건(장면 10건 이상, 장면마다 **실제로 모델에 넣는** keyframe 2장 이상)을
+검사한다. 저장되는 JSON 에는 통과한 출력뿐 아니라 **결과를 얻지 못한 장면의 원문·오류·입력·
+소요 시간**과 device·peak VRAM 이 함께 남고, 파일은 장면마다 다시 쓴다 — 중간에 OOM 으로
+끊겨도 그때까지의 실측이 남는다.
+
+선정 근거·어휘·설정 키·외부 처리 게이트는 [docs/vlm-metadata.md](docs/vlm-metadata.md).
 
 ## Query Resolver (FRD F-04~06)
 
@@ -240,7 +296,7 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 | --- | --- | --- | --- |
 | 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av·kiwipiepy·rapidocr·onnxruntime·httpx2 | 설치 약 240MB + OCR 약 90MB |
 | `dev` | `uv sync` (기본 포함) | ruff·mypy·pytest·pytest-asyncio | |
-| `gpu` | `uv sync --group gpu` | torch(cu130)·faster-whisper | 약 1.8GB, 최초 1회 |
+| `gpu` | `uv sync --group gpu` | torch(cu130)·faster-whisper·transformers·pillow | 약 1.8GB, 최초 1회. **가중치는 별도** |
 
 `scenedetect` 는 PyAV 백엔드만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. GUI 라이브러리가 붙은 `opencv-python` 이면 헤드리스 컨테이너에서 `libGL.so` 로 죽으므로 headless 변종을 쓴다 — 0.7 부터 이건 extra 가 아니라 **`scenedetect-headless` 별도 배포판**이다. 임포트 이름은 그대로 `scenedetect` 이고, 두 배포판을 같이 설치하면 임포트 이름을 다투므로 한쪽만 선언한다.
 
@@ -249,6 +305,11 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 `rapidocr`(OCR 단계)가 `opencv-python` 을 요구하는데 그건 위와 같은 이유로 들이면 안 되는 배포판이다. **둘은 같은 `cv2` 를 설치하므로 함께 깔면 나중에 깔린 쪽이 이긴다.** `pyproject.toml` 의 `[tool.uv] override-dependencies` 가 항상 거짓인 marker 로 그 요구를 지워 headless 하나만 남긴다 — rapidocr 이 쓰는 것은 `import cv2` 뿐이라 구현체가 headless 여도 된다.
 
 OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/profiles/pipeline.yml` 이 "CPU 워커와 GPU 파드가 같은 이미지를 쓴다" 로 적었기 때문이다. 그룹으로 빼면 배포 이미지가 OCR 을 못 한다. 실행기가 onnxruntime(CPU)이라 GPU 없이 돌아간다 — 샘플 클립에서 장당 약 430ms 다([docs/ocr.md](docs/ocr.md) §9).
+
+`transformers`(VLM 단계)를 `gpu` 그룹에 둔 이유는 OCR 과 반대다. 이 단계는 GPU 파드의
+것이고 CPU 워커는 배정받지 않는다 — 모델 이름이 설정되지 않은 워커는 `capabilities` 에
+`vlm_metadata` 를 싣지 않으므로(`jobs/registry.py`) 배정 자체가 오지 않는다. 가중치는 패키지에
+들어 있지 않고 `NPICK_AI_VLM_MODEL_DIR` 이 가리키는 곳에 받는다.
 
 **torch 는 PyPI 가 아니라 `download.pytorch.org/whl/cu130` 에서 온다.** PyPI 의 Windows torch 휠은 CPU 전용(약 122MB)이라 그대로 설치하면 CUDA 가 조용히 비활성화된다. `pyproject.toml` 의 `[[tool.uv.index]]` 와 `[tool.uv.sources]` 가 이걸 막는다. macOS 는 CUDA 휠이 없으므로 marker 로 제외되어 PyPI 의 arm64(MPS) 휠로 해석된다.
 
@@ -279,6 +340,14 @@ uv sync --directory ai --group gpu
 | `NPICK_AI_DEVICE` | `auto` | `auto` / `cuda` / `cpu`. `cuda` 를 지정해도 불가하면 경고 후 `cpu` 로 내려간다 |
 | `NPICK_AI_MEDIA_ROOT` | 없음 | backend 와 공유하는 미디어 마운트. 없으면 입력을 HTTP 로 받는다 |
 | `NPICK_AI_OCR_MODEL_DIR` | 없음 | OCR 모델 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — 기본값이 site-packages 안이라 컨테이너를 다시 만들 때마다 약 19MB 를 새로 받는다 |
+| `NPICK_AI_VLM_MODEL` | (없음) | VLM 가중치 식별자. **기본값을 두지 않는다** — 후보 비교로 정할 값이라 코드가 고르면 근거 없는 동결이다(FRD §11). 비어 있으면 이 단계가 `capabilities` 에서 빠진다 |
+| `NPICK_AI_VLM_MODEL_REVISION` | `main` | 가중치 리비전. 재현 식별자에 들어간다 |
+| `NPICK_AI_VLM_MODEL_DIR` | 없음 | VLM 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — 파드 디스크가 휘발성이라 띄울 때마다 수 GB 를 다시 받는다 |
+| `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
+| `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
+| `NPICK_AI_ASR_MODEL` | (없음) | ASR 가중치 식별자(예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기가 결과와 처리 시간을 바꾸고 실측 후 확정이라(FRD §11) 코드가 고르면 근거 없는 동결이다. 비어 있으면 이 단계가 `capabilities` 에서 빠진다. **기동 워밍업이 실패한 워커도 빠진다** — 폴링 중에 수 GB 를 다시 내려받지 않기 위해서이고, 복구는 재워밍업 또는 워커 재시작이다 |
+| `NPICK_AI_ASR_COMPUTE_TYPE` | 장치 기본값 | `float16`(CUDA) / `int8`(CPU) 등. 결과를 바꾸므로 재현 식별자의 `modelVersion` 에 함께 들어간다 |
+| `NPICK_AI_ASR_MODEL_DIR` | 없음 | ASR 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — VLM 과 같은 이유다 |
 | `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §6.4 |
 | `NPICK_AI_OLLAMA_URL` | `http://127.0.0.1:11434` | Query Resolver 가 부를 Ollama 주소 |
 | `NPICK_AI_OLLAMA_MODEL` | (없음) | 쓸 모델 태그. **기본값을 두지 않는다** — 모델이 결과를 바꾸고 실측 후 확정이라 코드가 임의로 고르면 근거 없는 동결이 된다 |
@@ -326,14 +395,38 @@ ai/
 │   ├── schemas.py       /health 응답 스키마
 │   ├── versioning.py    ── 공용: <schema>:<sha256[:8]> 버전 형식 ──
 │   ├── stages.py        [워커] 기존 10단계 선언적 메타데이터
+│   ├── korean_tokens.py ── 공용: Kiwi 색인 토큰 규칙 (색인·질의가 같이 쓴다) ──
 │   ├── config/
 │   │   ├── scene_detection.v1.toml   임계값 정본 (실측 후 확정)
+│   │   ├── frame_extraction.v1.toml  임계값 정본 (실측 후 확정)
+│   │   ├── vlm_metadata.v2.toml      프롬프트·어휘·상한 정본 (실측 후 확정)
+│   │   ├── ocr.v1.toml               임계값 정본 (실측 후 확정)
+│   │   ├── query_normalization.v1.toml  정규화 규칙 정본
 │   │   └── query_resolver.v1.toml    프롬프트 정본 (실측 후 확정)
 │   ├── scene_detection/ [워커] 장면 분할. detect_scenes() 순수 함수
 │   │   ├── config.py                 toml 로딩 + version_id
 │   │   ├── models.py                 Scene / SceneDetectionResult
 │   │   ├── detector.py               SceneDetector Protocol
 │   │   ├── pyscenedetect_backend.py  PySceneDetect + PyAV 구현
+│   │   └── report.py                 육안 확인 CLI
+│   ├── frame_extraction/ [워커] keyframe 추출. extract_keyframes() 순수 함수
+│   │   ├── selector.py               슬롯 계획·선정 (영상 없이 검증된다)
+│   │   ├── pyav_backend.py           FrameGrabber Protocol 구현
+│   │   └── report.py                 육안 확인 CLI
+│   ├── vlm_metadata/    [워커] 장면 설명·샷 유형·태그 후보. describe_scenes()
+│   │   ├── schema.py                 모델 출력 계약 정본 + SCHEMA_VERSION
+│   │   ├── models.py                 검증을 통과한 값의 어휘 + VlmResult
+│   │   ├── config.py                 toml 로딩 + config_version
+│   │   ├── prompt.py                 렌더링·근거 라벨·prompt_version
+│   │   ├── client.py                 VlmClient Protocol
+│   │   ├── transformers_backend.py   자체 GPU 구현 (정본 경로)
+│   │   ├── external_policy.py        외부 전송 게이트 (PRD §12.4, fail-closed)
+│   │   ├── validator.py              JSON → schema → 어휘·근거 → 거부
+│   │   ├── describer.py              장면당 keyframe 선정 + 호출
+│   │   └── report.py                 후보 비교·smoke CLI
+│   ├── ocr/             [워커] 화면 글자 관측. read_keyframes() 순수 함수
+│   │   ├── rapidocr_backend.py       OcrEngine Protocol 구현
+│   │   ├── postprocess.py            관측 변환·textKey
 │   │   └── report.py                 육안 확인 CLI
 │   ├── jobs/            [워커] BE 잡 API 클라이언트와 실행 루프
 │   │   ├── client.py                 claim/heartbeat/complete/artifacts
@@ -353,7 +446,11 @@ ai/
 │       ├── gms_backend.py            승인된 GMS HTTP 구현 (OpenAI 호환)
 │       ├── report.py                 대표 질의 20개 확인 CLI
 │       └── fixtures/                 대표 질의 20개
-├── docs/scene-detection.md   선정 근거·설정 키·실측 후 확정 항목
+├── docs/
+│   ├── scene-detection.md    선정 근거·설정 키·실측 후 확정 항목
+│   ├── frame-extraction.md   대표 이미지 규약·인코딩 실측·설정 키
+│   ├── vlm-metadata.md       출력 계약·어휘의 자리·거부 규칙·외부 게이트
+│   └── ocr.md                엔진 선정 실측·임계값 실측·설정 키
 ├── samples/                  로컬 샘플 클립 (영상은 커밋 금지)
 └── tests/
     ├── conftest.py           합성 영상 픽스처 + 가짜 BE(httpx2.MockTransport)
@@ -361,6 +458,10 @@ ai/
     ├── test_versioning.py    (test_job_contract.py 안) 버전 형식
     ├── test_job_*.py         계약·클라이언트·러너·미디어·레지스트리
     ├── test_scene_detection.py
+    ├── test_frame_extraction.py
+    ├── test_vlm_metadata.py  출력 계약·거부 규칙·입력 선정·외부 정책 게이트
+    ├── test_ocr.py
+    ├── test_query_normalization.py
     ├── test_query_resolver.py
     └── test_smoke_models.py  -m smoke: torch CUDA + faster-whisper tiny
 ```

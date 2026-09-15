@@ -59,7 +59,23 @@ dev = [
 gpu = [
     "torch>=2.13,<3",
     "faster-whisper>=1.2,<2",
+    # vlm_metadata 가 장면 설명을 만든다. 모델 이름은 여기서 고르지 않는다 —
+    # NPICK_AI_VLM_MODEL 이 정하고 후보 비교는 docs/vlm-metadata.md 다(FRD §11).
+    # gpu 그룹에 두는 이유는 이 단계가 GPU 파드의 것이기 때문이다. CPU 워커는 이 단계를
+    # 배정받지 않고, 받아도 MODEL_UNAVAILABLE 로 신고한다.
+    "transformers>=5,<6",
+    # transformers 의 이미지 처리가 PIL 을 쓴다. 전이 의존에 기대지 않는다 —
+    # 어댑터가 keyframe JPEG 을 직접 열기 때문에 없으면 첫 호출에서 죽는다.
+    "pillow>=11,<13",
 ]
+# 임베딩 모델 비교(S15P21A501-175)의 의존성은 **이 프로젝트에 두지 않는다.**
+# eval/embedding/requirements.txt 를 별도 venv 에 설치해서 쓴다.
+#
+# 의존성 그룹으로 뒀다가 되돌렸다. 그룹은 설치 여부만 가르지만 uv.lock 은 패키지당 버전이
+# 하나다 — 평가용 mlflow 를 넣자 mlflow-skinny → opentelemetry-proto 를 거쳐 protobuf 가
+# 7.36.1 에서 6.33.6 으로 내려갔고, 그 protobuf 는 런타임 의존인 onnxruntime(OCR)이 쓴다.
+# 배포 이미지는 mlflow 를 안 받지만 내려간 protobuf 는 받는다. 평가 도구가 제품 런타임의
+# 버전을 움직이는 경로라서 lock 자체를 분리했다.
 
 [tool.uv]
 required-version = ">=0.12"
@@ -114,7 +130,14 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
-module = ["torch.*", "numpy.*"]
+module = [
+    "torch.*",
+    "numpy.*",
+    "transformers.*",
+    "huggingface_hub.*",
+    "PIL.*",
+    "faster_whisper.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

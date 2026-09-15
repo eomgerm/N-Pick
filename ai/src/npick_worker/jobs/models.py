@@ -15,9 +15,13 @@ from npick_worker.jobs.errors import StageErrorCode
 from npick_worker.jobs.versions import StageVersion, WireModel
 
 if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(scene_detection 은 cv2 가 딸려 온다).
+    from npick_worker.asr.models import AsrResult
     from npick_worker.frame_extraction.models import FrameExtractionResult
     from npick_worker.ocr.models import OcrResult
     from npick_worker.scene_detection.models import SceneDetectionResult
+    from npick_worker.vlm_metadata.grounding import OcrRef, TranscriptRef
+    from npick_worker.vlm_metadata.models import KeyframeRef as VlmKeyframeRef
+    from npick_worker.vlm_metadata.models import VlmResult
 
 #: 결과 봉투의 형식 버전. BE 는 모르는 값을 받으면 400 으로 거절한다.
 StageResultEnvelope = Literal["stage-result/v1"]
@@ -539,4 +543,308 @@ class OcrOutput(WireModel):
             ],
             keyframes_read=len(result.keyframes),
             min_confidence=result.min_confidence,
+        )
+
+
+class UpstreamBoundingBox(BoundingBoxOut):
+    model_config = ConfigDict(extra="ignore")
+
+
+class UpstreamOcrObservation(OcrObservationOut):
+    model_config = ConfigDict(extra="ignore")
+    bounding_box: UpstreamBoundingBox
+
+
+class UpstreamOcrOutput(OcrOutput):
+    model_config = ConfigDict(extra="ignore")
+    observations: Sequence[UpstreamOcrObservation]
+
+
+class VlmMetadataUpstream(WireResponse):
+    """`inputs.upstream` 중 `vlm_metadata` 가 쓰는 부분.
+
+    키프레임은 필수이고 OCR은 비치명 상류의 선택 입력이다.
+    대사는 jobs.transcripts의 장면 매핑 계약과 기존 artifact 로더로 연결한다.
+    """
+
+    frame_extraction: UpstreamFrameExtraction
+    ocr: UpstreamOcrOutput | None = None
+
+
+class EvidenceKeyframeOut(WireModel):
+    """어느 프레임이 근거인가.
+
+    `keyframe_id` 가 아니라 이 쌍으로 말한다 — TSID 는 BE 가 발급하고 `assignedIds` 는
+    scene 만 돌려준다(계약 §4.3). `keyframe` 의 `UNIQUE(scene_id, timestamp_ms)` 가 곧
+    이 쌍이다. BE 는 이 값으로 `tag_evidence.source_ref_id` 를 채운다
+    (`source_ref_type='keyframe'`).
+    """
+
+    scene_index: int = Field(ge=0)
+    timestamp_ms: int = Field(ge=0)
+    #: 어느 파일을 보았는지의 근거. 참조 키가 아니다(`keyframe.storage_key` 에 인덱스가 없다).
+    storage_key: str = Field(min_length=1)
+
+
+class EvidenceOcrOut(WireModel):
+    """현재 run의 OCR observations 원소와 원본 프레임을 가리킨다."""
+
+    source_ref_type: Literal["ocr_observation"] = "ocr_observation"
+    scene_index: int = Field(ge=0)
+    timestamp_ms: int = Field(ge=0)
+    storage_key: str = Field(min_length=1)
+    observation_index: int = Field(ge=0)
+
+
+class EvidenceTranscriptOut(WireModel):
+    """scene 근거와 기존 snapshot/segmentId를 보존한다. DB ID를 생성하지 않는다."""
+
+    source_ref_type: Literal["scene"] = "scene"
+    scene_index: int = Field(ge=0)
+    storage_key: str = Field(min_length=1)
+    segment_id: str = Field(min_length=1)
+    s: int = Field(ge=0)
+    e: int = Field(gt=0)
+    source_detail: Literal["uploaded", "embedded", "asr"]
+
+
+class CaptionOut(WireModel):
+    """`scene.caption`·`scene.caption_tokens` 가 될 값."""
+
+    value: str = Field(min_length=1)
+    #: Kiwi 색인 토큰을 공백으로 이은 것. 빈 문자열이 정상일 수 있다(내용어 없는 설명).
+    #: 색인과 질의가 같은 Kiwi 설정을 써야 하므로 `versions.detail.tokenizer` 가 그
+    #: 설정의 식별자를 함께 싣는다(`ocr` 과 같은 규약).
+    tokens: str
+    confidence: float = Field(ge=0, le=1)
+    evidence: Sequence[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut] = Field(
+        min_length=1
+    )
+
+
+class ShotTypeOut(WireModel):
+    """`scene.shot_type` 이 될 값.
+
+    `evidence` 가 빈 배열일 수 있는 유일한 판단이다 — `unknown` 일 때다. "판단할 근거가
+    부족하다" 는 판단에 근거 프레임을 요구할 수는 없다.
+    """
+
+    value: Literal["anchor", "interview", "b_roll", "unknown"]
+    confidence: float = Field(ge=0, le=1)
+    evidence: Sequence[EvidenceKeyframeOut] = ()
+
+
+class TagCandidateOut(WireModel):
+    """태그 후보 하나. **`tag` 행이 아니다.**
+
+    `tag.match_value` 정규화(NFKC + 공백 제거)와 행 생성은 BE 의 몫이고, 저장될 때
+    `tag_evidence.source` 는 `vlm`, `verification_status` 는 `unverified` 다
+    ([docs/frd.md](../frd.md):158). 날짜 유형(`filmed_date`·`broadcast_date`)은 이
+    payload 에 **올 수 없다** — 워커 쪽 schema 에 그 유형이 없다.
+    """
+
+    type: Literal[
+        "person",
+        "organization",
+        "location",
+        "facility",
+        "keyword",
+        "event",
+        "season",
+        "weather",
+        "scene_type",
+    ]
+    value: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    evidence: Sequence[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut] = Field(
+        min_length=1
+    )
+
+
+class SceneMetadataOut(WireModel):
+    """scene 하나의 metadata.
+
+    `caption` 이 `null` 이고 `tagCandidates` 가 빈 배열일 수 있다. 둘 다 정상이다 —
+    시각 근거가 없는 값을 지어내지 않는 것이 이 단계의 계약이다.
+    """
+
+    scene_index: int = Field(ge=0)
+    shot_type: ShotTypeOut
+    caption: CaptionOut | None = None
+    tag_candidates: Sequence[TagCandidateOut] = ()
+
+
+class VlmMetadataOutput(WireModel):
+    """`vlm_metadata` 단계의 payload.
+
+    `ocr` 과 달리 scene 으로 묶어 보낸다. 이 결과의 저장 자리가 `scene` 행의 컬럼
+    (`caption`·`shot_type`)이라 BE 가 scene 단위로 쓰기 때문이다 — 평평하게 보내면
+    받는 쪽이 다시 묶어야 한다.
+    """
+
+    scenes: Sequence[SceneMetadataOut] = Field(min_length=1)
+    #: 모델 출력 계약의 버전. `versions.outputSchemaVersion`(payload 형식)과 다른 값이다 —
+    #: 이쪽은 **모델에게 요구한 JSON** 의 버전이고, 프롬프트를 고치지 않고도 바뀔 수 있다.
+    metadata_schema_version: str = Field(min_length=1)
+
+    @classmethod
+    def from_result(cls, result: "VlmResult") -> "VlmMetadataOutput":
+        """단계의 순수 산출물을 와이어 모양으로 옮긴다."""
+        return cls(
+            scenes=[
+                SceneMetadataOut(
+                    scene_index=scene.scene_index,
+                    shot_type=ShotTypeOut(
+                        value=scene.shot_type.value,
+                        confidence=scene.shot_type.confidence,
+                        evidence=_shot_evidence(scene.shot_type.evidence),
+                    ),
+                    caption=(
+                        None
+                        if scene.caption is None
+                        else CaptionOut(
+                            value=scene.caption.value,
+                            tokens=scene.caption.tokens_text,
+                            confidence=scene.caption.confidence,
+                            evidence=_evidence(scene.caption.evidence),
+                        )
+                    ),
+                    tag_candidates=[
+                        TagCandidateOut(
+                            type=tag.type,
+                            value=tag.value,
+                            confidence=tag.confidence,
+                            evidence=_evidence(tag.evidence),
+                        )
+                        for tag in scene.tag_candidates
+                    ],
+                )
+                for scene in result.scenes
+            ],
+            metadata_schema_version=result.schema_version,
+        )
+
+
+def _shot_evidence(
+    references: Sequence["VlmKeyframeRef | OcrRef | TranscriptRef"],
+) -> list[EvidenceKeyframeOut]:
+    result: list[EvidenceKeyframeOut] = []
+    for ref in _evidence(references):
+        if not isinstance(ref, EvidenceKeyframeOut):
+            raise ValueError("shot_type에 텍스트 근거를 반환할 수 없다")
+        result.append(ref)
+    return result
+
+
+def _evidence(
+    keyframes: Sequence["VlmKeyframeRef | OcrRef | TranscriptRef"],
+) -> list[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut]:
+    """키프레임·OCR·대사 근거를 와이어 모양으로 옮긴다."""
+    from dataclasses import asdict
+
+    from npick_worker.vlm_metadata.grounding import OcrRef, TranscriptRef
+
+    result: list[EvidenceKeyframeOut | EvidenceOcrOut | EvidenceTranscriptOut] = []
+    for ref in keyframes:
+        if isinstance(ref, OcrRef):
+            result.append(EvidenceOcrOut(**asdict(ref)))
+        elif isinstance(ref, TranscriptRef):
+            result.append(EvidenceTranscriptOut(**asdict(ref)))
+        else:
+            result.append(EvidenceKeyframeOut(**asdict(ref)))
+    return result
+
+
+class CandidateRange(WireResponse):
+    """자막·CC 가 덮지 못한 구간 하나. 상류 `transcript_selection` 이 준다(계약 §4.5).
+
+    **제약을 걸지 않는다.** `asr` 은 이 값을 세기만 하고(`metrics.candidateRanges`)
+    어느 구간을 돌릴지 정하는 데 쓰지 않는다 — 영상 전체를 돌리고 채택은 하류가 한다.
+    쓰지도 않는 필드에 `ge`·`gt`·정수를 걸면, 아직 없는 `transcript_selection` 이
+    나중에 조금 다른 모양(`e` 가 float, 길이 0 구간)을 보낼 때 `VALIDATION_ERROR`
+    (영구)로 **ASR 단계 전체가 죽는다**. `AsrUpstream` 의 "판정이 오면 기록하고, 안
+    오면 영상 전체를 돈다" 와 반대 방향이다.
+
+    구간을 실제로 읽는 쪽이 생기면 그때 그 자리에서 검증한다. 검증은 값을 쓰는 곳의
+    일이지 지나가는 곳의 일이 아니다.
+    """
+
+    s: float | None = None
+    e: float | None = None
+
+
+class TranscriptSelectionUpstream(WireResponse):
+    """`inputs.upstream["transcript"]` 중 `asr` 이 보는 부분.
+
+    **모든 필드가 선택이다.** 이 자리에는 두 가지가 올 수 있다 — 상류
+    `transcript_selection` 의 판정(`asrRequired`·`candidateRanges`·`reasonCode`)이거나,
+    BE 가 준비한 원본 자막 스냅샷뿐이다(계약 §4.5, `PrepareTranscriptInputUseCase`).
+    뒤엣것만 오는 것은 선택 단계가 아직 없거나 생략된 run 이다.
+    """
+
+    asr_required: bool | None = None
+    candidate_ranges: Sequence[CandidateRange] = ()
+    reason_code: str | None = None
+
+
+class AsrUpstream(WireResponse):
+    """`inputs.upstream` 중 `asr` 이 쓰는 부분.
+
+    `ocr`·`vlm_metadata` 와 달리 **필수 상류가 없다.** 이 단계는 배정이 준 입력 영상만
+    있으면 돌 수 있고, 판정이 없다고 빈 결과를 내면 "이 영상에는 발화가 없다" 는 거짓이
+    정본에 남는다. 판정이 오면 기록하고, 안 오면 영상 전체를 돈다.
+    """
+
+    transcript: TranscriptSelectionUpstream | None = None
+
+
+class AsrSegmentOut(WireModel):
+    """계약 §4.5 의 transcript 구간 하나.
+
+    필드 이름이 짧은 것은 이 모양이 **자막 스냅샷의 어휘**이기 때문이다(`s`·`e`·`t`).
+    여기서 다른 이름을 쓰면 하류가 합칠 때 옮겨 담아야 하고, 그 옮김이 곧 어긋날 자리다.
+    """
+
+    #: 스냅샷 안에서 유일해야 하고 이후 스냅샷에서도 보존된다(계약 §4.5).
+    #: `asr-` 접두는 제공 자막·CC 구간과 섞였을 때 출처를 눈으로 가르기 위한 것이다.
+    segment_id: str = Field(min_length=1)
+    #: 원본 영상 기준 정수 ms.
+    s: int = Field(ge=0)
+    e: int = Field(gt=0)
+    #: 인식한 그대로. 계약이 빈 문자열을 거부한다.
+    t: str = Field(min_length=1)
+    #: 이 단계가 만드는 구간은 언제나 `asr` 다. 우선순위(uploaded > embedded > asr)를
+    #: 아는 쪽은 하류이고, 여기서 출처를 다르게 적으면 그 우선순위가 무너진다.
+    source_detail: Literal["asr"] = "asr"
+    #: 근사 신뢰도. BE 는 지금 이 값을 저장하지 않지만(§4.5 검증만) 근거의 확실성을
+    #: 빼고 보내면 F-04 가 요구하는 판단 근거가 산출물에서 사라진다.
+    confidence: float = Field(ge=0, le=1)
+
+
+class AsrOutput(WireModel):
+    """`asr` 단계의 payload.
+
+    빈 `segments` 가 정상이다(계약 §4.5). `reasonCode` 는 **실제 발화 미감지일 때만**
+    붙는다 — 걸러져서 비게 된 것과 발화가 없던 것은 다른 사실이고, BE 도 "빈 segments
+    만으로 사유를 만들지 않는다" 로 같은 구분을 한다.
+    """
+
+    segments: Sequence[AsrSegmentOut]
+    reason_code: Literal["NO_SPEECH_DETECTED"] | None = None
+
+    @classmethod
+    def from_result(cls, result: "AsrResult") -> "AsrOutput":
+        """단계의 순수 산출물을 와이어 모양으로 옮긴다."""
+        return cls(
+            segments=[
+                AsrSegmentOut(
+                    segment_id=f"asr-{segment.index}",
+                    s=segment.start_ms,
+                    e=segment.end_ms,
+                    t=segment.text,
+                    confidence=segment.confidence,
+                )
+                for segment in result.segments
+            ],
+            reason_code="NO_SPEECH_DETECTED" if result.no_speech_detected else None,
         )

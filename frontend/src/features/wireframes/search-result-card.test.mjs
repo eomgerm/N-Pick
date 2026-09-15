@@ -37,21 +37,12 @@ registerHooks({
 const { SearchResultCard } = await import('./search-result-card.tsx');
 const { results } = await import('./demo-scenes.ts');
 
-function renderCard(
-  result,
-  isSelected = false,
-  position = result.rank,
-  inquiryState = 'ready',
-  inquiryUnavailableReason,
-) {
+function renderCard(result, isSelected = false, position = result.rank) {
   return renderToStaticMarkup(
     createElement(SearchResultCard, {
       result,
       position,
       isSelected,
-      inquiryState,
-      inquiryUnavailableReason,
-      onInquiry() {},
       onSelect() {},
     }),
   );
@@ -134,35 +125,10 @@ test('긴 백엔드 메타데이터도 카드 DOM에 노출하지 않는다', ()
   assert.ok(!html.includes(longValue));
 });
 
-test('결과 카드는 Preview와 분리된 단일 이상해요 버튼을 제공한다', () => {
+test('결과 카드에는 이상해요 버튼을 표시하지 않고 Preview 진입점만 제공한다', () => {
   const html = renderCard(results[0]);
 
-  assert.equal((html.match(/이상해요/g) ?? []).length, 2);
-  assert.equal((html.match(/cardInquiryButton/g) ?? []).length, 1);
-  assert.match(html, /data-state="ready"/);
-  assert.match(html, /aria-label="1위 설 연휴 첫날, 서울역 귀성 인파 이상해요"/);
+  assert.ok(!html.includes('이상해요'));
+  assert.ok(!html.includes('cardInquiryButton'));
   assert.match(html, /aria-label="1위 설 연휴 첫날, 서울역 귀성 인파 Preview 열기"/);
-});
-
-test('문의 접수·진행·불가 상태는 문구와 비활성 이유로 구분한다', () => {
-  const submittingHtml = renderCard(results[0], false, 1, 'submitting');
-  const submittedHtml = renderCard(results[0], false, 1, 'submitted');
-  const unavailableHtml = renderCard(
-    results[0],
-    false,
-    1,
-    'unavailable',
-    '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.',
-  );
-
-  assert.match(submittingHtml, /data-state="submitting"/);
-  assert.match(submittingHtml, /aria-busy="true"/);
-  assert.ok(submittingHtml.includes('접수 중'));
-  assert.match(submittedHtml, /data-state="submitted"/);
-  assert.ok(submittedHtml.includes('접수됨'));
-  assert.match(unavailableHtml, /data-state="unavailable"/);
-  assert.match(unavailableHtml, /aria-describedby="inquiry-unavailable-1"/);
-  assert.match(unavailableHtml, /id="inquiry-unavailable-1"/);
-  assert.ok(unavailableHtml.includes('검색 기록을 저장하지 못해'));
-  assert.match(unavailableHtml, /disabled=""/);
 });

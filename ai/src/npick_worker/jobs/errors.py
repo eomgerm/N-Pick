@@ -126,6 +126,48 @@ class ModelUnavailableError(TransientStageError):
     error_code: ClassVar[str] = "MODEL_UNAVAILABLE"
 
 
+class AsrFailedError(TransientStageError):
+    """음성 인식 실행이 실패했다(계약 §9.2 `ASR_FAILED`, **일시**).
+
+    `TransientStageError` 를 그대로 던지면 `STAGE_FAILED` 로 적힌다. 그 값의 뜻은
+    "분류를 미룬다" 이고(위 `StageErrorCode` 주석), 아래 `_STAGE_DEFAULT_CODE` 가
+    `asr` 에 `ASR_FAILED` 를 준 것은 **정체 모를** 예외에만 걸리기 때문에 명시적으로
+    던진 예외는 그 표를 지나가지 않는다. 인식이 실패한 것은 미룰 것이 없는 분류된
+    사실이고 계약이 그 자리에 코드를 하나 주고 있으므로, 그 코드로 신고한다.
+
+    빈 결과와 갈라야 한다 — 발화가 없어 구간이 0 개인 것은 정상 종료
+    (`NO_SPEECH_DETECTED`)다. 둘이 같은 기록으로 남으면 "무음이었나 실패했나" 를
+    나중에 구분할 수 없다.
+    """
+
+    error_code: ClassVar[str] = "ASR_FAILED"
+
+
+class VlmOutputInvalidError(PermanentStageError):
+    """VLM 출력이 계약과 다르다(계약 §9.2 `VLM_SCHEMA_INVALID`, **영구**).
+
+    `UpstreamOutputInvalidError` 와 갈라야 한다. 상류 산출물이 잘못된 것과 모델이 형식을
+    지키지 않은 것은 다른 사실이고, 고칠 곳도 다르다 — 앞엣것은 상류 단계, 뒤엣것은
+    프롬프트나 모델이다. 둘 다 영구이지만 정본에 남는 원인이 달라야 한다.
+
+    영구인 이유: temperature 0 으로 부르므로 같은 입력에 같은 출력이 다시 온다
+    (`config/vlm_metadata.v1.toml` 의 `[call]`). 재시도는 GPU 분만 태운다.
+    """
+
+    error_code: ClassVar[str] = "VLM_SCHEMA_INVALID"
+
+
+class ExternalProcessingRefusedError(PermanentStageError):
+    """외부 전송 조건이 확인되지 않아 **보내지 않았다**(PRD §12.4 fail-closed).
+
+    영구인 이유는 이 판정이 요청 내용이 아니라 정책·권리 확인 상태에서 오기 때문이다.
+    같은 클립으로 다시 시도하면 같은 판정이 나온다 — 바뀌어야 하는 것은 배포 설정이나
+    권리 확인이고, 그건 재시도가 아니라 사람이 하는 일이다.
+    """
+
+    error_code: ClassVar[str] = "EXTERNAL_PROCESSING_NOT_ALLOWED"
+
+
 class UnknownStageError(PermanentStageError):
     """FRD 단계 표에 없는 이름을 배정받았다. 재시도가 고칠 수 없다."""
 
@@ -216,7 +258,12 @@ class LeaseLostError(JobApiError):
 #: 없는 단계는 `STAGE_FAILED` 로 떨어진다 — 구현이 생길 때 여기 한 줄을 늘린다.
 _STAGE_DEFAULT_CODE: Final[dict[str, StageErrorCode]] = {
     "scene_detection": "SCENE_DETECTION_FAILED",
-    "vlm_metadata": "VLM_SCHEMA_INVALID",
+    # `vlm_metadata` 가 여기 없다. 계약 §9.2 가 이 단계에 준 코드는 `VLM_SCHEMA_INVALID`
+    # 하나인데 그것은 **영구**이고, 이 표의 값은 "정체 모를 예외" 에 붙는 기본값이라
+    # 재시도 가능으로 보고된다. 정체 모를 실패를 영구 코드로 적으면 두 가지가 동시에
+    # 거짓이 된다 — 원인(형식 오류가 아니었다)과 분류(일시인데 영구로 적힌다).
+    # 형식 오류는 `VlmOutputInvalidError` 로 명시적으로 발신하고, 나머지는 아래
+    # `STAGE_FAILED`(일시) 로 떨어진다 — "분류를 미룰 뿐 숨기지 않는다".
     "ocr": "OCR_FAILED",
     "asr": "ASR_FAILED",
     "indexing": "INDEX_FAILED",

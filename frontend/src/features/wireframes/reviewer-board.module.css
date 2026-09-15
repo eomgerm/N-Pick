@@ -315,7 +315,7 @@
   font-size: 9px;
   font-weight: 700;
 }
-.statusChip[data-status='pending'] {
+.statusChip[data-status='open'] {
   background: var(--warning-soft);
   color: var(--warning);
 }
@@ -323,7 +323,7 @@
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
-.statusChip[data-status='completed'] {
+.statusChip[data-status='closed'] {
   background: var(--positive-soft);
   color: var(--positive);
 }

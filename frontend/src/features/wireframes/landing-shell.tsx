@@ -25,6 +25,8 @@ export function LandingShell() {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const heroRef = useRef<HTMLElement | null>(null);
   const rolesRef = useRef<HTMLElement | null>(null);
+  const brandRef = useRef<HTMLDivElement | null>(null);
+  const brandTargetRef = useRef<HTMLDivElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isIntroDone, setIsIntroDone] = useState(false);
@@ -33,28 +35,35 @@ export function LandingShell() {
   // (transform의 영향을 받지 않는 offset* 값을 쓴다.)
   useEffect(() => {
     const hero = heroRef.current;
+    const brand = brandRef.current;
     const title = titleRef.current;
-    if (!hero || !title) return;
+    if (!hero || !brand || !title) return;
 
+    let isActive = true;
     const measure = () => {
-      // h1 상자는 가로를 꽉 채우므로, 실제로 보이는 가장 긴 줄을 기준으로 가운데를 잡는다.
+      if (!isActive || shellRef.current?.dataset.intro === 'done') return;
+      // 실제로 보이는 가장 긴 줄을 기준으로 가운데를 잡는다.
       // offsetWidth는 정수로 반올림돼 끝이 1px 어긋나므로 소수점까지 있는 rect 폭을 쓴다.
-      const lines = [...title.children] as HTMLElement[];
+      const lines = [...title.querySelectorAll<HTMLElement>(`.${styles.heroLine}`)];
       const widths = lines.map((line) => line.getBoundingClientRect().width);
       const textWidth = Math.max(...widths, 0);
       // 인트로 동안에는 짧은 줄을 오른쪽으로 밀어 '?'와 '!'의 x를 맞춘다.
       lines.forEach((line, index) => {
         line.style.setProperty('--line-shift', `${textWidth - widths[index]}px`);
       });
-      const x = (hero.clientWidth - textWidth) / 2 - title.offsetLeft;
-      const y = (hero.clientHeight - title.offsetHeight) / 2 - title.offsetTop;
+      const x = (hero.clientWidth - textWidth) / 2 - brand.offsetLeft - lines[0].offsetLeft;
+      const y = (hero.clientHeight - title.offsetHeight) / 2 - brand.offsetTop;
       hero.style.setProperty('--intro-x', `${x}px`);
       hero.style.setProperty('--intro-y', `${y}px`);
     };
 
     measure();
+    void document.fonts.ready.then(measure);
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    return () => {
+      isActive = false;
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
   useEffect(() => {
@@ -66,13 +75,16 @@ export function LandingShell() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // 두 섹션 모두 sticky로 같은 자리에 고정된 채, 스크롤 진행도로 서로 교차 페이드한다.
+  // 하나의 로고를 역할 영역의 빈 자리로 옮기고, 주변 콘텐츠만 교차 페이드한다.
   useEffect(() => {
     const shell = shellRef.current;
     const hero = heroRef.current;
     const roles = rolesRef.current;
-    if (!shell || !hero || !roles) return;
+    const brand = brandRef.current;
+    const target = brandTargetRef.current;
+    if (!shell || !hero || !roles || !brand || !target) return;
 
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let frame = 0;
     const update = () => {
       frame = 0;
@@ -84,19 +96,47 @@ export function LandingShell() {
 
       if (window.scrollY > 0) setIsIntroDone(true);
       shell.style.setProperty('--hero-fade', String(heroFade));
+      shell.style.setProperty(
+        '--brand-copy-fade',
+        String(clamp01((progress - ROLES_FADE_END) / (1 - ROLES_FADE_END))),
+      );
       hero.dataset.faded = String(heroFade <= 0);
       roles.style.setProperty('--roles-fade', String(rolesFade));
       roles.dataset.revealed = String(rolesFade > 0);
+
+      const heroBounds = hero.getBoundingClientRect();
+      const targetBounds = target.getBoundingClientRect();
+      const sourceX = heroBounds.left + brand.offsetLeft;
+      const sourceY = heroBounds.top + brand.offsetTop;
+      const scale = Math.min(
+        1,
+        targetBounds.width / Math.max(1, brand.offsetWidth),
+        targetBounds.height / Math.max(1, brand.offsetHeight),
+      );
+      const morph = reducedMotion.matches
+        ? Number(progress >= 0.5)
+        : progress * progress * (3 - 2 * progress);
+
+      brand.style.setProperty('--brand-x', `${(targetBounds.left - sourceX) * morph}px`);
+      brand.style.setProperty('--brand-y', `${(targetBounds.top - sourceY) * morph}px`);
+      brand.style.setProperty('--brand-scale', String(1 + (scale - 1) * morph));
     };
     const requestUpdate = () => {
       if (!frame) frame = window.requestAnimationFrame(update);
     };
 
     update();
+    const observer = new ResizeObserver(requestUpdate);
+    observer.observe(hero);
+    observer.observe(brand);
+    observer.observe(target);
+    reducedMotion.addEventListener('change', requestUpdate);
     window.addEventListener('scroll', requestUpdate, { passive: true });
     window.addEventListener('resize', requestUpdate, { passive: true });
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      reducedMotion.removeEventListener('change', requestUpdate);
       window.removeEventListener('scroll', requestUpdate);
       window.removeEventListener('resize', requestUpdate);
     };
@@ -122,7 +162,12 @@ export function LandingShell() {
   }, [isIntroDone]);
 
   const handleScrollCue = useCallback(() => {
-    window.scrollTo({ top: window.innerHeight, behavior: 'smooth' });
+    window.scrollTo({
+      top: window.innerHeight,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'instant'
+        : 'smooth',
+    });
   }, []);
 
   return (
@@ -156,18 +201,30 @@ export function LandingShell() {
 
       <main className={styles.main}>
         <section aria-labelledby="landing-title" className={styles.hero} ref={heroRef}>
-          <h1 className={styles.heroTitle} id="landing-title" ref={titleRef}>
-            <span className={styles.heroLine}>
-              <em className={styles.heroWord}>
-                N<span className={styles.heroTrim}>EED</span>
-              </em>
-              <span className={styles.heroTrim}>?</span>
-            </span>
-            <span className={styles.heroLine}>
-              <em className={styles.heroWord}>PICK</em>
-              <span className={styles.heroTrim}>!</span>
-            </span>
-          </h1>
+          <div className={styles.brandMotion} ref={brandRef}>
+            <h1 className={styles.heroTitle} id="landing-title" ref={titleRef}>
+              <span aria-hidden="true" className={styles.heroIcon}>
+                <Image
+                  alt=""
+                  className={styles.heroIconImage}
+                  width={1254}
+                  height={1254}
+                  sizes="(max-width: 740px) 24vw, 16vw"
+                  src="/images/landing-app-icon.png"
+                />
+              </span>
+              <span className={styles.heroLine}>
+                <em className={styles.heroWord}>
+                  N<span className={styles.heroTrim}>EED</span>
+                </em>
+                <span className={styles.heroTrim}>?</span>
+              </span>
+              <span className={styles.heroLine}>
+                <em className={styles.heroWord}>PICK</em>
+                <span className={styles.heroTrim}>!</span>
+              </span>
+            </h1>
+          </div>
           <button className={styles.scrollCue} onClick={handleScrollCue} type="button">
             <span className={styles.scrollCueLabel}>Scroll down</span>
             <ArrowDown aria-hidden="true" className={styles.scrollCueArrow} />
@@ -182,9 +239,7 @@ export function LandingShell() {
           style={{ '--roles-fade': 0 } as CSSProperties}
         >
           <div className={styles.rolesBrand}>
-            <p className={styles.wordmark}>
-              N<span className={styles.brandHyphen}>-</span>Pick
-            </p>
+            <div aria-hidden="true" className={styles.wordmarkTarget} ref={brandTargetRef} />
             <p className={styles.wordmarkTagline}>필요한 순간, 정확한 선택.</p>
             <h2 className={styles.rolesTitle} id="role-title">
               어떤 작업을 시작할까요?

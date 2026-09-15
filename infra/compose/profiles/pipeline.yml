@@ -21,6 +21,21 @@ stage_versions: {}
 # 예: scene_detection: { retry_count: 3, timeout_seconds: 600 }
 stage_overrides: {}
 
+# 잡 API §9.2의 일시 오류 허용 목록. 횟수와 독립적이며 retryable=false는 항상 제외한다.
+# 영구·미등록 오류는 이 목록에 추가해도 BE가 재시도하지 않는다.
+transient_errors:
+  - SCENE_DETECTION_FAILED
+  - OCR_FAILED
+  - ASR_FAILED
+  - INDEX_FAILED
+  - MODEL_UNAVAILABLE
+  - OUT_OF_MEMORY
+  - STAGE_TIMEOUT
+  - MEDIA_UNAVAILABLE
+  - ARTIFACT_UPLOAD_FAILED
+  - WORKER_ABORTED
+  - STAGE_FAILED
+
 # CPU 워커 / GPU 서버 배치.
 # 정적 목록으로 채우지 않는다. 워커가 claim 요청의 capabilities 로 실행 가능한 단계를
 # 선언하고 BE 가 그것으로 배정을 거른다(docs/contracts/job-api.md).

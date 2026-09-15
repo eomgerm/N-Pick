@@ -1,4 +1,4 @@
-package com.npick.search.application.port;
+package com.npick.search.domain.model;
 
 import java.time.LocalDate;
 import java.util.List;

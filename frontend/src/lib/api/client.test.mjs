@@ -100,6 +100,25 @@ test('JSON 요청은 옵션을 전달하고 성공 envelope의 data만 반환한
   assert.equal(init.signal, controller.signal);
 });
 
+test('long 식별자는 정밀도를 잃지 않는 문자열로 읽고 일반 숫자는 유지한다', async (context) => {
+  context.mock.method(
+    globalThis,
+    'fetch',
+    async () =>
+      new Response(
+        '{"isSuccess":true,"code":"COMM_200","message":"ok","data":{"feedbackId":9223372036854775807,"sceneId":398021840012345,"valid":1,"page":2}}',
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  );
+
+  assert.deepEqual(await fetchJson('/review/inquiries/1'), {
+    feedbackId: '9223372036854775807',
+    sceneId: '398021840012345',
+    valid: 1,
+    page: 2,
+  });
+});
+
 test('네트워크 실패는 한 번만 전송하고 수동 재시도는 같은 키, 새 제출은 새 키를 사용한다', async (context) => {
   const submission = {
     method: 'POST',

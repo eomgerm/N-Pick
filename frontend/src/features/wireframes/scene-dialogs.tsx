@@ -5,17 +5,19 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   Flag,
   LoaderCircle,
-  Pause,
   Play,
-  RotateCcw,
   X,
 } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import {
+  inquiryResolutionLabels,
+  inquiryStatusLabels,
+  type InquiryResolution,
+} from '@/features/wireframes/inquiry-state';
 import {
   formatTimestamp,
   getVerificationStatusLabel,
@@ -30,6 +32,7 @@ import { SearchResultNotices } from '@/features/wireframes/search-result-notices
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
+import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
 
 interface SceneDialogProps {
   children: ReactNode;
@@ -109,7 +112,10 @@ type ScenePreviewResult = Pick<
   Partial<
     Pick<
       SearchResult,
+      | 'additionalEvidence'
+      | 'clipId'
       | 'clip'
+      | 'searchResultId'
       | 'totalSeconds'
       | 'totalDuration'
       | 'broadcastDate'
@@ -136,7 +142,6 @@ interface ScenePreviewDialogProps {
   autoPlay?: boolean;
   searchExecution?: SearchExecutionPresentation;
   onClose: () => void;
-  keepLoading?: boolean;
 }
 
 export function ScenePreviewDialog({
@@ -147,10 +152,9 @@ export function ScenePreviewDialog({
   isSubmitting = false,
   onInquiry,
   onClose,
-  keepLoading = false,
   contextLabel,
   notice,
-  autoPlay = false,
+  autoPlay = true,
   searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
@@ -160,19 +164,12 @@ export function ScenePreviewDialog({
   const evidenceValue = result.matchEvidence?.value ?? result.evidence;
   const evidenceSource = result.matchEvidence?.source ?? result.source;
   const selectedSceneIndex = scenes?.findIndex((scene) => scene.id === result.id) ?? -1;
-  const [loadedSceneId, setLoadedSceneId] = useState<string | number | null>(null);
-  const isLoading = keepLoading || loadedSceneId !== result.id;
-  const [isPlaying, setIsPlaying] = useState(autoPlay);
-  const [replayCount, setReplayCount] = useState(0);
   const sceneListRef = useRef<HTMLOListElement>(null);
   const inquiryUnavailableReasonId = useId();
-  const isInquiryUnavailable = !isSubmitted && !canCreateInquiry(searchExecution);
-  useEffect(() => {
-    if (keepLoading) return;
-    // 미디어 API 연결 전, 로딩 → 준비 화면 전환을 보여 주는 데모입니다.
-    const timer = window.setTimeout(() => setLoadedSceneId(result.id), 1000);
-    return () => window.clearTimeout(timer);
-  }, [keepLoading, result.id]);
+  const hasSavedResult =
+    typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
+  const isInquiryUnavailable =
+    !isSubmitted && (!hasSavedResult || !canCreateInquiry(searchExecution));
   useEffect(() => {
     const list = sceneListRef.current;
     const selected = list?.querySelector<HTMLElement>('[aria-current="true"]');
@@ -185,26 +182,9 @@ export function ScenePreviewDialog({
       list.scrollTop += selectedBounds.bottom - listBounds.bottom;
     }
   }, [result.id]);
-  const previewTimelineStyle = {
-    '--scene-start': result.totalSeconds
-      ? `${(result.sceneStart / result.totalSeconds) * 100}%`
-      : '0%',
-    '--scene-width': result.totalSeconds
-      ? `${((result.sceneEnd - result.sceneStart) / result.totalSeconds) * 100}%`
-      : '100%',
-  } as CSSProperties;
-
-  function handleReplay() {
-    setReplayCount((current) => current + 1);
-    setIsPlaying(true);
-  }
-
   function handleSceneSelect(scene: ScenePreviewResult) {
     if (scene.id === result.id) return;
     setSelectedSceneId(scene.id);
-    setLoadedSceneId(null);
-    setIsPlaying(autoPlay);
-    setReplayCount(0);
   }
 
   return (
@@ -215,175 +195,82 @@ export function ScenePreviewDialog({
       labelledBy="preview-title"
       onClose={onClose}
     >
-      <div className={styles.previewModalBody}>
-        <div className={styles.previewPlayer}>
-          {isLoading ? (
-            <div aria-busy="true" className={shinhanStyles.previewLoading} role="status">
-              <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-              <strong>장면을 불러오고 있어요</strong>
-              <p>
-                {formatTimestamp(result.sceneStart)}부터 시작하는 영상을 준비하고 있어요.
-                <br />
-                잠시만 기다려 주세요.
-              </p>
-            </div>
-          ) : (
-            <div
-              aria-label={result.imageLabel}
-              className={`${styles.previewMedia} ${result.imageClass}`}
-              key={`media-${result.id}-${replayCount}`}
-              role="group"
+      <div className={styles.previewModalHeader}>
+        <div>
+          <span>{contextLabel ?? `구간 영상 정보 · 장면 #${result.id}`}</span>
+          <h2 id="preview-title">{result.title}</h2>
+          {result.clip ? <p>{result.clip}</p> : null}
+          {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
+        </div>
+        <div className={styles.previewHeaderActions}>
+          {onInquiry ? (
+            <button
+              aria-busy={isSubmitting}
+              aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
+              className={styles.previewReportButton}
+              data-state={
+                isSubmitted
+                  ? 'submitted'
+                  : isSubmitting
+                    ? 'submitting'
+                    : isInquiryUnavailable
+                      ? 'unavailable'
+                      : 'ready'
+              }
+              disabled={isSubmitted || isSubmitting || isInquiryUnavailable}
+              onClick={onInquiry}
+              type="button"
             >
-              <button
-                aria-label={isPlaying ? '일시정지' : '재생'}
-                className={styles.previewPlay}
-                onClick={() => setIsPlaying((current) => !current)}
-                title={isPlaying ? '일시정지' : '재생'}
-                type="button"
-              >
-                {isPlaying ? (
-                  <Pause aria-hidden="true" fill="currentColor" />
-                ) : (
-                  <Play aria-hidden="true" fill="currentColor" />
-                )}
-              </button>
-              <span className={styles.playingBadge} data-playing={isPlaying}>
-                <span aria-hidden="true" /> {isPlaying ? '재생 중' : '일시 정지'}
-              </span>
-            </div>
-          )}
-          {!notice ? (
-            <p className={shinhanStyles.previewNote}>
-              화면 미리보기용 영상 상태입니다. 실제 영상 재생은 연결 전이에요.
+              {isSubmitted ? (
+                <Check aria-hidden="true" />
+              ) : isSubmitting ? (
+                <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+              ) : isInquiryUnavailable ? (
+                <AlertTriangle aria-hidden="true" />
+              ) : (
+                <Flag aria-hidden="true" />
+              )}
+              {isSubmitted
+                ? '접수됨'
+                : isSubmitting
+                  ? '접수 중'
+                  : isInquiryUnavailable
+                    ? '문의 불가'
+                    : '이상해요'}
+            </button>
+          ) : null}
+          {onInquiry && isInquiryUnavailable ? (
+            <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
+              {!canCreateInquiry(searchExecution)
+                ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+                : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
             </p>
           ) : null}
-
-          <div
-            aria-label={`${result.totalDuration ? `전체 ${result.totalDuration} 중 ` : ''}${formatTimestamp(
-              result.sceneStart,
-            )}부터 ${formatTimestamp(result.sceneEnd)}까지 재생 구간`}
-            className={`${styles.timelinePanel} ${isPlaying && !isLoading ? styles.timelinePlaying : ''}`}
-            key={`timeline-${result.id}-${replayCount}`}
-            style={previewTimelineStyle}
+          <button
+            aria-label="Preview 닫기"
+            className={styles.iconButton}
+            onClick={onClose}
+            title="Preview 닫기"
+            type="button"
           >
-            <div className={styles.timelineHeading}>
-              <strong>{result.totalSeconds ? '전체 영상' : '문의한 영상 구간'}</strong>
-              <span>
-                선택 구간 <b>{result.duration}</b>
-              </span>
-            </div>
-            {result.totalSeconds ? (
-              <div className={styles.timelineTrack}>
-                <span className={styles.sceneRange}>
-                  <span className={styles.sceneProgress} />
-                  <span className={styles.timelinePlayhead} />
-                </span>
-              </div>
-            ) : null}
-            {result.totalDuration ? (
-              <div className={styles.timelineLabels}>
-                <span>00:00</span>
-                <span>{result.totalDuration}</span>
-              </div>
-            ) : null}
-            <div className={styles.sceneBounds}>
-              <span>IN {formatTimestamp(result.sceneStart)}</span>
-              <span>OUT {formatTimestamp(result.sceneEnd)}</span>
-            </div>
-          </div>
+            <X aria-hidden="true" />
+          </button>
+        </div>
+      </div>
 
-          <div className={`${styles.previewControls} ${shinhanStyles.playbackControls}`}>
-            <div className={styles.previewControlButtons}>
-              <button
-                className={styles.playbackButton}
-                disabled={isLoading}
-                onClick={() => setIsPlaying((current) => !current)}
-                type="button"
-              >
-                {isPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                {isPlaying ? '일시정지' : '재생'}
-              </button>
-              <button disabled={isLoading} onClick={handleReplay} type="button">
-                <RotateCcw aria-hidden="true" /> 구간 다시 재생
-              </button>
-            </div>
-            {result.totalDuration ? (
-              <span>
-                <Clock3 aria-hidden="true" /> 원본 {result.totalDuration}
-              </span>
-            ) : null}
-          </div>
+      <div className={styles.previewModalBody}>
+        <div className={styles.previewPlayer}>
+          <ScenePreviewPlayer
+            key={`${result.id}:${result.clipId ?? ''}`}
+            clipId={result.clipId}
+            sceneStart={result.sceneStart}
+            sceneEnd={result.sceneEnd}
+            title={result.title}
+            autoPlay={autoPlay}
+          />
         </div>
 
         <div className={styles.previewSidebar}>
-          <div className={styles.previewDetails}>
-            <div className={styles.previewDetailsHeading}>
-              <p>장면 정보</p>
-              <button
-                aria-label="Preview 닫기"
-                className={`${styles.iconButton} ${styles.previewCloseButton}`}
-                onClick={onClose}
-                title="Preview 닫기"
-                type="button"
-              >
-                <X aria-hidden="true" />
-              </button>
-            </div>
-            <span className={styles.previewContextLabel}>
-              {contextLabel ?? `구간 영상 정보 · 장면 #${result.id}`}
-            </span>
-            <h2 className={styles.previewSceneTitle} id="preview-title">
-              {result.title}
-            </h2>
-            {result.clip ? <p className={styles.previewSceneClip}>{result.clip}</p> : null}
-            {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
-            <dl>
-              <div>
-                <dt>방송일</dt>
-                <dd>{result.broadcastDate ?? '미상'}</dd>
-              </div>
-              <div>
-                <dt>촬영일</dt>
-                <dd>
-                  {result.filmedDate
-                    ? `${result.filmedDate} · ${getVerificationStatusLabel(filmingStatus)}`
-                    : getVerificationStatusLabel(filmingStatus)}
-                </dd>
-              </div>
-              <div>
-                <dt>샷 유형</dt>
-                <dd>{result.shotType ?? '정보 없음'}</dd>
-              </div>
-              <div>
-                <dt>장면 유형</dt>
-                <dd>{result.sceneType ?? '정보 없음'}</dd>
-              </div>
-              <div>
-                <dt>근거</dt>
-                <dd>{evidenceField}</dd>
-              </div>
-            </dl>
-            <div className={styles.previewEvidence}>
-              <div className={styles.previewEvidenceHeading}>
-                <span>
-                  {evidenceField}
-                  {onInquiry ? ' 일치' : ''}
-                </span>
-                {result.matchEvidence ? (
-                  <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
-                    {getVerificationStatusLabel(result.matchEvidence.status)}
-                  </span>
-                ) : null}
-              </div>
-              <strong>{evidenceValue}</strong>
-              <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
-            </div>
-            {onInquiry && isInquiryUnavailable ? (
-              <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
-                검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.
-              </p>
-            ) : null}
-          </div>
           {scenes && scenes.length > 0 ? (
             <section className={styles.sceneBrowser} aria-labelledby="all-scenes-title">
               <div className={styles.sceneBrowserHeading}>
@@ -439,44 +326,61 @@ export function ScenePreviewDialog({
               </ol>
             </section>
           ) : null}
-          <SearchResultNotices execution={searchExecution} variant="preview" />
-          {onInquiry ? (
-            <div className={styles.previewDetailsActions}>
-              <button
-                aria-busy={isSubmitting}
-                className={styles.previewReportButton}
-                data-state={
-                  isSubmitted
-                    ? 'submitted'
-                    : isSubmitting
-                      ? 'submitting'
-                      : isInquiryUnavailable
-                        ? 'unavailable'
-                        : 'ready'
-                }
-                disabled={isSubmitted || isSubmitting || isInquiryUnavailable}
-                onClick={onInquiry}
-                type="button"
-              >
-                {isSubmitted ? (
-                  <Check aria-hidden="true" />
-                ) : isSubmitting ? (
-                  <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-                ) : isInquiryUnavailable ? (
-                  <AlertTriangle aria-hidden="true" />
-                ) : (
-                  <Flag aria-hidden="true" />
-                )}
-                {isSubmitted
-                  ? '접수됨'
-                  : isSubmitting
-                    ? '접수 중'
-                    : isInquiryUnavailable
-                      ? '문의 불가'
-                      : '이상해요'}
-              </button>
+          <div className={styles.previewDetails}>
+            <p>장면 정보</p>
+            <dl>
+              <div>
+                <dt>방송일</dt>
+                <dd>{result.broadcastDate ?? '미상'}</dd>
+              </div>
+              <div>
+                <dt>촬영일</dt>
+                <dd>
+                  {result.filmedDate
+                    ? `${result.filmedDate} · ${getVerificationStatusLabel(filmingStatus)}`
+                    : getVerificationStatusLabel(filmingStatus)}
+                </dd>
+              </div>
+              <div>
+                <dt>샷 유형</dt>
+                <dd>{result.shotType ?? '정보 없음'}</dd>
+              </div>
+              <div>
+                <dt>장면 유형</dt>
+                <dd>{result.sceneType ?? '정보 없음'}</dd>
+              </div>
+              <div>
+                <dt>근거</dt>
+                <dd>{evidenceField}</dd>
+              </div>
+            </dl>
+            <div className={styles.previewEvidence}>
+              <div className={styles.previewEvidenceHeading}>
+                <span>
+                  {evidenceField}
+                  {onInquiry ? ' 일치' : ''}
+                </span>
+                {result.matchEvidence ? (
+                  <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
+                    {getVerificationStatusLabel(result.matchEvidence.status)}
+                  </span>
+                ) : null}
+              </div>
+              <strong>{evidenceValue}</strong>
+              <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
-          ) : null}
+          </div>
+          {result.additionalEvidence?.map((evidence, index) => (
+            <div className={styles.previewEvidence} key={index}>
+              <strong>
+                {evidence.field} · {evidence.value}
+              </strong>
+              <p>
+                {evidence.source} · {getVerificationStatusLabel(evidence.status)}
+              </p>
+            </div>
+          ))}
+          <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
       </div>
     </SceneDialog>
@@ -485,13 +389,10 @@ export function ScenePreviewDialog({
 
 export type InquiryDetails = {
   comment: string;
-} & ({ status: 'pending' | 'reviewing' } | { status: 'resolved'; resolution: string });
-
-const inquiryStatusLabels = {
-  pending: '대기',
-  reviewing: '처리 중',
-  resolved: '완료',
-} as const;
+} & (
+  | { status: 'open' | 'reviewing' }
+  | { status: 'closed'; resolution: InquiryResolution; resolutionSummary: string }
+);
 
 interface InquiryDialogProps {
   result: SearchResult;
@@ -521,11 +422,11 @@ export function InquiryDialog({
   const hasError = error !== undefined && error !== null;
   const statusMessage = !history
     ? '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'
-    : history.status === 'pending'
+    : history.status === 'open'
       ? '접수되어 검수자 확인을 기다리고 있습니다.'
       : history.status === 'reviewing'
         ? '검수자가 처리 중인 문의입니다.'
-        : '처리가 완료된 문의입니다. 문의 내용과 처리 내용을 확인하세요.';
+        : '종료된 문의입니다. 문의 내용과 처리 결과를 확인하세요.';
 
   return (
     <SceneDialog
@@ -601,12 +502,15 @@ export function InquiryDialog({
             <ApiErrorNotice error={error} id={errorId} />
           </div>
         ) : null}
-        {history?.status === 'resolved' ? (
+        {history?.status === 'closed' ? (
           <section aria-labelledby="inquiry-resolution-title" className={styles.inquiryResolution}>
             <h3 id="inquiry-resolution-title">
-              <Check aria-hidden="true" /> 처리 내용
+              <Check aria-hidden="true" /> 처리 결과
             </h3>
-            <p>{history.resolution}</p>
+            <p>
+              <strong>{inquiryResolutionLabels[history.resolution]}</strong>
+            </p>
+            <p>{history.resolutionSummary}</p>
           </section>
         ) : null}
         <div className={styles.modalActions}>

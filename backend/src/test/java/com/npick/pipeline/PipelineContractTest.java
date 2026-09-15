@@ -59,6 +59,16 @@ class PipelineContractTest {
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @Test
+    void vlmRunsAfterTextStagesAndAdvertisesExtendedEvidenceSchema() {
+        assertThat(PipelineStages.NAMES.indexOf("vlm_metadata"))
+                .isGreaterThan(PipelineStages.NAMES.indexOf("scene_transcript_mapping"));
+        assertThat(PipelineStages.NAMES.indexOf("vlm_metadata"))
+                .isLessThan(PipelineStages.NAMES.indexOf("entity_extraction"));
+        assertThat(PipelineStages.outputSchema("vlm_metadata")).isEqualTo("npick.stage.vlm_metadata.output/v2");
+        assertThat(PipelineStages.FATAL).doesNotContain("vlm_metadata", "ocr", "asr");
+    }
+
     private static PipelineRun run(String status) {
         Map<String, Object> stages = new LinkedHashMap<>();
         PipelineStages.NAMES.forEach(s -> stages.put(s, Map.of("status", "pending", "attempts", 0)));

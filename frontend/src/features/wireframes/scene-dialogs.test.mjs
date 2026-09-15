@@ -10,6 +10,13 @@ const cssModuleUrl = `data:text/javascript,${encodeURIComponent(
   'export default new Proxy({}, { get: (_, key) => String(key) });',
 )}`;
 const localFiles = {
+  '@/features/wireframes/scene-preview-player': './scene-preview-player.tsx',
+  '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
+  '@/lib/api/client': '../../lib/api/client.ts',
+  '@/lib/api/error': '../../lib/api/error.ts',
+  '@/lib/env': '../../lib/env.ts',
+  '@/lib/auth/session-events': '../../lib/auth/session-events.ts',
+  '@/features/wireframes/inquiry-state': './inquiry-state.ts',
   '@/components/api-error-notice': '../../components/api-error-notice.tsx',
   '@/features/wireframes/demo-scenes': './demo-scenes.ts',
   '@/features/wireframes/search-execution-status': './search-execution-status.ts',
@@ -51,7 +58,7 @@ const { results } = await import('./demo-scenes.ts');
 function renderPreview({
   isSubmitted = false,
   isSubmitting = false,
-  result = results[0],
+  result = { ...results[0], searchResultId: '987' },
   state,
 } = {}) {
   return renderToStaticMarkup(
@@ -62,7 +69,6 @@ function renderPreview({
       isSubmitting,
       onInquiry() {},
       onClose() {},
-      keepLoading: true,
       searchExecution: getDemoSearchExecution(state),
     }),
   );
@@ -83,6 +89,50 @@ test('출처 접두사는 matchEvidence가 있는 결과에만 표시한다', ()
   assert.ok(!withoutEvidence.includes('출처 · 장소가 정확한지 아직 확인되지 않았어요.'));
 });
 
+test('ID 없는 데모는 미디어를 요청하거나 재생 중으로 표시하지 않는다', () => {
+  const html = renderPreview();
+  assert.ok(html.includes('영상 ID 또는 장면 구간을 확인할 수 없어 재생할 수 없습니다.'));
+  assert.ok(!html.includes('<video'));
+  assert.ok(!html.includes('재생 중'));
+});
+
+const { getSceneMediaUrl, toScenePreviewMedia, formatMediaTime } =
+  await import('./scene-preview-media.ts');
+
+test('큰 clip ID를 보존하고 밀리초를 초로 변환한다', () => {
+  const media = toScenePreviewMedia({
+    clipId: '9007199254740993',
+    startTimeMs: 1250,
+    endTimeMs: 2700,
+  });
+  assert.deepEqual(media, { clipId: '9007199254740993', sceneStart: 1.25, sceneEnd: 2.7 });
+  assert.ok(getSceneMediaUrl(media).endsWith('/api/v1/media/9007199254740993'));
+  assert.equal(formatMediaTime(3661.25), '1:01:01');
+});
+
+test('경로·다른 ID·비정상 구간을 media URL로 만들지 않는다', () => {
+  for (const clipId of [
+    undefined,
+    '',
+    '0',
+    '../21',
+    'C:\\media\\21.mp4',
+    'https://example.com/21',
+    'scene_21',
+  ]) {
+    assert.equal(getSceneMediaUrl({ clipId, sceneStart: 0, sceneEnd: 1 }), null);
+  }
+  for (const [sceneStart, sceneEnd] of [
+    [-1, 1],
+    [2, 1],
+    [1, 1],
+    [NaN, 1],
+    [0, Infinity],
+  ]) {
+    assert.equal(getSceneMediaUrl({ clipId: '21', sceneStart, sceneEnd }), null);
+  }
+});
+
 test('정상 Preview는 문의를 허용하고 공용 송출 전 고지를 표시한다', () => {
   const html = renderPreview();
 
@@ -90,6 +140,15 @@ test('정상 Preview는 문의를 허용하고 공용 송출 전 고지를 표�
   assert.ok(html.includes('이상해요'));
   assert.ok(!html.includes('문의 불가'));
   assert.ok(html.includes('송출 전 최종 확인'));
+});
+
+test('데모와 유효하지 않은 결과 ID로는 문의를 접수할 수 없다', () => {
+  for (const searchResultId of [undefined, null, '', '0', '-1', '1.5', 'scene-1']) {
+    const html = renderPreview({ result: { ...results[0], searchResultId } });
+    assert.match(html, /data-state="unavailable"/);
+    assert.match(html, /저장된 검색 결과가 아니므로 문의할 수 없습니다/);
+    assert.match(html, /disabled=""/);
+  }
 });
 
 test('접수 완료와 snapshot 문의 불가를 다른 상태로 표시한다', () => {
