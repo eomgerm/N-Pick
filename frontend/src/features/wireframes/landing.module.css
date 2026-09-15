@@ -1,352 +1,678 @@
 .shell {
+  --accent: #35cfff;
+  --accent-mint: #4fe3bd;
+  --edge: clamp(24px, 4.6vw, 68px);
+
+  position: relative;
   min-height: 100svh;
+  color: #ffffff;
+  /* 인트로는 완전한 검은 화면에서 시작한다. */
+  background: #000000;
+  font-family:
+    'Pretendard', 'Inter', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
+    Arial, sans-serif;
+}
+
+/* ── 비디오 배경과 어두운 그레이 오버레이 ───────────────────────────── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: #0b0d11;
+}
+
+/* 인트로 동안 숨어 있다가, 헤드라인이 자리를 잡으면 함께 드러나는 요소들. */
+.backdrop,
+.overlay,
+.header,
+.scrollCue {
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.shell[data-intro='done'] .backdrop,
+.shell[data-intro='done'] .overlay,
+.shell[data-intro='done'] .header,
+.shell[data-intro='done'] .scrollCue {
+  opacity: 1;
+}
+
+.video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 채도만 낮춰 그레이 톤으로 맞추고, 야경의 디테일은 살린다. */
+  filter: saturate(0.72) contrast(1.06) brightness(1.16);
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(13, 15, 19, 0.72) 0%,
+      rgba(17, 20, 25, 0.34) 38%,
+      rgba(10, 12, 16, 0.82) 100%
+    ),
+    linear-gradient(90deg, rgba(10, 12, 16, 0.66) 0%, rgba(10, 12, 16, 0.16) 58%),
+    rgba(44, 48, 55, 0.3);
+}
+
+/* ── 상단 로고 ───────────────────────────────────────────────────── */
+
+.header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: clamp(22px, 3vh, 34px) var(--edge);
+}
+
+.brand {
+  color: #ffffff;
+  font-size: clamp(20px, 1.7vw, 27px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  text-decoration: none;
+}
+
+.brandHyphen {
+  color: var(--accent);
+}
+
+.headerNote {
   display: flex;
   flex-direction: column;
-  overflow: clip;
-  color: #17243b;
-  background: radial-gradient(ellipse at 18% 60%, #e5f0ff 0, transparent 48%), #f8faff;
-  font-family: 'DM Sans', 'Segoe UI', Arial, sans-serif;
+  align-items: flex-end;
+  gap: 2px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 40px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-align: right;
+  word-break: keep-all;
 }
-.header,
-.footer {
-  width: min(1280px, calc(100% - 96px));
+
+/* 아래 두 줄은 히어로 헤드라인과 같은 진행도로 사라져, 역할 카드 구간에서는 남지 않는다.
+   --hero-fade는 landing-shell이 .shell에 스크롤에 맞춰 갱신한다. */
+.headerNoteSub {
+  opacity: var(--hero-fade, 1);
+}
+
+/* 첫 줄(태그라인)만 밝게 두고, 아래 두 줄은 보조 문구로 한 단계 물러난다. */
+.headerNoteLead {
+  margin-bottom: 10px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 18px;
+  letter-spacing: 0.02em;
+}
+
+.main {
+  position: relative;
+  z-index: 2;
+}
+
+/* 히어로와 역할 섹션이 같은 자리에 겹쳐 고정되므로, 크로스페이드에 쓸 스크롤 여유를 따로 만든다. */
+.main::after {
+  content: '';
+  display: block;
+  height: 100svh;
+}
+
+/* ── 히어로 ───────────────────────────────────────────────────────── */
+
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 100svh;
+  width: min(1440px, 100%);
   margin: 0 auto;
+  padding: clamp(110px, 16vh, 180px) var(--edge) clamp(52px, 8vh, 96px);
+  /* 로고는 역할 카드보다 위에서 이동하며 카드 클릭을 가로채지 않는다. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.hero[data-faded='true'] .scrollCue {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.brandMotion {
+  position: relative;
+  width: max-content;
+  transform: translate3d(var(--brand-x, 0px), var(--brand-y, 0px), 0) scale(var(--brand-scale, 1));
+  transform-origin: top left;
+  transition: transform 140ms ease-out;
+  will-change: transform;
+}
+
+.heroTitle {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding-left: calc(1.24em + 1cap);
+  /* 히어로 헤드라인 전용 디스플레이 서체. 400 한 종뿐이라 굵기 합성을 끈다. */
+  font-family: 'Black Han Sans', 'Apple SD Gothic Neo', 'Malgun Gothic', Arial, sans-serif;
+  font-synthesis-weight: none;
+  font-size: clamp(42px, 8.4vw, 150px);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+  text-transform: uppercase;
+  /* 인트로 동안 화면 한가운데로 밀어 두었다가 제자리로 돌아온다. 이동량은 landing-shell이 실측해 넣는다. */
+  transform: translate3d(var(--intro-x, 0px), var(--intro-y, 0px), 0);
+  transition: transform 1000ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.shell[data-intro='done'] .heroTitle {
+  transform: none;
+}
+
+.heroIcon {
+  position: absolute;
+  inset: 0 auto auto 0;
+  /* 줄 간격(0.95em) + 대문자 높이 + 둥근 획 끝의 여유(0.04em). */
+  width: calc(0.99em + 1cap);
+  height: calc(0.99em + 1cap);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+.shell[data-intro='done'] .heroIcon {
+  opacity: 1;
+}
+
+.heroIconImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* 원본 PNG의 투명 여백을 제외한 아이콘 높이를 두 줄에 맞춘다. */
+  transform: translateY(2.2%) scale(1.193);
+}
+
+.heroLine {
+  display: block;
+  /* 글자 폭만큼만 차지해야 wipe가 문장 끝에서 정확히 끝난다. */
+  width: fit-content;
+  /* 페이드가 아니라, 왼쪽에서 오른쪽으로 폭이 늘어나며 글자가 드러난다. */
+  animation: wipeIn 900ms cubic-bezier(0.65, 0, 0.35, 1) 300ms both;
+  /* 인트로 동안 짧은 줄을 오른쪽으로 밀어 두 줄의 끝을 맞춘다. 이동량은 landing-shell이 실측해 넣는다. */
+  transform: translate3d(var(--line-shift, 0px), 0, 0);
+  transition: transform 1000ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* 줄바꿈이 일어나는 좁은 화면에서도 각 행의 오른쪽 끝을 맞춘다. */
+.shell[data-intro='running'] .heroLine {
+  text-align: right;
+}
+
+/* 좌하단으로 정착하면 두 줄 모두 왼쪽 맞춤으로 돌아온다. */
+.shell[data-intro='done'] .heroLine {
+  transform: none;
+}
+
+/* 첫 줄이 끝난 뒤 둘째 줄이 같은 방식으로 이어진다. */
+.heroLine:last-child {
+  animation-delay: 1300ms;
+}
+
+/* 헤드라인 글자는 흰색으로 통일한다.
+   (--accent / --accent-mint는 로고 하이픈·역할 카드 등 다른 요소에서 계속 쓴다.) */
+.heroWord {
+  color: #ffffff;
+  font-style: normal;
+}
+
+/* 인트로가 끝나면 'EED'·'?'·'!'가 사라지고 좌하단에 'N / PICK' 워드마크만 남는다.
+   opacity와 함께 font-size를 0으로 줄여, 글자가 차지하던 폭까지 접는다. */
+.heroTrim {
+  transition:
+    font-size 900ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 420ms ease;
+}
+
+.shell[data-intro='done'] .heroTrim {
+  font-size: 0;
+  opacity: 0;
+}
+
+/* ── 스크롤 안내 ─────────────────────────────────────────────────── */
+
+.scrollCue {
+  position: absolute;
+  right: var(--edge);
+  bottom: clamp(52px, 8vh, 96px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.8);
+  background: none;
+  transition: color 180ms;
+  pointer-events: auto;
+}
+
+.shell[data-intro='done'] .scrollCue {
+  opacity: var(--hero-fade, 1);
+}
+
+.scrollCue:hover {
+  color: #ffffff;
+}
+
+.scrollCueLabel {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.scrollCueArrow {
+  width: 17px;
+  height: 17px;
+  animation: nudge 1800ms ease-in-out infinite;
+}
+
+/* ── 역할 선택 ───────────────────────────────────────────────────── */
+
+.roles {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  column-gap: clamp(40px, 6vw, 110px);
+  min-height: 100svh;
+  width: min(1440px, 100%);
+  /* 음수 마진으로 히어로와 같은 자리에 겹친 뒤, 함께 sticky로 고정된 채 페이드 인 한다. */
+  margin: -100svh auto 0;
+  padding: clamp(110px, 15vh, 170px) var(--edge) clamp(26px, 4vh, 44px);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  opacity: var(--roles-fade, 1);
+  will-change: opacity;
+  /* 배경은 영상 프레임과 무관하게 카드가 읽히도록 한 겹 더 어둡게 깐다. */
+  background: linear-gradient(
+    180deg,
+    rgba(9, 11, 15, 0.6) 0%,
+    rgba(9, 11, 15, 0.74) 52%,
+    rgba(9, 11, 15, 0.6) 100%
+  );
+}
+
+.roles[data-revealed='false'] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.rolesBrand {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.rolesBrand > :not(.wordmarkTarget) {
+  /* 이동 중인 로고 아래로 안내 문구가 겹치지 않도록 도착 무렵에 보여 준다. */
+  opacity: var(--brand-copy-fade, 0);
+  transition: opacity 140ms ease-out;
+}
+
+.wordmarkTarget {
+  /* 같은 로고가 도착할 자리를 실제 레이아웃 안에 확보한다. */
+  height: 1.9em;
+  font-size: clamp(42px, 7vw, 120px);
+}
+
+.wordmarkTagline {
+  margin: 18px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: clamp(13px, 1vw, 16px);
+  letter-spacing: 0.02em;
+}
+
+.rolesTitle {
+  margin: clamp(34px, 5vh, 56px) 0 0;
+  font-size: clamp(24px, 2.3vw, 34px);
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: -0.035em;
+  word-break: keep-all;
+}
+
+.rolesDescription {
+  margin: 12px 0 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 15px;
+}
+
+.roleList {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(14px, 1.4vw, 20px);
+}
+
+/* 카드 = 사진이 전면을 채우고, 하단만 blur 패널로 덮어 글자를 얹는다 */
+.roleCard {
+  --card-rise: 24px;
+  --card-scale: 1;
+
+  position: relative;
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 3 / 4;
+  /* 세로가 짧은 화면에서 카드가 한 화면을 넘지 않도록 묶어 둔다. */
+  max-height: min(520px, 62vh);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 26px;
+  color: #ffffff;
+  background: rgba(14, 17, 22, 0.5);
+  text-decoration: none;
+  /* 사진과 글자를 함께 흑백으로 묶고, hover에서만 색을 되돌린다. */
+  filter: grayscale(1);
+  transform: translate3d(0, calc((1 - var(--roles-fade, 1)) * var(--card-rise)), 0)
+    scale(var(--card-scale));
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 340ms ease,
+    box-shadow 260ms ease,
+    border-color 200ms;
+}
+
+.roleCard:nth-child(2) {
+  --card-rise: 40px;
+}
+
+.roleCard:hover,
+.roleCard:focus-visible {
+  --card-scale: 1.04;
+
+  z-index: 1;
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.5);
+  filter: grayscale(0);
+}
+
+.cardMedia {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* 사진 아래쪽을 살짝 눌러 글자 대비를 확보한다. 짙은 부분은 유리 패널이 맡는다. */
+.cardMedia::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 10, 14, 0) 55%, rgba(8, 10, 14, 0.4) 100%);
+}
+
+.cardImage {
+  object-fit: cover;
+}
+
+/* 카드 중간에서 시작해 아래로 갈수록 짙어지는 프로스티드 글래스.
+   mask로 blur 자체를 서서히 켜기 때문에 패널 위쪽에 경계선이 생기지 않는다. */
+.cardBody {
+  /* 램프 구간을 위쪽 여백으로 확보해, 카드 높이가 달라져도 글자는 항상 마스크가
+     완전히 켜진 자리에서 시작한다. */
+  --glass-ramp: 104px;
+
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--glass-ramp) + 12px) clamp(16px, 1.4vw, 20px) clamp(16px, 1.4vw, 18px);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.05) 58%,
+      rgba(255, 255, 255, 0.09) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(8, 10, 14, 0) 0%,
+      rgba(8, 10, 14, 0.34) 46%,
+      rgba(8, 10, 14, 0.62) 100%
+    );
+  backdrop-filter: blur(22px) saturate(1.25);
+  /* -webkit- 접두사는 직접 쓰지 않는다. Next(Lightning CSS)가 타깃에 맞춰 붙여 주는데,
+     손으로 같이 적으면 표준 속성 쪽이 통째로 빠져 최신 크롬에서 효과가 죽는다. */
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 1) var(--glass-ramp));
+}
+
+.cardTitle {
+  font-size: clamp(17px, 1.4vw, 21px);
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+/* 참고 시안의 이탤릭 세리프 한 줄. 한글은 이탤릭이 없어 영문 카피로 둔다.
+   칩을 뺀 뒤로는 이 줄 색이 두 역할을 구분하는 유일한 단서다. */
+.cardTagline {
+  margin-top: 3px;
+  color: var(--accent);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(16px, 1.35vw, 20px);
+  font-style: italic;
+  letter-spacing: -0.01em;
+}
+
+.reviewerCard .cardTagline {
+  color: var(--accent-mint);
+}
+
+.cardText {
+  margin-top: 9px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12.5px;
+  line-height: 1.55;
+  word-break: keep-all;
+}
+
+.cardCta {
+  display: grid;
+  place-items: center;
+  height: 46px;
+  margin-top: 16px;
+  border-radius: 999px;
+  color: #0b0f14;
+  background: #ffffff;
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  transition: background-color 200ms;
+}
+
+.roleCard:hover .cardCta {
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.footer {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-.header {
-  min-height: 100px;
-}
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 23px;
-  font-weight: 800;
-  letter-spacing: -1px;
-  text-decoration: none;
-}
-.brandMark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 36px;
-  border-radius: 11px 11px 11px 3px;
-  color: white;
-  background: #1473e6;
-  font-size: 24px;
-  font-style: italic;
-}
-.headerNote {
-  font-size: 13px;
-  color: #69778d;
-}
-.main {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1.12fr 1fr;
-  align-items: center;
-  gap: 90px;
-  width: min(1180px, calc(100% - 96px));
-  min-height: 650px;
-  margin: 0 auto;
-  padding: 48px 0 56px;
-}
-.visual {
-  position: relative;
-  min-width: 0;
-  text-align: center;
-}
-.eyebrow {
-  color: #52769d;
+  gap: 16px;
+  padding-top: clamp(24px, 4vh, 40px);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.58);
   font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 2px;
-  margin: 0 0 17px;
 }
-.visual h1 {
-  margin: 0;
-  font-size: clamp(72px, 7.5vw, 104px);
-  line-height: 1;
-  letter-spacing: -7px;
-  font-weight: 800;
-}
-.visual h1 span {
-  color: #1473e6;
-}
-.tagline {
-  margin: 22px 0 0;
-  font-size: 19px;
-  color: #55647a;
-  letter-spacing: -0.7px;
-}
-.cubeStage {
-  position: relative;
-  height: 300px;
-  margin: 8px -60px 0;
-  isolation: isolate;
-}
-.cubeStage canvas {
-  display: block;
-}
-.cubeFallback {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 145px;
-  aspect-ratio: 1;
-  border: 2px solid #fff;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #ffffffa6, #66c8ff20 45%, #5afad83b);
-  box-shadow:
-    inset 10px 10px 30px #ffffffb0,
-    14px 20px 0 #73a7ff25,
-    0 30px 60px #1473e633;
-  transform: translate(-50%, -50%) rotate(-25deg) skew(10deg, 10deg);
-}
-.cubeFallback[data-ready='true'] {
-  opacity: 0;
-}
-.visualCaption {
-  color: #7b8aa0;
-  font-size: 12px;
-}
-.roles {
-  animation: reveal 700ms 2150ms both;
-}
-.roles h2 {
-  margin: 0;
-  font-size: clamp(25px, 2.5vw, 34px);
-  line-height: 1.35;
-  letter-spacing: -1.7px;
-  font-weight: 750;
-}
-.roleDescription {
-  margin: 14px 0 32px;
-  font-size: 15px;
-  color: #758095;
-}
-.roleCard {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  min-height: 150px;
-  padding: 25px;
-  margin-top: 16px;
-  border: 1px solid #dce7f8;
-  border-radius: 20px;
-  background: #ffffffd9;
-  box-shadow: 0 10px 30px #26549905;
-  text-decoration: none;
-  transition:
-    border-color 180ms,
-    box-shadow 180ms,
-    transform 180ms;
-}
-.roleCard:hover {
-  border-color: #1473e6;
-  box-shadow: 0 16px 36px #1473e617;
-  transform: translateY(-3px);
-}
-.roleIcon {
-  flex-shrink: 0;
-  width: 56px;
-  height: 62px;
-  display: grid;
-  place-items: center;
-  border-radius: 16px;
-  color: #1473e6;
-  background: #edf4ff;
-}
-.roleIcon svg {
-  width: 27px;
-  height: 27px;
-  stroke-width: 1.6;
-}
-.cardCopy {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-.cardCopy small {
-  margin-bottom: 8px;
-  color: #1473e6;
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 1.5px;
-}
-.cardCopy strong {
-  font-size: 21px;
-  letter-spacing: -0.8px;
-  font-weight: 750;
-}
-.cardCopy > span {
-  margin-top: 9px;
-  color: #798396;
-  font-size: 12px;
-  line-height: 1.5;
-  word-break: keep-all;
-}
-.arrow {
-  width: 20px;
-  color: #7394bc;
-  flex-shrink: 0;
-}
-.reviewerCard .roleIcon {
-  color: #168b80;
-  background: #eaf8f4;
-}
-.reviewerCard small {
-  color: #168b80;
-}
-.footer {
-  min-height: 72px;
-  color: #8590a1;
-  font-size: 11px;
-  border-top: 1px solid #e4ebf5;
-}
-.shell a:focus-visible {
-  outline: 3px solid #1473e6;
+
+.shell a:focus-visible,
+.shell button:focus-visible {
+  outline: 3px solid var(--accent);
   outline-offset: 5px;
 }
-.intro {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  background: radial-gradient(ellipse at 50% 65%, #e4efff, #f8faff 65%);
-  animation: dismissIntro 650ms 1950ms forwards;
-}
-.wordmark {
-  display: flex;
-  align-items: baseline;
-  font-size: clamp(52px, 10vw, 132px);
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: -0.065em;
-  color: #17243b;
-}
-.letters {
-  overflow: hidden;
-  width: 2.23em;
-  animation: collapseLetters 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
-}
-.wordSpace {
-  width: 0.3em;
-  animation: collapseLetters 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
-}
-.hyphen {
-  width: 0;
-  opacity: 0;
-  overflow: hidden;
-  color: #1473e6;
-  animation: showHyphen 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
-}
-.punctuation {
-  width: 0.26em;
-  overflow: hidden;
-  animation: collapseLetters 850ms cubic-bezier(0.65, 0, 0.2, 1) 800ms forwards;
-}
-.intro p {
-  margin-top: 24px;
-  font-size: 14px;
-  color: #73829a;
-  letter-spacing: 1px;
-}
-@keyframes collapseLetters {
-  to {
-    width: 0;
-    opacity: 0;
-  }
-}
-@keyframes showHyphen {
-  to {
-    width: 0.36em;
-    opacity: 1;
-  }
-}
-@keyframes dismissIntro {
-  to {
-    opacity: 0;
-    visibility: hidden;
-    transform: scale(1.035);
-  }
-}
-@keyframes reveal {
+
+@keyframes wipeIn {
   from {
-    opacity: 0;
-    transform: translateY(20px);
+    clip-path: inset(0 100% 0 0);
   }
   to {
+    /* 끝에서 살짝 넘겨 마지막 글자의 획이 잘리지 않게 한다. */
+    clip-path: inset(0 -2% 0 0);
+  }
+}
+
+@keyframes nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(7px);
+  }
+}
+
+/* ── 반응형 ──────────────────────────────────────────────────────── */
+
+@media (max-width: 1000px) {
+  .headerNote {
+    font-size: 26px;
+  }
+  .headerNoteLead {
+    font-size: 14px;
+  }
+  .roles {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-content: center;
+    row-gap: clamp(34px, 6vh, 56px);
+  }
+  .rolesBrand,
+  .roleList {
+    grid-column: 1;
+  }
+  .rolesBrand {
+    grid-row: 1;
+  }
+  .roleList {
+    grid-row: 2;
+  }
+  .footer {
+    grid-row: 3;
+  }
+  .rolesTitle {
+    margin-top: clamp(24px, 4vh, 36px);
+  }
+}
+
+@media (max-width: 740px) {
+  .headerNote {
+    display: none;
+  }
+  .hero {
+    padding-right: calc(var(--edge) + 40px);
+  }
+  .heroTitle,
+  .wordmarkTarget {
+    font-size: clamp(38px, 12.5vw, 66px);
+  }
+  .scrollCue {
+    bottom: clamp(28px, 5vh, 48px);
+  }
+  .roleList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* 세로로 쌓이므로 카드를 가로로 눕혀 두 장이 한 화면에 들어가게 한다. */
+  .roleCard {
+    aspect-ratio: 16 / 11;
+    border-radius: 22px;
+  }
+  .cardBody {
+    --glass-ramp: 56px;
+
+    padding: calc(var(--glass-ramp) + 10px) 16px 14px;
+  }
+  /* 카드가 낮아 유리 패널이 화면을 다 덮어 버리므로 설명 한 줄은 접는다. */
+  .cardText {
+    display: none;
+  }
+  .cardCta {
+    height: 42px;
+    margin-top: 12px;
+  }
+  .rolesDescription {
+    display: none;
+  }
+  .roles {
+    padding-top: 66px;
+    row-gap: 20px;
+  }
+  .footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brandMotion,
+  .rolesBrand > :not(.wordmarkTarget) {
+    transition: none;
+  }
+  .heroIcon {
+    transition: none;
+  }
+  .heroLine {
+    animation: none;
+    transform: none;
+    transition: none;
+  }
+  .heroTrim {
+    transition: none;
+  }
+  .heroTitle {
+    transform: none;
+    transition: none;
+  }
+  .backdrop,
+  .overlay,
+  .header,
+  .scrollCue {
     opacity: 1;
+    transition: none;
+  }
+  .scrollCueArrow {
+    animation: none;
+  }
+  .hero,
+  .rolesBrand,
+  .roleCard,
+  .roleCard:nth-child(2) {
     transform: none;
   }
-}
-@media (max-width: 1000px) {
-  .main {
-    gap: 32px;
-  }
-  .roleCard {
-    gap: 14px;
-    padding: 20px;
-  }
-  .cardCopy strong {
-    font-size: 18px;
-  }
-}
-@media (max-width: 740px) {
-  .header,
-  .footer {
-    width: calc(100% - 40px);
-  }
-  .header {
-    min-height: 80px;
-  }
-  .main {
-    width: calc(100% - 40px);
-    grid-template-columns: 1fr;
-    padding: 28px 0 40px;
-    gap: 42px;
-  }
-  .visual h1 {
-    font-size: 74px;
-  }
-  .cubeStage {
-    height: 220px;
-    margin: 0 -20px;
-  }
-  .visualCaption {
-    display: none;
-  }
-  .roles {
-    width: min(100%, 480px);
-    margin: 0 auto;
-  }
-  .roles h2 {
-    font-size: 27px;
-  }
-  .roleDescription {
-    margin-bottom: 24px;
-  }
-  .roleCard {
-    min-height: 126px;
-  }
-  .headerNote {
-    font-size: 11px;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .intro {
-    display: none;
-  }
-  .roles {
-    animation: none;
+  .roleCard:hover,
+  .roleCard:focus-visible {
+    transform: none;
   }
   .roleCard {
     transition: none;

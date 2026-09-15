@@ -170,8 +170,8 @@ result = describe_scenes([scene], paths, shared_client())
 result.scenes[0].shot_type.value  # 'anchor' | 'interview' | 'b_roll' | 'unknown'
 result.scenes[0].caption  # Caption(...) 또는 None — 근거가 없으면 비운다
 result.scenes[0].scene_type  # type='scene_type' 인 **태그 후보**. scene 컬럼이 아니다
-result.scenes[0].caption.evidence  # 이 판단의 근거가 된 keyframe 들
-result.config_version  # 'vlm-metadata-config/v1:...'
+result.scenes[0].caption.evidence  # 이 판단의 근거가 된 keyframe·OCR 관측·대사 구간 참조
+result.config_version  # 'vlm-metadata-config/v2:...'
 result.model_version  # '<모델>@<리비전>'
 ```
 
@@ -362,12 +362,15 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_VLM_MODEL` | (없음) | VLM 가중치 식별자. **기본값을 두지 않는다** — 후보 비교로 정할 값이라 코드가 고르면 근거 없는 동결이다(FRD §11). 비어 있으면 이 단계가 `capabilities` 에서 빠진다 |
 | `NPICK_AI_VLM_MODEL_REVISION` | `main` | 가중치 리비전. 재현 식별자에 들어간다 |
 | `NPICK_AI_VLM_MODEL_DIR` | 없음 | VLM 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — 파드 디스크가 휘발성이라 띄울 때마다 수 GB 를 다시 받는다 |
-| `NPICK_AI_EMBEDDING_MODEL` | (없음) | 임베딩 가중치 식별자. **기본값을 두지 않는다** — `S15P21A501-175` 의 선정이 잠정이고 Gate B 전까지 교체 가능해야 한다. 비어 있으면 `MODEL_UNAVAILABLE` |
-| `NPICK_AI_EMBEDDING_MODEL_REVISION` | `main` | 가중치 리비전. 재현 식별자에 들어간다. **운영에는 SHA 를 고정한다** — 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다 |
+| `NPICK_AI_EMBEDDING_MODEL` | `dragonkue/snowflake-arctic-embed-l-v2.0-ko` | 임베딩 가중치 식별자. **`S15P21A501-175` 가 확정한 값이다** — `NPICK_AI_VLM_MODEL` 이 기본값을 두지 않는 것과 갈린다. 바꾸면 **전체 재색인**이다. 명시적으로 비우면 `MODEL_UNAVAILABLE` |
+| `NPICK_AI_EMBEDDING_MODEL_REVISION` | `55ec6e93…`(SHA 고정) | 가중치 리비전. 재현 식별자에 들어간다. `main` 으로 두면 원격 갱신 때 같은 이름이 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다 |
 | `NPICK_AI_EMBEDDING_MODEL_DIR` | 없음 | 임베딩 가중치를 둘 곳. 컨테이너에서는 반드시 준다 |
 | `NPICK_AI_EMBEDDING_BATCH_SIZE` | `16` | 한 번에 모델에 넣는 문장 수. **결과를 바꾸지 않으므로** 버전 붙는 설정 파일이 아니라 여기 있다 |
 | `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
 | `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
+| `NPICK_AI_ASR_MODEL` | (없음) | ASR 가중치 식별자(예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기가 결과와 처리 시간을 바꾸고 실측 후 확정이라(FRD §11) 코드가 고르면 근거 없는 동결이다. 비어 있으면 이 단계가 `capabilities` 에서 빠진다. **기동 워밍업이 실패한 워커도 빠진다** — 폴링 중에 수 GB 를 다시 내려받지 않기 위해서이고, 복구는 재워밍업 또는 워커 재시작이다 |
+| `NPICK_AI_ASR_COMPUTE_TYPE` | 장치 기본값 | `float16`(CUDA) / `int8`(CPU) 등. 결과를 바꾸므로 재현 식별자의 `modelVersion` 에 함께 들어간다 |
+| `NPICK_AI_ASR_MODEL_DIR` | 없음 | ASR 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — VLM 과 같은 이유다 |
 | `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §6.4 |
 | `NPICK_AI_OLLAMA_URL` | `http://127.0.0.1:11434` | Query Resolver 가 부를 Ollama 주소 |
 | `NPICK_AI_OLLAMA_MODEL` | (없음) | 쓸 모델 태그. **기본값을 두지 않는다** — 모델이 결과를 바꾸고 실측 후 확정이라 코드가 임의로 고르면 근거 없는 동결이 된다 |
@@ -419,7 +422,7 @@ ai/
 │   ├── config/
 │   │   ├── scene_detection.v1.toml   임계값 정본 (실측 후 확정)
 │   │   ├── frame_extraction.v1.toml  임계값 정본 (실측 후 확정)
-│   │   ├── vlm_metadata.v1.toml      프롬프트·어휘·상한 정본 (실측 후 확정)
+│   │   ├── vlm_metadata.v2.toml      프롬프트·어휘·상한 정본 (실측 후 확정)
 │   │   ├── ocr.v1.toml               임계값 정본 (실측 후 확정)
 │   │   ├── query_normalization.v1.toml  정규화 규칙 정본
 │   │   └── query_resolver.v1.toml    프롬프트 정본 (실측 후 확정)

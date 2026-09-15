@@ -18,10 +18,12 @@ skip 판정·L2 정규화·검증이다 — -175 는 `model.encode` 를 직접 �
   걸리지 않는다" 로 판정했는데 그 근거를 실데이터로 확인한다. 잘림이 있으면
   `SceneEmbedding.source_text` 에 남는 전문과 실제 임베딩된 것이 달라진다.
 
-**모델을 바꾸면 두 값을 확인한다.** 어댑터 경계를 넘지 않으려고 근사한 것들이다 —
-잘림 기준은 `tokenizer.model_max_length`(ST 가 실제로 자르는 것은 `model.max_seq_length`),
-질의 접두는 `"query: "` 하드코딩(-175 는 모델 카드 `prompts.query` 를 읽는다). 현재 모델은
-둘 다 같은 값이지만 갈면 어긋나고, 특히 접두 비대칭은 오류 없이 품질만 떨어뜨린다.
+**모델을 바꾸면 질의 접두를 확인한다.** `"query: "` 가 하드코딩돼 있다(-175 는 모델 카드
+`prompts.query` 를 읽는다). 현재 모델은 같은 값이지만 갈면 어긋나고, 접두 비대칭은 오류
+없이 품질만 떨어뜨린다.
+
+잘림 기준 쪽은 **가정이 아니라 측정이다** — `tokenizer.model_max_length` 와 ST 가 실제로
+자르는 `model.max_seq_length` 를 대조해 다르면 멈춘다.
 
 **이 코퍼스의 한계.** 골드셋 `note` 가 적어 둔 그대로다 — 텍스트가 자막 전사뿐이고
 캡션이 없다. `SceneText(caption="", dialogue=(text,))` 로 넣으므로 **N-Pick 임베딩 입력의
@@ -225,6 +227,19 @@ def main() -> None:
         model_id, revision=settings.embedding_model_revision or "main"
     )
     max_len = getattr(tokenizer, "model_max_length", 0)
+
+    # **가정을 측정한다.** ST 가 실제로 자르는 값은 `model.max_seq_length` 이고 여기서
+    # 세는 기준은 `tokenizer.model_max_length` 다. 현재 모델은 둘 다 8192 라서 같은
+    # 값이지만, 모델을 갈면 조용히 어긋나 `truncated_scenes` 가 거짓이 된다. 문서에
+    # "둘이 같다" 고 적어 두는 대신 여기서 확인해 다르면 멈춘다 — 모델 교체 시 자동으로 운다.
+    st_max_len = getattr(encoder, "_model", None)
+    st_max_len = getattr(st_max_len, "max_seq_length", None)
+    if st_max_len is not None and st_max_len != max_len:
+        msg = (
+            f"잘림 기준이 어긋난다: tokenizer.model_max_length={max_len}, "
+            f"model.max_seq_length={st_max_len}. truncated_scenes 가 실제 잘림을 세지 못한다"
+        )
+        raise SystemExit(msg)
     lengths = [len(tokenizer.encode(s.source_text, add_special_tokens=True)) for s in result.scenes]
     truncated = sum(1 for length in lengths if length > max_len)
 
@@ -256,6 +271,7 @@ def main() -> None:
         "gold_levels": ",".join(f"{k}:{len(v['ndcg'])}" for k, v in sorted(by_level.items())),
         "device": "cuda" if on_gpu else "cpu",
         "max_seq_length": max_len,
+        "st_max_seq_length": st_max_len if st_max_len is not None else "unknown",
     }
     metrics: dict[str, float] = {
         # 품질 — -175 수치와 대조하는 것이 목적이다.

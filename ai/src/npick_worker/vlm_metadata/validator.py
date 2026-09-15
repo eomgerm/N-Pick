@@ -33,6 +33,7 @@ from pydantic import ValidationError
 
 from npick_worker import korean_tokens
 from npick_worker.vlm_metadata.config import VlmMetadataConfig
+from npick_worker.vlm_metadata.grounding import OcrRef, TranscriptRef
 from npick_worker.vlm_metadata.models import (
     CONFIDENCE_DECIMALS,
     Caption,
@@ -105,6 +106,7 @@ def validate(
     scene_index: int,
     keyframes: Sequence[KeyframeRef],
     cfg: VlmMetadataConfig,
+    text_references: tuple[tuple[str, tuple[OcrRef | TranscriptRef, ...]], ...] = (),
 ) -> SceneMetadata:
     """2단계. 어휘·근거·상한을 검사하고 우리 어휘로 옮긴다.
 
@@ -128,7 +130,13 @@ def validate(
         msg = f"근거로 쓸 keyframe 이 없다: scene_index={scene_index}"
         raise VlmSchemaInvalidError(msg)
 
-    labels = labels_for(keyframes)
+    labels: dict[str, tuple[KeyframeRef | OcrRef | TranscriptRef, ...]] = {
+        label: (ref,) for label, ref in labels_for(keyframes).items()
+    }
+    for label, refs in text_references:
+        if label in labels or not refs or any(ref.scene_index != scene_index for ref in refs):
+            raise VlmSchemaInvalidError("텍스트 근거 참조가 현재 장면과 맞지 않는다")
+        labels[label] = refs
 
     return SceneMetadata(
         scene_index=scene_index,
@@ -139,7 +147,9 @@ def validate(
 
 
 def _to_caption(
-    raw: RawSceneMetadata, labels: dict[str, KeyframeRef], cfg: VlmMetadataConfig
+    raw: RawSceneMetadata,
+    labels: dict[str, tuple[KeyframeRef | OcrRef | TranscriptRef, ...]],
+    cfg: VlmMetadataConfig,
 ) -> Caption | None:
     if raw.caption is None:
         return None
@@ -162,13 +172,17 @@ def _to_caption(
     )
 
 
-def _to_shot_type(raw: RawSceneMetadata, labels: dict[str, KeyframeRef]) -> ShotTypeJudgement:
+def _to_shot_type(
+    raw: RawSceneMetadata, labels: dict[str, tuple[KeyframeRef | OcrRef | TranscriptRef, ...]]
+) -> ShotTypeJudgement:
     """`scene.shot_type` 은 `NOT NULL` 이라 이 값만 언제나 존재한다.
 
     `unknown` 일 때만 근거가 없어도 된다. "판단할 근거가 부족하다" 는 판단에 근거 프레임을
     요구하는 것은 뜻이 통하지 않고, 그렇다고 근거를 지어내게 하는 것이 그 대안이어서는
     안 된다.
     """
+    if any(not label.startswith("kf_") for label in raw.shot_type.evidence):
+        raise VlmSchemaInvalidError("shot_type은 이미지 근거를 사용해야 한다")
     required = raw.shot_type.value != _SHOT_TYPE_WITHOUT_EVIDENCE
     return ShotTypeJudgement(
         value=raw.shot_type.value,
@@ -178,7 +192,9 @@ def _to_shot_type(raw: RawSceneMetadata, labels: dict[str, KeyframeRef]) -> Shot
 
 
 def _to_tag_candidates(
-    raw: RawSceneMetadata, labels: dict[str, KeyframeRef], cfg: VlmMetadataConfig
+    raw: RawSceneMetadata,
+    labels: dict[str, tuple[KeyframeRef | OcrRef | TranscriptRef, ...]],
+    cfg: VlmMetadataConfig,
 ) -> tuple[TagCandidate, ...]:
     """`scene_type` 을 태그 후보로 합치고 상한·중복을 정리한다.
 
@@ -259,12 +275,12 @@ def _deduplicate(candidates: Sequence[TagCandidate]) -> tuple[TagCandidate, ...]
 
 def _resolve_evidence(
     judgement: RawJudgement,
-    labels: dict[str, KeyframeRef],
+    labels: dict[str, tuple[KeyframeRef | OcrRef | TranscriptRef, ...]],
     *,
     path: str,
     required: bool,
-) -> tuple[KeyframeRef, ...]:
-    """근거 라벨을 실제 keyframe 으로 되돌린다.
+) -> tuple[KeyframeRef | OcrRef | TranscriptRef, ...]:
+    """근거 라벨을 입력 이미지·OCR·대사 원본 참조로 되돌린다.
 
     모델이 주지 않은 라벨을 적으면 거부한다. 그 라벨이 가리키는 프레임이 없으므로
     `tag_evidence.source_ref_id` 를 채울 수 없고, 근거 없는 값이 근거가 있는 것처럼
@@ -272,23 +288,25 @@ def _resolve_evidence(
 
     같은 라벨을 두 번 적은 것은 합친다 — 버리는 정보가 없다.
     """
-    resolved: list[KeyframeRef] = []
+    resolved: list[KeyframeRef | OcrRef | TranscriptRef] = []
     for label in judgement.evidence:
         keyframe = labels.get(label)
         if keyframe is None:
             msg = f"{path} 의 근거 라벨이 입력에 없다: {label!r} (있는 라벨 {sorted(labels)})"
             raise VlmSchemaInvalidError(msg)
-        resolved.append(keyframe)
+        resolved.extend(keyframe)
     unique = _unique(tuple(resolved))
     if required and not unique:
-        msg = f"{path} 에 근거 keyframe 이 없다. 근거가 없으면 null 또는 unknown 이어야 한다"
+        msg = f"{path} 에 근거가 없다. 입력 근거가 없으면 null 또는 unknown 이어야 한다"
         raise VlmSchemaInvalidError(msg)
     return unique
 
 
-def _unique(keyframes: tuple[KeyframeRef, ...]) -> tuple[KeyframeRef, ...]:
+def _unique(
+    keyframes: tuple[KeyframeRef | OcrRef | TranscriptRef, ...],
+) -> tuple[KeyframeRef | OcrRef | TranscriptRef, ...]:
     """순서를 지키며 중복을 없앤다."""
-    seen: dict[KeyframeRef, None] = {}
+    seen: dict[KeyframeRef | OcrRef | TranscriptRef, None] = {}
     for keyframe in keyframes:
         seen.setdefault(keyframe, None)
     return tuple(seen)

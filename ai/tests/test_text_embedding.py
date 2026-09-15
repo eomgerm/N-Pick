@@ -154,7 +154,7 @@ def test_batch_size_is_not_part_of_the_reproducibility_hash() -> None:
 
 
 def test_caption_and_dialogue_are_joined() -> None:
-    """FRD §11.4 — 캡션과 대사를 합쳐 벡터 하나를 만든다."""
+    """FRD §11 결정 표(`docs/frd.md:609`) — 캡션과 대사를 합쳐 벡터 하나를 만든다."""
     scene = SceneText(scene_index=0, caption="광화문 앞 집회", dialogue=("첫 줄", "둘째 줄"))
     assert compose_text(scene, _config()) == "광화문 앞 집회\n첫 줄 둘째 줄"
 
@@ -581,3 +581,18 @@ def test_default_revision_is_pinned_to_a_sha() -> None:
     """
     settings = Settings(_env_file=None)  # type: ignore[call-arg]
     assert re.fullmatch(r"[0-9a-f]{40}", settings.embedding_model_revision)
+
+
+def test_vector_whose_square_sum_overflows_is_rejected() -> None:
+    """성분이 전부 유한해도 제곱합이 `inf` 면 정규화가 0 벡터를 만든다.
+
+    `value / inf == 0.0` 이라 기존 가드(성분 유한성·norm 0)를 **전부 통과한 뒤** 0 벡터가
+    나온다 — 그 가드가 막으려던 값이 정확히 그것이다.
+    """
+    huge = 1e200  # 제곱하면 float 범위를 넘는다
+    with pytest.raises(ValueError, match="유한하지 않"):
+        embed_scenes(
+            [SceneText(scene_index=0, caption="광화문", dialogue=())],
+            encoder=_FakeEncoder(vector=(huge, huge, huge, huge)),
+            config=_config(normalize=True),
+        )

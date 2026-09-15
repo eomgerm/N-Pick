@@ -17,7 +17,7 @@ DIALOGUE_SEPARATOR: Final[str] = " "
 
 
 def compose_text(scene: SceneText, config: TextEmbeddingConfig) -> str:
-    """캡션과 대사를 벡터 하나의 입력으로 합친다 (FRD §11.4).
+    """캡션과 대사를 벡터 하나의 입력으로 합친다 (FRD §11 결정 표, `docs/frd.md:609`).
 
     캡션과 대사 뭉치를 `SECTION_SEPARATOR` 로 나누고 대사 줄끼리는 `DIALOGUE_SEPARATOR`
     로 잇는다. 둘을 같은 구분자로 이으면 "설명" 과 "발화" 의 경계가 사라지는데, 그
@@ -143,6 +143,11 @@ def _finalize(vector: Sequence[float], config: TextEmbeddingConfig) -> tuple[flo
         # fp16 에서 NaN 이 나오는 경로다. `norm` 도 NaN 이 되는데 `norm == 0.0` 은
         # False 라 0 벡터 검사만으로는 빠져나간다.
         msg = "모델이 유한하지 않은 성분(NaN·inf)을 낸 벡터를 냈다"
+        raise ValueError(msg)
+    if not math.isfinite(norm):
+        # 성분이 전부 유한해도 제곱합이 넘칠 수 있다. 그러면 `value / inf == 0.0` 이라
+        # 위 검사를 통과한 뒤 0 벡터가 된다 — 바로 아래가 막으려는 값이다.
+        msg = "벡터의 크기가 유한하지 않다(제곱합 overflow)"
         raise ValueError(msg)
     if norm == 0.0:
         msg = "모델이 0 벡터를 냈다. 코사인 거리가 정의되지 않는다"

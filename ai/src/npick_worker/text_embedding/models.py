@@ -15,9 +15,9 @@
 | 어느 장면인가 | `scene_id` | 워커는 `scene_index` 로 말한다 — DB 에 접속하지 않는다 |
 
 **OCR 은 입력이 아니다.** 일감 본문은 "caption·OCR·transcript" 로 적었지만 정본은
-FRD §11.4 와 위 컬럼 주석의 **"캡션+대사"** 다. 화면 글자는 `ocr_observation.tokens` 로
-BM25 채널에 이미 들어가 있고, 같은 문자열을 dense 채널에도 넣으면 RRF 결합에서 한
-신호가 두 번 세어진다.
+FRD §11 결정 표(`docs/frd.md:609`)와 위 컬럼 주석의 **"캡션+대사"** 다. 화면 글자는
+`ocr_observation.tokens` 로 BM25 채널에 이미 들어가 있고, 같은 문자열을 dense 채널에도
+넣으면 RRF 결합에서 한 신호가 두 번 세어진다.
 """
 
 from dataclasses import dataclass
@@ -27,8 +27,8 @@ from dataclasses import dataclass
 class SceneText:
     """벡터 하나를 만들 재료. 상류 단계 산출물에서 모은 장면 하나의 텍스트다.
 
-    **누가 만들었는지를 이 단계는 모른다.** 캡션은 `vlm_metadata`(3단계),
-    대사는 `scene_transcript_mapping`(7단계)에서 오지만 둘 다 비치명 단계라
+    **누가 만들었는지를 이 단계는 모른다.** 캡션은 `vlm_metadata`(7단계),
+    대사는 `scene_transcript_mapping`(6단계)에서 오지만 둘 다 비치명 단계라
     없을 수 있다(`stages.py`). 둘 다 비는 것도 정상 입력이다.
     """
 

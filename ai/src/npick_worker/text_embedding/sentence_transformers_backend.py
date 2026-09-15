@@ -38,9 +38,6 @@ logger = logging.getLogger(__name__)
 #: 어댑터 이름. 재현 튜플의 `adapter` 가 된다.
 ADAPTER_NAME: Final[str] = "sentence-transformers"
 
-#: S15P21A501-175 가 확정한 모델. 오류 메시지에서만 쓴다 — 실제 기본값은 `settings.py` 다.
-DEFAULT_MODEL: Final[str] = "dragonkue/snowflake-arctic-embed-l-v2.0-ko"
-
 #: 리비전을 지정하지 않았을 때 기록하는 값. 빈 문자열로 남기지 않는다 — "지정하지 않았다"
 #: 와 "기록을 빠뜨렸다" 는 다르다(`vlm_metadata` 의 같은 판단).
 DEFAULT_REVISION: Final[str] = "main"
@@ -74,7 +71,8 @@ class SentenceTransformerEncoder:
         if not model_id:
             msg = (
                 "임베딩 모델이 빈 값이다. NPICK_AI_EMBEDDING_MODEL 을 비우지 않는다 "
-                f"(확정값: {DEFAULT_MODEL})"
+                # 값을 복제하지 않는다. 한쪽만 바뀌면 오류 메시지가 조용히 거짓말한다.
+                f"(확정값: {Settings.model_fields['embedding_model'].default})"
             )
             raise EmbeddingModelUnavailableError(msg)
         self._model_id = model_id
@@ -211,8 +209,16 @@ def _load(
         raise EmbeddingModelUnavailableError(msg)
 
     resolved = _resolve_revision(model, revision)
+    # `max_seq_length` 를 남긴다. ST 는 이 길이를 넘는 입력을 **조용히 자르고**, 그러면
+    # `SceneEmbedding.source_text` 의 전문과 실제 임베딩된 것이 달라진다(FRD §7.2).
+    # 건별 감지는 입력마다 토크나이즈해야 해서 비용이 붙는다 — 실측은 eval 하네스가 한다.
     logger.info(
-        "임베딩 가중치 준비 완료: %s@%s dim=%d device=%s", model_id, resolved, dimension, device
+        "임베딩 가중치 준비 완료: %s@%s dim=%d max_seq=%s device=%s",
+        model_id,
+        resolved,
+        dimension,
+        getattr(model, "max_seq_length", "unknown"),
+        device,
     )
     return model, resolved, dimension
 

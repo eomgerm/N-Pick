@@ -27,7 +27,7 @@ COMMENT: '캡션+대사를 합친 dense 벡터. pgvector 로 색인하고 BM25 �
 
 차원 1024 는 `S15P21A501-175` 가 선정 모델의 차원으로 정한 값이고 컬럼도 그 값이다.
 
-**정본 세 곳은 아직 "임시값" 으로 열려 있다.** `docs/frd.md:618` 은 미결 "임베딩 모델과
+**정본 세 곳은 아직 "임시값" 으로 열려 있다.** `docs/frd.md:621`(§11.1)은 미결 "임베딩 모델과
 벡터 차원" 의 담당을 -175 가 아니라 **이 일감(`S15P21A501-100`)** 으로 지정한 채 남아
 있고, 마이그레이션 주석(`V20260907092019__baseline.sql:381`)도 "임시값" 그대로다. 노션
 FRD 가 상위 정본이라 그쪽도 함께 봐야 한다. 이 문서가 그 미결을 닫지 않는다 — FRD 개정은
@@ -36,7 +36,7 @@ FRD 가 상위 정본이라 그쪽도 함께 봐야 한다. 이 문서가 그 �
 ## 2. 무엇을 입력으로 넣는가 — 캡션과 대사
 
 일감 `S15P21A501-100` 본문은 입력을 "caption·OCR·transcript 요약" 으로 적었다. **정본은
-그것이 아니다.** FRD §11.4 (`docs/frd.md:606`)와 위 컬럼 주석이 둘 다 "캡션과 대사를 합쳐
+그것이 아니다.** FRD §11 결정 표(`docs/frd.md:609`)와 위 컬럼 주석이 둘 다 "캡션과 대사를 합쳐
 벡터 하나" 로 정한다. `ai/AGENTS.md` 규칙대로 정본을 따랐다.
 
 OCR 을 넣지 않는 이유는 문서가 그렇게 말해서만이 아니다. 화면 글자는
@@ -48,8 +48,8 @@ OCR 을 넣지 않는 이유는 문서가 그렇게 말해서만이 아니다. �
 
 | 재료 | 상류 | 없을 때 |
 | --- | --- | --- |
-| `caption` | 3단계 `vlm_metadata` | 대사만으로 벡터를 만든다 |
-| `dialogue` | 7단계 `scene_transcript_mapping` | 캡션만으로 벡터를 만든다 |
+| `caption` | 7단계 `vlm_metadata` | 대사만으로 벡터를 만든다 |
+| `dialogue` | 6단계 `scene_transcript_mapping` | 캡션만으로 벡터를 만든다 |
 
 둘 다 비면 그 장면은 `skipped` 다. 빈 문자열을 임베딩하면 **모든 빈 장면이 서로 최근접이
 되어** 보조 채널이 오염된다. `scene.embedding` 이 nullable 인 이유가 그것이고, 그 장면은
@@ -176,7 +176,7 @@ uv run pytest -m smoke -k scene_embedding -s
 ## 7. 아직 하지 않은 것
 
 - **pipeline run 배선.** `jobs/registry.py` 에 이 단계의 핸들러가 없고
-  `docs/contracts/job-api.md` 에도 `text_embedding` 절이 없다. 상류 7단계
+  `docs/contracts/job-api.md` 에도 `text_embedding` 절이 없다. 상류 6단계
   `scene_transcript_mapping` 이 아직 없어 입력 조립의 절반이 비어 있고, 계약에 절을 더하면
   BE 구현이 따라와야 한다. 이 모듈은 그때 그대로 꽂힌다 — `ai/AGENTS.md` 가 단계 구현을 순수
   함수로 두고 배선하지 말라고 한 이유다.

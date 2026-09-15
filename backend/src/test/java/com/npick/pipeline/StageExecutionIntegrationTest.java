@@ -867,7 +867,8 @@ class StageExecutionIntegrationTest {
     }
 
     private void advanceToTranscript(long run) {
-        for (String stage : PipelineStages.NAMES.subList(0, 4)) complete(run, stage, success(claim()));
+        for (String stage : PipelineStages.NAMES.subList(0, PipelineStages.NAMES.indexOf("transcript_selection")))
+            complete(run, stage, success(claim()));
     }
 
     private com.npick.clip.application.command.prepare.PrepareTranscriptInputUseCase localTranscriptPreparation() {
