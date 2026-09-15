@@ -5,6 +5,7 @@ FRD 단계 이름은 여기서 **전사**한다. `stages.py` 를 import 하면 �
 """
 
 import ast
+import hashlib
 import json
 from pathlib import Path
 
@@ -536,8 +537,16 @@ def test_ocr_reports_counts_and_versions(tmp_path: Path, monkeypatch: pytest.Mon
         "textGroups": 2,
         "minConfidence": 0.7,
     }
-    # 이 단계는 파일을 올리지 않는다. 관측은 전부 payload 로 간다.
-    assert outcome.uploads == ()
+    assert len(outcome.uploads) == 1
+    upload = outcome.uploads[0]
+    saved = upload.local_path.read_bytes()
+    assert upload.ref.kind == "ocr_result"
+    assert upload.ref.storage_key == "runs/1/ocr/a1/ocr-result.json"
+    assert upload.ref.content_hash == hashlib.sha256(saved).hexdigest()
+    assert upload.ref.byte_size == len(saved)
+    assert json.loads(saved)["output"] == outcome.output
+    assert json.loads(saved)["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+    assert outcome.versions.detail["mergeConfigVersion"] == outcome.output["mergeConfigVersion"]
     assert outcome.versions.config_version == "ocr/v1:test"
     # 가중치를 쓰는 첫 단계다. 앞의 둘과 달리 modelVersion 이 비어 있지 않다.
     assert outcome.versions.model_version == "fake/0"

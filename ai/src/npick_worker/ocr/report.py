@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Final
 
 from npick_worker.ocr import KeyframeRef, OcrResult, get_default_config, read_keyframes
+from npick_worker.ocr.merge import load_merge_config
 
 #: `frame_extraction` 의 `FILE_NAME_TEMPLATE` 이 만든 이름을 되읽는다.
 _FILE_NAME: Final[re.Pattern[str]] = re.compile(
@@ -88,6 +89,15 @@ def to_json(result: OcrResult) -> dict[str, object]:
         "engineVersion": result.engine_version,
         "tokenizer": result.tokenizer,
         "minConfidence": result.min_confidence,
+        "mergeConfigVersion": result.merge_config.version_id,
+        "textGroups": [
+            {
+                "sceneIndex": group.scene_index,
+                "observationIndices": list(group.observation_indices),
+                "representativeIndex": group.representative_index,
+            }
+            for group in result.text_groups
+        ],
         "keyframes": [
             {
                 "sceneIndex": keyframe.keyframe.scene_index,
@@ -114,6 +124,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("frames_dir", type=Path, help="frame_extraction.report 의 출력 디렉터리")
     parser.add_argument("--out", type=Path, default=None, help="ocr.json 을 쓸 디렉터리")
+    parser.add_argument("--merge-config", type=Path, default=None, help="병합 임계값 실험 설정")
     return parser.parse_args()
 
 
@@ -126,7 +137,12 @@ def main() -> int:
 
     config = get_default_config()
     started = time.monotonic()
-    result = read_keyframes(keyframes, paths, config=config)
+    result = read_keyframes(
+        keyframes,
+        paths,
+        config=config,
+        merge_config=load_merge_config(args.merge_config) if args.merge_config else None,
+    )
     elapsed = time.monotonic() - started
 
     print(render_table(result))

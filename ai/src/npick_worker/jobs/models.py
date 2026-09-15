@@ -497,18 +497,26 @@ class OcrObservationOut(WireModel):
     #: `confidence < minConfidence`. 담을 컬럼이 없으므로 BE 는 이 값을 저장하지 않고
     #: `tag_evidence.verification_status` 를 정할 때 쓴다(계약 §4.3.2).
     unverified: bool
-    #: 같은 문구를 가리키는 관측이 공유하는 키. 병합을 **하지 않고** 병합 가능성만
-    #: 알려 준다 — 관측은 프레임마다 따로 남는다.
+    #: 검색 토큰 해시. 원문 일치의 충분조건이나 병합 그룹 ID가 아니다.
     text_key: str = Field(min_length=1)
     bounding_box: BoundingBoxOut
 
 
-class OcrOutput(WireModel):
-    """`ocr` 단계의 payload.
+class OcrTextGroupOut(WireModel):
+    """관측 배열 안에서만 유효한 참조. DB ID나 합성 confidence를 만들지 않는다."""
 
-    scene 으로 묶지 않고 관측을 평평하게 싣는다. `ocr_observation` 이 `keyframe_id` 만
-    참조하고 scene 을 거치지 않으므로(FK 가 keyframe 하나다) 묶어 봐야 BE 가 다시
-    펴야 한다.
+    scene_index: int = Field(ge=0)
+    observation_indices: Sequence[int] = Field(min_length=1)
+    representative_index: int = Field(ge=0)
+
+
+class OcrObservations(WireModel):
+    """관측 배열만. `ocr` 이 내는 payload 와 `vlm_metadata` 가 상류로 받는 것이 공유한다.
+
+    **둘이 같은 모양이 아니라서 부모를 따로 둔다.** BE 는 관측을 `ocr_observation` 행으로
+    저장하는데 그 표에 그룹 컬럼이 없고 계약이 별도 그룹 테이블을 금지하므로, BE 가
+    `inputs.upstream.ocr` 로 되돌려 주는 것에는 `textGroups` 가 없다. 그룹을 이 부모에
+    두면 vlm 이 BE 가 줄 수 없는 필드를 요구하게 된다.
     """
 
     observations: Sequence[OcrObservationOut]
@@ -517,6 +525,44 @@ class OcrOutput(WireModel):
     keyframes_read: int = Field(ge=0)
     #: 판정에 쓴 임계값. 이 값이 없으면 나중에 `unverified` 를 재현할 수 없다.
     min_confidence: float = Field(ge=0, le=1)
+
+
+class OcrOutput(OcrObservations):
+    """`ocr` 단계의 payload. `npick.stage.ocr.output/v2` 다.
+
+    개별 관측을 평평하게 보존하고 text_groups가 그 배열의 0-based 인덱스를 참조한다.
+    대표 문구·confidence·bbox·미검증 표시는 대표 관측에서 읽는다. 그룹은 검증 상태를
+    승격하지 않으며, 전체 배열과 그룹을 함께 저장해야 참조가 유지된다.
+    """
+
+    text_groups: Sequence[OcrTextGroupOut]
+    merge_config_version: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_groups(self) -> "OcrOutput":
+        seen: set[int] = set()
+        for group in self.text_groups:
+            members = group.observation_indices
+            if group.representative_index not in members:
+                raise ValueError("대표 관측이 그룹에 없다")
+            timestamps: set[int] = set()
+            for index in members:
+                if index < 0 or index >= len(self.observations) or index in seen:
+                    raise ValueError("관측 참조가 범위를 벗어나거나 중복된다")
+                observation = self.observations[index]
+                if observation.scene_index != group.scene_index:
+                    raise ValueError("다른 scene의 관측을 병합할 수 없다")
+                if observation.timestamp_ms in timestamps:
+                    raise ValueError("같은 frame의 관측을 병합할 수 없다")
+                seen.add(index)
+                timestamps.add(observation.timestamp_ms)
+            if self.observations[group.representative_index].confidence != max(
+                self.observations[index].confidence for index in members
+            ):
+                raise ValueError("대표 관측은 최대 confidence 관측이어야 한다")
+        if seen != set(range(len(self.observations))):
+            raise ValueError("병합 결과에서 원본 관측이 누락됐다")
+        return self
 
     @classmethod
     def from_result(cls, result: "OcrResult") -> "OcrOutput":
@@ -543,6 +589,15 @@ class OcrOutput(WireModel):
             ],
             keyframes_read=len(result.keyframes),
             min_confidence=result.min_confidence,
+            text_groups=[
+                OcrTextGroupOut(
+                    scene_index=group.scene_index,
+                    observation_indices=group.observation_indices,
+                    representative_index=group.representative_index,
+                )
+                for group in result.text_groups
+            ],
+            merge_config_version=result.merge_config.version_id,
         )
 
 
@@ -555,7 +610,14 @@ class UpstreamOcrObservation(OcrObservationOut):
     bounding_box: UpstreamBoundingBox
 
 
-class UpstreamOcrOutput(OcrOutput):
+class UpstreamOcrOutput(OcrObservations):
+    """BE 가 `vlm_metadata` 에 되돌려 주는 `ocr` 산출물.
+
+    `OcrOutput` 이 아니라 그 부모를 상속한다 — BE 는 `ocr_observation` 행에서 이것을
+    조립하고 그 표에 그룹 컬럼이 없으므로 `textGroups` 를 되살릴 수 없다. vlm 의 근거
+    연결도 개별 관측만 쓴다. 그룹이 필요한 소비자는 `ocr_result` 산출물을 읽는다.
+    """
+
     model_config = ConfigDict(extra="ignore")
     observations: Sequence[UpstreamOcrObservation]
 
