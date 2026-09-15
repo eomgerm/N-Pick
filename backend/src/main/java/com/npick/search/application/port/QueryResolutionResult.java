@@ -37,7 +37,12 @@ public record QueryResolutionResult(
         findings = findings == null ? List.of() : List.copyOf(findings);
     }
 
-    /** 해석을 쓸 수 있는가. 거짓이면 {@link #failure()} 를 degraded 사유로 기록하고 BM25 로 간다. */
+    /**
+     * 해석을 쓸 수 있는가.
+     *
+     * <p>거짓이라고 곧바로 BM25 로 가는 것은 아니다. 리졸버 장애면 degraded 로 이어가고, 정규화 불가처럼 사용자 입력 문제면 검색 실패다 — 그 판정은
+     * {@code SearchDegradedReason#reasonsFor} 가 {@link #failure()} 의 {@code ErrorType} 으로 한다 (S15P21A501-50).
+     */
     public boolean isResolved() {
         return resolution != null;
     }
