@@ -117,15 +117,18 @@ class DenseSceneCandidateAdapterTest {
         jdbc.update("UPDATE npick.pipeline_run SET stage_states_json = '{}' WHERE pipeline_run_id = 21");
         var partial = adapter.find(query(1, 0), SETTINGS);
         assertThat(ids(partial)).containsExactly(33L, 34L, 35L);
-        assertThat(partial.status()).isEqualTo(Status.PARTIAL);
+        assertThat(partial.status()).isEqualTo(Status.AVAILABLE);
         assertThat(partial.coverage().unusableVectors()).isEqualTo(2);
+        assertThat(partial.coverage().invalidVectors()).isZero();
         jdbc.update(
                 "UPDATE npick.pipeline_run SET stage_states_json = CAST(? AS jsonb) WHERE pipeline_run_id = 22",
                 stage("different-model@" + "b".repeat(40), "succeeded"));
         var none = adapter.find(query(1, 0), SETTINGS);
-        assertThat(none.status()).isEqualTo(Status.PARTIAL);
+        assertThat(none.status()).isEqualTo(Status.AVAILABLE);
         assertThat(none.candidates()).isEmpty();
         assertThat(none.coverage().unusableVectors()).isEqualTo(5);
+        assertThat(none.coverage().modelMismatches()).isPositive();
+        assertThat(none.coverage().invalidVectors()).isZero();
     }
 
     @Test
@@ -145,8 +148,11 @@ class DenseSceneCandidateAdapterTest {
         jdbc.update("UPDATE npick.scene SET embedding = NULL WHERE scene_id = 31");
         var result = adapter.find(query(1, 0), SETTINGS);
         assertThat(ids(result)).containsExactly(33L, 34L, 35L);
+        assertThat(result.status()).isEqualTo(Status.PARTIAL);
+        assertThat(result.reason()).isEqualTo(Reason.STORED_VECTOR_UNAVAILABLE);
         assertThat(result.coverage().missingVectors()).isEqualTo(1);
         assertThat(result.coverage().unusableVectors()).isEqualTo(1);
+        assertThat(result.coverage().invalidVectors()).isEqualTo(1);
     }
 
     @Test

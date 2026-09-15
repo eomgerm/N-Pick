@@ -60,7 +60,7 @@ class DenseSceneCandidateAdapter implements FindDenseCandidatesQueryPort {
                     WHEN jsonb_typeof(model_json) IS DISTINCT FROM 'string'
                         OR model_version !~ '^[^[:space:]@]+@[0-9a-f]{40}$' THEN 'missing_model'
                     WHEN model_version <> ? THEN 'model_mismatch'
-                    WHEN public.vector_dims(embedding) <> 1024 OR public.vector_norm(embedding) = 0
+                    WHEN public.vector_dims(embedding) <> ? OR public.vector_norm(embedding) = 0
                         THEN 'invalid_vector'
                     END AS exclusion_reason
                 FROM eligible
@@ -139,8 +139,9 @@ class DenseSceneCandidateAdapter implements FindDenseCandidatesQueryPort {
             Connection connection, DenseQuery query, DenseSearchSettings settings, String vector) throws SQLException {
         try (var statement = connection.prepareStatement(SQL)) {
             statement.setString(1, settings.modelVersion());
-            statement.setString(2, vector);
-            statement.setInt(3, settings.poolSize());
+            statement.setInt(2, DenseSearchSettings.DIMENSION);
+            statement.setString(3, vector);
+            statement.setInt(4, settings.poolSize());
             try (var rows = statement.executeQuery()) {
                 var candidates = new ArrayList<Candidate>();
                 Coverage coverage = null;
@@ -167,7 +168,10 @@ class DenseSceneCandidateAdapter implements FindDenseCandidatesQueryPort {
                             1 - distance,
                             rows.getString("model_version")));
                 }
-                boolean incomplete = coverage != null && coverage.unusableVectors() > 0;
+                // Only producer-contract violations degrade the channel. Generational index gaps
+                // (missing vectors, unfinished stages, absent or older model revisions) are normal
+                // during re-indexing; search assembly reads Coverage to build the user-facing notice.
+                boolean incomplete = coverage != null && coverage.invalidVectors() > 0;
                 return new DenseCandidatesResult(
                         incomplete ? Status.PARTIAL : Status.AVAILABLE,
                         incomplete ? Reason.STORED_VECTOR_UNAVAILABLE : Reason.NONE,
