@@ -284,7 +284,7 @@ def main(argv: Sequence[str] | None = None, *, client: VlmClient | None = None) 
         print(f"{exc}", file=sys.stderr)
         print(
             "  --model 로 후보를 주거나 NPICK_AI_VLM_MODEL 을 설정한다. "
-            "가중치 실행에는 gpu 그룹이 필요하다: uv sync --group gpu",
+            "가중치 실행에는 gpu 그룹이 필요하다: uv sync --group gpu --group cu130|cu128",
             file=sys.stderr,
         )
         return 1

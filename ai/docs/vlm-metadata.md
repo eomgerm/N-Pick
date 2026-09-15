@@ -497,11 +497,11 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
    # uv가 없을 때 1회. 공식 설치: https://docs.astral.sh/uv/getting-started/installation/
    curl -LsSf https://astral.sh/uv/install.sh | sh
    export PATH="$HOME/.local/bin:$PATH"
-   uv sync --locked --group gpu
+   uv sync --locked --group gpu --group cu128
    nvidia-smi
    df -h . "$HOME"
    export CUDA_VISIBLE_DEVICES=0
-   uv run --locked --group gpu python -c 'import torch; print(torch.__version__, torch.version.cuda); assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
+   uv run --locked --group gpu --group cu128 python -c 'import torch; print(torch.__version__, torch.version.cuda); assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))'
    ```
 
    최초 설치·모델 다운로드에는 네트워크와 디스크 여유가 필요하다. CUDA 드라이버와 잠긴
@@ -518,7 +518,7 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
    고정한다. 같은 가중치의 재실행은 아래 명령에 `run.json`의 SHA를 넣는다. 출력 경로는 새로 쓴다.
 
    ```bash
-   uv run --locked --group gpu python -u -m npick_worker.vlm_metadata.benchmark \
+   uv run --locked --group gpu --group cu128 python -u -m npick_worker.vlm_metadata.benchmark \
      samples/out/KNI_02205-frames --model Qwen/Qwen3.5-4B \
      --revision <run.json의_modelRevision> --out samples/out/vlm-bench/repeat-4b-01 \
      --memory-budget-gib 20 --dtype bfloat16 --thinking off --limit 10

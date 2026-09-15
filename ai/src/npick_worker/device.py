@@ -45,7 +45,9 @@ def detect_device(requested: DeviceChoice = "auto") -> DeviceInfo:
     try:
         import torch
     except ImportError:
-        logger.info("torch 미설치: CPU 로 동작한다. GPU 를 쓰려면: uv sync --group gpu")
+        logger.info(
+            "torch 미설치: CPU 로 동작한다. GPU 를 쓰려면: uv sync --group gpu --group cu130|cu128"
+        )
         return replace(_TORCH_ABSENT, requested=requested)
 
     torch_version: str = str(torch.__version__)

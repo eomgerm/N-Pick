@@ -49,7 +49,9 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
                    CASE WHEN tg.scene_id IS NULL THEN 'CLIP' ELSE 'SCENE' END AS scope
             FROM tagging tg
             JOIN tag t ON t.tag_id = tg.tag_id
-            LEFT JOIN tag_evidence te ON te.tagging_id = tg.tagging_id
+            -- 확정된 근거만 붙인다. 검수자 교정 후보(confirmed=false, S15P21A501-160)는 확정 전까지 근거 패널에 확정 근거처럼 섞이면 안 된다.
+            -- TagJudgmentQueryAdapter 의 e.confirmed 필터와 같은 불변식을 이 리더에서도 지킨다(F-09 "당시 결과와 현재 태그·근거 비교").
+            LEFT JOIN tag_evidence te ON te.tagging_id = tg.tagging_id AND te.confirmed
             WHERE tg.scene_id = :sceneId OR (tg.scene_id IS NULL AND tg.clip_id = :clipId)
             ORDER BY (tg.scene_id IS NULL), tg.tagging_id
             """;
