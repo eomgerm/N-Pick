@@ -242,6 +242,27 @@ async def test_failure_still_carries_the_required_version_keys(
     assert versions["outputSchemaVersion"]
 
 
+@pytest.mark.asyncio
+async def test_failure_reports_the_schema_this_worker_produces_not_the_assignment(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """같은 잡의 실패와 성공이 같은 출력 형식을 주장해야 한다.
+
+    BE 는 아직 모든 단계에 `.output/v1` 을 배정한다(계약 §11 항목 12). 배정값을 그대로
+    실으면 `ocr` 실패는 v1, 성공은 v2 가 되어 두 기록이 서로 다른 형식을 선언한다 —
+    나중에 어느 쪽이 그 단계의 출력 형식이었는지 기록만으로는 알 수 없다. 워커가 무엇을
+    낼 수 있는지는 워커가 아는 사실이므로 배정이 그것을 덮어쓰지 않는다.
+    """
+    fake_backend.enqueue_claim(
+        make_job(stage="ocr", outputSchemaVersion="npick.stage.ocr.output/v1")
+    )
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["status"] != "succeeded"
+    assert body["versions"]["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+
+
 # ── 실패 분류 ────────────────────────────────────────────────────────
 
 
