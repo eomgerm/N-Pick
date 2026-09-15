@@ -632,12 +632,16 @@ def test_ocr_config_version_matches_recorded_vector() -> None:
 
 
 def test_ocr_stage_version_matches_recorded_vector() -> None:
-    """재현 튜플은 `{configVersion, engine, engineVersion, tokenizer}` 다.
+    """S15P21A501-95 이전의 4 축 벡터. **지금 워커가 내는 값이 아니다.**
 
-    앞의 두 단계와 달리 축이 넷이다. `tokenizer` 가 있는 이유는
-    `ocr_observation.tokens` 가 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면
-    읽은 글자가 같아도 색인이 달라지고, 그건 검색이 0 건이 되는 종류의 변화다
-    (`docs/architecture/02-container.md:110`).
+    재현 튜플은 `mergeConfigVersion` 이 붙어 축이 다섯이 됐고(계약 §7), 현재 값의
+    벡터는 `test_ocr_merge.py` 가 지킨다. 이 테스트는 축을 하나 빼면 해시가 달라진다는
+    것과 과거 기록의 재계산 가능성만 붙잡는다 — `_ocr_identity` 를 거치지 않고 dict 를
+    직접 넘기는 것도 그 때문이다.
+
+    `tokenizer` 가 축인 이유는 `ocr_observation.tokens` 가 이 단계의 산출물이기
+    때문이다 — Kiwi 설정이 바뀌면 읽은 글자가 같아도 색인이 달라지고, 그건 검색이
+    0 건이 되는 종류의 변화다 (`docs/architecture/02-container.md:110`).
 
     이 값이 바뀌면 계약 문서의 벡터도 함께 고쳐야 한다.
     """

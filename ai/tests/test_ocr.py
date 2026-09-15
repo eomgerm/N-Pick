@@ -174,14 +174,15 @@ def test_symbol_only_text_keeps_the_observation_with_empty_tokens() -> None:
     assert result.observations[0].raw_text == "···"
 
 
-# ── 병합하지 않는다 ─────────────────────────────────────────────────
+# ── 관측은 병합해도 남는다 ──────────────────────────────────────────
 
 
 def test_same_phrase_in_two_frames_stays_two_observations() -> None:
     """티켓 요구: 병합해도 원본 관측과 keyframe 으로 역추적할 수 있어야 한다.
 
-    이 구현의 답은 **애초에 합치지 않는 것**이다. 두 관측이 각자 남고 `text_key` 가
-    같아 필요한 소비자는 묶을 수 있다.
+    `to_observations` 는 프레임 한 장만 본다. 프레임 사이의 그룹화는 `merge.py` 가
+    따로 하고(`test_ocr_merge.py`), 그룹을 만든 뒤에도 여기서 만든 관측은 그대로
+    남는다 — 그룹은 이 배열의 인덱스를 가리킬 뿐이다.
     """
     first = to_observations(_keyframe(8, 71833), [_detection("강원도")], min_confidence=0.7)
     second = to_observations(_keyframe(8, 72600), [_detection("강원도")], min_confidence=0.7)

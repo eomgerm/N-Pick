@@ -607,7 +607,7 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 | artifact kind | Content-Type |
 | --- | --- |
 | `keyframe` | `image/jpeg` |
-| `transcript_segments`, `transcript_decisions` | `application/json` |
+| `transcript_segments`, `transcript_decisions`, `ocr_result` | `application/json` |
 
 ### 4.5 자막 입력·산출물
 
@@ -726,7 +726,7 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | `ocr.v1.toml` 기본 설정 | `configVersion` = `ocr/v1:daaf4c83` |
 | `ocr-merge.v1.toml` 기본 설정 | `mergeConfigVersion` = `ocr-merge/v1:28d42216` |
 | `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0, mergeConfigVersion: ocr-merge/v1:28d42216}` | `stageVersion` = `npick.stage.ocr/v1:bc75979d` (출력 v2) |
-| `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.ocr/v1:449d6928` |
+| 같은 벡터에서 `mergeConfigVersion` 을 뺀 것 (S15P21A501-95 이전·출력 v1) | `stageVersion` = `npick.stage.ocr/v1:449d6928`. **해시 함수 회귀용이며 지금 워커가 내는 값이 아니다** |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, ocr: npick.stage.ocr/v1:bbbbbbbb}` | `pipelineVersion` = `npick-pipeline/v1:64960bae4565` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, frame_extraction: npick.stage.frame_extraction/v1:cccccccc}` | `pipelineVersion` = `npick-pipeline/v1:32d2389f906a` |
 
@@ -886,6 +886,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 11. **`pipeline.yml`에 `stage_versions:` 키 신설**, 기동 시 롤업 계산·로그.
 12. **stage output 저장 어댑터가 지원하는 단계를 늘린다.** BE는 `StageOutputPort.supports(stage)`가 거짓인 단계를 워커 `capabilities`에서 **제거한다**(`WorkerExecutionBinding`). 그래서 워커가 구현하고 버전을 선언해도 그 단계는 배정되지 않고, 강제로 결과를 보내도 `validateAndStore`의 `default` 분기에서 거절된다.
     현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`transcript_selection`·`asr` 넷이다. **`ocr`(`S15P21A501-94`, dev 머지됨)과 `vlm_metadata`(`S15P21A501-92`)는 워커 쪽이 끝났고 BE 저장 경로만 없다.** 둘 다 §4.3.2·§4.3.3이 저장 자리를 이미 지정한다 — `ocr`은 `ocr_observation` 행, `vlm_metadata`는 `scene.caption`·`scene.caption_tokens`·`scene.shot_type` 갱신과 `tag`·`tagging`·`tag_evidence` 후보(`source='vlm'`, `verification_status='unverified'`, `source_ref_type='keyframe'`)다.
+    `ocr`은 출력 스키마가 `npick.stage.ocr.output/v2`다(§4.3.2, S15P21A501-95). `PipelineStages.outputSchema`가 모든 단계에 `/v1`을 돌려주고 `StageExecutionService`가 배정과 `complete` 양쪽에서 그 값을 대조하므로, **단계별 출력 스키마 버전을 그 표에서 읽도록 고치지 않으면 저장 어댑터를 붙여도 `ocr` 결과는 거절된다.** `JdbcWorkerStageOutputAdapter`의 `.output/v1` 문자열 조립도 같은 자리다. 저장 어댑터는 관측 행과 함께 `textGroups`·`mergeConfigVersion`을 받고 `kind: "ocr_result"` 산출물 참조를 보존한다 — 그룹은 원본 관측 배열의 인덱스라 배열을 재정렬하거나 일부만 저장하면 참조가 끊긴다.
     이건 설계 미결이 아니라 **미구현**이다. 계약이 정한 payload를 받아 쓰는 쪽이 아직 없다는 뜻이므로, 두 단계의 end-to-end 확인은 이 항목이 끝나야 가능하다.
 
 ## 12. 워커 쪽 구현

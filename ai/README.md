@@ -398,6 +398,7 @@ ai/
 │   │   ├── frame_extraction.v1.toml  임계값 정본 (실측 후 확정)
 │   │   ├── vlm_metadata.v1.toml      프롬프트·어휘·상한 정본 (실측 후 확정)
 │   │   ├── ocr.v1.toml               임계값 정본 (실측 후 확정)
+│   │   ├── ocr-merge.v1.toml         frame 간 병합 임계값 정본 (기본 1.0 = 정규화 일치)
 │   │   ├── query_normalization.v1.toml  정규화 규칙 정본
 │   │   └── query_resolver.v1.toml    프롬프트 정본 (실측 후 확정)
 │   ├── scene_detection/ [워커] 장면 분할. detect_scenes() 순수 함수
@@ -424,6 +425,7 @@ ai/
 │   ├── ocr/             [워커] 화면 글자 관측. read_keyframes() 순수 함수
 │   │   ├── rapidocr_backend.py       OcrEngine Protocol 구현
 │   │   ├── postprocess.py            관측 변환·textKey
+│   │   ├── merge.py                  frame 간 문구 그룹 (원본 인덱스 참조)
 │   │   └── report.py                 육안 확인 CLI
 │   ├── jobs/            [워커] BE 잡 API 클라이언트와 실행 루프
 │   │   ├── client.py                 claim/heartbeat/complete/artifacts
@@ -447,7 +449,7 @@ ai/
 │   ├── scene-detection.md    선정 근거·설정 키·실측 후 확정 항목
 │   ├── frame-extraction.md   대표 이미지 규약·인코딩 실측·설정 키
 │   ├── vlm-metadata.md       출력 계약·어휘의 자리·거부 규칙·외부 게이트
-│   └── ocr.md                엔진 선정 실측·임계값 실측·설정 키
+│   └── ocr.md                엔진 선정 실측·frame 간 병합·임계값 실측·설정 키
 ├── samples/                  로컬 샘플 클립 (영상은 커밋 금지)
 └── tests/
     ├── conftest.py           합성 영상 픽스처 + 가짜 BE(httpx2.MockTransport)
@@ -458,6 +460,7 @@ ai/
     ├── test_frame_extraction.py
     ├── test_vlm_metadata.py  출력 계약·거부 규칙·입력 선정·외부 정책 게이트
     ├── test_ocr.py
+    ├── test_ocr_merge.py     frame 간 병합·그룹 참조 검증·버전 벡터
     ├── test_query_normalization.py
     ├── test_query_resolver.py
     └── test_smoke_models.py  -m smoke: torch CUDA + faster-whisper tiny
