@@ -6,7 +6,6 @@ import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useRef, useState, useTransition } from 'react';
 
-import { DateRangePicker } from '@/features/wireframes/date-range-picker';
 import { emptyDateRange } from '@/features/wireframes/date-range';
 import { EntryFooter } from '@/features/wireframes/entry-chrome';
 import { SearchHistory } from '@/features/wireframes/search-history';
@@ -128,43 +127,19 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
                 <ArrowRight aria-hidden="true" />
               </button>
             </div>
-            <fieldset
-              className={styles.searchFilters}
-              disabled={isNavigating}
-              onKeyDown={(event) => {
-                if (
-                  event.key === 'Enter' &&
-                  event.target instanceof HTMLInputElement &&
-                  event.target.type === 'date'
-                ) {
-                  event.preventDefault();
-                }
-              }}
-            >
-              <legend>
-                날짜 필터 <span>선택</span>
-              </legend>
-              <div className={styles.searchFilterGrid}>
-                <DateRangePicker
-                  label="방송일"
-                  value={broadcastRange}
-                  isDisabled={isNavigating}
-                  onChange={setBroadcastRange}
-                />
-                <DateRangePicker
-                  label="촬영일"
-                  value={filmingRange}
-                  isDisabled={isNavigating}
-                  onChange={setFilmingRange}
-                />
-              </div>
-            </fieldset>
             <p aria-live="polite" className={styles.srOnly}>
               {isNavigating ? '검색 중입니다. 검색 결과 화면을 준비하고 있습니다.' : ''}
             </p>
           </form>
         </div>
-        <SearchHistory theme={theme} />
+        <SearchHistory
+          broadcastRange={broadcastRange}
+          filmingRange={filmingRange}
+          isDisabled={isNavigating}
+          onBroadcastChange={setBroadcastRange}
+          onFilmingChange={setFilmingRange}
+          theme={theme}
+        />
       </main>
       <EntryFooter />
     </AppShell>

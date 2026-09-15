@@ -1,7 +1,7 @@
 'use client';
 
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 
 import {
   type DateRange,
@@ -17,6 +17,11 @@ interface DateRangePickerProps {
   value: DateRange;
   isDisabled?: boolean;
   isCompact?: boolean;
+  navigationTrigger?: {
+    className: string;
+    icon: ReactNode;
+    onOpen: () => void;
+  };
   onChange: (value: DateRange) => void;
 }
 
@@ -47,6 +52,7 @@ export function DateRangePicker({
   value,
   isDisabled,
   isCompact = false,
+  navigationTrigger,
   onChange,
 }: DateRangePickerProps) {
   const id = useId();
@@ -76,6 +82,7 @@ export function DateRangePicker({
   }
 
   function handleOpen() {
+    navigationTrigger?.onOpen();
     const start = value.from || localToday();
     const trigger = triggerRef.current?.getBoundingClientRect();
     // 아래 공간이 모자라면 위로 펼칩니다.
@@ -128,6 +135,7 @@ export function DateRangePicker({
     <div
       className={styles.dateField}
       data-compact={isCompact}
+      data-navigation={Boolean(navigationTrigger)}
       onBlur={(event) => {
         if (!isOpen || !event.relatedTarget) return;
         if (containerRef.current?.contains(event.relatedTarget)) return;
@@ -140,21 +148,26 @@ export function DateRangePicker({
       }}
       ref={containerRef}
     >
-      <span>{label}</span>
+      {!navigationTrigger && <span>{label}</span>}
       <button
         aria-controls={`${id}-panel`}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         aria-label={`${label} 기간 선택: ${formatDateRange(value)}`}
-        className={styles.rangeTrigger}
+        className={navigationTrigger?.className ?? styles.rangeTrigger}
+        data-active={isOpen}
         disabled={isDisabled}
         onClick={() => (isOpen ? handleClose() : handleOpen())}
         ref={triggerRef}
         title={isCompact ? `${label} 기간 선택: ${formatDateRange(value)}` : undefined}
         type="button"
       >
-        <CalendarDays aria-hidden="true" />
-        {!isCompact ? <span>{formatDateRange(value)}</span> : null}
+        {navigationTrigger ? navigationTrigger.icon : <CalendarDays aria-hidden="true" />}
+        {navigationTrigger ? (
+          <span>{label}</span>
+        ) : !isCompact ? (
+          <span>{formatDateRange(value)}</span>
+        ) : null}
       </button>
       {isOpen ? (
         <div

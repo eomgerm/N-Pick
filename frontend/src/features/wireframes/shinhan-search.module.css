@@ -92,6 +92,27 @@
   top: auto;
   bottom: calc(100% + 10px);
 }
+.dateField[data-navigation='true'] {
+  position: static;
+  display: block;
+  margin: 0;
+}
+.dateField[data-navigation='true'] .calendarPopover {
+  top: 0;
+  bottom: auto;
+  right: auto;
+  left: calc(100% + var(--panel-gap));
+  width: min(320px, calc(100vw - var(--nav-width) - var(--panel-gap) - 48px));
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 760px) {
+  .dateField[data-navigation='true'] .calendarPopover {
+    width: calc(100vw - var(--nav-width) - var(--panel-gap) - 16px);
+    padding: 10px;
+  }
+}
 .calendarPopover button {
   font: inherit;
   cursor: pointer;
