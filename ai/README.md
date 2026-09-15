@@ -177,7 +177,7 @@ result.model_version  # '<모델>@<리비전>'
 
 **모델 이름은 코드에 없다.** `NPICK_AI_VLM_MODEL` 로 준다 — 후보 비교로 정할 값이라
 코드가 고르면 근거 없는 동결이 된다(FRD §11). 비어 있으면 이 단계는 `capabilities` 에서
-빠지고 BE 가 배정하지 않는다. 가중치 실행에는 `uv sync --group gpu` 가 필요하다.
+빠지고 BE 가 배정하지 않는다. 가중치 실행에는 `uv sync --group gpu --group cu130`(또는 `cu128`)이 필요하다.
 
 형식·어휘·근거 중 하나라도 어긋난 출력은 **통째로 거부한다**(계약 §9.2 `VLM_SCHEMA_INVALID`,
 영구). 일부 필드만 골라 쓰지 않는다.
@@ -282,7 +282,7 @@ uv run --directory ai python -m npick_worker.query_resolver.report
 
 ```bash
 uv run pytest                  # 기본. smoke 제외, 1초 내
-uv run pytest -m smoke         # 실제 모델 로딩·GPU 확인. gpu 그룹 필요
+uv run pytest -m smoke         # 실제 모델 로딩·GPU 확인. gpu + cu12x/cu130 그룹 필요
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
@@ -296,7 +296,26 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 | --- | --- | --- | --- |
 | 기본 | `uv sync` | fastapi·uvicorn·pydantic(-settings)·scenedetect-headless·av·kiwipiepy·rapidocr·onnxruntime·httpx2 | 설치 약 240MB + OCR 약 90MB |
 | `dev` | `uv sync` (기본 포함) | ruff·mypy·pytest·pytest-asyncio | |
-| `gpu` | `uv sync --group gpu` | torch(cu130)·faster-whisper·transformers·pillow | 약 1.8GB, 최초 1회. **가중치는 별도** |
+| `gpu` | `uv sync --group gpu --group cu130` | faster-whisper·transformers·pillow·sentence-transformers | 약 1.8GB, 최초 1회. **가중치는 별도** |
+| `cu130` | 위와 함께 | torch(cu130) | 드라이버 **CUDA 13+** 노드용 (RunPod 파드) |
+| `cu128` | `uv sync --group gpu --group cu128` | torch(cu128) | 드라이버 **CUDA 12.8** 노드용 (SSAFY GPU 서버) |
+
+**CUDA 빌드는 반드시 하나를 함께 고른다.** PyTorch 휠은 빌드된 CUDA 이상의 드라이버를
+요구한다 — cu130 휠은 CUDA 13+ 가 있어야 하고, 드라이버가 12.8 인 SSAFY GPU 서버에서는
+GPU 를 못 잡는다. 그래서 `torch` 는 `gpu` 그룹에 없고 `cu128`/`cu130` 으로 갈려 있으며,
+둘은 `[tool.uv] conflicts` 로 배타 선언돼 한 환경에 같이 깔리지 않는다.
+
+`--group gpu` 만 주면 `transformers`·`sentence-transformers` 가 **PyPI 의 torch** 를
+끌어온다 — Windows 는 CPU 전용, **Linux 는 CUDA 13 번들**이라 드라이버 12.8 노드에서
+GPU 를 못 잡는다. 반드시 짝지어 쓴다.
+
+| 노드 | 드라이버 | 명령 |
+| --- | --- | --- |
+| RunPod GPU 파드 (실시간 구동) | CUDA 13+ | `uv sync --group gpu --group cu130` |
+| SSAFY GPU 서버 (개발 검증) | CUDA 12.8 | `uv sync --group gpu --group cu128` |
+
+cu128 쪽 torch 상한이 낮은 것(`>=2.11,<2.12`)은 의도가 아니라 제약이다 — cu128 인덱스가
+제공하는 최신이 2.11 이고 2.13 빌드가 없다. 드라이버가 올라가면 함께 올린다.
 
 `scenedetect` 는 PyAV 백엔드만 쓰더라도 임포트 시점에 `cv2` 를 요구한다. GUI 라이브러리가 붙은 `opencv-python` 이면 헤드리스 컨테이너에서 `libGL.so` 로 죽으므로 headless 변종을 쓴다 — 0.7 부터 이건 extra 가 아니라 **`scenedetect-headless` 별도 배포판**이다. 임포트 이름은 그대로 `scenedetect` 이고, 두 배포판을 같이 설치하면 임포트 이름을 다투므로 한쪽만 선언한다.
 
@@ -311,7 +330,7 @@ OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/pro
 `vlm_metadata` 를 싣지 않으므로(`jobs/registry.py`) 배정 자체가 오지 않는다. 가중치는 패키지에
 들어 있지 않고 `NPICK_AI_VLM_MODEL_DIR` 이 가리키는 곳에 받는다.
 
-**torch 는 PyPI 가 아니라 `download.pytorch.org/whl/cu130` 에서 온다.** PyPI 의 Windows torch 휠은 CPU 전용(약 122MB)이라 그대로 설치하면 CUDA 가 조용히 비활성화된다. `pyproject.toml` 의 `[[tool.uv.index]]` 와 `[tool.uv.sources]` 가 이걸 막는다. macOS 는 CUDA 휠이 없으므로 marker 로 제외되어 PyPI 의 arm64(MPS) 휠로 해석된다.
+**torch 는 `cu128`/`cu130` 그룹을 함께 줄 때만 `download.pytorch.org` 에서 온다.** `[tool.uv.sources]` 가 group 으로 키잉돼 있어 `--group gpu` 만 주면 PyPI 로 해석된다 — Windows 에서는 CPU 전용 휠(약 122MB)이라 CUDA 가 조용히 비활성화되고, **Linux 에서는 CUDA 13 번들 빌드**라 드라이버가 12.8 인 노드에서 `torch.cuda.is_available()` 이 거짓이 된다. 증상이 다르므로 진단할 때 구분한다. macOS 는 CUDA 휠이 없으므로 marker 로 제외되어 PyPI 의 arm64(MPS) 휠로 해석된다.
 
 `uv lock` 은 설치 여부와 무관하게 모든 그룹을 함께 해석한다. 따라서 **`gpu` 를 한 번도 설치하지 않는 사람의 `uv.lock` 에도 torch 엔트리가 있다** — 다운로드는 하지 않으니 정상이다.
 
@@ -319,7 +338,7 @@ OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/pro
 
 ```powershell
 $env:UV_HTTP_TIMEOUT = "600"
-uv sync --directory ai --group gpu
+uv sync --directory ai --group gpu --group cu130
 ```
 
 ## 환경 변수
@@ -343,6 +362,10 @@ uv sync --directory ai --group gpu
 | `NPICK_AI_VLM_MODEL` | (없음) | VLM 가중치 식별자. **기본값을 두지 않는다** — 후보 비교로 정할 값이라 코드가 고르면 근거 없는 동결이다(FRD §11). 비어 있으면 이 단계가 `capabilities` 에서 빠진다 |
 | `NPICK_AI_VLM_MODEL_REVISION` | `main` | 가중치 리비전. 재현 식별자에 들어간다 |
 | `NPICK_AI_VLM_MODEL_DIR` | 없음 | VLM 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — 파드 디스크가 휘발성이라 띄울 때마다 수 GB 를 다시 받는다 |
+| `NPICK_AI_EMBEDDING_MODEL` | `dragonkue/snowflake-arctic-embed-l-v2.0-ko` | 임베딩 가중치 식별자. **`S15P21A501-175` 가 확정한 값이다** — `NPICK_AI_VLM_MODEL` 이 기본값을 두지 않는 것과 갈린다. 바꾸면 **전체 재색인**이다. 명시적으로 비우면 `MODEL_UNAVAILABLE` |
+| `NPICK_AI_EMBEDDING_MODEL_REVISION` | `55ec6e93…`(SHA 고정) | 가중치 리비전. 재현 식별자에 들어간다. `main` 으로 두면 원격 갱신 때 같은 이름이 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다 |
+| `NPICK_AI_EMBEDDING_MODEL_DIR` | 없음 | 임베딩 가중치를 둘 곳. 컨테이너에서는 반드시 준다 |
+| `NPICK_AI_EMBEDDING_BATCH_SIZE` | `16` | 한 번에 모델에 넣는 문장 수. **결과를 바꾸지 않으므로** 버전 붙는 설정 파일이 아니라 여기 있다 |
 | `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
 | `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
 | `NPICK_AI_ASR_MODEL` | (없음) | ASR 가중치 식별자(예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기가 결과와 처리 시간을 바꾸고 실측 후 확정이라(FRD §11) 코드가 고르면 근거 없는 동결이다. 비어 있으면 이 단계가 `capabilities` 에서 빠진다. **기동 워밍업이 실패한 워커도 빠진다** — 폴링 중에 수 GB 를 다시 내려받지 않기 위해서이고, 복구는 재워밍업 또는 워커 재시작이다 |

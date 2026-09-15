@@ -22,7 +22,7 @@ for model in "$@"; do
   label="${model//\//--}"
   run_dir="$out_root/$(date -u +%Y%m%dT%H%M%SZ)-$label-$$"
   echo "실행: $model -> $run_dir"
-  uv run --locked --group gpu python -u -m npick_worker.vlm_metadata.benchmark \
+  uv run --locked --group gpu --group cu128 python -u -m npick_worker.vlm_metadata.benchmark \
     "$frames_dir" --model "$model" --out "$run_dir" \
     --memory-budget-gib "$memory_budget" --dtype bfloat16 --thinking off --limit 10 \
     2>&1 | tee "$run_dir.log"
