@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { AppBackdrop } from '@/components/app-backdrop';
+import { AppBrand } from '@/components/app-brand';
 import { useMember } from '@/components/session-boundary';
 import { SessionControls } from '@/components/session-controls';
 import { routes } from '@/lib/routes';
@@ -51,23 +52,13 @@ export function AppShell({
             : 'sticky top-0 z-20 min-h-17 bg-(--secondary) text-white'
         }`}
       >
-        <Link
-          aria-disabled={isInteractionLocked}
-          aria-label="N-Pick 홈"
-          className="inline-flex w-fit items-center gap-2.5 rounded-sm text-xl font-extrabold tracking-tight focus-visible:outline-2 focus-visible:outline-offset-4"
-          href={routes.landing}
+        <AppBrand
+          ariaDisabled={isInteractionLocked}
+          className="focus-visible:outline-2 focus-visible:outline-offset-4"
           onClick={(event) => {
             if (isInteractionLocked) event.preventDefault();
           }}
-        >
-          <span
-            aria-hidden="true"
-            className="grid size-8 place-items-center rounded-[10px_10px_10px_3px] bg-(--accent) text-2xl text-white italic"
-          >
-            N
-          </span>
-          N-Pick
-        </Link>
+        />
         <nav
           aria-label="주요 메뉴"
           className={`order-last col-span-2 flex items-stretch lg:order-none lg:col-span-1 ${
