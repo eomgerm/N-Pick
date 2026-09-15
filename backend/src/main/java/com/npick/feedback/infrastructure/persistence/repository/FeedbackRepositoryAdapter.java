@@ -61,4 +61,9 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
         Instant closedAt = resolution.isTerminal() ? now : null;
         return jpaRepository.resolve(feedbackId, reviewerId, resolution.value(), note, newStatus, closedAt, now);
     }
+
+    @Override
+    public int confirm(long feedbackId, long reviewerId, long executionId, Instant now) {
+        return jpaRepository.confirm(feedbackId, reviewerId, executionId, now);
+    }
 }

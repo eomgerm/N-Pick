@@ -26,4 +26,12 @@ public interface FeedbackRepository {
      * @return 갱신된 행 수. 0 이면 이미 종료됐거나 담당이 아니어서 진 것이다.
      */
     int resolve(long feedbackId, long reviewerId, FeedbackResolution resolution, String note, Instant now);
+
+    /**
+     * reviewing 상태이고 담당 검수자 본인일 때만 교정을 확정한다(CAS, S15P21A501-84, F-13). 검증 실행을 연결하고({@code verified_by_execution_id}) 신고를
+     * closed 로 종료한다. resolution 은 그대로 둔다.
+     *
+     * @return 갱신된 행 수. 0 이면 이미 종료됐거나 담당이 아니어서 진 것이다.
+     */
+    int confirm(long feedbackId, long reviewerId, long executionId, Instant now);
 }

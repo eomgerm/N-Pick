@@ -51,4 +51,18 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
             @Param("newStatus") String newStatus,
             @Param("closedAt") Instant closedAt,
             @Param("now") Instant now);
+
+    // 교정 확정(S15P21A501-84). verified_by_execution_id·closed_at 은 JPA 엔티티에 없는 컬럼이라 native 로 쓴다.
+    // resolution 은 건드리지 않는다 — 확정은 판정을 바꾸는 게 아니라 검증 실행을 연결하고 종료하는 것이다(F-13 5·6).
+    @Modifying
+    @Query(
+            value = "UPDATE feedback SET status = 'CLOSED', verified_by_execution_id = :executionId, "
+                    + "closed_at = :now, updated_at = :now "
+                    + "WHERE feedback_id = :id AND status = 'REVIEWING' AND reviewed_by_id = :reviewerId",
+            nativeQuery = true)
+    int confirm(
+            @Param("id") long feedbackId,
+            @Param("reviewerId") long reviewerId,
+            @Param("executionId") long executionId,
+            @Param("now") Instant now);
 }
