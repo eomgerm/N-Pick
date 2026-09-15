@@ -31,7 +31,12 @@ public interface FeedbackRepository {
      * reviewing 상태이고 담당 검수자 본인일 때만 교정을 확정한다(CAS, S15P21A501-84, F-13). 검증 실행을 연결하고({@code verified_by_execution_id}), 최종
      * 승인한 교정 규칙을 {@code created_rule_id} 에 기록하며(태그만 교정하면 {@code null}), 신고를 closed 로 종료한다. resolution 은 그대로 둔다.
      *
-     * @return 갱신된 행 수. 0 이면 이미 종료됐거나 담당이 아니어서 진 것이다.
+     * @return 갱신된 행 수. 0 이면 이미 종료됐거나 담당이 아니거나 판정이 바뀌어 진 것이다.
      */
-    int confirm(long feedbackId, long reviewerId, long executionId, Long createdRuleId, Instant now);
+    int confirm(
+            long feedbackId, long reviewerId, long executionId, Long createdRuleId, String expectedResolution,
+            Instant now);
+
+    /** 교정 확정을 서로 직렬화한다(트랜잭션 스코프 advisory lock). 동시 확정이 drift 검사를 우회하지 못하게 한다(F-13). */
+    void lockConfirmation();
 }

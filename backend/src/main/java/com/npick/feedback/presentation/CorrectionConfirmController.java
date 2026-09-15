@@ -14,7 +14,6 @@ import com.npick.common.security.resolver.LoginMember;
 import com.npick.feedback.application.ConfirmCorrectionCommand;
 import com.npick.feedback.application.ConfirmCorrectionService;
 import com.npick.feedback.presentation.request.ConfirmCorrectionRequest;
-import com.npick.feedback.presentation.response.ConfirmCorrectionResponse;
 
 /**
  * 검수자가 검증한 교정을 확정한다 (S15P21A501-84, F-13).
@@ -34,8 +33,9 @@ public class CorrectionConfirmController {
         this.service = service;
     }
 
+    // 성공은 body 없는 200 이다(web-api.md §6.4). 확정 결과는 신고 상세 재조회로 확인한다.
     @PostMapping("/{feedbackId}/confirm")
-    public ApiResponse<ConfirmCorrectionResponse> confirm(
+    public ApiResponse<Void> confirm(
             @PathVariable long feedbackId,
             @Valid @RequestBody ConfirmCorrectionRequest request,
             @LoginMember CurrentMember member) {
@@ -44,6 +44,6 @@ public class CorrectionConfirmController {
                 member.memberId(),
                 REVIEWER_ROLE.equalsIgnoreCase(member.role()),
                 request.executionId()));
-        return ApiResponse.success(ConfirmCorrectionResponse.closed(feedbackId));
+        return ApiResponse.success();
     }
 }

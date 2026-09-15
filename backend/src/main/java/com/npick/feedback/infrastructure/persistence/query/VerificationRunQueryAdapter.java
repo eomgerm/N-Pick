@@ -43,7 +43,24 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
         if (rows.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(parse(executionId, (String) rows.get(0)));
+        VerificationRun run = parse(executionId, (String) rows.get(0));
+        // 스냅샷이 판정별 필수 필드를 갖추지 못하면 확정 근거로 삼을 수 없다 — 없는 실행처럼 거부한다(F-12 "후보가 적용되지 않으면 확정 불가").
+        // 빈 근거로 tag_correction 을 확정하거나, 누락 필드로 뒤에서 NPE 500 이 나는 것을 여기서 막는다.
+        return isComplete(run) ? Optional.of(run) : Optional.empty();
+    }
+
+    private static boolean isComplete(VerificationRun run) {
+        if (run.stateFingerprint() == null || run.stateFingerprint().isBlank()) {
+            return false;
+        }
+        String resolution = run.resolution();
+        if ("tag_correction".equals(resolution)) {
+            return !run.approvedEvidenceIds().isEmpty();
+        }
+        if ("patch_parse".equals(resolution) || "exclude_scene".equals(resolution)) {
+            return run.approvedRuleId() != null;
+        }
+        return false;
     }
 
     private VerificationRun parse(long executionId, String json) {

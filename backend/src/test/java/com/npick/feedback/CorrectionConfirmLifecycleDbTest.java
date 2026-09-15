@@ -130,6 +130,25 @@ class CorrectionConfirmLifecycleDbTest {
                 .isEqualTo("REVIEWING");
     }
 
+    @Test
+    @Transactional
+    @DisplayName("스냅샷이 판정별 필수 필드를 갖추지 못하면(근거 0개 tag_correction) 확정 근거로 삼지 않고 404 거부한다")
+    void rejectsIncompleteSnapshot() throws Exception {
+        seedCommon("tag_correction");
+        seedTagCandidate();
+        // approved_evidence_ids 가 빈 tag_correction — 근거 0개로 CLOSED 되면 안 된다(F-12).
+        seedReplay("{\"resolution\":\"tag_correction\",\"approved_evidence_ids\":[],"
+                + "\"approved_rule_id\":null,\"replaced_rule_id\":null,\"state_fingerprint\":\"rules=;tags=\"}");
+
+        confirm(9702L).andExpect(status().isNotFound());
+
+        assertThat(jdbc.queryForObject("SELECT confirmed FROM npick.tag_evidence WHERE evidence_id = 7901",
+                        Boolean.class))
+                .isFalse();
+        assertThat(jdbc.queryForObject("SELECT status FROM npick.feedback WHERE feedback_id = 9901", String.class))
+                .isEqualTo("REVIEWING");
+    }
+
     private org.springframework.test.web.servlet.ResultActions confirm(long executionId) throws Exception {
         return mockMvc.perform(post("/api/v1/review/inquiries/9901/confirm")
                 .with(user(REVIEWER))

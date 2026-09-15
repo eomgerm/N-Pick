@@ -53,6 +53,8 @@ public class ConfirmCorrectionService {
         if (!command.reviewerRole()) {
             throw new BusinessException(ConfirmCorrectionErrorCode.EDITOR_FORBIDDEN);
         }
+        // 확정끼리 직렬화한다 — 지문 재확인부터 쓰기까지를 다른 확정과 겹치지 않게 해, 동시 확정이 drift 검사를 우회하지 못하게 한다(F-13).
+        feedbackRepository.lockConfirmation();
         ConfirmationTarget target = targetPort
                 .find(command.feedbackId())
                 .orElseThrow(() -> new BusinessException(ConfirmCorrectionErrorCode.FEEDBACK_NOT_FOUND));
@@ -78,6 +80,10 @@ public class ConfirmCorrectionService {
         VerificationRun run = verificationRunPort
                 .find(command.executionId(), command.feedbackId())
                 .orElseThrow(() -> new BusinessException(ConfirmCorrectionErrorCode.NOT_VERIFICATION_RUN));
+        // 검증한 판정과 현재 판정이 다르면(검수 중 PUT 으로 resolution 을 덮어씀) 검증하지 않은 종류를 확정하는 것이라 재검증한다.
+        if (!run.resolution().equals(target.resolution())) {
+            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+        }
         if (!run.stateFingerprint().equals(currentStatePort.currentFingerprint(command.feedbackId()))) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
@@ -94,7 +100,12 @@ public class ConfirmCorrectionService {
         // 최종 승인한 교정 규칙을 신고에 기록한다. 태그만 교정하면 NULL 이다(F-13·baseline 주석).
         Long createdRuleId = isPatchParse ? run.approvedRuleId() : null;
         if (feedbackRepository.confirm(
-                        command.feedbackId(), command.reviewerId(), command.executionId(), createdRuleId, Instant.now())
+                        command.feedbackId(),
+                        command.reviewerId(),
+                        command.executionId(),
+                        createdRuleId,
+                        target.resolution(),
+                        Instant.now())
                 == 0) {
             // 전제 조회와 확정 CAS 사이 경합(다른 확정·종료). 트랜잭션을 롤백해 태그·규칙 확정을 되돌린다.
             throw new BusinessException(ConfirmCorrectionErrorCode.NOT_REVIEWING);

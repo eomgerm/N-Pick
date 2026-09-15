@@ -150,18 +150,32 @@ class ConfirmCorrectionServiceTest {
     }
 
     @Test
+    @DisplayName("검증한 판정과 현재 신고 판정이 다르면 재검증을 요구한다 (검수 중 resolution 변경)")
+    void resolutionMismatch() {
+        target("REVIEWING", "patch_parse", null);
+        verificationRun("tag_correction", List.of(7901L), null, null); // 검증은 tag_correction 이었다
+
+        assertThatThrownBy(() -> service.confirm(command(true)))
+                .extracting("errorCode")
+                .isEqualTo(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+        verify(feedbackRepository, never()).confirm(anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("태그 교정을 확정하면 근거를 확정하고 신고를 종료한다")
     void confirmsTagCorrection() {
         target("REVIEWING", "tag_correction", null);
         verificationRun("tag_correction", List.of(7901L, 7902L), null, null);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
+        verify(feedbackRepository).lockConfirmation(); // 확정은 서로 직렬화된다
         verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
         verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
-        // 태그만 교정하면 created_rule_id 는 NULL 이다.
-        verify(feedbackRepository).confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), isNull(), any(Instant.class));
+        // 태그만 교정하면 created_rule_id 는 NULL 이고, CAS 는 검증한 판정(tag_correction)을 예상 조건으로 건다.
+        verify(feedbackRepository)
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), isNull(), eq("tag_correction"), any(Instant.class));
     }
 
     @Test
@@ -169,7 +183,7 @@ class ConfirmCorrectionServiceTest {
     void confirmsParseRule() {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(), 6602L, 6601L);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
@@ -177,7 +191,7 @@ class ConfirmCorrectionServiceTest {
         verify(confirmTag, never()).confirm(anyLong(), any());
         // patch_parse 는 최종 승인 규칙을 created_rule_id 에 기록한다.
         verify(feedbackRepository)
-                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), any(Instant.class));
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), eq("patch_parse"), any(Instant.class));
     }
 
     @Test
@@ -185,14 +199,14 @@ class ConfirmCorrectionServiceTest {
     void confirmsParseRuleWithTagCorrection() {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(7901L, 7902L), 6602L, 6601L);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
         verify(confirmParseRule).confirm(FEEDBACK, 6602L, 6601L);
         verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
         verify(feedbackRepository)
-                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), any(Instant.class));
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), eq("patch_parse"), any(Instant.class));
     }
 
     @Test
@@ -204,6 +218,6 @@ class ConfirmCorrectionServiceTest {
 
         verify(confirmTag, never()).confirm(anyLong(), any());
         verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
-        verify(feedbackRepository, never()).confirm(anyLong(), anyLong(), anyLong(), any(), any());
+        verify(feedbackRepository, never()).confirm(anyLong(), anyLong(), anyLong(), any(), any(), any());
     }
 }
