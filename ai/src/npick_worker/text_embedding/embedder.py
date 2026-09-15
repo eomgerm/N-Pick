@@ -1,11 +1,10 @@
 """장면 텍스트를 벡터로 바꾼다. 이 단계의 본체다."""
 
-import math
 from collections.abc import Sequence
 from typing import Final
 
 from npick_worker.text_embedding.config import TextEmbeddingConfig, get_default_config
-from npick_worker.text_embedding.encoder import TextEncoder
+from npick_worker.text_embedding.encoder import TextEncoder, finalize_vector
 from npick_worker.text_embedding.models import SceneEmbedding, SceneText, TextEmbeddingResult
 
 #: 캡션 덩어리와 대사 뭉치를 나누는 구분자. 설정으로 빼지 않는다 — 바꾸면 전체 재색인인데
@@ -102,7 +101,9 @@ def embed_scenes(
         results.append(
             SceneEmbedding(
                 scene_index=scene.scene_index,
-                vector=_finalize(vector, settings),
+                vector=finalize_vector(
+                    vector, dimension=settings.dimension, normalize=settings.normalize
+                ),
                 source_text=text,
             )
         )
@@ -116,46 +117,6 @@ def embed_scenes(
         model_version=model.model_version,
         dimension=settings.dimension,
     )
-
-
-def _finalize(vector: Sequence[float], config: TextEmbeddingConfig) -> tuple[float, ...]:
-    """차원과 값을 확인하고 필요하면 L2 정규화한다.
-
-    차원 검사를 `TextEncoder` 가 선언한 값이 아니라 **실제로 나온 벡터의 길이**로 한다.
-    선언값은 모델이 말한 것이고 실제와 다를 수 있다.
-    """
-    if len(vector) != config.dimension:
-        msg = (
-            f"모델이 낸 벡터의 차원이 설정과 다르다: 설정 {config.dimension}, "
-            f"모델 {len(vector)}. scene.embedding vector({config.dimension}) 과 "
-            f"어긋나면 저장이 통째로 실패한다"
-        )
-        raise ValueError(msg)
-
-    values = [float(value) for value in vector]
-    norm = math.sqrt(sum(value * value for value in values))
-
-    # **정규화 여부와 무관한 검사다.** 아래 둘은 저장되면 pgvector 의 코사인 거리가
-    # NaN 이 되고, 그러면 그 장면이 모든 질의에서 조용히 빠진다. 증상이 검색 결과에만
-    # 나타나 원인을 벡터에서 찾기까지가 멀다. `normalize` 분기 안에 두면 정규화를 끈
-    # 설정에서 그대로 DB 로 간다.
-    if not all(math.isfinite(value) for value in values):
-        # fp16 에서 NaN 이 나오는 경로다. `norm` 도 NaN 이 되는데 `norm == 0.0` 은
-        # False 라 0 벡터 검사만으로는 빠져나간다.
-        msg = "모델이 유한하지 않은 성분(NaN·inf)을 낸 벡터를 냈다"
-        raise ValueError(msg)
-    if not math.isfinite(norm):
-        # 성분이 전부 유한해도 제곱합이 넘칠 수 있다. 그러면 `value / inf == 0.0` 이라
-        # 위 검사를 통과한 뒤 0 벡터가 된다 — 바로 아래가 막으려는 값이다.
-        msg = "벡터의 크기가 유한하지 않다(제곱합 overflow)"
-        raise ValueError(msg)
-    if norm == 0.0:
-        msg = "모델이 0 벡터를 냈다. 코사인 거리가 정의되지 않는다"
-        raise ValueError(msg)
-
-    if not config.normalize:
-        return tuple(values)
-    return tuple(value / norm for value in values)
 
 
 def _default_encoder() -> TextEncoder:

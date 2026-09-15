@@ -17,6 +17,15 @@ from npick_worker.jobs.models import StageResult
 from npick_worker.jobs.versions import StageVersion
 from npick_worker.settings import get_settings
 
+#: `scene.embedding vector(1024)` 의 차원. 마이그레이션
+#: `V20260907092019__baseline.sql:83` 이 정본이다.
+#:
+#: **여기 한 곳에만 둔다.** 색인 측과 질의 측 테스트가 같은 숫자를 각자 적고 있으면
+#: 컬럼이 바뀔 때 한쪽만 고쳐질 수 있다 — 설정에서 `dimension` 복제를 없앤 것과 같은
+#: 이유다(S15P21A501-164). 이 값이 설정과 맞는지는
+#: `test_query_embedding.py::test_index_dimension_still_matches_the_column` 이 본다.
+SCENE_EMBEDDING_DIMENSION = 1024
+
 
 @pytest.fixture(autouse=True)
 def reset_settings() -> Iterator[None]:
@@ -25,6 +34,29 @@ def reset_settings() -> Iterator[None]:
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def query_encoder_warmup(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """앱 기동이 실제 임베딩 가중치를 올리지 않게 막는다.
+
+    리졸버 갈래(`job_poll_enabled=False`, 테스트의 기본값)는 lifespan 에서 질의 임베딩을
+    워밍업한다. 그대로 두면 `TestClient` 를 쓰는 모든 테스트가 1.7GB 를 내려받는다 —
+    **실제 가중치를 돌리는 것은 `smoke` 뿐**이라는 이 저장소의 방침과 어긋난다.
+
+    `app` 이 이름으로 임포트했으므로 `app` 쪽을 갈아 끼운다. `query_api.warm_query_encoder`
+    자체는 그대로라 그 함수의 동작은 `test_query_api.py` 가 직접 부르며 검증한다.
+
+    호출 기록을 돌려주므로 배선을 확인하는 테스트가 그대로 쓸 수 있다.
+    """
+    calls: list[bool] = []
+
+    def record() -> bool:
+        calls.append(True)
+        return True
+
+    monkeypatch.setattr("npick_worker.app.warm_query_encoder", record)
+    return calls
 
 
 @pytest.fixture
