@@ -363,11 +363,7 @@ def _ocr_required_inputs(upstream: Mapping[str, Any]) -> tuple[str, ...]:
 
 def _run_ocr(ctx: StageContext) -> StageOutcome:
     # 지연 임포트. rapidocr 는 onnxruntime·cv2 를 끌어온다(scene_detection 과 같은 이유).
-    from npick_worker.jobs.models import (
-        OCR_RESULT_SCHEMA_VERSION,
-        OcrOutput,
-        OcrResultOutput,
-    )
+    from npick_worker.jobs.models import OcrOutput
     from npick_worker.ocr import OcrModelUnavailableError, OcrReadError, read_keyframes
 
     keyframes = _ocr_keyframes(ctx.upstream)
@@ -397,15 +393,13 @@ def _run_ocr(ctx: StageContext) -> StageOutcome:
         merge_version=result.merge_config.version_id,
     )
     detail = {key: value for key, value in identity.items() if key != "configVersion"}
-    # 봉투는 v1 이라 그룹을 담지 못한다. 그룹은 자기 스키마를 선언하는 산출물로 나간다 —
-    # 관측 배열과 그룹 참조를 한 문서에 보존한다. DB ID로 해석하거나 배열만 정렬하면 안 된다.
     output = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
-    document = OcrResultOutput.from_result(result).model_dump(by_alias=True, mode="json")
+    # 관측 배열과 그룹 참조를 한 문서에 보존한다. DB ID로 해석하거나 배열만 정렬하면 안 된다.
     artifact_bytes = json.dumps(
         {
-            "outputSchemaVersion": OCR_RESULT_SCHEMA_VERSION,
+            "outputSchemaVersion": output_schema_version(ctx.stage),
             "identity": identity,
-            "output": document,
+            "output": output,
         },
         ensure_ascii=False,
         sort_keys=True,

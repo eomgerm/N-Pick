@@ -21,7 +21,7 @@ CREATE TABLE "ocr_observation" (
 | 위치 | `bounding_box_json` | 원본 해상도 픽셀 좌표 |
 | 신뢰도 | `confidence` | `numeric(5,4)` — 소수점 넷째 자리까지다 |
 | 검증 상태 | **없음** | 컬럼 주석이 "이 값의 임계값으로 판정한다" 로 둔다 |
-| 병합 그룹 | 전용 컬럼 없음 | `ocr_result` JSON 산출물에 원본 관측과 함께 보존 (봉투는 v1) |
+| 병합 그룹 | 전용 컬럼 없음 | OCR v2 출력·ocr_result JSON 산출물에 원본과 함께 보존 |
 """
 
 from dataclasses import dataclass, field

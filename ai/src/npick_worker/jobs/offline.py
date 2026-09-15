@@ -14,6 +14,7 @@ from npick_worker.jobs.models import (
     LeaseGrant,
     StageResult,
 )
+from npick_worker.jobs.versions import output_schema_version
 
 
 async def import_result(
@@ -23,13 +24,19 @@ async def import_result(
     result: StageResult,
     bundle_root: Path,
 ) -> CompleteAck:
-    """Never rebind a stale bundle to a new attempt or manufacture a successful result."""
+    """Never rebind a stale bundle to a new attempt or manufacture a successful result.
+
+    The schema check compares the bundle against what this worker produces, not against
+    the assignment. BE still assigns `.output/v1` to every stage, so comparing the two
+    would make every `ocr`/`vlm_metadata` bundle unimportable even when the bundle is
+    exactly what this worker just wrote (contract §11 item 12).
+    """
     if (
         result.stage != job.stage
         or result.attempt != job.attempt
         or result.lease_id != lease.lease_id
         or result.idempotency_key != job.idempotency_key
-        or result.versions.output_schema_version != job.output_schema_version
+        or result.versions.output_schema_version != output_schema_version(job.stage)
     ):
         raise UpstreamOutputInvalidError("offline result does not match its assignment")
     root = bundle_root.resolve()

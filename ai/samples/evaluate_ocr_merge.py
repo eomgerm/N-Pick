@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from npick_worker.jobs.models import OcrResultOutput
+from npick_worker.jobs.models import OcrOutput
 from npick_worker.ocr.merge import get_merge_config
 from npick_worker.ocr.models import (
     BoundingBox,
@@ -76,9 +76,7 @@ def main() -> int:
     if observations_digest != labels["observationsSha256"]:
         parser.error("입력 SHA256이 라벨과 다르다. 관측 인덱스를 재검수해야 한다.")
     result = read_result(data)
-    baseline = OcrResultOutput.from_result(result).model_dump(mode="json", by_alias=True)[
-        "observations"
-    ]
+    baseline = OcrOutput.from_result(result).model_dump(mode="json", by_alias=True)["observations"]
     trials = []
     preserved: list[bool] = []
     deterministic: list[bool] = []
@@ -87,18 +85,17 @@ def main() -> int:
         config = get_merge_config().model_copy(update={"similarity_threshold": threshold})
         candidate = replace(result, merge_config=config)
         started = time.perf_counter()
-        output = OcrResultOutput.from_result(candidate)
+        output = OcrOutput.from_result(candidate)
         elapsed_ms = (time.perf_counter() - started) * 1000
         encoded = output.model_dump_json(by_alias=True, indent=2)
-        restored = OcrResultOutput.model_validate_json(encoded)
+        restored = OcrOutput.model_validate_json(encoded)
         # 아래 두 값이 리포트의 `allOriginalsPreserved`·`deterministicReplay` 가 되고,
         # `ai/docs/ocr.md` §4 가 그것을 기본 임계값 유지의 근거로 인용한다. assert 로 두면
         # `python -O` 에서 검사만 사라지고 단언은 남아, 확인한 적 없는 보존성을 주장하는
         # 리포트가 나온다. 그래서 검사 결과를 값으로 들고 다닌다.
         originals_kept = restored.model_dump(mode="json", by_alias=True)["observations"] == baseline
         replay_stable = output.model_dump(mode="json") == restored.model_dump(mode="json") and (
-            encoded
-            == OcrResultOutput.from_result(candidate).model_dump_json(by_alias=True, indent=2)
+            encoded == OcrOutput.from_result(candidate).model_dump_json(by_alias=True, indent=2)
         )
         preserved.append(originals_kept)
         deterministic.append(replay_stable)
