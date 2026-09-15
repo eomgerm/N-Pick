@@ -9,11 +9,10 @@
 끊기거나 전 클립이 재처리 대상이 된다. `ocr_model_dir` 이 설정 파일 밖에 있는 것과 같은
 판단이다.
 
-**모델 이름도 여기 없다.** 가중치 식별자는 `settings.py` 의 `NPICK_AI_EMBEDDING_MODEL`
-이 정한다. `vlm_model` 과 같은 판단이다 — 선정이 아직 동결 전이고(S15P21A501-175 는
-잠정 선정) 모델만 바꾸려고 설정 파일을 고치면 `config_version` 이 함께 움직여
-"설정이 바뀌었나" 와 "모델이 바뀌었나" 를 나중에 구분할 수 없다. 두 값은 `jobs/versions.py`
-의 `configVersion` 과 `modelVersion` 으로 따로 기록된다.
+**모델 이름도 여기 없다.** 선정은 S15P21A501-175 에서 확정됐지만 그 값은 `settings.py`
+(`NPICK_AI_EMBEDDING_MODEL`)에 있다. 설정 파일에 두면 모델을 바꿀 때 `config_version` 이
+함께 움직여 "설정이 바뀌었나" 와 "모델이 바뀌었나" 를 나중에 구분할 수 없다. 두 값은
+`jobs/versions.py` 의 `configVersion` 과 `modelVersion` 으로 **따로** 기록돼야 한다.
 """
 
 import re

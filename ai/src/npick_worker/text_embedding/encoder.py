@@ -6,10 +6,11 @@ provider SDK 를 직접 노출하지 않는다" 로 정한다. `ocr/engine.py` �
 
 이 경계가 실제로 사는 것 둘.
 
-- **선정이 동결되지 않았다.** S15P21A501-175 는 `dragonkue/snowflake-arctic-embed-l-v2.0-ko`
-  를 **잠정** 선정했고 리뷰어 승인 전이다. 그 티켓의 재평가 조건(장면 단위 골드셋에서
-  PIXIE 가 유의하게 앞서면 교체)이 걸리면 바뀌는 것은 환경 변수 하나이거나 backend 파일
-  하나이지 `embedder.py` 도 `jobs/` 도 아니다.
+- **선정은 확정됐지만 재평가 조건이 살아 있다.** S15P21A501-175 가
+  `dragonkue/snowflake-arctic-embed-l-v2.0-ko` 로 확정했고 그 값은 `settings.py` 의
+  기본값이다. 다만 같은 티켓이 재평가 조건을 남겼다 — 캡션을 임베딩 입력에 넣고 장면
+  단위 골드셋을 만든 뒤 거기서 PIXIE 가 유의하게 앞서면 교체한다. 그때 바뀌는 것은
+  설정값 하나이거나 backend 파일 하나이지 `embedder.py` 도 `jobs/` 도 아니다.
 - **교체 층이 둘이다.** 같은 sentence-transformers 런타임에서 가중치만 바꾸는 것은
   `NPICK_AI_EMBEDDING_MODEL` 이고(arctic↔PIXIE↔KURE 가 전부 여기), 런타임 자체를 바꾸는
   것은 이 Protocol 의 다른 구현이다. 앞엣것이 흔하고 뒤엣것이 드물다.

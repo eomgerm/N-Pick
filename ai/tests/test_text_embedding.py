@@ -12,6 +12,7 @@
 
 import hashlib
 import math
+import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -19,6 +20,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from npick_worker.settings import Settings
 from npick_worker.text_embedding import (
     SceneText,
     TextEmbeddingConfig,
@@ -555,3 +557,27 @@ def test_resolve_revision_finds_the_commit_sha_from_the_loaded_model() -> None:
         _modules={"0": SimpleNamespace(config=SimpleNamespace(_commit_hash=sha))}
     )
     assert _resolve_revision(model, "main") == sha
+
+
+# ── 확정된 선정 ─────────────────────────────────────────────────────
+
+
+def test_default_model_is_the_frozen_selection() -> None:
+    """S15P21A501-175 확정 모델. **바꾸면 전체 재색인이다.**
+
+    `_env_file=None` 으로 `.env` 를 무시한다 — 개발자 로컬 설정이 이 단언을 흔들면
+    "확정값이 무엇인가" 를 코드가 말하지 못한다.
+    """
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.embedding_model == "dragonkue/snowflake-arctic-embed-l-v2.0-ko"
+
+
+def test_default_revision_is_pinned_to_a_sha() -> None:
+    """확정이면 리비전도 확정이다.
+
+    `main` 으로 두면 원격이 갱신될 때 같은 이름이 다른 가중치를 가리키는데 기록은
+    그대로다. 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니라서 그
+    교체를 검색 품질이 떨어진 뒤에야 알게 된다.
+    """
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert re.fullmatch(r"[0-9a-f]{40}", settings.embedding_model_revision)

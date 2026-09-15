@@ -4,7 +4,6 @@
 모듈 레벨에서 torch 를 임포트하면 기본 테스트 실행도 수 초 느려진다.
 """
 
-import os
 import sys
 
 import pytest
@@ -72,19 +71,20 @@ def test_scene_embedding_with_the_selected_model() -> None:
 
     S15P21A501-100 의 완료 조건이자 S15P21A501-175 의 마지막 확인 항목이다.
 
-    모델 이름은 `NPICK_AI_EMBEDDING_MODEL` 이 준다 — 코드도 테스트도 모델을 고르지
-    않는다(`text_embedding/config.py` 의 판단). 잠정 선정값으로 돌리려면:
+    모델은 `settings.embedding_model` 의 **확정 기본값**을 쓴다(S15P21A501-175).
+    환경 변수로 덮으면 그 모델로 돈다.
 
-        NPICK_AI_EMBEDDING_MODEL=dragonkue/snowflake-arctic-embed-l-v2.0-ko \
-            uv run pytest -m smoke -k scene_embedding
+        uv run pytest -m smoke -k scene_embedding
     """
     pytest.importorskip("sentence_transformers", reason=_GPU_GROUP_HINT)
 
+    from npick_worker.settings import get_settings
     from npick_worker.text_embedding import SceneText, embed_scenes, get_default_config
     from npick_worker.text_embedding.sentence_transformers_backend import shared_encoder
 
-    if not os.environ.get("NPICK_AI_EMBEDDING_MODEL"):
-        pytest.skip("NPICK_AI_EMBEDDING_MODEL 미설정")
+    model_id = get_settings().embedding_model
+    if not model_id:
+        pytest.skip("NPICK_AI_EMBEDDING_MODEL 이 빈 값으로 덮여 있다")
 
     config = get_default_config()
     encoder = shared_encoder()
@@ -111,6 +111,6 @@ def test_scene_embedding_with_the_selected_model() -> None:
     # 정규화됐는가. pgvector 코사인 검색의 전제다.
     assert sum(value * value for value in result.scenes[0].vector) == pytest.approx(1.0, abs=1e-5)
     # 버전 정보 — FR-PRC-061. 어느 값도 비어 있으면 재현할 수 없다.
-    assert result.model_version.startswith(os.environ["NPICK_AI_EMBEDDING_MODEL"] + "@")
+    assert result.model_version.startswith(model_id + "@")
     assert result.engine == "sentence-transformers"
     assert result.config_version.startswith("text-embedding/v1:")

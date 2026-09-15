@@ -100,14 +100,17 @@ class Settings(BaseSettings):
     vlm_model_dir: Path | None = None
 
     # ── 텍스트 임베딩 (9단계) ────────────────────────────────────────
-    #: 가중치 식별자. **기본값을 두지 않는다.** `vlm_model` 과 같은 판단이다 —
-    #: S15P21A501-175 의 선정(`dragonkue/snowflake-arctic-embed-l-v2.0-ko`)은 잠정이고
-    #: Gate B 전까지 교체 가능해야 한다. 비어 있으면 이 단계는 `MODEL_UNAVAILABLE` 이다.
-    embedding_model: str = ""
-    #: 가중치 리비전(커밋 해시·태그). 같은 이름이라도 리비전이 바뀌면 다른 벡터가 나오고,
-    #: 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다. 운영에는 SHA 를 고정한다.
-    #: 비어 있으면 `main` 을 쓴 것으로 기록한다(`vlm_model_revision` 과 같다).
-    embedding_model_revision: str = ""
+    #: 가중치 식별자. **S15P21A501-175 가 확정한 값이다** — `vlm_model` 이 기본값을 두지
+    #: 않는 것과 갈린다. 후보 비교가 끝나 더는 "코드가 고르면 근거 없는 동결" 이 아니고,
+    #: 확정값을 코드가 말해야 배포마다 다른 모델이 깔리는 일이 없다.
+    #: **바꾸면 전체 재색인이다.** 교체는 -175 의 재평가 조건(캡션을 넣은 장면 단위
+    #: 골드셋에서 PIXIE 가 유의하게 앞섬)을 만족할 때만이고, 그때도 `TextEncoder`
+    #: 어댑터 경계는 그대로 쓴다.
+    embedding_model: str = "dragonkue/snowflake-arctic-embed-l-v2.0-ko"
+    #: 가중치 리비전. **SHA 로 고정한다.** `main` 으로 두면 원격이 갱신될 때 같은 이름이
+    #: 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수
+    #: 있는 산출물이 아니라서 그 교체를 검색 품질이 떨어진 뒤에야 알게 된다.
+    embedding_model_revision: str = "55ec6e9358a56d56af759bc8372e970caf8c305f"
     #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
     #: `vlm_model_dir` 과 같은 이유다(`03-deployment.md`: 가중치는 네트워크 볼륨에 상주).
     embedding_model_dir: Path | None = None

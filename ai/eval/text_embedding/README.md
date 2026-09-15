@@ -32,7 +32,8 @@ uv pip install mlflow==3.16.0     # lock 밖. 아래 "왜 lock 에 없는가" �
 export MLFLOW_TRACKING_URI=https://j15a501.p.ssafy.io/mlflow
 export MLFLOW_TRACKING_USERNAME=... MLFLOW_TRACKING_PASSWORD=...
 export CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0
-export NPICK_AI_EMBEDDING_MODEL=dragonkue/snowflake-arctic-embed-l-v2.0-ko
+# 모델은 settings 의 확정 기본값을 쓴다. 다른 모델로 재려면 아래를 준다:
+# export NPICK_AI_EMBEDDING_MODEL=telepix/PIXIE-Rune-v1.5
 export NPICK_AI_DEVICE=cuda PYTHONPATH=src
 
 .venv/bin/python eval/text_embedding/measure.py \

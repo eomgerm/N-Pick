@@ -4,10 +4,9 @@
 쓴 런타임과 같은 것을 쓴다 — 다른 런타임으로 재면 비교표의 수치와 운영에서 나오는
 벡터가 같다는 보장이 없다.
 
-**모델 이름이 이 파일에 없다.** 설정(`NPICK_AI_EMBEDDING_MODEL`)에서 온다. S15P21A501-175
-의 선정은 잠정이고 리뷰어 승인 전이라, 코드가 하나를 고르면 그게 곧 근거 없는 동결이다
-(`vlm_model`·`ollama_model` 과 같은 판단). 비어 있으면 이 단계는
-`MODEL_UNAVAILABLE`(일시)로 실패한다 — 구현이 없는 `NO_ADAPTER`(영구)와 다른 사실이다.
+**모델 이름이 이 파일에 없다.** 설정(`NPICK_AI_EMBEDDING_MODEL`)에서 온다 — 확정값은 그
+기본값이고(S15P21A501-175), 어댑터는 무엇이 오든 같은 표면으로 받는다. 명시적으로 빈 값을
+주면 `MODEL_UNAVAILABLE`(일시)로 실패한다 — 구현이 없는 `NO_ADAPTER`(영구)와 다른 사실이다.
 
 **임포트는 모델 없이도 성공한다.** `sentence_transformers`·`torch` 는 함수 안에서
 끌어온다. `ai/AGENTS.md` 의 "GPU 없이도 워커가 기동하는 성질을 깨지 않는다" 와 같은
@@ -38,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 #: 어댑터 이름. 재현 튜플의 `adapter` 가 된다.
 ADAPTER_NAME: Final[str] = "sentence-transformers"
+
+#: S15P21A501-175 가 확정한 모델. 오류 메시지에서만 쓴다 — 실제 기본값은 `settings.py` 다.
+DEFAULT_MODEL: Final[str] = "dragonkue/snowflake-arctic-embed-l-v2.0-ko"
 
 #: 리비전을 지정하지 않았을 때 기록하는 값. 빈 문자열로 남기지 않는다 — "지정하지 않았다"
 #: 와 "기록을 빠뜨렸다" 는 다르다(`vlm_metadata` 의 같은 판단).
@@ -71,8 +73,8 @@ class SentenceTransformerEncoder:
     ) -> None:
         if not model_id:
             msg = (
-                "임베딩 모델이 지정되지 않았다. NPICK_AI_EMBEDDING_MODEL 을 설정한다 "
-                "(S15P21A501-175 잠정 선정: dragonkue/snowflake-arctic-embed-l-v2.0-ko)"
+                "임베딩 모델이 빈 값이다. NPICK_AI_EMBEDDING_MODEL 을 비우지 않는다 "
+                f"(확정값: {DEFAULT_MODEL})"
             )
             raise EmbeddingModelUnavailableError(msg)
         self._model_id = model_id

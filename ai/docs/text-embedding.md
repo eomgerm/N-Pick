@@ -59,27 +59,34 @@ BM25 채널로만 검색된다. 공백만 있는 캡션도 없는 것으로 본�
 로 나누고 대사 줄끼리는 `DIALOGUE_SEPARATOR`(공백)로 잇는다. 둘을 같은 구분자로 이으면
 "설명" 과 "발화" 의 경계가 사라지는데, 그 경계는 모델이 문장 구조를 읽는 단서다.
 
-## 3. 모델은 코드가 고르지 않는다
+## 3. 모델 — 확정됐지만 경계는 남는다
 
-가중치 식별자는 `NPICK_AI_EMBEDDING_MODEL` 이 정한다. 설정 파일에도 코드에도 모델 이름이
-없다 — `vlm_model`·`ollama_model` 과 같은 판단이다. `S15P21A501-175` 의 선정은 **잠정**이고
-리뷰어 승인 전이며, 일감 제약이 "선정 동결은 Gate B 시점 — 그 전까지 어댑터로 교체 가능해야
-함" 이다. 코드가 하나를 고르면 그게 곧 근거 없는 동결이다.
+`S15P21A501-175` 가 **`dragonkue/snowflake-arctic-embed-l-v2.0-ko` 로 확정**했고 그 값이 `NPICK_AI_EMBEDDING_MODEL` 의
+기본값이다(`settings.py`). 리비전도 SHA 로 고정돼 있다. 후보 비교가 끝났으므로 더는
+"코드가 고르면 근거 없는 동결" 이 아니고, 확정값을 코드가 말해야 배포마다 다른 모델이
+깔리는 일이 없다 — 기본값을 두지 않는 `vlm_model`·`ollama_model` 과 갈리는 지점이다.
 
-값이 비어 있으면 어댑터가 `EmbeddingModelUnavailableError` 를 낸다. 배선되면 계약 §9.2 의
-`MODEL_UNAVAILABLE`(일시)이 되도록 옮겨야 한다 — 구현이 없는 `NO_ADAPTER`(영구)와 다른
-사실이기 때문이다. **그 번역은 아직 없다**(§7).
+**설정 파일(toml)에는 여전히 없다.** 거기 두면 모델을 바꿀 때 `config_version` 이 함께
+움직여 "설정이 바뀌었나" 와 "모델이 바뀌었나" 를 구분할 수 없다. 두 값은 계약 §7 의
+`configVersion` 과 `modelVersion` 으로 따로 기록돼야 한다.
+
+**확정이 어댑터 경계를 없애지 않는다.** -175 가 재평가 조건을 남겼다 — 캡션을 임베딩
+입력에 넣고 장면 단위 골드셋을 만든 뒤 거기서 PIXIE 가 유의하게 앞서면 교체한다. 그날
+바뀌는 것은 설정값 하나이지 이 모듈이 아니어야 한다.
+
+명시적으로 빈 값을 주면 어댑터가 `EmbeddingModelUnavailableError` 를 낸다. 배선되면 계약
+§9.2 의 `MODEL_UNAVAILABLE`(일시)이 되도록 옮겨야 한다 — 구현이 없는 `NO_ADAPTER`(영구)와
+다른 사실이기 때문이다. **그 번역은 아직 없다**(§7).
 
 ### 교체 층이 둘이다
 
 | 무엇을 바꾸나 | 어디를 고치나 | 얼마나 흔한가 |
 | --- | --- | --- |
-| 가중치만 (arctic ↔ PIXIE ↔ KURE) | `NPICK_AI_EMBEDDING_MODEL` + 재색인 | 흔하다 |
+| 가중치만 (arctic ↔ PIXIE ↔ KURE) | `NPICK_AI_EMBEDDING_MODEL` + 재색인 | 재평가 조건이 걸릴 때 |
 | 런타임 자체 (ONNX·원격 API 등) | `TextEncoder` 구현 하나 추가 | 드물다 |
 
-앞엣것이 흔한 이유는 `S15P21A501-175` 의 재평가 조건이 그 축이기 때문이다 — 캡션을 임베딩
-입력에 넣고 장면 단위 골드셋을 만든 뒤 PIXIE 가 거기서 유의하게 앞서면 교체한다. **교체
-비용은 차원(1024)·질의 접두(`query: `)가 같아 재색인뿐이다.**
+**교체 비용은 차원(1024)·질의 접두(`query: `)가 같아 재색인뿐이다** — 세 후보가 그 두
+값을 공유한다.
 
 `document_prefix` 가 설정에 있는 것도 같은 이유다. arctic-ko 는 문서측 접두를 쓰지 않지만
 e5 계열은 `passage: ` 를 요구한다. 접두가 코드에 박혀 있으면 그 계열로는 갈아 끼울 수 없다.
@@ -152,12 +159,11 @@ commit 을 찾아 적는다.
 
 ```bash
 uv sync --group gpu --group cu130   # 드라이버가 CUDA 12.8 이면 cu128
-NPICK_AI_EMBEDDING_MODEL=dragonkue/snowflake-arctic-embed-l-v2.0-ko \
-    uv run pytest -m smoke -k scene_embedding -s
+uv run pytest -m smoke -k scene_embedding -s
 ```
 
 샘플 장면 둘(텍스트 있는 것 하나, 없는 것 하나)로 벡터 산출·차원·정규화·버전 기록을 한 번에
-확인한다. 모델 이름을 주지 않으면 skip 한다 — 테스트도 모델을 고르지 않는다.
+확인한다. 모델 이름을 주지 않아도 확정 기본값으로 돈다.
 
 골드셋으로 산출 지표를 재는 것은 [../eval/text_embedding/](../eval/text_embedding/README.md)
 다 — 파이프라인이 모델 성능을 보존하는지(-175 수치와 대조), 1024 차원을 실제로 얼마나
@@ -186,3 +192,4 @@ NPICK_AI_EMBEDDING_MODEL=dragonkue/snowflake-arctic-embed-l-v2.0-ko \
 | `S15P21A501-175` 재평가에서 PIXIE 가 이긴다 | `NPICK_AI_EMBEDDING_MODEL` 교체 + 전체 재색인 |
 | dense 채널이 날짜·고유명사를 못 잡는다 | 정상이다. FR-SRH-002 — 임베딩은 exact term 매칭을 대체하지 않는다 |
 | 모델을 바꿨는데 결과가 같다 | `model_version` 이 안 움직였다. 리비전 고정과 캐시를 본다 |
+| 확정 모델을 바꿔야 한다 | -175 재평가 조건을 먼저 만족시킨다. **바꾸면 전체 재색인이다** |
