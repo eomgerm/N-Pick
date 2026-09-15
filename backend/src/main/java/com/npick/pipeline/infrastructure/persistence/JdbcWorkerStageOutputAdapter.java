@@ -29,7 +29,13 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
 
     @Override
     public boolean supports(String stage) {
-        return java.util.Set.of("scene_detection", "frame_extraction", "transcript_selection", "asr")
+        return java.util.Set.of(
+                        "scene_detection",
+                        "frame_extraction",
+                        "transcript_selection",
+                        "asr",
+                        "text_embedding",
+                        "indexing")
                 .contains(stage);
     }
 
@@ -72,6 +78,11 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                     validateSegment(segment);
                     if (!"asr".equals(text(segment, "sourceDetail")) || !ids.add(text(segment, "segmentId"))) invalid();
                 }
+                yield Map.of();
+            }
+            case "text_embedding" -> embeddings(runId, output, refs);
+            case "indexing" -> {
+                summarised(runId, output);
                 yield Map.of();
             }
             // No unimplemented schema/storage adapter may accept a successful result.
@@ -161,6 +172,91 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                     "INSERT INTO npick.keyframe (keyframe_id, scene_id, timestamp_ms, storage_key) VALUES (?, ?, ?, ?)",
                     valuesToInsert);
         return Map.of();
+    }
+
+    /**
+     * Fill {@code scene.embedding}. The vectors live in the uploaded artifact, not in the payload: a 1024-float vector
+     * per scene would push {@code stage_states_json} into megabytes, and that column travels whole on every run read.
+     */
+    private Map<String, Object> embeddings(long run, JsonNode output, Map<String, Ref> refs) {
+        Ref ref = registered(output.path("embeddingsArtifact"), "scene_embeddings", refs);
+        JsonNode document = artifactJson(ref);
+        long dimension = integer(output, "dimension", 1);
+        // 컬럼 폭을 카탈로그에서 읽는다. payload·artifact·벡터 길이는 셋 다 워커가 만드는
+        // 값이라 서로 맞는 것만으로는 아무것도 보장하지 않는다 — 설정만 768 로 바꾸고
+        // 마이그레이션을 두면 셋이 사이좋게 통과하고 UPDATE 가 SQL 오류로 트랜잭션을 끊는다.
+        // 그러면 워커가 받는 것은 JOB_400_001 이 아니라 500 이고, 그 응답은 재시도 가능으로
+        // 분류돼 같은 자리에서 lease 만료 → 재배정을 반복한다. 상수로 박지 않는 이유는
+        // 이 버그 자체가 두 곳의 어긋남이기 때문이다. 세 번째 자리를 만들지 않는다.
+        if (!"npick.scene.embeddings/v1".equals(text(document, "schemaVersion"))
+                || integer(document, "dimension", 1) != dimension
+                || storedEmbeddingDimension() != dimension) invalid();
+        // scene_index 는 keyframes() 와 같은 순서 규약으로 scene_id 에 대응한다.
+        var scenes = jdbc.queryForList(
+                "SELECT scene_id FROM npick.scene WHERE pipeline_run_id=? ORDER BY start_time_ms, scene_id", run);
+        if (scenes.isEmpty()) invalid();
+        var embedded = new LinkedHashMap<Long, String>();
+        for (JsonNode scene : array(document, "scenes")) {
+            long index = integer(scene, "sceneIndex", 0);
+            JsonNode values = scene.path("vector");
+            // 길이를 여기서 막지 않으면 vector(1024) 컬럼이 트랜잭션 전체를 SQL 오류로 끊는다.
+            if (index >= scenes.size() || !values.isArray() || values.size() != dimension) invalid();
+            var vector = new StringBuilder("[");
+            for (JsonNode value : values) {
+                // NaN·inf 가 저장되면 pgvector 의 코사인 거리가 정의되지 않아 그 장면이
+                // 모든 질의에서 조용히 빠진다. 증상이 검색 결과에만 나타나 원인이 멀다.
+                if (!value.isNumber() || !Double.isFinite(value.doubleValue())) invalid();
+                if (vector.length() > 1) vector.append(',');
+                vector.append(value.doubleValue());
+            }
+            text(scene, "sourceText");
+            if (embedded.put(index, vector.append(']').toString()) != null) invalid();
+        }
+        if (embedded.size() != integer(output, "embeddedCount", 0)) invalid();
+        var skipped = new HashSet<Long>();
+        for (JsonNode value : array(output, "skippedSceneIndexes")) {
+            // canConvertToLong() 없이 longValue() 를 부르면 범위를 넘는 값에서 Jackson 이
+            // 던지고, 그 예외는 BusinessException 이 아니라 500 으로 나간다.
+            if (!value.isIntegralNumber() || !value.canConvertToLong()) invalid();
+            long index = value.longValue();
+            if (index < 0 || index >= scenes.size() || embedded.containsKey(index) || !skipped.add(index)) invalid();
+        }
+        // 모든 장면이 둘 중 하나로 설명돼야 한다. 워커가 장면을 흘렸을 때 잡히는 유일한 불변식이다.
+        if (embedded.size() + skipped.size() != scenes.size()) invalid();
+        for (var entry : embedded.entrySet())
+            jdbc.update(
+                    "UPDATE npick.scene SET embedding=?::vector, updated_at=now() WHERE scene_id=?",
+                    entry.getValue(),
+                    scenes.get(entry.getKey().intValue()).get("scene_id"));
+        return Map.of();
+    }
+
+    /**
+     * Check the indexing summary against the stored scenes. Nothing is written: the index materials were persisted by
+     * the upstream stages and the BM25/pgvector indexes belong to the migration. Publication readiness is decided by
+     * {@code JdbcClipPublicationAdapter}, never here.
+     */
+    private void summarised(long run, JsonNode output) {
+        long scenes = jdbc.queryForObject("SELECT count(*) FROM npick.scene WHERE pipeline_run_id=?", Long.class, run);
+        if (scenes == 0 || integer(output, "sceneCount", 1) != scenes) invalid();
+        for (String channel : List.of("captionedScenes", "dialogueScenes", "ocrScenes", "embeddedScenes"))
+            if (integer(output, channel, 0) > scenes) invalid();
+        // `embeddedScenes` 만 BE 가 정본과 직접 맞춰 볼 수 있다. 나머지 세 채널의 재료는
+        // 아직 어느 어댑터도 쓰지 않으므로 대조할 행이 없다(계약 §11-12).
+        if (integer(output, "embeddedScenes", 0)
+                != jdbc.queryForObject(
+                        "SELECT count(*) FROM npick.scene WHERE pipeline_run_id=? AND embedding IS NOT NULL",
+                        Long.class,
+                        run)) invalid();
+    }
+
+    /** The {@code scene.embedding} column width, read from the catalog so it cannot drift from the migration. */
+    private long storedEmbeddingDimension() {
+        Integer typmod = jdbc.queryForObject(
+                "SELECT atttypmod FROM pg_attribute WHERE attrelid='npick.scene'::regclass AND attname='embedding'",
+                Integer.class);
+        if (typmod == null || typmod <= 0) invalid();
+        return typmod;
     }
 
     private void validateTranscript(long run, JsonNode transcript, Map<String, Ref> refs) {
