@@ -62,18 +62,10 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
         return jpaRepository.resolve(feedbackId, reviewerId, resolution.value(), note, newStatus, closedAt, now);
     }
 
-    // 교정 확정 직렬화 잠금 키. 한 상수로 모든 확정이 같은 advisory lock 을 놓고 경합한다.
-    private static final long CONFIRM_LOCK_KEY = 8401L;
-
     @Override
     public int confirm(
             long feedbackId, long reviewerId, long executionId, Long createdRuleId, String expectedResolution,
             Instant now) {
         return jpaRepository.confirm(feedbackId, reviewerId, executionId, createdRuleId, expectedResolution, now);
-    }
-
-    @Override
-    public void lockConfirmation() {
-        jpaRepository.lockConfirmation(CONFIRM_LOCK_KEY);
     }
 }

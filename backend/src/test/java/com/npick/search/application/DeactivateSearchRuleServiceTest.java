@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.search.application.error.SearchRuleDeactivationErrorCode;
 import com.npick.search.domain.repository.SearchRuleDeactivationRepository;
 
@@ -26,7 +27,7 @@ class DeactivateSearchRuleServiceTest {
     @BeforeEach
     void setUp() {
         repository = mock(SearchRuleDeactivationRepository.class);
-        service = new DeactivateSearchRuleService(repository);
+        service = new DeactivateSearchRuleService(repository, mock(CorrectionStateLock.class));
     }
 
     private DeactivateSearchRuleCommand command(boolean reviewerRole, boolean active) {

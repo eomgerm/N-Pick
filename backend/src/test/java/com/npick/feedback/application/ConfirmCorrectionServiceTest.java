@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.feedback.application.error.ConfirmCorrectionErrorCode;
 import com.npick.feedback.application.port.ConfirmationTarget;
 import com.npick.feedback.application.port.ConfirmationTargetPort;
@@ -43,6 +44,7 @@ class ConfirmCorrectionServiceTest {
     private CurrentCorrectionStatePort currentStatePort;
     private ConfirmTagCorrectionUseCase confirmTag;
     private ConfirmParseRuleUseCase confirmParseRule;
+    private CorrectionStateLock correctionStateLock;
     private FeedbackRepository feedbackRepository;
     private ConfirmCorrectionService service;
 
@@ -53,9 +55,11 @@ class ConfirmCorrectionServiceTest {
         currentStatePort = mock(CurrentCorrectionStatePort.class);
         confirmTag = mock(ConfirmTagCorrectionUseCase.class);
         confirmParseRule = mock(ConfirmParseRuleUseCase.class);
+        correctionStateLock = mock(CorrectionStateLock.class);
         feedbackRepository = mock(FeedbackRepository.class);
         service = new ConfirmCorrectionService(
-                targetPort, verificationRunPort, currentStatePort, confirmTag, confirmParseRule, feedbackRepository);
+                targetPort, verificationRunPort, currentStatePort, confirmTag, confirmParseRule,
+                correctionStateLock, feedbackRepository);
     }
 
     private ConfirmCorrectionCommand command(boolean reviewerRole) {
@@ -162,15 +166,29 @@ class ConfirmCorrectionServiceTest {
     }
 
     @Test
+    @DisplayName("승인 근거 중 일부만 적용되면(행수 불일치) 재검증을 요구하고 종료하지 않는다")
+    void rejectsWhenAppliedCountMismatch() {
+        target("REVIEWING", "tag_correction", null);
+        verificationRun("tag_correction", List.of(7901L, 7902L), null, null);
+        when(confirmTag.confirm(FEEDBACK, List.of(7901L, 7902L))).thenReturn(1); // 근거 하나가 검증 이후 사라짐
+
+        assertThatThrownBy(() -> service.confirm(command(true)))
+                .extracting("errorCode")
+                .isEqualTo(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+        verify(feedbackRepository, never()).confirm(anyLong(), anyLong(), anyLong(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("태그 교정을 확정하면 근거를 확정하고 신고를 종료한다")
     void confirmsTagCorrection() {
         target("REVIEWING", "tag_correction", null);
         verificationRun("tag_correction", List.of(7901L, 7902L), null, null);
+        when(confirmTag.confirm(FEEDBACK, List.of(7901L, 7902L))).thenReturn(2);
         when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
-        verify(feedbackRepository).lockConfirmation(); // 확정은 서로 직렬화된다
+        verify(correctionStateLock).acquire(); // 확정은 서로·규칙 중단과 직렬화된다
         verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
         verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
         // 태그만 교정하면 created_rule_id 는 NULL 이고, CAS 는 검증한 판정(tag_correction)을 예상 조건으로 건다.
@@ -183,6 +201,7 @@ class ConfirmCorrectionServiceTest {
     void confirmsParseRule() {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(), 6602L, 6601L);
+        when(confirmParseRule.confirm(FEEDBACK, 6602L, 6601L)).thenReturn(1);
         when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
@@ -199,6 +218,8 @@ class ConfirmCorrectionServiceTest {
     void confirmsParseRuleWithTagCorrection() {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(7901L, 7902L), 6602L, 6601L);
+        when(confirmParseRule.confirm(FEEDBACK, 6602L, 6601L)).thenReturn(1);
+        when(confirmTag.confirm(FEEDBACK, List.of(7901L, 7902L))).thenReturn(2);
         when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));

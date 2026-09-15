@@ -70,10 +70,4 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
             @Param("createdRuleId") Long createdRuleId,
             @Param("expectedResolution") String expectedResolution,
             @Param("now") Instant now);
-
-    // 교정 확정 직렬화(S15P21A501-84). 트랜잭션 스코프 advisory lock 으로 지문 재확인~쓰기 구간을 확정끼리 직렬화한다 —
-    // 서로 다른 신고가 동시에 활성 규칙 집합을 바꿔 drift 검사를 우회하는 것을 막는다(F-13 "전체 활성 규칙 집합 변경도 재검증").
-    // pg_advisory_xact_lock 은 void 라 SELECT 로 감싸 1 을 돌려받는다. 잠금은 커밋/롤백에서 자동 해제된다.
-    @Query(value = "SELECT 1 FROM (SELECT pg_advisory_xact_lock(:key)) locked", nativeQuery = true)
-    int lockConfirmation(@Param("key") long key);
 }

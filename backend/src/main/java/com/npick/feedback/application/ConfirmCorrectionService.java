@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.feedback.application.error.ConfirmCorrectionErrorCode;
 import com.npick.feedback.application.port.ConfirmationTarget;
 import com.npick.feedback.application.port.ConfirmationTargetPort;
@@ -31,6 +32,7 @@ public class ConfirmCorrectionService {
     private final CurrentCorrectionStatePort currentStatePort;
     private final ConfirmTagCorrectionUseCase confirmTag;
     private final ConfirmParseRuleUseCase confirmParseRule;
+    private final CorrectionStateLock correctionStateLock;
     private final com.npick.feedback.domain.repository.FeedbackRepository feedbackRepository;
 
     public ConfirmCorrectionService(
@@ -39,12 +41,14 @@ public class ConfirmCorrectionService {
             CurrentCorrectionStatePort currentStatePort,
             ConfirmTagCorrectionUseCase confirmTag,
             ConfirmParseRuleUseCase confirmParseRule,
+            CorrectionStateLock correctionStateLock,
             com.npick.feedback.domain.repository.FeedbackRepository feedbackRepository) {
         this.targetPort = targetPort;
         this.verificationRunPort = verificationRunPort;
         this.currentStatePort = currentStatePort;
         this.confirmTag = confirmTag;
         this.confirmParseRule = confirmParseRule;
+        this.correctionStateLock = correctionStateLock;
         this.feedbackRepository = feedbackRepository;
     }
 
@@ -53,8 +57,8 @@ public class ConfirmCorrectionService {
         if (!command.reviewerRole()) {
             throw new BusinessException(ConfirmCorrectionErrorCode.EDITOR_FORBIDDEN);
         }
-        // 확정끼리 직렬화한다 — 지문 재확인부터 쓰기까지를 다른 확정과 겹치지 않게 해, 동시 확정이 drift 검사를 우회하지 못하게 한다(F-13).
-        feedbackRepository.lockConfirmation();
+        // 교정 상태 잠금 — 확정끼리, 그리고 규칙 사용 중단과도 직렬화해 지문 재확인~쓰기 사이에 활성 규칙 집합이 바뀌어도 drift 검사를 우회하지 못하게 한다(F-13).
+        correctionStateLock.acquire();
         ConfirmationTarget target = targetPort
                 .find(command.feedbackId())
                 .orElseThrow(() -> new BusinessException(ConfirmCorrectionErrorCode.FEEDBACK_NOT_FOUND));
@@ -90,12 +94,16 @@ public class ConfirmCorrectionService {
 
         // patch_parse(태그·해석 모두 잘못, F-09)는 규칙과 태그를 함께 확정한다. tag_correction 은 태그만. 배타 분기가 아니라,
         // 규칙 확정은 patch_parse 일 때, 태그 확정은 검증이 승인한 근거가 있을 때 각각 일어난다.
+        // 실제 적용 행 수가 승인 대상 수와 다르면 후보가 그대로 적용되지 않은 것이라 확정을 막는다(F-12). 검증 이후 근거·규칙이 사라진 경우다.
         boolean isPatchParse = FeedbackResolution.PATCH_PARSE.value().equals(target.resolution());
-        if (isPatchParse) {
-            confirmParseRule.confirm(command.feedbackId(), run.approvedRuleId(), run.replacedRuleId());
+        if (isPatchParse
+                && confirmParseRule.confirm(command.feedbackId(), run.approvedRuleId(), run.replacedRuleId()) != 1) {
+            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
-        if (!run.approvedEvidenceIds().isEmpty()) {
-            confirmTag.confirm(command.feedbackId(), run.approvedEvidenceIds());
+        if (!run.approvedEvidenceIds().isEmpty()
+                && confirmTag.confirm(command.feedbackId(), run.approvedEvidenceIds())
+                        != run.approvedEvidenceIds().size()) {
+            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
         // 최종 승인한 교정 규칙을 신고에 기록한다. 태그만 교정하면 NULL 이다(F-13·baseline 주석).
         Long createdRuleId = isPatchParse ? run.approvedRuleId() : null;

@@ -36,7 +36,4 @@ public interface FeedbackRepository {
     int confirm(
             long feedbackId, long reviewerId, long executionId, Long createdRuleId, String expectedResolution,
             Instant now);
-
-    /** 교정 확정을 서로 직렬화한다(트랜잭션 스코프 advisory lock). 동시 확정이 drift 검사를 우회하지 못하게 한다(F-13). */
-    void lockConfirmation();
 }

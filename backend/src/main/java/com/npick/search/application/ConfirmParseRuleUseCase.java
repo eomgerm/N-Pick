@@ -23,11 +23,13 @@ public class ConfirmParseRuleUseCase {
      * 후보 규칙을 활성화하고, 교체 대상이 지정됐으면 비활성화한다.
      *
      * @param replacedRuleId 교체 대상 규칙. 없으면 {@code null}
+     * @return 새로 활성화된 후보 규칙 수(0 또는 1). 0 이면 후보가 이미 적용됐거나 사라진 것이라 호출부가 확정을 막는다(F-12).
      */
-    public void confirm(long sourceFeedbackId, long approvedRuleId, Long replacedRuleId) {
-        repository.activate(sourceFeedbackId, approvedRuleId);
+    public int confirm(long sourceFeedbackId, long approvedRuleId, Long replacedRuleId) {
+        int activated = repository.activate(sourceFeedbackId, approvedRuleId);
         if (replacedRuleId != null) {
             repository.deactivate(replacedRuleId);
         }
+        return activated;
     }
 }

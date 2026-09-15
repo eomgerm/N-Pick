@@ -44,9 +44,9 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
             return Optional.empty();
         }
         VerificationRun run = parse(executionId, (String) rows.get(0));
-        // 스냅샷이 판정별 필수 필드를 갖추지 못하면 확정 근거로 삼을 수 없다 — 없는 실행처럼 거부한다(F-12 "후보가 적용되지 않으면 확정 불가").
-        // 빈 근거로 tag_correction 을 확정하거나, 누락 필드로 뒤에서 NPE 500 이 나는 것을 여기서 막는다.
-        return isComplete(run) ? Optional.of(run) : Optional.empty();
+        // 스냅샷이 판정별 필수 필드·타입을 갖추지 못하면 확정 근거로 삼을 수 없다 — 없는 실행처럼 거부한다(F-12 "후보가 적용되지 않으면 확정 불가").
+        // 빈 근거로 tag_correction 을 확정하거나, 잘못된 타입(문자열·객체 id)이 0 으로 변환돼 0 행을 무시한 채 CLOSED 되는 것을 막는다.
+        return run != null && isComplete(run) ? Optional.of(run) : Optional.empty();
     }
 
     private static boolean isComplete(VerificationRun run) {
@@ -63,34 +63,57 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
         return false;
     }
 
+    /** 스냅샷을 엄격히 읽는다. id 는 정수·양수만 허용하고, 타입이 어긋나면 {@code null}(무효)을 돌려준다. JSON 자체가 깨지면 실패시킨다(§6.2). */
     private VerificationRun parse(long executionId, String json) {
+        JsonNode node;
         try {
-            JsonNode node = objectMapper.readTree(json);
-            List<Long> evidenceIds = new ArrayList<>();
-            JsonNode ids = node.get("approved_evidence_ids");
-            if (ids != null && ids.isArray()) {
-                ids.forEach(id -> evidenceIds.add(id.asLong()));
-            }
-            return new VerificationRun(
-                    executionId,
-                    text(node, "resolution"),
-                    List.copyOf(evidenceIds),
-                    optionalLong(node, "approved_rule_id"),
-                    optionalLong(node, "replaced_rule_id"),
-                    text(node, "state_fingerprint"));
+            node = objectMapper.readTree(json);
         } catch (Exception e) {
-            // 스냅샷을 읽지 못하면 확정 근거로 삼을 수 없다. 조용히 넘어가지 않고 실패시킨다(§6.2).
             throw new BusinessException(ConfirmCorrectionErrorCode.NOT_VERIFICATION_RUN);
         }
+        List<Long> evidenceIds = new ArrayList<>();
+        JsonNode ids = node.get("approved_evidence_ids");
+        if (ids != null && !ids.isNull()) {
+            if (!ids.isArray()) {
+                return null;
+            }
+            for (JsonNode id : ids) {
+                if (!isPositiveId(id)) {
+                    return null;
+                }
+                evidenceIds.add(id.asLong());
+            }
+        }
+        Long approvedRuleId = strictOptionalId(node.get("approved_rule_id"));
+        Long replacedRuleId = strictOptionalId(node.get("replaced_rule_id"));
+        if (approvedRuleId == INVALID || replacedRuleId == INVALID) {
+            return null;
+        }
+        return new VerificationRun(
+                executionId,
+                text(node, "resolution"),
+                List.copyOf(evidenceIds),
+                approvedRuleId,
+                replacedRuleId,
+                text(node, "state_fingerprint"));
+    }
+
+    private static final Long INVALID = Long.MIN_VALUE;
+
+    private static boolean isPositiveId(JsonNode value) {
+        return value != null && value.isIntegralNumber() && value.asLong() > 0;
+    }
+
+    /** 없거나 null 이면 {@code null}, 정수·양수면 그 값, 그 외 타입이면 {@link #INVALID}(무효 표시). */
+    private static Long strictOptionalId(JsonNode value) {
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        return isPositiveId(value) ? value.asLong() : INVALID;
     }
 
     private static String text(JsonNode node, String field) {
         JsonNode value = node.get(field);
         return value == null || value.isNull() ? null : value.asText();
-    }
-
-    private static Long optionalLong(JsonNode node, String field) {
-        JsonNode value = node.get(field);
-        return value == null || value.isNull() ? null : value.asLong();
     }
 }

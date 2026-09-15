@@ -149,6 +149,25 @@ class CorrectionConfirmLifecycleDbTest {
                 .isEqualTo("REVIEWING");
     }
 
+    @Test
+    @Transactional
+    @DisplayName("근거 id 가 정수·양수가 아니면(문자열·객체) 0 으로 통과시키지 않고 404 거부한다")
+    void rejectsNonIntegerEvidenceId() throws Exception {
+        seedCommon("tag_correction");
+        seedTagCandidate();
+        // approved_evidence_ids 에 문자열 — asLong() 이 0 으로 바꿔 통과하던 경로. 이제 타입 검증으로 거부한다.
+        seedReplay("{\"resolution\":\"tag_correction\",\"approved_evidence_ids\":[\"abc\"],"
+                + "\"approved_rule_id\":null,\"replaced_rule_id\":null,\"state_fingerprint\":\"rules=;tags=\"}");
+
+        confirm(9702L).andExpect(status().isNotFound());
+
+        assertThat(jdbc.queryForObject("SELECT confirmed FROM npick.tag_evidence WHERE evidence_id = 7901",
+                        Boolean.class))
+                .isFalse();
+        assertThat(jdbc.queryForObject("SELECT status FROM npick.feedback WHERE feedback_id = 9901", String.class))
+                .isEqualTo("REVIEWING");
+    }
+
     private org.springframework.test.web.servlet.ResultActions confirm(long executionId) throws Exception {
         return mockMvc.perform(post("/api/v1/review/inquiries/9901/confirm")
                 .with(user(REVIEWER))
