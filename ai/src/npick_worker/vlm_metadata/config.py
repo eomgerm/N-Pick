@@ -27,7 +27,7 @@ from npick_worker.versioning import version_id
 
 #: 패키지에 동봉된 기본 설정. 휠에 포함되도록 src/npick_worker/config/ 아래 둔다.
 DEFAULT_CONFIG_PATH: Final[Path] = (
-    Path(__file__).resolve().parent.parent / "config" / "vlm_metadata.v1.toml"
+    Path(__file__).resolve().parent.parent / "config" / "vlm_metadata.v2.toml"
 )
 
 _VERSIONED_CONFIG_NAME: Final[re.Pattern[str]] = re.compile(
@@ -72,6 +72,9 @@ class VlmMetadataConfig(_Frozen):
     max_keyframes_per_scene: int = Field(gt=0)
     max_tag_candidates_per_scene: int = Field(gt=0)
     caption_max_chars: int = Field(gt=0)
+    # 0은 제한 없음. 운영 상한은 실제 샘플 측정으로 정한다.
+    max_ocr_chars: int = Field(default=0, ge=0)
+    max_transcript_chars: int = Field(default=0, ge=0)
     #: 장면 유형의 닫힌 어휘 초안. 검증은 `validator.py` 가 이 목록으로 한다.
     scene_type_vocabulary: tuple[str, ...] = Field(min_length=1)
 
@@ -97,7 +100,13 @@ class VlmMetadataConfig(_Frozen):
     @property
     def version_id(self) -> str:
         """`<schema>:<해시8>`. 파일 전체의 해시다."""
-        return version_id(self.schema_, self.model_dump(by_alias=True, mode="json"))
+        payload = self.model_dump(by_alias=True, mode="json")
+        if self.version_number == "1":
+            if self.max_ocr_chars == 0:
+                payload.pop("max_ocr_chars")
+            if self.max_transcript_chars == 0:
+                payload.pop("max_transcript_chars")
+        return version_id(self.schema_, payload)
 
     @property
     def version_number(self) -> str:

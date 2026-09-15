@@ -103,7 +103,10 @@ class WorkerHttpIntegrationTest {
                         stage,
                         Map.of(
                                 "status",
-                                PipelineStages.NAMES.indexOf(stage) < 4 ? "succeeded" : "pending",
+                                PipelineStages.NAMES.indexOf(stage)
+                                                < PipelineStages.NAMES.indexOf("transcript_selection")
+                                        ? "succeeded"
+                                        : "pending",
                                 "attempts",
                                 0,
                                 "expectedStageVersion",

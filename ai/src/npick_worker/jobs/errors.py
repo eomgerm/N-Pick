@@ -126,6 +126,23 @@ class ModelUnavailableError(TransientStageError):
     error_code: ClassVar[str] = "MODEL_UNAVAILABLE"
 
 
+class AsrFailedError(TransientStageError):
+    """음성 인식 실행이 실패했다(계약 §9.2 `ASR_FAILED`, **일시**).
+
+    `TransientStageError` 를 그대로 던지면 `STAGE_FAILED` 로 적힌다. 그 값의 뜻은
+    "분류를 미룬다" 이고(위 `StageErrorCode` 주석), 아래 `_STAGE_DEFAULT_CODE` 가
+    `asr` 에 `ASR_FAILED` 를 준 것은 **정체 모를** 예외에만 걸리기 때문에 명시적으로
+    던진 예외는 그 표를 지나가지 않는다. 인식이 실패한 것은 미룰 것이 없는 분류된
+    사실이고 계약이 그 자리에 코드를 하나 주고 있으므로, 그 코드로 신고한다.
+
+    빈 결과와 갈라야 한다 — 발화가 없어 구간이 0 개인 것은 정상 종료
+    (`NO_SPEECH_DETECTED`)다. 둘이 같은 기록으로 남으면 "무음이었나 실패했나" 를
+    나중에 구분할 수 없다.
+    """
+
+    error_code: ClassVar[str] = "ASR_FAILED"
+
+
 class VlmOutputInvalidError(PermanentStageError):
     """VLM 출력이 계약과 다르다(계약 §9.2 `VLM_SCHEMA_INVALID`, **영구**).
 

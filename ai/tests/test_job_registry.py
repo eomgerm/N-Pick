@@ -89,9 +89,15 @@ def _context(
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_implemented_stages_are_exactly_the_four_present() -> None:
-    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 여섯은 resolve() 가 None 이다."""
-    assert set(HANDLERS) == {"scene_detection", "frame_extraction", "vlm_metadata", "ocr"}
+def test_implemented_stages_are_exactly_the_five_present() -> None:
+    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 다섯은 resolve() 가 None 이다."""
+    assert set(HANDLERS) == {
+        "scene_detection",
+        "frame_extraction",
+        "vlm_metadata",
+        "ocr",
+        "asr",
+    }
 
 
 def test_every_handler_is_an_frd_stage() -> None:
@@ -100,7 +106,7 @@ def test_every_handler_is_an_frd_stage() -> None:
 
 
 def test_resolve_returns_none_for_unimplemented_stages() -> None:
-    assert resolve("asr") is None
+    assert resolve("transcript_selection") is None
     assert resolve("nope") is None
 
 
@@ -157,7 +163,7 @@ def test_warm_up_reports_the_scene_detection_identity() -> None:
 
 def test_warm_up_marks_unimplemented_stages_as_not_warmed() -> None:
     # 없는 것을 있는 척하지 않는다.
-    report = warm_up(["asr"])
+    report = warm_up(["transcript_selection"])
     assert report.stages[0].warmed is False
     assert report.ready is False
 
@@ -204,6 +210,21 @@ def test_vlm_is_not_declared_without_a_model(monkeypatch: pytest.MonkeyPatch) ->
     get_settings.cache_clear()
     try:
         assert "vlm_metadata" not in capability_versions()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_asr_is_not_declared_without_a_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`vlm_metadata` 와 같은 이유다.
+
+    모델명은 실측 후 확정 대상이라 기본값이 없다(FRD §11). 고르지 않은 워커가 이 단계를
+    선언하면 BE 가 배정하고 매번 `MODEL_UNAVAILABLE` 로 죽는다. `gpu` 그룹을 설치하지
+    않은 환경도 같은 경로로 빠진다 — 이때는 `NO_ADAPTER` 다.
+    """
+    monkeypatch.setenv("NPICK_AI_ASR_MODEL", "")
+    get_settings.cache_clear()
+    try:
+        assert "asr" not in capability_versions()
     finally:
         get_settings.cache_clear()
 
@@ -383,14 +404,16 @@ def _ocr_upstream(*keyframes: tuple[int, int]) -> dict[str, object]:
 def test_keyframe_reading_stages_skip_the_source_video() -> None:
     """`needs_video` 는 러너가 원본 영상을 받을지를 정한다.
 
-    `ocr` 과 `vlm_metadata` 는 상류 keyframe 만 보므로 False 다. 앞의 둘은 영상을 열어야
-    하고, 거기서 False 가 되면 `require_video()` 가 실행 중에 터진다.
+    `ocr` 과 `vlm_metadata` 는 상류 keyframe 만 보므로 False 다. 나머지는 영상을 열어야
+    하고, 거기서 False 가 되면 `require_video()` 가 실행 중에 터진다. `asr` 이 True 인
+    이유는 앞의 둘과 다르다 — 보는 것이 화면이 아니라 **원본 파일 안의 오디오**다.
     """
     assert {name: handler.needs_video for name, handler in HANDLERS.items()} == {
         "scene_detection": True,
         "frame_extraction": True,
         "vlm_metadata": False,
         "ocr": False,
+        "asr": True,
     }
 
 
@@ -667,13 +690,13 @@ def test_vlm_stage_reports_every_version_and_metric(
 
     versions = outcome.versions
     assert versions.stage_version.startswith("npick.stage.vlm_metadata/v1:")
-    assert versions.output_schema_version == "npick.stage.vlm_metadata.output/v1"
+    assert versions.output_schema_version == "npick.stage.vlm_metadata.output/v2"
     assert versions.config_version is not None
-    assert versions.config_version.startswith("vlm-metadata-config/v1:")
+    assert versions.config_version.startswith("vlm-metadata-config/v2:")
     # 앞의 세 단계에서 비어 있던 두 키가 여기서 처음 채워진다.
     assert versions.model_version == "fake-model@0"
     assert versions.prompt_version is not None
-    assert versions.prompt_version.startswith("vlm-metadata-prompt/v1:")
+    assert versions.prompt_version.startswith("vlm-metadata-prompt/v2:")
     assert versions.detail["tokenizer"]
     assert "configVersion" not in versions.detail
 

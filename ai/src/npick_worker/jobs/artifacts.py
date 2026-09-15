@@ -41,7 +41,7 @@ async def resolve_transcripts(
     job: JobAssignment, media: MediaResolver
 ) -> Mapping[str, Mapping[str, Any]]:
     try:
-        refs = transcript_refs(job.inputs.upstream)
+        refs = transcript_refs(job.inputs.upstream, stage=job.stage)
         documents: dict[str, Mapping[str, Any]] = {}
         for ref in refs:
             validate_key(ref.storage_key)

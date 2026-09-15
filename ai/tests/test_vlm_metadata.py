@@ -168,10 +168,10 @@ def _to_toml(raw: dict[str, object]) -> str:
 
 def test_default_config_loads_and_has_two_versions() -> None:
     config = get_default_config()
-    assert config.schema_ == "vlm-metadata-config/v1"
-    assert config.version_id.startswith("vlm-metadata-config/v1:")
+    assert config.schema_ == "vlm-metadata-config/v2"
+    assert config.version_id.startswith("vlm-metadata-config/v2:")
     # 접두가 갈려야 한다 — 두 값이 로그에 나란히 찍힌다.
-    assert prompt_version(config).startswith("vlm-metadata-prompt/v1:")
+    assert prompt_version(config).startswith("vlm-metadata-prompt/v2:")
 
 
 def test_unknown_key_is_rejected(tmp_path: Path) -> None:
@@ -186,9 +186,9 @@ def test_unknown_key_is_rejected(tmp_path: Path) -> None:
 
 
 def test_file_version_and_schema_must_agree(tmp_path: Path) -> None:
-    target = tmp_path / "vlm_metadata.v2.toml"
+    target = tmp_path / "vlm_metadata.v3.toml"
     target.write_text(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    with pytest.raises(ValueError, match="vlm-metadata-config/v2"):
+    with pytest.raises(ValueError, match="vlm-metadata-config/v3"):
         load_config(target)
 
 
@@ -382,12 +382,12 @@ def test_malformed_output_is_rejected_before_validation(payload: str) -> None:
         ),
         pytest.param(
             {"caption": {"value": "설명", "confidence": 0.9, "evidence": []}},
-            "근거 keyframe 이 없다",
+            "근거가 없다",
             id="caption 에 근거가 없다",
         ),
         pytest.param(
             {"shot_type": {"value": "anchor", "confidence": 0.9, "evidence": []}},
-            "근거 keyframe 이 없다",
+            "근거가 없다",
             id="unknown 이 아닌데 근거가 없다",
         ),
         pytest.param(
@@ -572,7 +572,7 @@ def test_result_carries_every_version_axis() -> None:
     result = describe_scenes([scene], _image_paths(scene), _FakeClient(), config)
 
     assert result.scene_count == 1
-    assert result.schema_version == "vlm-metadata/v1"
+    assert result.schema_version == "vlm-metadata/v2"
     assert result.config_version == config.version_id
     assert result.prompt_version == prompt_version(config)
     assert result.engine == "fake"
