@@ -20,8 +20,9 @@ import com.npick.tag.domain.model.TagType;
  * <p>JPA Entity 도 Spring Data Repository 도 만들지 않는다. 돌려주는 것이 Aggregate 가 아니라 Projection 이고(설계 정본 §9), 이 조회만을 위해
  * {@code TaggingJpaEntity} 를 만드는 것은 정본 §17 이 금지한 보일러플레이트다.
  *
- * <p>{@link NamedParameterJdbcTemplate} 은 Spring 이 관리하는 {@code DataSource} 를 통해 주변 트랜잭션의 커넥션을 쓴다. 후보 검증 검색(F-12)이 후보
- * 태깅을 {@code INSERT} 한 뒤 같은 트랜잭션에서 검색하고 {@code ROLLBACK} 하는 방식이라(FRD §11) 이 성질이 계약의 일부다.
+ * <p>{@link NamedParameterJdbcTemplate} 은 Spring 이 관리하는 {@code DataSource} 를 통해 주변 트랜잭션의 커넥션을 쓴다. 후보 검증 검색(F-12)이 한
+ * 트랜잭션 안에서 후보를 적용하고 검색한 뒤 되돌리는 방식이라(FRD §11) 이 성질이 계약의 일부다. (검수자 태그 교정 후보는 S15P21A501-160 이후 {@code confirmed=false} 로
+ * 저장되고, 아래 조인의 {@code e.confirmed} 가 그 후보를 일반 검색에서 제외한다.)
  */
 @Repository
 class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
@@ -40,6 +41,9 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
      * <p>{@code tag_evidence} 를 {@code INNER JOIN} 으로 붙인다. 근거가 하나도 없는 태깅은 어차피 유효하지 않으므로(F-04 "값만 저장하지 않고 출처와 확인 가능한 근거
      * 위치를 연결한다") 줄을 만들 필요가 없다.
      *
+     * <p><b>{@code e.confirmed} 로 좁힌다.</b> 검수자 교정 후보({@code confirmed=false}, S15P21A501-160)는 확정(-84) 전까지 검색·해석에 반영되면
+     * 안 된다(F-08/F-12 "신고·후보만으로 태그를 바꾸지 않는다"). 확정된 근거만 우선순위 판정에 들어간다.
+     *
      * <p>정렬하지 않는다. 최신 판단 고르기는 판정기가 한다. {@code ix_evidence_tagging_latest} 는 여기서도 {@code (tagging_id, ...)} 접근에 그대로 쓰인다.
      */
     private static final String SELECT_JUDGMENTS = """
@@ -53,7 +57,7 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             JOIN npick.clip c ON c.clip_id = s.clip_id
                 AND c.active_pipeline_run_id = s.pipeline_run_id
                 AND c.deleted_at IS NULL
-            JOIN npick.tag_evidence e ON e.tagging_id = tg.tagging_id
+            JOIN npick.tag_evidence e ON e.tagging_id = tg.tagging_id AND e.confirmed
             WHERE""";
 
     private static final RowMapper<TagJudgment> ROW_MAPPER = (row, rowNumber) -> new TagJudgment(

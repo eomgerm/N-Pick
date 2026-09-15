@@ -1,4 +1,4 @@
-"""FRD §3 F-03 화면 글자 읽기 (`stages.py` 4단계 `ocr`, 비치명).
+"""FRD §3 F-03 화면 글자 읽기 (`stages.py` 3단계 `ocr`, 비치명).
 
 `frame_extraction` 이 뽑은 keyframe 에서 화면 속 글자(뉴스 자막·현판·배너)를 읽어
 **원문·신뢰도·위치·해당 keyframe** 을 남긴다(`docs/frd.md:123`). 임계값은 전부

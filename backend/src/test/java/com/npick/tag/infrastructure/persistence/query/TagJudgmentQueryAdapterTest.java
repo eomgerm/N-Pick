@@ -125,6 +125,31 @@ class TagJudgmentQueryAdapterTest {
     }
 
     @Test
+    @DisplayName("확정되지 않은(confirmed=false) 근거는 우선순위 해석에서 제외된다 (S15P21A501-160 후보 대기)")
+    void excludesUnconfirmedEvidence() throws Exception {
+        try (var statement = connection.createStatement()) {
+            statement.execute("INSERT INTO tag VALUES (6001, 'location', '제주도후보', '제주도')");
+            statement.execute("INSERT INTO tagging VALUES (6002, 10, 30, 6001, now())");
+            statement.execute("INSERT INTO tag_evidence (evidence_id, tagging_id, source, confidence,"
+                    + " verification_status, source_feedback_id, confirmed, created_at)"
+                    + " VALUES (6003, 6002, 'cc', 0.9, 'verified', NULL, false, now())");
+        }
+        assertThat(service().find(List.of(TagCondition.exact(TagType.LOCATION, "제주도후보"))))
+                .as("confirmed=false 근거만 있으면 태그가 잡히지 않는다")
+                .isEmpty();
+
+        try (var statement = connection.createStatement()) {
+            statement.execute("INSERT INTO tag_evidence (evidence_id, tagging_id, source, confidence,"
+                    + " verification_status, source_feedback_id, confirmed, created_at)"
+                    + " VALUES (6004, 6002, 'cc', 0.9, 'verified', NULL, true, now())");
+        }
+        assertThat(service().find(List.of(TagCondition.exact(TagType.LOCATION, "제주도후보"))))
+                .as("confirmed=true 근거가 생기면 다시 잡힌다")
+                .extracting(TagMatchedScene::sceneId)
+                .containsExactly(30L);
+    }
+
+    @Test
     @DisplayName("장면 방향 판정이 태그 방향 판정과 같은 결과를 낸다")
     void bothDirectionsAgree() {
         var resolved = service().resolve(List.of(30L, 31L, 32L, 34L));

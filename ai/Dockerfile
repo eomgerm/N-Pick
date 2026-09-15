@@ -41,6 +41,9 @@ ENV NPICK_AI_OCR_MODEL_DIR=/var/cache/npick/models/rapidocr
 # 수십 분을 버린다(03-deployment.md: 모델 가중치는 네트워크 볼륨에 상주).
 # HF_HOME 과 같은 곳을 가리키지만 명시한다 — 어느 변수가 이겼는지 나중에 알 수 있어야 한다.
 ENV NPICK_AI_VLM_MODEL_DIR=/var/cache/npick/models/vlm
+# ASR 가중치도 같은 이유로 볼륨에 둔다. faster-whisper 는 기본으로 HF 캐시에 받는데,
+# 모델 크기가 정해지기 전이라 수백 MB~수 GB 사이다(docs/asr.md §2).
+ENV NPICK_AI_ASR_MODEL_DIR=/var/cache/npick/models/asr
 RUN mkdir -p /var/cache/npick/models && chown -R npick:npick /var/cache/npick
 
 USER npick

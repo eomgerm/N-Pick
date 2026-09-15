@@ -22,6 +22,7 @@ public enum SearchErrorCode implements ErrorCode {
     NORMALIZED_QUERY_BLANK(ErrorType.BAD_REQUEST, "SRCH_400_001", "정규화된 질의가 비어 있다"),
     NORMALIZATION_VERSION_BLANK(ErrorType.BAD_REQUEST, "SRCH_400_002", "정규화 버전이 비어 있다"),
     FILTER_CONTAINS_NULL(ErrorType.BAD_REQUEST, "SRCH_400_003", "필터에 널 값이 들어 있다"),
+    EXPLICIT_FILTER_RANGE_INVERTED(ErrorType.BAD_REQUEST, "SRCH_400_004", "명시 필터의 시작일이 종료일보다 늦다"),
 
     /**
      * 해석 규칙에 본문과 파싱 실패 사유 중 하나만 있어야 하는데 둘 다거나 둘 다 없다.

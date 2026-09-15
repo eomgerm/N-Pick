@@ -56,8 +56,11 @@ dev = [
     "pytest>=9,<10",
     "pytest-asyncio>=1.4,<2",
 ]
+# torch 는 여기 없다. CUDA 빌드는 드라이버가 정하는 값이라 아래 cu128/cu130 으로 갈랐다.
+# **이 그룹만 설치하면 transformers·sentence-transformers 가 PyPI torch 를 끌어온다.**
+# Windows 는 CPU 전용 휠이고 Linux 는 CUDA 13 번들이라 12.8 드라이버에서 GPU 를 못 잡는다.
+# 언제나 `--group gpu --group cu128` 또는 `--group cu130` 처럼 짝지어 쓴다.
 gpu = [
-    "torch>=2.13,<3",
     "faster-whisper>=1.2,<2",
     # vlm_metadata 가 장면 설명을 만든다. 모델 이름은 여기서 고르지 않는다 —
     # NPICK_AI_VLM_MODEL 이 정하고 후보 비교는 docs/vlm-metadata.md 다(FRD §11).
@@ -67,6 +70,13 @@ gpu = [
     # transformers 의 이미지 처리가 PIL 을 쓴다. 전이 의존에 기대지 않는다 —
     # 어댑터가 keyframe JPEG 을 직접 열기 때문에 없으면 첫 호출에서 죽는다.
     "pillow>=11,<13",
+    # text_embedding 이 scene 텍스트를 dense 벡터로 바꾼다. 모델 이름은 여기서 고르지
+    # 않는다 — NPICK_AI_EMBEDDING_MODEL 이 정하고 후보 비교는 S15P21A501-175 다.
+    # gpu 그룹에 두는 이유는 torch 를 끌어오기 때문이다. 이 단계 자체는 CPU 에서도
+    # 돌아가지만(실측 p95 110~120ms) torch 없이는 어느 쪽도 못 돈다.
+    # 5.7 에서 `get_sentence_embedding_dimension` 이 `get_embedding_dimension` 으로
+    # 바뀌었다(옛 이름은 FutureWarning). 어댑터가 새 이름을 쓰므로 하한이 5.7 이다.
+    "sentence-transformers>=5.7,<6",
 ]
 # 임베딩 모델 비교(S15P21A501-175)의 의존성은 **이 프로젝트에 두지 않는다.**
 # eval/embedding/requirements.txt 를 별도 venv 에 설치해서 쓴다.
@@ -77,9 +87,31 @@ gpu = [
 # 배포 이미지는 mlflow 를 안 받지만 내려간 protobuf 는 받는다. 평가 도구가 제품 런타임의
 # 버전을 움직이는 경로라서 lock 자체를 분리했다.
 
+# ── CUDA 빌드는 배타 선택이다 ────────────────────────────────────────
+# PyTorch 휠은 **빌드된 CUDA 이상의 드라이버**를 요구한다. cu128 휠은 LibCUDA 12.8+,
+# cu130 은 CUDA 13+ 다. 그래서 하나로 고정할 수 없다 —
+#
+#   RunPod GPU 파드      실시간 구동. 드라이버 13.x 를 전제하고 cu130 을 쓴다
+#   SSAFY GPU 서버       개발 검증(`03-deployment.md`). 드라이버 570.x = CUDA 12.8 이라
+#                        cu130 휠로는 GPU 를 못 잡는다. cu128 이어야 한다
+#
+# `03-deployment.md` 가 "워커 이미지는 양쪽이 같다" 로 적었는데, torch 를 한 빌드로
+# 박으면 그 전제가 깨진다 — 검증 노드가 운영 이미지를 실행하지 못한다. 그룹을 둘로
+# 갈라 lock 하나에 두 빌드를 함께 담는 것이 uv 가 권하는 방식이고(공식 가이드의
+# conflicting extras 패턴), 그래야 코드와 lock 한 벌로 두 노드를 덮는다.
+#
+# **버전이 다른 것은 의도가 아니라 제약이다.** cu128 인덱스가 제공하는 최신이 2.11 이고
+# 2.13 빌드가 없다. 드라이버가 올라가면 cu128 쪽 상한도 함께 올린다.
+cu128 = ["torch>=2.11,<2.12"]
+cu130 = ["torch>=2.13,<3"]
+
 [tool.uv]
 required-version = ">=0.12"
 default-groups = ["dev"] # gpu 는 --group gpu 로만 설치된다
+
+# 한 환경에 둘을 같이 깔 수 없다. 선언해 두면 uv 가 lock 에 두 해를 따로 담고
+# `--group` 으로 고른 쪽만 설치한다.
+conflicts = [[{ group = "cu128" }, { group = "cu130" }]]
 
 # rapidocr 는 `opencv-python` 을 요구하는데 이 저장소는 scenedetect-headless 를 통해
 # 이미 `opencv-python-headless` 를 받는다. **둘은 같은 `cv2` 패키지를 설치한다** —
@@ -97,11 +129,22 @@ name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
+# 드라이버가 CUDA 12.8 인 노드용. SSAFY GPU 서버가 여기 해당한다.
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
 # macOS 는 CUDA 휠이 존재하지 않으므로 marker 로 제외한다 → PyPI 의 arm64(MPS) 휠로 해석된다.
 # 이 marker 가 없으면 macOS 팀원의 `uv sync` 가 해상도 단계에서 실패한다.
+#
+# `group` 으로 인덱스를 가른다. 공식 문서는 `extra` 예시만 싣고 group 키잉을 적지 않아
+# 실측으로 확인했다 — lock 에 `2.11.0+cu128` 과 `2.13+cu130` 이 각자 marker 를 달고
+# 함께 들어간다.
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu130", group = "cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 
 # ── ruff ────────────────────────────────────────────────────────────
@@ -130,7 +173,15 @@ warn_unused_configs = true
 
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
-module = ["torch.*", "numpy.*", "transformers.*", "huggingface_hub.*", "PIL.*"]
+module = [
+    "torch.*",
+    "numpy.*",
+    "transformers.*",
+    "sentence_transformers.*",
+    "huggingface_hub.*",
+    "PIL.*",
+    "faster_whisper.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

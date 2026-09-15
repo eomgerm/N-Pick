@@ -98,12 +98,18 @@ def stage_version(stage: str, reproducibility: Mapping[str, Any]) -> str:
 def output_schema_version(stage: str) -> str:
     """단계 산출물 payload 의 schema 문자열.
 
-    단계별 예외를 두지 않는다. BE 는 이 값을 배정과 `complete` 양쪽에서 같은 규칙으로
-    유도해 대조하므로(`PipelineStages.outputSchema`), 워커만 한 단계를 다르게 부르면
-    성공 결과가 거부되고 실패 결과는 통과하는 상태가 된다. OCR 병합 결과처럼 v1 봉투에
-    담을 수 없는 것은 `ocr_result` 처럼 자기 스키마를 선언하는 산출물로 내보낸다
-    (`jobs/models.OCR_RESULT_SCHEMA_VERSION`).
+    **`ocr` 은 예외를 두지 않는다.** BE 는 이 값을 배정과 `complete` 양쪽에서
+    `PipelineStages.outputSchema` 로 유도해 대조하는데 그 함수는 모든 단계에 v1 을
+    돌려준다. 워커만 v2 를 부르면 성공 결과가 거부되고 실패 결과는 통과한다
+    (`runner._failure_versions` 는 배정값을 우선한다). 계약 §4.3 거부 조건 3 때문에
+    v1 이라 선언하면서 필드를 더 실을 수도 없으므로, 병합 결과는 자기 스키마를 선언하는
+    `ocr_result` 산출물로 내보낸다(`jobs/models.OCR_RESULT_SCHEMA_VERSION`).
+
+    `vlm_metadata` 의 v2 는 S15P21A501-92 가 dev 에 올린 것으로, 위와 같은 BE 미구현
+    구간을 안고 있다. 그 단계의 판단을 이 티켓에서 뒤집지 않는다.
     """
+    if stage == "vlm_metadata":
+        return "npick.stage.vlm_metadata.output/v2"
     return OUTPUT_SCHEMA.format(stage=stage)
 
 

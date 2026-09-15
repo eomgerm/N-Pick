@@ -762,16 +762,24 @@ def test_vlm_output_allows_a_scene_without_a_caption() -> None:
 
 def test_vlm_config_version_matches_recorded_vector() -> None:
     """`vlm_metadata.v1.toml` 기본 설정의 벡터. 값이 바뀌면 여기서 걸린다."""
-    from npick_worker.vlm_metadata import get_default_config
+    from npick_worker.vlm_metadata import load_config
+    from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH
 
-    assert get_default_config().version_id == "vlm-metadata-config/v1:13d50f07"
+    assert (
+        load_config(DEFAULT_CONFIG_PATH.with_name("vlm_metadata.v1.toml")).version_id
+        == "vlm-metadata-config/v1:13d50f07"
+    )
 
 
 def test_vlm_prompt_version_matches_recorded_vector() -> None:
     """**렌더링된** 프롬프트의 벡터다. 어휘를 고치면 템플릿이 그대로여도 바뀐다."""
-    from npick_worker.vlm_metadata import get_default_config, prompt_version
+    from npick_worker.vlm_metadata import load_config, prompt_version
+    from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH
 
-    assert prompt_version(get_default_config()) == "vlm-metadata-prompt/v1:78a02dbd"
+    assert (
+        prompt_version(load_config(DEFAULT_CONFIG_PATH.with_name("vlm_metadata.v1.toml")))
+        == "vlm-metadata-prompt/v1:78a02dbd"
+    )
 
 
 def test_vlm_stage_version_matches_recorded_vector() -> None:
@@ -798,4 +806,25 @@ def test_vlm_stage_version_matches_recorded_vector() -> None:
             },
         )
         == "npick.stage.vlm_metadata/v1:325198af"
+    )
+
+
+def test_vlm_default_v2_vectors() -> None:
+    from npick_worker.vlm_metadata import get_default_config, prompt_version
+
+    cfg = get_default_config()
+    assert cfg.version_id == "vlm-metadata-config/v2:c3b7d840"
+    assert prompt_version(cfg) == "vlm-metadata-prompt/v2:2c686602"
+    assert (
+        stage_version(
+            "vlm_metadata",
+            {
+                "configVersion": cfg.version_id,
+                "engine": "transformers",
+                "engineVersion": "transformers5.0.0+torch2.13.0",
+                "modelVersion": "example/vlm@main",
+                "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0",
+            },
+        )
+        == "npick.stage.vlm_metadata/v1:2f0d224e"
     )

@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     #: 품질을 바꾸는 값이 아니라 경로이므로 버전이 붙는 설정 파일이 아니라 여기 있다.
     ocr_model_dir: Path | None = None
 
-    # ── VLM 장면 metadata (3단계) ────────────────────────────────────
+    # ── VLM 장면 metadata (7단계) ────────────────────────────────────
     # 어느 어댑터로 장면을 설명하는가. 기본은 **자체 호스팅**이다 —
     # `docs/architecture/02-container.md` 요소 표가 VLM 을 워커의 자체 GPU 에 두고,
     # 외부 제공자는 PRD §12.4 의 조건을 전부 만족할 때만 쓸 수 있는 대체 경로다.
@@ -98,6 +98,27 @@ class Settings(BaseSettings):
     #: 파드 디스크가 휘발성이라 파드를 띄울 때마다 수 GB 를 다시 받는다
     #: (`03-deployment.md`: 모델 가중치는 네트워크 볼륨에 상주).
     vlm_model_dir: Path | None = None
+
+    # ── 텍스트 임베딩 (9단계) ────────────────────────────────────────
+    #: 가중치 식별자. **S15P21A501-175 가 확정한 값이다** — `vlm_model` 이 기본값을 두지
+    #: 않는 것과 갈린다. 후보 비교가 끝나 더는 "코드가 고르면 근거 없는 동결" 이 아니고,
+    #: 확정값을 코드가 말해야 배포마다 다른 모델이 깔리는 일이 없다.
+    #: **바꾸면 전체 재색인이다.** 교체는 -175 의 재평가 조건(캡션을 넣은 장면 단위
+    #: 골드셋에서 PIXIE 가 유의하게 앞섬)을 만족할 때만이고, 그때도 `TextEncoder`
+    #: 어댑터 경계는 그대로 쓴다.
+    embedding_model: str = "dragonkue/snowflake-arctic-embed-l-v2.0-ko"
+    #: 가중치 리비전. **SHA 로 고정한다.** `main` 으로 두면 원격이 갱신될 때 같은 이름이
+    #: 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수
+    #: 있는 산출물이 아니라서 그 교체를 검색 품질이 떨어진 뒤에야 알게 된다.
+    embedding_model_revision: str = "55ec6e9358a56d56af759bc8372e970caf8c305f"
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: `vlm_model_dir` 과 같은 이유다(`03-deployment.md`: 가중치는 네트워크 볼륨에 상주).
+    embedding_model_dir: Path | None = None
+    #: 어댑터가 한 번에 모델에 넣는 문장 수. **버전 붙는 설정 파일에 두지 않는다** —
+    #: VRAM 사정으로 움직이는 값이고 결과를 바꾸지 않는데, 설정 파일에 있으면 16→8 로
+    #: 내리는 것만으로 `config_version` 과 `stageVersion` 이 달라져 계약 §7 의 버전
+    #: 불일치가 난다. `ocr_model_dir` 과 같은 판단이다.
+    embedding_batch_size: int = Field(default=16, gt=0)
 
     # ── 외부 VLM 처리 (PRD §12.4) ────────────────────────────────────
     # 아래 값이 전부 맞아도 **그것만으로 승인이 성립하지 않는다.** clip 별 외부 처리
@@ -118,6 +139,23 @@ class Settings(BaseSettings):
     vlm_external_max_payload_bytes: int = Field(default=0, ge=0)
     #: 승인된 주입 방식으로 들어온 secret. 로그·예외에 싣지 않는다.
     vlm_external_api_key: SecretStr = SecretStr("")
+
+    # ── ASR (자막·CC 미커버 구간 보완) ─────────────────────────────
+    #: 가중치 식별자. faster-whisper 가 받는 이름이거나 로컬 모델 디렉터리 경로다
+    #: (예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기는 결과와 처리
+    #: 시간을 바꾸는 값이고 실측 후 확정 대상이라(FRD §11), 코드가 임의로 고르면 그게
+    #: 곧 근거 없는 동결이다(`vlm_model`·`ollama_model` 과 같은 판단). 비어 있으면 이
+    #: 단계는 capabilities 에서 빠지고 배정되지 않는다.
+    asr_model: str = ""
+    #: 연산 정밀도(예: `float16`·`int8_float16`·`int8`). 비우면 장치 기본값을 쓴다 —
+    #: CUDA 는 `float16`, CPU 는 `int8` 이다. 이 값도 결과를 바꾸므로 재현 식별자의
+    #: `model_version` 에 함께 들어간다.
+    asr_compute_type: str = ""
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: 파드 디스크가 휘발성이라 파드를 띄울 때마다 수 GB 를 다시 받는다
+    #: (`03-deployment.md`: 모델 가중치는 네트워크 볼륨에 상주). `vlm_model_dir` 과
+    #: 같은 성격이라 버전이 붙는 설정 파일이 아니라 여기 있다.
+    asr_model_dir: Path | None = None
 
     # ── Query Resolver LLM (local 또는 승인된 GMS) ──
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만

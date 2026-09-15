@@ -489,9 +489,17 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 ### 4.3.3 `vlm_metadata` — 장면 설명과 샷 유형
 
-`ocr`과 같은 상류를 쓰고 같은 파일을 본다. 다른 것은 **무엇을 보느냐**다 — OCR은 화면에 적힌 문자열을 읽고, 이 단계는 장면이 어떤 화면인지를 말한다. 두 역할은 겹치지 않는다([docs/frd.md](../frd.md) §3 F-03).
+VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 설명한다. OCR·대사 추출 및 선택·매핑은 상류 책임이며 이 단계에서 반복하지 않는다(FRD F-03).
 
 **입력** — `inputs.upstream.frameExtraction`이 필수다. 모양은 §4.3.2와 같다. 없으면 워커는 `VALIDATION_ERROR`(영구)로 실패를 신고한다. 빈 결과를 성공으로 반납하면 "이 영상에는 설명할 장면이 없다"는 거짓이 정본에 남는다.
+
+이미지 전용 v1 등 `{grounding}`이 없는 사용자 프롬프트는 텍스트를 전달하지 않으며 OCR·대사 라벨도 근거로 허용하지 않는다.
+
+**Grounding 입력** — 기존 `inputs.upstream.ocr.observations`를 `sceneIndex`로 나눠 사용한다. `rawText`·`textKey`·`confidence`·프레임 참조를 재사용하며 검색 토큰은 프롬프트에 넣지 않는다. 동일 `textKey`와 동일 원문만 묶고, 원본 배열 위치와 프레임 참조를 모두 보존한다. `max_ocr_chars`·`max_transcript_chars`는 원문을 자르지 않는 항목 단위 제한이며 0은 제한 없음이다. 운영 상한은 개발 샘플 실측으로 정한다.
+
+대사는 §4.5의 `inputs.upstream.scene_transcript_mapping`을 소비한다. 기존 artifact 로더로 최종 snapshot의 원본·채택 결과를 읽고, `scenes[].segments[].segmentId`가 가리키는 채택 구간의 원문·시간·출처를 VLM에 전달한다. 상위 `upstream.transcript` 별칭이 이전 snapshot을 가리켜도 최종 매핑 안의 참조를 사용한다. VLM은 선택·매핑을 다시 계산하지 않는다. 이 매핑 검증은 VLM 소비에만 적용하며 다른 단계의 공용 artifact 로딩에서 강제하지 않는다. 매핑 단계 결과 자체가 없으면 OCR·이미지로 진행하며, 존재하는 결과가 잘못됐으면 `VALIDATION_ERROR`로 거부한다. 원본 대사를 임의로 장면에 배정하지 않는다.
+
+**실행 순서** — `scene_detection → frame_extraction → ocr → transcript_selection → asr → scene_transcript_mapping → vlm_metadata → entity_extraction → text_embedding → indexing`. 각 단계의 기존 fatal 분류와 재시도 정책은 유지한다.
 
 **장면당 keyframe을 여러 장 넣는다.** 한 장씩 따로 보면 "앵커에서 자료 화면으로 넘어간다" 같은 판단이 불가능하고, 그 판단이 이 단계가 존재하는 이유다. 장면당 장 수는 상류가 내용으로 정하므로(F-03) 고정이 아니고, 워커가 설정 상한(`max_keyframes_per_scene`)까지만 넣는다.
 
@@ -504,11 +512,11 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
   "stage": "vlm_metadata",
   "status": "succeeded",
   "versions": {
-    "stageVersion": "npick.stage.vlm_metadata/v1:325198af",
-    "outputSchemaVersion": "npick.stage.vlm_metadata.output/v1",
-    "configVersion": "vlm-metadata-config/v1:fcd15e10",
+    "stageVersion": "npick.stage.vlm_metadata/v1:2f0d224e",
+    "outputSchemaVersion": "npick.stage.vlm_metadata.output/v2",
+    "configVersion": "vlm-metadata-config/v2:c3b7d840",
     "modelVersion": "example/vlm@main",
-    "promptVersion": "vlm-metadata-prompt/v1:587f345d",
+    "promptVersion": "vlm-metadata-prompt/v2:2c686602",
     "detail": {
       "engine": "transformers",
       "engineVersion": "transformers5.0.0+torch2.13.0",
@@ -522,7 +530,7 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
     "unknownShotTypes": 1, "keyframesSent": 23
   },
   "output": {
-    "metadataSchemaVersion": "vlm-metadata/v1",
+    "metadataSchemaVersion": "vlm-metadata/v2",
     "scenes": [
       {
         "sceneIndex": 8,
@@ -555,6 +563,13 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 **`metadataSchemaVersion`은 또 다른 값이다.** `outputSchemaVersion`이 이 payload의 형식이라면, 이쪽은 **모델에게 요구한 JSON**의 버전이다(워커의 `vlm_metadata/schema.py`가 정본). 프롬프트를 고치지 않고도 바뀔 수 있고, 반대도 된다.
 
 **keyframe은 `(sceneIndex, timestampMs)`로 가리킨다.** §4.3.2와 같은 이유다 — `keyframe_id`는 BE가 발급하고 `assignedIds`는 scene만 돌려준다. BE는 이 쌍으로 행을 찾아 `tag_evidence.source_ref_type='keyframe'`·`source_ref_id`를 채운다.
+
+**텍스트 근거(v2)** — 모델은 제공된 `ocr_N`·`tr_N` 라벨을 기존 `evidence` 배열에서 인용한다. 라벨은 모델 출력용이며 DB ID가 아니다. 입력에 없는 라벨은 기존 근거 해석 경로에서 거부한다. `shotType`은 이미지 라벨만 사용한다. 기존 이미지 근거 객체는 유지하며 caption·tagCandidates의 근거에 다음 객체가 추가된다.
+
+- OCR: `{sourceRefType: "ocr_observation", sceneIndex, timestampMs, storageKey, observationIndex}`. `observationIndex`는 현재 run의 원본 `ocr.observations` 배열 위치이며 DB ID가 아니다. OCR을 묶은 라벨은 해당 원본 관측 전부로 되돌린다.
+- 대사: `{sourceRefType: "scene", sceneIndex, storageKey, segmentId, s, e, sourceDetail}`. `storageKey`는 원본 segments snapshot이며 `segmentId`는 그 안에서만 유일하다. 저장 시 scene 근거를 사용하되 구간 참조를 손실시키지 않는다.
+
+출력 payload는 `npick.stage.vlm_metadata.output/v2`, 모델 schema는 `vlm-metadata/v2`다. 기존 이미지 전용 v1 소비자가 이 출력을 정상 데이터로 받아서는 안 된다. BE 저장·부분 저장 방지 및 대사 매핑 결과 생성은 각 담당 연동 구현에서 이 계약과 맞춰야 한다. 이 확장만으로 해당 저장 경로가 완성됐음을 의미하지 않는다.
 
 **`shotType`은 항상 있고 `caption`은 없을 수 있다.** `scene.shot_type`이 `NOT NULL`이고 근거가 없을 때 쓸 값이 어휘 안에 있기 때문이다(`unknown`). 반대로 캡션과 태그는 없으면 없는 것이라 `null`·빈 배열이 정상 payload다. **`evidence`가 빈 배열일 수 있는 곳은 `shotType`의 `unknown` 하나뿐이다.**
 
@@ -635,8 +650,28 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 
 ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정상이다. 실제 발화 미감지 판정에만
 `NO_SPEECH_DETECTED`를 기록한다. ASR 미배정과 실행 후 빈 결과, 실패 및 `NO_ADAPTER`는 구분한다.
-최종 선택은 워커 `scene_transcript_mapping` 직전에 수행하며 기존 단계 목록·순서를 유지한다.
-장면별 출력 봉투가 확정되기 전에는 해당 단계의 성공 정본 저장을 수락하지 않는다.
+최종 선택은 워커 `scene_transcript_mapping` 직전에 수행한다. VLM은 그 단계 이후 실행한다.
+`scene_transcript_mapping`의 output은 다음 구조다. 정본 타입은 워커 `jobs/transcripts.py`의 `SceneTranscriptMappingOutput`이며 단계 출력 버전은 `npick.stage.scene_transcript_mapping.output/v1`이다.
+
+```json
+{
+  "transcript": {
+    "segmentsArtifact": {"kind": "transcript_segments", "storageKey": "runs/…/segments.json", "byteSize": 1234, "contentHash": "<sha256>"},
+    "decisionsArtifact": {"kind": "transcript_decisions", "storageKey": "runs/…/decisions.json", "byteSize": 567, "contentHash": "<sha256>"}
+  },
+  "scenes": [
+    {"sceneIndex": 0, "segments": [{"segmentId": "s1", "overlapMs": 1500}]},
+    {"sceneIndex": 1, "segments": []}
+  ]
+}
+```
+
+- `transcript`는 최종 선택 snapshot의 두 ArtifactRef다. 기존 원본·선택 JSON 형식과 무결성 검증을 재사용하고, 두 참조를 단계 결과의 `artifacts`에도 등록한다.
+- `scenes`에는 해당 실행의 모든 장면이 정확히 한 번씩 존재한다. 대사가 없으면 `segments: []`다. 같은 장면 안의 구간 ID 중복은 금지한다.
+- 각 연결은 해당 snapshot에서 `selected=true`인 구간만 가리킨다. `overlapMs`는 양의 정수이고 원본 구간 길이를 넘을 수 없다. 생산 단계가 장면과 실제로 겹치는 구간만 연결하고 정확한 겹침 시간을 계산한다. 여러 장면과 겹치면 같은 ID를 각각 연결하며, 겹치지 않는 구간은 연결하지 않는다.
+- 원문 `t`·정수 ms `s/e`·`sourceDetail`은 원본 snapshot에서 구간 ID로 읽는다. 장면 연결 목록에는 중복 복사하지 않는다. ID의 범위는 segments artifact 하나다.
+- 소비자는 snapshot 관계·채택 여부·장면 및 구간 ID를 검사한다. 알 수 없는 구간·보관 전용 구간·누락/중복 장면·잘못된 artifact는 빈 결과로 처리하지 않는다.
+- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. 토큰 생성·저장 및 실제 매핑 알고리즘은 해당 단계/저장 어댑터 책임이며 VLM 소비자가 대신 수행하지 않는다.
 
 **PUT의 키는 경로 세그먼트로 들어가므로 워커가 퍼센트 인코딩한다** — 구분자 `/`는 남기고 `?`·`#`는 인코딩한다. 인코딩하지 않으면 `?`가 질의로 갈려 경로가 잘리고, BE의 접두 검사(`JOB_403_001`)가 의도한 경로에 대해 돌지 않는다. `..`나 절대 경로가 든 키는 인코딩으로 막히지 않으므로(구분자를 남기는 한 정규화된다) **워커가 보내기 전에 거절한다.** GET은 `?key=`로 실으므로 이 문제가 없다.
 
@@ -720,15 +755,20 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | `{configVersion: scene-detect/v1:20dfc0a6, detector: content, engine: pyscenedetect, engineVersion: 0.7.1}` | `stageVersion` = `npick.stage.scene_detection/v1:3ab4bebe` |
 | `frame_extraction.v2.toml` 기본 설정 | `configVersion` = `frame-extract/v2:a0684794` |
 | `{configVersion: frame-extract/v2:a0684794, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:5fa70a50` |
-| `vlm_metadata.v1.toml` 기본 설정 | `configVersion` = `vlm-metadata-config/v1:fcd15e10` |
-| 같은 설정의 **렌더링된** 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v1:587f345d` |
+| 보존된 `vlm_metadata.v1.toml` 이미지 전용 설정 | `configVersion` = `vlm-metadata-config/v1:13d50f07` |
+| 보존된 v1 설정의 **렌더링된** 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v1:78a02dbd` |
 | `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0+torch2.13.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:325198af` |
+| `vlm_metadata.v2.toml` 기본 설정 | `configVersion` = `vlm-metadata-config/v2:c3b7d840` |
+| v2 기본 설정의 렌더링된 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v2:2c686602` |
+| 위 v2 configVersion과 기존 예시 engine·engineVersion·modelVersion·tokenizer | `stageVersion` = `npick.stage.vlm_metadata/v1:2f0d224e` |
 | `ocr.v1.toml` 기본 설정 | `configVersion` = `ocr/v1:daaf4c83` |
 | `ocr-merge.v1.toml` 기본 설정 | `mergeConfigVersion` = `ocr-merge/v1:28d42216` |
 | `{configVersion: ocr/v1:daaf4c83, engine: rapidocr, engineVersion: rapidocr3.9.2+onnxruntime1.29.0, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0, mergeConfigVersion: ocr-merge/v1:28d42216}` | `stageVersion` = `npick.stage.ocr/v1:bc75979d` (출력 v2) |
 | 같은 벡터에서 `mergeConfigVersion` 을 뺀 것 (S15P21A501-95 이전·출력 v1) | `stageVersion` = `npick.stage.ocr/v1:449d6928`. **해시 함수 회귀용이며 지금 워커가 내는 값이 아니다** |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, ocr: npick.stage.ocr/v1:bbbbbbbb}` | `pipelineVersion` = `npick-pipeline/v1:64960bae4565` |
 | `{scene_detection: npick.stage.scene_detection/v1:aaaaaaaa, frame_extraction: npick.stage.frame_extraction/v1:cccccccc}` | `pipelineVersion` = `npick-pipeline/v1:32d2389f906a` |
+
+v1의 기존 해시 재현을 위해 `version_number="1"`인 설정은 값이 0인 `max_ocr_chars`·`max_transcript_chars` 키를 config 해시 payload에서 각각 제외한다. 0이 아닌 값은 포함하며 v2는 두 키를 항상 포함한다. Java에서 config 해시를 재현할 때도 같은 규칙을 적용한다. v1 stageVersion 행은 명시된 예시 configVersion을 입력으로 사용하는 기존 해시 함수 벡터이며, 현재 보존된 v1 설정 파일의 해시와 구분한다.
 
 ### 버전 불일치
 
