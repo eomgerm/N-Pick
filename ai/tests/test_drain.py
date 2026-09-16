@@ -9,6 +9,7 @@ SSAFY GPU 서버에는 상주 서버를 띄울 수 없다. 워커는 원래 pull
 """
 
 import asyncio
+import logging
 
 import pytest
 
@@ -266,6 +267,28 @@ def test_main_exits_non_zero_when_the_batch_gave_up(monkeypatch: pytest.MonkeyPa
         drain_module.main()
 
     assert exc.value.code == 1
+
+
+def test_main_does_not_claim_an_empty_queue_after_giving_up(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """포기한 배치에 "배정이 없어 종료한다" 는 거짓이다.
+
+    요약 한 줄만 보는 쪽은 큐가 비어서 끝난 줄 안다. 시드가 남아 있는데 다 됐다고
+    읽으면 이 도구를 쓰는 이유가 없어진다.
+    """
+    order: list[str] = []
+    _patch_main(monkeypatch, drain_module.DrainReport(succeeded=1, failed=0, gave_up=True), order)
+
+    with (
+        caplog.at_level(logging.INFO, logger=drain_module.logger.name),
+        pytest.raises(SystemExit),
+    ):
+        drain_module.main()
+
+    summary = " ".join(record.getMessage() for record in caplog.records)
+    assert "배정이 없어" not in summary
+    assert "비우지 못" in summary
 
 
 def test_main_exits_non_zero_when_a_stage_failed(monkeypatch: pytest.MonkeyPatch) -> None:

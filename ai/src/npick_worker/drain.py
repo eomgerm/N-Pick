@@ -130,11 +130,15 @@ def main() -> None:
 
     registry.warm_up()
     report = asyncio.run(drain(settings))
-    logger.info(
-        "잡 %d건을 처리했다 (성공 %d · 실패 %d). 배정이 없어 종료한다",
+    # 포기했으면 "배정이 없어" 는 거짓이다. 요약 한 줄만 보는 쪽이 큐가 비어서 끝난
+    # 줄 알면 남은 시드를 다 됐다고 읽는다.
+    log = logger.error if report.gave_up else logger.info
+    log(
+        "잡 %d건을 처리했다 (성공 %d · 실패 %d). %s",
         report.processed,
         report.succeeded,
         report.failed,
+        "큐를 비우지 못한 채 끝냈다" if report.gave_up else "배정이 없어 종료한다",
     )
     if report.failed or report.gave_up:
         # 종료 코드가 0 이면 시드가 전부 죽어도 호출한 쪽이 알 수 없다.
