@@ -15,6 +15,7 @@ import logging
 import platform
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
@@ -1240,6 +1241,38 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
 )
 
 
+@lru_cache(maxsize=1)
+def declared_stages() -> tuple[str, ...]:
+    """이 배포가 맡기로 한 단계(`NPICK_AI_JOB_STAGES`). 비어 있으면 구현된 전부다.
+
+    CPU 단계 구현은 기본 의존성이라 어느 이미지에나 들어간다. 이 노브가 없으면 GPU
+    파드도 scene_detection·ocr 를 선언하고, 두 워커의 목록이 겹치면 무엇을 누가
+    가져갈지 정해지지 않는다 (`infra/compose/profiles/pipeline.yml` 의
+    `placement.declared_by: worker_capabilities`).
+
+    **좁히기만 한다.** 목록에 있어도 모델 미지정·워밍업 실패로 선언하지 못하는 단계는
+    `capability_versions()` 에서 여전히 빠진다. 전부 모르는 이름이면 빈 목록이다 —
+    그 경우에 전체 선언으로 되돌리면 CPU 워커가 GPU 단계를 도로 문다.
+
+    **캐시가 "기동 시 1회 경고" 의 수단이다.** `capability_versions()` 는 claim 한
+    바퀴마다 불리므로, 캐시 없이 여기서 경고하면 오타 하나가 폴링 주기로 로그를 채운다.
+    """
+    wanted = [name.strip() for name in get_settings().job_stages.split(",") if name.strip()]
+    if not wanted:
+        return tuple(HANDLERS)
+
+    unknown = [name for name in wanted if name not in HANDLERS]
+    if unknown:
+        # 모르는 이름만 버리고 나머지는 선언한다. 목록째 거절하면 오타 하나로 능력이
+        # 통째로 비어 그 워커가 아무 일도 받지 못한다.
+        logger.warning(
+            "NPICK_AI_JOB_STAGES 에 구현 없는 단계 이름이 있어 무시한다: %s (구현된 단계: %s)",
+            ", ".join(unknown),
+            ", ".join(HANDLERS),
+        )
+    return tuple(name for name in HANDLERS if name in wanted)
+
+
 def resolve(stage: str) -> StageHandler | None:
     """구현이 있으면 돌려준다. 나머지 두 단계는 None 이고 호출부가 생략으로 보고한다."""
     return HANDLERS.get(stage)
@@ -1251,7 +1284,7 @@ def warm_up(stage_names: Iterable[str] | None = None) -> WarmupReport:
     어떤 경우에도 예외를 던지지 않는다 — `device.py` 의 규칙과 같다. 워밍업이 실패한
     워커는 느릴 뿐이고, 기동을 막을 이유가 되지 않는다.
     """
-    names = list(stage_names) if stage_names is not None else list(HANDLERS)
+    names = list(stage_names) if stage_names is not None else list(declared_stages())
     device = detect_device(get_settings().device)
 
     outcomes: list[WarmOutcome] = []
@@ -1267,7 +1300,10 @@ def warm_up(stage_names: Iterable[str] | None = None) -> WarmupReport:
             outcomes.append(WarmOutcome(name, warmed=False, detail=f"실패: {type(exc).__name__}"))
 
     return WarmupReport(
-        ready=all(outcome.warmed for outcome in outcomes),
+        # 빈 목록에서 `all()` 은 공허하게 참이다. 그대로 두면 `NPICK_AI_JOB_STAGES` 가
+        # 통째로 오타인 워커가 ready 로 보고되고, 잡을 하나도 안 가져가면서 프로브를
+        # 전부 통과한다. 맡을 것이 없는 워커는 준비된 것이 아니다.
+        ready=bool(outcomes) and all(outcome.warmed for outcome in outcomes),
         device=device.resolved,
         stages=tuple(outcomes),
     )
@@ -1280,7 +1316,7 @@ def capability_versions() -> dict[str, str]:
     전에 걸러지는 편이 낫다.
     """
     versions: dict[str, str] = {}
-    for name in HANDLERS:
+    for name in declared_stages():
         # `warm is None` 으로 걸러내지 않는다. "워밍업이 없다" 와 "버전을 선언할 수
         # 없다" 는 다른 말이고, 한데 묶으면 그 단계가 capabilities 에서 조용히 빠진다.
         # BE 는 이 목록에 없는 단계를 배정하지 않으므로, resolve() 가 돌릴 수 있어도
