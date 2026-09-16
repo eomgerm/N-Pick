@@ -740,6 +740,9 @@ def test_vlm_stage_reports_every_version_and_metric(
     assert outcome.metrics["captionedScenes"] == 1
     assert outcome.metrics["unknownShotTypes"] == 0
     assert outcome.metrics["keyframesSent"] == 1
+    # 계약대로 답한 출력이므로 모아 준 자리가 없다(S15P21A501-93).
+    assert outcome.metrics["normalizedValues"] == 0
+    assert outcome.metrics["reshapedValues"] == 0
 
 
 def test_vlm_schema_failure_is_a_permanent_stage_failure(
