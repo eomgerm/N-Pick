@@ -619,6 +619,11 @@ class WorkerOutputDatabaseTest {
 
     private static final String MAPPING_PREFIX = "runs/703/scene_transcript_mapping/a1/";
 
+    private static final String MAPPING_SCHEMA = "npick.stage.scene_transcript_mapping.output/v1";
+
+    /** S15P21A501-98 이 싣는 축. `ocr`·`vlm_metadata` 와 같은 모양이다. */
+    private static final String TOKENIZER = "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0";
+
     private static Map<String, Object> segment(String id, int s, int e, String text, String source) {
         return Map.<String, Object>of("segmentId", id, "s", s, "e", e, "t", text, "sourceDetail", source);
     }
@@ -660,23 +665,49 @@ class WorkerOutputDatabaseTest {
         return Map.of("schemaVersion", "npick.transcript.segments/v1", "segments", segments);
     }
 
+    private static Map<String, Object> decision(String id, boolean selected, String reason, List<String> conflicts) {
+        return Map.<String, Object>of(
+                "segmentId", id, "selected", selected, "reasonCode", reason, "conflictsWith", conflicts);
+    }
+
+    private static final List<String> SOURCES = List.of("uploaded", "embedded", "asr");
+
+    /** 제외 근거는 같은 snapshot 에서 <b>채택된 상위 출처</b>여야 하고 실제로 시간이 겹쳐야 한다(계약 §4.5). */
+    private static String higherPriorityOverlap(
+            List<Map<String, Object>> segments, List<String> adopted, Map<String, Object> excluded) {
+        for (var other : segments)
+            if (adopted.contains(other.get("segmentId"))
+                    && SOURCES.indexOf(other.get("sourceDetail")) < SOURCES.indexOf(excluded.get("sourceDetail"))
+                    && Math.max((int) other.get("s"), (int) excluded.get("s"))
+                            < Math.min((int) other.get("e"), (int) excluded.get("e")))
+                return (String) other.get("segmentId");
+        // 조용히 넘기면 거절 사유가 테스트 이름과 어긋난 채로 초록이 된다.
+        throw new IllegalArgumentException("fixture has no valid conflict for " + excluded.get("segmentId"));
+    }
+
     private static Map<String, Object> decisionsDocument(
             List<Map<String, Object>> segments, List<String> adopted, Map<String, Object> segmentsRef) {
         var decisions = new java.util.ArrayList<Map<String, Object>>();
         for (var segment : segments) {
-            boolean selected = adopted.contains(segment.get("segmentId"));
-            decisions.add(Map.<String, Object>of(
-                    "segmentId",
-                    segment.get("segmentId"),
-                    "selected",
-                    selected,
-                    "reasonCode",
-                    selected ? "PREFERRED_SUBTITLE" : "OVERLAPS_HIGHER_PRIORITY",
-                    // 채택이 하나도 없는 판정 집합도 만들 수 있어야 한다. 사유 모양만 맞춘다 —
-                    // 채택 정책 자체는 상류 소유라 이 어댑터가 보는 값이 아니다.
-                    "conflictsWith",
-                    selected ? List.of() : List.of(adopted.isEmpty() ? "none" : adopted.getFirst())));
+            String id = (String) segment.get("segmentId");
+            decisions.add(
+                    adopted.contains(id)
+                            ? decision(
+                                    id,
+                                    true,
+                                    "asr".equals(segment.get("sourceDetail")) ? "ASR_SUPPLEMENT" : "PREFERRED_SUBTITLE",
+                                    List.of())
+                            : decision(
+                                    id,
+                                    false,
+                                    "OVERLAPS_HIGHER_PRIORITY",
+                                    List.of(higherPriorityOverlap(segments, adopted, segment))));
         }
+        return decisionsDocument(segmentsRef, decisions);
+    }
+
+    private static Map<String, Object> decisionsDocument(
+            Map<String, Object> segmentsRef, List<Map<String, Object>> decisions) {
         return Map.of(
                 "schemaVersion",
                 "npick.transcript.decisions/v1",
@@ -684,6 +715,13 @@ class WorkerOutputDatabaseTest {
                 segmentsRef,
                 "decisions",
                 decisions);
+    }
+
+    /** 판정 목록을 직접 주입한다. 계약을 어기는 판정을 만드는 테스트가 쓴다. */
+    private Map<String, Object> mappingWithDecisions(
+            List<Map<String, Object>> segments, List<Map<String, Object>> decisions, List<Map<String, Object>> scenes)
+            throws Exception {
+        return mappingResult(segmentsDocument(segments), ref -> decisionsDocument(ref, decisions), scenes);
     }
 
     /** {@code decisions} 는 segments 참조를 받아 만든다 — 올려 봐야 그 참조를 알 수 있다. */
@@ -704,6 +742,8 @@ class WorkerOutputDatabaseTest {
                         "scenes",
                         scenes)));
         result.put("artifacts", List.of(segmentsRef, decisionsRef));
+        // 색인과 질의가 같은 Kiwi 설정을 썼는지 나중에 되짚을 수 있는 유일한 기록이다(계약 §4.5).
+        result.put("versions", Map.of("outputSchemaVersion", MAPPING_SCHEMA, "detail", Map.of("tokenizer", TOKENIZER)));
         return result;
     }
 
@@ -884,12 +924,14 @@ class WorkerOutputDatabaseTest {
     void doesNotPartiallyStoreWhenALaterSceneIsInvalid() throws Exception {
         storeTwoScenes();
         var segments =
-                List.of(segment("keep", 0, 600, "채택", "uploaded"), segment("drop", 1000, 1600, "보관", "embedded"));
+                List.of(segment("first", 0, 600, "앞", "uploaded"), segment("second", 1000, 1600, "뒤", "uploaded"));
 
+        // 뒤 장면이 신고한 겹침이 실제와 다르다 — 장면 1 은 1000~2000 이라 600 이어야 한다.
+        // 앞 장면은 멀쩡하므로 거절 사유가 이 테스트의 이름과 정확히 맞는다.
         assertRejects(mappingResult(
                 segments,
-                List.of("keep"),
-                List.of(mapped(0, "채택", List.of(link("keep", 600))), mapped(1, "보관", List.of(link("drop", 600))))));
+                List.of("first", "second"),
+                List.of(mapped(0, "앞", List.of(link("first", 600))), mapped(1, "뒤", List.of(link("second", 500))))));
 
         // 앞 장면만 남으면 거절된 run 에 반쪽 대사가 굳는다. 검증을 모두 마친 뒤에 쓴다.
         assertThat(sceneRow(0)).allSatisfy((column, value) -> assertThat(value).isNull());
@@ -946,35 +988,77 @@ class WorkerOutputDatabaseTest {
         storeTwoScenes();
         var segments = List.of(segment("a", 0, 600, "대사", "uploaded"), segment("b", 600, 900, "둘째", "uploaded"));
         var scenes = List.of(mapped(0, "대사 둘째", List.of(link("a", 600), link("b", 300))), mapped(1, "", List.of()));
-        var adopted = Map.<String, Object>of(
-                "segmentId", "a", "selected", true, "reasonCode", "PREFERRED_SUBTITLE", "conflictsWith", List.of());
+        var a = decision("a", true, "PREFERRED_SUBTITLE", List.of());
 
         for (var broken : List.of(
                 // 같은 구간에 판정이 둘. `selected=true` 쪽이 조용히 이긴다.
-                List.of(
-                        adopted,
-                        adopted,
-                        Map.<String, Object>of(
-                                "segmentId",
-                                "b",
-                                "selected",
-                                true,
-                                "reasonCode",
-                                "PREFERRED_SUBTITLE",
-                                "conflictsWith",
-                                List.of())),
+                List.of(a, a, decision("b", true, "PREFERRED_SUBTITLE", List.of())),
                 // `b` 의 판정이 없다. 상류가 채택을 주장한 적 없는데 미채택으로 조용히 흐른다.
-                List.of(adopted)))
-            assertRejects(mappingResult(
-                    segmentsDocument(segments),
-                    ref -> Map.of(
-                            "schemaVersion",
-                            "npick.transcript.decisions/v1",
-                            "segmentsArtifact",
-                            ref,
-                            "decisions",
-                            broken),
-                    scenes));
+                List.of(a))) assertRejects(mappingWithDecisions(segments, broken, scenes));
+    }
+
+    @Test
+    void rejectsDecisionsWithAnImpossibleReasonOrConflict() throws Exception {
+        storeTwoScenes();
+        var subtitle = segment("sub", 0, 600, "자막", "uploaded");
+        var speech = segment("voice", 0, 600, "발화", "asr");
+        var far = segment("far", 1200, 1800, "먼 자막", "embedded");
+        var bySubtitle = List.of(mapped(0, "자막", List.of(link("sub", 600))), mapped(1, "", List.of()));
+        var bySpeech = List.of(mapped(0, "발화", List.of(link("voice", 600))), mapped(1, "", List.of()));
+        var adoptedSubtitle = decision("sub", true, "PREFERRED_SUBTITLE", List.of());
+
+        // 채택된 ASR 구간의 사유는 `ASR_SUPPLEMENT` 다. `ProcessingRecordReader.selectedSources` 가
+        // 같은 규칙으로 이 snapshot 을 읽으므로, 어긋나면 대사는 저장되는데 처리 상세는
+        // "자막 없음" 으로 뜬다 — 저장·검색 상태와 화면이 갈린다.
+        assertRejects(mappingWithDecisions(
+                List.of(speech), List.of(decision("voice", true, "PREFERRED_SUBTITLE", List.of())), bySpeech));
+        // 제외 근거가 이 snapshot 에 없는 ID 다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(adoptedSubtitle, decision("voice", false, "OVERLAPS_HIGHER_PRIORITY", List.of("ghost"))),
+                bySubtitle));
+        // 채택된 구간에는 제외 근거가 없어야 하고, 제외된 구간에는 있어야 한다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(
+                        decision("sub", true, "PREFERRED_SUBTITLE", List.of("voice")),
+                        decision("voice", false, "OVERLAPS_HIGHER_PRIORITY", List.of("sub"))),
+                bySubtitle));
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(adoptedSubtitle, decision("voice", false, "OVERLAPS_HIGHER_PRIORITY", List.of())),
+                bySubtitle));
+        // 근거가 하위 출처다 — ASR 이 제공 자막을 밀어낼 수 없다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(
+                        decision("voice", true, "ASR_SUPPLEMENT", List.of()),
+                        decision("sub", false, "OVERLAPS_HIGHER_PRIORITY", List.of("voice"))),
+                bySpeech));
+        // 근거와 시간이 겹치지 않는다. 겹치지 않는 구간은 서로를 밀어낼 수 없다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, far),
+                List.of(adoptedSubtitle, decision("far", false, "OVERLAPS_HIGHER_PRIORITY", List.of("sub"))),
+                bySubtitle));
+    }
+
+    @Test
+    void rejectsAMissingTokenizerIdentity() throws Exception {
+        storeTwoScenes();
+        var result = new java.util.LinkedHashMap<>(mappingResult(
+                List.of(segment("a", 0, 600, "대사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "", List.of()))));
+
+        // 색인과 질의의 Kiwi 설정이 어긋나면 검색이 오류 없이 0건이 된다. 그때 어느 설정이
+        // 이 토큰을 만들었는지 되짚을 근거가 이 축 하나뿐이다(계약 §4.5).
+        for (Map<String, Object> versions : List.of(
+                Map.<String, Object>of("outputSchemaVersion", MAPPING_SCHEMA),
+                Map.<String, Object>of("outputSchemaVersion", MAPPING_SCHEMA, "detail", Map.of()),
+                Map.<String, Object>of("outputSchemaVersion", MAPPING_SCHEMA, "detail", Map.of("tokenizer", " ")))) {
+            result.put("versions", versions);
+            assertRejects(Map.copyOf(result));
+        }
     }
 
     @Test

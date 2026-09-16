@@ -88,7 +88,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                 }
                 yield Map.of();
             }
-            case "scene_transcript_mapping" -> transcripts(runId, output, refs);
+            case "scene_transcript_mapping" -> transcripts(runId, output, body.path("versions"), refs);
             case "text_embedding" -> embeddings(runId, output, body.path("versions"), refs);
             case "indexing" -> {
                 summarised(runId, output);
@@ -287,7 +287,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
      * ({@code scene.transcript_tokens} 주석). {@code transcript_text} 는 워커가 토큰을 만들 때 쓴 것과 같은 순서·같은 구분자(공백 한 칸)로 잇는다 — 두
      * 칸이 같은 문장을 가리켜야 한다.
      */
-    private Map<String, Object> transcripts(long run, JsonNode output, Map<String, Ref> refs) {
+    private Map<String, Object> transcripts(long run, JsonNode output, JsonNode versions, Map<String, Ref> refs) {
         JsonNode transcript = output.path("transcript");
         Ref segmentsRef = registered(transcript.path("segmentsArtifact"), "transcript_segments", refs);
         JsonNode segmentsDocument = artifactJson(segmentsRef);
@@ -308,17 +308,11 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
         // 채택하지 않은 자막으로 장면이 검색된다(계약 §4.5). 다만 판정이 모든 원본 ID 에 정확히
         // 하나씩 있어야 읽은 결과가 상류가 실제로 주장한 집합이다. 중복은 `selected=true` 쪽이
         // 조용히 이기고, 판정 없는 구간은 조용히 미채택으로 흐른다.
-        Map<String, JsonNode> adopted = new LinkedHashMap<>();
-        var judged = new HashSet<String>();
-        for (JsonNode decision : array(decisionsDocument, "decisions")) {
-            String id = text(decision, "segmentId");
-            JsonNode original = originals.get(id);
-            if (original == null
-                    || !judged.add(id)
-                    || !decision.path("selected").isBoolean()) invalid();
-            if (decision.path("selected").booleanValue()) adopted.put(id, original);
-        }
-        if (!judged.equals(originals.keySet())) invalid();
+        Map<String, JsonNode> adopted = adoptions(decisionsDocument, originals);
+        // 색인과 질의가 같은 Kiwi 설정을 써야 하고 어긋나면 검색이 조용히 0건이 된다. 그때 어느
+        // 설정이 이 토큰을 만들었는지 되짚을 근거가 이 축 하나뿐이다(계약 §4.5) — `embeddings()`
+        // 가 `modelVersion` 을 요구하는 것과 같은 자리다.
+        text(versions.path("detail"), "tokenizer");
         var scenes = jdbc.queryForList("""
                 SELECT scene_id, start_time_ms, end_time_ms FROM npick.scene
                 WHERE pipeline_run_id=? ORDER BY start_time_ms, scene_id
@@ -417,6 +411,28 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             if (!original.equals(originals.get(text(original, "segmentId")))) invalid();
         }
         if (!originals.keySet().equals(inputIds)) invalid();
+        adoptions(decisions, originals);
+        if (!transcript.path("asrRequired").isBoolean()) invalid();
+        var ranges = array(transcript, "candidateRanges");
+        for (JsonNode range : ranges) if (integer(range, "e", 1) <= integer(range, "s", 0)) invalid();
+        String reason = text(transcript, "reasonCode");
+        if (!List.of("SUBTITLE_COVERED", "UNCOVERED_RANGES", "NO_VALID_SUBTITLE")
+                .contains(reason)) invalid();
+        if (transcript.path("asrRequired").booleanValue() != !ranges.isEmpty()
+                || reason.equals("SUBTITLE_COVERED") != ranges.isEmpty()) invalid();
+    }
+
+    /**
+     * {@code decisions} 가 원본 집합에 대해 완전하고 일관적인지 확인하고 <b>채택 집합</b>을 돌려준다 (계약 §4.5).
+     *
+     * <p>선택 정책을 다시 계산하지 않는다 — 정책은 상류 소유다. 여기서 보는 것은 판정이 스스로 모순인지뿐이다: 모든 원본 ID 에 정확히 하나씩, 채택 사유는 출처와 맞고 제외 근거를 달지 않으며,
+     * 제외 사유는 하나뿐이고 근거는 <b>같은 snapshot 에서 채택된 상위 출처</b>이면서 실제로 시간이 겹쳐야 한다.
+     *
+     * <p><b>4단계와 이 단계가 같은 검사를 쓴다.</b> {@code ProcessingRecordReader.selectedSources} 가 두 snapshot 중 살아 있는 쪽을 같은 규칙으로
+     * 읽으므로, 저장 쪽이 느슨하면 대사는 저장되는데 처리 상세는 자막을 {@code unavailable} 로 보고한다 — 화면과 정본이 갈린다.
+     */
+    private static Map<String, JsonNode> adoptions(JsonNode decisions, Map<String, JsonNode> originals) {
+        Map<String, JsonNode> adopted = new LinkedHashMap<>();
         var seen = new HashSet<String>();
         for (JsonNode decision : array(decisions, "decisions")) {
             String id = text(decision, "segmentId");
@@ -430,6 +446,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                 String expected =
                         text(original, "sourceDetail").equals("asr") ? "ASR_SUPPLEMENT" : "PREFERRED_SUBTITLE";
                 if (!expected.equals(reason) || !conflicts.isEmpty()) invalid();
+                adopted.put(id, original);
             } else if (!reason.equals("OVERLAPS_HIGHER_PRIORITY") || conflicts.isEmpty()) invalid();
             var conflictIds = new HashSet<String>();
             for (JsonNode conflict : conflicts) {
@@ -441,14 +458,8 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                                 >= Math.min(integer(other, "e", 1), integer(original, "e", 1))) invalid();
             }
         }
-        if (!seen.equals(originals.keySet()) || !transcript.path("asrRequired").isBoolean()) invalid();
-        var ranges = array(transcript, "candidateRanges");
-        for (JsonNode range : ranges) if (integer(range, "e", 1) <= integer(range, "s", 0)) invalid();
-        String reason = text(transcript, "reasonCode");
-        if (!List.of("SUBTITLE_COVERED", "UNCOVERED_RANGES", "NO_VALID_SUBTITLE")
-                .contains(reason)) invalid();
-        if (transcript.path("asrRequired").booleanValue() != !ranges.isEmpty()
-                || reason.equals("SUBTITLE_COVERED") != ranges.isEmpty()) invalid();
+        if (!seen.equals(originals.keySet())) invalid();
+        return adopted;
     }
 
     private static int priority(JsonNode segment) {
