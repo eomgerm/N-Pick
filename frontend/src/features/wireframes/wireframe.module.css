@@ -1130,12 +1130,75 @@
 
 .previewModal {
   width: min(100%, 980px);
-  max-height: calc(100vh - 40px);
+  max-height: calc(100svh - 40px);
   overflow: auto;
+  overflow-wrap: anywhere;
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: 0 28px 90px rgb(0 0 0 / 34%);
+}
+
+.previewModalHeader {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px 24px;
+  padding: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.previewModalHeader > div:first-child {
+  min-width: 0;
+}
+
+.previewModalHeader > div > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.previewModalHeader h2 {
+  margin: 6px 0 0;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.03em;
+}
+
+.previewModalHeader > div > p {
+  margin: 6px 0 0;
+  color: var(--subtle);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.previewHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.previewHeaderActions .iconButton {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  cursor: pointer;
+}
+
+.previewHeaderActions .previewReportButton {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.previewModalHeader > .previewNotice {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--surface-subtle);
+  font-size: 12px;
 }
 
 .previewDetailsHeading {
@@ -1206,6 +1269,25 @@
 .previewPlayer {
   min-width: 0;
   padding: 20px;
+}
+
+.previewPlayer > p[role='status'] {
+  display: grid;
+  aspect-ratio: 16 / 9;
+  place-content: center;
+  margin: 0;
+  padding: 20px;
+  border-radius: var(--radius-small);
+  background: var(--secondary);
+  color: #ffffff;
+  font-size: 13px;
+  line-height: 1.65;
+  text-align: center;
+}
+
+.previewPlayer [data-preview-state='error'] > div:first-child {
+  width: 100%;
+  min-height: 220px;
 }
 
 .previewPlayer .previewMedia {
@@ -1331,6 +1413,10 @@
 
 .previewSidebar .previewDetails {
   padding-top: 0;
+}
+
+.previewSidebar > .previewEvidence {
+  margin: 0 16px 16px;
 }
 
 .previewSidebar .safetyNotice {
@@ -1541,7 +1627,8 @@
   padding: 16px;
 }
 
-.previewDetailsHeading > p {
+.previewDetailsHeading > p,
+.previewDetails > p {
   margin: 0;
   font-size: 16px;
   font-weight: 800;
@@ -1550,7 +1637,7 @@
 
 .previewDetails dl {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin: 16px 0 0;
 }
@@ -1733,14 +1820,14 @@
   gap: 20px;
 }
 
-.modalHeader span {
+.modalHeader > div > span {
   color: var(--accent);
   font-size: 10px;
   font-weight: 900;
 }
 
 .modalHeader h2 {
-  margin: 5px 0 0;
+  margin: 0;
   font-size: 23px;
 }
 
@@ -1816,7 +1903,7 @@
 
 .inquiryStatus {
   display: inline-block;
-  margin-top: 14px;
+  flex-shrink: 0;
   padding: 6px 9px;
   border-radius: var(--radius-small);
   background: var(--warning-soft);
@@ -2480,7 +2567,27 @@
   }
 
   .previewModal {
-    max-height: calc(100vh - 20px);
+    max-height: calc(100svh - 20px);
+  }
+
+  .previewModalHeader {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 18px;
+  }
+
+  .previewModalHeader > div:first-child {
+    padding-right: 52px;
+  }
+
+  .previewModalHeader h2 {
+    font-size: 20px;
+  }
+
+  .previewHeaderActions .iconButton {
+    position: absolute;
+    top: 18px;
+    right: 18px;
   }
 
   .previewSceneTitle {
