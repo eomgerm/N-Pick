@@ -231,6 +231,9 @@ def to_json(
                     {"type": tag.type, "value": tag.value, "confidence": tag.confidence}
                     for tag in described.metadata.tag_candidates
                 ],
+                # 정규화한 자리. 비어 있지 않으면 그 후보가 계약과 다른 표기로 '없음' 을
+                # 말했다는 뜻이라 후보 비교에서 읽을 값이다(`normalize.py`).
+                "normalizations": list(described.normalizations),
                 "rawOutput": described.raw_output,
             }
             for described, elapsed in rows

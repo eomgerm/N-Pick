@@ -27,6 +27,8 @@ from npick_worker.vlm_metadata import (
     describe_scenes,
     get_default_config,
     load_config,
+    means_absent,
+    parse_output,
     parse_raw,
     prompt_tag_types,
     prompt_version,
@@ -506,6 +508,140 @@ def test_valid_fields_of_an_invalid_output_are_not_partially_applied() -> None:
 
     with pytest.raises(VlmSchemaInvalidError):
         parse_raw(raw)
+
+
+# ── 정규화: "없음" 의 다른 표기 (S15P21A501-93) ──────────────────────
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(None, id="JSON null"),
+        pytest.param("없음", id="없음"),
+        pytest.param("알 수 없음", id="띄어쓴 알 수 없음"),
+        pytest.param("N/A", id="N/A"),
+        pytest.param("UNKNOWN", id="대문자 unknown"),
+    ],
+)
+def test_null_equivalent_caption_becomes_no_caption(value: object) -> None:
+    """모델이 "없음" 이라고 쓴 것은 다른 답이 아니라 `null` 의 다른 표기다."""
+    raw = _raw(caption={"value": value, "confidence": 0.4, "evidence": ["kf_1"]})
+
+    parsed = parse_output(raw)
+    metadata = validate(parsed.raw, 0, _scene().keyframes, get_default_config())
+
+    assert metadata.caption is None
+    assert parsed.normalizations == ("caption",)
+
+
+def test_null_equivalent_scene_type_becomes_no_candidate() -> None:
+    """닫힌 어휘 밖이라고 거부하면 "모른다" 는 답이 클립 전체를 날린다."""
+    raw = _raw(scene_type={"value": "미상", "confidence": 0.3, "evidence": ["kf_1"]})
+
+    parsed = parse_output(raw)
+    metadata = validate(parsed.raw, 0, _scene().keyframes, get_default_config())
+
+    assert metadata.scene_type is None
+    assert parsed.normalizations == ("scene_type",)
+
+
+def test_null_shot_type_value_becomes_unknown() -> None:
+    """`scene.shot_type` 은 `NOT NULL` 이고 그 자리의 '없음' 이 어휘 안에 있다."""
+    raw = _raw(shot_type={"value": None, "confidence": 0.2, "evidence": []})
+
+    parsed = parse_output(raw)
+    metadata = validate(parsed.raw, 0, _scene().keyframes, get_default_config())
+
+    assert metadata.shot_type.value == "unknown"
+    assert metadata.shot_type.evidence == ()
+    assert parsed.normalizations == ("shot_type.value",)
+
+
+def test_null_arrays_become_empty_ones() -> None:
+    raw = _raw(
+        tag_candidates=None,
+        scene_type=None,
+        shot_type={"value": "unknown", "confidence": 0.2, "evidence": None},
+    )
+
+    parsed = parse_output(raw)
+    metadata = validate(parsed.raw, 0, _scene().keyframes, get_default_config())
+
+    assert metadata.tag_candidates == ()
+    assert metadata.shot_type.evidence == ()
+    assert parsed.normalizations == ("tag_candidates", "shot_type.evidence")
+
+
+def test_normalized_evidence_still_has_to_be_there_when_required() -> None:
+    """빈 배열로 모아 주는 것과 근거 없이 통과시키는 것은 다르다."""
+    raw = _raw(caption={"value": "설명", "confidence": 0.9, "evidence": None})
+
+    with pytest.raises(VlmSchemaInvalidError, match="근거가 없다"):
+        validate(parse_raw(raw), 0, _scene().keyframes, get_default_config())
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"shot_type": None}, id="shot_type 자리 자체가 null"),
+        pytest.param(
+            {"caption": {"value": "   ", "confidence": 0.9, "evidence": ["kf_1"]}},
+            id="공백뿐인 caption",
+        ),
+        pytest.param(
+            {"shot_type": {"value": "anchor", "confidence": None, "evidence": ["kf_1"]}},
+            id="confidence 가 null",
+        ),
+    ],
+)
+def test_normalization_does_not_fill_an_empty_slot(overrides: dict[str, object]) -> None:
+    """정규화는 **값 자리의 '없음' 표기**만 옮긴다. 자리를 만들지 않는다."""
+    with pytest.raises(VlmSchemaInvalidError):
+        validate(parse_raw(_raw(**overrides)), 0, _scene().keyframes, get_default_config())
+
+
+def test_null_equivalent_tag_value_is_rejected_not_dropped() -> None:
+    """태그 자리의 '없음' 은 빈 배열이다. 항목만 빼면 그게 부분 적용이다."""
+    raw = _raw(
+        tag_candidates=[
+            {"type": "person", "value": "미상", "confidence": 0.5, "evidence": ["kf_1"]}
+        ]
+    )
+
+    with pytest.raises(VlmSchemaInvalidError, match="값이 아니다"):
+        validate(parse_raw(raw), 0, _scene().keyframes, get_default_config())
+
+
+def test_normalization_does_not_repair_a_broken_output() -> None:
+    """일부러 깨뜨린 출력은 정규화할 자리가 함께 있어도 통째로 거부된다(완료 조건)."""
+    raw = _raw(
+        caption={"value": "없음", "confidence": 0.4, "evidence": ["kf_1"]},
+        shot_type={"value": "studio", "confidence": 0.9, "evidence": ["kf_1"]},
+    )
+
+    with pytest.raises(VlmSchemaInvalidError):
+        parse_raw(raw)
+
+
+def test_normalization_is_counted_in_the_stage_result() -> None:
+    """조용히 받아 주면 모델이 계약대로 답하는지 볼 방법이 없어진다."""
+    scene = _scene()
+    raw = _raw(caption={"value": "없음", "confidence": 0.4, "evidence": ["kf_1"]})
+
+    described = describe_scene(scene, _image_paths(scene), _FakeClient([raw]))
+    result = describe_scenes([scene], _image_paths(scene), _FakeClient([raw]))
+
+    assert described.normalizations == ("caption",)
+    assert result.normalized_value_count == 1
+    # 원문은 그대로 남는다. 정규화한 값이 무엇이었는지는 여기서만 볼 수 있다.
+    assert "없음" in described.raw_output
+
+
+def test_zero_is_a_value_not_an_absence() -> None:
+    """숫자 자리의 '없음' 을 0 으로 읽는 일은 하지 않는다."""
+    assert means_absent(0) is False
+    assert means_absent("") is False
+    assert means_absent("서울") is False
 
 
 # ── 입력 선정 ────────────────────────────────────────────────────────

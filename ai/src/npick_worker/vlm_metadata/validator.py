@@ -11,6 +11,9 @@
   닫힌 어휘가 정본이다.
 - **날짜 태그는 유형 자체가 없다.** `schema.TagCandidateType` 에서 빠져 있으므로 여기서
   따로 막을 것이 없다 — 모델이 내면 pydantic 이 먼저 거부한다.
+- **'없음' 의 다른 표기는 모으되 고치지는 않는다.** `caption.value` 가 `"없음"` 인 것과
+  `null` 인 것은 같은 답이고, 그 둘을 하나로 모으는 일만 `normalize.py` 가 한다. 무엇을
+  모으고 무엇을 모으지 않는지는 그 파일의 표가 정본이다 — 넓히면 그 순간 보정이 된다.
 
 **왜 강등이 아니라 거부인가.** `query_resolver/validator.py` 는 어긋난 항목을 강등하고
 `AnchorFinding` 으로 기록한다. 검색 한 번은 빈 해석으로도 BM25 fallback 이 성립하기
@@ -27,6 +30,7 @@
 
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Final
 
 from pydantic import ValidationError
@@ -42,6 +46,7 @@ from npick_worker.vlm_metadata.models import (
     ShotTypeJudgement,
     TagCandidate,
 )
+from npick_worker.vlm_metadata.normalize import means_absent, normalize
 from npick_worker.vlm_metadata.prompt import labels_for
 from npick_worker.vlm_metadata.schema import RawJudgement, RawSceneMetadata
 
@@ -73,13 +78,30 @@ class VlmSchemaInvalidError(ValueError):
         self.raw_output = raw_output
 
 
-def parse_raw(payload: str) -> RawSceneMetadata:
+@dataclass(frozen=True, slots=True)
+class ParsedOutput:
+    """`parse_output` 의 결과 — 통과한 출력과 **그 과정에서 모은 '없음' 표기**.
+
+    바꾼 자리를 값과 함께 들고 나오는 이유는 `normalize.py` 에 적은 그대로다. 조용히 받아
+    주면 모델이 계약대로 답하는지를 볼 방법이 없어진다. 세는 쪽은 `describer` 이고
+    metric 으로 올리는 쪽은 `jobs/registry.py` 다.
+    """
+
+    raw: RawSceneMetadata
+    #: 정규화한 자리의 경로. 예: `("caption", "shot_type.value")`. 비어 있는 것이 정상이다.
+    normalizations: tuple[str, ...] = ()
+
+
+def parse_output(payload: str) -> ParsedOutput:
     """1단계. 모양이 깨졌으면 복구하지 않는다.
 
     코드펜스를 벗기는 정도만 봐준다 — 프롬프트가 금지하지만 모델이 자주 붙이고, 이건
     의도가 명확해서 복구가 추측이 아니다(`query_resolver/validator.py` 와 같은 판단).
     그 밖의 어떤 교정도 하지 않는다. 잘린 JSON 을 이어 붙이거나 따옴표를 고치기 시작하면
     "무엇을 검증했는가" 가 사라진다.
+
+    `normalize` 는 교정이 아니다. `"없음"` 과 `null` 처럼 **같은 답의 다른 표기**를 하나로
+    모을 뿐이고, 무엇이 그에 해당하는지는 `normalize.py` 의 표가 정본이다.
     """
     text = _strip_code_fence(payload.strip())
     try:
@@ -90,8 +112,9 @@ def parse_raw(payload: str) -> RawSceneMetadata:
     if not isinstance(data, dict):
         msg = f"VLM 출력이 객체가 아니다: {type(data).__name__}"
         raise VlmSchemaInvalidError(msg, payload)
+    normalized, changed = normalize(data)
     try:
-        return RawSceneMetadata.model_validate(data)
+        return ParsedOutput(RawSceneMetadata.model_validate(normalized), changed)
     except ValidationError as exc:
         # input/ctx와 알 수 없는 필드명에는 원문이 들어갈 수 있다. 오류 종류만 요약한다.
         kinds = sorted(
@@ -99,6 +122,11 @@ def parse_raw(payload: str) -> RawSceneMetadata:
         )
         msg = f"VLM 출력이 schema 와 맞지 않는다: {exc.error_count()}건 · {', '.join(kinds)}"
         raise VlmSchemaInvalidError(msg, payload) from exc
+
+
+def parse_raw(payload: str) -> RawSceneMetadata:
+    """`parse_output` 의 값만 필요한 호출부를 위한 얇은 층."""
+    return parse_output(payload).raw
 
 
 def validate(
@@ -237,6 +265,12 @@ def _to_tag_candidates(
         value = tag.value.strip()
         if not value:
             msg = f"{path} 의 value 가 공백뿐이다"
+            raise VlmSchemaInvalidError(msg)
+        if means_absent(value):
+            # 태그 자리의 '없음' 은 값이 아니라 빈 배열이다(`normalize.py`). 항목만 조용히
+            # 빼면 그것이 부분 적용이므로, 여기서는 거부한다 — `scene_type` 과 달리 옮길
+            # '없음' 의 자리가 태그에는 없다.
+            msg = f"{path} 의 value 가 값이 아니다: {value!r}. 후보가 없으면 빈 배열이다"
             raise VlmSchemaInvalidError(msg)
         candidates.append(
             TagCandidate(

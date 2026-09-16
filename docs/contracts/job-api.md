@@ -527,7 +527,7 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
   },
   "metrics": {
     "scenes": 10, "captionedScenes": 9, "tagCandidates": 24,
-    "unknownShotTypes": 1, "keyframesSent": 23
+    "unknownShotTypes": 1, "keyframesSent": 23, "normalizedValues": 0
   },
   "output": {
     "metadataSchemaVersion": "vlm-metadata/v2",
@@ -580,6 +580,8 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
 **`tagCandidates`는 태그가 아니다.** `tag`·`tagging` 행을 만드는 일과 `tag.match_value` 정규화(NFKC + 공백 제거)는 BE의 몫이고, 이 값은 8단계 `entity_extraction`이 모으는 후보와 같은 성격이다. **날짜 유형(`filmed_date`·`broadcast_date`)은 이 payload에 올 수 없다** — 워커 쪽 schema에 그 유형이 없다. 화면에 날짜가 보인다는 사실과 그것이 방송일·촬영일이라는 판단은 다르고, 후자는 OCR 신뢰도와 원본 문맥을 확인한 뒤의 일이다([docs/frd.md](../frd.md) §3 F-04).
 
 **전부 미검증이다.** 이 payload에 검증 상태 필드가 없는 것은 빠뜨려서가 아니라 값이 하나이기 때문이다. 저장할 때 `tag_evidence.source`는 `vlm`, `verification_status`는 `unverified`다. **BE는 confidence가 높다는 이유로 `verified`로 올리지 않는다**([docs/frd.md](../frd.md) §3 F-04: "ASR·VLM·일반 추론 규칙은 기본 미검증"). 사람의 승인 판단은 `reviewer_feedback`으로 따로 남는다.
+
+**"없음"의 다른 표기는 모으되 고치지 않는다 (S15P21A501-93).** 프롬프트가 "정보가 없으면 caption·scene_type은 null, shot_type은 unknown, tagCandidates는 빈 배열"이라고 말해 두었고, 모델이 같은 답을 `"없음"`·`"미상"`·`"N/A"`로 쓰면 워커가 계약의 '없음'으로 모은 뒤 검증한다(`caption`·`scene_type` → `null`, `shotType` → `unknown`, `null` 배열 → `[]`). **보정이 아니다** — 없는 값을 채우거나 값을 다른 값으로 바꾸지 않는다. 값 자리 자체가 없는 것(`shot_type`이 통째로 `null`, `confidence`가 `null`), 공백뿐인 문자열, 태그 후보 값의 '없음' 표기는 그대로 거부다. 모은 자리의 수는 `metrics.normalizedValues`로 올라간다 — 0이 아니면 모델이 계약과 다른 표기를 쓰고 있다는 뜻이며, 값 자체는 정규화 뒤의 것이 정본이므로 payload에 따로 나가지 않는다. 규칙의 정본은 워커의 `vlm_metadata/normalize.py`이고 근거는 `ai/docs/vlm-metadata.md` §6이다.
 
 **형식이 틀린 출력은 통째로 버린다.** 워커가 JSON·schema·어휘·근거를 검사하고, 하나라도 어긋나면 그 출력의 **어떤 필드도** 쓰지 않는다([docs/frd.md](../frd.md) §3 F-03: "형식이 잘못된 출력을 정상 데이터에 부분 적용하지 않는다"). 거부는 `VLM_SCHEMA_INVALID`이고 §9.2대로 **영구**다 — 워커가 `temperature: 0`으로 부르므로 다시 물어도 같은 답이 온다.
 

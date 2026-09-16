@@ -177,6 +177,13 @@ class VlmResult:
     model_version: str
     #: 색인 토큰을 만든 규칙의 식별자 (`korean_tokens.tokenizer_version`).
     tokenizer: str
+    #: '없음' 의 다른 표기를 계약의 '없음' 으로 모은 자리의 수(`normalize.py`).
+    #:
+    #: **산출물이 아니라 기록이다.** 값 자체는 정규화 뒤의 것이 정본이므로 payload 에
+    #: 나가지 않고, 이 수만 metric 으로 올라간다. 0 이 아니면 모델이 계약과 다른 표기를
+    #: 쓰고 있다는 뜻이고, 비율이 튀면 프롬프트를 사람이 봐야 한다는 신호다
+    #: (`unknown_shot_type_count` 와 같은 용도).
+    normalized_value_count: int = 0
 
     @property
     def scene_count(self) -> int:

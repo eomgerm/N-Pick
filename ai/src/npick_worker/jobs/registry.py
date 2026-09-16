@@ -641,6 +641,10 @@ def _run_vlm_metadata(ctx: StageContext) -> StageOutcome:
             # `unknown` 으로 남은 장면 수. 이 비율이 튀면 프롬프트나 모델을 사람이 봐야
             # 한다는 신호다(`ocr` 의 `unverifiedObservations` 와 같은 용도).
             "unknownShotTypes": result.unknown_shot_type_count,
+            # '없음' 의 다른 표기를 계약의 '없음' 으로 모은 자리의 수
+            # (`vlm_metadata/normalize.py`). 0 이 아니면 모델이 계약과 다른 표기를 쓰고
+            # 있다는 뜻이다 — 값은 정본에 들어가되 그 사실은 여기 남는다.
+            "normalizedValues": result.normalized_value_count,
             "keyframesSent": len(selected),
         },
     )

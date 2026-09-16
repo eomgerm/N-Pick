@@ -62,6 +62,7 @@ from npick_worker.vlm_metadata.models import (
     TagCandidate,
     VlmResult,
 )
+from npick_worker.vlm_metadata.normalize import NULL_EQUIVALENTS, means_absent, normalize
 from npick_worker.vlm_metadata.prompt import (
     label_for,
     labels_for,
@@ -78,7 +79,9 @@ from npick_worker.vlm_metadata.schema import (
 )
 from npick_worker.vlm_metadata.validator import (
     VLM_SCHEMA_INVALID,
+    ParsedOutput,
     VlmSchemaInvalidError,
+    parse_output,
     parse_raw,
     validate,
 )
@@ -86,6 +89,7 @@ from npick_worker.vlm_metadata.validator import (
 __all__ = [
     "CONFIDENCE_DECIMALS",
     "DEFAULT_CONFIG_PATH",
+    "NULL_EQUIVALENTS",
     "SCHEMA_VERSION",
     "VLM_SCHEMA_INVALID",
     "CallParams",
@@ -93,6 +97,7 @@ __all__ = [
     "Judgement",
     "KeyframeRef",
     "LabeledImage",
+    "ParsedOutput",
     "RawSceneMetadata",
     "SceneDescription",
     "SceneKeyframes",
@@ -113,6 +118,9 @@ __all__ = [
     "label_for",
     "labels_for",
     "load_config",
+    "means_absent",
+    "normalize",
+    "parse_output",
     "parse_raw",
     "prompt_tag_types",
     "prompt_version",
