@@ -53,7 +53,7 @@ public class SceneThumbnailController {
     @Operation(
             summary = "장면 대표 이미지 조회",
             description =
-                    "로그인한 EDITOR·REVIEWER 가 조회한다. 장면의 keyframe 중 timestamp_ms 가 가장 이른 것을 대표로 준다. 성공 본문은 이미지 바이트라 공통 Envelope 를 쓰지 않는다. 장면 없음 SCENE_404_001, 대표 이미지 없음 SCENE_404_002, 파일 누락 SCENE_404_003 을 구분한다.")
+                    "로그인한 EDITOR·REVIEWER 가 조회한다. AI 가 선명도로 골라 첫 번째로 저장한 대표 keyframe(최소 keyframe_id)을 준다. 성공 본문은 이미지 바이트라 공통 Envelope 를 쓰지 않는다. 장면 없음 SCENE_404_001, 대표 이미지 없음 SCENE_404_002, 파일 누락 SCENE_404_003 을 구분한다.")
     public ResponseEntity<byte[]> thumbnail(@PathVariable long sceneId) {
         SceneThumbnailResult image = thumbnail.get(sceneId);
         return ResponseEntity.ok()

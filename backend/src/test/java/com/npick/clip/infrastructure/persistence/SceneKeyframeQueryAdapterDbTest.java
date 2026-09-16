@@ -89,7 +89,8 @@ class SceneKeyframeQueryAdapterDbTest {
                         SCENE_OF_DELETED_CLIP,
                         DELETED_CLIP_ID,
                         DELETED_CLIP_RUN_ID));
-        // 가장 이른 프레임을 마지막에 넣는다. 삽입 순서나 keyframe_id 순서로 고르면 이 표본에서 틀린다.
+        // 대표(7401)의 시각이 같은 장면의 다른 프레임보다 늦다. AI 가 선명도로 고르므로 이것이 정상이며,
+        // timestamp_ms 로 정렬하면 7403(1000ms)을 대표로 잘못 고른다 (job-api.md §4.3.1).
         exec("""
                 INSERT INTO npick.keyframe (keyframe_id, scene_id, timestamp_ms, storage_key)
                 VALUES (7401, %d, 5000, 'runs/7202/frames/s0000/kf-000005000.jpg'),
@@ -105,13 +106,17 @@ class SceneKeyframeQueryAdapterDbTest {
                         SCENE_OF_DELETED_CLIP));
     }
 
-    /** 대표는 timestamp_ms 가 가장 이른 프레임이다 (FRD F-03). */
+    /**
+     * 대표는 AI 가 첫 번째로 보내 최소 {@code keyframe_id} 로 저장된 프레임이다 (job-api.md §4.3.1).
+     *
+     * <p>표본의 대표(7401)는 5000ms 이고 같은 장면에 1000ms 프레임(7403)이 있다. {@code timestamp_ms} 로 정렬하면 이 단언이 깨진다 — 그것이 이 표본의 목적이다.
+     */
     @Test
-    void picksTheEarliestKeyframeOfTheScene() {
+    void picksTheKeyframeTheWorkerMarkedRepresentative() {
         SceneKeyframeSource source = adapter.findRepresentativeKeyframe(SCENE_WITH_KEYFRAMES);
 
         assertThat(source.sceneFound()).isTrue();
-        assertThat(source.storageKey()).isEqualTo("runs/7202/frames/s0000/kf-000001000.jpg");
+        assertThat(source.storageKey()).isEqualTo("runs/7202/frames/s0000/kf-000005000.jpg");
     }
 
     /** 장면은 있는데 프레임 추출이 아직 안 끝난 상태다. 없는 장면과 같은 답을 주면 화면이 안내를 고를 수 없다. */

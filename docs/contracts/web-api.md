@@ -649,7 +649,7 @@ body는 생략하거나 다음처럼 보낸다.
 
 결과 카드와 검수 문의 큐가 장면을 눈으로 알아보게 하는 이미지다(FRD F-03·F-07). 로그인한 `EDITOR`와 `REVIEWER`가 모두 조회한다.
 
-- 대표 이미지는 그 장면의 `keyframe` 중 `timestamp_ms`가 가장 이른 프레임이다. AI가 장면마다 뽑는 프레임 수는 고정이 아니다(FRD F-03).
+- 대표 이미지는 AI가 선명도로 골라 목록 첫 원소로 보낸 프레임이며, BE가 그 순서대로 저장하므로 그 장면의 최소 `keyframe_id`다([job-api.md](job-api.md) §4.3.1). **`timestamp_ms`가 가장 이른 프레임이 아니다** — 장면 앞머리에는 디졸브·암전이 오기 쉬워 대표가 시각상 첫 장이 아니다. AI가 장면마다 뽑는 프레임 수도 고정이 아니다(FRD F-03).
 - 성공: 이미지 byte, `Content-Type: image/jpeg`(파일 머리글로 판별하며 `image/png`·`image/webp`도 가능), `Content-Length`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`.
 - 성공 byte에는 공통 JSON envelope를 사용하지 않는다. 실패에는 공통 실패 envelope를 사용한다.
 - Range를 지원하지 않는다. 한 장을 통째로 보낸다.

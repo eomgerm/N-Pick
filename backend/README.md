@@ -181,7 +181,9 @@ nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본�
 `GET /api/v1/scenes/{sceneId}/thumbnail` 하나다. 로그인한 사용자면 `EDITOR`·`REVIEWER` 모두 조회할 수 있다(FRD F-07).
 결과 카드와 검수 문의 큐가 장면을 눈으로 알아보게 하는 이미지이며, 재생(`/api/v1/media/{clipId}`)과 책임이 다르다.
 
-- **ID 로만 접근한다.** 그 장면의 `keyframe` 중 `timestamp_ms` 가 가장 이른 프레임을 대표로 고른다(FRD F-03).
+- **ID 로만 접근한다.** 대표는 AI 가 선명도로 골라 첫 번째로 보낸 프레임, 즉 그 장면의 최소 `keyframe_id` 다
+  ([잡 계약](../docs/contracts/job-api.md) §4.3.1). `timestamp_ms` 로 정렬하면 안 된다 — 장면 앞머리의 디졸브·암전이
+  결과 카드의 얼굴이 된다.
   `keyframe.storage_key` 는 media root 안에서 해석하며 정규화 후 또는 심볼릭 링크를 따라간 뒤 root 를 벗어나면
   파일이 있어도 거부한다. storage key·서버 절대 경로·내부 예외 문자열은 응답에 나가지 않는다 (FRD §6.4).
 - **형식을 파일 머리글로 정한다.** `storage_key` 이름은 워커 규약일 뿐이고 DB 에 형식 칸이 없다. JPEG·PNG·WebP 를

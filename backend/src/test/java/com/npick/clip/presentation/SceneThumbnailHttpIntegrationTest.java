@@ -55,9 +55,12 @@ class SceneThumbnailHttpIntegrationTest {
     private static final long SCENE_WITH_MISSING_FILE = 9132L;
     private static final long SCENE_WITH_ESCAPING_KEY = 9133L;
 
-    private static final String EARLIEST_KEY = "runs/9120/frames/s0000/kf-000001000.jpg";
-    private static final byte[] EARLIEST_IMAGE = jpeg("earliest");
-    private static final byte[] LATER_IMAGE = jpeg("later");
+    /** AI 가 선명도로 고른 대표. 시각은 5000ms 로 같은 장면의 1000ms 프레임보다 늦다. */
+    private static final String REPRESENTATIVE_KEY = "runs/9120/frames/s0000/kf-000005000.jpg";
+
+    private static final String EARLIER_KEY = "runs/9120/frames/s0000/kf-000001000.jpg";
+    private static final byte[] REPRESENTATIVE_IMAGE = jpeg("representative");
+    private static final byte[] EARLIER_IMAGE = jpeg("earlier");
 
     @Value("${local.server.port}")
     int port;
@@ -92,8 +95,8 @@ class SceneThumbnailHttpIntegrationTest {
     @BeforeAll
     void seed() throws Exception {
         Files.createDirectories(ROOT.resolve("runs/9120/frames/s0000"));
-        Files.write(ROOT.resolve(EARLIEST_KEY), EARLIEST_IMAGE);
-        Files.write(ROOT.resolve("runs/9120/frames/s0000/kf-000005000.jpg"), LATER_IMAGE);
+        Files.write(ROOT.resolve(REPRESENTATIVE_KEY), REPRESENTATIVE_IMAGE);
+        Files.write(ROOT.resolve(EARLIER_KEY), EARLIER_IMAGE);
 
         jdbc.update(
                 "INSERT INTO npick.member VALUES (?, 'scene-thumb-editor', ?, '편집기자', 'EDITOR', now(), now())",
@@ -123,11 +126,10 @@ class SceneThumbnailHttpIntegrationTest {
                     VALUES (?, ?, ?, 0, 10000, 'b_roll', now(), now())
                     """, sceneId, CLIP_ID, RUN_ID);
         }
-        // 가장 이른 프레임이 나중에 들어간 행이다. 삽입 순서로 고르면 틀린다.
-        jdbc.update(
-                "INSERT INTO npick.keyframe VALUES (9141, ?, 5000, 'runs/9120/frames/s0000/kf-000005000.jpg')",
-                SCENE_WITH_KEYFRAMES);
-        jdbc.update("INSERT INTO npick.keyframe VALUES (9142, ?, 1000, ?)", SCENE_WITH_KEYFRAMES, EARLIEST_KEY);
+        // 워커가 보낸 순서 그대로다 — 대표가 첫 행이고 최소 keyframe_id 다 (job-api.md §4.3.1).
+        // 시각으로 정렬하면 두 번째 행(1000ms)이 뽑히므로, 이 표본이 그 오류를 잡는다.
+        jdbc.update("INSERT INTO npick.keyframe VALUES (9141, ?, 5000, ?)", SCENE_WITH_KEYFRAMES, REPRESENTATIVE_KEY);
+        jdbc.update("INSERT INTO npick.keyframe VALUES (9142, ?, 1000, ?)", SCENE_WITH_KEYFRAMES, EARLIER_KEY);
         jdbc.update(
                 "INSERT INTO npick.keyframe VALUES (9143, ?, 0, 'runs/9120/frames/s0000/kf-999999999.jpg')",
                 SCENE_WITH_MISSING_FILE);
@@ -135,15 +137,15 @@ class SceneThumbnailHttpIntegrationTest {
                 "INSERT INTO npick.keyframe VALUES (9144, ?, 0, '../outside-the-root.jpg')", SCENE_WITH_ESCAPING_KEY);
     }
 
-    /** 완료 조건: sceneId 로 최초 keyframe 이미지가 돌아온다. */
+    /** 완료 조건: sceneId 로 그 장면의 대표 keyframe 이미지가 돌아온다. */
     @Test
-    void returnsTheEarliestKeyframeImageForASceneId() throws Exception {
+    void returnsTheRepresentativeKeyframeImageForASceneId() throws Exception {
         login("scene-thumb-editor");
 
         HttpResponse<byte[]> response = image(SCENE_WITH_KEYFRAMES);
 
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).isEqualTo(EARLIEST_IMAGE);
+        assertThat(response.body()).isEqualTo(REPRESENTATIVE_IMAGE);
         assertThat(response.headers().firstValue("Content-Type")).contains("image/jpeg");
         assertThat(response.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
         assertThat(response.headers().firstValue("Cache-Control").orElseThrow())
@@ -181,7 +183,7 @@ class SceneThumbnailHttpIntegrationTest {
     void blocksAStorageKeyThatLeavesTheMediaRoot() throws Exception {
         login("scene-thumb-editor");
         Path outside = ROOT.getParent().resolve("outside-the-root.jpg");
-        Files.write(outside, EARLIEST_IMAGE);
+        Files.write(outside, REPRESENTATIVE_IMAGE);
         try {
             String body = assertThatFails(SCENE_WITH_ESCAPING_KEY, 500, "SCENE_500_001");
 

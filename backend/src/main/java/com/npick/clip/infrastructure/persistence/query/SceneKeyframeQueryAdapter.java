@@ -25,14 +25,19 @@ public class SceneKeyframeQueryAdapter implements SceneKeyframeQueryPort {
      * 당시의 장면을 그대로 보여 준다({@code InquiryListQueryAdapter}) — 재처리로 활성 run 이 바뀌었다고 이미 접수된 문의의 카드가 이미지를 잃으면 검수자가 무엇을 판단하는지 알
      * 수 없다. 반면 논리 삭제한 영상의 프레임은 재생과 같은 이유로 더 내보내지 않는다.
      *
-     * <p>대표는 {@code timestamp_ms} 가 가장 이른 프레임이다 (FRD F-03). 동률은 {@code uq_keyframe_scene_timestamp} 가 막지만, 정렬을
-     * {@code keyframe_id} 까지 내려 두어 어떤 경우에도 같은 요청이 같은 이미지를 준다.
+     * <p>대표는 최소 {@code keyframe_id} 다 ({@code docs/contracts/job-api.md} §4.3.1). {@code keyframe} 테이블에 대표를 표시할 칸이 없어서
+     * AI 가 순서로 알려 준다 — 선명도로 고른 대표를 목록 첫 원소에 싣고, BE 가 그 순서대로 INSERT 하므로 대표가 그 장면의 최소 {@code keyframe_id} 가 된다. 저장 시점에
+     * {@code keyframes[0].timestampMs} 를 {@code representativeTimestampMs} 와 대조해 순서가 어긋난 출력은 애초에
+     * 거부한다({@code JdbcWorkerStageOutputAdapter}).
+     *
+     * <p><b>{@code timestamp_ms} 로 정렬하면 안 된다.</b> 대표는 선명도로 뽑히므로 시각이 가장 이르지 않다 — 장면 앞머리에는 디졸브·암전이 오기 쉽고, 그 흐릿한 프레임이 결과
+     * 카드의 얼굴이 된다. 같은 절이 이 오류를 이름 붙여 금지하고 있다.
      */
     private static final String SQL = """
             SELECT (SELECT k.storage_key
                     FROM npick.keyframe k
                     WHERE k.scene_id = s.scene_id
-                    ORDER BY k.timestamp_ms, k.keyframe_id
+                    ORDER BY k.keyframe_id
                     LIMIT 1) AS storage_key
             FROM npick.scene s
             JOIN npick.clip c ON c.clip_id = s.clip_id AND c.deleted_at IS NULL
