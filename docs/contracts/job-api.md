@@ -651,6 +651,12 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정상이다. 실제 발화 미감지 판정에만
 `NO_SPEECH_DETECTED`를 기록한다. ASR 미배정과 실행 후 빈 결과, 실패 및 `NO_ADAPTER`는 구분한다.
 최종 선택은 워커 `scene_transcript_mapping` 직전에 수행한다. VLM은 그 단계 이후 실행한다.
+매핑 워커는 §4.3.1과 같은 `inputs.upstream.sceneDetection.scenes`의 정수 ms 장면 구간을
+필수 입력으로 받는다. `upstream.transcript`가 있으면 원본·판정 artifact 두 개를 함께 검증하고,
+성공한 `upstream.asr.segments`가 있으면 원본에 합쳐 최종 선택을 계산한다. 기존 구간 ID를
+보존하며 같은 ID에 다른 원문·시간·출처가 들어오면 `VALIDATION_ERROR`다. ASR 결과 부재와
+정상 빈 결과 모두 기존 자막을 지우지 않는다. 둘의 실행 상태는 상류 단계 기록으로 구분하고
+매핑 단계가 `NO_SPEECH_DETECTED`를 추정하지 않는다.
 `scene_transcript_mapping`의 output은 다음 구조다. 정본 타입은 워커 `jobs/transcripts.py`의 `SceneTranscriptMappingOutput`이며 단계 출력 버전은 `npick.stage.scene_transcript_mapping.output/v1`이다.
 
 ```json

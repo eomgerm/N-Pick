@@ -196,6 +196,29 @@ uv run --directory ai python -m npick_worker.vlm_metadata.report \
 
 선정 근거·어휘·설정 키·외부 처리 게이트는 [docs/vlm-metadata.md](docs/vlm-metadata.md).
 
+## 장면별 대사 연결 (S15P21A501-98)
+
+`scene_transcript_mapping/`은 제공 자막 → CC → ASR 순서로 최종 채택을 계산하고,
+정수 ms 반개방 구간의 겹침이 양수인 장면에만 대사를 연결한다. 상위 원본과 겹치는
+하위 대사는 전체를 보관 전용으로 남기며 원문을 시간 비율로 자르지 않는다.
+같은 출처끼리는 임의로 제거하지 않는다. 연결·원본·판정 순서는 결정적이다.
+
+`jobs/transcript_mapping.py`가 `upstream.sceneDetection`, `upstream.transcript`의
+검증된 원본/판정 artifact, 선택적인 `upstream.asr`를 읽는다. ASR이 없거나 빈 결과여도
+제공 자막·CC를 유지한다. 시간 정보 없는 일반 대본과 잘못된 참조는 `VALIDATION_ERROR`다.
+최종 snapshot 두 개를 현재 attempt에 올린 뒤 `/v1` 매핑 결과를 complete하며,
+기존 VLM 소비자는 장면별 채택 구간 ID로 원문·시간·출처를 읽는다. 모델이나 영상은 필요 없다.
+
+검증: `uv run pytest tests/test_scene_transcript_mapping.py`.
+순수 계산, 실제 snapshot 생성 → 기존 VLM 소비, 모의 HTTP 잡 API의 다운로드·업로드·complete를
+검증한다. 실제 BE 왕복 또는 DB 저장 완료를 의미하지 않는다.
+
+**#70 연동 잔여:** 현재 BE 저장 어댑터의 지원 목록에 이 단계가 없으므로 실제 배정·저장은
+아직 불가능하다. BE의 상류 키 `scene_detection`도 워커 계약의 `sceneDetection`으로 전달해야 한다.
+`scene.transcript_json`의 `s/e/t/overlap_ms` 변환, `transcript_text`·공유 Kiwi 설정의
+`transcript_tokens` 생성/전달/저장은 #70과 연결해야 한다. `/v1` 매핑 출력에 합의되지 않은
+토큰 필드를 추가하지 않았다. #35의 초기 `transcript_selection` 워커 구현도 별도 선행 작업이다.
+
 ## Query Resolver (FRD F-04~06)
 
 한국어 질의를 구조화 조건으로 바꾼다. **검색 시점**에 쓰이며 파이프라인 단계가 아니다.

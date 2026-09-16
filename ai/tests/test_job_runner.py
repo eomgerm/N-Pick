@@ -183,7 +183,12 @@ async def test_claim_declares_the_stage_it_can_run(
 
     body = json.loads(fake_backend.calls("claim")[0].content)
     declared = {c["stage"]: c["stageVersion"] for c in body["capabilities"]}
-    assert set(declared) == {"scene_detection", "frame_extraction", "ocr"}
+    assert set(declared) == {
+        "scene_detection",
+        "frame_extraction",
+        "ocr",
+        "scene_transcript_mapping",
+    }
     for stage, version in declared.items():
         assert version.startswith(f"npick.stage.{stage}/v1:")
 

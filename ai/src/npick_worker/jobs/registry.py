@@ -969,6 +969,18 @@ def _warm_scene_detection() -> str:
     return f"config={config.version_id} engine={detector.name} {detector.version}"
 
 
+def _run_scene_transcript_mapping(ctx: StageContext) -> StageOutcome:
+    from npick_worker.jobs.transcript_mapping import run
+
+    return run(ctx)
+
+
+def _warm_scene_transcript_mapping() -> str:
+    from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
+
+    return ALGORITHM_VERSION
+
+
 HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
     {
         handler.name: handler
@@ -996,13 +1008,19 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
             # 인라인으로 오고, 무엇을 채택할지 정하는 일은 하류의 몫이다(계약 §4.5).
             # `needs_video` 는 기본값 True 다. 오디오가 원본 파일 안에 있다.
             StageHandler("asr", _run_asr, _warm_asr),
+            StageHandler(
+                "scene_transcript_mapping",
+                _run_scene_transcript_mapping,
+                _warm_scene_transcript_mapping,
+                needs_video=False,
+            ),
         )
     }
 )
 
 
 def resolve(stage: str) -> StageHandler | None:
-    """구현이 있으면 돌려준다. 나머지 아홉 단계는 None 이고 호출부가 생략으로 보고한다."""
+    """구현이 있으면 돌려준다. 미구현 단계는 None 이고 호출부가 보고한다."""
     return HANDLERS.get(stage)
 
 
@@ -1055,6 +1073,10 @@ def capability_versions() -> dict[str, str]:
 
 def _declared_version(stage: str) -> str:
     """실행 없이 계산할 수 있는 단계 버전. `_run_*` 이 만드는 값과 같아야 한다."""
+    if stage == "scene_transcript_mapping":
+        from npick_worker.jobs.transcript_mapping import identity
+
+        return stage_version(stage, identity())
     if stage == "scene_detection":
         from npick_worker.scene_detection import PySceneDetectDetector, get_default_config
 
