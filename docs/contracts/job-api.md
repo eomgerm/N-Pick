@@ -782,6 +782,11 @@ OCR은 병합 그룹의 대표 관측 **원문**에서 추출하고 그 관측�
 - 외부 추론 경로는 제공하지 않는다. 모델은 사전 배치된 고정 revision을 `local_files_only`
   로 로드한다. 원문은 워커 GPU 안에서 처리하며 외부 API로 보내지 않는다.
 
+대사는 `scene_transcript_mapping`이 올린 segments·decisions snapshot을 워커가 직접 읽는다
+(§4.5). 상위 `transcript` 별칭이 아니라 **매핑이 가리키는 참조**가 정본이다 — 별칭은 이전
+snapshot을 가리킬 수 있고, 그것을 받아 오면 매핑이 말하는 문서를 찾지 못한다.
+`vlm_metadata`·`text_embedding`과 같은 규약이다.
+
 상류는 `sceneDetection`만 필수다. 나머지 셋(`ocr`·`scene_transcript_mapping`·
 `vlmMetadata`)은 전부 비치명 상류라 없을 수 있고, 없으면 그 입력 없이 돈다 — 여기서
 필수로 걸면 비치명 실패 하나가 둘이 된다. 장면 목록만은 필수다. 모든 후보가 장면 범위라

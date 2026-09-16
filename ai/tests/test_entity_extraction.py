@@ -6,8 +6,9 @@
 import json
 import math
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -528,3 +529,175 @@ def test_vlm_scene_outside_the_scene_list_is_refused(
     )
     with pytest.raises(UpstreamOutputInvalidError):
         job_adapter.run(_context(tmp_path, upstream))
+
+
+# ── 리뷰 반영: 배선의 세 구멍 ────────────────────────────────────────
+
+_SEGMENTS_KEY = "runs/1/scene_transcript_mapping/a1/transcript_segments.json"
+_DECISIONS_KEY = "runs/1/scene_transcript_mapping/a1/transcript_decisions.json"
+_SEGMENTS_REF = {
+    "kind": "transcript_segments",
+    "storageKey": _SEGMENTS_KEY,
+    "byteSize": 128,
+    "contentHash": "a" * 64,
+}
+_DECISIONS_REF = {
+    "kind": "transcript_decisions",
+    "storageKey": _DECISIONS_KEY,
+    "byteSize": 128,
+    "contentHash": "b" * 64,
+}
+
+
+def _mapping_upstream() -> dict[str, object]:
+    payload = _upstream()
+    payload["sceneTranscriptMapping"] = {
+        "transcript": {"segmentsArtifact": _SEGMENTS_REF, "decisionsArtifact": _DECISIONS_REF},
+        "scenes": [
+            {
+                "sceneIndex": 0,
+                "segments": [{"segmentId": "seg-1", "overlapMs": 900}],
+                "tokens": "서울역",
+            }
+        ],
+    }
+    return payload
+
+
+def _mapping_documents(upstream: dict[str, object]) -> dict[str, Mapping[str, Any]]:
+    """러너가 실제로 받아 오는 것만 준다.
+
+    문서를 손으로 끼워 넣으면 이 단계가 받아 올 목록(`transcript_refs`)에서 빠져 있어도
+    테스트가 통과한다 — 그 구멍이 실제로 있었다. 여기서는 받아 올 키를 물어서 그 키만
+    채우므로, 목록에서 빠지면 문서가 0장이 되고 이 테스트가 그대로 깨진다.
+    """
+    from npick_worker.jobs.transcripts import transcript_refs
+
+    documents: dict[str, Mapping[str, Any]] = {
+        _SEGMENTS_KEY: {
+            "schemaVersion": "npick.transcript.segments/v1",
+            "segments": [
+                {
+                    "segmentId": "seg-1",
+                    "s": 0,
+                    "e": 900,
+                    "t": "서울역에서 만났다",
+                    "sourceDetail": "uploaded",
+                }
+            ],
+        },
+        _DECISIONS_KEY: {
+            "schemaVersion": "npick.transcript.decisions/v1",
+            "segmentsArtifact": _SEGMENTS_REF,
+            "decisions": [
+                {
+                    "segmentId": "seg-1",
+                    "selected": True,
+                    "reasonCode": "PREFERRED_SUBTITLE",
+                    "conflictsWith": [],
+                }
+            ],
+        },
+    }
+    return {
+        ref.storage_key: documents[ref.storage_key]
+        for ref in transcript_refs(upstream, stage="entity_extraction")
+    }
+
+
+def test_mapping_snapshot_is_fetched_for_this_stage() -> None:
+    """이 단계는 `resolve_mapping` 을 부른다. 받아 올 목록에서 빠지면 문서가 0장이다."""
+    from npick_worker.jobs.transcripts import transcript_refs
+
+    upstream = _mapping_upstream()
+    refs = transcript_refs(upstream, stage="entity_extraction")
+
+    assert [ref.storage_key for ref in refs] == [
+        _SEGMENTS_KEY,
+        _DECISIONS_KEY,
+    ]
+    # 매핑 쪽 snapshot 을 보는 다른 단계와 같은 것을 받아야 한다. 상위 `transcript` 별칭은
+    # 이전 snapshot 을 가리킬 수 있고, 그것을 받아 오면 문서를 찾지 못해 이 단계가 죽는다.
+    assert refs == transcript_refs(upstream, stage="vlm_metadata")
+
+
+def test_transcript_only_clip_produces_grounded_candidates(
+    tmp_path: Path, fake_ner: Callable[[_FakeNer], _FakeNer]
+) -> None:
+    """OCR 도 VLM 도 없는 정상 입력이다. 매핑만 와도 대사에서 후보가 나와야 한다."""
+    ner = fake_ner(
+        _FakeNer(lambda t: (EntitySpan(label="LCP_CITY", start=0, end=3, confidence=0.91),))
+    )
+    upstream = _mapping_upstream()
+    ctx = StageContext(
+        stage="entity_extraction",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/entity_extraction/a1/",
+        upstream=upstream,
+        artifact_documents=_mapping_documents(upstream),
+    )
+    outcome = job_adapter.run(ctx)
+
+    assert ner.texts == ["서울역에서 만났다"]
+    candidate = outcome.output["scenes"][0]["tagCandidates"][0]
+    assert (candidate["type"], candidate["value"], candidate["source"]) == (
+        "location",
+        "서울역",
+        "rule",
+    )
+    assert candidate["evidence"] == [
+        {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": _SEGMENTS_KEY,
+            "segmentId": "seg-1",
+            "s": 0,
+            "e": 900,
+            "sourceDetail": "uploaded",
+        }
+    ]
+    assert outcome.metrics["transcriptTexts"] == 1
+
+
+def test_stage_is_not_declared_until_the_weights_are_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CUDA 만 보면 런타임은 있고 스냅샷은 없는 파드가 배정받아 매 잡마다 죽는다."""
+    import torch
+
+    from npick_worker.entity_extraction import local_ner
+    from npick_worker.entity_extraction.config import load_config as load_entity_config
+    from npick_worker.jobs import registry
+    from npick_worker.jobs.errors import ModelUnavailableError
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(local_ner, "_SHARED", {})
+    with pytest.raises(ModelUnavailableError):
+        registry._declared_version("entity_extraction")
+    assert "entity_extraction" not in registry.capability_versions()
+
+    config = load_entity_config()
+    monkeypatch.setattr(local_ner, "_SHARED", {config.version: local_ner.LocalNer(config)})
+    assert registry._declared_version("entity_extraction").startswith(
+        "npick.stage.entity_extraction/v1:"
+    )
+
+
+def test_missing_weights_are_not_reported_as_missing_media(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`MEDIA_UNAVAILABLE` 의 뜻은 원본 영상이 없다는 것이다. 모델 배치 문제와 갈라야 한다."""
+    pytest.importorskip("transformers")
+    import torch
+
+    from npick_worker.entity_extraction.local_ner import EntityModelUnavailableError, LocalNer
+    from npick_worker.jobs.errors import classify
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    absent = load_config().model_copy(update={"revision": "0" * 40})
+    with pytest.raises(EntityModelUnavailableError):
+        LocalNer(absent).load()
+    # 순수 계층의 예외는 잡 어댑터가 번역한다. 번역 전 값이 미디어 오류가 아니어야 한다.
+    assert classify(EntityModelUnavailableError("x"), "entity_extraction")[0] != "MEDIA_UNAVAILABLE"

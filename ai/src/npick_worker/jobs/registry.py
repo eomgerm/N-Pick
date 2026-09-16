@@ -1458,19 +1458,27 @@ def _declared_version(stage: str) -> str:
         )
     if stage == "entity_extraction":
         # **가중치가 올라오기 전에는 선언하지 않는다**(`vlm_metadata`·`asr` 과 같은 가드).
-        # 다만 여기서 로딩을 트리거하지 않는다 — `identity` 의 네 축이 전부 정적이라
-        # 로딩 전후의 값이 같고(그 함수의 docstring), 이 함수는 claim long-poll 한 바퀴
-        # 마다 **동기로** 불린다. 대신 이 워커가 실제로 돌릴 수 있는지만 싸게 본다:
-        # `gpu` 그룹이 설치돼 있고 CUDA 가 보여야 한다. 외부 추론 경로는 없으므로
-        # (계약 §4.3.6) CPU 워커에는 이 단계를 돌릴 방법이 아예 없다.
+        # CUDA 만 보면 부족하다 — 런타임은 있는데 스냅샷이 없는 파드가 그 검사를 통과해
+        # 배정받고 매 잡마다 죽는다. `is_loaded` 로 **이 설정이 실제로 올라와 있는가**를
+        # 묻는다. 워밍업이 실패했으면 그 답이 False 이고 이 단계는 목록에서 빠진다.
+        #
+        # 여기서 로딩을 트리거하지 않는다. 이 함수는 claim long-poll 한 바퀴마다, 그리고
+        # 실패마다 **동기로** 불리므로 로딩을 걸면 이벤트 루프가 그동안 멈춘다(실패 경로
+        # 에서는 lease 를 든 채 heartbeat 가 못 뛴다). 워밍업 실패 복구는 재워밍업이나
+        # 워커 재시작으로 한다. 외부 추론 경로는 없으므로(계약 §4.3.6) CPU 워커에는 이
+        # 단계를 돌릴 방법이 아예 없다.
         import torch
-        import transformers  # noqa: F401
 
+        from npick_worker.entity_extraction.config import load_config as load_entity_config
+        from npick_worker.entity_extraction.local_ner import is_loaded
         from npick_worker.jobs.entity_extraction import identity as entity_identity
 
         if not torch.cuda.is_available():
             raise ModelUnavailableError("entity NER 은 워커 CUDA 가 있어야 한다")
-        return stage_version(stage, entity_identity())
+        entity_config = load_entity_config()
+        if not is_loaded(entity_config):
+            raise ModelUnavailableError("entity NER 워밍업이 완료되지 않아 버전을 선언할 수 없다")
+        return stage_version(stage, entity_identity(config=entity_config))
     if stage == "text_embedding":
         # **움직이는 ref 로는 선언하지 않는다.** `main` 같은 값이면 `model_version` 이
         # 로딩 전 `…@main`, 로딩 후 `…@<sha>` 라 claim 에 실은 `stageVersion` 과 결과가

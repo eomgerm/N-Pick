@@ -216,8 +216,10 @@ async def test_mapping_validation_is_scoped_to_the_stages_that_read_dialogue(
 
     `text_embedding` 은 `vlm_metadata` 와 같은 쪽이다 — 캡션에 대사를 합쳐 벡터를
     만들므로(FRD §11) 매핑이 깨졌는데 조용히 넘어가면 대사가 빠진 벡터가 정본에 남고,
-    그것은 다시 만들려면 전체 재색인이다. `indexing` 은 세그먼트 본문을 읽지 않고
-    연결된 장면 수만 세므로 artifact 를 받지 않는다.
+    그것은 다시 만들려면 전체 재색인이다. `entity_extraction` 도 같은 쪽이다 —
+    대사 원문에서 개체를 뽑고 그 구간을 근거로 실으므로(계약 §4.3.6) 매핑을 받지 않으면
+    `resolve_mapping` 이 문서를 찾지 못해 단계가 통째로 죽는다. `indexing` 은 세그먼트
+    본문을 읽지 않고 연결된 장면 수만 세므로 artifact 를 받지 않는다.
     """
     job = JobAssignment.model_validate(
         make_job(
@@ -228,7 +230,7 @@ async def test_mapping_validation_is_scoped_to_the_stages_that_read_dialogue(
             },
         )
     )
-    if stage in {"vlm_metadata", "text_embedding"}:
+    if stage in {"vlm_metadata", "text_embedding", "entity_extraction"}:
         with pytest.raises(UpstreamOutputInvalidError):
             await resolve_transcripts(job, MediaResolver(None, job_client))
     else:

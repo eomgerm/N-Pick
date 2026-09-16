@@ -62,16 +62,25 @@ class LocalNer:
 
         if not torch.cuda.is_available():
             raise EntityModelUnavailableError("entity NER requires worker CUDA")
-        tokenizer = AutoTokenizer.from_pretrained(
-            self.config.model,
-            revision=self.config.revision,
-            local_files_only=True,
-        )
-        model = AutoModelForTokenClassification.from_pretrained(
-            self.config.model,
-            revision=self.config.revision,
-            local_files_only=True,
-        )
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                self.config.model,
+                revision=self.config.revision,
+                local_files_only=True,
+            )
+            model = AutoModelForTokenClassification.from_pretrained(
+                self.config.model,
+                revision=self.config.revision,
+                local_files_only=True,
+            )
+        except OSError as exc:
+            # A snapshot that is not on this pod raises OSError from `local_files_only`,
+            # and the job layer reads a bare OSError as `MEDIA_UNAVAILABLE` — a code whose
+            # meaning is "the source video is missing". Translate at the loading boundary
+            # so the record says which thing was missing (contract §9.2).
+            raise EntityModelUnavailableError(
+                f"entity NER weights are not provisioned: {exc}"
+            ) from exc
         if model.config.num_labels != len(self.config.labels):
             raise EntityModelUnavailableError("BIO table does not match classifier")
         if any(self.config.labels[i] != label for i, label in LABEL_ANCHORS):
@@ -147,3 +156,15 @@ def shared_ner(config: Config) -> LocalNer:
         ner.load()
         _SHARED[config.version] = ner
     return ner
+
+
+def is_loaded(config: Config) -> bool:
+    """Has `shared_ner` loaded this configuration? **Asking never loads it.**
+
+    `jobs/registry._declared_version` asks once per claim long-poll, synchronously, and a
+    load here would stall the event loop while holding nothing useful. It is also the
+    question that decides whether this worker advertises the stage at all: a pod with CUDA
+    but no snapshot must not be assigned jobs it can only fail (`vlm_metadata`·`asr` guard
+    on `is_loaded` for the same reason). Recovery is a re-warm or a restart.
+    """
+    return config.version in _SHARED
