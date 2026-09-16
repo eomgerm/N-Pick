@@ -32,7 +32,9 @@ class WorkerConfigurationTest {
             assertThat(context).hasNotFailed().hasSingleBean(StageOutputPort.class);
             assertThat(context.getBean(StageOutputPort.class).supports("transcript_selection"))
                     .isTrue();
-            assertThat(context.getBean(StageOutputPort.class).supports("ocr")).isFalse();
+            // 워커도 BE 도 아직 없는 단계다. `ocr` 은 S15P21A501-184 에서 지원으로 넘어갔다.
+            assertThat(context.getBean(StageOutputPort.class).supports("scene_transcript_mapping"))
+                    .isFalse();
         });
     }
 

@@ -477,7 +477,7 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 **JSON 보존 산출물.** v2의 `artifacts`에는 `kind: "ocr_result"`, `storageKey: "runs/{runId}/ocr/a{attempt}/ocr-result.json"`, 실제 `byteSize`·`contentHash`(SHA256)를 가진 참조 한 개가 온다. 위 예제의 크기·해시는 자리 표시용이며 실제 파일 바이트에서 계산한다. 파일은 `{outputSchemaVersion, identity, output}` 구조다. `identity`는 §7의 OCR 재현 튜플이고 `output`은 complete의 출력과 동일하다. UTF-8·키 정렬·공백 없는 JSON으로 만들며 실행 시각은 넣지 않아 같은 결과가 같은 바이트가 된다. 러너가 성공 업로드 후 complete에 참조를 싣는다.
 
-**보존·소비 조건.** BE는 OCR 지원을 추가할 때 v2 출력 검증, 산출물 참조·크기·해시 확인, complete 출력과 JSON 내용 일치 확인, 원본 관측 저장, 성공 단계의 산출물 참조 보존을 함께 구현해야 한다. 후속 소비자는 이 문서 전체를 읽어 대표 문구와 근거를 조회한다. 배열을 단독 정렬·필터링하거나 관측 인덱스를 DB ID로 변환 없이 사용하지 않는다. **현재 BE는 OCR 단계 자체를 지원하지 않고 v1 검사만 있어 이 경로는 아직 연동되지 않는다**(§11 항목 12). 별도 그룹 테이블을 임의로 추가하지 않는다.
+**보존·소비 조건.** BE는 v2 출력 검증, 산출물 참조·크기·해시 확인, complete 출력과 JSON 내용 일치 확인, 원본 관측 저장, 성공 단계의 산출물 참조 보존을 함께 구현한다(`S15P21A501-184`). 후속 소비자는 이 문서 전체를 읽어 대표 문구와 근거를 조회한다. 배열을 단독 정렬·필터링하거나 관측 인덱스를 DB ID로 변환 없이 사용하지 않는다. 별도 그룹 테이블을 임의로 추가하지 않는다.
 
 기본 규칙은 NFKC·casefold·공백 제거 후 일치이며, 원문은 수정하지 않는다. 유사도 병합과 모호성 보류 규칙·실측은 `ai/docs/ocr.md` §4가 설명한다. `mergeConfigVersion`은 출력과 `versions.detail` 모두에 넣고 `stageVersion`에도 반영한다. 기본 `textGroups` metric은 이전의 전역 textKey 개수가 아니라 독립 관측을 포함한 scene별 그룹 수다.
 
@@ -1034,12 +1034,11 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 10. **artifacts 저장소 어댑터** — 미디어 루트 정규화·경로 이탈 차단·sha256 검증.
 11. **`pipeline.yml`에 `stage_versions:` 키 신설**, 기동 시 롤업 계산·로그.
 12. **stage output 저장 어댑터가 지원하는 단계를 늘린다.** BE는 `StageOutputPort.supports(stage)`가 거짓인 단계를 워커 `capabilities`에서 **제거한다**(`WorkerExecutionBinding`). 그래서 워커가 구현하고 버전을 선언해도 그 단계는 배정되지 않고, 강제로 결과를 보내도 `validateAndStore`의 `default` 분기에서 거절된다.
-    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`transcript_selection`·`asr`·`text_embedding`·`indexing` 여섯이다(뒤의 둘은 `S15P21A501-183`). **`ocr`(`S15P21A501-94`, dev 머지됨)과 `vlm_metadata`(`S15P21A501-92`)는 워커 쪽이 끝났고 BE 저장 경로만 없다.** 둘 다 §4.3.2·§4.3.3이 저장 자리를 이미 지정한다 — `ocr`은 `ocr_observation` 행, `vlm_metadata`는 `scene.caption`·`scene.caption_tokens`·`scene.shot_type` 갱신과 `tag`·`tagging`·`tag_evidence` 후보(`source='vlm'`, `verification_status='unverified'`, `source_ref_type='keyframe'`)다.
-    **출력 스키마가 v2인 단계가 둘이다** — `ocr`(`npick.stage.ocr.output/v2`, §4.3.2, S15P21A501-95)과 `vlm_metadata`(`npick.stage.vlm_metadata.output/v2`, S15P21A501-92). `PipelineStages.outputSchema`가 모든 단계에 `/v1`을 돌려주고 `StageExecutionService`가 배정과 `complete` 양쪽에서 그 값을 대조하므로, **단계별 출력 스키마 버전을 그 표에서 읽도록 고치지 않으면 저장 어댑터를 붙여도 두 단계의 성공 결과는 거절된다.** `JdbcWorkerStageOutputAdapter`의 `.output/v1` 문자열 조립도 같은 자리다. 이 한 번의 수정이 두 단계를 함께 푼다.
-    `ocr` 저장 어댑터는 관측 행을 저장하고 `kind: "ocr_result"` 산출물 참조를 보존한다. `textGroups`·`mergeConfigVersion`은 `ocr_observation`에 담을 칸이 없고 별도 그룹 테이블도 만들지 않으므로, 그 둘의 영구 보관처는 산출물 파일이다 — 그룹은 원본 관측 배열의 인덱스라 배열을 재정렬하거나 일부만 저장하면 참조가 끊긴다. 같은 이유로 BE가 `vlm_metadata`에 넘기는 `inputs.upstream.ocr`에는 `textGroups`가 없다(§4.3.3). 워커의 `UpstreamOcrOutput`이 그것을 요구하지 않는다.
-    이건 설계 미결이 아니라 **미구현**이다. 계약이 정한 payload를 받아 쓰는 쪽이 아직 없다는 뜻이므로, 두 단계의 end-to-end 확인은 이 항목이 끝나야 가능하다.
+    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`ocr`·`transcript_selection`·`asr`·`vlm_metadata`·`text_embedding`·`indexing` 여덟이다(`text_embedding`·`indexing`은 `S15P21A501-183`, `ocr`·`vlm_metadata`는 `S15P21A501-184`). **남은 것은 `scene_transcript_mapping`과 `entity_extraction` 둘이며 양쪽 다 없다.** `scene_transcript_mapping`은 워커 쪽이 `S15P21A501-98`로 올라와 있고 BE 저장 경로는 아직 티켓이 없다 — `scene.transcript_text`·`transcript_tokens`·`transcript_json`·`transcript_source`가 받을 자리인데, 그 단계 output에는 `segmentId`·`overlapMs`만 있고 **Kiwi 토큰을 싣는 자리가 없다.** `ocr_observation.tokens`·`scene.caption_tokens`와 같은 규약(BE는 토큰을 만들지 않는다)을 지키려면 계약이 먼저 그 자리를 정해야 한다.
+    **출력 스키마가 v2인 단계가 둘이다** — `ocr`(`npick.stage.ocr.output/v2`, §4.3.2, S15P21A501-95)과 `vlm_metadata`(`npick.stage.vlm_metadata.output/v2`, S15P21A501-92). `PipelineStages.outputSchema`가 그 예외 목록을 들고 있고 배정 payload·`complete` 검사·저장 어댑터가 모두 그 표 하나를 읽는다. 문자열을 따로 조립하는 자리를 다시 만들면 배정과 검사가 갈려 성공 결과가 저장 분기에 닿기도 전에 거절된다.
+    `ocr` 저장 어댑터는 관측 행을 저장하고 `kind: "ocr_result"` 산출물 참조를 보존한다. `textGroups`·`mergeConfigVersion`은 `ocr_observation`에 담을 칸이 없고 별도 그룹 테이블도 만들지 않으므로, 그 둘의 영구 보관처는 산출물 파일이다 — 그룹은 원본 관측 배열의 인덱스라 배열을 재정렬하거나 일부만 저장하면 참조가 끊긴다. 그래서 어댑터는 파일의 `output`이 `complete`의 `output`과 **같은지**까지 확인한다. 같은 이유로 BE가 `vlm_metadata`에 넘기는 `inputs.upstream.ocr`에는 `textGroups`가 없다(§4.3.3). 워커의 `UpstreamOcrOutput`이 그것을 요구하지 않는다.
 
-    **`ocr`이 막히면 run 은 3단계에서 멈춘다.** `nextStage()`는 첫 `pending` 단계를 고르고, `supports()`가 거짓인 단계는 claim `capabilities`에서 지워져 배정 후보가 되지 않는다. 그래서 `text_embedding`·`indexing`이 배선된 뒤에도 등록→게시 end-to-end 는 `ocr`(또는 `vlm_metadata`)의 저장 경로가 생겨야 처음 성립한다. 게시 조건이 `scene.caption_tokens`·`scene.transcript_tokens`·`ocr_observation.tokens` 중 **하나 이상이 비어 있지 않을 것**이라(`JdbcClipPublicationAdapter`), 넷 중 어느 것도 쓰이지 않는 동안에는 `indexing`이 성공해도 `clip.active_pipeline_run_id`가 전환되지 않는다.
+    **`vlm_metadata`는 배선됐지만 아직 배정되지 않는다.** `nextStage()`는 첫 `pending` 단계를 고르고 `supports()`가 거짓인 단계는 claim `capabilities`에서 지워지므로, 6단계 `scene_transcript_mapping`이 뚫리기 전까지 run은 7단계에 도달하지 못한다. 그래서 이 단계의 end-to-end 확인은 위의 남은 티켓이 끝나야 가능하고, 그때까지 검증은 저장 어댑터의 DB 테스트가 전부다. `ocr`은 3단계라 `asr`까지 이어서 확인된다. 게시 조건이 `scene.caption_tokens`·`scene.transcript_tokens`·`ocr_observation.tokens` 중 **하나 이상이 비어 있지 않을 것**이라(`JdbcClipPublicationAdapter`), 등록→게시 end-to-end는 `ocr`이 실제로 글자를 읽어 온 클립에서 처음 성립한다.
 
 ## 12. 워커 쪽 구현
 
@@ -1057,7 +1056,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 5단계 — `ocr`·`vlm_metadata`는 BE 저장만, `transcript_selection`은 워커 구현만, `scene_transcript_mapping`·`entity_extraction`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서 양쪽 다 배선됐다 |
+| 미구현 3단계 — `transcript_selection`은 워커 구현만, `scene_transcript_mapping`·`entity_extraction`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`, `ocr`·`vlm_metadata`는 `S15P21A501-184`에서 BE 저장이 배선됐다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 

@@ -69,6 +69,14 @@ class PipelineContractTest {
         assertThat(PipelineStages.FATAL).doesNotContain("vlm_metadata", "ocr", "asr");
     }
 
+    @Test
+    void ocrAdvertisesTheMergedObservationSchema() {
+        // 워커가 `output_schema_version` 에서 v2 를 돌려준다(S15P21A501-95). 이 표가 v1 을
+        // 말하면 배정 payload 와 complete 검사 양쪽이 어긋나 성공 결과가 거절된다.
+        assertThat(PipelineStages.outputSchema("ocr")).isEqualTo("npick.stage.ocr.output/v2");
+        assertThat(PipelineStages.outputSchema("asr")).isEqualTo("npick.stage.asr.output/v1");
+    }
+
     private static PipelineRun run(String status) {
         Map<String, Object> stages = new LinkedHashMap<>();
         PipelineStages.NAMES.forEach(s -> stages.put(s, Map.of("status", "pending", "attempts", 0)));
