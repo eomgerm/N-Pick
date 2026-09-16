@@ -192,7 +192,6 @@ test('검색 중에는 이전 실행의 해석·제외 정보를 노출하지 �
       details: { excludedCount: 4, resolverStatus: 'succeeded' },
       onReset() {},
       onRetry() {},
-      onEditQuery() {},
     }),
   );
   assert.match(html, /aria-busy="true"/);
