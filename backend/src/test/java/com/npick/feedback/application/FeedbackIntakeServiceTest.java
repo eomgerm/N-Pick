@@ -34,14 +34,22 @@ class FeedbackIntakeServiceTest {
     @Test
     @DisplayName("저장 안 된 검색 결과에는 접수를 거부한다")
     void rejectsUnsavedResult() {
-        when(repository.existsSearchResult(5L)).thenReturn(false);
+        when(repository.existsSearchResultSearchedBy(5L, 20L)).thenReturn(false);
+        assertThatThrownBy(() -> service.submit(5L, 20L, "c")).isInstanceOf(FeedbackException.class);
+    }
+
+    @Test
+    @DisplayName("타인이 실행한 검색 결과에는 접수를 거부한다 — 존재하지 않는 것과 동일 취급")
+    void rejectsResultSearchedByAnother() {
+        // 검색 결과는 존재하지만 그 검색을 신고자(20)가 실행하지 않은 경우. 비노출 위해 동일하게 거부.
+        when(repository.existsSearchResultSearchedBy(5L, 20L)).thenReturn(false);
         assertThatThrownBy(() -> service.submit(5L, 20L, "c")).isInstanceOf(FeedbackException.class);
     }
 
     @Test
     @DisplayName("이미 접수한 (결과,신고자)면 기존 문의를 돌려준다")
     void returnsExistingOnDuplicate() {
-        when(repository.existsSearchResult(5L)).thenReturn(true);
+        when(repository.existsSearchResultSearchedBy(5L, 20L)).thenReturn(true);
         when(repository.findByResultAndCreator(5L, 20L)).thenReturn(Optional.of(Feedback.open(5L, 20L, "old")));
         Feedback out = service.submit(5L, 20L, "new");
         assertThat(out.comment()).isEqualTo("old");
@@ -51,7 +59,7 @@ class FeedbackIntakeServiceTest {
     @DisplayName("동시에 중복 접수되어 유니크 제약을 위반하면 기존 문의를 멱등 반환한다")
     void returnsExistingOnConcurrentDuplicateRace() {
         Feedback existing = Feedback.open(5L, 20L, "old");
-        when(repository.existsSearchResult(5L)).thenReturn(true);
+        when(repository.existsSearchResultSearchedBy(5L, 20L)).thenReturn(true);
         when(repository.findByResultAndCreator(5L, 20L))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(existing));
@@ -66,7 +74,7 @@ class FeedbackIntakeServiceTest {
     @Test
     @DisplayName("신규면 open으로 저장한다")
     void savesNewPending() {
-        when(repository.existsSearchResult(5L)).thenReturn(true);
+        when(repository.existsSearchResultSearchedBy(5L, 20L)).thenReturn(true);
         when(repository.findByResultAndCreator(5L, 20L)).thenReturn(Optional.empty());
         when(repository.save(any(Feedback.class))).thenAnswer(i -> i.getArgument(0));
         Feedback out = service.submit(5L, 20L, "new");
