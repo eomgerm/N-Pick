@@ -1,7 +1,9 @@
 package com.npick.search.application.query.structured;
 
 import java.util.List;
+import java.util.Objects;
 
+import com.npick.search.domain.model.IneligibleReason;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.StructuredAxis;
 import com.npick.search.domain.model.StructuredScoreSettings;
@@ -13,10 +15,17 @@ public record StructuredScoresResult(
         QueryResolution finalResolution,
         StructuredScoreSettings settings,
         List<SceneScore> scenes,
-        List<Long> ineligibleSceneIds) {
+        List<Ineligible> ineligibleScenes) {
     public StructuredScoresResult {
         scenes = List.copyOf(scenes);
-        ineligibleSceneIds = List.copyOf(ineligibleSceneIds);
+        ineligibleScenes = List.copyOf(ineligibleScenes);
+    }
+
+    /** 사유를 함께 남겨 #60이 explain_json을 쓸 때 제외 근거를 다시 조회하지 않는다. 정렬 순서는 sceneId다. */
+    public record Ineligible(long sceneId, IneligibleReason reason) {
+        public Ineligible {
+            Objects.requireNonNull(reason, "reason");
+        }
     }
 
     /** 정렬 순서는 sceneId이며 검색 순위가 아니다. 두 후보 경로가 겹쳐도 장면 결과는 하나다. */

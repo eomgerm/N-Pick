@@ -9,6 +9,7 @@ import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.Test;
 
+import com.npick.search.domain.model.IneligibleReason;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.QueryResolution.Classification;
 import com.npick.search.domain.model.QueryResolution.ClassificationType;
@@ -229,10 +230,14 @@ class StructuredSceneScoringServiceTest {
                         .map(id -> new TagMatchedScene(id, 10, List.of()))
                         .toList());
         when(eligible.find(any()))
-                .thenReturn(ids.stream()
-                        .filter(id -> id != 3)
-                        .map(id -> new FindEligibleScenesQueryPort.EligibleScene(id, 10))
-                        .toList());
+                .thenReturn(new FindEligibleScenesQueryPort.Eligibility(
+                        ids.stream()
+                                .filter(id -> id != 3)
+                                .map(id -> new FindEligibleScenesQueryPort.EligibleScene(id, 10))
+                                .toList(),
+                        List.of(
+                                new StructuredScoresResult.Ineligible(3L, IneligibleReason.INACTIVE_RUN),
+                                new StructuredScoresResult.Ineligible(999L, IneligibleReason.SCENE_NOT_FOUND))));
         when(tags.resolve(any())).thenReturn(Map.of());
         var result = service(settings(Map.of())).score(new ScoreStructuredScenesQuery(r, List.of(2L, 3L, 999L)));
         assertThat(result.scenes()).hasSize(500);
@@ -247,7 +252,11 @@ class StructuredSceneScoringServiceTest {
             assertThat(scene.inputCandidate()).isTrue();
             assertThat(scene.tagCandidate()).isTrue();
         });
-        assertThat(result.ineligibleSceneIds()).containsExactly(3L, 999L);
+        // 적격 판정이 만든 사유를 서비스가 그대로 넘긴다. 차집합으로 되만들면 여기서 사유가 사라진다.
+        assertThat(result.ineligibleScenes())
+                .containsExactly(
+                        new StructuredScoresResult.Ineligible(3L, IneligibleReason.INACTIVE_RUN),
+                        new StructuredScoresResult.Ineligible(999L, IneligibleReason.SCENE_NOT_FOUND));
         var all = new java.util.TreeSet<>(ids);
         all.add(999L);
         verify(eligible).find(all);
@@ -277,7 +286,9 @@ class StructuredSceneScoringServiceTest {
     }
 
     private void arrange(List<EffectiveTag> observed) {
-        when(eligible.find(any())).thenReturn(List.of(new FindEligibleScenesQueryPort.EligibleScene(30, 10)));
+        when(eligible.find(any()))
+                .thenReturn(new FindEligibleScenesQueryPort.Eligibility(
+                        List.of(new FindEligibleScenesQueryPort.EligibleScene(30, 10)), List.of()));
         when(tags.resolve(any())).thenReturn(Map.of(30L, observed));
     }
 

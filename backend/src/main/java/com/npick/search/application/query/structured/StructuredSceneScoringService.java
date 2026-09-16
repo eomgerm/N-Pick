@@ -52,12 +52,12 @@ public class StructuredSceneScoringService implements ScoreStructuredScenesUseCa
         if (allIds.isEmpty()) {
             return new StructuredScoresResult(query.finalResolution(), settings, List.of(), List.of());
         }
-        var eligible = eligibleScenes.find(allIds);
-        var eligibleIds = eligible.stream()
+        var eligibility = eligibleScenes.find(allIds);
+        var eligibleIds = eligibility.eligible().stream()
                 .map(FindEligibleScenesQueryPort.EligibleScene::sceneId)
                 .toList();
         var effective = eligibleIds.isEmpty() ? Map.<Long, List<EffectiveTag>>of() : tags.resolve(eligibleIds);
-        var scores = eligible.stream()
+        var scores = eligibility.eligible().stream()
                 .map(scene -> calculator.score(
                         scene,
                         inputIds.contains(scene.sceneId()),
@@ -66,9 +66,7 @@ public class StructuredSceneScoringService implements ScoreStructuredScenesUseCa
                         effective.getOrDefault(scene.sceneId(), List.of()),
                         settings))
                 .toList();
-        var ineligibleIds = new TreeSet<>(allIds);
-        // 후보 조회에 넘긴 컬렉션은 변경하지 않는다. List.contains 기반 O(n²) 차집합도 피한다.
-        eligibleIds.forEach(ineligibleIds::remove);
-        return new StructuredScoresResult(query.finalResolution(), settings, scores, List.copyOf(ineligibleIds));
+        // 제외 사유는 적격 판정과 같은 조회에서 나온다. 여기서 차집합으로 되만들면 사유가 사라진다.
+        return new StructuredScoresResult(query.finalResolution(), settings, scores, eligibility.ineligible());
     }
 }

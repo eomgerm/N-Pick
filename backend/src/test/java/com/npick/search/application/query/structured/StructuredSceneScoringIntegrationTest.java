@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.npick.search.domain.model.IneligibleReason;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.StructuredAxis;
 import com.npick.search.domain.model.StructuredScoreSettings;
@@ -61,7 +62,10 @@ class StructuredSceneScoringIntegrationTest {
         assertThat(result.scenes())
                 .extracting(StructuredScoresResult.SceneScore::sceneId)
                 .containsExactly(30L, 31L, 35L);
-        assertThat(result.ineligibleSceneIds()).containsExactly(32L, 34L);
+        assertThat(result.ineligibleScenes())
+                .containsExactly(
+                        new StructuredScoresResult.Ineligible(32L, IneligibleReason.INACTIVE_RUN),
+                        new StructuredScoresResult.Ineligible(34L, IneligibleReason.CLIP_DELETED));
         var thirty = result.scenes().getFirst();
         assertThat(thirty.inputCandidate()).isFalse();
         assertThat(thirty.tagCandidate()).isTrue();
@@ -180,7 +184,19 @@ class StructuredSceneScoringIntegrationTest {
                 .doesNotContain(37L);
         jdbc.getJdbcTemplate().execute("UPDATE clip SET deleted_at=now() WHERE clip_id=13");
         var deleted = scoring.score(new ScoreStructuredScenesQuery(eventQuery(), List.of(36L, 37L)));
-        assertThat(deleted.ineligibleSceneIds()).containsExactly(36L, 37L);
+        // 37은 비활성 처리이기도 하지만 클립 삭제가 앞선다. 클립이 사라지면 처리 선택은 의미가 없다.
+        assertThat(deleted.ineligibleScenes())
+                .containsExactly(
+                        new StructuredScoresResult.Ineligible(36L, IneligibleReason.CLIP_DELETED),
+                        new StructuredScoresResult.Ineligible(37L, IneligibleReason.CLIP_DELETED));
+    }
+
+    @Test
+    void missingSceneIdIsRecordedAsNotFoundInsteadOfDisappearing() {
+        // 후보 목록이 낡아 이미 사라진 장면을 넘겨도 #60이 사유를 다시 조회하지 않아도 된다.
+        var result = scoring.score(new ScoreStructuredScenesQuery(eventQuery(), List.of(9999L)));
+        assertThat(result.ineligibleScenes())
+                .contains(new StructuredScoresResult.Ineligible(9999L, IneligibleReason.SCENE_NOT_FOUND));
     }
 
     private static QueryResolution eventQuery() {
