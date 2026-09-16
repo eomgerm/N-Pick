@@ -365,8 +365,11 @@ def main(argv: Sequence[str] | None = None, *, client: VlmClient | None = None) 
             f"reserved {memory['peakReservedBytes'] / 1024**3:.2f} GiB"
         )
     total = sum(elapsed for _, elapsed in rows)
+    # 정규화 자리 수를 함께 찍는다. 0 이 아니면 이 후보가 '없음' 을 계약과 다른 표기로
+    # 썼다는 뜻이고(`normalize.py`), 출력이 유효해도 사람이 원문을 봐야 한다.
+    normalized = sum(len(described.normalizations) for described, _ in rows)
     print(
-        f"성공 {len(rows)}장면 | 거부 {len(rejected)}장면 | "
+        f"성공 {len(rows)}장면 | 거부 {len(rejected)}장면 | 정규화 {normalized}자리 | "
         f"총 {total:.1f}초 | 장면당 평균 {total / len(rows):.1f}초"
         if rows
         else f"성공 0장면 | 거부 {len(rejected)}장면"

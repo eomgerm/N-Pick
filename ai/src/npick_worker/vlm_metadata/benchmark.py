@@ -59,6 +59,12 @@ def summarize(result: dict[str, Any], expected: int) -> dict[str, Any]:
         "attemptedScenes": len(attempted),
         "schemaValidScenes": len(successes),
         "failedScenes": len(failures),
+        # '없음' 을 계약과 다른 표기로 쓴 장면과 그 자리 수(`normalize.py`, S15P21A501-93).
+        # **smoke 판정에 넣지 않는다** — 정규화된 출력은 유효한 출력이다. 그런데도 요약에
+        # 올리는 이유는 이 값이 후보를 가르는 근거이기 때문이다. 0 이 아닌 후보는 프롬프트를
+        # 그대로 따르지 않았다는 뜻이고, 그건 사람이 원문을 봐야 하는 차이다.
+        "normalizedScenes": sum(1 for row in successes if row.get("normalizations")),
+        "normalizedValues": sum(len(row.get("normalizations", ())) for row in successes),
         "smokePassed": (
             expected >= 10
             and len(successes) == expected

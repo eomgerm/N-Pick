@@ -23,6 +23,29 @@ def test_summary_does_not_pass_an_incomplete_run() -> None:
     assert benchmark.summarize(result, 10)["smokePassed"] is False
 
 
+def test_summary_counts_normalized_values_without_failing_the_run() -> None:
+    """정규화는 유효한 출력이다. 세되 합격 판정을 뒤집지 않는다 (S15P21A501-93)."""
+    clean = {"inputs": [1, 2], "elapsedSeconds": 1.0}
+    normalized = {**clean, "normalizations": ["caption", "tag_candidates"]}
+    result = {"scenes": [*[clean] * 9, normalized], "rejected": []}
+
+    summary = benchmark.summarize(result, 10)
+
+    assert summary["normalizedScenes"] == 1
+    assert summary["normalizedValues"] == 2
+    assert summary["smokePassed"] is True
+
+
+def test_summary_reads_a_record_from_before_normalization() -> None:
+    """`normalizations` 가 없는 옛 기록을 0 으로 읽는다. 요약이 터지면 비교표가 사라진다."""
+    result = {"scenes": [{"inputs": [1, 2], "elapsedSeconds": 1.0}], "rejected": []}
+
+    summary = benchmark.summarize(result, 10)
+
+    assert summary["normalizedScenes"] == 0
+    assert summary["normalizedValues"] == 0
+
+
 def test_summary_includes_failed_scene_latency() -> None:
     result = {
         "scenes": [{"inputs": [1, 2], "elapsedSeconds": 1}],

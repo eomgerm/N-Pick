@@ -280,6 +280,34 @@ caption·scene_type은 null, shot_type은 unknown, tag_candidates는 빈 배열"
 규칙이다. 설정에 두면 값 하나를 더할 때마다 `config_version`과 `stage_version`이 움직이는데
 프롬프트도 요청도 그대로다 — §7이 세운 재현 기록이 거짓말을 하게 된다.
 
+#### 실제 출력으로 확인하는 자리
+
+정규화는 **모델이 `"없음"`이라고 쓴다**는 전제 위에 서 있다. 그 전제는 실제 출력을 보기 전까지
+추측이고, 가짜 클라이언트를 쓰는 `tests/test_vlm_metadata.py`로는 확인되지 않는다 — 거기서
+검증되는 것은 "우리가 상상한 깨진 출력을 거부하는가"다.
+
+그래서 `tests/test_vlm_real_outputs.py`가 실측 실행 기록(`report.main`의 `vlm-metadata.json`)의
+`rawOutput`을 지금 코드로 다시 흘려 본다. 통과했던 원문이 **같은 값**으로 통과하는가, 기록된
+정규화 자리가 지금 코드의 것과 같은가, 거부됐던 원문이 지금도 거부되는가를 본다. 마지막이
+이 작업의 유일한 실패 방식이다 — 정규화를 한 칸씩 넓히면 어느 지점에서 깨진 출력이 통과하기
+시작하고, 그 지점은 지어낸 예제보다 실제 출력에서 먼저 드러난다.
+
+```bash
+NPICK_AI_VLM_RUN_DIR=<run_dir> uv run pytest tests/test_vlm_real_outputs.py
+```
+
+**기록은 Git 밖에 둔다**(§9.6, `.gitignore`의 `samples/*`). 기본 탐색 자리는 `samples/out/`이고,
+지금 계약의 기록이 없으면 건너뛴다 — `addopts`의 `-ra`가 그 사유를 매 실행 끝에 찍는다.
+
+**재생 대상은 지금 계약의 기록뿐이다.** `schemaVersion`·`configVersion`이 다른 기록은 빼고 그
+사유만 남긴다. 계약이 바뀌면 같은 원문의 판정이 달라지는 것이 정상이라서다. §9.6의 후보 비교
+기록 세 건이 지금 그 상태다 — 셋 다 `vlm-metadata/v1`이고 현재는 v2다. 참고로 그 30장면을
+현재 코드로 흘려 보면 28장면이 통과하고, 2장면은 태그 후보가 9개라 현재 상한
+(`max_tag_candidates_per_scene = 8`)에 걸려 거부된다. 코드 회귀가 아니라 설정이 바뀐 것이다.
+**정규화가 걸리는 자리는 하나도 없다.** 다만 그 30장면에는 '없음'을 답해야 하는 장면이 없었다 —
+그러니 이 값은 "모델이 계약대로 쓴다"의 근거가 아니라 **아직 재본 적 없다**는 뜻이다. v2 실측이
+들어오면 `summary.json`의 `normalizedScenes`·`normalizedValues`가 그 답이다.
+
 ### 장면 하나가 깨지면 전체가 실패다
 
 깨진 장면만 빼고 나머지를 반납하는 선택지가 있었다. 쓰지 않았다 — 빠진 장면은 "설명이 없는
@@ -626,7 +654,9 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
   `configVersion=vlm-metadata-config/v1:fcd15e10`,
   `promptVersion=vlm-metadata-prompt/v1:587f345d`, `schemaVersion=vlm-metadata/v1`이다.
   tokenizer는 `query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0`이다.
-  현재 저장소 config·prompt 버전과도 일치한다.
+  검토 시점(2026-09-14)에는 저장소 config·prompt 버전과도 일치했다. **지금은 아니다** —
+  schema는 `vlm-metadata/v2`, config는 `vlm-metadata-config/v2`다. 그래서
+  `tests/test_vlm_real_outputs.py`는 이 세 기록을 회귀 기준으로 쓰지 않는다(§6).
 - 전달받은 30개 `rawOutput`을 현재 `parse_raw`와 `validate`로 다시 검사했다.
   schema·닫힌 어휘·근거 라벨 검증 모두 통과했고, scene별 시간으로 summary 평균·중앙값·p95를 재계산해 일치를 확인했다.
   이는 **근거 라벨의 유효성**을 확인한 것이며 이미지가 주장을 뒷받침하는지는 별도로 판단한다.
