@@ -1,6 +1,7 @@
 """Pure conversion of successful upstream stage results; no downloads or job wiring."""
 
 from collections.abc import Sequence
+from typing import Protocol
 
 from npick_worker.entity_extraction.extractor import SceneInput, TextInput
 from npick_worker.entity_extraction.schema import (
@@ -10,10 +11,28 @@ from npick_worker.entity_extraction.schema import (
     OcrEvidence,
     TranscriptEvidence,
 )
-from npick_worker.ocr.models import OcrResult
+from npick_worker.ocr.merge import OcrTextGroup
+from npick_worker.ocr.models import OcrObservation
 from npick_worker.scene_transcript_mapping import MappingResult
 from npick_worker.vlm_metadata.grounding import OcrRef, TranscriptRef
 from npick_worker.vlm_metadata.models import KeyframeRef, VlmResult
+
+
+class OcrSource(Protocol):
+    """The two OCR v2 values this stage reads: the flat array and its merge groups.
+
+    A protocol rather than `OcrResult` because the job layer never receives that object.
+    BE rebuilds the upstream payload from `ocr_observation` rows, which have no group
+    column, so the caller regroups the array it was given. Both callers must hand over the
+    **same array the group indices were computed against** — `observationIndex` is a
+    position in it and nothing else resolves it.
+    """
+
+    @property
+    def observations(self) -> tuple[OcrObservation, ...]: ...
+
+    @property
+    def text_groups(self) -> tuple[OcrTextGroup, ...]: ...
 
 
 def vlm_evidence(ref: KeyframeRef | OcrRef | TranscriptRef) -> Evidence:
@@ -46,7 +65,7 @@ def vlm_evidence(ref: KeyframeRef | OcrRef | TranscriptRef) -> Evidence:
 def build_inputs(
     scene_indices: Sequence[int],
     *,
-    ocr: OcrResult | None = None,
+    ocr: OcrSource | None = None,
     transcripts: MappingResult | None = None,
     transcript_storage_key: str = "",
     vlm: VlmResult | None = None,

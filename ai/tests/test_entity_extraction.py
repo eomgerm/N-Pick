@@ -6,6 +6,7 @@
 import json
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,8 @@ from npick_worker.entity_extraction.extractor import (
     match_key,
 )
 from npick_worker.entity_extraction.schema import Candidate, OcrEvidence, Output, TranscriptEvidence
+from npick_worker.jobs import entity_extraction as job_adapter
+from npick_worker.jobs.registry import StageContext
 
 
 def text(value: str = "서울역에서 만났다", index: int = 0) -> TextInput:
@@ -276,3 +279,252 @@ def test_adapter_does_not_coerce_bad_offsets(offset: object) -> None:
     ner._pipeline = lambda _: [{"entity_group": "PS_NAME", "start": offset, "end": 1, "score": 0.8}]
     with pytest.raises(EntitySchemaInvalidError):
         ner.predict("김")
+
+
+# ── 잡 레이어 배선 (계약 §4.3.6) ──────────────────────────────────────
+
+
+def _observation(scene: int, raw: str, ms: int = 100, confidence: float = 0.9) -> dict[str, object]:
+    return {
+        "sceneIndex": scene,
+        "timestampMs": ms,
+        "storageKey": f"runs/1/frames/s{scene}-{ms}.jpg",
+        "rawText": raw,
+        "tokens": raw,
+        "confidence": confidence,
+        "unverified": False,
+        "textKey": f"k-{raw}",
+        "boundingBox": {
+            "points": [[0, 0], [10, 0], [10, 10], [0, 10]],
+            "x": 0,
+            "y": 0,
+            "width": 10,
+            "height": 10,
+        },
+    }
+
+
+def _upstream(**extra: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "sceneDetection": {
+            "scenes": [{"sceneIndex": 0, "startTimeMs": 0, "endTimeMs": 1000}],
+            "mediaDurationMs": 1000,
+            "frameRate": 30.0,
+        }
+    }
+    payload.update(extra)
+    return payload
+
+
+def _context(tmp_path: Path, upstream: dict[str, object]) -> StageContext:
+    return StageContext(
+        stage="entity_extraction",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/entity_extraction/a1/",
+        upstream=upstream,
+    )
+
+
+class _FakeNer:
+    """Stand in for the GPU adapter. The wiring around it is what these tests check."""
+
+    def __init__(
+        self,
+        spans: Callable[[str], tuple[EntitySpan, ...]] | None = None,
+    ) -> None:
+        self.spans = spans if spans is not None else (lambda _text: ())
+        self.texts: list[str] = []
+
+    def predict(self, text: str) -> tuple[EntitySpan, ...]:
+        self.texts.append(text)
+        return self.spans(text)
+
+
+@pytest.fixture
+def fake_ner(monkeypatch: pytest.MonkeyPatch) -> Callable[[_FakeNer], _FakeNer]:
+    def install(ner: _FakeNer) -> _FakeNer:
+        monkeypatch.setattr(job_adapter, "shared_ner", lambda _config: ner)
+        return ner
+
+    return install
+
+
+def test_stage_reads_merged_ocr_and_keeps_the_upstream_observation_index(
+    tmp_path: Path, fake_ner: Callable[[_FakeNer], _FakeNer]
+) -> None:
+    """The evidence index must address the array BE sent, not a regrouped copy of it."""
+    ner = fake_ner(
+        _FakeNer(lambda t: (EntitySpan(label="LCP_CITY", start=0, end=len(t), confidence=0.9877),))
+    )
+    upstream = _upstream(
+        ocr={
+            "observations": [
+                _observation(0, "속보", ms=100),
+                # The same text on a later frame is one merge group, and its representative
+                # is the higher-confidence row at index 2.
+                _observation(0, "서울역", ms=200, confidence=0.8),
+                _observation(0, "서울역", ms=300, confidence=0.95),
+            ],
+            "keyframesRead": 3,
+            "minConfidence": 0.5,
+        }
+    )
+    outcome = job_adapter.run(_context(tmp_path, upstream))
+
+    assert ner.texts == ["속보", "서울역"]
+    candidates = outcome.output["scenes"][0]["tagCandidates"]
+    assert [c["value"] for c in candidates] == ["속보", "서울역"]
+    assert {c["source"] for c in candidates} == {"rule"}
+    assert candidates[1]["evidence"] == [
+        {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 300,
+            "storageKey": "runs/1/frames/s0-300.jpg",
+            "observationIndex": 2,
+        }
+    ]
+    assert outcome.metrics["ocrTexts"] == 2
+    assert outcome.metrics["candidates"] == 2
+
+
+def test_stage_version_carries_the_merge_axis(
+    tmp_path: Path, fake_ner: Callable[[_FakeNer], _FakeNer]
+) -> None:
+    """Regrouping differently changes the text this stage reads, so it must move the version."""
+    from npick_worker.jobs.versions import stage_version
+    from npick_worker.ocr.merge import get_merge_config
+
+    fake_ner(_FakeNer())
+    outcome = job_adapter.run(_context(tmp_path, _upstream()))
+    assert outcome.versions.stage_version == stage_version(
+        "entity_extraction", job_adapter.identity()
+    )
+    assert outcome.versions.prompt_version is None
+    assert set(job_adapter.identity()) == {
+        "algorithmVersion",
+        "configVersion",
+        "modelVersion",
+        "engineVersion",
+        "mergeVersion",
+    }
+    other = get_merge_config().model_copy(update={"similarity_threshold": 0.5})
+    assert job_adapter.identity(other) != job_adapter.identity()
+
+
+def test_stage_passes_vlm_candidates_through_with_resolved_evidence(
+    tmp_path: Path, fake_ner: Callable[[_FakeNer], _FakeNer]
+) -> None:
+    """§4.3.3 leaves keyframe evidence without a discriminator; the §4.3.6 output has one."""
+    fake_ner(_FakeNer())
+    upstream = _upstream(
+        vlmMetadata={
+            "scenes": [
+                {
+                    "sceneIndex": 0,
+                    "tagCandidates": [
+                        {
+                            "type": "weather",
+                            "value": "맑음",
+                            "confidence": 0.7,
+                            "evidence": [
+                                {
+                                    "sceneIndex": 0,
+                                    "timestampMs": 40,
+                                    "storageKey": "runs/1/frames/s0-40.jpg",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    outcome = job_adapter.run(_context(tmp_path, upstream))
+
+    candidate = outcome.output["scenes"][0]["tagCandidates"][0]
+    assert candidate["source"] == "vlm"
+    assert candidate["evidence"][0]["sourceRefType"] == "keyframe"
+    assert outcome.metrics["vlmCandidates"] == 1
+
+
+def test_malformed_model_output_is_reported_as_a_permanent_entity_error(
+    tmp_path: Path, fake_ner: Callable[[_FakeNer], _FakeNer]
+) -> None:
+    """Contract §9.2: the whole output is discarded and a retry reads the same weights."""
+    from npick_worker.jobs.errors import EntityOutputInvalidError, classify
+
+    # A span past the end of the source text. This value cannot be grounded.
+    fake_ner(
+        _FakeNer(lambda t: (EntitySpan(label="LCP_CITY", start=0, end=len(t) + 1, confidence=0.9),))
+    )
+    upstream = _upstream(
+        ocr={
+            "observations": [_observation(0, "서울역")],
+            "keyframesRead": 1,
+            "minConfidence": 0.5,
+        }
+    )
+    with pytest.raises(EntityOutputInvalidError) as caught:
+        job_adapter.run(_context(tmp_path, upstream))
+    assert classify(caught.value, "entity_extraction") == ("ENTITY_SCHEMA_INVALID", False)
+
+
+def test_missing_weights_stay_transient(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unprovisioned pod is not this clip's fault; another attempt can succeed."""
+    from npick_worker.entity_extraction.local_ner import EntityModelUnavailableError
+    from npick_worker.jobs.errors import ModelUnavailableError, classify
+
+    def unavailable(_config: object) -> _FakeNer:
+        raise EntityModelUnavailableError("entity NER requires worker CUDA")
+
+    monkeypatch.setattr(job_adapter, "shared_ner", unavailable)
+    with pytest.raises(ModelUnavailableError) as caught:
+        job_adapter.run(_context(tmp_path, _upstream()))
+    assert classify(caught.value, "entity_extraction") == ("MODEL_UNAVAILABLE", True)
+
+
+def test_upstream_without_a_scene_list_is_refused(
+    tmp_path: Path, fake_ner: Callable[[_FakeNer], _FakeNer]
+) -> None:
+    """Every candidate is scene-scoped, so a missing scene list is not an empty success."""
+    from npick_worker.jobs.errors import UpstreamOutputInvalidError
+
+    fake_ner(_FakeNer())
+    with pytest.raises(UpstreamOutputInvalidError):
+        job_adapter.run(_context(tmp_path, {}))
+
+
+def test_vlm_scene_outside_the_scene_list_is_refused(
+    tmp_path: Path, fake_ner: Callable[[_FakeNer], _FakeNer]
+) -> None:
+    from npick_worker.jobs.errors import UpstreamOutputInvalidError
+
+    fake_ner(_FakeNer())
+    upstream = _upstream(
+        vlmMetadata={
+            "scenes": [
+                {
+                    "sceneIndex": 7,
+                    "tagCandidates": [
+                        {
+                            "type": "season",
+                            "value": "겨울",
+                            "confidence": 0.7,
+                            "evidence": [
+                                {
+                                    "sceneIndex": 7,
+                                    "timestampMs": 40,
+                                    "storageKey": "runs/1/frames/s7-40.jpg",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    with pytest.raises(UpstreamOutputInvalidError):
+        job_adapter.run(_context(tmp_path, upstream))

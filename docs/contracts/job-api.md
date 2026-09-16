@@ -715,14 +715,20 @@ artifact 본문 (`npick.scene.embeddings/v1`):
 ### 4.3.6 `entity_extraction` — 장면 태그 후보
 
 `outputSchemaVersion`은 `npick.stage.entity_extraction.output/v1`이다. 99번은 순수 단계
-모듈과 자체 GPU 어댑터를 제공한다. 잡 registry/runner 배선과 BE의 tag·tagging·tag_evidence
-저장은 별도 작업이며, 이 계약 추가만으로 capability를 광고하지 않는다.
+모듈, 자체 GPU 어댑터, 그리고 잡 registry/runner 배선까지 제공한다. **가중치와 CUDA가 있는
+워커만 이 단계를 capabilities에 싣는다** — 외부 추론 경로가 없으므로 CPU 워커에는 이 단계를
+돌릴 방법이 아예 없고, 배정받아 매번 `MODEL_UNAVAILABLE`로 죽는 것보다 배정받지 않는 편이
+낫다(`ocr`·`vlm_metadata`와 같은 가드). BE의 tag·tagging·tag_evidence 저장은 아직 없다.
 
 입력은 같은 clip/run의 OCR v2 병합 결과, 최종 채택·장면 연결된 대사와 segments snapshot 키,
 검증된 VLM `tagCandidates`다. 실패한 상류는 입력 없음으로 구분한다. 형식이 틀린 상류를
 빈 성공으로 바꾸지 않는다. 일반 대본·보관 전용·미채택 대사는 넣지 않는다.
 OCR은 병합 그룹의 대표 관측 **원문**에서 추출하고 그 관측의 전역 `observationIndex`를
 보존한다. 원본 그룹과 다른 구성원은 상류 OCR 산출물에서 추적한다.
+**병합은 이 단계가 다시 계산한다.** BE는 `inputs.upstream.ocr`을 `ocr_observation` 행에서
+조립하는데 그 표에 그룹 컬럼이 없어 `textGroups`가 돌아오지 않는다(§4.3.2). 이 단계는 받은
+배열을 같은 기본 병합 설정으로 다시 묶으므로 `mergeVersion`이 재현 축에 들어간다. 근거의
+`observationIndex`는 **BE가 보낸 그 배열의 위치**이지 다시 묶은 사본의 위치가 아니다.
 
 ```json
 {
@@ -776,11 +782,20 @@ OCR은 병합 그룹의 대표 관측 **원문**에서 추출하고 그 관측�
 - 외부 추론 경로는 제공하지 않는다. 모델은 사전 배치된 고정 revision을 `local_files_only`
   로 로드한다. 원문은 워커 GPU 안에서 처리하며 외부 API로 보내지 않는다.
 
+상류는 `sceneDetection`만 필수다. 나머지 셋(`ocr`·`scene_transcript_mapping`·
+`vlmMetadata`)은 전부 비치명 상류라 없을 수 있고, 없으면 그 입력 없이 돈다 — 여기서
+필수로 걸면 비치명 실패 하나가 둘이 된다. 장면 목록만은 필수다. 모든 후보가 장면 범위라
+그것 없이는 후보가 어느 장면 것인지 말할 수 없다. `metrics`의 `ocrTexts`·`transcriptTexts`·
+`vlmCandidates`가 어느 상류가 실제로 텍스트를 줬는지 남긴다 — 텍스트 0건에서 후보 0건인
+것과 300건에서 0건인 것은 다른 사실이다.
+
 비치명 단계(`fatal=False`)이므로 실패 후 run은 계속될 수 있으며 오류는
-`stage_states_json`에 기록해야 한다. §9.2 `ENTITY_SCHEMA_INVALID`는 영구 실패다.
-상류 오류는 `VALIDATION_ERROR`, 모델 준비 실패는 `MODEL_UNAVAILABLE`, 메모리 부족은
-`OUT_OF_MEMORY`, 기타 실행 실패는 `STAGE_FAILED`를 사용한다. 해당 오류를 잡 API에
-연결하는 배선은 이 순수 모듈의 구현 완료와 별도로 검증해야 한다.
+`stage_states_json`에 기록해야 한다. §9.2 `ENTITY_SCHEMA_INVALID`는 영구 실패이고
+`EntityOutputInvalidError`가 그 코드를 단다. 상류 오류는 `VALIDATION_ERROR`, 모델 준비
+실패는 `MODEL_UNAVAILABLE`(일시), 메모리 부족은 `OUT_OF_MEMORY`, 기타 실행 실패는
+`STAGE_FAILED`다. `ENTITY_SCHEMA_INVALID`는 단계별 기본 코드 표에 넣지 않는다 — 그 표의
+값은 정체 모를 예외에 붙는 기본값인데 이 코드는 영구라서, 그렇게 두면 원인과 분류가 동시에
+거짓이 된다(`vlm_metadata`와 같은 판단).
 
 ### 4.4 artifacts — 입력 내려받기 / 산출물 올리기
 
@@ -925,7 +940,9 @@ compose에서는 backend와 ai-worker가 `media:/srv/npick/media`를 함께 마�
 ## 7. 버전 규약과 `pipeline_version` 롤업
 
 `entity_extraction`의 재현 축은 `{algorithmVersion, configVersion, modelVersion,
-engineVersion}`이다. 접두 `npick.stage.entity_extraction/v1`과 공용 canonical JSON SHA256
+engineVersion, mergeVersion}`이다. 다섯째 축은 이 단계가 직접 다시 계산하는 OCR 병합
+설정이다(§4.3.6) — 다르게 묶으면 같은 관측에서 다른 텍스트를 읽는데 나머지 네 축은 하나도
+움직이지 않는다. 접두 `npick.stage.entity_extraction/v1`과 공용 canonical JSON SHA256
 앞 8자리로 `stageVersion`을 만든다. `configVersion`은 TOML 설정과 고정 BIO 라벨 표를
 함께 해시한다. confidence 임계값·유형 매핑·stride·aggregation·모델 revision이 바뀌면
 버전도 바뀐다. `modelVersion`은 모델 ID와 실제 로드한 고정 revision이고 로드 전에는
@@ -1157,7 +1174,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 5단계 — `ocr`·`vlm_metadata`는 BE 저장만, `transcript_selection`은 워커 구현만, `scene_transcript_mapping`·`entity_extraction`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서 양쪽 다 배선됐다 |
+| 미구현 5단계 — `ocr`·`vlm_metadata`·`entity_extraction`은 BE 저장만, `transcript_selection`은 워커 구현만, `scene_transcript_mapping`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서 양쪽 다 배선됐다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 

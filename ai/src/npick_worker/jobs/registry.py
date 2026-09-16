@@ -1009,6 +1009,33 @@ def _warm_scene_transcript_mapping() -> str:
     return f"algorithm={ALGORITHM_VERSION} tokenizer={korean_tokens.tokenizer_version()}"
 
 
+# ── entity_extraction (8단계) ────────────────────────────────────────
+
+
+def _run_entity_extraction(ctx: StageContext) -> StageOutcome:
+    from npick_worker.jobs.entity_extraction import run
+
+    return run(ctx)
+
+
+def _warm_entity_extraction() -> str:
+    """가중치를 미리 올린다. `vlm_metadata`·`asr` 과 같은 이유다.
+
+    첫 잡에서 가중치 수백 MB 를 GPU 로 올리면 그 시간이 통째로 그 클립의 처리 시간이
+    된다. 여기서
+    실패하면 `warm_up` 이 삼키고(그 함수의 규칙) 아래 `_declared_version` 이 이 단계를
+    capabilities 에서 뺀다 — 배정받아 매번 `MODEL_UNAVAILABLE` 로 죽지 않는다.
+    """
+    from npick_worker.entity_extraction.config import load_config
+    from npick_worker.entity_extraction.local_ner import shared_ner
+
+    config = load_config()
+    # `shared_ner` 라야 첫 잡이 여기서 올린 그 인스턴스를 그대로 받는다(`_warm_ocr` 과
+    # 같은 이유). 새로 만들면 워밍업이 앞당기는 것은 파일 캐시뿐이고 GPU 로딩은 잡마다 낸다.
+    shared_ner(config)
+    return f"config={config.version} model={config.model}@{config.revision[:8]}"
+
+
 # ── text_embedding (9단계) ───────────────────────────────────────────
 
 
@@ -1225,8 +1252,16 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
                 _warm_scene_transcript_mapping,
                 needs_video=False,
             ),
-            # 아래 둘도 영상을 열지 않는다. 캡션·대사·관측은 `upstream` 에 인라인으로
+            # 아래 셋도 영상을 열지 않는다. 캡션·대사·관측은 `upstream` 에 인라인으로
             # 오고, 대사 원문은 러너가 모든 단계에 주는 `artifact_documents` 에 있다.
+            # `entity_extraction` 은 keyframe JPEG 도 받지 않는다 — 화면 글자는 상류가
+            # 이미 읽어 둔 것을 쓰므로 이미지를 다시 열 이유가 없다.
+            StageHandler(
+                "entity_extraction",
+                _run_entity_extraction,
+                _warm_entity_extraction,
+                needs_video=False,
+            ),
             StageHandler(
                 "text_embedding",
                 _run_text_embedding,
@@ -1421,6 +1456,21 @@ def _declared_version(stage: str) -> str:
                 model_version=asr_engine.model_version,
             ),
         )
+    if stage == "entity_extraction":
+        # **가중치가 올라오기 전에는 선언하지 않는다**(`vlm_metadata`·`asr` 과 같은 가드).
+        # 다만 여기서 로딩을 트리거하지 않는다 — `identity` 의 네 축이 전부 정적이라
+        # 로딩 전후의 값이 같고(그 함수의 docstring), 이 함수는 claim long-poll 한 바퀴
+        # 마다 **동기로** 불린다. 대신 이 워커가 실제로 돌릴 수 있는지만 싸게 본다:
+        # `gpu` 그룹이 설치돼 있고 CUDA 가 보여야 한다. 외부 추론 경로는 없으므로
+        # (계약 §4.3.6) CPU 워커에는 이 단계를 돌릴 방법이 아예 없다.
+        import torch
+        import transformers  # noqa: F401
+
+        from npick_worker.jobs.entity_extraction import identity as entity_identity
+
+        if not torch.cuda.is_available():
+            raise ModelUnavailableError("entity NER 은 워커 CUDA 가 있어야 한다")
+        return stage_version(stage, entity_identity())
     if stage == "text_embedding":
         # **움직이는 ref 로는 선언하지 않는다.** `main` 같은 값이면 `model_version` 이
         # 로딩 전 `…@main`, 로딩 후 `…@<sha>` 라 claim 에 실은 `stageVersion` 과 결과가

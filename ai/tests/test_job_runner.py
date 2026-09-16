@@ -19,6 +19,7 @@ from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.media import MediaResolver
 from npick_worker.jobs.models import ArtifactRef, JobAssignment, LeaseGrant, WorkerDevice
 from npick_worker.jobs.registry import (
+    HANDLERS,
     PendingUpload,
     StageContext,
     StageHandler,
@@ -184,14 +185,22 @@ async def test_claim_declares_the_stage_it_can_run(
     body = json.loads(fake_backend.calls("claim")[0].content)
     declared = {c["stage"]: c["stageVersion"] for c in body["capabilities"]}
     # `scene_transcript_mapping`·`indexing` 은 모델도 설정도 쓰지 않아 어느 워커에서나
-    # 선언된다. 나머지 셋(`vlm_metadata`·`asr`·`text_embedding`)은 모델·런타임이 없으면 빠진다.
-    assert set(declared) == {
-        "scene_detection",
-        "frame_extraction",
-        "ocr",
-        "scene_transcript_mapping",
-        "indexing",
-    }
+    # 선언된다. 나머지 넷(`vlm_metadata`·`asr`·`entity_extraction`·`text_embedding`)은
+    # 가중치나 CUDA 가 없으면 빠지므로 **여기서 동등 비교하지 않는다** — 그렇게 걸면 이
+    # 테스트가 검사하는 것이 러너의 선언 규칙이 아니라 이 개발 기계에 무엇이 깔려
+    # 있는가가 된다. 규칙은 둘이다: 모델 없는 단계는 언제나 선언되고, 선언은 구현의
+    # 부분집합이다(구현이 없는 단계를 광고하면 BE 가 배정해 놓고 생략만 받는다).
+    assert (
+        {
+            "scene_detection",
+            "frame_extraction",
+            "ocr",
+            "scene_transcript_mapping",
+            "indexing",
+        }
+        <= set(declared)
+        <= set(HANDLERS)
+    )
     for stage, version in declared.items():
         assert version.startswith(f"npick.stage.{stage}/v1:")
 
