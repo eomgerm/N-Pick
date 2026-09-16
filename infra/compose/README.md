@@ -109,11 +109,27 @@ profile 하나에서 관리"* 하라고 한다. 그 자리를 미리 만들어 �
 | `profiles/pipeline.yml` | 단계별 retry·timeout·동시성, CPU/GPU 배치<br>단계 목록 자체는 `ai/src/npick_worker/stages.py` 가 정본 |
 | `profiles/runtime.yml` | 타임존·로그·telemetry·bind·API 규칙 |
 
-**세 파일 모두 `version: 0`, `frozen: false` 이고 수치는 `null` 이다.** 아직 동결되지 않았기 때문이며,
+`media.yml` 과 `runtime.yml` 은 아직 `version: 0`, `frozen: false` 이고 수치가 `null` 이다. 동결 전이라
 임의 숫자를 채워 넣지 않았다. 실측 근거가 생기면 값을 넣고 `version` 을 올린다.
 
-BE 컨테이너에는 `/app/config/profiles` 로 read-only 마운트되고 `NPICK_PROFILES_DIR` 로 경로가
-전달된다. **아직 이 파일을 읽는 코드는 없다.** 자리와 경로만 잡아둔 상태다.
+**`pipeline.yml` 은 다르다. 이미 읽히고 있고, `stage_versions` 가 파이프라인이 어디까지 도는지를
+정한다.** 아래 「파이프라인 기동」을 먼저 읽는다.
+
+### pipeline.yml 은 마운트가 아니라 빌드로 들어간다
+
+`/app/config/profiles` 로 read-only 마운트되지만 **BE 가 읽는 것은 그 파일이 아니다.**
+`backend/build.gradle` 이 `infra/compose/profiles/pipeline.yml` 을 빌드 시점에 classpath 의
+`pipeline-profile.yml` 로 복사하고, `application.yml` 의 기본값이 그 classpath 를 가리킨다.
+
+```bash
+docker compose up -d --build backend   # pipeline.yml 을 고친 뒤에는 반드시 --build
+```
+
+**`docker compose restart backend` 로는 반영되지 않는다.** 마운트된 파일만 바뀌고 jar 안의
+사본은 그대로라, 에러 없이 옛 값으로 계속 돈다. 마운트를 쓰려면 `backend/.env` 에
+`NPICK_PIPELINE_PROFILE=file:/app/config/profiles/pipeline.yml` 을 준다.
+
+`media.yml`·`runtime.yml` 은 여전히 읽는 코드가 없다. 자리와 경로만 잡아둔 상태다.
 
 ## 알아둘 것
 
@@ -384,8 +400,156 @@ docker run --rm -v npick-mlflow-artifacts:/src -v "$PWD":/out alpine \
 모델 캐시는 `model-cache` 볼륨에 남는다(`HF_HOME`, `TORCH_HOME`). 컨테이너를 다시 만들어도
 재다운로드하지 않는다.
 
-현재 워커는 `/health` 만 제공한다. 파이프라인 단계 구현과 작업 수신 방식은 S15P21A501-70 에서
-정한다. 어느 단계를 CPU 워커가 맡을지는 `profiles/pipeline.yml` 의 `placement` 에 기록한다.
+**워커는 잡을 받는 인바운드 엔드포인트를 두지 않는다.** 잡은 워커가 BE 를 long-poll 해서 받아
+간다([docs/contracts/job-api.md](../../docs/contracts/job-api.md)). 워커가 여는 것은 `/health` 와
+`POST /query/resolve` 둘이고, 후자는 BE 가 검색어 해석에 부르는 별개 경로다
+(`compose.yaml` 의 `QUERY_RESOLVER_BASE_URL`).
+
+어느 단계를 맡을지는 설정이 아니라 워커가 claim 요청의 `capabilities` 로 선언한다 — 모델이나
+라이브러리가 없는 단계는 그 목록에서 자동으로 빠진다. 기동 절차는 아래 「파이프라인 기동」을 본다.
+
+## 파이프라인 기동
+
+등록한 클립을 실제로 처리하려면 **세 가지를 같이 켜야 한다.** 하나라도 빠지면 클립이
+`queued` 에서 움직이지 않는다.
+
+### 1. 워커 토큰 발급
+
+BE 와 워커가 같은 값을 써야 한다. 저장소에 커밋하지 않는다.
+
+```bash
+openssl rand -hex 32
+```
+
+**`ENABLED=true` 인데 32바이트 미만이면 BE 가 기동하지 않는다.** 401 이 아니라 부팅 실패다.
+`ENABLED=false` 면 토큰을 아예 읽지 않으므로 짧은 값이 있어도 조용히 뜬다
+(`WorkerJobSecurityConfiguration:39-45`).
+
+**`ENABLED=true` 에 토큰이 비면 예외 없이 뜨고 모든 요청이 401 이 된다.** 창구는 열렸는데 통과할
+토큰이 하나도 없는 상태라 로그만 보면 인증 실패로 보인다. 두 값은 항상 같이 넣는다.
+
+### 2. 양쪽 .env 에 넣는다
+
+`backend/.env`
+
+```
+NPICK_WORKER_JOBS_ENABLED=true
+NPICK_WORKER_JOBS_TOKENS=<발급한 토큰>
+NPICK_WORKER_JOBS_FLEET=local
+NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME=true
+```
+
+`SHARED_MEDIA_VOLUME` 은 이 스택처럼 워커가 같은 볼륨을 볼 때만 `true` 다. 다른 머신의 워커
+(RunPod)는 `false` 여야 한다. 아래 「공유 미디어 볼륨」을 함께 본다.
+
+`ai/.env`
+
+```
+NPICK_AI_JOB_POLL_ENABLED=true
+NPICK_AI_JOB_API_BASE_URL=http://backend:8080
+NPICK_AI_JOB_API_TOKEN=<같은 토큰>
+NPICK_AI_JOB_FLEET=local
+```
+
+### 3. pipeline.yml 의 stage_versions 를 채운다
+
+**여기 없는 단계는 `unknown` 이 되어 영원히 배정되지 않는다.** 워커가 능력을 선언해도 BE 가
+기대 버전과 대조해 거르기 때문이다.
+
+다만 이것이 유일한 관문은 아니다. **관문이 셋이고 전부 통과해야 단계가 돈다.**
+
+| 관문 | 어디서 | 못 넘으면 |
+|---|---|---|
+| 워커가 능력을 선언 | `registry.capability_versions()` | 모델·라이브러리 없으면 목록에서 빠진다 |
+| BE 에 저장 어댑터가 있다 | `WorkerExecutionBinding:68` 이 `StageOutputPort.supports()` 거짓인 단계를 지운다 | `stage_versions` 에 넣어도 배정 안 된다 |
+| 기대 버전이 일치한다 | 아래 `stage_versions` | `unknown` 이면 배정 안 된다 |
+
+두 번째 관문 때문에 `ocr` 은 지금 `stage_versions` 에 넣어도 소용이 없다 —
+`JdbcWorkerStageOutputAdapter:38` 의 집합에 `ocr` 이 없다.
+
+값은 손으로 짓지 않는다. 워커에서 실측해 그대로 옮긴다.
+
+```bash
+docker compose exec ai-worker python -c \
+  "from npick_worker.jobs import registry; print(registry.capability_versions())"
+```
+
+`infra/compose/profiles/pipeline.yml` 에 적고 **재빌드**한다(위 「pipeline.yml 은 마운트가 아니라
+빌드로 들어간다」 참고).
+
+```bash
+docker compose up -d --build backend
+```
+
+형식이 어긋나면 BE 가 `단계 기대 버전 형식` 예외로 기동하지 못한다.
+
+**순서가 중요하다.** 기대 버전은 클립을 등록하는 시점에 `pipeline_run` 에 박힌다. 먼저 등록된
+클립은 옛 값을 들고 있어 배정되지 않으므로, `stage_versions` 를 바꾼 뒤에는 클립을 다시 등록한다.
+
+### 확인
+
+```bash
+docker compose logs -f ai-worker | grep claim
+```
+
+`POST .../jobs/claim "HTTP/1.1 200"` 이 25초 주기로 보이면 인증과 폴링이 정상이다.
+
+| 응답 | 원인 |
+|---|---|
+| 401 | 두 `.env` 의 토큰이 다르다. `X-Worker-Id` 가 비었거나 64자를 넘는다(`WorkerJobSecurityConfiguration:71`). 또는 `NPICK_WORKER_JOBS_ENABLED` 가 꺼져 있다 — 보안 필터는 그래도 등록되고 허용 토큰 목록만 비어 전부 거부한다 |
+| 403 `JOB_403_002` | claim 의 `worker.fleet` 와 토큰이 가리키는 fleet 가 어긋난다. 워커는 루프만 멈추고 프로세스는 살아 있다 |
+
+클립을 1건 등록하고 처리 현황을 본다.
+
+```bash
+curl -b <쿠키> http://127.0.0.1:8080/api/v1/clips/<clip_id>
+```
+
+`processing_details.stages` 에서 `stage_versions` 에 넣은 단계가 `succeeded` 가 되면 기동이 끝났다.
+
+### 지금 도는 범위
+
+2026-09-16 기준 `scene_detection` 과 `frame_extraction` 두 단계다. `PipelineStages.NAMES` 의
+10단계를 모두 적으면 이렇다.
+
+| 단계 | 상태 | 이유 |
+|---|---|---|
+| `scene_detection`·`frame_extraction` | 돈다 | 세 관문을 모두 넘는다 |
+| `ocr` | 미배정 | 워커는 선언하지만 BE 저장 어댑터가 없다. S15P21A501-184 |
+| `transcript_selection`·`scene_transcript_mapping`·`entity_extraction` | 미배정 | 워커가 선언하지 않는다 |
+| `asr`·`text_embedding` | 능력 목록에서 자동 제외 | GPU 그룹(`faster-whisper`·`sentence-transformers`) 미설치 |
+| `vlm_metadata` | 능력 목록에서 자동 제외 | `NPICK_AI_VLM_MODEL` 미설정 |
+| `indexing` | 미배정 | 저장 어댑터는 **있다.** `stage_versions` 에 없고, 앞선 `ocr` 이 `pending` 이라 `nextStage()` 가 거기서 멈춰 도달하지 못한다 |
+
+`nextStage()` 는 `NAMES` 순서로 첫 `pending` 을 고른다(`PipelineRun:73`). 한 단계가 막히면 뒤쪽은
+어댑터가 있어도 순서상 닿지 않는다.
+
+### 공유 미디어 볼륨 — 두 이미지의 uid 를 맞춰야 한다
+
+`compose.yaml` 이 `media` 볼륨을 backend·ai-worker 에 같은 `/srv/npick/media` 로 붙이므로
+`NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME=true` 를 켜면 워커가 원본을 HTTP 로 내려받지 않고 바로
+읽는다.
+
+**전제는 두 Dockerfile 의 uid 가 같은 것이다.** BE 가 만드는 원본이 `0600` 이라 uid 가 어긋나면
+그룹·기타 권한이 없어 워커가 열지 못한다.
+
+```
+PermissionError: [Errno 13] Permission denied: '/srv/npick/media/clips/<clip_id>/original'
+```
+
+`backend/Dockerfile` 과 `ai/Dockerfile` 이 둘 다 **uid·gid 10001** 을 쓴다. 한쪽만 바꾸면 이
+오류가 돌아오므로 같이 바꾼다(S15P21A501-189).
+
+`compose.yaml` 의 `user:` 로 덮지 않는다. 이미지 안 `/var/cache/npick/models` 의 소유자가 그대로라
+빈 `model-cache` 볼륨이 이미지 uid 로 초기화되고, 덮어쓴 uid 로는 모델 캐시를 쓰지 못한다.
+
+이미 만들어진 볼륨에는 옛 소유권이 남는다. uid 를 바꾼 뒤 한 번 비운다.
+
+```bash
+docker compose stop ai-worker && docker compose rm -f ai-worker
+docker volume rm npick-model-cache
+docker compose up -d --build ai-worker
+```
 
 ## 자주 쓰는 명령
 

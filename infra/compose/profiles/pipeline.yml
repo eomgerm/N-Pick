@@ -1,9 +1,10 @@
-# 단계별 실행 수치. 실측 전이라 미동결이다.
+# 단계별 실행 수치. retry·timeout·concurrency 는 실측 전이라 아직 null 이다.
+# stage_versions 는 실측해 채웠다(아래).
 # 단계 목록·순서·fatal 은 ai/src/npick_worker/stages.py 가 정본이다(FRD §5.1 전사).
 # 여기서 다시 정의하지 않는다 — 정본이 두 곳이 되면 어긋난다.
 # 오케스트레이터(Airflow 등) 도입 시 아래 수치는 그쪽으로 옮긴다.
 
-version: 0
+version: 1
 frozen: false
 
 # 이 수치는 BE 디스패처가 소유한다. 워커는 단계 재시도도 단계 타임아웃도 구현하지
@@ -15,7 +16,27 @@ defaults:
 
 # 단계별 기대 버전. BE 가 이 맵을 접어 pipeline_run.pipeline_version 을 만든다.
 # 형식과 롤업 규칙은 docs/contracts/job-api.md, 해시 규약은 docs/contracts/README.md.
-stage_versions: {}
+#
+# **여기 없는 단계는 "unknown" 이 되어 배정되지 않는다.** 워커가 capabilities 로 선언해도
+# BE 가 기대 버전과 대조해 거르기 때문이다(StageExecutionService 의 matches).
+#
+# 이것만으로는 부족하다. 앞에 관문이 하나 더 있다 — WorkerExecutionBinding 이
+# StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다. 그래서 ocr 은
+# 여기에 넣어도 배정되지 않는다(JdbcWorkerStageOutputAdapter 의 집합에 없다).
+# indexing 은 반대다. 어댑터는 있지만 앞선 ocr 이 pending 이라 nextStage 가 거기서 멈춘다.
+#
+# 아래 두 값은 CPU 워커에서 실측했다(S15P21A501-189).
+#   docker compose exec ai-worker python -c \
+#     "from npick_worker.jobs import registry; print(registry.capability_versions())"
+# 워커의 선언값과 한 글자라도 다르면 그 단계는 영원히 배정되지 않는다. 손으로 짓지 않는다.
+#
+# **재실측이 필요한 시점**: 이 해시는 config 버전뿐 아니라 엔진 버전까지 접는다
+# (registry.py 의 _scene_detection_identity·_frame_extraction_identity 가 engine_version 을
+# importlib.metadata 로 읽는다). ai/uv.lock 이 scenedetect 나 av 를 올리면 워커 선언값이
+# 바뀌고, 두 단계가 **아무 오류 없이** 배정만 멈춘다. 락 갱신 뒤에는 위 명령을 다시 돌린다.
+stage_versions:
+  scene_detection: "npick.stage.scene_detection/v1:3ab4bebe"
+  frame_extraction: "npick.stage.frame_extraction/v1:5fa70a50"
 
 # 단계별로 defaults 를 덮어쓸 때만 적는다. 키는 stages.py 의 name 을 쓴다.
 # 예: scene_detection: { retry_count: 3, timeout_seconds: 600 }
