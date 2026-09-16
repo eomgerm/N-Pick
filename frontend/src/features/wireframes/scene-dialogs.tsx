@@ -239,13 +239,6 @@ export function ScenePreviewDialog({
                     : '이상해요'}
             </button>
           ) : null}
-          {onInquiry && isInquiryUnavailable ? (
-            <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
-              {!canCreateInquiry(searchExecution)
-                ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
-                : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
-            </p>
-          ) : null}
           <button
             aria-label="Preview 닫기"
             className={styles.iconButton}
@@ -256,6 +249,13 @@ export function ScenePreviewDialog({
             <X aria-hidden="true" />
           </button>
         </div>
+        {onInquiry && isInquiryUnavailable ? (
+          <p className={styles.previewNotice} id={inquiryUnavailableReasonId} role="status">
+            {!canCreateInquiry(searchExecution)
+              ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+              : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
+          </p>
+        ) : null}
       </div>
 
       <div className={styles.previewModalBody}>
@@ -422,11 +422,9 @@ export function InquiryDialog({
   const hasError = error !== undefined && error !== null;
   const statusMessage = !history
     ? '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'
-    : history.status === 'open'
-      ? '접수되어 검수자 확인을 기다리고 있습니다.'
-      : history.status === 'reviewing'
-        ? '검수자가 처리 중인 문의입니다.'
-        : '종료된 문의입니다. 문의 내용과 처리 결과를 확인하세요.';
+    : history.status === 'closed'
+      ? '종료된 문의입니다. 문의 내용과 처리 결과를 확인하세요.'
+      : null;
 
   return (
     <SceneDialog
@@ -438,8 +436,15 @@ export function InquiryDialog({
     >
       <div className={styles.modalHeader}>
         <div>
-          <span>{history ? '문의 기록' : '결과 문의'}</span>
-          <h2 id="inquiry-title">{history ? '문의 상세' : '이 장면에 이상이 있나요?'}</h2>
+          {!history ? <span>결과 문의</span> : null}
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <h2 id="inquiry-title">{history ? '문의 상세' : '이 장면에 이상이 있나요?'}</h2>
+            {history ? (
+              <span className={styles.inquiryStatus} data-status={history.status}>
+                {inquiryStatusLabels[history.status]}
+              </span>
+            ) : null}
+          </div>
         </div>
         <button
           aria-label="문의 창 닫기"
@@ -451,11 +456,6 @@ export function InquiryDialog({
           <X aria-hidden="true" />
         </button>
       </div>
-      {history ? (
-        <span className={styles.inquiryStatus} data-status={history.status}>
-          {inquiryStatusLabels[history.status]}
-        </span>
-      ) : null}
       <div className={styles.modalResult}>
         <span>#{result.id}</span>
         <div>
@@ -478,7 +478,11 @@ export function InquiryDialog({
       >
         <label htmlFor="inquiry-comment">{history ? '문의 내용' : '설명 (선택)'}</label>
         <textarea
-          aria-describedby={`inquiry-status-message${hasError ? ` ${errorId}` : ''}`}
+          aria-describedby={
+            [statusMessage ? 'inquiry-status-message' : null, hasError ? errorId : null]
+              .filter(Boolean)
+              .join(' ') || undefined
+          }
           disabled={isSubmitting}
           id="inquiry-comment"
           onChange={(event) => {
@@ -496,7 +500,7 @@ export function InquiryDialog({
           rows={4}
           value={comment}
         />
-        <p id="inquiry-status-message">{statusMessage}</p>
+        {statusMessage ? <p id="inquiry-status-message">{statusMessage}</p> : null}
         {hasError ? (
           <div className={styles.inquiryError}>
             <ApiErrorNotice error={error} id={errorId} />
@@ -513,11 +517,11 @@ export function InquiryDialog({
             <p>{history.resolutionSummary}</p>
           </section>
         ) : null}
-        <div className={styles.modalActions}>
-          <button disabled={isSubmitting} onClick={onClose} type="button">
-            {history ? '닫기' : '취소'}
-          </button>
-          {!history ? (
+        {!history ? (
+          <div className={styles.modalActions}>
+            <button disabled={isSubmitting} onClick={onClose} type="button">
+              취소
+            </button>
             <button className={styles.submitInquiry} disabled={isSubmitting} type="submit">
               {isSubmitting ? (
                 <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
@@ -526,8 +530,8 @@ export function InquiryDialog({
               )}
               {isSubmitting ? '접수 중' : hasError ? '다시 시도' : '문의 접수'}
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </form>
     </SceneDialog>
   );

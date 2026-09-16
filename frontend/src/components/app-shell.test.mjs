@@ -9,6 +9,18 @@ import ts from 'typescript';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier.endsWith('.module.css')) {
+      return {
+        url: 'data:text/javascript,export default new Proxy({}, {get: (_, key) => key});',
+        shortCircuit: true,
+      };
+    }
+    if (specifier === '@/components/mountain-backdrop') {
+      return {
+        url: 'data:text/javascript,export function MountainBackdrop() { return null; }',
+        shortCircuit: true,
+      };
+    }
     if (specifier === 'next/navigation') {
       return {
         url: 'data:text/javascript,export function usePathname() { return globalThis.testPathname; }',
@@ -98,6 +110,6 @@ test('공통 헤더와 페이지 본문은 한 번씩 렌더링하며 긴 계정
 
 test('상호작용 잠금 중에는 공통 헤더 링크와 로그아웃도 비활성 상태를 노출한다', () => {
   const html = renderShell('REVIEWER', '/review', '검수자', true);
-  assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 3);
+  assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 2);
   assert.match(html, /<button[^>]*disabled=""[^>]*>로그아웃<\/button>/);
 });

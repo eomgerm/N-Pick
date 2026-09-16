@@ -27,12 +27,15 @@ src/
 │  ├─ error.tsx            서버 조회 실패 안내·재시도
 │  └─ globals.css          전역 토큰과 전역 스타일
 ├─ components/             여러 기능에서 공유하는 UI
-│  ├─ app-backdrop.tsx      검색·검색 결과·검수의 공통 정지 산 배경
+│  ├─ app-backdrop.tsx      검색 결과·검수의 공통 정지 산 배경
+│  ├─ mountain-backdrop.tsx 로그인·검색의 하늘·설산·전경 파라랙스
+│  ├─ mountain-backdrop.module.css 레이어 마스크·깊이·모션 감소
 │  ├─ app-shell.tsx        제품 공통 헤더·역할별 메뉴와 페이지 본문 조합
+│  ├─ app-shell.module.css 검색 공통 고정 헤더·검색바 뒤 프로스티드 페이드
 │  ├─ api-error-notice.tsx  한국어 오류·코드·요청 ID 공통 표시
 │  ├─ query-provider.tsx   TanStack Query와 인증 만료·탭 간 세션 변경 처리
 │  ├─ session-boundary.tsx 서버 사용자 snapshot과 클라이언트 세션 재확인
-│  └─ session-controls.tsx 현재 계정과 로그아웃
+│  └─ session-controls.tsx 현재 계정·검색 화면의 메뉴 드롭다운·로그아웃
 ├─ features/               기능 단위 UI와 로직
 │  ├─ search/
 │  │  ├─ inquiry-api.ts          문의 snapshot·응답 검증·접수 API
@@ -42,13 +45,13 @@ src/
 │     ├─ landing-cube.tsx         이전 유리 큐브 시안 (현재 랜딩에서 사용하지 않음)
 │     ├─ landing.module.css       영상 히어로·타이포그래피 인트로·역할 카드
 │     ├─ login-shell.tsx          로그인 form·mutation·오류와 안전한 복귀
-│     ├─ login-mountain-backdrop.tsx 로그인 전용 하늘·설산·전경 파라랙스
-│     ├─ login-mountain-backdrop.module.css 레이어 마스크·깊이·모션 감소
 │     ├─ search-entry-shell.tsx   편집자 검색 입력과 결과 진입
+│     ├─ search-layout.tsx        검색 입력·결과의 공통 사이드바와 계정 메뉴 조합
 │     ├─ search-navigation.ts     검색어·명시 날짜 필터의 결과 URL 생성
 │     ├─ search-api-contract.ts   검색 요청 변환·응답 타입과 런타임 계약 검증
 │     ├─ date-range.ts            날짜 범위 검증과 URL 복원
 │     ├─ date-range-picker.tsx    방송일·촬영일 기간 선택 dialog
+│     ├─ date-range-calendar.tsx  시작일·종료일 달력과 월·연도 탐색
 │     ├─ search-history.tsx       검색·문의 예시 기록 사이드바
 │     ├─ search-history.module.css 기록 목록·상태 칩·펼침 레이아웃
 │     ├─ demo-scenes.ts          결과·기록이 공유하는 10개 예시 장면과 표시 모델
@@ -100,9 +103,9 @@ src/
 
 랜딩은 `landing-shell.tsx`에서 검은 배경의 `NEED? PICK!` 인트로 뒤에 앱 아이콘·두 줄 `N / PICK` 워드마크와 반복 재생 영상을 보여 줍니다. 헤드라인에만 Black Han Sans를 적용하며, 배경 영상과 포스터는 `public/media/landing-hero*`, 앱 아이콘은 `public/images/landing-app-icon.png`, 역할 카드 이미지는 `public/images/role-*.jpg`에서 제공합니다. 스크롤 진행도에 따라 같은 로고가 좌하단에서 역할 선택 영역의 자리로 이동하며 크기를 맞추고, 주변 문구와 역할 카드는 교차 페이드합니다. 역스크롤 시 로고는 원위치로 돌아오며 화면 크기가 바뀌면 도착 위치를 다시 계산합니다. 카드는 기존 `/login?role=editor|reviewer`로 연결됩니다. `prefers-reduced-motion`에서는 인트로·영상 재생·CSS 애니메이션을 멈추고 로고 위치도 이동 애니메이션 없이 전환합니다. 영상 자동 재생이 허용되지 않으면 포스터를 유지합니다.
 
-편집자 검색 입력 화면의 왼쪽 사이드바에는 `이전 검색 기록`과 `문의 기록`을 표시합니다. `기록 열기` 버튼으로 펼치고 버튼·배경·Escape로 접습니다. 기존 검색 결과의 뉴스 썸네일을 재사용하고 구간·내용·경과일을 표시합니다. 검색 기록 항목은 검색 결과와 동일한 `ScenePreviewDialog`를 열고, 문의 기록 항목은 `InquiryDialog`에서 당시 검색어·구간·문의 내용을 읽기 전용으로 보여 줍니다. 문의 생명주기는 `open/reviewing/closed`, 종료 결과는 `exclude_scene/no_action/deferred/tag_correction/patch_parse`를 사용합니다. native dialog로 배경 조작을 막고 키보드 포커스를 가두며 Escape·닫기로 복귀합니다. 새로 접수한 문의는 `SearchHistory` 메모리에서 유지하며 새로고침·페이지 이동 시 초기화됩니다. 실제 검색·문의 이력 API는 연결하지 않은 디자인 시안입니다.
+편집자 검색 입력 화면의 왼쪽 사이드바에는 `이전 검색 기록`과 `문의 사항`을 표시합니다. 각 아이콘 버튼으로 펼치고 같은 버튼·닫기·배경·Escape로 접습니다. 사이드바 너비와 모서리, 라벨, 기록 패널은 양방향으로 전환하며 모션 감소 설정에서는 즉시 전환합니다. 닫힌 패널은 `inert`로 포커스와 클릭을 차단합니다. 기록 패널과 사이드바는 같은 높이·계정 버튼과 같은 밝은 frosted glass 표면을 사용하며 목록만 내부 스크롤합니다. 검색바도 미세 노이즈와 backdrop blur를 사용합니다. 검색 헤더는 좌측 로고 없이 좌상단에 기본 프로필 이미지를 표시하는 72×72 원형 버튼을 둡니다. 버튼의 오른쪽에는 전체 계정명·역할명·역할별 메뉴·빨간 로그아웃 버튼이 펼쳐지고 바깥 클릭·포커스 이탈·Escape로 닫힙니다. 기존 검색 결과의 뉴스 썸네일을 재사용하고 구간·내용·경과일을 표시합니다. 검색 기록 항목은 검색 결과와 동일한 `ScenePreviewDialog`를 열고, 문의 기록 항목은 `InquiryDialog`에서 당시 검색어·구간·문의 내용을 읽기 전용으로 보여 줍니다. 문의 생명주기는 `open/reviewing/closed`, 종료 결과는 `exclude_scene/no_action/deferred/tag_correction/patch_parse`를 사용합니다. native dialog로 배경 조작을 막고 키보드 포커스를 가두며 Escape·닫기로 복귀합니다. 새로 접수한 문의는 `SearchHistory` 메모리에서 유지하며 새로고침·페이지 이동 시 초기화됩니다. 실제 검색·문의 이력 API는 연결하지 않은 디자인 시안입니다.
 
-제품 화면 `/search`, `/search/results`, `/review`는 `AppShell`이 공통 헤더와 화면 이동 메뉴를 제공합니다. `SessionBoundary`의 현재 계정으로 역할을 읽고 `SessionControls`가 계정·역할·로그아웃을 표시합니다. 편집기자에게는 장면 검색, 검수자에게는 장면 검색과 검수 메뉴를 제공하며 pathname은 현재 메뉴 표시에만 사용합니다. 검색 입력은 밝은 헤더, 검색 결과·검수는 기존 브랜드 배경을 사용합니다. 공개 랜딩·로그인과 각 page의 서버 접근 검사는 별도로 유지합니다.
+제품 화면 `/search`, `/search/results`, `/review`는 `AppShell`이 상단에 고정된 공통 계정 헤더와 화면 이동 메뉴를 제공합니다. `headerContent`로 검색 결과의 검색바를 계정 버튼과 같은 행에 배치합니다. 공통 헤더의 상단 여백은 32px이며 본문 spacer와 사이드바도 같은 기준으로 배치합니다. `SessionBoundary`의 현재 계정으로 역할을 읽고 `SessionControls`가 계정·역할·로그아웃을 표시합니다. 편집기자에게는 장면 검색, 검수자에게는 장면 검색과 검수 메뉴를 제공합니다. 공개 랜딩·로그인과 각 page의 서버 접근 검사는 별도로 유지합니다.
 
 검수자는 `/review`에서 Spring의 `GET /review/inquiries`를 통해 최근 접수 순 10개 단위 문의 목록과 전체 상태 건수를 봅니다. 상태는 전체·접수(`open`)·검수 중(`reviewing`)·종료(`closed`)로 서버 필터링하며 `status/page/inquiry`를 URL에 보존합니다. 상세는 `GET /review/inquiries/{feedbackId}`로 문의 당시 검색 실행·필터·근거·처리 이력을 읽고, 접수 상태에서는 `POST /review/inquiries/{feedbackId}/claim`으로 선점합니다. 선점 버튼은 요청 중 중복 입력을 막고 동일 재시도에 같은 멱등성 키를 사용하며 성공 후 목록과 상세를 다시 읽습니다. 선점 충돌·권한·연결 실패는 성공 상태로 바꾸지 않고 최신 상태 확인·목록 복귀·안전한 재시도 중 다음 행동을 안내합니다. 종료 여부와 `resolution`은 분리해 표시합니다. `no_action`과 `deferred`는 수정 완료 색상으로 표현하지 않습니다. 현재 백엔드 목록 계약에 검색·임의 정렬 조건이 없어 해당 조작은 제공하지 않습니다. 페이지는 `useSearchParams`를 위한 Suspense 경계를 제공하고 현재 계정은 `/auth/me`의 `loginId`를 사용합니다.
 
@@ -126,9 +129,11 @@ src/
 
 문의 상세의 선택된 장면은 `ReviewerScenePreview`에서 해당 문의의 제목·시작/종료 시각·확인 근거를 공통 `ScenePreviewDialog`에 전달합니다. 문의 생성 버튼은 검수자 팝업에서 제공하지 않으며, 닫기·Escape 후 장면 카드로 포커스를 돌려주고 검수 진행 상태를 유지합니다. 문의별 키로 팝업 상태를 분리해 다른 문의나 목록으로 이동하면 팝업을 닫습니다. 데모 문의의 `ReviewerScenePreview`에는 clip ID가 없으므로 재생 불가를 안내합니다. 실제 API 문의 상세는 `ReviewInquiryPreview`가 담당합니다. 원본 길이·파일명·날짜가 없는 문의에는 값을 만들어 넣지 않습니다.
 
-다른 디자인 시스템의 전용 스타일과 화면 분기는 제거하고 신한(`shinhan`) 구현만 유지합니다. 신한 검색 입력과 결과 화면은 방송일·촬영일별 Date Range Picker를 제공하며, 달력의 시작일·종료일 선택과 직접 입력, 취소·초기화, 키보드 방향 이동을 지원합니다. 진입 화면의 입력 중 값은 form 가까이에 두고, 제출하면 `search-navigation.ts`가 검색어와 두 날짜를 `q/broadcastFrom/broadcastTo/filmingFrom/filmingTo`로 분리해 결과 URL을 만듭니다. 결과 화면도 같은 생성기를 사용하며 URL을 검색 요청 상태의 정본으로 읽습니다. 선택한 기간은 양 끝 날짜를 포함합니다. navigation 중에는 검색 입력·날짜·제출을 잠그고, 결과 화면은 이전 카드를 `검색 중` 상태로 바꿔 새 결과와 혼동되지 않게 합니다. `search-api-contract.ts`가 URL 상태를 [웹 API 계약](../../docs/contracts/web-api.md)의 요청 본문으로 변환하며, 백엔드가 필터링·정렬한 응답 순서를 클라이언트가 다시 필터링하거나 정렬하지 않습니다. `state=empty`와 `state=failed`는 디자인 확인용 상태 URL이며, 실패 화면의 재시도는 검색어·기간을 보존하고 실패 시연 상태를 해제합니다. 현재 표준 검색 결과 경로는 실제 검색 API를 호출합니다. 결과 그리드는 `SearchResultCard`가 제목·썸네일 우하단 장면 구간·키워드와 키워드 행 우측의 텍스트 검증 칩을 맡고, 칩의 hover·focus 툴팁에는 사용자용 근거 필드와 값만 표시합니다. 출처와 OCR·VLM 같은 기술명은 카드에서 숨깁니다. 결과 카드에는 백엔드 내부 점수를 퍼센트 일치도로 변환해 노출하지 않으며 검색 채널 선택과 클라이언트 재정렬 UI를 제공하지 않습니다. `WireframeShell`은 날짜 요청 상태와 선택한 Preview 상태를 소유하고, Preview는 전체 근거와 상태 모델을 유지합니다. 표시명·방송일·촬영일·샷 유형·장면 유형은 검색 API 응답 모델에 보존하되 결과 카드에는 노출하지 않습니다. `demo-scenes.ts`의 장면은 기록 디자인 시안과 단위 테스트에 사용합니다. 자동 생성 근거에는 `verified/unverified`만 사용하고, 정보 부재는 `unknown`, 사람의 판단은 `rejected/withdrawn`으로 분리합니다.
+다른 디자인 시스템의 전용 스타일과 화면 분기는 제거하고 신한(`shinhan`) 구현만 유지합니다. 신한 검색 입력과 결과 화면은 방송일·촬영일별 Date Range Picker를 제공하며, 좌측 시작일·우측 종료일을 독립적으로 선택하고 취소·초기화·키보드 방향 이동을 지원합니다. 각 달력 제목은 일 보기 → 월 선택 → 연도 선택(예: 2020 - 2030)으로 전환하고, 연도 → 월 → 날짜 순서로 돌아옵니다. 모바일에서도 좌우 배치를 유지합니다. 적용 전까지는 임시 값만 바뀌며 누락·역순 기간을 검증합니다. 팝업은 미세 노이즈와 blur를 합친 frosted glass 표면을 사용하고, 초기화 버튼에는 밑줄을 두지 않습니다. 검색 사이드바를 펼치면 방송일·촬영일 우측에 적용된 기간을 작은 두 줄로 표시하며, 취소는 기존 표시를 유지하고 초기화 후 적용하면 지웁니다. 진입 화면의 입력 중 값은 form 가까이에 두고, 제출하면 `search-navigation.ts`가 검색어와 두 날짜를 `q/broadcastFrom/broadcastTo/filmingFrom/filmingTo`로 분리해 결과 URL을 만듭니다. 결과 화면도 같은 생성기를 사용하며 URL을 검색 요청 상태의 정본으로 읽습니다. 선택한 기간은 양 끝 날짜를 포함합니다. navigation 중에는 검색 입력·날짜·제출을 잠그고, 결과 화면은 이전 카드를 `검색 중` 상태로 바꿔 새 결과와 혼동되지 않게 합니다. `search-api-contract.ts`가 URL 상태를 [웹 API 계약](../../docs/contracts/web-api.md)의 요청 본문으로 변환하며, 백엔드가 필터링·정렬한 응답 순서를 클라이언트가 다시 필터링하거나 정렬하지 않습니다. `state=empty`와 `state=failed`는 디자인 확인용 상태 URL이며, 실패 화면의 재시도는 검색어·기간을 보존하고 실패 시연 상태를 해제합니다. 현재 표준 검색 결과 경로는 실제 검색 API를 호출합니다. 결과 그리드는 `SearchResultCard`가 제목·썸네일 우하단 장면 구간·키워드와 키워드 행 우측의 텍스트 검증 칩을 맡고, 칩의 hover·focus 툴팁에는 사용자용 근거 필드와 값만 표시합니다. 출처와 OCR·VLM 같은 기술명은 카드에서 숨깁니다. 결과 카드에는 백엔드 내부 점수를 퍼센트 일치도로 변환해 노출하지 않으며 검색 채널 선택과 클라이언트 재정렬 UI를 제공하지 않습니다. `WireframeShell`은 날짜 요청 상태와 선택한 Preview 상태를 소유하고, Preview는 전체 근거와 상태 모델을 유지합니다. 표시명·방송일·촬영일·샷 유형·장면 유형은 검색 API 응답 모델에 보존하되 결과 카드에는 노출하지 않습니다. `demo-scenes.ts`의 장면은 기록 디자인 시안과 단위 테스트에 사용합니다. 자동 생성 근거에는 `verified/unverified`만 사용하고, 정보 부재는 `unknown`, 사람의 판단은 `rejected/withdrawn`으로 분리합니다.
 
 ### 검색 API FE 적용 규칙
+
+검색 입력과 결과는 `SearchLayout`을 공유합니다. 이 레이아웃은 `AppShell`의 계정 드롭다운과 `SearchHistory`의 방송일·촬영일·검색 기록·문의 사이드바를 조합합니다. 검색 결과의 재검색 form은 `searchField` 슬롯으로 전달해 계정 버튼 오른쪽의 같은 행에 배치합니다. 공통 검색 헤더는 상단에 고정되며 본문에는 그 높이만큼 공간을 확보합니다. 검색바 뒤에는 별도 프로스티드 그레인·배경 흐림 레이어를 두고 아래로 갈수록 투명해지는 마스크를 적용합니다. 이 레이어는 포인터 이벤트를 받지 않고 계정 메뉴와 사이드바의 상호작용을 가리지 않습니다. 입력 화면은 필터 초안을, 결과 화면은 URL에서 읽은 필터와 재검색 콜백을 전달합니다. 결과의 별도 상세 필터 레일은 사용하지 않습니다. 결과 배경에는 `AppBackdrop`의 어두운 베일을 적용하며 검색 상태 패널은 기존 프로스티드 그레인 텍스처와 배경 흐림을 사용합니다.
 
 요청·응답 JSON과 상태 불변식의 정본은 [웹 API 계약](../../docs/contracts/web-api.md#5-장면-검색-api--계약-확정-연결-대기)입니다. FE는 URL의 `q/broadcastFrom/broadcastTo/filmingFrom/filmingTo`를 계약의 `query/explicit_filters`로 변환하고 `search-api-contract.ts`에서 응답을 런타임 검증합니다. 백엔드가 정한 `data.results` 순서를 다시 필터링하거나 정렬하지 않습니다.
 
@@ -148,9 +153,9 @@ src/
 
 ## 의존 방향
 
-로그인(`/login`)은 사용자 요청에 따라 `LoginMountainBackdrop`의 산 파라랙스를 표시합니다. 사진을 바탕으로 재구성한 하늘·설산·숲과 호수 이미지는 `public/images/login-mountains/`에 보관하며, SVG 능선 마스크로 레이어를 합성합니다. 미세 포인터와 실제 문서 스크롤에 깊이 0.12/0.45/1로 반응하고, 64px 여유 영역 안에서 이동량을 제한합니다. `requestAnimationFrame`은 이동 중에만 실행하며 모션 감소·숨긴 탭에서는 멈추고 unmount 때 이벤트를 정리합니다. 레이어를 모두 읽기 전이나 이미지 로딩 실패 시 원본 사진을 표시합니다. 배경은 포커스·클릭·인증 상태를 소유하지 않습니다. 현재는 로그인에만 적용하며 동작·폼·모바일 검증은 `e2e/login-mountain-backdrop.spec.ts`가 담당합니다.
+로그인(`/login`)과 검색(`/search`)은 사용자 요청에 따라 공통 `MountainBackdrop`의 산 파라랙스를 표시합니다. 사진을 바탕으로 재구성한 하늘·설산·숲과 호수 이미지는 `public/images/login-mountains/`에 보관하며, SVG 능선 마스크로 레이어를 합성합니다. 미세 포인터와 실제 문서 스크롤에 깊이 0.12/0.45/1로 반응하고, 64px 여유 영역 안에서 이동량을 제한합니다. `requestAnimationFrame`은 이동 중에만 실행하며 모션 감소·숨긴 탭에서는 멈추고 unmount 때 이벤트를 정리합니다. 레이어를 모두 읽기 전이나 이미지 로딩 실패 시 원본 사진을 표시합니다. 배경은 포커스·클릭·인증 상태를 소유하지 않습니다. 동작·폼·모바일 검증은 `e2e/login-mountain-backdrop.spec.ts`와 `e2e/search-experience.spec.ts`가 담당합니다.
 
-검색(`/search`)·검색 결과(`/search/results`)·문의와 처리 현황(`/review`)은 `AppBackdrop`에서 공통 정지 산 배경을 표시합니다. `public/images/app-mountain-backdrop.webp`는 로그인 파라랙스 레이어를 기본 위치에서 브라우저로 합성해 저장한 한 장의 이미지입니다. 로그인과 같은 64px 여유 영역과 중앙 크롭을 사용하며, 마우스나 스크롤에 반응하지 않습니다. 기존 화면별 가독성 베일은 유지합니다. 검색 화면의 물방울 연결과 `hasMetaballs` 옵션을 제거해 공통 배경이 Three.js·Rapier·텍스처를 불러오지 않습니다. 세 화면의 정지 상태·모바일·검색 이동은 `e2e/app-backdrop.spec.ts`로 검증합니다. 파라랙스 동작은 로그인에만 존재합니다.
+검색 결과(`/search/results`)·문의와 처리 현황(`/review`)은 `AppBackdrop`에서 공통 정지 산 배경을 표시합니다. `public/images/app-mountain-backdrop.webp`는 로그인 파라랙스 레이어를 기본 위치에서 브라우저로 합성해 저장한 한 장의 이미지입니다. 로그인과 같은 64px 여유 영역과 중앙 크롭을 사용하며, 마우스나 스크롤에 반응하지 않습니다. 기존 화면별 가독성 베일은 유지합니다. 검색 화면의 물방울 연결과 `hasMetaballs` 옵션을 제거해 공통 배경이 Three.js·Rapier·텍스처를 불러오지 않습니다. 결과·검수의 정지 상태·모바일·검색 이동은 `e2e/app-backdrop.spec.ts`로 검증합니다. 파라랙스 동작은 로그인과 검색 입력 화면에 존재합니다.
 
 ```text
 app ───────→ features ───────→ lib

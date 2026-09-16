@@ -3,6 +3,7 @@ const veils = {
   clear: 'bg-white/22',
   /** 정보가 빽빽한 화면(결과·검수)에서는 본문 대비를 위해 더 덮습니다. */
   muted: 'bg-white/46',
+  dark: 'bg-[#071f1a]/55',
 } as const;
 
 interface AppBackdropProps {
@@ -24,12 +25,20 @@ export function AppBackdrop({ tone = 'clear', unveiled = false }: AppBackdropPro
       data-static-mountain-backdrop
     >
       <div className="absolute -inset-16 bg-[url('/images/app-mountain-backdrop.webp')] bg-cover bg-center bg-no-repeat" />
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgb(242_247_253/15%),transparent_25%,transparent_80%,rgb(242_247_253/30%))]" />
+      {tone !== 'dark' && (
+        <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgb(242_247_253/15%),transparent_25%,transparent_80%,rgb(242_247_253/30%))]" />
+      )}
       {!unveiled && (
         <>
           <div className={`absolute inset-0 ${veils[tone]}`} />
-          <div className="absolute inset-0 bg-linear-to-b from-white/45 via-transparent to-white/60" />
-          <div className="absolute inset-0 bg-radial-[at_50%_46%] from-white/88 from-10% via-white/34 via-46% to-transparent to-74%" />
+          {tone === 'dark' ? (
+            <div className="absolute inset-0 bg-linear-to-b from-[#061b17]/25 via-transparent to-[#061b17]/55" />
+          ) : (
+            <>
+              <div className="absolute inset-0 bg-linear-to-b from-white/45 via-transparent to-white/60" />
+              <div className="absolute inset-0 bg-radial-[at_50%_46%] from-white/88 from-10% via-white/34 via-46% to-transparent to-74%" />
+            </>
+          )}
         </>
       )}
     </div>

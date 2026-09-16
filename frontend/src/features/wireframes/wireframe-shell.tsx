@@ -1,15 +1,14 @@
 'use client';
 
-import { ApiErrorNotice } from '@/components/api-error-notice';
-import { AppShell } from '@/components/app-shell';
-
-import { AlertTriangle, CheckCircle2, ListFilter, Search, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { results as demoResults, type SearchResult } from '@/features/wireframes/demo-scenes';
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
+import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
+import { SearchLayout } from '@/features/wireframes/search-layout';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
@@ -23,7 +22,6 @@ import {
 import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
-import { DateRangePicker } from '@/features/wireframes/date-range-picker';
 import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
 import {
@@ -75,7 +73,6 @@ export function WireframeShell({
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
   const [isNavigating, startNavigation] = useTransition();
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const navigationLockRef = useRef(false);
   const hasObservedNavigationRef = useRef(false);
   const broadcastRange = readDateRange(initialParams.broadcastFrom, initialParams.broadcastTo);
@@ -180,23 +177,6 @@ export function WireframeShell({
     }
   }
 
-  const rangeFields = (
-    <>
-      <DateRangePicker
-        label="방송일"
-        value={broadcastRange}
-        isDisabled={isSearchPending}
-        onChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
-      />
-      <DateRangePicker
-        label="촬영일"
-        value={filmingRange}
-        isDisabled={isSearchPending}
-        onChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
-      />
-    </>
-  );
-
   async function handleInquirySubmit(comment: string) {
     if (
       inquirySubmittingRef.current ||
@@ -275,48 +255,40 @@ export function WireframeShell({
   }
 
   return (
-    <AppShell className={styles.shell} data-theme={theme}>
-      <div className={`${styles.workspace} ${styles.workspaceNoPreview}`}>
-        <aside className={styles.filterRail} aria-label="검색 필터">
-          <div className={styles.railHeading}>
-            <ListFilter aria-hidden="true" />
-            <strong>상세 필터</strong>
+    <SearchLayout
+      className={styles.shell}
+      theme={theme}
+      isResults
+      broadcastRange={broadcastRange}
+      filmingRange={filmingRange}
+      isDisabled={isSearchPending}
+      onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
+      onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
+      searchField={
+        <form className={styles.searchForm} onSubmit={handleSearch}>
+          <div className={styles.searchField}>
+            <input
+              aria-label="뉴스 장면 검색어"
+              disabled={isSearchPending}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
+              value={query}
+            />
+            <button
+              aria-label={isSearchPending ? '검색 중' : '검색'}
+              className={styles.searchButton}
+              disabled={!query.trim() || isSearchPending}
+              type="submit"
+            >
+              <ArrowRight aria-hidden="true" />
+            </button>
           </div>
-          {rangeFields}
-        </aside>
-
+        </form>
+      }
+    >
+      <div className={styles.workspace} data-state={resultState}>
         <main className={styles.mainContent}>
-          <section className={styles.searchIntro}>
-            <div className={styles.titleBlock}>
-              <p className={styles.eyebrow}>SCENE SEARCH</p>
-              <h1>필요한 뉴스 장면을 바로 찾으세요</h1>
-              <p>원고 문장이나 장면의 특징을 입력하면 영상 속 몇 초까지 찾아드립니다.</p>
-            </div>
-
-            <form className={styles.searchForm} onSubmit={handleSearch}>
-              <label className={styles.searchField}>
-                <Search aria-hidden="true" />
-                <span className={styles.visuallyHidden}>검색어</span>
-                <input
-                  aria-label="뉴스 장면 검색어"
-                  disabled={isSearchPending}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
-                  value={query}
-                  ref={searchInputRef}
-                />
-              </label>
-              <button
-                className={styles.searchButton}
-                disabled={!query.trim() || isSearchPending}
-                type="submit"
-              >
-                <Search aria-hidden="true" />
-                <span>{isSearchPending ? '검색 중' : '검색'}</span>
-              </button>
-            </form>
-          </section>
-
+          <h1 className={styles.visuallyHidden}>뉴스 장면 검색 결과</h1>
           <section className={styles.resolution} aria-label="검색 해석">
             <div className={styles.resolutionIcon}>
               <Sparkles aria-hidden="true" />
@@ -363,12 +335,14 @@ export function WireframeShell({
                       : `관련 장면 ${displayedResults.length}개`}
                 </h2>
               </div>
-              <div className={styles.resultsMeta}>
-                <span>{api ? '검색 결과' : '화면 미리보기 · 예시 데이터'}</span>
-              </div>
+              {!api && (
+                <div className={styles.resultsMeta}>
+                  <span>화면 미리보기 · 예시 데이터</span>
+                </div>
+              )}
             </div>
 
-            {api?.error ? <ApiErrorNotice error={api.error} /> : null}
+            {api?.error ? <SearchErrorToast error={api.error} /> : null}
             {resultState === 'empty' || resultState === 'populated' ? (
               <SearchResultNotices execution={searchExecution} variant="results" />
             ) : null}
@@ -392,10 +366,6 @@ export function WireframeShell({
                   api?.retry ??
                   (() => handleSearchNavigation(submittedQuery, broadcastRange, filmingRange))
                 }
-                onEditQuery={() => {
-                  searchInputRef.current?.focus();
-                  searchInputRef.current?.select();
-                }}
               />
             ) : (
               <>
@@ -450,6 +420,6 @@ export function WireframeShell({
           onClose={handleInquiryClose}
         />
       ) : null}
-    </AppShell>
+    </SearchLayout>
   );
 }

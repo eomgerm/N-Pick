@@ -432,13 +432,17 @@
   white-space: nowrap;
 }
 .searchShell {
+  --footer-height: 64px;
+  position: relative;
+  min-height: 100dvh;
   background: transparent;
 }
 .searchShell .header {
   min-height: 80px;
 }
 .searchShell .footer {
-  min-height: 64px;
+  min-height: var(--footer-height);
+  border-top: 0;
 }
 .searchMain {
   flex: 1;
@@ -450,53 +454,16 @@
   text-align: center;
 }
 .searchHero {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: min(920px, 100%);
-  padding: clamp(20px, 4vh, 48px) 0 clamp(32px, 5vh, 52px);
+  position: absolute;
+  top: 50dvh;
+  left: 50%;
+  width: min(920px, calc(100% - 64px));
+  transform: translate(-50%, -50%);
 }
 .searchIntro {
-  position: relative;
-  isolation: isolate;
   padding: 22px 40px 20px;
-  border: 0;
-  background: transparent;
-}
-/* 문구 뒤에 은은한 빛만 번지게 합니다. 테두리·원형 실루엣이 보이지 않도록
-   가장자리를 길게 흘려 배경 사진과 이어 붙입니다. */
-.searchIntro::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: -132px -272px;
-  background: radial-gradient(
-    46% 46% at 50% 50%,
-    rgb(255 255 255 / 92%) 0%,
-    rgb(255 255 255 / 70%) 30%,
-    rgb(255 255 255 / 30%) 54%,
-    rgb(255 255 255 / 8%) 72%,
-    rgb(255 255 255 / 0%) 88%
-  );
-  backdrop-filter: blur(40px) saturate(104%);
-  -webkit-backdrop-filter: blur(40px) saturate(104%);
-  mask-image: radial-gradient(
-    46% 46% at 50% 50%,
-    #000 0%,
-    rgb(0 0 0 / 78%) 34%,
-    rgb(0 0 0 / 30%) 58%,
-    transparent 86%
-  );
-  -webkit-mask-image: radial-gradient(
-    46% 46% at 50% 50%,
-    #000 0%,
-    rgb(0 0 0 / 78%) 34%,
-    rgb(0 0 0 / 30%) 58%,
-    transparent 86%
-  );
-  pointer-events: none;
+  transform: translateY(-48px);
+  animation: searchIntroReveal 1s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 .searchMain h1 {
   margin: 0;
@@ -523,23 +490,20 @@
   gap: 10px;
   align-items: center;
   width: 100%;
-  margin-top: 24px;
-  padding: 10px;
-  border: 1px solid rgb(255 255 255 / 19%);
+  padding: 5px 10px;
+  border: 0;
   border-radius: 36px;
-  background: linear-gradient(145deg, rgb(39 43 49 / 92%), rgb(27 32 40 / 87%));
-  backdrop-filter: blur(68px) saturate(70%) brightness(0.94);
-  -webkit-backdrop-filter: blur(68px) saturate(70%) brightness(0.94);
-  box-shadow:
-    0 24px 56px rgb(4 9 18 / 30%),
-    inset 0 1px 0 rgb(255 255 255 / 17%);
+  background:
+    url('/textures/frosted-grain.svg'),
+    linear-gradient(145deg, rgb(39 43 49 / 72%), rgb(27 32 40 / 66%));
+  -webkit-backdrop-filter: blur(36px) saturate(110%);
+  backdrop-filter: blur(36px) saturate(110%);
+  box-shadow: 0 24px 56px rgb(4 9 18 / 30%);
 }
 .searchForm:focus-within {
-  border-color: rgb(255 255 255 / 34%);
   box-shadow:
     0 24px 56px rgb(4 9 18 / 30%),
-    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent),
-    inset 0 1px 0 rgb(255 255 255 / 18%);
+    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .searchIcon {
   box-sizing: border-box;
@@ -640,6 +604,16 @@
   cursor: wait;
   opacity: 0.72;
 }
+@keyframes searchIntroReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-32px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-48px);
+  }
+}
 @keyframes loginFailureShake {
   0%,
   100% {
@@ -716,19 +690,16 @@
     width: calc(100% - 40px);
   }
   .searchHero {
-    padding: 32px 0 40px;
+    width: calc(100% - 40px);
   }
   .searchIntro {
-    padding: 16px 20px 14px;
-  }
-  .searchIntro::before {
-    inset: -76px -92px;
-    backdrop-filter: blur(30px) saturate(104%);
-    -webkit-backdrop-filter: blur(30px) saturate(104%);
+    width: calc(100% - 60px);
+    margin-left: 60px;
+    padding: 16px 0 14px;
   }
   .searchForm {
     gap: 8px;
-    padding: 8px;
+    padding: 5px 8px;
   }
   .searchForm input {
     width: 100%;
@@ -756,6 +727,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .searchIntro {
+    animation: none;
+  }
   .logoutToast {
     animation: none;
     transform: translateX(-50%);
