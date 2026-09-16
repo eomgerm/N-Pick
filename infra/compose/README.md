@@ -456,16 +456,17 @@ NPICK_AI_JOB_FLEET=local
 **여기 없는 단계는 `unknown` 이 되어 영원히 배정되지 않는다.** 워커가 능력을 선언해도 BE 가
 기대 버전과 대조해 거르기 때문이다.
 
-다만 이것이 유일한 관문은 아니다. **관문이 셋이고 전부 통과해야 단계가 돈다.**
+다만 이것이 유일한 관문은 아니다. **관문이 넷이고 전부 통과해야 단계가 돈다.**
 
 | 관문 | 어디서 | 못 넘으면 |
 |---|---|---|
 | 워커가 능력을 선언 | `registry.capability_versions()` | 모델·라이브러리 없으면 목록에서 빠진다 |
+| 배포가 그 단계를 맡는다 | `ai/.env` 의 `NPICK_AI_JOB_STAGES` (S15P21A501-186) | 비우면 전부 선언한다. 적으면 그 목록으로 **좁히기만** 한다 |
 | BE 에 저장 어댑터가 있다 | `WorkerExecutionBinding:68` 이 `StageOutputPort.supports()` 거짓인 단계를 지운다 | `stage_versions` 에 넣어도 배정 안 된다 |
 | 기대 버전이 일치한다 | 아래 `stage_versions` | `unknown` 이면 배정 안 된다 |
 
-두 번째 관문 때문에 `ocr` 은 지금 `stage_versions` 에 넣어도 소용이 없다 —
-`JdbcWorkerStageOutputAdapter:38` 의 집합에 `ocr` 이 없다.
+세 번째 관문 때문에 `ocr` 과 `scene_transcript_mapping` 은 지금 `stage_versions` 에 넣어도
+소용이 없다 — `JdbcWorkerStageOutputAdapter:38` 의 집합에 둘 다 없다.
 
 값은 손으로 짓지 않는다. 워커에서 실측해 그대로 옮긴다.
 
@@ -512,14 +513,28 @@ curl -b <쿠키> http://127.0.0.1:8080/api/v1/clips/<clip_id>
 2026-09-16 기준 `scene_detection` 과 `frame_extraction` 두 단계다. `PipelineStages.NAMES` 의
 10단계를 모두 적으면 이렇다.
 
-| 단계 | 상태 | 이유 |
-|---|---|---|
-| `scene_detection`·`frame_extraction` | 돈다 | 세 관문을 모두 넘는다 |
-| `ocr` | 미배정 | 워커는 선언하지만 BE 저장 어댑터가 없다. S15P21A501-184 |
-| `transcript_selection`·`scene_transcript_mapping`·`entity_extraction` | 미배정 | 워커가 선언하지 않는다 |
-| `asr`·`text_embedding` | 능력 목록에서 자동 제외 | GPU 그룹(`faster-whisper`·`sentence-transformers`) 미설치 |
-| `vlm_metadata` | 능력 목록에서 자동 제외 | `NPICK_AI_VLM_MODEL` 미설정 |
-| `indexing` | 미배정 | 저장 어댑터는 **있다.** `stage_versions` 에 없고, 앞선 `ocr` 이 `pending` 이라 `nextStage()` 가 거기서 멈춰 도달하지 못한다 |
+| 단계 | 워커 선언 | 저장 어댑터 | `stage_versions` | 결과 |
+|---|---|---|---|---|
+| `scene_detection` | O | O | O | **돈다** |
+| `frame_extraction` | O | O | O | **돈다** |
+| `ocr` | O | **없음** | — | 미배정. S15P21A501-184 |
+| `transcript_selection` | **안 함** | O | — | 미배정 |
+| `asr` | 라이브러리 없음 | O | — | 능력 목록에서 자동 제외 |
+| `scene_transcript_mapping` | O | **없음** | — | 미배정 |
+| `vlm_metadata` | 모델 없음 | 없음 | — | 능력 목록에서 자동 제외 |
+| `entity_extraction` | **안 함** | 없음 | — | 미배정 |
+| `text_embedding` | 라이브러리 없음 | O | — | 능력 목록에서 자동 제외 |
+| `indexing` | O | O | — | 미배정 |
+
+"워커 선언"의 `라이브러리 없음`은 `faster-whisper`·`sentence-transformers` 가 `gpu` 그룹이라 CPU
+이미지에 없다는 뜻이고, `모델 없음`은 `NPICK_AI_VLM_MODEL` 미설정이다. 둘 다 워커가 스스로
+목록에서 빼므로 설정으로 손댈 것이 없다.
+
+`ocr` 과 `scene_transcript_mapping` 은 워커가 능력을 선언하지만 BE 가 결과를 저장할 어댑터가
+없어 `WorkerExecutionBinding` 이 목록에서 지운다. **`stage_versions` 에 넣어도 배정되지 않는다.**
+
+`indexing` 은 어댑터가 **있다.** `stage_versions` 에 없는 것이 직접적인 이유이고, 설령 넣더라도
+앞선 `ocr` 이 `pending` 이라 순서상 닿지 않는다.
 
 `nextStage()` 는 `NAMES` 순서로 첫 `pending` 을 고른다(`PipelineRun:73`). 한 단계가 막히면 뒤쪽은
 어댑터가 있어도 순서상 닿지 않는다.

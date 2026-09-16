@@ -20,10 +20,12 @@ defaults:
 # **여기 없는 단계는 "unknown" 이 되어 배정되지 않는다.** 워커가 capabilities 로 선언해도
 # BE 가 기대 버전과 대조해 거르기 때문이다(StageExecutionService 의 matches).
 #
-# 이것만으로는 부족하다. 앞에 관문이 하나 더 있다 — WorkerExecutionBinding 이
-# StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다. 그래서 ocr 은
-# 여기에 넣어도 배정되지 않는다(JdbcWorkerStageOutputAdapter 의 집합에 없다).
+# 이것만으로는 부족하다. 앞에 관문이 더 있다 — WorkerExecutionBinding 이
+# StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다. 그래서 ocr 과
+# scene_transcript_mapping 은 여기에 넣어도 배정되지 않는다(JdbcWorkerStageOutputAdapter 의
+# 집합에 둘 다 없다). 워커는 두 단계 모두 능력으로 선언한다.
 # indexing 은 반대다. 어댑터는 있지만 앞선 ocr 이 pending 이라 nextStage 가 거기서 멈춘다.
+# 배포별로 선언 범위를 좁히는 노브는 ai/.env 의 NPICK_AI_JOB_STAGES 다(S15P21A501-186).
 #
 # 아래 두 값은 CPU 워커에서 실측했다(S15P21A501-189).
 #   docker compose exec ai-worker python -c \
