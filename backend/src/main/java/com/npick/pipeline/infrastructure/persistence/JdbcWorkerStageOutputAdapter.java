@@ -462,9 +462,10 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
      * <p><b>세 번째 칸이 원래 종류를 들고 있는 이유</b> — 저장값만 보면 이미지와 OCR 이 구분되지 않아, "이미지 라벨만" 을 요구하는 {@code shotType} 이 화면 글자로 내린 판단을
      * 걸러내지 못한다.
      *
-     * <p><b>대사 근거의 구간 참조는 지금 버린다.</b> {@code segmentId}·{@code s}·{@code e}·{@code sourceDetail} 을 담을 칸이
-     * {@code tag_evidence} 에 없고, 이 단계는 {@code ocr} 과 달리 산출물을 만들지 않아 되돌릴 파일도 없다. 남는 것은 "이 장면의 대사를 보고 나왔다" 까지다. 칸을 늘리는 것은
-     * 표 변경이라 이 티켓의 범위가 아니며, §4.3.3 에 같은 사실을 적어 두었다.
+     * <p><b>대사 근거의 구간 참조는 이 표에 넣지 않는다.</b> {@code segmentId}·{@code s}·{@code e}·{@code sourceDetail} 을 담을 칸이
+     * {@code tag_evidence} 에 없어, 근거를 조회하면 "이 장면의 대사를 보고 나왔다" 까지만 답할 수 있다. 값이 사라지지는 않는다 — 단계 응답의 {@code output} 은
+     * {@code stage_states_json} 에 통째로 보존되므로({@code PipelineRun}) 그 run 을 열면 꺼낼 수 있고, 조인·검색에 쓸 자리가 없을 뿐이다. 칸을 늘리는 것은 표
+     * 변경이라 이 티켓의 범위가 아니며, §4.3.3 에 같은 사실을 적어 두었다.
      */
     private List<Object[]> evidences(
             JsonNode judgement, Map<String, Long> keyframes, List<Map<String, Object>> scenes, boolean mayBeEmpty) {
