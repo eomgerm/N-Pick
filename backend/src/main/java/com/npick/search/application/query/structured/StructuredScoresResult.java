@@ -21,7 +21,7 @@ public record StructuredScoresResult(
         ineligibleScenes = List.copyOf(ineligibleScenes);
     }
 
-    /** 사유를 함께 남겨 #60이 explain_json을 쓸 때 제외 근거를 다시 조회하지 않는다. 정렬 순서는 sceneId다. */
+    /** 사유를 함께 남겨 #60이 {@code filtered_json} 을 쓸 때 제외 근거를 다시 조회하지 않는다. 정렬 순서는 sceneId다. */
     public record Ineligible(long sceneId, IneligibleReason reason) {
         public Ineligible {
             Objects.requireNonNull(reason, "reason");
