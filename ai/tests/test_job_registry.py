@@ -98,14 +98,15 @@ def _context(
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_implemented_stages_are_exactly_the_seven_present() -> None:
-    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 셋은 resolve() 가 None 이다."""
+def test_implemented_stages_are_exactly_the_eight_present() -> None:
+    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 둘은 resolve() 가 None 이다."""
     assert set(HANDLERS) == {
         "scene_detection",
         "frame_extraction",
         "vlm_metadata",
         "ocr",
         "asr",
+        "scene_transcript_mapping",
         "text_embedding",
         "indexing",
     }
@@ -427,6 +428,7 @@ def test_keyframe_reading_stages_skip_the_source_video() -> None:
         "vlm_metadata": False,
         "ocr": False,
         "asr": True,
+        "scene_transcript_mapping": False,
         "text_embedding": False,
         "indexing": False,
     }

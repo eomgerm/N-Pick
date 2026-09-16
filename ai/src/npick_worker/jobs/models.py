@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Final, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, StrictInt, model_validator
 
 from npick_worker.jobs.errors import StageErrorCode
 from npick_worker.jobs.versions import StageVersion, WireModel
@@ -266,9 +266,9 @@ class CompleteAck(WireResponse):
 class SceneOut(WireModel):
     """`[start_time_ms, end_time_ms)` 반열린 구간."""
 
-    scene_index: int = Field(ge=0)
-    start_time_ms: int = Field(ge=0)
-    end_time_ms: int = Field(gt=0)
+    scene_index: StrictInt = Field(ge=0)
+    start_time_ms: StrictInt = Field(ge=0)
+    end_time_ms: StrictInt = Field(gt=0)
 
 
 class SceneDetectionOutput(WireModel):

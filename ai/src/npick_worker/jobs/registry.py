@@ -976,6 +976,31 @@ def _warm_scene_detection() -> str:
     return f"config={config.version_id} engine={detector.name} {detector.version}"
 
 
+# ── scene_transcript_mapping (6단계) ─────────────────────────────────
+
+
+def _run_scene_transcript_mapping(ctx: StageContext) -> StageOutcome:
+    from npick_worker.jobs.scene_transcript_mapping import run
+
+    return run(ctx)
+
+
+def _warm_scene_transcript_mapping() -> str:
+    """Kiwi 를 미리 올린다.
+
+    매핑 자체는 순수 계산이라 앞당길 것이 없지만, 이 단계는 장면별 색인 토큰을
+    만든다(`scenes[].tokens`). `korean_tokens._kiwi` 는 lru_cache 라 **첫 호출이
+    초기화 비용을 통째로 낸다** — 그것이 첫 잡의 처리 시간이 되지 않게 여기서 뺀다
+    (`_warm_ocr` 과 같은 판단). 상수만 돌려주면 `warm_up` 은 "준비됐다" 고 말하면서
+    실제로는 아무것도 앞당기지 않는다.
+    """
+    from npick_worker import korean_tokens
+    from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
+
+    korean_tokens.index_tokens("대사")
+    return f"algorithm={ALGORITHM_VERSION} tokenizer={korean_tokens.tokenizer_version()}"
+
+
 # ── text_embedding (9단계) ───────────────────────────────────────────
 
 
@@ -1186,6 +1211,12 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
             # 인라인으로 오고, 무엇을 채택할지 정하는 일은 하류의 몫이다(계약 §4.5).
             # `needs_video` 는 기본값 True 다. 오디오가 원본 파일 안에 있다.
             StageHandler("asr", _run_asr, _warm_asr),
+            StageHandler(
+                "scene_transcript_mapping",
+                _run_scene_transcript_mapping,
+                _warm_scene_transcript_mapping,
+                needs_video=False,
+            ),
             # 아래 둘도 영상을 열지 않는다. 캡션·대사·관측은 `upstream` 에 인라인으로
             # 오고, 대사 원문은 러너가 모든 단계에 주는 `artifact_documents` 에 있다.
             StageHandler(
@@ -1202,7 +1233,7 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
 
 
 def resolve(stage: str) -> StageHandler | None:
-    """구현이 있으면 돌려준다. 나머지 세 단계는 None 이고 호출부가 생략으로 보고한다."""
+    """구현이 있으면 돌려준다. 나머지 두 단계는 None 이고 호출부가 생략으로 보고한다."""
     return HANDLERS.get(stage)
 
 
@@ -1255,6 +1286,10 @@ def capability_versions() -> dict[str, str]:
 
 def _declared_version(stage: str) -> str:
     """실행 없이 계산할 수 있는 단계 버전. `_run_*` 이 만드는 값과 같아야 한다."""
+    if stage == "scene_transcript_mapping":
+        from npick_worker.jobs.scene_transcript_mapping import identity
+
+        return stage_version(stage, identity())
     if stage == "scene_detection":
         from npick_worker.scene_detection import PySceneDetectDetector, get_default_config
 

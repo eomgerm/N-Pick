@@ -287,7 +287,7 @@ Idempotency-Key: 398021847361024:scene_detection:1
 
 `scene_detection`과 달리 이 단계는 **파일을 올린다.** 그래서 규약이 세 겹이다 — 입력(상류 산출물), 산출물 키, 그리고 순서.
 
-**입력** — `inputs.upstream`에 상류 1단계 산출물을 인라인한다. 워커는 DB에 접속하지 않으므로 BE가 되돌려 줘야 한다. 키 이름은 스테이지 이름의 camelCase다.
+**입력** — `inputs.upstream`에 상류 1단계 산출물을 인라인한다. 워커는 DB에 접속하지 않으므로 BE가 되돌려 줘야 한다. BE의 단계 키는 snake_case다. **워커는 두 표기를 모두 받는다** — 타입 입력 모델은 camelCase 별칭으로, §4.3.3·§4.3.4의 `scene_transcript_mapping` 소비 키는 명시적 대체 표기로 받는다. 후자를 별칭 없이 두면 표기가 어긋났을 때 그 단계가 실패하지 않고 **대사 0건으로 조용히 성공한다**(없는 키는 "매핑을 돌리지 않았다"는 정상 입력이다).
 
 ```json
 "inputs": {
@@ -744,7 +744,9 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 대응 원본 ArtifactRef 전체와 같아야 한다. `decisions`는 모든 원본 ID에 정확히 하나씩 존재하며
 `segmentId`, `selected`, `reasonCode`, `conflictsWith`를 가진다. 채택 사유는
 `PREFERRED_SUBTITLE` 또는 `ASR_SUPPLEMENT`, 제외 사유는 `OVERLAPS_HIGHER_PRIORITY`다.
-제외 근거는 같은 스냅샷의 상위 출처 원본을 참조한다. 겹친 하위 구간은 원문 전체를 보관하고
+제외 근거는 같은 스냅샷에서 **채택된 상위 출처 원본**만 참조한다. 제공 자막 → CC → ASR
+순서로 채택을 판정하며, 제외된 CC는 자막 공백의 ASR을 제외하는 근거가 되지 않는다.
+겹친 하위 구간은 원문 전체를 보관하고
 검색·기본 표시에서 구간 전체를 제외한다. 시간만 잘라 원문을 부분 발화로 만들지 않는다.
 
 단계 결과는 `output.transcript.segmentsArtifact/decisionsArtifact`를 쓰고 두 참조를 `artifacts`에도
@@ -760,6 +762,12 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정상이다. 실제 발화 미감지 판정에만
 `NO_SPEECH_DETECTED`를 기록한다. ASR 미배정과 실행 후 빈 결과, 실패 및 `NO_ADAPTER`는 구분한다.
 최종 선택은 워커 `scene_transcript_mapping` 직전에 수행한다. VLM은 그 단계 이후 실행한다.
+매핑 워커는 §4.3.1과 같은 `inputs.upstream.sceneDetection.scenes`의 정수 ms 장면 구간을
+필수 입력으로 받으며 `scene_detection` 표기도 수용한다. `upstream.transcript`가 있으면 원본·판정 artifact 두 개를 함께 검증하고,
+성공한 `upstream.asr.segments`가 있으면 원본에 합쳐 최종 선택을 계산한다. 기존 구간 ID를
+보존하며 같은 ID에 다른 원문·시간·출처가 들어오면 `VALIDATION_ERROR`다. ASR 결과 부재와
+정상 빈 결과 모두 기존 자막을 지우지 않는다. 둘의 실행 상태는 상류 단계 기록으로 구분하고
+매핑 단계가 `NO_SPEECH_DETECTED`를 추정하지 않는다.
 `scene_transcript_mapping`의 output은 다음 구조다. 정본 타입은 워커 `jobs/transcripts.py`의 `SceneTranscriptMappingOutput`이며 단계 출력 버전은 `npick.stage.scene_transcript_mapping.output/v1`이다.
 
 ```json
@@ -769,8 +777,8 @@ ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정�
     "decisionsArtifact": {"kind": "transcript_decisions", "storageKey": "runs/…/decisions.json", "byteSize": 567, "contentHash": "<sha256>"}
   },
   "scenes": [
-    {"sceneIndex": 0, "segments": [{"segmentId": "s1", "overlapMs": 1500}]},
-    {"sceneIndex": 1, "segments": []}
+    {"sceneIndex": 0, "segments": [{"segmentId": "s1", "overlapMs": 1500}], "tokens": "경찰 추격 장면"},
+    {"sceneIndex": 1, "segments": [], "tokens": ""}
   ]
 }
 ```
@@ -780,7 +788,9 @@ ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정�
 - 각 연결은 해당 snapshot에서 `selected=true`인 구간만 가리킨다. `overlapMs`는 양의 정수이고 원본 구간 길이를 넘을 수 없다. 생산 단계가 장면과 실제로 겹치는 구간만 연결하고 정확한 겹침 시간을 계산한다. 여러 장면과 겹치면 같은 ID를 각각 연결하며, 겹치지 않는 구간은 연결하지 않는다.
 - 원문 `t`·정수 ms `s/e`·`sourceDetail`은 원본 snapshot에서 구간 ID로 읽는다. 장면 연결 목록에는 중복 복사하지 않는다. ID의 범위는 segments artifact 하나다.
 - 소비자는 snapshot 관계·채택 여부·장면 및 구간 ID를 검사한다. 알 수 없는 구간·보관 전용 구간·누락/중복 장면·잘못된 artifact는 빈 결과로 처리하지 않는다.
-- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. 토큰 생성·저장 및 실제 매핑 알고리즘은 해당 단계/저장 어댑터 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- `tokens`는 그 장면의 채택 대사를 연결 순서(시간순)대로 이어 한 번에 Kiwi로 분석한 색인 토큰을 공백으로 이은 것이며 곧 `scene.transcript_tokens`다. **BE가 만들 수 없으므로 워커가 싣는다** — 형태소 분석은 파이프라인의 일이고([docs/architecture/02-container.md](../architecture/02-container.md)) 색인과 질의가 같은 Kiwi 설정을 써야 하며 다르면 검색이 0건이 된다. 그래서 `versions.detail.tokenizer`가 그 설정의 식별자를 함께 싣는다(`ocr`·`vlm_metadata`와 같은 규약). 빈 문자열은 정상이다 — 대사가 없는 장면과 내용어가 없는 대사가 모두 여기 해당하며, 키를 생략하는 것과 구분한다. 구간마다 따로 토큰화해 잇지 않는다.
+- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. `scene.transcript_text`도 같은 연결 순서로 원문을 이어 만들어 `transcript_tokens`와 같은 문장을 가리키게 한다. 실제 매핑 알고리즘은 생산 단계의 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- **이 단계의 snapshot이 그 run의 최종 채택 정본이다.** 4단계 `transcript_selection`이 낸 `decisions`는 ASR 이전의 예비 판정이라 같은 run에 두 벌이 남는다. 저장·검색·VLM은 언제나 매핑 결과의 `transcript`가 가리키는 쪽을 쓰고, 예비 판정을 최종으로 되살리지 않는다. 두 단계는 위의 같은 채택 규칙(제공 자막 → CC → ASR, 채택된 상위 출처만 제외 근거)을 따라야 하며, 어긋나면 같은 run 안에서 CC 채택 여부가 갈린다.
 
 **PUT의 키는 경로 세그먼트로 들어가므로 워커가 퍼센트 인코딩한다** — 구분자 `/`는 남기고 `?`·`#`는 인코딩한다. 인코딩하지 않으면 `?`가 질의로 갈려 경로가 잘리고, BE의 접두 검사(`JOB_403_001`)가 의도한 경로에 대해 돌지 않는다. `..`나 절대 경로가 든 키는 인코딩으로 막히지 않으므로(구분자를 남기는 한 정규화된다) **워커가 보내기 전에 거절한다.** GET은 `?key=`로 실으므로 이 문제가 없다.
 
