@@ -114,6 +114,15 @@ class MyInquiryListQueryAdapterDbTest {
                 + " explain_json) VALUES (9802, 9701, 9302, 2, '{\"score\":2}'::jsonb)");
         exec("INSERT INTO npick.search_result (search_result_id, search_execution_id, scene_id, result_rank,"
                 + " explain_json) VALUES (9803, 9701, 9303, 3, '{\"score\":3}'::jsonb)");
+        // 9003 이 직접 실행한 검색 — 9003 의 문의(9903)가 남의 검색이 아니라 본인 검색을 참조하게 한다.
+        exec("INSERT INTO npick.search_execution (search_execution_id, searched_by_id, query_text, normalized_query,"
+                + " explicit_filters_json, normalized_filters_json, query_fingerprint, normalization_version,"
+                + " execution_type, status, degraded_reasons_json, applied_excludes_json, search_config_json,"
+                + " config_version, created_at, updated_at)"
+                + " VALUES (9702, 9003, '9003 자기 질의', '9003 자기 질의', '{}'::jsonb, '{}'::jsonb, 'fp-9702', 'v1',"
+                + " 'original', 'succeeded', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'cfg-v1', now(), now())");
+        exec("INSERT INTO npick.search_result (search_result_id, search_execution_id, scene_id, result_rank,"
+                + " explain_json) VALUES (9804, 9702, 9301, 1, '{\"score\":1}'::jsonb)");
         // 9001 소유 2건
         exec("INSERT INTO npick.feedback (feedback_id, search_result_id, created_by_id, comment, status,"
                 + " created_at, updated_at)"
@@ -121,10 +130,10 @@ class MyInquiryListQueryAdapterDbTest {
         exec("INSERT INTO npick.feedback (feedback_id, search_result_id, created_by_id, status, reviewed_by_id,"
                 + " resolution, created_at, review_started_at, updated_at)"
                 + " VALUES (9902, 9802, 9001, 'REVIEWING', 9003, 'no_action', now(), now(), now())");
-        // 9003 소유 1건 — 격리 확인용
+        // 9003 소유 1건(본인 검색 9702 참조) — 소유자 격리 확인용
         exec("INSERT INTO npick.feedback (feedback_id, search_result_id, created_by_id, comment, status,"
                 + " created_at, updated_at)"
-                + " VALUES (9903, 9803, 9003, '타인 문의', 'OPEN', now(), now())");
+                + " VALUES (9903, 9804, 9003, '내 문의', 'OPEN', now(), now())");
     }
 
     private void exec(String sql) {

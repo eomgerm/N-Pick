@@ -27,6 +27,10 @@ class MyInquiryListHttpDbTest {
     private static final AuthenticatedMember EDITOR =
             new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
 
+    // 9001 이 실행한 검색 결과에만 문의를 단 계정. 본인이 실행한 검색은 없다.
+    private static final AuthenticatedMember CROSS_SEARCHER =
+            new AuthenticatedMember(9003L, "editor03", "h", "EDITOR");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -52,6 +56,19 @@ class MyInquiryListHttpDbTest {
                 .andExpect(jsonPath("$.data.has_next").value(false))
                 .andExpect(jsonPath("$.data.items.length()").value(2))
                 .andExpect(jsonPath("$.data.items[*].feedback_id").value(org.hamcrest.Matchers.containsInAnyOrder("9901", "9902")));
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("타인 검색에 만든 문의는 목록·카운트에서 제외 — 남의 검색어 노출 차단")
+    void excludesInquiriesReferencingAnotherUsersSearch() throws Exception {
+        seed();
+
+        // 9003 의 유일한 문의 9903 은 9001 의 검색(9701)을 참조한다. 목록에 실리면 query_text 로 검색어가 새어나간다.
+        mockMvc.perform(get("/api/v1/inquiries?page=0&size=10").with(user(CROSS_SEARCHER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total_elements").value(0))
+                .andExpect(jsonPath("$.data.items.length()").value(0));
     }
 
     @Test

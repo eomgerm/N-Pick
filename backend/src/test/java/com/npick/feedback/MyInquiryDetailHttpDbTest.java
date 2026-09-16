@@ -27,6 +27,10 @@ class MyInquiryDetailHttpDbTest {
     private static final AuthenticatedMember OWNER =
             new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
 
+    // 검색은 9001 이 했는데 9003 이 그 검색 결과에 자기 명의로 문의를 만든 계정.
+    private static final AuthenticatedMember CROSS_SEARCHER =
+            new AuthenticatedMember(9003L, "editor03", "h", "EDITOR");
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -88,6 +92,18 @@ class MyInquiryDetailHttpDbTest {
         seed();
 
         mockMvc.perform(get("/api/v1/inquiries/9903").with(user(OWNER)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("작성자여도 원 검색자가 타인이면 404 — 남의 검색어·필터 노출 차단")
+    void returns404WhenOriginalSearcherIsAnother() throws Exception {
+        seed();
+
+        // 9903 은 9003 이 만든 문의지만, 참조하는 검색(9701)은 9001 이 실행했다.
+        // 작성자 조건만 보면 통과하나, 응답에 9001 의 query_text·explicit_filters 가 실려 노출된다.
+        mockMvc.perform(get("/api/v1/inquiries/9903").with(user(CROSS_SEARCHER)))
                 .andExpect(status().isNotFound());
     }
 

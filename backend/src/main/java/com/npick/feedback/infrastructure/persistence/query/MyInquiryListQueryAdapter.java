@@ -17,8 +17,9 @@ import com.npick.feedback.application.query.MyInquiryListQuery;
  * 「내 문의 기록」 목록 조회 어댑터 (S15P21A501-185).
  *
  * <p>검수 목록 어댑터의 JOIN(feedback→search_result→search_execution→scene→clip)을 재사용하되, 상태 필터 대신
- * <b>본인 소유(created_by_id)</b> 조건을 걸고 FE 소비용 필드를 더 싣는다. 정렬은 접수 최신순(created_at DESC, feedback_id DESC)으로
- * 고정한다 — 같은 시각 동률에도 결정적 순서를 보장한다.
+ * <b>문의 작성자(created_by_id)와 원 검색자(searched_by_id)가 모두 세션 사용자</b>인 조건을 걸고 FE 소비용 필드를 더 싣는다.
+ * 검색자 조건이 없으면 남의 검색에 자기 명의로 만든 문의를 통해 그 검색어가 목록으로 새어나간다(S15P21A501-185 리뷰). 정렬은 접수
+ * 최신순(created_at DESC, feedback_id DESC)으로 고정한다 — 같은 시각 동률에도 결정적 순서를 보장한다.
  */
 @Repository
 public class MyInquiryListQueryAdapter implements MyInquiryListQuery {
@@ -35,12 +36,21 @@ public class MyInquiryListQueryAdapter implements MyInquiryListQuery {
             JOIN scene sc ON sc.scene_id = sr.scene_id
             JOIN clip c ON c.clip_id = sc.clip_id
             JOIN pipeline_run pr ON pr.pipeline_run_id = sc.pipeline_run_id
-            WHERE f.created_by_id = :ownerId
+            WHERE f.created_by_id = :ownerId AND se.searched_by_id = :ownerId
             ORDER BY f.created_at DESC, f.feedback_id DESC
             LIMIT :size OFFSET :offset
             """;
 
-    private static final String COUNT_SQL = "SELECT count(*) FROM feedback WHERE created_by_id = :ownerId";
+    // 목록 SQL 과 같은 소유자 조건을 걸어 count 가 실제 노출 건수와 어긋나지 않게 한다.
+    // 검색 소유자(searched_by_id) 대조를 위해 search_execution 까지 JOIN 한다.
+    private static final String COUNT_SQL =
+            """
+            SELECT count(*)
+            FROM feedback f
+            JOIN search_result sr ON sr.search_result_id = f.search_result_id
+            JOIN search_execution se ON se.search_execution_id = sr.search_execution_id
+            WHERE f.created_by_id = :ownerId AND se.searched_by_id = :ownerId
+            """;
 
     private final EntityManager entityManager;
 

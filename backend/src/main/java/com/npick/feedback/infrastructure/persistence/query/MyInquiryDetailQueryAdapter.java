@@ -18,8 +18,9 @@ import com.npick.feedback.application.query.MyInquiryDetailQuery;
  * 「내 문의 기록」 상세 조회 어댑터 (S15P21A501-185).
  *
  * <p>{@link MyInquiryListQueryAdapter}와 같은 JOIN(feedback→search_result→search_execution→scene→clip)에
- * 처리 사유·시각·explicit_filters_json 을 더해 단건을 조회한다. WHERE 절에 소유자 조건을 걸어 타인 소유·미존재를 구분 없이 빈 값으로
- * 돌려준다(컨트롤러에서 동일한 404 로 응답).
+ * 처리 사유·시각·explicit_filters_json 을 더해 단건을 조회한다. WHERE 절에 <b>문의 작성자(created_by_id)와 원 검색자
+ * (searched_by_id)가 모두 세션 사용자</b>인 조건을 걸어, 타인 소유·미존재·타인 검색 참조를 구분 없이 빈 값으로 돌려준다
+ * (컨트롤러에서 동일한 404 로 응답). 검색자 조건이 없으면 남의 검색에 자기 명의로 만든 문의를 통해 그 검색어·필터가 새어나간다(S15P21A501-185 리뷰).
  */
 @Repository
 public class MyInquiryDetailQueryAdapter implements MyInquiryDetailQuery {
@@ -39,6 +40,7 @@ public class MyInquiryDetailQueryAdapter implements MyInquiryDetailQuery {
             JOIN clip c ON c.clip_id = sc.clip_id
             JOIN pipeline_run pr ON pr.pipeline_run_id = sc.pipeline_run_id
             WHERE f.feedback_id = :feedbackId AND f.created_by_id = :ownerId
+              AND se.searched_by_id = :ownerId
             """;
 
     private final EntityManager entityManager;
