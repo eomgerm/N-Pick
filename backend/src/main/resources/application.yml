@@ -124,7 +124,9 @@ npick:
       # 상한을 코드로 막지 않는다. 실제 세기는 Gate B 실측으로 정한다.
       lambda: ${SEARCH_FUSION_LAMBDA:1.0}
       # 가중치 0 이 곧 채널 off 다. 공통 배율은 R/M 에서 상쇄되므로 의미를 갖는 것은 채널 사이의 비율뿐이다.
-      # DENSE 기본값이 0 인 이유: 질의 임베딩(S15P21A501-164)이 아직 dev 에 없어 실행할 수 없다.
+      # DENSE 기본값이 0 인 이유: 질의 임베딩 생성(S15P21A501-164)은 병합됐지만 BE 가 그 벡터를
+      # 받아올 경로가 아직 없다. 리졸버 응답 DTO 에 embedding 필드가 없고 조회하는 어댑터도 없다.
+      # 배선은 조립(S15P21A501-59) 범위이며, 그때 이 값을 켜고 model-version 을 함께 설정한다.
       # 켜려면 npick.search.dense.model-version 을 함께 설정해야 하며, 없으면 부팅이 막힌다.
       channel-weights:
         lexical: ${SEARCH_FUSION_LEXICAL_WEIGHT:1.0}
