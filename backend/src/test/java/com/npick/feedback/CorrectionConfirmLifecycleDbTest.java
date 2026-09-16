@@ -176,6 +176,30 @@ class CorrectionConfirmLifecycleDbTest {
 
     @Test
     @Transactional
+    @DisplayName("검증 이후 다른 종류(exclude_scene) 활성 규칙이 바뀌면 지문에 잡혀 재검증을 요구한다")
+    void rejectsWhenExcludeRuleDrifted() throws Exception {
+        seedCommon("tag_correction");
+        seedTagCandidate();
+        // 검증 스냅샷은 활성 규칙이 없던 상태(rules=;tags=). 그 사이 exclude_scene 규칙이 활성화됐다 —
+        // 지문이 patch_parse 만 세면 이 변경을 놓쳐 stale 확정이 통과한다(P1). 전체 활성 규칙을 세므로 재검증을 요구해야 한다.
+        exec("INSERT INTO npick.search_rule (search_rule_id, query_fingerprint, normalized_query,"
+                + " normalized_filters_json, normalization_version, action, target_scene_id, source_feedback_id,"
+                + " active, created_at, updated_at) VALUES (6605, 'fp-x9', 'q', '{}'::jsonb, 'v1', 'exclude_scene',"
+                + " 9301, 9901, true, now(), now())");
+        seedReplay("{\"resolution\":\"tag_correction\",\"approved_evidence_ids\":[7901],"
+                + "\"approved_rule_id\":null,\"replaced_rule_id\":null,\"state_fingerprint\":\"rules=;tags=\"}");
+
+        confirm(9702L).andExpect(status().isConflict());
+
+        assertThat(jdbc.queryForObject("SELECT confirmed FROM npick.tag_evidence WHERE evidence_id = 7901",
+                        Boolean.class))
+                .isFalse();
+        assertThat(jdbc.queryForObject("SELECT status FROM npick.feedback WHERE feedback_id = 9901", String.class))
+                .isEqualTo("REVIEWING");
+    }
+
+    @Test
+    @Transactional
     @DisplayName("스냅샷이 판정별 필수 필드를 갖추지 못하면(근거 0개 tag_correction) 확정 근거로 삼지 않고 404 거부한다")
     void rejectsIncompleteSnapshot() throws Exception {
         seedCommon("tag_correction");

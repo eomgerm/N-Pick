@@ -23,6 +23,16 @@ class ExcludeTargetValidityQueryAdapter implements ExcludeTargetValidityPort {
 
     @Override
     public boolean targetSceneActive(long searchRuleId) {
+        // 재처리 포인터 전환과 직렬화한다. 대상 장면이 속한 clip 행을 먼저 잠가, 이 조회~확정 쓰기 사이에 재처리 트랜잭션이
+        // active_pipeline_run_id 를 새 run 으로 바꿔(이미 검색에서 사라진) 구 장면의 제외 규칙을 활성화하는 경합을 막는다(F-14).
+        // 재처리는 UPDATE npick.clip 로 같은 행을 잡으므로 둘이 직렬화된다. 대상이 없으면 잠글 행도 없고 아래 조회가 false 를 낸다.
+        em.createNativeQuery("SELECT c.clip_id FROM npick.clip c "
+                        + "JOIN npick.scene s ON s.clip_id = c.clip_id "
+                        + "JOIN npick.search_rule sr ON sr.target_scene_id = s.scene_id "
+                        + "WHERE sr.search_rule_id = :ruleId AND sr.action = 'exclude_scene' "
+                        + "FOR UPDATE OF c")
+                .setParameter("ruleId", searchRuleId)
+                .getResultList();
         Object present = em.createNativeQuery("SELECT count(*) > 0 FROM npick.search_rule sr "
                         + "JOIN npick.scene s ON s.scene_id = sr.target_scene_id "
                         + "JOIN npick.clip c ON c.clip_id = s.clip_id "
