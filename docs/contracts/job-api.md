@@ -712,6 +712,76 @@ artifact 본문 (`npick.scene.embeddings/v1`):
 
 **오류 코드** — 상류 산출물이 잘못됐으면 `VALIDATION_ERROR`(영구), 그 밖의 정체 모를 실패는 `INDEX_FAILED`(일시)다.
 
+### 4.3.6 `entity_extraction` — 장면 태그 후보
+
+`outputSchemaVersion`은 `npick.stage.entity_extraction.output/v1`이다. 99번은 순수 단계
+모듈과 자체 GPU 어댑터를 제공한다. 잡 registry/runner 배선과 BE의 tag·tagging·tag_evidence
+저장은 별도 작업이며, 이 계약 추가만으로 capability를 광고하지 않는다.
+
+입력은 같은 clip/run의 OCR v2 병합 결과, 최종 채택·장면 연결된 대사와 segments snapshot 키,
+검증된 VLM `tagCandidates`다. 실패한 상류는 입력 없음으로 구분한다. 형식이 틀린 상류를
+빈 성공으로 바꾸지 않는다. 일반 대본·보관 전용·미채택 대사는 넣지 않는다.
+OCR은 병합 그룹의 대표 관측 **원문**에서 추출하고 그 관측의 전역 `observationIndex`를
+보존한다. 원본 그룹과 다른 구성원은 상류 OCR 산출물에서 추적한다.
+
+```json
+{
+  "scenes": [{
+    "sceneIndex": 0,
+    "tagCandidates": [{
+      "type": "person",
+      "value": "홍길동",
+      "source": "rule",
+      "confidence": 0.87,
+      "evidence": [{
+        "sourceRefType": "scene",
+        "sceneIndex": 0,
+        "storageKey": "runs/example/transcript/segments.json",
+        "segmentId": "seg-1",
+        "s": 1000,
+        "e": 3000,
+        "sourceDetail": "uploaded"
+      }]
+    }]
+  }]
+}
+```
+
+- 새 텍스트 후보 유형은 `person`·`organization`·`location`·`facility`·`keyword`·`event`다.
+  `season`·`weather`·`scene_type`은 VLM 입력 후보만 전달한다. `shot_type`은 받지 않는다.
+  `filmed_date`·`broadcast_date`는 v1 자동 후보에서 제외한다. NER의 날짜 언급은 날짜의
+  역할을 입증하지 못하므로 화면 문자열을 방송일·촬영일로 승격하지 않는다. 수동 날짜와
+  BE의 실제 달력 `YYYY-MM-DD` 검증은 그대로 적용된다.
+- `value`는 NER 원문 구간 또는 VLM 입력 표시값이다. `match_value`는 출력하지 않는다.
+  중복 비교만 NFKC → 공백·ZWSP·BOM·soft hyphen 제거 → NFKC를 사용한다. casefold와
+  별칭 확장은 하지 않는다. 같은 `(type, 비교값, source)`는 최초 표시값, 최대 confidence,
+  중복 없는 근거 합집합으로 합친다. NER와 VLM은 서로 보정된 점수가 아니므로 다른 source는
+  독립 후보로 유지한다. BE는 동일 tag/tagging에 여러 evidence를 연결할 수 있다.
+- 자체 NER의 생성 출처는 `rule`, VLM에서 전달한 후보는 `vlm`이다. 입력이 OCR·CC여도
+  `source`를 `ocr`·`cc`로 바꾸지 않는다. `sourceDetail`은 대사 원본의 종류일 뿐이다.
+  검증 상태 필드는 없으며 BE가 `unverified`로 저장한다. confidence는 유한한 0~1이고
+  NER 점수는 소수 넷째 자리로 반올림한다. 높은 confidence는 verified의 근거가 아니다.
+- 근거는 §4.3.3의 해석된 참조 3종을 따른다. keyframe은
+  `{sourceRefType:"keyframe", sceneIndex, timestampMs, storageKey}`, OCR은
+  `{sourceRefType:"ocr_observation", sceneIndex, timestampMs, storageKey, observationIndex}`,
+  대사는 예제처럼 `scene` 참조와 snapshot 키·segmentId·원본 `[s,e)`·sourceDetail을 함께
+  보존한다. `ocr_N`·`tr_N`은 입력 내 라벨일 뿐 DB ID가 아니며 출력은 실제 참조로 풀어 쓴다.
+  BE는 대사 근거를 scene 행에 연결하되 구간 상세를 버리지 않아야 한다.
+- 모든 후보는 해당 `sceneIndex`를 가리킨다. 영상 범위 후보, verification_status,
+  hard filter·제외 여부 필드는 허용하지 않는다. 빈 후보 배열은 정상이다.
+- JSON/schema·유한 점수·알려진 NER 라벨·원문 span·근거·장면 일관성 검사 중 하나라도
+  실패하면 **단계 전체 출력의 어떤 필드도 쓰지 않는다**. 명시적으로 매핑 대상에서 제외한
+  정상 NER 유형(날짜·수량 등)을 만들지 않는 것은 부분 오류 복구가 아니다.
+  누락된 추론 응답을 빈 후보로 처리하지 않는다.
+- 외부 추론 경로는 제공하지 않는다. 모델은 사전 배치된 고정 revision을 `local_files_only`
+  로 로드한다. 원문은 워커 GPU 안에서 처리하며 외부 API로 보내지 않는다.
+
+비치명 단계(`fatal=False`)이므로 실패 후 run은 계속될 수 있으며 오류는
+`stage_states_json`에 기록해야 한다. §9.2 `ENTITY_SCHEMA_INVALID`는 영구 실패다.
+상류 오류는 `VALIDATION_ERROR`, 모델 준비 실패는 `MODEL_UNAVAILABLE`, 메모리 부족은
+`OUT_OF_MEMORY`, 기타 실행 실패는 `STAGE_FAILED`를 사용한다. 해당 오류를 잡 API에
+연결하는 배선은 이 순수 모듈의 구현 완료와 별도로 검증해야 한다.
+
 ### 4.4 artifacts — 입력 내려받기 / 산출물 올리기
 
 ```
@@ -854,6 +924,13 @@ compose에서는 backend와 ai-worker가 `media:/srv/npick/media`를 함께 마�
 
 ## 7. 버전 규약과 `pipeline_version` 롤업
 
+`entity_extraction`의 재현 축은 `{algorithmVersion, configVersion, modelVersion,
+engineVersion}`이다. 접두 `npick.stage.entity_extraction/v1`과 공용 canonical JSON SHA256
+앞 8자리로 `stageVersion`을 만든다. `configVersion`은 TOML 설정과 고정 BIO 라벨 표를
+함께 해시한다. confidence 임계값·유형 매핑·stride·aggregation·모델 revision이 바뀌면
+버전도 바뀐다. `modelVersion`은 모델 ID와 실제 로드한 고정 revision이고 로드 전에는
+성공 식별자를 내지 않는다. 이 단계는 색인 토큰과 LLM 프롬프트를 생성하지 않는다.
+
 두 층으로 나눈다. 해시 규칙 자체는 [README.md](README.md)의 공용 규약이다.
 
 ### `stageVersion` — 워커가 계산한다
@@ -967,6 +1044,7 @@ BE의 실제 `ErrorType`(`BAD_REQUEST`, `LENGTH_REQUIRED`, `UNAUTHORIZED`, `FORB
 | --- | --- | --- |
 | `SCENE_DETECTION_FAILED` | 일시 | scene_detection |
 | `VLM_SCHEMA_INVALID` | **영구** | vlm_metadata |
+| `ENTITY_SCHEMA_INVALID` | **영구** | entity_extraction |
 | `OCR_FAILED` | 일시 | ocr |
 | `ASR_FAILED` | 일시 | asr |
 | `INDEX_FAILED` | 일시 | indexing |

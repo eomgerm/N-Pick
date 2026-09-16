@@ -1,0 +1,1329 @@
+{
+  "schema": "npick.entity-extraction.sample-review/v1",
+  "summary": {
+    "identity": {
+      "algorithmVersion": "entity-extraction/v1",
+      "configVersion": "entity-extraction-config/v1:b533d483",
+      "modelVersion": "KPF/KPF-bert-ner@efff871f686098933bf76d699c437c3f53abc19e",
+      "engineVersion": "transformers5.17.0+torch2.13.0+cu130"
+    },
+    "stageVersion": "npick.stage.entity_extraction/v1:7c6b99ce",
+    "corpusSha256": "15cdbae8a7ba2805b45d38b5118c158466018a1343320c04764415d62b9bdc26",
+    "device": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "loadSeconds": 13.081,
+    "peakAllocatedBytes": 465347072,
+    "peakReservedBytes": 515899392,
+    "clips": [
+      {
+        "clip": "KNI_00001",
+        "scenes": 6,
+        "seconds": 1.178,
+        "candidates": 13
+      },
+      {
+        "clip": "KNI_00282",
+        "scenes": 8,
+        "seconds": 3.188,
+        "candidates": 90
+      },
+      {
+        "clip": "KNI_00563",
+        "scenes": 2,
+        "seconds": 0.287,
+        "candidates": 9
+      },
+      {
+        "clip": "KNI_00845",
+        "scenes": 6,
+        "seconds": 1.244,
+        "candidates": 53
+      },
+      {
+        "clip": "KNI_01126",
+        "scenes": 14,
+        "seconds": 1.336,
+        "candidates": 49
+      },
+      {
+        "clip": "KNI_01407",
+        "scenes": 8,
+        "seconds": 2.649,
+        "candidates": 84
+      },
+      {
+        "clip": "KNI_01688",
+        "scenes": 11,
+        "seconds": 7.767,
+        "candidates": 175
+      },
+      {
+        "clip": "KNI_01970",
+        "scenes": 16,
+        "seconds": 5.174,
+        "candidates": 185
+      },
+      {
+        "clip": "KNI_02252",
+        "scenes": 7,
+        "seconds": 0.58,
+        "candidates": 36
+      },
+      {
+        "clip": "KNI_02533",
+        "scenes": 5,
+        "seconds": 0.453,
+        "candidates": 12
+      }
+    ],
+    "limitations": [
+      "No human entity gold labels; no accuracy claim",
+      "Supplied sample subtitles, not a new ASR run",
+      "VLM merge is covered separately; this corpus contains text only",
+      "No backend persistence or pipeline end-to-end test"
+    ]
+  },
+  "totalScenes": 83,
+  "totalCandidates": 706,
+  "totalInferenceSeconds": 23.856,
+  "evidenceResolution": "all candidates checked against saved scene inputs",
+  "artifactsSha256": {
+    "KNI_00001/inputs.json": "4ed41dadde9f930882ab56eb57989f83676f0e55e34ae7f4ffa89176921efb67",
+    "KNI_00001/output.json": "b3936e87593df55c2e06614df17708ded236fc683d59f0170cd3a7c7885c1344",
+    "KNI_00001/predictions.json": "2b6a1dd0f8d268ac26404d2e9f4b8ca67dcb75f2a7933570cba147f4d7ca33bb",
+    "KNI_00001/transcript.json": "bef5e77fe87db7694ecd779c38d7b2c237c114210d525bbb00b13cd8e6755c3a",
+    "KNI_00282/inputs.json": "38938515f213aa4d09b0d74558563d7407459dc834d9274da8088f0254046284",
+    "KNI_00282/output.json": "7e30dbc6bc41c66334785cbfc9fcec8d43dbd4b2ffc7202ca5a033dfc00619d5",
+    "KNI_00282/predictions.json": "1faa5c76e7e0386bd9578ebfc17e341f3c2519402c155a0ecd44956d8ec0d0e5",
+    "KNI_00282/transcript.json": "338f6cf3c769676a35a71db8a92ba35b70d57588d41fd858a82dc8157317e54a",
+    "KNI_00563/inputs.json": "e01164f128c210ab5f8ce2c4715fe013c7fbc0b68f031620262aaa0875a7b799",
+    "KNI_00563/output.json": "7906d49c8c7723e1069df145f5792938370d8e810b4a75d7134a4c300a2218c7",
+    "KNI_00563/predictions.json": "54e2125115fb70260941dc6a00496c9eac20e679edcd426a12b9ad7cbaa76f6d",
+    "KNI_00563/transcript.json": "a4b3403d1cae6b14850f7cc07a97004c12c226d79e45beab099fbf28e92c30a8",
+    "KNI_00845/inputs.json": "e4cbbc37554ac85b1c54ac2f22e0cf27763fcc64782730a6ff27369d3f6a4641",
+    "KNI_00845/output.json": "212ebf4eb4792e0a0927b8348912195727c9e46fcf8d9a0e1859a53c966cc792",
+    "KNI_00845/predictions.json": "4d20f78027d44d42e1897204b59852c94d4328dd79f25f09aee25dadf8442088",
+    "KNI_00845/transcript.json": "0b907c3ceda45d60d32d18a55c698dcee76647faf344c7e02afc1839ab0cde6e",
+    "KNI_01126/inputs.json": "8a697fbbbd347d87c7e4e75a105a4dd400e680f5fdee380e116c5dec9ee637b7",
+    "KNI_01126/output.json": "172eeff716bdef81e086fe95224818be6a7d15e127c2ff884be2dc4842d9414a",
+    "KNI_01126/predictions.json": "870b26045966e45341f758a1760078cb96150c431cd574b4ee16d4c6b094d0dd",
+    "KNI_01126/transcript.json": "8e039b419f41ebb001c394375d020f5667d52be4ced9d95fbce1e63588e2907a",
+    "KNI_01407/inputs.json": "1145fc49602c2e526f1b89e075e4e599ec11eb7f3ace3b91b3e90460ab480dee",
+    "KNI_01407/output.json": "74ac45c601983b391ff877aa0adc3baf38ffcb2f36ee29544ddc183ca74e113d",
+    "KNI_01407/predictions.json": "32bbd4ef598fd86aaf6b7421c4d6f2dad78ab9c7d8db238c1db4ff9fb6f67e13",
+    "KNI_01407/transcript.json": "6ee6a4ee637c3ab0e7eefcda47665fe3fb0faedad1a3ae6f74353aad406e4f0b",
+    "KNI_01688/inputs.json": "5c81510d35899b05bc6ffad29a9c07c185f6e3012babecc814017fef00b24ca5",
+    "KNI_01688/output.json": "70b28b0a78fc3a890925f09c17c81a319babb8d7d0cfa6aea3a6434f37859634",
+    "KNI_01688/predictions.json": "d05254f16e48e452599a7755c30ddb202a23c39d8b80e878eb9d7685e4ce9fc1",
+    "KNI_01688/transcript.json": "5c3af9b3a4a51d7895066328cad944415f0ddbc7c72d98bfcfd249a7e242a60c",
+    "KNI_01970/inputs.json": "665ea96fb246693b21e434fabf0a759f8bc3b44d07d825845183c7dbd5ee67e3",
+    "KNI_01970/output.json": "d7c8e7a0110b84969086df37c62096a01b87c0bae313462df23a1d02bfb35b31",
+    "KNI_01970/predictions.json": "001ebf39e674ab719682ad99ab3a9dfdd76d918b4af3778c769ae735686f4815",
+    "KNI_01970/transcript.json": "0241b2346135cff6660b2e01466162bdda55cefc53f30bbc4bed37cb7bbb11be",
+    "KNI_02252/inputs.json": "0ce85bf16bd31e41b579b43c81a20e57b89caf452b2ffb61f12d2c7c789070b7",
+    "KNI_02252/output.json": "c02d51c79e4427b2fd074819478d7b3a56425ea3bd2f83bb58d4807d8e9dd5ec",
+    "KNI_02252/predictions.json": "ba65b3aa2b04c8f68d12eb633f36effc44157171cbfc9e81a83e764d80b0f6be",
+    "KNI_02252/transcript.json": "d2468f8748569bbb9314c2d64d9be4f967fcba1d9163eb549a3ef7ef149e381b",
+    "KNI_02533/inputs.json": "f626a5475f6238e6e4048993641d6345bef563b63a5aa0e7fc4a7b497c4248f1",
+    "KNI_02533/output.json": "3e466b4b6f6b4922a5d153e67457a9c5df37a192ae962bc2700cee8395961b9d",
+    "KNI_02533/predictions.json": "3410024688003204b10f12babcf42a8736a2a952903182f8b60c4c5b37522acb",
+    "KNI_02533/transcript.json": "c13b86a9d073e8435fbf36bcbcd2d6bb2e8c0d8031c9c586f1e464bfb0a30f5f"
+  },
+  "examples": [
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "코치",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_00001/transcript.json",
+            "segmentId": "abcac5fd5e1b9b6d",
+            "s": 5728,
+            "e": 10247,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "이를 코치에게 말했지만 오히려 자신 탓을 했다고도 했습니다."
+      ]
+    },
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 3,
+      "candidate": {
+        "type": "organization",
+        "value": "워시원드",
+        "source": "rule",
+        "confidence": 0.9454,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 3,
+            "timestampMs": 8342,
+            "storageKey": "s0003/kf-000008342.jpg",
+            "observationIndex": 6
+          }
+        ]
+      },
+      "sourceTexts": [
+        "워시원드"
+      ]
+    },
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 3,
+      "candidate": {
+        "type": "person",
+        "value": "여자수",
+        "source": "rule",
+        "confidence": 0.9903,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 3,
+            "timestampMs": 9142,
+            "storageKey": "s0003/kf-000009142.jpg",
+            "observationIndex": 8
+          }
+        ]
+      },
+      "sourceTexts": [
+        "여자수는기리"
+      ]
+    },
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 4,
+      "candidate": {
+        "type": "event",
+        "value": "김A간다k",
+        "source": "rule",
+        "confidence": 0.4611,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 4,
+            "timestampMs": 12346,
+            "storageKey": "s0004/kf-000012346.jpg",
+            "observationIndex": 13
+          }
+        ]
+      },
+      "sourceTexts": [
+        "김A간다k"
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "IBK창",
+        "source": "rule",
+        "confidence": 0.9989,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 267,
+            "storageKey": "s0000/kf-000000267.jpg",
+            "observationIndex": 4
+          }
+        ]
+      },
+      "sourceTexts": [
+        "IBK창"
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "시B퇴직연금",
+        "source": "rule",
+        "confidence": 0.9594,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 534,
+            "storageKey": "s0000/kf-000000534.jpg",
+            "observationIndex": 14
+          }
+        ]
+      },
+      "sourceTexts": [
+        "시B퇴직연금"
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "정정원",
+        "source": "rule",
+        "confidence": 0.949,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 801,
+            "storageKey": "s0000/kf-000000801.jpg",
+            "observationIndex": 18
+          }
+        ]
+      },
+      "sourceTexts": [
+        "정정원"
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "WNEEET",
+        "source": "rule",
+        "confidence": 0.6523,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 1301,
+            "storageKey": "s0000/kf-000001301.jpg",
+            "observationIndex": 28
+          }
+        ]
+      },
+      "sourceTexts": [
+        "WNEEET"
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "location",
+        "value": "R",
+        "source": "rule",
+        "confidence": 0.6742,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4338,
+            "storageKey": "s0002/kf-000004338.jpg",
+            "observationIndex": 66
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4338,
+            "storageKey": "s0002/kf-000004338.jpg",
+            "observationIndex": 65
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4338,
+            "storageKey": "s0002/kf-000004338.jpg",
+            "observationIndex": 63
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4438,
+            "storageKey": "s0002/kf-000004438.jpg",
+            "observationIndex": 76
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4438,
+            "storageKey": "s0002/kf-000004438.jpg",
+            "observationIndex": 75
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4438,
+            "storageKey": "s0002/kf-000004438.jpg",
+            "observationIndex": 73
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4605,
+            "storageKey": "s0002/kf-000004605.jpg",
+            "observationIndex": 84
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4605,
+            "storageKey": "s0002/kf-000004605.jpg",
+            "observationIndex": 86
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4605,
+            "storageKey": "s0002/kf-000004605.jpg",
+            "observationIndex": 83
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4972,
+            "storageKey": "s0002/kf-000004972.jpg",
+            "observationIndex": 93
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4972,
+            "storageKey": "s0002/kf-000004972.jpg",
+            "observationIndex": 95
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4972,
+            "storageKey": "s0002/kf-000004972.jpg",
+            "observationIndex": 97
+          }
+        ]
+      },
+      "sourceTexts": [
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai",
+        "Rinnai"
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "ULAI",
+        "source": "rule",
+        "confidence": 0.516,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 5706,
+            "storageKey": "s0001/kf-000005706.jpg",
+            "observationIndex": 4
+          }
+        ]
+      },
+      "sourceTexts": [
+        "UULAI"
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "event",
+        "value": "LLL",
+        "source": "rule",
+        "confidence": 0.7914,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 5706,
+            "storageKey": "s0001/kf-000005706.jpg",
+            "observationIndex": 6
+          }
+        ]
+      },
+      "sourceTexts": [
+        "LLL"
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "organization",
+        "value": "KB부통산신탁",
+        "source": "rule",
+        "confidence": 0.9826,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 7841,
+            "storageKey": "s0001/kf-000007841.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sourceTexts": [
+        "KB부통산신탁"
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "person",
+        "value": "자준",
+        "source": "rule",
+        "confidence": 0.9973,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 12579,
+            "storageKey": "s0001/kf-000012579.jpg",
+            "observationIndex": 13
+          }
+        ]
+      },
+      "sourceTexts": [
+        "자준는"
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "location",
+        "value": "의정부시",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 12579,
+            "storageKey": "s0001/kf-000012579.jpg",
+            "observationIndex": 16
+          }
+        ]
+      },
+      "sourceTexts": [
+        "의정부시"
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "ALT",
+        "source": "rule",
+        "confidence": 0.9877,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 968,
+            "storageKey": "s0000/kf-000000968.jpg",
+            "observationIndex": 0
+          }
+        ]
+      },
+      "sourceTexts": [
+        "ALT"
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "REA",
+        "source": "rule",
+        "confidence": 0.958,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 968,
+            "storageKey": "s0000/kf-000000968.jpg",
+            "observationIndex": 1
+          }
+        ]
+      },
+      "sourceTexts": [
+        "REA"
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "최민정",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_00845/transcript.json",
+            "segmentId": "68150ab246225cdd",
+            "s": 0,
+            "e": 13524,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "최민정과 함께 빙판을 가르며 세계 선수권 준비에 한창인 이 선수 이번 시즌만큼은 최민정 못지않은 위상을 자랑 중인 한국 빙상의 깜짝 스타 박지원입니다."
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "location",
+        "value": "한국",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_00845/transcript.json",
+            "segmentId": "68150ab246225cdd",
+            "s": 0,
+            "e": 13524,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "최민정과 함께 빙판을 가르며 세계 선수권 준비에 한창인 이 선수 이번 시즌만큼은 최민정 못지않은 위상을 자랑 중인 한국 빙상의 깜짝 스타 박지원입니다."
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "빙상",
+        "source": "rule",
+        "confidence": 0.9392,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_00845/transcript.json",
+            "segmentId": "68150ab246225cdd",
+            "s": 0,
+            "e": 13524,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "최민정과 함께 빙판을 가르며 세계 선수권 준비에 한창인 이 선수 이번 시즌만큼은 최민정 못지않은 위상을 자랑 중인 한국 빙상의 깜짝 스타 박지원입니다."
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "SK",
+        "source": "rule",
+        "confidence": 0.9904,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 1168,
+            "storageKey": "s0000/kf-000001168.jpg",
+            "observationIndex": 5
+          }
+        ]
+      },
+      "sourceTexts": [
+        "SK"
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "NKWX",
+        "source": "rule",
+        "confidence": 0.6463,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 1168,
+            "storageKey": "s0000/kf-000001168.jpg",
+            "observationIndex": 0
+          }
+        ]
+      },
+      "sourceTexts": [
+        "NKWX"
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "선수",
+        "source": "rule",
+        "confidence": 0.8418,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_01126/transcript.json",
+            "segmentId": "900eb89ed33b79ab",
+            "s": 6341,
+            "e": 10911,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "가장 눈에 띄게 발전한 선수는 프로 3년차 가드인 @이름1입니다."
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "person",
+        "value": "이름1",
+        "source": "rule",
+        "confidence": 0.9051,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_01126/transcript.json",
+            "segmentId": "900eb89ed33b79ab",
+            "s": 6341,
+            "e": 10911,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "가장 눈에 띄게 발전한 선수는 프로 3년차 가드인 @이름1입니다."
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "unku",
+        "source": "rule",
+        "confidence": 0.7388,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 234,
+            "storageKey": "s0000/kf-000000234.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sourceTexts": [
+        "Heunku"
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "배구",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 234,
+            "storageKey": "s0000/kf-000000234.jpg",
+            "observationIndex": 11
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 634,
+            "storageKey": "s0000/kf-000000634.jpg",
+            "observationIndex": 35
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 801,
+            "storageKey": "s0000/kf-000000801.jpg",
+            "observationIndex": 43
+          }
+        ]
+      },
+      "sourceTexts": [
+        "배구들",
+        "배구를",
+        "배구을"
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "흥국금융",
+        "source": "rule",
+        "confidence": 0.9814,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 434,
+            "storageKey": "s0000/kf-000000434.jpg",
+            "observationIndex": 28
+          }
+        ]
+      },
+      "sourceTexts": [
+        "흥국금융가"
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "an",
+        "source": "rule",
+        "confidence": 0.5403,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 234,
+            "storageKey": "s0000/kf-000000234.jpg",
+            "observationIndex": 12
+          }
+        ]
+      },
+      "sourceTexts": [
+        "HEan"
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "2쿼터",
+        "source": "rule",
+        "confidence": 0.7272,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01688/transcript.json",
+            "segmentId": "3cd751761da304d2",
+            "s": 0,
+            "e": 11060,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "2쿼터 연속 속공을 성공시키며 분위기를 LG 쪽으로 가져온 이관희는 상대 공을 빼앗은 뒤 기막힌 노룩 패스로 덩크슛을 이끌어내며 홈 팬들을 열광시켰습니다."
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "LG",
+        "source": "rule",
+        "confidence": 0.9998,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01688/transcript.json",
+            "segmentId": "3cd751761da304d2",
+            "s": 0,
+            "e": 11060,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "2쿼터 연속 속공을 성공시키며 분위기를 LG 쪽으로 가져온 이관희는 상대 공을 빼앗은 뒤 기막힌 노룩 패스로 덩크슛을 이끌어내며 홈 팬들을 열광시켰습니다."
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "이관희",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01688/transcript.json",
+            "segmentId": "3cd751761da304d2",
+            "s": 0,
+            "e": 11060,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "2쿼터 연속 속공을 성공시키며 분위기를 LG 쪽으로 가져온 이관희는 상대 공을 빼앗은 뒤 기막힌 노룩 패스로 덩크슛을 이끌어내며 홈 팬들을 열광시켰습니다."
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "LU4",
+        "source": "rule",
+        "confidence": 0.9162,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 3637,
+            "storageKey": "s0001/kf-000003637.jpg",
+            "observationIndex": 12
+          }
+        ]
+      },
+      "sourceTexts": [
+        "LU4"
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 4,
+      "candidate": {
+        "type": "location",
+        "value": "창원",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 4,
+            "timestampMs": 14815,
+            "storageKey": "s0004/kf-000014815.jpg",
+            "observationIndex": 131
+          }
+        ]
+      },
+      "sourceTexts": [
+        "창원"
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "KBO",
+        "source": "rule",
+        "confidence": 0.9994,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 3904,
+            "storageKey": "s0000/kf-000003904.jpg",
+            "observationIndex": 27
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 3904,
+            "storageKey": "s0000/kf-000003904.jpg",
+            "observationIndex": 19
+          }
+        ]
+      },
+      "sourceTexts": [
+        "KBO",
+        "2020KBO"
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "cneaSd",
+        "source": "rule",
+        "confidence": 0.9289,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 2236,
+            "storageKey": "s0000/kf-000002236.jpg",
+            "observationIndex": 5
+          }
+        ]
+      },
+      "sourceTexts": [
+        "cneaSd"
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "BTO",
+        "source": "rule",
+        "confidence": 0.9961,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 3904,
+            "storageKey": "s0000/kf-000003904.jpg",
+            "observationIndex": 31
+          }
+        ]
+      },
+      "sourceTexts": [
+        "BTO"
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "location",
+        "value": "잠실",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01970/transcript.json",
+            "segmentId": "e37c4a750c6e12bb",
+            "s": 0,
+            "e": 4497,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "개막전에서 만날 잠실 라이벌 LG도 포부를 숨기지 않았습니다."
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "keyword",
+        "value": "야구",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 2,
+            "storageKey": "KNI_01970/transcript.json",
+            "segmentId": "cc33b757f7663976",
+            "s": 13093,
+            "e": 18098,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "이제 겨울 야구가 된 포스트 시즌 진출에 열망도 드러냈습니다."
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 12,
+      "candidate": {
+        "type": "facility",
+        "value": "리아",
+        "source": "rule",
+        "confidence": 0.4332,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 12,
+            "timestampMs": 37838,
+            "storageKey": "s0012/kf-000037838.jpg",
+            "observationIndex": 230
+          }
+        ]
+      },
+      "sourceTexts": [
+        "롯데리아 홀"
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "facility",
+        "value": "올림픽슬라이딩센터",
+        "source": "rule",
+        "confidence": 0.9995,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 2300,
+            "storageKey": "s0001/kf-000002300.jpg",
+            "observationIndex": 2
+          }
+        ]
+      },
+      "sourceTexts": [
+        "올림픽슬라이딩센터"
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "location",
+        "value": "강원도",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 2300,
+            "storageKey": "s0001/kf-000002300.jpg",
+            "observationIndex": 3
+          }
+        ]
+      },
+      "sourceTexts": [
+        "강원도 평창군 대관령면"
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "루지",
+        "source": "rule",
+        "confidence": 0.9566,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_02252/transcript.json",
+            "segmentId": "cef58255ad6bc781",
+            "s": 3211,
+            "e": 7658,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "루지와 봅슬레이 등 썰매 종목이 열리는 슬라이딩 센터입니다."
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "person",
+        "value": "창",
+        "source": "rule",
+        "confidence": 0.1722,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 5933,
+            "storageKey": "s0002/kf-000005933.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sourceTexts": [
+        "강원도평창군대관령면"
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "organization",
+        "value": "군",
+        "source": "rule",
+        "confidence": 0.2866,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 5933,
+            "storageKey": "s0002/kf-000005933.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sourceTexts": [
+        "강원도평창군대관령면"
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 3,
+      "candidate": {
+        "type": "event",
+        "value": "알",
+        "source": "rule",
+        "confidence": 0.1799,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 3,
+            "timestampMs": 9567,
+            "storageKey": "s0003/kf-000009567.jpg",
+            "observationIndex": 13
+          }
+        ]
+      },
+      "sourceTexts": [
+        "평창알펜시아 스키점프대"
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "감독",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_02533/transcript.json",
+            "segmentId": "8ca6a1da4b92b143",
+            "s": 0,
+            "e": 5852,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "감독님은 팀의 에이스 아나스의 부진을 뼈아프게 지적합니다."
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "아나스",
+        "source": "rule",
+        "confidence": 0.999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_02533/transcript.json",
+            "segmentId": "8ca6a1da4b92b143",
+            "s": 0,
+            "e": 5852,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sourceTexts": [
+        "감독님은 팀의 에이스 아나스의 부진을 뼈아프게 지적합니다."
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "event",
+        "value": "CEaX",
+        "source": "rule",
+        "confidence": 0.9004,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 3133,
+            "storageKey": "s0001/kf-000003133.jpg",
+            "observationIndex": 2
+          }
+        ]
+      },
+      "sourceTexts": [
+        "CEaX"
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 4,
+      "candidate": {
+        "type": "organization",
+        "value": "나스야",
+        "source": "rule",
+        "confidence": 0.9864,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 4,
+            "timestampMs": 18767,
+            "storageKey": "s0004/kf-000018767.jpg",
+            "observationIndex": 22
+          }
+        ]
+      },
+      "sourceTexts": [
+        "나스야"
+      ]
+    }
+  ]
+}
