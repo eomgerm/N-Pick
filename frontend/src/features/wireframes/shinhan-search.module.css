@@ -63,20 +63,21 @@
 .dateField[data-compact='true'] .rangeTrigger svg {
   color: var(--accent);
 }
-/* 트리거 아래에 붙는 작은 기간 선택 패널. 화면을 덮지 않습니다. */
+/* 시작일과 종료일을 독립적으로 탐색하는 기간 선택 패널. */
 .calendarPopover {
   position: absolute;
   z-index: 40;
   top: calc(100% + 10px);
   left: 0;
-  width: 296px;
+  width: 620px;
   max-width: calc(100vw - 32px);
   padding: 16px;
   border: 1px solid rgb(255 255 255 / 74%);
   border-radius: 18px;
   box-shadow: 0 20px 48px rgb(74 56 40 / 22%);
-  background: rgb(255 255 255 / 96%);
-  backdrop-filter: blur(24px) saturate(1.1);
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 78%);
+  -webkit-backdrop-filter: blur(36px) saturate(115%);
+  backdrop-filter: blur(36px) saturate(115%);
   color: #2a2521;
   font:
     13px Arial,
@@ -97,19 +98,44 @@
   display: block;
   margin: 0;
 }
+.navigationLabel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.navigationLabel > span {
+  flex: none;
+}
+.navigationRange {
+  display: grid;
+  flex: none;
+  gap: 3px;
+  color: #516477;
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: right;
+  white-space: nowrap;
+}
 .dateField[data-navigation='true'] .calendarPopover {
   top: 0;
   bottom: auto;
   right: auto;
   left: calc(100% + var(--panel-gap));
-  width: min(320px, calc(100vw - var(--nav-width) - var(--panel-gap) - 48px));
+  width: min(620px, calc(100vw - 100% - var(--panel-gap) - 48px));
   max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 @media (max-width: 760px) {
   .dateField[data-navigation='true'] .calendarPopover {
-    width: calc(100vw - var(--nav-width) - var(--panel-gap) - 16px);
+    left: 0;
+    width: calc(100vw - 16px);
+    max-width: none;
     padding: 10px;
   }
 }
@@ -123,7 +149,7 @@
 }
 .popoverHeader {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -132,14 +158,50 @@
   font-size: 14px;
   font-weight: 700;
 }
+.popoverActions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.popoverClose {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f6f1ea;
+  color: #5f564e;
+}
+.popoverClose svg {
+  width: 16px;
+  height: 16px;
+}
+.calendarColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 18px;
+}
+.endpointCalendar {
+  min-width: 0;
+}
+.endpointCalendar + .endpointCalendar {
+  border-left: 1px solid #e4ded4;
+  padding-left: 24px;
+}
+.endpointHeading h3 {
+  margin: 0;
+  font-size: 13px;
+}
 .resetButton {
   padding: 0;
   border: 0;
   background: none;
   color: #7a7067;
   font-size: 12px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  text-decoration: none;
 }
 .resetButton:hover {
   color: #2a2521;
@@ -167,6 +229,42 @@
 .monthNavigation button:hover {
   background: #f6f1ea;
 }
+.monthNavigation .periodTitle {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  border: 0;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.monthNavigation button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.monthNavigation .periodTitle[aria-disabled='true'] {
+  cursor: default;
+}
+.periodGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(4, 1fr);
+  gap: 6px;
+  min-height: 246px;
+  border-radius: 10px;
+}
+.periodGrid button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #5f564e;
+}
+.periodGrid button:hover,
+.periodGrid button[aria-pressed='true'] {
+  color: #c81e63;
+}
+.periodGrid button[aria-pressed='true'] {
+  font-weight: 700;
+}
 .monthNavigation svg {
   width: 15px;
   height: 15px;
@@ -175,6 +273,9 @@
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px 0;
+  min-height: 246px;
+  grid-auto-rows: 32px;
+  align-content: start;
 }
 .weekday {
   padding-block: 6px;
@@ -206,20 +307,32 @@
   color: white;
   font-weight: 700;
 }
-.rangeSummary {
-  min-height: 20px;
-  padding: 9px;
-  margin: 12px 0 0;
-  border-radius: 10px;
-  background: #fdf3f7;
-  color: #c81e63;
-  text-align: center;
-  font-size: 12px;
-}
 .fieldError {
   margin: 8px 0 0;
   color: #c0453f;
   font-size: 12px;
+}
+@media (max-width: 760px) {
+  .calendarColumns {
+    gap: 12px;
+  }
+  .endpointCalendar + .endpointCalendar {
+    padding-left: 12px;
+  }
+  .monthNavigation {
+    gap: 2px;
+    font-size: 11px;
+  }
+  .monthNavigation button {
+    width: 24px;
+  }
+  .calendarPopover {
+    padding: 12px;
+  }
+  .periodGrid {
+    gap: 4px;
+    font-size: 11px;
+  }
 }
 .popoverFooter {
   display: flex;
@@ -261,14 +374,38 @@
 }
 .statePanel {
   display: grid;
-  justify-items: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: clamp(24px, 4vw, 64px);
   padding: clamp(32px, 6vw, 72px) 24px;
-  border: 1px solid rgb(255 255 255 / 74%);
+  border: 0;
   border-radius: 22px;
-  background: rgb(255 255 255 / 84%);
-  box-shadow: 0 18px 44px rgb(74 56 40 / 8%);
-  backdrop-filter: blur(20px);
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
+  box-shadow: 0 20px 52px rgb(10 32 40 / 18%);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  color: #17243b;
   text-align: center;
+}
+.statePanel[data-state='loading'] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.statePanel[data-state='failed'] {
+  min-height: 0;
+  flex: 1;
+  align-content: safe center;
+  padding-block: clamp(16px, 3dvh, 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.stateSummary,
+.stateDetails {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+}
+.stateDetails {
+  gap: 24px;
 }
 .stateIcon {
   display: grid;
@@ -285,18 +422,20 @@
   height: 34px;
 }
 .statePanel[data-state='failed'] .stateIcon {
-  background: #fbf1e2;
+  background: rgb(251 241 226 / 72%);
   color: #9a6b2f;
 }
 .statePanel h3 {
   margin: 0 0 12px;
   font-size: clamp(20px, 3vw, 26px);
   letter-spacing: -0.04em;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
-.statePanel > p {
+.stateSummary > p {
   max-width: 480px;
   margin: 0;
-  color: #7a7067;
+  color: #4d5462;
   line-height: 1.8;
   word-break: keep-all;
 }
@@ -305,9 +444,9 @@
   gap: 12px;
   width: min(100%, 460px);
   padding: 20px;
-  margin: 26px 0;
+  margin: 0;
   border-radius: 16px;
-  background: #f7f3ed;
+  background: rgb(255 255 255 / 32%);
   text-align: left;
   font-size: 13px;
 }
@@ -317,7 +456,7 @@
   gap: 12px;
 }
 .searchConditions dt {
-  color: #8e8379;
+  color: #516477;
 }
 .searchConditions dd {
   margin: 0;
@@ -333,6 +472,12 @@
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+}
+@media (max-width: 760px) {
+  .statePanel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
 }
 .demoNote {
   margin: 16px 0;
@@ -402,6 +547,15 @@
     opacity: 0.4;
   }
 }
+@media (max-width: 980px) {
+  .dateField:not([data-navigation='true']) .calendarPopover {
+    width: min(620px, calc(100vw - 64px));
+  }
+  .dateField:not([data-navigation='true']):last-child .calendarPopover {
+    left: auto;
+    right: 0;
+  }
+}
 @media (max-width: 620px) {
   .dateField[data-compact='true'] .rangeTrigger {
     width: 44px;
@@ -409,7 +563,6 @@
     padding: 0;
   }
   .calendarPopover {
-    width: 280px;
     padding: 14px;
   }
   .filterFields {

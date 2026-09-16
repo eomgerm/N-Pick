@@ -196,6 +196,41 @@ uv run --directory ai python -m npick_worker.vlm_metadata.report \
 
 선정 근거·어휘·설정 키·외부 처리 게이트는 [docs/vlm-metadata.md](docs/vlm-metadata.md).
 
+## 장면별 대사 연결 (S15P21A501-98)
+
+`scene_transcript_mapping/`은 제공 자막 → CC → ASR 순서로 최종 채택을 계산하고,
+정수 ms 반개방 구간의 겹침이 양수인 장면에만 대사를 연결한다. 채택된 상위 원본과 겹치는
+하위 대사는 전체를 보관 전용으로 남기며 원문을 시간 비율로 자르지 않는다.
+같은 출처끼리는 임의로 제거하지 않는다. 연결·원본·판정 순서는 결정적이다.
+제외된 자막·CC는 하위 출처의 제외 근거로 쓰지 않으므로 채택 대사가 없는 구간은
+ASR로 보완할 수 있다. 선택 알고리즘은 `scene-transcript-mapping/v2`로 식별한다.
+
+`jobs/scene_transcript_mapping.py`가 `upstream.sceneDetection`, `upstream.transcript`의
+검증된 원본/판정 artifact, 선택적인 `upstream.asr`를 읽는다. ASR이 없거나 빈 결과여도
+제공 자막·CC를 유지한다. 시간 정보 없는 일반 대본과 잘못된 참조는 `VALIDATION_ERROR`다.
+최종 snapshot 두 개를 현재 attempt에 올린 뒤 `/v1` 매핑 결과를 complete하며,
+기존 VLM 소비자는 장면별 채택 구간 ID로 원문·시간·출처를 읽는다. 영상이나 모델 가중치는
+필요 없지만 Kiwi는 쓴다 — 장면마다 채택 대사를 연결 순서대로 이어 색인 토큰
+`scenes[].tokens`를 만든다. 그 값이 곧 `scene.transcript_tokens`이고, BE에는 Kiwi가 없어
+워커가 만들어 보내야 검색이 대사를 찾는다. `versions.detail.tokenizer`가 그 설정을 싣고
+기동 워밍업이 Kiwi를 미리 올린다.
+
+하류 소비 키 `scene_transcript_mapping`은 camelCase 표기도 받는다. 없는 키는 오류가 아니라
+"매핑을 돌리지 않았다"로 흐르므로, 표기가 어긋나면 VLM·임베딩이 실패 없이 대사 0건으로
+돈다 — 그 조용한 결함을 막는 자리다.
+
+검증: `uv run pytest tests/test_scene_transcript_mapping.py`.
+순수 계산, 실제 snapshot 생성 → 기존 VLM 소비, 모의 HTTP 잡 API의 다운로드·업로드·complete를
+검증한다. 실제 BE 왕복 또는 DB 저장 완료를 의미하지 않는다.
+
+**#70·#191 연동 잔여:** 현재 BE 저장 어댑터의 지원 목록에 이 단계가 없으므로 실제 배정·저장은
+아직 불가능하다. 워커는 상류 키 `scene_detection`과 `sceneDetection`을 모두 수용한다.
+워커가 싣는 `scenes[].tokens`를 `scene.transcript_tokens`에 그대로 넣고,
+`scene.transcript_json`의 `s/e/t/overlap_ms` 변환과 `transcript_text` 조립(연결 순서대로
+원문 잇기)을 #191 저장 어댑터에서 연결해야 한다. #35의 초기 `transcript_selection` 워커
+구현도 별도 선행 작업이며, 그 단계의 `decisions`는 예비 판정이고 이 단계의 snapshot이
+그 run의 최종 정본이다(계약 §4.5).
+
 ## Query Resolver (FRD F-04~06)
 
 한국어 질의를 구조화 조건으로 바꾼다. **검색 시점**에 쓰이며 파이프라인 단계가 아니다.
@@ -367,6 +402,8 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_EMBEDDING_MODEL_REVISION` | `55ec6e93…`(SHA 고정) | 가중치 리비전. 재현 식별자에 들어간다. `main` 으로 두면 원격 갱신 때 같은 이름이 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다 |
 | `NPICK_AI_EMBEDDING_MODEL_DIR` | 없음 | 임베딩 가중치를 둘 곳. 컨테이너에서는 반드시 준다 |
 | `NPICK_AI_EMBEDDING_BATCH_SIZE` | `16` | 한 번에 모델에 넣는 문장 수. **결과를 바꾸지 않으므로** 버전 붙는 설정 파일이 아니라 여기 있다 |
+| `NPICK_AI_EMBEDDING_QUERY_PREFIX` | `"query: "` | 질의측 접두 (S15P21A501-164). arctic-ko 는 질의에만 요구하고 문서측은 없다. **색인 결과를 바꾸지 않으므로** `text_embedding.v1.toml` 이 아니라 여기 있다 — 거기 두면 `config_version` 과 `stageVersion` 이 함께 움직인다. 모델을 바꾸면 이 값도 확인한다 |
+| `NPICK_AI_EMBEDDING_WARMUP_TIMEOUT_SECONDS` | `60` | 리졸버 기동 시 가중치를 기다릴 상한. 넘기면 기동을 계속하고 로딩은 백그라운드에서 이어지며, 그 동안의 검색은 dense 채널 없이 BM25 로 돈다. 콜드 스타트가 startup probe 유예를 넘겨 **재시작 루프**가 되는 것을 막는다 |
 | `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
 | `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
 | `NPICK_AI_ASR_MODEL` | (없음) | ASR 가중치 식별자(예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기가 결과와 처리 시간을 바꾸고 실측 후 확정이라(FRD §11) 코드가 고르면 근거 없는 동결이다. 비어 있으면 이 단계가 `capabilities` 에서 빠진다. **기동 워밍업이 실패한 워커도 빠진다** — 폴링 중에 수 GB 를 다시 내려받지 않기 위해서이고, 복구는 재워밍업 또는 워커 재시작이다 |
@@ -395,9 +432,22 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_JOB_READ_TIMEOUT_SECONDS` | `30` | claim 이외 |
 | `NPICK_AI_JOB_MAX_BACKOFF_SECONDS` | `60` | |
 | `NPICK_AI_JOB_CONCURRENCY` | `1` | GPU 한 장 전제 |
+| `NPICK_AI_JOB_STAGES` | (없음) | **이 배포가 맡을 단계.** 쉼표 구분. 비우면 구현된 단계 전부를 선언한다. 좁히기만 하므로 모델 미지정·워밍업 실패인 단계는 목록에 있어도 빠진다. 구현 없는 이름은 기동 시 경고하고 무시한다 |
 
 단계 재시도 횟수와 단계 타임아웃은 여기 없다. 워커가 구현하지 않고 BE 가 소유한다
 (`infra/compose/profiles/pipeline.yml` 에서 `null`).
+
+`NPICK_AI_JOB_STAGES` 가 **배포마다 선언 범위를 좁힌다.** 배정 목록은 여전히 BE 에 없고
+워커의 선언이 정한다(계약 §4.1) — 이 값은 그 선언을 좁힐 뿐이다. 설치 구성이 정하는 것은
+*할 수 있는 것*이고 이 값이 정하는 것은 *맡을 것*이다 — CPU 단계 구현(`scene_detection`·
+`frame_extraction`·`ocr`·`indexing`)은 기본 의존성이라 GPU 이미지에도 들어가므로, 이 값이
+없으면 두 워커의 선언이 겹쳐 무엇을 누가 가져갈지 정해지지 않는다. 선언 결과는 `/health`
+의 `pipeline.declared` 로 확인한다.
+
+```
+CPU 워커   NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,ocr,indexing
+GPU 파드   NPICK_AI_JOB_STAGES=vlm_metadata,asr,text_embedding
+```
 
 ```powershell
 $env:NPICK_AI_PORT = "8001"; uv run --directory ai npick-worker

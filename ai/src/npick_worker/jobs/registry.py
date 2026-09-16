@@ -15,6 +15,7 @@ import logging
 import platform
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
@@ -648,6 +649,14 @@ def _run_vlm_metadata(ctx: StageContext) -> StageOutcome:
             # `unknown` 으로 남은 장면 수. 이 비율이 튀면 프롬프트나 모델을 사람이 봐야
             # 한다는 신호다(`ocr` 의 `unverifiedObservations` 와 같은 용도).
             "unknownShotTypes": result.unknown_shot_type_count,
+            # 모델이 **문자열 표기**로 '없음' 을 써서 모은 자리의 수
+            # (`vlm_metadata/normalize.py`). 0 이 아니면 모델이 계약과 다른 어휘를 쓰고
+            # 있다는 뜻이다 — 값은 정본에 들어가되 그 사실은 여기 남는다.
+            "normalizedValues": result.normalized_value_count,
+            # 계약의 `null` 을 한 칸 다른 자리에 써서 옮긴 자리의 수. **0 이 아닌 것이
+            # 정상이다** — 읽을 것이 없는 장면(암전·전환)마다 오른다. 위 값과 합쳐 세면
+            # 그쪽이 신호로 쓸 수 없게 되어 따로 올린다.
+            "reshapedValues": result.reshaped_value_count,
             "keyframesSent": len(selected),
         },
     )
@@ -976,6 +985,31 @@ def _warm_scene_detection() -> str:
     return f"config={config.version_id} engine={detector.name} {detector.version}"
 
 
+# ── scene_transcript_mapping (6단계) ─────────────────────────────────
+
+
+def _run_scene_transcript_mapping(ctx: StageContext) -> StageOutcome:
+    from npick_worker.jobs.scene_transcript_mapping import run
+
+    return run(ctx)
+
+
+def _warm_scene_transcript_mapping() -> str:
+    """Kiwi 를 미리 올린다.
+
+    매핑 자체는 순수 계산이라 앞당길 것이 없지만, 이 단계는 장면별 색인 토큰을
+    만든다(`scenes[].tokens`). `korean_tokens._kiwi` 는 lru_cache 라 **첫 호출이
+    초기화 비용을 통째로 낸다** — 그것이 첫 잡의 처리 시간이 되지 않게 여기서 뺀다
+    (`_warm_ocr` 과 같은 판단). 상수만 돌려주면 `warm_up` 은 "준비됐다" 고 말하면서
+    실제로는 아무것도 앞당기지 않는다.
+    """
+    from npick_worker import korean_tokens
+    from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
+
+    korean_tokens.index_tokens("대사")
+    return f"algorithm={ALGORITHM_VERSION} tokenizer={korean_tokens.tokenizer_version()}"
+
+
 # ── text_embedding (9단계) ───────────────────────────────────────────
 
 
@@ -1186,6 +1220,12 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
             # 인라인으로 오고, 무엇을 채택할지 정하는 일은 하류의 몫이다(계약 §4.5).
             # `needs_video` 는 기본값 True 다. 오디오가 원본 파일 안에 있다.
             StageHandler("asr", _run_asr, _warm_asr),
+            StageHandler(
+                "scene_transcript_mapping",
+                _run_scene_transcript_mapping,
+                _warm_scene_transcript_mapping,
+                needs_video=False,
+            ),
             # 아래 둘도 영상을 열지 않는다. 캡션·대사·관측은 `upstream` 에 인라인으로
             # 오고, 대사 원문은 러너가 모든 단계에 주는 `artifact_documents` 에 있다.
             StageHandler(
@@ -1201,8 +1241,40 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
 )
 
 
+@lru_cache(maxsize=1)
+def declared_stages() -> tuple[str, ...]:
+    """이 배포가 맡기로 한 단계(`NPICK_AI_JOB_STAGES`). 비어 있으면 구현된 전부다.
+
+    CPU 단계 구현은 기본 의존성이라 어느 이미지에나 들어간다. 이 노브가 없으면 GPU
+    파드도 scene_detection·ocr 를 선언하고, 두 워커의 목록이 겹치면 무엇을 누가
+    가져갈지 정해지지 않는다 (`infra/compose/profiles/pipeline.yml` 의
+    `placement.declared_by: worker_capabilities`).
+
+    **좁히기만 한다.** 목록에 있어도 모델 미지정·워밍업 실패로 선언하지 못하는 단계는
+    `capability_versions()` 에서 여전히 빠진다. 전부 모르는 이름이면 빈 목록이다 —
+    그 경우에 전체 선언으로 되돌리면 CPU 워커가 GPU 단계를 도로 문다.
+
+    **캐시가 "기동 시 1회 경고" 의 수단이다.** `capability_versions()` 는 claim 한
+    바퀴마다 불리므로, 캐시 없이 여기서 경고하면 오타 하나가 폴링 주기로 로그를 채운다.
+    """
+    wanted = [name.strip() for name in get_settings().job_stages.split(",") if name.strip()]
+    if not wanted:
+        return tuple(HANDLERS)
+
+    unknown = [name for name in wanted if name not in HANDLERS]
+    if unknown:
+        # 모르는 이름만 버리고 나머지는 선언한다. 목록째 거절하면 오타 하나로 능력이
+        # 통째로 비어 그 워커가 아무 일도 받지 못한다.
+        logger.warning(
+            "NPICK_AI_JOB_STAGES 에 구현 없는 단계 이름이 있어 무시한다: %s (구현된 단계: %s)",
+            ", ".join(unknown),
+            ", ".join(HANDLERS),
+        )
+    return tuple(name for name in HANDLERS if name in wanted)
+
+
 def resolve(stage: str) -> StageHandler | None:
-    """구현이 있으면 돌려준다. 나머지 세 단계는 None 이고 호출부가 생략으로 보고한다."""
+    """구현이 있으면 돌려준다. 나머지 두 단계는 None 이고 호출부가 생략으로 보고한다."""
     return HANDLERS.get(stage)
 
 
@@ -1212,7 +1284,7 @@ def warm_up(stage_names: Iterable[str] | None = None) -> WarmupReport:
     어떤 경우에도 예외를 던지지 않는다 — `device.py` 의 규칙과 같다. 워밍업이 실패한
     워커는 느릴 뿐이고, 기동을 막을 이유가 되지 않는다.
     """
-    names = list(stage_names) if stage_names is not None else list(HANDLERS)
+    names = list(stage_names) if stage_names is not None else list(declared_stages())
     device = detect_device(get_settings().device)
 
     outcomes: list[WarmOutcome] = []
@@ -1228,7 +1300,10 @@ def warm_up(stage_names: Iterable[str] | None = None) -> WarmupReport:
             outcomes.append(WarmOutcome(name, warmed=False, detail=f"실패: {type(exc).__name__}"))
 
     return WarmupReport(
-        ready=all(outcome.warmed for outcome in outcomes),
+        # 빈 목록에서 `all()` 은 공허하게 참이다. 그대로 두면 `NPICK_AI_JOB_STAGES` 가
+        # 통째로 오타인 워커가 ready 로 보고되고, 잡을 하나도 안 가져가면서 프로브를
+        # 전부 통과한다. 맡을 것이 없는 워커는 준비된 것이 아니다.
+        ready=bool(outcomes) and all(outcome.warmed for outcome in outcomes),
         device=device.resolved,
         stages=tuple(outcomes),
     )
@@ -1241,7 +1316,7 @@ def capability_versions() -> dict[str, str]:
     전에 걸러지는 편이 낫다.
     """
     versions: dict[str, str] = {}
-    for name in HANDLERS:
+    for name in declared_stages():
         # `warm is None` 으로 걸러내지 않는다. "워밍업이 없다" 와 "버전을 선언할 수
         # 없다" 는 다른 말이고, 한데 묶으면 그 단계가 capabilities 에서 조용히 빠진다.
         # BE 는 이 목록에 없는 단계를 배정하지 않으므로, resolve() 가 돌릴 수 있어도
@@ -1255,6 +1330,10 @@ def capability_versions() -> dict[str, str]:
 
 def _declared_version(stage: str) -> str:
     """실행 없이 계산할 수 있는 단계 버전. `_run_*` 이 만드는 값과 같아야 한다."""
+    if stage == "scene_transcript_mapping":
+        from npick_worker.jobs.scene_transcript_mapping import identity
+
+        return stage_version(stage, identity())
     if stage == "scene_detection":
         from npick_worker.scene_detection import PySceneDetectDetector, get_default_config
 

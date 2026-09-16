@@ -60,6 +60,8 @@ transient_errors:
 # CPU 워커 / GPU 서버 배치.
 # 정적 목록으로 채우지 않는다. 워커가 claim 요청의 capabilities 로 실행 가능한 단계를
 # 선언하고 BE 가 그것으로 배정을 거른다(docs/contracts/job-api.md).
-# CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 배치는 설정이 아니라 능력의 문제다.
+# CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 BE 쪽에는 배정 목록이 없다.
+# 어느 단계를 선언할지는 워커 쪽 NPICK_AI_JOB_STAGES 가 배포별로 좁힌다
+# (S15P21A501-186). 그 값도 여기 두지 않는다 — 워커 배포 설정이다.
 placement:
   declared_by: worker_capabilities

@@ -1,0 +1,102 @@
+.account {
+  position: relative;
+  color: #17243b;
+  font-size: 13px;
+}
+.accountTrigger {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: var(--nav-collapsed-width);
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(244 250 255 / 66%);
+  box-shadow: 0 8px 24px rgb(10 32 40 / 12%);
+  backdrop-filter: blur(24px);
+}
+.accountAvatar {
+  box-sizing: border-box;
+  width: 40px;
+  height: 52px;
+  padding: 12px;
+  background: url('/images/account-avatar.png') center / contain no-repeat;
+  background-origin: content-box;
+  background-clip: content-box;
+}
+.accountTrigger:focus-visible {
+  outline: 2px solid #0756c6;
+  outline-offset: 3px;
+}
+.dropdown {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 24px);
+  width: 240px;
+  max-width: calc(100vw - 116px);
+  padding: 10px;
+  border: 0;
+  border-radius: 22px;
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
+  box-shadow: 0 20px 52px rgb(10 32 40 / 18%);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-8px) scale(0.97);
+  transform-origin: top left;
+  transition:
+    opacity 200ms ease,
+    transform 240ms ease,
+    visibility 240ms;
+}
+.dropdown[data-open='true'] {
+  visibility: visible;
+  opacity: 1;
+  transform: translateX(0) scale(1);
+}
+.accountProfile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 4px 8px;
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid rgb(23 36 59 / 12%);
+}
+.accountName {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  font-weight: 700;
+}
+.accountRole {
+  flex-shrink: 0;
+  margin: 0;
+  white-space: nowrap;
+  color: #516477;
+  font-size: 12px;
+  font-weight: 600;
+}
+.logoutAction {
+  margin-top: 6px;
+  padding: 10px 4px 4px;
+  border-top: 1px solid rgb(23 60 49 / 12%);
+}
+.logoutAction button {
+  width: 100%;
+  min-height: 40px;
+  border-color: #c52b3d;
+  background: #c52b3d;
+  color: white;
+}
+.logoutAction button:hover:not(:disabled) {
+  border-color: #a52232;
+  background: #a52232;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dropdown {
+    transition: none;
+  }
+}

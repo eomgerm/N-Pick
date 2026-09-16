@@ -113,6 +113,28 @@ npick:
       ocr-weight: ${SEARCH_CANDIDATE_OCR_WEIGHT:1.0}
       # 재순위·제외 전의 후보 상한. 최종 반환 10개(F-05)와 다른 값이며 실측으로 조정한다.
       pool-size: ${SEARCH_CANDIDATE_POOL_SIZE:200}
+    # 순위 결합(RRF) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
+    # 실제 사용 값은 search_execution.search_config_json 에 남고 config_version 이 그 값들에서 나온다.
+    fusion:
+      weight-status: ${SEARCH_FUSION_WEIGHT_STATUS:experimental}
+      # RRF 원 논문의 관례값이다. 클수록 상위 순위의 우위가 완만해진다. Gate B 에서 실측으로 조정한다.
+      rrf-k: ${SEARCH_FUSION_RRF_K:60.0}
+      # 구조화 축 점수의 가산 계수. 1.0 은 구조화 만점 후보가 전 채널 1등과 동점이 된다는 뜻이다.
+      # 「구조화만으로 전 채널 1등을 이기지 않게 한다」는 제품 정책이지 FRD 가 요구하는 불변식이 아니므로
+      # 상한을 코드로 막지 않는다. 실제 세기는 Gate B 실측으로 정한다.
+      lambda: ${SEARCH_FUSION_LAMBDA:1.0}
+      # 가중치 0 이 곧 채널 off 다. 공통 배율은 R/M 에서 상쇄되므로 의미를 갖는 것은 채널 사이의 비율뿐이다.
+      # DENSE 기본값이 0 인 이유: 질의 임베딩 생성(S15P21A501-164)은 병합됐지만 BE 가 그 벡터를
+      # 받아올 경로가 아직 없다. 리졸버 응답 DTO 에 embedding 필드가 없고 조회하는 어댑터도 없다.
+      # 배선은 조립(S15P21A501-59) 범위이며, 그때 이 값을 켜고 model-version 을 함께 설정한다.
+      # 켜려면 npick.search.dense.model-version 을 함께 설정해야 하며, 없으면 부팅이 막힌다.
+      channel-weights:
+        lexical: ${SEARCH_FUSION_LEXICAL_WEIGHT:1.0}
+        dense: ${SEARCH_FUSION_DENSE_WEIGHT:0.0}
+    # 텍스트 의미 검색 실행 설정. model-version 은 질의 임베딩이 쓰는 인코더와 같아야 하므로
+    # 기본값을 두지 않는다 — 임의값을 넣으면 저장 벡터와 어긋난 채로 검색이 돈다.
+    dense:
+      pool-size: ${SEARCH_DENSE_POOL_SIZE:200}
 
 # PostgreSQL error details may include the failing row (script, paths, secrets).
 # API failures are reported through safe application error codes instead.

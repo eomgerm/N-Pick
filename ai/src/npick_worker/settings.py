@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     job_max_backoff_seconds: float = Field(default=60.0, gt=0)
     #: GPU 한 장을 전제한다.
     job_concurrency: int = Field(default=1, ge=1)
+    #: **이 배포가 맡을 단계.** 쉼표로 구분한 단계 이름이고, 비우면 구현된 전부를
+    #: 선언한다(지금까지의 동작). 설치 구성이 정하는 것은 *할 수 있는 것*이고 이 값이
+    #: 정하는 것은 *맡을 것*이다 — CPU 단계 구현은 기본 의존성이라 GPU 이미지에도
+    #: 들어가므로, 이것이 없으면 CPU 워커와 GPU 파드의 선언이 겹친다.
+    #: **좁히기만 한다**: 목록에 있어도 모델 미지정·워밍업 실패인 단계는 여전히 빠진다.
+    #: 쉼표 목록이라 `list[str]` 이 아니라 `str` 이다 — pydantic-settings 는 복합 타입
+    #: 환경변수를 JSON 으로 읽으므로 `a,b` 가 기동 실패가 된다.
+    job_stages: str = ""
 
     #: backend 와 공유하는 미디어 마운트. 없으면 입력을 HTTP 로 받는다.
     #: compose 는 /srv/npick/media 를 준다. RunPod 파드에는 공유 볼륨이 없다.
@@ -119,6 +127,17 @@ class Settings(BaseSettings):
     #: 내리는 것만으로 `config_version` 과 `stageVersion` 이 달라져 계약 §7 의 버전
     #: 불일치가 난다. `ocr_model_dir` 과 같은 판단이다.
     embedding_batch_size: int = Field(default=16, gt=0)
+    #: 질의측 접두 (S15P21A501-164). arctic-ko 는 질의에만 `query: ` 를 요구한다.
+    #: **설정 파일이 아니라 여기다.** `embedding_model` 과 같은 판단이다 — 이 값은 질의
+    #: 벡터만 바꾸고 색인 결과를 바꾸지 않는데, 버전 붙는 `text_embedding.v1.toml` 에
+    #: 있으면 `config_version` 과 `stageVersion` 이 함께 움직여 계약 §7 의 버전 불일치가
+    #: 난다. 모델을 바꿀 때 접두도 같이 확인한다(`docs/query-embedding.md` §2).
+    embedding_query_prefix: str = "query: "
+    #: 리졸버 기동 시 가중치를 기다릴 상한. 워밍업은 `yield` 앞이라 이 시간만큼 서버가
+    #: 연결을 받지 않는다. 캐시 볼륨이 비어 원격에서 받는 콜드 스타트가 startup probe
+    #: 유예를 넘기면 **재시작 루프**가 되므로 상한을 둔다. 넘겨도 로딩은 스레드에서
+    #: 이어지고 그 사이의 검색만 dense 채널 없이 돈다.
+    embedding_warmup_timeout_seconds: float = Field(default=60.0, gt=0)
 
     # ── 외부 VLM 처리 (PRD §12.4) ────────────────────────────────────
     # 아래 값이 전부 맞아도 **그것만으로 승인이 성립하지 않는다.** clip 별 외부 처리

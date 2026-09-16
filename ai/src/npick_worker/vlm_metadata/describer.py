@@ -30,7 +30,7 @@ from npick_worker.vlm_metadata.prompt import (
     render_user_prompt,
 )
 from npick_worker.vlm_metadata.schema import SCHEMA_VERSION
-from npick_worker.vlm_metadata.validator import VlmSchemaInvalidError, parse_raw, validate
+from npick_worker.vlm_metadata.validator import VlmSchemaInvalidError, parse_output, validate
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +48,13 @@ class SceneDescription:
     raw_output: str
     #: 실제로 모델에 넣은 keyframe. 골라 넣었으므로 상류가 준 전부와 다를 수 있다.
     inputs: tuple[KeyframeRef, ...]
+    #: 계약의 '없음' 으로 모은 자리 **전부**(`normalize.py`). 값은 정본에 들어가도 되지만
+    #: 그 사실은 기록으로 남아야 한다.
+    normalizations: tuple[str, ...] = ()
+    #: 그중 모델이 **문자열 표기**로 '없음' 을 쓴 자리. 비어 있지 않다는 것이 곧 "모델이
+    #: 계약과 다른 어휘를 썼다" 이고, 나머지(`{"value": null}` 류)는 읽을 것이 없는 장면에서
+    #: 정상적으로 나온다 — 갈래를 나누는 이유는 `normalize.Normalized` 에 있다.
+    notations: tuple[str, ...] = ()
 
 
 def select_keyframes(
@@ -122,9 +129,8 @@ def describe_scene(
         config.call,
     )
     try:
-        metadata = validate(
-            parse_raw(raw_output), scene.scene_index, selected, config, grounding.references
-        )
+        parsed = parse_output(raw_output)
+        metadata = validate(parsed.raw, scene.scene_index, selected, config, grounding.references)
     except VlmSchemaInvalidError as exc:
         # 어휘·근거 검사에서 떨어진 경우 `validate` 는 원문을 모른다(`RawSceneMetadata` 만
         # 받는다). 원문을 아는 곳이 여기뿐이라 여기서 붙인다 — 거부된 출력이야말로 프롬프트를
@@ -132,7 +138,13 @@ def describe_scene(
         if exc.raw_output is None:
             exc.raw_output = raw_output
         raise
-    return SceneDescription(metadata=metadata, raw_output=raw_output, inputs=selected)
+    return SceneDescription(
+        metadata=metadata,
+        raw_output=raw_output,
+        inputs=selected,
+        normalizations=parsed.normalizations,
+        notations=parsed.notations,
+    )
 
 
 def describe_scenes(
@@ -147,11 +159,14 @@ def describe_scenes(
     장면은 "설명이 없는 장면" 으로 저장되어 실패가 정상 데이터로 보이게 된다.
     """
     config = cfg if cfg is not None else get_default_config()
-    described = tuple(
-        describe_scene(scene, image_paths, client, config).metadata for scene in scenes
-    )
+    described = tuple(describe_scene(scene, image_paths, client, config) for scene in scenes)
     return VlmResult(
-        scenes=described,
+        scenes=tuple(description.metadata for description in described),
+        normalized_value_count=sum(len(description.notations) for description in described),
+        reshaped_value_count=sum(
+            len(description.normalizations) - len(description.notations)
+            for description in described
+        ),
         schema_version=SCHEMA_VERSION,
         config_version=config.version_id,
         prompt_version=prompt_version(config),

@@ -18,9 +18,7 @@ async function openLandscape(page: Page) {
   );
 }
 
-test('로그인에서만 세 레이어가 다른 깊이로 움직이고 폼을 사용할 수 있다', async ({
-  page,
-}, testInfo) => {
+test('로그인 세 레이어가 다른 깊이로 움직이고 폼을 사용할 수 있다', async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 900 });
