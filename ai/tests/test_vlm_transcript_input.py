@@ -207,11 +207,18 @@ async def test_existing_artifact_loader_and_vlm_handler_use_final_mapping(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "stage", ["entity_extraction", "text_embedding", "indexing", "vlm_metadata"]
+    "stage", ["entity_extraction", "indexing", "text_embedding", "vlm_metadata"]
 )
-async def test_mapping_validation_is_scoped_to_vlm(
+async def test_mapping_validation_is_scoped_to_the_stages_that_read_dialogue(
     stage: str, job_client: JobApiClient, fake_backend: FakeBackend
 ) -> None:
+    """매핑을 읽는 단계만 그것을 검증한다.
+
+    `text_embedding` 은 `vlm_metadata` 와 같은 쪽이다 — 캡션에 대사를 합쳐 벡터를
+    만들므로(FRD §11) 매핑이 깨졌는데 조용히 넘어가면 대사가 빠진 벡터가 정본에 남고,
+    그것은 다시 만들려면 전체 재색인이다. `indexing` 은 세그먼트 본문을 읽지 않고
+    연결된 장면 수만 세므로 artifact 를 받지 않는다.
+    """
     job = JobAssignment.model_validate(
         make_job(
             stage=stage,
@@ -221,7 +228,7 @@ async def test_mapping_validation_is_scoped_to_vlm(
             },
         )
     )
-    if stage == "vlm_metadata":
+    if stage in {"vlm_metadata", "text_embedding"}:
         with pytest.raises(UpstreamOutputInvalidError):
             await resolve_transcripts(job, MediaResolver(None, job_client))
     else:

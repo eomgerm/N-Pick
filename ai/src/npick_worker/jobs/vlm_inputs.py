@@ -5,12 +5,7 @@ from dataclasses import replace
 from typing import Any
 
 from npick_worker.jobs.errors import UpstreamOutputInvalidError
-from npick_worker.jobs.transcripts import (
-    TranscriptDecisions,
-    TranscriptSegments,
-    parse_scene_transcript_mapping,
-    validate_snapshot,
-)
+from npick_worker.jobs.transcripts import resolve_mapping
 from npick_worker.vlm_metadata.grounding import TranscriptRef, TranscriptText
 from npick_worker.vlm_metadata.models import SceneKeyframes
 
@@ -20,37 +15,31 @@ def attach_mapped_transcripts(
     upstream: Mapping[str, Any],
     documents: Mapping[str, Mapping[str, Any]],
 ) -> tuple[SceneKeyframes, ...]:
-    if "scene_transcript_mapping" not in upstream:
+    """장면마다 채택된 대사를 근거와 함께 붙인다.
+
+    매핑·snapshot 검증은 `resolve_mapping` 이 한다 — `text_embedding` 도 같은 판정을
+    쓰므로 두 곳에서 따로 파싱하면 어느 날 둘이 갈라진다. 여기 남는 것은 VLM 고유의
+    일뿐이다: 연결된 장면 집합이 keyframe 쪽과 같은지, 그리고 근거 참조 조립.
+    """
+    resolved = resolve_mapping(upstream, documents)
+    if resolved is None:
         return tuple(scenes)
+    mapping, linked = resolved
     try:
-        mapping = parse_scene_transcript_mapping(upstream["scene_transcript_mapping"])
-        snapshot = mapping.transcript
-        segments = TranscriptSegments.model_validate(
-            documents[snapshot.segments_artifact.storage_key]
-        )
-        decisions = TranscriptDecisions.model_validate(
-            documents[snapshot.decisions_artifact.storage_key]
-        )
-        validate_snapshot(snapshot.segments_artifact, segments, decisions)
-        linked = {scene.scene_index: scene.segments for scene in mapping.scenes}
-        if set(linked) != {scene.scene_index for scene in scenes}:
+        segments_key = mapping.transcript.segments_artifact.storage_key
+        by_scene = {scene.scene_index: scene.segments for scene in mapping.scenes}
+        if set(by_scene) != {scene.scene_index for scene in scenes}:
             raise ValueError("mapped scenes must match frame extraction scenes")
-        originals = {segment.segment_id: segment for segment in segments.segments}
-        selected = {decision.segment_id for decision in decisions.decisions if decision.selected}
         result: list[SceneKeyframes] = []
         for scene in scenes:
             texts: list[TranscriptText] = []
-            for link in linked[scene.scene_index]:
-                if link.segment_id not in selected:
-                    raise ValueError("mapped segment must be selected")
-                segment = originals[link.segment_id]
-                if link.overlap_ms > segment.e - segment.s:
-                    raise ValueError("overlap exceeds original segment duration")
+            for link in by_scene[scene.scene_index]:
+                segment = linked[link.segment_id]
                 texts.append(
                     TranscriptText(
                         ref=TranscriptRef(
                             scene_index=scene.scene_index,
-                            storage_key=snapshot.segments_artifact.storage_key,
+                            storage_key=segments_key,
                             segment_id=segment.segment_id,
                             s=segment.s,
                             e=segment.e,

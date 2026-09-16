@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import Field, StrictBool, StrictInt, model_validator
 
+from npick_worker.jobs.errors import UpstreamOutputInvalidError
 from npick_worker.jobs.models import ArtifactRef, WireResponse
 from npick_worker.jobs.versions import WireModel
 
@@ -164,7 +165,9 @@ def transcript_refs(
     upstream: Mapping[str, Any], *, stage: str | None = None
 ) -> tuple[ArtifactRef, ...]:
     # 상위 transcript 별칭이 이전 snapshot이어도 최종 매핑의 참조가 정본이다.
-    if stage == "vlm_metadata" and "scene_transcript_mapping" in upstream:
+    # `text_embedding` 도 같은 이유로 매핑 쪽을 본다 — 별칭이 가리키는 옛 snapshot 을
+    # 받아 오면 `resolve_mapping` 이 문서를 찾지 못해 이 단계가 통째로 죽는다.
+    if stage in {"vlm_metadata", "text_embedding"} and "scene_transcript_mapping" in upstream:
         mapping = parse_scene_transcript_mapping(upstream["scene_transcript_mapping"])
         return (mapping.transcript.segments_artifact, mapping.transcript.decisions_artifact)
     transcript = upstream.get("transcript")
@@ -180,3 +183,45 @@ def transcript_refs(
         if refs[1].kind != "transcript_decisions":
             raise ValueError("invalid decisions artifact kind")
     return tuple(refs)
+
+
+def resolve_mapping(
+    upstream: Mapping[str, Any], documents: Mapping[str, Mapping[str, Any]]
+) -> tuple[SceneTranscriptMappingOutput, dict[str, TranscriptSegment]] | None:
+    """장면 연결 결과와 그 연결이 가리키는 채택 세그먼트.
+
+    `scene_transcript_mapping` 이 없으면 `None` 이다 — 비치명 상류라 정상 입력이고,
+    그때 하류는 대사 없이 돈다.
+
+    연결이 **채택되지 않은** 세그먼트를 가리키거나 원본보다 긴 겹침을 주장하면 거절한다.
+    그 값을 받아들이면 선택 단계가 버린 자막이 캡션·벡터·근거로 되살아난다.
+
+    Returns:
+        `(매핑, segmentId → 원본 세그먼트)`. 사전에는 **연결된 것만** 들어간다.
+    """
+    if "scene_transcript_mapping" not in upstream:
+        return None
+    try:
+        mapping = parse_scene_transcript_mapping(upstream["scene_transcript_mapping"])
+        snapshot = mapping.transcript
+        segments = TranscriptSegments.model_validate(
+            documents[snapshot.segments_artifact.storage_key]
+        )
+        decisions = TranscriptDecisions.model_validate(
+            documents[snapshot.decisions_artifact.storage_key]
+        )
+        validate_snapshot(snapshot.segments_artifact, segments, decisions)
+        selected = {decision.segment_id for decision in decisions.decisions if decision.selected}
+        originals = {segment.segment_id: segment for segment in segments.segments}
+        linked: dict[str, TranscriptSegment] = {}
+        for scene in mapping.scenes:
+            for link in scene.segments:
+                if link.segment_id not in selected:
+                    raise ValueError("mapped segment must be selected")
+                segment = originals[link.segment_id]
+                if link.overlap_ms > segment.e - segment.s:
+                    raise ValueError("overlap exceeds original segment duration")
+                linked[link.segment_id] = segment
+        return mapping, linked
+    except (ValueError, KeyError, TypeError) as exc:
+        raise UpstreamOutputInvalidError("invalid scene transcript mapping or snapshot") from exc
