@@ -89,6 +89,19 @@ npick:
     nginx-accel: ${CLIP_MEDIA_NGINX_ACCEL:false}
     internal-location: ${CLIP_MEDIA_INTERNAL_LOCATION:/internal-media/}
   search:
+    structured:
+      # 동일 가중치는 시험용이며 운영 최적값이 아니다. Gate B 실측 후 값과 상태를 함께 설정한다.
+      # 실제 설정은 결과에 포함한다. 전체 검색 설정의 버전·저장 조립은 #54·#60 소유다.
+      weight-status: ${SEARCH_STRUCTURED_WEIGHT_STATUS:experimental}
+      weights:
+        event: ${SEARCH_STRUCTURED_EVENT_WEIGHT:1.0}
+        person: ${SEARCH_STRUCTURED_PERSON_WEIGHT:1.0}
+        organization: ${SEARCH_STRUCTURED_ORGANIZATION_WEIGHT:1.0}
+        location: ${SEARCH_STRUCTURED_LOCATION_WEIGHT:1.0}
+        facility: ${SEARCH_STRUCTURED_FACILITY_WEIGHT:1.0}
+        scene-type: ${SEARCH_STRUCTURED_SCENE_TYPE_WEIGHT:1.0}
+        broadcast-date: ${SEARCH_STRUCTURED_BROADCAST_DATE_WEIGHT:1.0}
+        filmed-date: ${SEARCH_STRUCTURED_FILMED_DATE_WEIGHT:1.0}
     # 단어 검색(BM25) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
     # 값을 바꿀 때는 config-version 도 함께 올린다 — 그러지 않으면 다른 설정으로 돌린
     # 두 실행이 search_execution 에서 같은 설정으로 보인다.
