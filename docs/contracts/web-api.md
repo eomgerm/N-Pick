@@ -643,7 +643,8 @@ body는 생략하거나 다음처럼 보낸다.
 | `COMM_500`         | 500  | 서버 오류                                     |
 
 **내 검색 기록**(`GET /search/history` 목록·상세)은 미구현이다 — `search_execution`/`search_result` snapshot 저장 계약(S15P21A501-60, 미착수) 선행이라 이 문서에 상세 계약을 넣지 않는다.
-### 6.7 장면 대표 이미지(thumbnail)
+
+### 6.7 장면 대표 이미지(thumbnail) — 원본 해상도까지 구현
 
 `GET /scenes/{sceneId}/thumbnail`
 
@@ -653,6 +654,7 @@ body는 생략하거나 다음처럼 보낸다.
 - 성공: 이미지 byte, `Content-Type: image/jpeg`(파일 머리글로 판별하며 `image/png`·`image/webp`도 가능), `Content-Length`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`.
 - 성공 byte에는 공통 JSON envelope를 사용하지 않는다. 실패에는 공통 실패 envelope를 사용한다.
 - Range를 지원하지 않는다. 한 장을 통째로 보낸다.
+- **응답은 축소하지 않은 원본 해상도 keyframe이다.** 장당 크기는 1080p 기본 화질에서 약 420 KiB다([job-api.md](job-api.md) §4.3.1의 실측). 카드 10장이면 한 화면이 4 MB 급이므로 FE는 이 값을 전제로 지연 로딩·동시 요청 수를 잡는다.
 
 **응답 cache.** `Cache-Control: private, max-age=86400, immutable`이다. 한 `scene_id`가 가리키는 대표 이미지는 바뀌지 않는다 — 재처리는 새 `pipeline_run`과 새 `scene_id`를 만들지 기존 장면의 keyframe을 바꾸지 않는다. `private`인 이유는 프레임이 공유 캐시·중간 프록시에 남으면 안 되기 때문이다(FRD §6.4). 브라우저 한 대의 캐시까지 막으면 카드 10장이 화면을 오갈 때마다 다시 내려받는다.
 
@@ -672,7 +674,20 @@ body는 생략하거나 다음처럼 보낸다.
 
 `SCENE_404_001`과 `SCENE_404_002`는 화면 안내가 다르다. 앞은 「없는 장면」, 뒤는 「아직 처리 중」이다(FRD §6.2). `SCENE_404_003`은 저장소 사고이므로 재시도 안내가 아니라 운영 확인 대상이다.
 
-영상 재생(§6.1)과 책임이 다르다. 저쪽은 큰 파일을 Range로 흘려보내며 중간 캐시에 남기지 않고(`private, no-store`), 이쪽은 작은 이미지를 통째로 주며 브라우저가 캐시하기를 바란다.
+**아직 구현하지 않은 것 — 카드용 축소.** [job-api.md](job-api.md) §4.3.1은 AI가 축소본을 만들지 않기로 하면서 「컬럼을 새로 만들지 않았으므로 BE는 대표 keyframe을 축소해 카드에 제공한다」로 축소 책임을 조회 시점, 즉 이 endpoint에 넘겼다. `ai/docs/frame-extraction.md` §1의 「카드용 축소는 조회 시점의 몫」도 같은 말이다. **이 절의 현재 구현은 그 축소를 하지 않는다.** 축소 규격이 FE 카드 레이아웃과 함께 정해져야 하는 값이라 별도 이슈로 분리했고, 그때까지 이 endpoint는 원본 해상도를 그대로 준다.
+
+후속 이슈에서 FE 카드 규격과 함께 확정할 항목은 다음과 같다. 확정 전에는 BE가 단독으로 기본값을 정하지 않는다.
+
+- 최대 가로·세로 크기
+- 비율 유지인지 crop인지
+- 출력 형식과 JPEG/WebP 품질
+- 리사이즈 결과를 캐시하는 방법(요청마다 계산할지, 파생 파일로 남길지)
+- 받아들일 원본 이미지의 크기·픽셀 수 상한
+
+축소를 넣을 때 응답 `Content-Type`과 `Cache-Control`이 바뀔 수 있으므로, 그 이슈는 이 절을 함께 고친다.
+
+영상 재생(§6.1)과 책임이 다르다. 저쪽은 큰 파일을 Range로 흘려보내며 중간 캐시에 남기지 않고(`private, no-store`), 이쪽은 한 장을 통째로 주며 브라우저가 캐시하기를 바란다.
+
 ## 7. 앞으로 명세·구현할 API
 
 아래는 [FRD](../frd.md) F-03, F-05, F-08~F-14와 현재 FE 화면이 요구하는 기능 목록이다. 경로·method·JSON·오류 코드는 담당 이슈에서 확정한 뒤 이 문서의 별도 절로 승격한다.
@@ -706,5 +721,6 @@ body는 생략하거나 다음처럼 보낸다.
 | 내 문의 기록       | §6.6으로 확정·구현 완료                                              | 없음(FE 바인딩만 남음)                                                                     |
 | 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
 | 처리 조회          | BE 조회는 §6.5, FE는 아직 UI 데모 모델                                  | 공개 DTO를 화면에 mapping하고 unknown/null을 보존. polling·수동 재처리 연결은 별도 구현    |
+| thumbnail 축소     | §6.6은 원본 해상도 keyframe을 그대로 제공. job-api §4.3.1이 BE에 넘긴 카드용 축소는 미구현 | FE 카드 규격과 함께 최대 크기, 비율 유지/crop, 출력 형식과 품질, 리사이즈 캐시 방법, 원본 크기·픽셀 수 상한을 확정 |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.
