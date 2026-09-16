@@ -308,6 +308,32 @@ NPICK_AI_VLM_RUN_DIR=<run_dir> uv run pytest tests/test_vlm_real_outputs.py
 그러니 이 값은 "모델이 계약대로 쓴다"의 근거가 아니라 **아직 재본 적 없다**는 뜻이다. v2 실측이
 들어오면 `summary.json`의 `normalizedScenes`·`normalizedValues`가 그 답이다.
 
+#### 2026-09-16 v2 실측 — 정규화 0건, 그리고 그 값이 뜻하지 않는 것
+
+선정 모델로 지금 계약을 한 번 돌렸다. SSAFY L40S(driver 570.211.01), `Qwen/Qwen3.5-9B@c2022362`,
+transformers 5.17.0 + torch 2.11.0+cu128, bfloat16, thinking off, 예산 20 GiB, `KNI_02205` 10장면.
+실행 기록은 `samples/out/20260916T045428Z-Qwen--Qwen3.5-9B/`이고 Git 밖에 있다.
+
+| 값 | 결과 |
+| --- | --- |
+| `attemptedScenes` / `schemaValidScenes` / `failedScenes` | 10 / 10 / 0 |
+| `normalizedScenes` / `normalizedValues` | **0 / 0** |
+| 장면당 소요 (mean / median / p95) | 8.81s / 8.85s / 14.54s |
+| `peakAllocatedBytes` | 19.78 GB (예산 20 GiB 안) |
+
+**이 0은 "모델이 계약대로 쓴다"가 아니다.** 원문 10건 전체를 훑어도 `"없음"`·`"미상"`·`"N/A"`는
+물론 `null`·`unknown`도 한 번 나오지 않는다. 열 장면 모두 caption·shot_type·태그 후보를 하나
+이상 채웠다 — **부재를 표현할 일 자체가 없었다.** §6이 정규화하는 자리는 이번에도 지나가지
+않았고, 위 30장면 때와 같은 이유로 전제는 여전히 미확인이다.
+
+그래서 이 결과로 `normalize.py`의 목록을 넓히지도 줄이지도 않는다. 넓히면 근거 없이 경계를
+움직이는 것이고, 줄이면 재본 적 없는 자리를 지우는 것이다. 다음 기회는 **부재가 실제로 생기는
+입력** — 화면에 아무 정보가 없는 장면, OCR·ASR 문맥이 비는 장면 — 을 넣어 보는 것이고, 그건
+이 티켓이 아니라 실운영 클립을 흘릴 때 나온다.
+
+실측 기록은 `tests/test_vlm_real_outputs.py`가 그대로 재생한다. 지금 이 기록으로 6건이 통과하며,
+`samples/out/vlm-benchmarks/`의 v1 기록 세 건은 계약이 달라 재생 대상에서 빠진다.
+
 ### 장면 하나가 깨지면 전체가 실패다
 
 깨진 장면만 빼고 나머지를 반납하는 선택지가 있었다. 쓰지 않았다 — 빠진 장면은 "설명이 없는
