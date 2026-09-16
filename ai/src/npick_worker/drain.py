@@ -27,9 +27,15 @@ logger = logging.getLogger(__name__)
 #: 잡 API 에 닿지 못했을 때 쉬는 시간. BE 재기동·네트워크 순단을 넘긴다.
 UNAVAILABLE_BACKOFF_SECONDS: Final[float] = 5.0
 
-#: **연속** 도달 실패 상한. 없으면 BE 가 죽어 있을 때 배치가 영원히 끝나지 않아
-#: 배치 실행이라는 성질 자체가 사라진다. 사이에 잡이 하나라도 처리되면 다시 센다.
+#: **연속** 도달 실패 상한. 이 횟수째 실패에서 포기하므로 재시도는 그보다 한 번
+#: 적다. 없으면 BE 가 죽어 있을 때 배치가 영원히 끝나지 않아 배치 실행이라는 성질
+#: 자체가 사라진다. 사이에 잡이 하나라도 처리되면 다시 센다.
 MAX_CONSECUTIVE_UNAVAILABLE: Final[int] = 5
+
+#: **연속** 과부하 상한. 같은 이유로 둔다 — BE 가 계속 `retryAfterMs` 를 내리면
+#: 배치가 끝나지 않는다. 도달 실패보다 넉넉한 이유는 과부하가 고장이 아니라 정상
+#: 신호이고, 무는 시간도 서버가 정해 `run_once` 안에서 이미 자기 때문이다.
+MAX_CONSECUTIVE_BACKPRESSURE: Final[int] = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +49,8 @@ class DrainReport:
 
     succeeded: int
     failed: int
+    #: 큐를 비우지 못한 채 상한에 걸려 끝냈는가. 실패한 잡이 없어도 실패다.
+    gave_up: bool = False
 
     @property
     def processed(self) -> int:
@@ -52,15 +60,18 @@ class DrainReport:
 async def drain(settings: Settings) -> DrainReport:
     """배정이 없을 때까지 잡을 처리하고 결말을 집계해 돌려준다.
 
-    멈추는 것은 `IDLE` 하나뿐이다. `BACKPRESSURE` 는 BE 가 과부하라 물린 것이지 큐가
-    빈 것이 아니므로 계속 돈다.
+    정상적으로 멈추는 것은 `IDLE` 하나뿐이다. `BACKPRESSURE` 는 BE 가 과부하라 물린
+    것이지 큐가 빈 것이 아니므로 계속 돈다 — 다만 영원히 돌 수는 없으므로 연속 상한을
+    두고, 거기 걸리면 `gave_up` 으로 표시해 끝낸다. 예외를 던지지 않는 이유는 BE 가
+    멀쩡히 응답하고 있어서다. 도달 실패로 보고하면 거짓이 된다.
 
     영구 오류(인증 거절·계약 위반)는 삼키지 않는다. 도달 실패만 일시로 보고 물러섰다
     다시 시도하되 연속 상한을 둔다. 어느 경로로 나가든 클라이언트는 닫는다.
     """
     client, runner = build_worker(settings)
     succeeded = failed = 0
-    unavailable_streak = 0
+    unavailable_streak = backpressure_streak = 0
+    gave_up = False
     try:
         while True:
             try:
@@ -81,13 +92,25 @@ async def drain(settings: Settings) -> DrainReport:
             unavailable_streak = 0
             if outcome is ClaimOutcome.IDLE:
                 break
+            if outcome is ClaimOutcome.BACKPRESSURE:
+                backpressure_streak += 1
+                if backpressure_streak >= MAX_CONSECUTIVE_BACKPRESSURE:
+                    logger.error(
+                        "BE 가 %d회 연속으로 잡을 내주지 않았다. 큐를 비우지 못한 채 끝낸다",
+                        backpressure_streak,
+                    )
+                    gave_up = True
+                    break
+                continue
+
+            backpressure_streak = 0
             if outcome is ClaimOutcome.SUCCEEDED:
                 succeeded += 1
-            elif outcome is ClaimOutcome.FAILED:
+            else:
                 failed += 1
     finally:
         await client.aclose()
-    return DrainReport(succeeded=succeeded, failed=failed)
+    return DrainReport(succeeded=succeeded, failed=failed, gave_up=gave_up)
 
 
 def main() -> None:
@@ -113,7 +136,7 @@ def main() -> None:
         report.succeeded,
         report.failed,
     )
-    if report.failed:
+    if report.failed or report.gave_up:
         # 종료 코드가 0 이면 시드가 전부 죽어도 호출한 쪽이 알 수 없다.
         raise SystemExit(1)
 

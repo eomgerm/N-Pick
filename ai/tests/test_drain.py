@@ -177,6 +177,42 @@ async def test_persistent_unavailability_gives_up(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
+async def test_endless_backpressure_gives_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """과부하에도 상한이 있어야 배치가 끝난다.
+
+    BE 가 계속 `retryAfterMs` 를 내리면 이 루프는 영원히 돈다. 도달 실패와 달리
+    던질 예외가 없으므로(BE 는 멀쩡히 응답한다) 포기했다는 사실을 보고로 남긴다 —
+    조용히 끝내면 시드가 비었는데도 종료 코드가 0 이 된다.
+    """
+    limit = drain_module.MAX_CONSECUTIVE_BACKPRESSURE
+    client = _FakeClient()
+    runner = _FakeRunner([BUSY] * (limit + 1))
+    _patch_build_worker(monkeypatch, client, runner)
+
+    report = await drain_module.drain(_settings())
+
+    assert report.gave_up is True
+    assert runner.calls == limit, "상한을 넘겨 계속 폴링했다"
+    assert client.closed
+
+
+@pytest.mark.asyncio
+async def test_the_backpressure_streak_resets_after_a_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """상한은 **연속** 과부하에 대한 것이다. 사이에 잡이 처리되면 다시 센다."""
+    limit = drain_module.MAX_CONSECUTIVE_BACKPRESSURE
+    client = _FakeClient()
+    runner = _FakeRunner([*([BUSY] * (limit - 1)), OK, *([BUSY] * (limit - 1)), OK, IDLE])
+    _patch_build_worker(monkeypatch, client, runner)
+
+    report = await drain_module.drain(_settings())
+
+    assert report.gave_up is False
+    assert report.succeeded == 2
+
+
+@pytest.mark.asyncio
 async def test_the_unavailable_streak_resets_after_a_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -219,6 +255,17 @@ def test_main_warms_up_before_draining(monkeypatch: pytest.MonkeyPatch) -> None:
     drain_module.main()
 
     assert order == ["warm_up", "drain"]
+
+
+def test_main_exits_non_zero_when_the_batch_gave_up(monkeypatch: pytest.MonkeyPatch) -> None:
+    """포기한 배치는 실패한 잡이 없어도 실패다. 큐를 비우지 못한 채 끝났다."""
+    order: list[str] = []
+    _patch_main(monkeypatch, drain_module.DrainReport(succeeded=1, failed=0, gave_up=True), order)
+
+    with pytest.raises(SystemExit) as exc:
+        drain_module.main()
+
+    assert exc.value.code == 1
 
 
 def test_main_exits_non_zero_when_a_stage_failed(monkeypatch: pytest.MonkeyPatch) -> None:
