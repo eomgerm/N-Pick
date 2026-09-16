@@ -306,21 +306,20 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             Long keyframe = keyframes.get(integer(observation, "sceneIndex", 0) + ":"
                     + integer(observation, "timestampMs", 0) + ":" + text(observation, "storageKey"));
             JsonNode box = observation.path("boundingBox");
-            JsonNode confidence = observation.path("confidence");
             // 내용어가 없는 원문(기호뿐인 자막)은 토큰을 남기지 않는다. 빈 문자열이 정상 값이라
             // `text()` 를 쓰지 않는다 — 그것은 blank 를 거절한다.
             if (keyframe == null
                     || !box.isObject()
                     || box.isEmpty()
-                    || !observation.path("tokens").isTextual()
-                    || !confidence.isNumber()
-                    || !(confidence.doubleValue() >= 0 && confidence.doubleValue() <= 1)) invalid();
+                    || !observation.path("tokens").isTextual()) invalid();
             inserts.add(new Object[] {
                 TsidGenerator.generate(),
                 keyframe,
                 text(observation, "rawText"),
                 observation.path("tokens").asText(),
-                confidence.doubleValue(),
+                // 범위와 자릿수를 한자리에서 본다. 인라인으로 다시 쓰면 `numeric(5,4)` 가드가
+                // `groups()` 의 전수 커버에만 기대게 되고, 그 불변식은 세 메서드 건너에 있다.
+                confidence(observation),
                 box.toString()
             });
         }
@@ -347,7 +346,8 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
         if (scenes.isEmpty() || values.size() != scenes.size() || jdbc.queryForObject("""
                                 SELECT count(*) FROM npick.scene s WHERE s.pipeline_run_id=?
                                   AND (s.caption IS NOT NULL OR s.shot_type <> 'unknown'
-                                       OR EXISTS (SELECT 1 FROM npick.tagging t WHERE t.scene_id = s.scene_id))
+                                       OR EXISTS (SELECT 1 FROM npick.tagging t JOIN npick.tag_evidence e USING (tagging_id)
+                                                  WHERE t.scene_id = s.scene_id AND e.source = 'vlm'))
                                 """, Long.class, run) != 0)
             invalid();
         var indexes = new HashSet<Long>();
@@ -364,8 +364,9 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             // 근거 없이 내려도 되는 판단은 `unknown` 하나다(계약 §4.3.3). 나머지는 무엇을
             // 보고 그렇게 말했는지가 결과 화면의 근거가 된다. `shotType` 은 그중에서도
             // 이미지 라벨만 쓴다 — 화면 글자나 대사로 앵커·자료화면을 가르지 않는다.
+            // 워커가 말한 종류를 본다. 저장값은 OCR 근거도 `keyframe` 이라 여기서는 구분이 안 된다.
             for (Object[] evidence : evidences(shot, keyframes, scenes, shotType.equals("unknown")))
-                if (!"keyframe".equals(evidence[0])) invalid();
+                if (!"keyframe".equals(evidence[2])) invalid();
             JsonNode caption = scene.path("caption");
             // `null` 과 없음만 "설명이 없는 장면" 이다. 문자열·숫자를 조용히 무시하면
             // 모양이 틀린 출력이 설명 없는 장면으로 위장된다.
@@ -452,15 +453,18 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
     }
 
     /**
-     * 판단의 시각 근거가 가리키는 {@code keyframe_id}. 텍스트 근거(v2 의 OCR·대사)뿐이면 {@code null} 이다 — {@code tag_evidence} 의 CHECK 가 참조
-     * 쌍을 통째로만 요구한다.
-     */
-    /**
-     * 판단의 근거를 {@code tag_evidence} 의 {@code (source_ref_type, source_ref_id)} 쌍으로 푼다.
+     * 판단의 근거를 {@code {저장할 source_ref_type, source_ref_id, 워커가 말한 종류}} 로 푼다.
      *
-     * <p>v2 의 근거는 셋이다 — 이미지, OCR 관측, 대사(계약 §4.3.3). <b>OCR 근거도 프레임 참조를 실으므로 {@code keyframe} 으로 되돌린다.</b>
+     * <p>v2 의 근거는 셋이다 — 이미지, OCR 관측, 대사(계약 §4.3.3). <b>OCR 근거도 프레임 참조를 실으므로 저장은 {@code keyframe} 으로 되돌린다.</b>
      * {@code observationIndex} 는 payload 배열의 위치이고 DB ID 가 아니어서, 그것을 {@code ocr_observation_id} 로 바꾸려면 이 어댑터의 INSERT
      * 순서에만 기대는 암묵 규약이 하나 더 생긴다. 관측으로 되돌리는 길은 {@code ocr_result} 산출물이 이미 정본이다(§4.3.2).
+     *
+     * <p><b>세 번째 칸이 원래 종류를 들고 있는 이유</b> — 저장값만 보면 이미지와 OCR 이 구분되지 않아, "이미지 라벨만" 을 요구하는 {@code shotType} 이 화면 글자로 내린 판단을
+     * 걸러내지 못한다.
+     *
+     * <p><b>대사 근거의 구간 참조는 지금 버린다.</b> {@code segmentId}·{@code s}·{@code e}·{@code sourceDetail} 을 담을 칸이
+     * {@code tag_evidence} 에 없고, 이 단계는 {@code ocr} 과 달리 산출물을 만들지 않아 되돌릴 파일도 없다. 남는 것은 "이 장면의 대사를 보고 나왔다" 까지다. 칸을 늘리는 것은
+     * 표 변경이라 이 티켓의 범위가 아니며, §4.3.3 에 같은 사실을 적어 두었다.
      */
     private List<Object[]> evidences(
             JsonNode judgement, Map<String, Long> keyframes, List<Map<String, Object>> scenes, boolean mayBeEmpty) {
@@ -475,13 +479,13 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                     Long keyframe = keyframes.get(integer(evidence, "sceneIndex", 0) + ":"
                             + integer(evidence, "timestampMs", 0) + ":" + text(evidence, "storageKey"));
                     if (keyframe == null) invalid();
-                    rows.add(new Object[] {"keyframe", keyframe});
+                    rows.add(new Object[] {"keyframe", keyframe, kind});
                 }
                 case "scene" -> {
                     long index = integer(evidence, "sceneIndex", 0);
                     text(evidence, "segmentId");
                     if (index >= scenes.size()) invalid();
-                    rows.add(new Object[] {"scene", scenes.get((int) index).get("scene_id")});
+                    rows.add(new Object[] {"scene", scenes.get((int) index).get("scene_id"), kind});
                 }
                 default -> invalid();
             }

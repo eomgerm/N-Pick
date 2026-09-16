@@ -1111,16 +1111,31 @@ class WorkerOutputDatabaseTest {
         storeKeyframes();
 
         // `shotType` 은 이미지 라벨만 사용한다(계약 §4.3.3). 화면 글자나 대사로 앵커·자료
-        // 화면을 가르는 판단은 그 단계가 하는 일이 아니다.
-        assertThatThrownBy(() -> adapter.validateAndStore(
-                        703,
-                        702,
-                        "vlm_metadata",
-                        "runs/703/vlm_metadata/a1/",
-                        vlmResult(
-                                described(0, judgement("unknown", 0.1), null),
-                                described(1, judgement("anchor", 0.9, spoken(1, "s1", 1000, 1900)), null))))
-                .isInstanceOf(BusinessException.class);
+        // 화면을 가르는 판단은 그 단계가 하는 일이 아니다. **OCR 근거도 거절해야 한다** —
+        // 그것도 프레임 참조를 싣고 있어 저장 단계에서는 `keyframe` 으로 되돌아가지만,
+        // 모델이 본 것은 그림이 아니라 글자다. `scene.shot_type` 은 랭킹이 매 검색마다 읽는다.
+        for (Map<String, Object> text :
+                List.<Map<String, Object>>of(readText(1, 1500, KEY_1, 0), spoken(1, "s1", 1000, 1900)))
+            assertThatThrownBy(() -> adapter.validateAndStore(
+                            703,
+                            702,
+                            "vlm_metadata",
+                            "runs/703/vlm_metadata/a1/",
+                            vlmResult(
+                                    described(0, judgement("unknown", 0.1), null),
+                                    described(1, judgement("anchor", 0.9, text), null))))
+                    .isInstanceOf(BusinessException.class);
+
+        // 이미지 근거는 그대로 통과한다.
+        adapter.validateAndStore(
+                703,
+                702,
+                "vlm_metadata",
+                "runs/703/vlm_metadata/a1/",
+                vlmResult(
+                        described(0, judgement("unknown", 0.1), null),
+                        described(1, judgement("anchor", 0.9, frame(1, 1500, KEY_1)), null)));
+        assertThat(storedScenes().get(1)).containsEntry("shot_type", "anchor");
     }
 
     @Test

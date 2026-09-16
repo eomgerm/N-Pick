@@ -567,7 +567,7 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
 **텍스트 근거(v2)** — 모델은 제공된 `ocr_N`·`tr_N` 라벨을 기존 `evidence` 배열에서 인용한다. 라벨은 모델 출력용이며 DB ID가 아니다. 입력에 없는 라벨은 기존 근거 해석 경로에서 거부한다. `shotType`은 이미지 라벨만 사용한다. 기존 이미지 근거 객체는 유지하며 caption·tagCandidates의 근거에 다음 객체가 추가된다.
 
 - OCR: `{sourceRefType: "ocr_observation", sceneIndex, timestampMs, storageKey, observationIndex}`. `observationIndex`는 현재 run의 원본 `ocr.observations` 배열 위치이며 DB ID가 아니다. OCR을 묶은 라벨은 해당 원본 관측 전부로 되돌린다.
-- 대사: `{sourceRefType: "scene", sceneIndex, storageKey, segmentId, s, e, sourceDetail}`. `storageKey`는 원본 segments snapshot이며 `segmentId`는 그 안에서만 유일하다. 저장 시 scene 근거를 사용하되 구간 참조를 손실시키지 않는다.
+- 대사: `{sourceRefType: "scene", sceneIndex, storageKey, segmentId, s, e, sourceDetail}`. `storageKey`는 원본 segments snapshot이며 `segmentId`는 그 안에서만 유일하다. **BE는 이 근거를 `tag_evidence`의 `('scene', scene_id)`까지만 저장한다** — `segmentId`·`s`·`e`·`sourceDetail`을 담을 칸이 그 표에 없고, 이 단계는 `ocr`과 달리 산출물을 만들지 않아 되돌릴 파일도 없다. 그래서 남는 것은 "이 장면의 대사를 보고 나왔다"까지이며, 어느 구간이었는지는 보존되지 않는다(`S15P21A501-184`). 구간까지 남기려면 표에 칸을 늘리는 별도 티켓이 필요하다.
 
 출력 payload는 `npick.stage.vlm_metadata.output/v2`, 모델 schema는 `vlm-metadata/v2`다. 기존 이미지 전용 v1 소비자가 이 출력을 정상 데이터로 받아서는 안 된다. BE 저장·부분 저장 방지 및 대사 매핑 결과 생성은 각 담당 연동 구현에서 이 계약과 맞춰야 한다. 이 확장만으로 해당 저장 경로가 완성됐음을 의미하지 않는다.
 
