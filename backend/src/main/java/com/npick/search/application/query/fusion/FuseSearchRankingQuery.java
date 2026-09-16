@@ -8,7 +8,9 @@ import com.npick.search.application.query.dense.DenseCandidatesResult;
 import com.npick.search.application.query.structured.StructuredScoresResult;
 
 /**
- * 순위 결합의 입력 — 세 채널이 이미 만든 결과를 받는다.
+ * 순위 결합의 입력 — 두 RRF 채널(lexical·dense)과 구조화 점수의 결과를 받는다.
+ *
+ * <p>구조화 점수는 {@link com.npick.search.domain.model.FusionChannel} 이 아니다. RRF 기여가 아니라 별도 항으로 더해지므로 「세 채널」이라고 부르지 않는다.
  *
  * <p>조회를 직접 하지 않는 이유는 트랜잭션·순서·degraded 판정이 조립(-59)의 책임이기 때문이다. -59 가 단어·dense 후보를 모아 -52 에 넘기고, 그 결과 셋을 여기로 가져온다.
  *

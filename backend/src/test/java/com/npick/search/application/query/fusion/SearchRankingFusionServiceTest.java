@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 
-/** 세 채널의 결과 fixture 기반 검증. 실제 조회·트랜잭션 연결은 조립(-59)의 몫이라 여기서 다루지 않는다. */
+/** 두 RRF 채널과 구조화 점수의 결과 fixture 기반 검증. 실제 조회·트랜잭션 연결은 조립(-59)의 몫이라 여기서 다루지 않는다. */
 class SearchRankingFusionServiceTest {
     private static final String MODEL = "arctic-ko@" + "a".repeat(40);
     private static final LexicalSearchSettings LEXICAL = new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 200);

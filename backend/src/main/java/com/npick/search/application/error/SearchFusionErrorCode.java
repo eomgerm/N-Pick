@@ -27,9 +27,12 @@ public enum SearchFusionErrorCode implements ErrorCode {
     CANDIDATE_NOT_SCREENED(ErrorType.INTERNAL_SERVER_ERROR, "SRCH_500_002", "후보 적격 판정이 빠졌다"),
 
     /**
-     * 활성 채널인데 조회 결과가 없다.
+     * 활성 dense 채널인데 결과 객체가 없다.
      *
      * <p>설정상 켜진 채널은 조립이 반드시 실행해 결과를 넘겨야 한다. 결과가 없으면 「실행하지 않음」과 「실행했는데 실패」를 구분할 수 없고, 둘은 사용자 안내가 다르다 (degraded 판정).
+     *
+     * <p><b>이 검사는 dense 에만 적용된다.</b> dense 는 {@code DenseCandidatesResult} 라는 결과 객체를 돌려주므로 {@code null} 이 곧 「실행하지 않음」이다. 반면
+     * 단어 검색은 목록만 돌려주고 빈 목록은 「일치가 없었다」는 정상 결과다 — 미실행과 구분할 방법이 없으므로 여기서 잡을 수 없다.
      */
     ACTIVE_CHANNEL_RESULT_MISSING(ErrorType.INTERNAL_SERVER_ERROR, "SRCH_500_003", "활성 검색 채널의 결과가 없다"),
 
