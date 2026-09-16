@@ -5,7 +5,8 @@
 FRD v3.2 F-03·F-04·F-06과 `job-api.md` §4.3.6을 따른다. 순수 함수 `extract`가
 장면 입력과 NER span을 받아 후보를 만들며 `build_inputs`가 OCR 병합·최종 대사 매핑·VLM
 산출물을 입력으로 옮긴다. `LocalNer`는 별도 I/O 경계에서 자체 GPU 추론만 수행한다.
-잡 배선과 BE 저장은 이번 모듈 구현 범위가 아니다.
+`jobs/entity_extraction.py`가 이 순수 모듈을 잡 레이어에 잇는다(92·98번과 같은 범위).
+BE의 tag·tagging·tag_evidence 저장은 이번 범위가 아니다.
 
 초기 실행 방법은 **KPF/KPF-bert-ner 전용 NER**다. 텍스트마다 원문 offset을 반환해
 생성 모델의 source ID 추측 없이 근거를 고정할 수 있다. [공식 모델 카드](https://huggingface.co/KPF/KPF-bert-ner)는
@@ -20,8 +21,11 @@ FRD v3.2 F-03·F-04·F-06과 `job-api.md` §4.3.6을 따른다. 순수 함수 `e
 
 ## 2. 방법 비교와 제한
 
-기존 `ai/tools/entity_sample_compare.py`와 `samples/out/entity-compare-20260916/`의
-기록을 확인했다. 동일 스포츠 영상 10개의 장면 OCR·제공 대사 corpus를 사용했다.
+비교 하네스 `ai/tools/entity_sample_compare.py`와 그 실행 기록
+`samples/out/entity-compare-20260916/`를 확인했다. 하네스는 이 브랜치에서 저장소에
+넣었고(타입 주석과 줄바꿈만 손봤고 동작은 그대로다), 실행 산출물은 샘플 권리 게이트
+(`ai/.gitignore`) 안에 남아 있다 — 아래 표는 그 기록의 인용이며 커밋된 코드를 다시 돌린
+결과가 아니다. 동일 스포츠 영상 10개의 장면 OCR·제공 대사 corpus를 사용했다.
 
 | 방법 | 기록된 추론 시간 | 후보 수 | 확인된 제한 |
 | --- | ---: | ---: | --- |
@@ -68,32 +72,63 @@ OCR은 병합 대표 관측의 원문에서 span을 잘라 표시값으로 쓴�
 ## 5. 설정·실패·버전
 
 `config/entity_extraction.v1.toml`에 revision·유형 매핑·confidence 임계값·stride·aggregation을
-둔다. `minimum_confidence=0.0`은 품질 임계값을 실측으로 정하기 전 필터링하지 않는 설정이다.
-stride 64는 긴 입력 누락을 피하는 초기 overlap 값이며 품질 최적값이라고 주장하지 않는다.
+둔다. stride 64는 긴 입력 누락을 피하는 초기 overlap 값이며 품질 최적값이라고 주장하지 않는다.
+
+`minimum_confidence=0.0`은 **실측 결과 그대로 둔 값**이다. 첫 실제 실행의 후보 706개를
+NER 점수대로 갈라 보면 이렇다.
+
+| 점수대 | 후보 | OCR 유래 | 대사 유래 |
+| --- | ---: | ---: | ---: |
+| `[0.0, 0.5)` | 69 | 69 | 0 |
+| `[0.5, 0.7)` | 91 | 89 | 2 |
+| `[0.7, 0.9)` | 117 | 85 | 32 |
+| `[0.9, 1.0]` | 429 | 260 | 169 |
+
+점수가 낮은 쪽은 전부 화면 글자에서 왔고 대사에서 온 것은 하나도 없다. 그렇다고 임계값이
+쓸 만한 칼이 되지는 않는다. OCR 유래 후보 503개 중 165개가 두 글자 이하 파편인데
+(`R`←`Rinnai`, `여자수`←`여자수는기리`) 그중 43개가 0.9 이상이고, 반대로 실제 단체인
+`KBO`가 0.584, `KOVO`가 0.299다. **이 점수는 "이 글자열이 어떤 유형인가"에 대한 확신이지
+"그 글자가 화면에 실제로 있었나"가 아니므로**, 어느 값에서 자르든 파편은 남고 진짜가
+잘린다. 지금 잘라야 할 신호는 NER 점수가 아니라 OCR 읽기 품질이며, 그 판정은 상류에
+`ocr_observation.confidence`와 `unverified`로 이미 있다(계약 §4.3.2 — BE가 그 값으로
+`tag_evidence.verification_status`를 정한다). 이 단계는 soft 신호 전용이므로 모호한 후보를
+지우는 쪽보다 근거를 달아 넘기는 쪽을 택하고, 사람 정답 기반 임계값은 §2가 말한 gold
+라벨 작업과 함께 정한다.
+
 TOML과 BIO 표 전체가 `configVersion`에 포함된다. 모델 로드 이후에만 재현 식별자를 노출한다.
 
 알 수 없는 라벨, 범위 밖 span, NaN/무한대 점수, 다른 장면 근거, 누락된 응답은 실패다.
-실패 전 만들어 둔 일부 후보를 돌려주지 않는다. 비치명 단계의 run 계속·errorCode 기록은
-향후 잡 어댑터에서 §9.2에 맞춰 연결해야 한다. 모델 파일은 사전 배치하고 실행은
-`local_files_only=True`로 제한한다. 입력 텍스트의 외부 전송 경로는 없다.
+실패 전 만들어 둔 일부 후보를 돌려주지 않는다. 잡 어댑터가 이 실패를
+`ENTITY_SCHEMA_INVALID`(영구), 가중치 미배치를 `MODEL_UNAVAILABLE`(일시), 상류 오류를
+`VALIDATION_ERROR`로 신고한다(§9.2). 단계가 비치명이므로 run은 계속되고 오류는
+`stage_states_json`에 남는다. BIO 표는 개수만이 아니라 표 안 여섯 자리의 라벨 이름까지
+로드 시 대조한다 — 표를 다시 만들 때 순서가 바뀌면 `num_labels`는 그대로인 채 모든 유형이
+조용히 어긋난다. 모델 파일은 사전 배치하고 실행은 `local_files_only=True`로 제한한다. 입력 텍스트의 외부 전송 경로는 없다.
 
 ## 6. 실제 샘플 재현과 완료 경계
 
 저장소 루트에서:
 
 ```powershell
-ai/.venv/Scripts/python.exe -m npick_worker.entity_extraction.report --corpus ai/samples/out/entity-compare-20260916/corpus.json --out ai/samples/out/entity-extraction-99-20260916
+ai/.venv/Scripts/python.exe -m npick_worker.entity_extraction.report --corpus ai/samples/out/entity-compare-20260916/corpus.json --out ai/samples/out/entity-extraction-99-20260916 --archive ai/docs/sample-results/entity-extraction-99-20260916.json
 ai/.venv/Scripts/python.exe -m pytest ai/tests/test_entity_extraction.py -q -p no:cacheprovider
 ```
 
-반입 파일은 `report.archive(output_dir, destination)`로 다시 만들 수 있다. 이 함수는
-각 후보 근거가 저장된 같은 장면 입력을 실제로 가리키고 비교값이 그 원문에 존재하는지
-확인한 뒤 파일 해시와 발췌를 기록한다.
+`--archive`가 반입 파일을 만든다. 그 단계는 각 후보 근거가 저장된 같은 장면 입력을 실제로
+가리키고 비교값이 그 원문에 존재하는지 확인한 뒤 파일 해시와 발췌를 기록한다. **발췌에
+원문 문장을 싣지 않는다** — 근거가 붙었다는 사실은 유형·비교값·근거 참조로 보이고,
+AI-Hub/KBS 자막 원문은 `ai/.gitignore`의 권리 게이트가 `samples/`·`eval/` 밖으로 내보내지
+않는 것이다. 원문이 필요한 검토는 로컬 결과 디렉터리에서 한다.
 
-첫 실제 실행은 RTX 4070 Laptop GPU, transformers 5.17.0, torch 2.13.0+cu130에서
-10개 영상·83장면, 706개 후보를 생성했다. 로딩 5.099초, 추출 16.857초,
-peak allocated 465,347,072 bytes, peak reserved 515,899,392 bytes였다.
-재실행의 최종 버전·시간은 [반입 결과](sample-results/entity-extraction-99-20260916.json)를 따른다.
+반입된 실행은 RTX 4070 Laptop GPU, transformers 5.17.0, torch 2.13.0+cu130에서
+10개 영상·83장면, 706개 후보를 생성했다. 로딩 13.081초, 추론 합계 23.856초,
+peak allocated 465,347,072 bytes, peak reserved 515,899,392 bytes다. 수치의 정본은
+[반입 결과](sample-results/entity-extraction-99-20260916.json)이고 여기 적은 값은 그 인용이다.
+
+그 파일의 `stageVersion`은 하네스가 계산한 네 축(`local_ner.identity`) 기준이다. 잡
+어댑터는 OCR 병합 설정을 직접 다시 계산하므로 `mergeVersion`을 더한 다섯 축을 쓴다
+(계약 §7) — 하네스는 corpus에서 텍스트를 바로 읽어 그 축이 없다. 두 값은 그래서 다르며,
+파이프라인이 보고하는 것은 다섯 축 쪽이다.
 
 실제 입력·raw span·출력·대사 snapshot은 로컬 결과 디렉터리에 보존하며 반입 JSON은
 해시·버전·통계와 검토용 발췌를 싣는다. 대사는 제공 샘플 자막이며 새 ASR 실행이 아니다.
