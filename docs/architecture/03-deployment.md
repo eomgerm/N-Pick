@@ -112,7 +112,7 @@ C4Deployment
 | 호스트 볼륨: mlflow-artifacts | Deployment_Node | MLflow artifact 스토어 | named volume `npick-mlflow-artifacts` → `/mlartifacts`. run 메타데이터는 `db`에 있음 |
 | 컨테이너: jenkins | Deployment_Node | Jenkins (인프라) | 호스트 포트 **18080을 `127.0.0.1`에만** 퍼블리시한다. 컨테이너 내부 포트는 8080 그대로다. 브라우저와 GitLab 웹훅은 nginx `/jenkins/` 경유. 이미지는 docker CLI 를 넣은 `infra/jenkins/Dockerfile` 로 만든다 (`S15P21A501-132`) |
 | RunPod GPU 파드 | Deployment_Node | 파이프라인 워커 | NVIDIA CUDA. **실시간 전체 플로우 구동용** — 필요한 시점에 띄우고 끝나면 내린다. 모델 가중치는 네트워크 볼륨 |
-| SSAFY GPU 서버 | Deployment_Node | 파이프라인 워커 (검증) | NVIDIA CUDA, 팀 공용 상시 가동. **개발 검증용** — 단계 구현과 모델 후보 확인에만 쓰고 운영 색인은 만들지 않는다 |
+| SSAFY GPU 서버 | Deployment_Node | 파이프라인 워커 (검증·데모 시드) | NVIDIA CUDA, 팀 공용 상시 가동. 단계 구현과 모델 후보 확인, 그리고 **데모 시드 적재를 배치 실행(`npick-worker-drain`)으로 허용한다** — 상주 서버를 띄울 수 없어 큐를 비우고 스스로 끝나는 모드만 쓴다. 상주 워커와 실시간 구동은 RunPod 이다 |
 
 ## 주요 관계
 
