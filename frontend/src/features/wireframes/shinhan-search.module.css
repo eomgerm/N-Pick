@@ -374,7 +374,9 @@
 }
 .statePanel {
   display: grid;
-  justify-items: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: clamp(24px, 4vw, 64px);
   padding: clamp(32px, 6vw, 72px) 24px;
   border: 0;
   border-radius: 22px;
@@ -385,6 +387,9 @@
   color: #17243b;
   text-align: center;
 }
+.statePanel[data-state='loading'] {
+  grid-template-columns: minmax(0, 1fr);
+}
 .statePanel[data-state='failed'] {
   min-height: 0;
   flex: 1;
@@ -392,6 +397,15 @@
   padding-block: clamp(16px, 3dvh, 40px);
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+.stateSummary,
+.stateDetails {
+  display: grid;
+  min-width: 0;
+  justify-items: center;
+}
+.stateDetails {
+  gap: 24px;
 }
 .stateIcon {
   display: grid;
@@ -418,7 +432,7 @@
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
-.statePanel > p {
+.stateSummary > p {
   max-width: 480px;
   margin: 0;
   color: #4d5462;
@@ -430,7 +444,7 @@
   gap: 12px;
   width: min(100%, 460px);
   padding: 20px;
-  margin: 26px 0;
+  margin: 0;
   border-radius: 16px;
   background: rgb(255 255 255 / 32%);
   text-align: left;
@@ -458,6 +472,12 @@
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+}
+@media (max-width: 760px) {
+  .statePanel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
 }
 .demoNote {
   margin: 16px 0;
