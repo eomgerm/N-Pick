@@ -609,17 +609,20 @@ class JobRunner:
         싣는다** — 그 버전으로 돌렸다가 실패한 것이 맞으므로 그쪽이 정확한 기록이다.
         선언조차 없는 단계(구현 없음·이름 미확인)만 "unknown" 으로 남긴다. 그럴듯한
         값을 지어내지 않는다는 것이 요점이다.
+
+        `output_schema_version` 도 같은 규칙으로 **워커 자신의 값**을 싣는다. 배정값을
+        우선하면 BE 가 아직 v1 을 배정하는 단계(`ocr`·`vlm_metadata`)에서 실패는 v1,
+        성공은 v2 가 되어 같은 잡의 두 결과가 다른 스키마를 주장한다. 워커가 무엇을
+        낼 수 있는지는 워커가 아는 사실이므로 배정이 그것을 덮어쓰게 두지 않는다.
+        배정과 어긋나는 것은 BE 가 판정할 문제이고 §11 항목 12 가 그 자리다.
         """
         declared = registry.capability_versions().get(job.stage)
         return StageVersion(
             stage_version=declared or _UNKNOWN_VERSION,
             output_schema_version=(
-                job.output_schema_version
-                or (
-                    output_schema_version(job.stage)
-                    if job.stage in STAGES_BY_NAME
-                    else _UNKNOWN_VERSION
-                )
+                output_schema_version(job.stage)
+                if job.stage in STAGES_BY_NAME
+                else (job.output_schema_version or _UNKNOWN_VERSION)
             ),
         )
 

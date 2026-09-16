@@ -319,3 +319,52 @@ async def test_offline_keeps_accepted_ack_when_heartbeat_also_loses_lease(
 
     monkeypatch.setattr(asyncio, "wait", both_done)
     assert await import_result(job_client, job, lease, result, tmp_path) == ack
+
+
+@pytest.mark.asyncio
+async def test_offline_ocr_bundle_imports_though_the_assignment_still_says_v1(
+    job_client: JobApiClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """번들을 배정이 아니라 **이 워커가 내는 값**과 대조한다.
+
+    BE 는 아직 모든 단계에 `.output/v1` 을 배정하는데(계약 §11 항목 12) `ocr` 과
+    `vlm_metadata` 는 v2 를 낸다. 배정과 동등 비교하면 이 워커가 방금 쓴 번들조차
+    "배정과 다르다" 로 거절되어, 오프라인 경로가 두 단계에서 통째로 막힌다.
+    """
+    job = JobAssignment.model_validate(
+        make_job(stage="ocr", outputSchemaVersion="npick.stage.ocr.output/v1")
+    )
+    lease = LeaseGrant.model_validate(make_lease())
+    now = datetime.now(UTC)
+    result = StageResult(
+        lease_id=lease.lease_id,
+        idempotency_key=job.idempotency_key,
+        stage="ocr",
+        attempt=job.attempt,
+        status="succeeded",
+        started_at=now,
+        finished_at=now,
+        duration_ms=0,
+        versions=StageVersion(
+            stage_version="npick.stage.ocr/v1:aaaaaaaa",
+            output_schema_version="npick.stage.ocr.output/v2",
+        ),
+        output={
+            "observations": [],
+            "keyframesRead": 0,
+            "minConfidence": 0.7,
+            "textGroups": [],
+            "mergeConfigVersion": "ocr-merge/v1:28d42216",
+        },
+    )
+    ack = CompleteAck(accepted=True, duplicate=False)
+    monkeypatch.setattr(
+        job_client,
+        "heartbeat",
+        AsyncMock(side_effect=[HeartbeatAck(command="continue", lease_until=now)]),
+    )
+    monkeypatch.setattr(job_client, "complete", AsyncMock(return_value=ack))
+
+    assert await import_result(job_client, job, lease, result, tmp_path) == ack

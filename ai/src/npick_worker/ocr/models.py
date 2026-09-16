@@ -21,11 +21,18 @@ CREATE TABLE "ocr_observation" (
 | 위치 | `bounding_box_json` | 원본 해상도 픽셀 좌표 |
 | 신뢰도 | `confidence` | `numeric(5,4)` — 소수점 넷째 자리까지다 |
 | 검증 상태 | **없음** | 컬럼 주석이 "이 값의 임계값으로 판정한다" 로 둔다 |
-| 병합 그룹 | **없음** | 병합을 저장하지 않는다 (`__init__.py` 참고) |
+| 병합 그룹 | 전용 컬럼 없음 | OCR v2 출력·ocr_result JSON 산출물에 원본과 함께 보존 |
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
+
+from npick_worker.ocr.merge import (
+    OcrMergeConfig,
+    OcrTextGroup,
+    get_merge_config,
+    merge_observations,
+)
 
 #: `ocr_observation.confidence` 가 `numeric(5,4)` 다. 다섯째 자리를 보내면 BE 나 DB 가
 #: 반올림하고, 그러면 워커 로그의 값과 저장된 값이 갈린다. 보내기 전에 여기서 맞춘다.
@@ -118,8 +125,7 @@ class OcrObservation:
     #: 사실이나 hard conflict 의 근거로 쓰지 않는다(티켓 제약).
     unverified: bool
     #: 같은 문구를 가리키는 관측들의 공통 키. 색인 토큰이 같으면 같은 값이다.
-    #: **병합의 결과가 아니라 병합을 할 수 있게 하는 값이다** — 관측은 하나도
-    #: 합쳐지지 않고 전부 남는다.
+    #: 검색 토큰의 해시. 병합 그룹 ID가 아니며 원문 일치를 보장하지 않는다.
     text_key: str
 
     @property
@@ -149,7 +155,8 @@ class KeyframeObservations:
 class OcrResult:
     """단계 산출물 전체.
 
-    재현성 식별자는 `(config_version, engine, engine_version, tokenizer)` 튜플이다.
+    재현성 식별자는 `(config_version, engine, engine_version, tokenizer,
+    merge_config.version_id)` 튜플이다.
     `config_version` 은 설정 파일만 해시하므로 모델 가중치나 onnxruntime 이 바뀌면
     값이 그대로인데 읽는 글자는 달라질 수 있다. `tokenizer` 가 따로 있는 이유는
     `tokens` 컬럼이 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면 원문이 같아도
@@ -166,6 +173,31 @@ class OcrResult:
     tokenizer: str
     #: 판정에 쓴 임계값. 결과에 실어야 나중에 "그때 무엇이 unverified 였나" 를 안다.
     min_confidence: float
+    merge_config: OcrMergeConfig = field(default_factory=get_merge_config)
+    #: `text_groups` 의 계산 결과. 생성자·비교·표시에서 뺀다 — 이 값은 다른 필드에서
+    #: 유도되므로 같은 결과 두 개가 캐시 상태 때문에 달라 보이면 안 된다.
+    _groups: tuple[OcrTextGroup, ...] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    @property
+    def observations(self) -> tuple[OcrObservation, ...]:
+        return tuple(obs for keyframe in self.keyframes for obs in keyframe.observations)
+
+    @property
+    def text_groups(self) -> tuple[OcrTextGroup, ...]:
+        """Scene별 병합 그룹. 한 번만 계산한다.
+
+        결과가 불변이라 매번 다시 돌려도 같은 값이지만, 잡 하나가 이 property 를 여러 번
+        본다(`jobs/registry._run_ocr` 2회, `ocr/report` 3회). 기본 임계값 1.0 은 문자열
+        비교라 싸고, `similarity_threshold < 1` 로 내리면 한 번이 관측 쌍마다
+        `SequenceMatcher.ratio()` 2회라 그 배수가 그대로 실행 시간이 된다.
+        """
+        groups = self._groups
+        if groups is None:
+            groups = merge_observations(self.observations, self.merge_config)
+            object.__setattr__(self, "_groups", groups)
+        return groups
 
     @property
     def observation_count(self) -> int:
@@ -177,5 +209,5 @@ class OcrResult:
 
     @property
     def text_group_count(self) -> int:
-        """서로 다른 문구의 수. 관측 수보다 작으면 프레임 사이에 중복이 있다는 뜻이다."""
-        return len({obs.text_key for kf in self.keyframes for obs in kf.observations})
+        """독립 관측을 포함한 scene별 병합 그룹 수."""
+        return len(self.text_groups)

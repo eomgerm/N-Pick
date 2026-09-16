@@ -244,6 +244,27 @@ async def test_failure_still_carries_the_required_version_keys(
     assert versions["outputSchemaVersion"]
 
 
+@pytest.mark.asyncio
+async def test_failure_reports_the_schema_this_worker_produces_not_the_assignment(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """같은 잡의 실패와 성공이 같은 출력 형식을 주장해야 한다.
+
+    BE 는 아직 모든 단계에 `.output/v1` 을 배정한다(계약 §11 항목 12). 배정값을 그대로
+    실으면 `ocr` 실패는 v1, 성공은 v2 가 되어 두 기록이 서로 다른 형식을 선언한다 —
+    나중에 어느 쪽이 그 단계의 출력 형식이었는지 기록만으로는 알 수 없다. 워커가 무엇을
+    낼 수 있는지는 워커가 아는 사실이므로 배정이 그것을 덮어쓰지 않는다.
+    """
+    fake_backend.enqueue_claim(
+        make_job(stage="ocr", outputSchemaVersion="npick.stage.ocr.output/v1")
+    )
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["status"] != "succeeded"
+    assert body["versions"]["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+
+
 # ── 실패 분류 ────────────────────────────────────────────────────────
 
 
@@ -1131,6 +1152,74 @@ def _ocr_job(**overrides: object) -> dict[str, object]:
 KEYFRAME_KEY = f"runs/{RUN_ID}/frame_extraction/a1/s0000/kf-000004200.jpg"
 
 
+@pytest.mark.asyncio
+async def test_ocr_v2_uploads_replayable_result_before_complete(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """실제 OCR 핸들러·러너의 JSON 보존 경로. 엔진과 BE만 fake다."""
+    import npick_worker.ocr as ocr_module
+    from npick_worker.jobs.models import OcrOutput
+    from npick_worker.ocr import KeyframeRef, TextDetection, to_observations
+    from npick_worker.ocr.models import OcrResult
+
+    def fake_read(*args: object, **kwargs: object) -> OcrResult:
+        return OcrResult(
+            keyframes=(
+                to_observations(
+                    KeyframeRef(0, 4200, KEYFRAME_KEY),
+                    [
+                        TextDetection(
+                            "  원문 보존  ", 0.5, ((0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0))
+                        )
+                    ],
+                    min_confidence=0.7,
+                ),
+            ),
+            config_version="ocr/v1:test",
+            engine="fake",
+            engine_version="1",
+            tokenizer="fake/v1",
+            min_confidence=0.7,
+        )
+
+    monkeypatch.setattr(ocr_module, "read_keyframes", fake_read)
+    image = media_root / KEYFRAME_KEY
+    image.parent.mkdir(parents=True, exist_ok=True)
+    image.write_bytes(JPEG_MAGIC)
+    # BE 가 실제로 싣는 값이다 — `StageExecutionService` 는 모든 단계에
+    # `PipelineStages.outputSchema()` = `.../output/v1` 를 넣는다. 배정을 비워 두면
+    # 러너가 제 기본값으로 메워서 아래 어긋남이 테스트에서 사라진다.
+    fake_backend.enqueue_claim(_ocr_job(outputSchemaVersion="npick.stage.ocr.output/v1"))
+    await _runner(job_client, media_root).run_once()
+
+    body = _complete_body(fake_backend)
+    assert body["status"] == "succeeded"
+    # **배정은 v1 인데 봉투는 v2 다.** BE 는 이 둘을 동등 비교해 성공 complete 를
+    # `INVALID_OUTPUT` 으로 거부한다(계약 §11 item 12 의 미해결 항목). fake backend 는
+    # 봉투를 검증하지 않으므로 단언을 걸어 두지 않으면 이 어긋남이 드러나지 않는다.
+    # 워커를 v1 로 되돌리든 BE 가 단계별 스키마를 읽든, 정리되는 순간 여기가 깨진다.
+    assert body["versions"]["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+    uploads = fake_backend.calls("artifact_put")
+    assert len(uploads) == 1
+    saved = uploads[0].content
+    document = json.loads(saved)
+    assert document["output"] == body["output"]
+    assert document["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+    assert body["artifacts"][0]["contentHash"] == hashlib.sha256(saved).hexdigest()
+    assert body["artifacts"][0]["byteSize"] == len(saved)
+    assert body["artifacts"][0]["kind"] == "ocr_result"
+    assert uploads[0].headers["content-type"] == "application/json"
+    output = OcrOutput.model_validate(document["output"])
+    original = output.observations[output.text_groups[0].representative_index]
+    assert original.raw_text == "  원문 보존  "
+    assert original.unverified
+    routes = [FakeBackend._route(request) for request in fake_backend.requests]
+    assert routes.index("artifact_put") < routes.index("complete")
+
+
 def _recording_handler(
     seen: dict[str, Path], contents: dict[str, bytes] | None = None
 ) -> StageHandler:
@@ -1148,7 +1237,9 @@ def _recording_handler(
             output={"observations": [], "keyframesRead": 0, "minConfidence": 0.7},
             versions=StageVersion(
                 stage_version="npick.stage.ocr/v1:test",
-                output_schema_version="npick.stage.ocr.output/v1",
+                # 실제 ocr 핸들러가 내는 것과 같은 스키마여야 한다. 여기만 v1 로 남으면
+                # 상류 입력 테스트가 진짜 핸들러와 다른 봉투를 보게 된다.
+                output_schema_version="npick.stage.ocr.output/v2",
             ),
         )
 

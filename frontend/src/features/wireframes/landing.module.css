@@ -472,21 +472,6 @@
   letter-spacing: -0.035em;
 }
 
-/* 참고 시안의 이탤릭 세리프 한 줄. 한글은 이탤릭이 없어 영문 카피로 둔다.
-   칩을 뺀 뒤로는 이 줄 색이 두 역할을 구분하는 유일한 단서다. */
-.cardTagline {
-  margin-top: 3px;
-  color: var(--accent);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: clamp(16px, 1.35vw, 20px);
-  font-style: italic;
-  letter-spacing: -0.01em;
-}
-
-.reviewerCard .cardTagline {
-  color: var(--accent-mint);
-}
-
 .cardText {
   margin-top: 9px;
   color: rgba(255, 255, 255, 0.76);
