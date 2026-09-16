@@ -18,6 +18,8 @@ import com.npick.search.domain.model.FusionSettings;
 import com.npick.search.domain.model.IneligibleReason;
 import com.npick.search.domain.model.LexicalSearchSettings;
 import com.npick.search.domain.model.QueryResolution;
+import com.npick.search.domain.model.SoftRankingSettings;
+import com.npick.search.domain.model.SoftSignal;
 import com.npick.search.domain.model.StructuredAxis;
 import com.npick.search.domain.model.StructuredScoreSettings;
 
@@ -194,15 +196,42 @@ class SearchRankingFusionServiceTest {
         assertThat(result.config().lexical()).isSameAs(LEXICAL);
         // 저장할 payload 와 해시 입력이 같아야 「기록된 설정」과 「버전이 가리키는 설정」이 갈리지 않는다.
         assertThat(result.configVersion()).isEqualTo(result.config().version());
-        assertThat(result.configVersion()).startsWith(FusionSettings.SCHEMA + ":");
+        // 스냅샷은 fusion 만이 아니라 다섯 설정을 담으므로 fusion 의 schema 이름을 빌려 쓰지 않는다.
+        assertThat(result.configVersion()).startsWith(SearchConfigSnapshot.SCHEMA + ":");
         // λ 만 바꿔도 순위가 달라지므로 버전이 달라져야 한다.
         assertThat(service(settings(1.0, 1.0, 2.0)).fuse(query).configVersion()).isNotEqualTo(result.configVersion());
         // 같은 설정의 두 실행은 같은 버전이다.
         assertThat(service(settings(1.0, 1.0, 1.0)).fuse(query).configVersion()).isEqualTo(result.configVersion());
     }
 
+    /** 보조 신호(-55)도 순위를 바꾸므로 그 설정이 달라지면 같은 설정으로 보이면 안 된다 (F-05 완료 기준). */
+    @Test
+    void softRankingSettingsAreRecordedAndTrackedByTheConfigVersion() {
+        var query = new FuseSearchRankingQuery(
+                List.of(candidate(30)), dense(), structured(List.of(scene(30, 0.0)), List.of()));
+
+        var result = service(settings(1.0, 1.0, 1.0)).fuse(query);
+        assertThat(result.config().soft()).isSameAs(SOFT);
+        assertThat(service(settings(1.0, 1.0, 1.0), soft(2.0)).fuse(query).configVersion())
+                .isNotEqualTo(result.configVersion());
+    }
+
     private SearchRankingFusionService service(FusionSettings settings) {
-        return new SearchRankingFusionService(settings, LEXICAL);
+        return service(settings, SOFT);
+    }
+
+    private SearchRankingFusionService service(FusionSettings settings, SoftRankingSettings soft) {
+        return new SearchRankingFusionService(settings, LEXICAL, soft);
+    }
+
+    private static final SoftRankingSettings SOFT = soft(1.0);
+
+    private static SoftRankingSettings soft(double bRollWeight) {
+        var weights = new EnumMap<SoftSignal, Double>(SoftSignal.class);
+        for (SoftSignal signal : SoftSignal.values()) {
+            weights.put(signal, signal == SoftSignal.B_ROLL ? bRollWeight : 1.0);
+        }
+        return new SoftRankingSettings(weights, 0, FusionSettings.WeightStatus.EXPERIMENTAL);
     }
 
     private static ChannelState state(FusionResult.ScoredCandidate candidate, FusionChannel channel) {
