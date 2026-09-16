@@ -143,6 +143,9 @@ pipeline {
       // 배포를 시작한 경우에만 되돌린다. 판단은 rollback.sh 가 .deploy-rollback 존재로 한다.
       // 이미지만 되돌린다. Flyway 마이그레이션은 롤백되지 않으므로 스키마 변경이 포함된
       // 배포가 실패하면 사람이 판단해야 한다.
+      // rollback 이 실패한 컨테이너를 재생성하기 전에 원인 로그를 Jenkins 콘솔에 보존한다.
+      // 로그 수집 자체가 실패해도 뒤의 rollback 은 반드시 실행한다.
+      sh 'cd "$DEPLOY_DIR" && docker compose logs --tail=200 || true'
       sh 'infra/jenkins/rollback.sh || true'
       updateGitlabCommitStatus name: 'jenkins', state: 'failed'
     }
