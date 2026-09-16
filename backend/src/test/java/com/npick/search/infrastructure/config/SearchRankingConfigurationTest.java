@@ -36,6 +36,15 @@ class SearchRankingConfigurationTest {
     }
 
     @Test
+    void aBlankModelVersionFailsWithTheConfigurationKeyInsteadOfAValidationMessage() {
+        // @ConditionalOnProperty 는 빈 문자열도 「키가 있다」로 보므로 dense 를 꺼 뒀어도 이 빈 생성이 시도된다.
+        // 부팅이 막히는 것 자체는 안전하지만, DenseSearchSettings 생성자 메시지로는 원인이 설정 키라는 것을 알기 어렵다.
+        assertThatThrownBy(() -> configuration.denseSearchSettings(new DenseSearchProperties("  ", 200)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("npick.search.dense.model-version");
+    }
+
+    @Test
     void lexicalRecordingSettingsMirrorTheCandidateAdapterConfiguration() {
         // -51 의 결과는 설정을 실어 보내지 않으므로 어댑터가 주입받는 것과 같은 빈에서 읽는다.
         var properties = new SceneCandidateProperties("candidate-v1", 1.0, 2.0, 0.0, 200);

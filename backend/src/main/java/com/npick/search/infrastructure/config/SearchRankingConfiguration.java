@@ -46,10 +46,19 @@ public class SearchRankingConfiguration {
                 properties.poolSize());
     }
 
-    /** 모델 버전이 설정된 경우에만 만든다. 조립(-59)이 이 빈을 dense 조회에 넘긴다. */
+    /**
+     * 모델 버전이 설정된 경우에만 만든다. 조립(-59)이 이 빈을 dense 조회에 넘긴다.
+     *
+     * <p>{@code @ConditionalOnProperty} 는 「키가 있고 {@code false} 가 아니면」 매치라 <b>빈 문자열도 통과한다.</b> 그 경우 dense 를 꺼 뒀더라도 빈 생성이
+     * 시도되고 {@link DenseSearchSettings} 생성자가 부팅을 막는데, 그 메시지로는 원인이 설정 키라는 것을 알기 어렵다. 안전 여부가 아니라 안내의 문제라 여기서 먼저 거른다.
+     */
     @Bean
     @ConditionalOnProperty(prefix = "npick.search.dense", name = "model-version")
     DenseSearchSettings denseSearchSettings(DenseSearchProperties properties) {
+        if (!properties.hasModelVersion()) {
+            throw new IllegalStateException("npick.search.dense.model-version 이 비어 있다. "
+                    + "실제 질의 임베딩 모델 버전을 채우거나 키 자체를 제거한다");
+        }
         return properties.settings();
     }
 }
