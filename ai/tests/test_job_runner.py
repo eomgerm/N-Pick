@@ -183,11 +183,14 @@ async def test_claim_declares_the_stage_it_can_run(
 
     body = json.loads(fake_backend.calls("claim")[0].content)
     declared = {c["stage"]: c["stageVersion"] for c in body["capabilities"]}
+    # `scene_transcript_mapping`·`indexing` 은 모델도 설정도 쓰지 않아 어느 워커에서나
+    # 선언된다. 나머지 셋(`vlm_metadata`·`asr`·`text_embedding`)은 모델·런타임이 없으면 빠진다.
     assert set(declared) == {
         "scene_detection",
         "frame_extraction",
         "ocr",
         "scene_transcript_mapping",
+        "indexing",
     }
     for stage, version in declared.items():
         assert version.startswith(f"npick.stage.{stage}/v1:")

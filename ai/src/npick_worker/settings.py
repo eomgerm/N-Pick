@@ -119,6 +119,17 @@ class Settings(BaseSettings):
     #: 내리는 것만으로 `config_version` 과 `stageVersion` 이 달라져 계약 §7 의 버전
     #: 불일치가 난다. `ocr_model_dir` 과 같은 판단이다.
     embedding_batch_size: int = Field(default=16, gt=0)
+    #: 질의측 접두 (S15P21A501-164). arctic-ko 는 질의에만 `query: ` 를 요구한다.
+    #: **설정 파일이 아니라 여기다.** `embedding_model` 과 같은 판단이다 — 이 값은 질의
+    #: 벡터만 바꾸고 색인 결과를 바꾸지 않는데, 버전 붙는 `text_embedding.v1.toml` 에
+    #: 있으면 `config_version` 과 `stageVersion` 이 함께 움직여 계약 §7 의 버전 불일치가
+    #: 난다. 모델을 바꿀 때 접두도 같이 확인한다(`docs/query-embedding.md` §2).
+    embedding_query_prefix: str = "query: "
+    #: 리졸버 기동 시 가중치를 기다릴 상한. 워밍업은 `yield` 앞이라 이 시간만큼 서버가
+    #: 연결을 받지 않는다. 캐시 볼륨이 비어 원격에서 받는 콜드 스타트가 startup probe
+    #: 유예를 넘기면 **재시작 루프**가 되므로 상한을 둔다. 넘겨도 로딩은 스레드에서
+    #: 이어지고 그 사이의 검색만 dense 채널 없이 돈다.
+    embedding_warmup_timeout_seconds: float = Field(default=60.0, gt=0)
 
     # ── 외부 VLM 처리 (PRD §12.4) ────────────────────────────────────
     # 아래 값이 전부 맞아도 **그것만으로 승인이 성립하지 않는다.** clip 별 외부 처리
@@ -176,6 +187,11 @@ class Settings(BaseSettings):
     # SecretStr: 로그·repr·예외 메시지로 토큰이 새는 경로를 타입으로 막는다.
     # 값을 쓰려면 .get_secret_value() 를 명시적으로 불러야 한다.
     gms_api_key: SecretStr = SecretStr("")
+    #: **기본값을 두지 않는다.** 선정은 끝났지만(`gpt-4o-mini`, S15P21A501-102) 이름을
+    #: 코드에 박지 않는 것은 `asr_model`·`ollama_model` 과 같은 규칙이다 — 그리고 여기에는
+    #: 이유가 하나 더 있다. 비어 있으면 `GmsResolver` 가 기동 시점에 거절하므로
+    #: `resolver_backend=gms` 로 뒤집으면서 모델을 안 넣은 배포가 조용히 도는 일이 없다.
+    #: 확정값과 근거는 `ai/.env.example` 과 `eval/query_resolver/README.md` 에 있다.
     gms_model: str = ""
     # 게이트웨이가 response_format 을 받지 않으면 false 로 끈다. 그러면 JSON 강제가
     # 프롬프트 지시뿐이라 RESOLVER_SCHEMA_INVALID 가 늘어난다.

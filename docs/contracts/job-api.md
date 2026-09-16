@@ -591,6 +591,115 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
 
 **배정 조건** — 워커는 가중치 이름이 설정돼 있을 때만 이 단계를 `capabilities`에 싣는다. 모델이 없는 워커가 배정받아 매번 `MODEL_UNAVAILABLE`로 죽는 것보다 배정받지 않는 편이 낫다. CPU 전용 워커가 scene 분할·keyframe 추출·OCR만 도는 구성이 그래서 성립한다.
 
+### 4.3.4 `text_embedding` — 장면 dense 벡터
+
+캡션과 최종 채택 대사를 **합쳐** 장면마다 벡터 하나를 만든다. 그 벡터가 `scene.embedding vector(1024)` 한 칸에 들어가고 pgvector 로 색인돼 BM25 순위와 RRF 로 결합된다([docs/frd.md](../frd.md) §11 결정 표).
+
+**입력** — `inputs.upstream.vlmMetadata`가 필수다. 없으면 워커는 `VALIDATION_ERROR`(영구)로 실패를 신고한다. 빈 결과를 성공으로 반납하면 "이 클립에는 임베딩할 텍스트가 없다"는 거짓이 정본에 남는다. 대사는 `scene_transcript_mapping`에서 오고 **선택**이다 — 비치명 상류라 없을 수 있다. 다만 그 값이 **있는데 모양이 틀리면** 이 단계는 `vlm_metadata`와 같이 거절한다(§4.5). 대사가 빠진 벡터를 정본에 넣으면 되돌리는 값이 전체 재색인이다.
+
+**OCR 은 입력이 아니다.** 화면 글자는 `ocr_observation.tokens`로 BM25 채널에 이미 들어가 있고, 같은 문자열을 dense 채널에도 넣으면 RRF 결합에서 한 신호가 두 번 세어진다.
+
+요청 — 성공:
+
+```json
+{
+  "stage": "text_embedding",
+  "status": "succeeded",
+  "versions": {
+    "stageVersion": "npick.stage.text_embedding/v1:1f2e3d4c",
+    "outputSchemaVersion": "npick.stage.text_embedding.output/v1",
+    "configVersion": "text-embedding/v1:9a8b7c6d",
+    "modelVersion": "dragonkue/snowflake-arctic-embed-l-v2.0-ko@55ec6e93…",
+    "promptVersion": null,
+    "detail": { "engine": "sentence-transformers", "engineVersion": "sentence-transformers/5.1.2",
+                "modelVersion": "dragonkue/snowflake-arctic-embed-l-v2.0-ko@55ec6e93…" }
+  },
+  "metrics": { "scenes": 87, "embedded": 83, "skipped": 4 },
+  "output": {
+    "embeddingsArtifact": { "kind": "scene_embeddings",
+                            "storageKey": "runs/398021847361024/text_embedding/a1/embeddings.json",
+                            "byteSize": 1712640, "contentHash": "<sha256>" },
+    "dimension": 1024,
+    "embeddedCount": 83,
+    "skippedSceneIndexes": [7, 13, 40, 71]
+  },
+  "artifacts": [ { "kind": "scene_embeddings", "storageKey": "runs/…/embeddings.json",
+                   "byteSize": 1712640, "contentHash": "<sha256>" } ]
+}
+```
+
+artifact 본문 (`npick.scene.embeddings/v1`):
+
+```json
+{
+  "schemaVersion": "npick.scene.embeddings/v1",
+  "dimension": 1024,
+  "scenes": [ { "sceneIndex": 0, "vector": [0.0123, -0.0456, "…1024개"], "sourceText": "광안대교 야경\n오늘 축제가 열렸습니다" } ]
+}
+```
+
+**벡터를 `output`에 인라인하지 않는다.** 1024 차원 float 하나가 JSON 으로 20KB 급이라 장면 수십 개면 `stage_states_json` 한 행이 MB 단위가 된다. 그 컬럼은 run 을 읽을 때마다 통째로 오간다. `transcript_selection`이 세그먼트를 artifact 로 빼는 것과 같은 판단이다(§4.5).
+
+**`sourceText`는 저장되지 않는다.** 담을 컬럼이 없다. 그래도 artifact 에는 남아야 한다 — 캡션이 교정된 뒤 "그때 무엇을 임베딩했나"를 물을 수 있어야 하고([docs/frd.md](../frd.md) §7.2), 벡터만으로는 그 답이 나오지 않는다.
+
+**텍스트가 없는 장면은 벡터가 없다.** 캡션도 대사도 비면 `skippedSceneIndexes`에 들어가고 `scene.embedding`은 `NULL`로 남는다. **실패가 아니다** — 그 컬럼이 nullable 인 이유이고 그 장면은 BM25 채널로만 검색된다. 빈 문자열을 임베딩하면 모든 빈 장면이 서로 최근접이 되어 보조 채널이 오염된다.
+
+**BE 의 거부 조건** — `embeddingsArtifact`가 `artifacts`에 등록되지 않았거나, **`versions.detail.modelVersion`이 `<모델>@<40자리 hex>` 형식이 아니거나**, artifact 의 `schemaVersion`·`dimension`이 payload 와 다르거나, **`dimension`이 `scene.embedding` 컬럼의 폭과 다르거나**, 벡터 길이가 `dimension`과 다르거나, 성분에 유한하지 않은 값(NaN·inf)이 있거나, `sourceText`가 없거나 공백뿐이거나, `sceneIndex`가 범위 밖·중복이거나, `skippedSceneIndexes`가 범위 밖·중복이거나 `sceneIndex`와 겹치거나, **임베딩과 생략을 합쳐 그 run 의 장면 전체를 덮지 않거나**, `embeddedCount`가 artifact 의 장면 수와 다르면 **결과 전체를 거절한다**.
+
+**`modelVersion`이 고정 리비전이어야 하는 이유는 무증상이기 때문이다.** 이 형식은 dense 리더가 SQL 로 강제하는 것과 같아야 한다(`DenseSceneCandidateAdapter`) — 어긋난 벡터는 저장까지 되고 `indexing`의 `embeddedScenes` 대조(`embedding IS NOT NULL`)도 통과하는데, 검색에서는 `missing_model`로 후보에서 전량 제외된다. 정본·요약·채널 상태가 전부 정상이라고 말하는데 dense 채널만 조용히 죽는 조합이라, `dimension`처럼 시끄럽게 실패하지 않는다. 워커도 `_declared_version()`에서 같은 가드를 걸지만 그것은 검증 대상이 스스로 만드는 보장이므로, 아래 컬럼 폭과 같은 이유로 BE 가 따로 본다.
+
+**컬럼 폭 대조는 다른 셋과 축이 다르다.** `output.dimension`·artifact 의 `dimension`·실제 벡터 길이는 셋 다 워커가 만드는 값이라 서로 맞는 것만으로는 아무것도 보장하지 않는다 — 워커 설정만 768 로 바꾸고 마이그레이션을 두면 셋이 사이좋게 통과한다. BE 는 `pg_attribute`에서 실제 컬럼 폭을 읽어 대조한다(상수로 박으면 어긋날 수 있는 자리가 하나 더 생긴다). 이 대조가 없으면 `vector(1024)` 컬럼이 트랜잭션 전체를 SQL 오류로 끊고, 워커가 받는 것은 `JOB_400_001`이 아니라 **500** 이다 — 그 응답은 재시도 가능으로 분류돼 단계가 실패로 기록조차 되지 않은 채 lease 만료 → 재배정을 반복한다.
+
+**`dimension`을 바꾸면 전체 재색인이다**([docs/frd.md](../frd.md) §11). 워커의 `config/text_embedding.v1.toml`과 `scene.embedding vector(N)`이 같은 값이어야 하고, 둘을 함께 고치지 않으면 저장이 통째로 실패한다.
+
+**오류 코드** — 전용 코드를 만들지 않는다. 상류 산출물이 잘못됐으면 `VALIDATION_ERROR`(영구), 가중치를 준비하지 못했으면 `MODEL_UNAVAILABLE`(일시), VRAM 이 모자라면 `OUT_OF_MEMORY`(일시), 나머지는 `STAGE_FAILED`(일시)다.
+
+**비치명이다.** 실패해도 run 은 계속 가고 그 클립은 BM25 채널로만 검색된다.
+
+**배정 조건** — 워커는 임베딩 런타임과 모델 이름이 둘 다 있을 때만 이 단계를 `capabilities`에 싣는다. 런타임이 없는 워커가 `engineVersion`을 `unknown`으로 선언하면, 나중에 설치됐을 때 같은 단계의 `stageVersion`이 조용히 바뀌어 §7 의 버전 불일치가 난다.
+
+### 4.3.5 `indexing` — 색인 재료 요약
+
+**색인을 만들지 않는다.** 외부·비동기 색인을 쓰지 않고([docs/frd.md](../frd.md) §11) BM25·pgvector 인덱스는 baseline 마이그레이션이 정본이다. 색인 재료도 상류가 이미 채웠다 — `scene.caption_tokens`는 `vlm_metadata`, `ocr_observation.tokens`는 `ocr`, `scene.embedding`은 `text_embedding`이 완료될 때 BE 가 넣는다.
+
+그래서 이 단계에 남는 일은 **무엇이 들어왔는지를 세어 남기는 것**뿐이다. 그럼에도 단계가 있어야 하는 이유는 하나다 — 이 단계의 성공이 곧 게시 신호다. `indexing`이 `succeeded`로 반납될 때만 BE 가 게시 가능 판정을 돌리고 `clip.active_pipeline_run_id`를 전환한다.
+
+요청 — 성공:
+
+```json
+{
+  "stage": "indexing",
+  "status": "succeeded",
+  "versions": {
+    "stageVersion": "npick.stage.indexing/v1:44136fa3",
+    "outputSchemaVersion": "npick.stage.indexing.output/v1",
+    "configVersion": null, "modelVersion": null, "promptVersion": null, "detail": {}
+  },
+  "metrics": { "scenes": 87 },
+  "output": {
+    "sceneCount": 87, "captionedScenes": 80, "dialogueScenes": 61,
+    "ocrScenes": 44, "embeddedScenes": 83
+  },
+  "artifacts": []
+}
+```
+
+**`stageVersion`의 재현 튜플이 비어 있다.** 설정도 모델도 토크나이저도 쓰지 않는 단계라 결과를 바꿀 수 있는 입력이 상류 산출물뿐이고, 그것은 버전이 아니라 데이터다.
+
+**채널별 수는 전부 "장면 수"다.** `ocrScenes`가 관측 수가 아닌 이유가 그것이다 — 한 장면에서 여러 프레임을 읽으므로 관측 수는 다른 칸과 축이 다르고, 나란히 놓으면 사람이 반드시 잘못 읽는다.
+
+**`captionedScenes`·`ocrScenes`는 산문이 아니라 색인 토큰을 센다.** 게시 판정이 보는 것이 `scene.caption_tokens`·`ocr_observation.tokens`이고, 조사·기호뿐인 설명은 `caption.value`가 있어도 그 컬럼이 빈다. 산문을 세면 "캡션 채널은 80으로 차 있는데 왜 게시가 안 되지"가 된다. **`dialogueScenes`만 예외다** — 대사의 색인 토큰은 BE 가 만들고 워커에게는 그 값이 없어서, 연결된 세그먼트가 있는 장면 수를 센다.
+
+**게시 가능 판정을 하지 않는다.** 그 정본은 BE 의 `JdbcClipPublicationAdapter`이고, 거기에는 워커가 볼 수 없는 것(keyframe 파일이 디스크에 실제로 있는가)이 들어간다. 같은 판정을 두 곳에서 하면 둘이 갈라지는 날 원인을 찾을 수 없다. **채널이 전부 0 이어도 이 단계는 성공한다** — 게시를 막는 것은 BE 의 일이고, 이 요약은 게시가 안 됐을 때 어느 채널이 비었는지를 사람이 보는 값이다.
+
+**BE 의 거부 조건** — `sceneCount`가 그 run 의 저장된 `scene` 행 수와 다르거나, 채널 수 중 하나라도 `sceneCount`를 넘거나, `embeddedScenes`가 `embedding IS NOT NULL` 인 행 수와 다르면 결과 전체를 거절한다. 네 채널 중 `embeddedScenes`만 대조하는 이유는 나머지 셋의 재료를 **아직 어느 어댑터도 쓰지 않기 때문이다**(§11-12) — 대조할 행이 없다. 저장할 자리가 없으므로 BE 는 이 단계에서 **아무 행도 쓰지 않고** `assignedIds`도 비운다.
+
+**배정 조건** — 모델도 설정도 쓰지 않으므로 이 단계는 어느 워커에서나 `capabilities`에 실린다.
+
+**치명이다.** `stages.py`가 이 단계를 `fatal=True`로 둔다. 최종 실패는 run 을 `failed`로 만들고 그 클립은 게시되지 않는다.
+
+**오류 코드** — 상류 산출물이 잘못됐으면 `VALIDATION_ERROR`(영구), 그 밖의 정체 모를 실패는 `INDEX_FAILED`(일시)다.
+
 ### 4.4 artifacts — 입력 내려받기 / 산출물 올리기
 
 ```
@@ -933,10 +1042,12 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 10. **artifacts 저장소 어댑터** — 미디어 루트 정규화·경로 이탈 차단·sha256 검증.
 11. **`pipeline.yml`에 `stage_versions:` 키 신설**, 기동 시 롤업 계산·로그.
 12. **stage output 저장 어댑터가 지원하는 단계를 늘린다.** BE는 `StageOutputPort.supports(stage)`가 거짓인 단계를 워커 `capabilities`에서 **제거한다**(`WorkerExecutionBinding`). 그래서 워커가 구현하고 버전을 선언해도 그 단계는 배정되지 않고, 강제로 결과를 보내도 `validateAndStore`의 `default` 분기에서 거절된다.
-    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`transcript_selection`·`asr` 넷이다. **`ocr`(`S15P21A501-94`, dev 머지됨)과 `vlm_metadata`(`S15P21A501-92`)는 워커 쪽이 끝났고 BE 저장 경로만 없다.** 둘 다 §4.3.2·§4.3.3이 저장 자리를 이미 지정한다 — `ocr`은 `ocr_observation` 행, `vlm_metadata`는 `scene.caption`·`scene.caption_tokens`·`scene.shot_type` 갱신과 `tag`·`tagging`·`tag_evidence` 후보(`source='vlm'`, `verification_status='unverified'`, `source_ref_type='keyframe'`)다.
+    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`transcript_selection`·`asr`·`text_embedding`·`indexing` 여섯이다(뒤의 둘은 `S15P21A501-183`). **`ocr`(`S15P21A501-94`, dev 머지됨)과 `vlm_metadata`(`S15P21A501-92`)는 워커 쪽이 끝났고 BE 저장 경로만 없다.** 둘 다 §4.3.2·§4.3.3이 저장 자리를 이미 지정한다 — `ocr`은 `ocr_observation` 행, `vlm_metadata`는 `scene.caption`·`scene.caption_tokens`·`scene.shot_type` 갱신과 `tag`·`tagging`·`tag_evidence` 후보(`source='vlm'`, `verification_status='unverified'`, `source_ref_type='keyframe'`)다.
     **출력 스키마가 v2인 단계가 둘이다** — `ocr`(`npick.stage.ocr.output/v2`, §4.3.2, S15P21A501-95)과 `vlm_metadata`(`npick.stage.vlm_metadata.output/v2`, S15P21A501-92). `PipelineStages.outputSchema`가 모든 단계에 `/v1`을 돌려주고 `StageExecutionService`가 배정과 `complete` 양쪽에서 그 값을 대조하므로, **단계별 출력 스키마 버전을 그 표에서 읽도록 고치지 않으면 저장 어댑터를 붙여도 두 단계의 성공 결과는 거절된다.** `JdbcWorkerStageOutputAdapter`의 `.output/v1` 문자열 조립도 같은 자리다. 이 한 번의 수정이 두 단계를 함께 푼다.
     `ocr` 저장 어댑터는 관측 행을 저장하고 `kind: "ocr_result"` 산출물 참조를 보존한다. `textGroups`·`mergeConfigVersion`은 `ocr_observation`에 담을 칸이 없고 별도 그룹 테이블도 만들지 않으므로, 그 둘의 영구 보관처는 산출물 파일이다 — 그룹은 원본 관측 배열의 인덱스라 배열을 재정렬하거나 일부만 저장하면 참조가 끊긴다. 같은 이유로 BE가 `vlm_metadata`에 넘기는 `inputs.upstream.ocr`에는 `textGroups`가 없다(§4.3.3). 워커의 `UpstreamOcrOutput`이 그것을 요구하지 않는다.
     이건 설계 미결이 아니라 **미구현**이다. 계약이 정한 payload를 받아 쓰는 쪽이 아직 없다는 뜻이므로, 두 단계의 end-to-end 확인은 이 항목이 끝나야 가능하다.
+
+    **`ocr`이 막히면 run 은 3단계에서 멈춘다.** `nextStage()`는 첫 `pending` 단계를 고르고, `supports()`가 거짓인 단계는 claim `capabilities`에서 지워져 배정 후보가 되지 않는다. 그래서 `text_embedding`·`indexing`이 배선된 뒤에도 등록→게시 end-to-end 는 `ocr`(또는 `vlm_metadata`)의 저장 경로가 생겨야 처음 성립한다. 게시 조건이 `scene.caption_tokens`·`scene.transcript_tokens`·`ocr_observation.tokens` 중 **하나 이상이 비어 있지 않을 것**이라(`JdbcClipPublicationAdapter`), 넷 중 어느 것도 쓰이지 않는 동안에는 `indexing`이 성공해도 `clip.active_pipeline_run_id`가 전환되지 않는다.
 
 ## 12. 워커 쪽 구현
 
@@ -954,7 +1065,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 6단계 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다 |
+| 미구현 5단계 — `ocr`·`vlm_metadata`는 BE 저장만, `transcript_selection`은 워커 구현만, `scene_transcript_mapping`·`entity_extraction`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서 양쪽 다 배선됐다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 

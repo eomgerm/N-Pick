@@ -232,7 +232,7 @@ from npick_worker.query_resolver.ollama_backend import OllamaResolver
 result = resolve_query("2022년 촬영한 서울역", resolver)
 result.resolution.locations  # (Location(type='facility', value='서울역', origin='explicit_query', ...),)
 result.resolution_schema_version  # 'query-resolver/v2'
-result.prompt_version  # 'query-resolver-prompt/v1:4d0caca2'
+result.prompt_version  # 'query-resolver-prompt/v2:b98a0418'
 result.model_version  # 'gpt-5.4-mini-2026-03-17' (게이트웨이가 응답에 실어 준 이름)
 result.findings  # 검증이 무엇을 바꿨는지 (호출자가 기록할 변경 내역)
 ```
@@ -244,7 +244,7 @@ result.findings  # 검증이 무엇을 바꿨는지 (호출자가 기록할 변�
 출력 v2에서 날짜 값은 **`broadcast_date | filmed_date`**다. BE 소비자는 날짜 enum과
 `resolution_schema_version`·`schema_version`의 `query-resolver/v2`를 반영해야 한다.
 v1의 `filming_date`는 거부하며 호환 별칭은 없다. BE 코드는 이번 변경에 포함하지 않는다.
-프롬프트 TOML 파일명과 `query-resolver-prompt/v1` 접두사는 출력 버전과 별개로 유지한다.
+프롬프트 TOML 파일명과 `query-resolver-prompt/*` 접두사는 출력 버전과 별개로 움직인다 — 프롬프트는 v2, 출력 schema 는 v2 이고 둘은 서로 다른 속도로 올라간다.
 
 `classifications`는 F-04의 `season`, `weather`, `scene_type`을 표현하는 출력 계약이다.
 기존 분류 동작을 유지하며 이 필드가 별도 DB 컬럼을 요구하는 것은 아니다.
@@ -300,7 +300,8 @@ uv run --directory ai python -m npick_worker.query_resolver.report
 ```
 
 대표 질의 20개를 돌려 표로 출력한다. `--out result.json` 으로 저장, `--only 15` 로 하나만.
-프롬프트는 `config/query_resolver.v1.toml` 에 있고 그 해시가 `prompt_version` 이다.
+프롬프트는 `config/query_resolver.v2.toml` 에 있고 그 해시가 `prompt_version` 이다.
+v1 은 회귀 비교용으로 남아 있다 — v2 가 무엇을 왜 고쳤는지는 그 파일 머리말에 있다.
 **모델·프롬프트·timeout은 FRD §11에 따라 실측 후 확정한다.** 검색 p95 10초는 §8.2의 품질 목표이며 현재 설정이 이를 달성했다는 뜻은 아니다.
 
 ## 빌드 / 테스트
@@ -391,6 +392,8 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_EMBEDDING_MODEL_REVISION` | `55ec6e93…`(SHA 고정) | 가중치 리비전. 재현 식별자에 들어간다. `main` 으로 두면 원격 갱신 때 같은 이름이 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다 |
 | `NPICK_AI_EMBEDDING_MODEL_DIR` | 없음 | 임베딩 가중치를 둘 곳. 컨테이너에서는 반드시 준다 |
 | `NPICK_AI_EMBEDDING_BATCH_SIZE` | `16` | 한 번에 모델에 넣는 문장 수. **결과를 바꾸지 않으므로** 버전 붙는 설정 파일이 아니라 여기 있다 |
+| `NPICK_AI_EMBEDDING_QUERY_PREFIX` | `"query: "` | 질의측 접두 (S15P21A501-164). arctic-ko 는 질의에만 요구하고 문서측은 없다. **색인 결과를 바꾸지 않으므로** `text_embedding.v1.toml` 이 아니라 여기 있다 — 거기 두면 `config_version` 과 `stageVersion` 이 함께 움직인다. 모델을 바꾸면 이 값도 확인한다 |
+| `NPICK_AI_EMBEDDING_WARMUP_TIMEOUT_SECONDS` | `60` | 리졸버 기동 시 가중치를 기다릴 상한. 넘기면 기동을 계속하고 로딩은 백그라운드에서 이어지며, 그 동안의 검색은 dense 채널 없이 BM25 로 돈다. 콜드 스타트가 startup probe 유예를 넘겨 **재시작 루프**가 되는 것을 막는다 |
 | `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
 | `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
 | `NPICK_AI_ASR_MODEL` | (없음) | ASR 가중치 식별자(예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기가 결과와 처리 시간을 바꾸고 실측 후 확정이라(FRD §11) 코드가 고르면 근거 없는 동결이다. 비어 있으면 이 단계가 `capabilities` 에서 빠진다. **기동 워밍업이 실패한 워커도 빠진다** — 폴링 중에 수 GB 를 다시 내려받지 않기 위해서이고, 복구는 재워밍업 또는 워커 재시작이다 |
@@ -451,7 +454,8 @@ ai/
 │   │   ├── ocr.v1.toml               임계값 정본 (실측 후 확정)
 │   │   ├── ocr-merge.v1.toml         frame 간 병합 임계값 정본 (기본 1.0 = 정규화 일치)
 │   │   ├── query_normalization.v1.toml  정규화 규칙 정본
-│   │   └── query_resolver.v1.toml    프롬프트 정본 (실측 후 확정)
+│   │   ├── query_resolver.v1.toml    프롬프트 v1 (회귀 비교용)
+│   │   └── query_resolver.v2.toml    프롬프트 정본 (S15P21A501-102 실측 반영)
 │   ├── scene_detection/ [워커] 장면 분할. detect_scenes() 순수 함수
 │   │   ├── config.py                 toml 로딩 + version_id
 │   │   ├── models.py                 Scene / SceneDetectionResult
