@@ -587,6 +587,15 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
    최초 설치·모델 다운로드에는 네트워크와 디스크 여유가 필요하다. CUDA 드라이버와 잠긴
    torch 휠이 맞지 않거나 AutoModel이 후보를 지원하지 않으면 로그를 보존하고 환경부터
    맞춘다. 한 후보만 라이브러리를 갱신했다면 다른 후보도 같은 환경으로 다시 측정한다.
+
+   **`cu128`·`cu130` 그룹에는 torchvision이 함께 들어 있다.** Transformers 5의
+   `AutoProcessor`가 Qwen3-VL 계열 processor를 조립할 때 `Qwen3VLVideoProcessor`를 같이
+   불러오고 그것이 torchvision을 요구하기 때문이다. 영상을 넣지 않아도 조립 단계에서 걸려
+   선정 모델이 아예 로드되지 않는다. 2026-09-16까지 `pyproject.toml`에 torchvision이 없어
+   `uv sync --group gpu --group cu128`만으로는 §2의 선정 모델을 한 번도 올릴 수 없었다 —
+   §9.6의 09-13 실측이 통과한 것은 사용자가 손으로 꾸린 cu126+torchvision 환경이었기
+   때문이고, 저장소 정의로 재현된 적이 없다. 그래서 이 줄을 믿지 말고
+   `uv pip list | grep torchvision`으로 실제 설치를 확인한다.
 3. 먼저 4B 한 개로 smoke를 실행한다. SSH를 끊을 예정이면 `tmux` 세션에서 실행한다.
 
    **이 4B-우선 순서는 후보 비교(S15P21A501-92) 때 환경을 싸게 확인하려던 것이다.
