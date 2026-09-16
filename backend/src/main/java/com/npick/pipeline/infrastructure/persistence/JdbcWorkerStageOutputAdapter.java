@@ -41,6 +41,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                         "frame_extraction",
                         "transcript_selection",
                         "asr",
+                        "scene_transcript_mapping",
                         "text_embedding",
                         "indexing")
                 .contains(stage);
@@ -87,6 +88,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                 }
                 yield Map.of();
             }
+            case "scene_transcript_mapping" -> transcripts(runId, output, refs);
             case "text_embedding" -> embeddings(runId, output, body.path("versions"), refs);
             case "indexing" -> {
                 summarised(runId, output);
@@ -278,6 +280,117 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
         return typmod.getFirst();
     }
 
+    /**
+     * {@code scene} 의 대사 네 칸을 채운다 (계약 §4.5).
+     *
+     * <p><b>토큰은 워커가 만든 것을 그대로 넣는다.</b> BE 에 Kiwi 가 없고 색인과 질의가 같은 설정을 써야 하며, 다르면 검색이 오류 없이 0건이 된다
+     * ({@code scene.transcript_tokens} 주석). {@code transcript_text} 는 워커가 토큰을 만들 때 쓴 것과 같은 순서·같은 구분자(공백 한 칸)로 잇는다 — 두
+     * 칸이 같은 문장을 가리켜야 한다.
+     */
+    private Map<String, Object> transcripts(long run, JsonNode output, Map<String, Ref> refs) {
+        JsonNode transcript = output.path("transcript");
+        Ref segmentsRef = registered(transcript.path("segmentsArtifact"), "transcript_segments", refs);
+        JsonNode segmentsDocument = artifactJson(segmentsRef);
+        JsonNode decisionsDocument =
+                artifactJson(registered(transcript.path("decisionsArtifact"), "transcript_decisions", refs));
+        // **두 파일이 같은 짝인지 본다.** 구간 ID 는 snapshot 사이에 보존되므로, 판정만 4단계
+        // `transcript_selection` 의 예비 파일을 가리켜도 모든 ID 가 해석되고 아무것도 실패하지
+        // 않는다 — 그 예비 판정이 최종으로 되살아난다(계약 §4.5). `validateTranscript` 와 같은 검사다.
+        if (!"npick.transcript.segments/v1".equals(text(segmentsDocument, "schemaVersion"))
+                || !"npick.transcript.decisions/v1".equals(text(decisionsDocument, "schemaVersion"))
+                || !segmentsRef.equals(ref(decisionsDocument.path("segmentsArtifact")))) invalid();
+        Map<String, JsonNode> originals = new LinkedHashMap<>();
+        for (JsonNode segment : array(segmentsDocument, "segments")) {
+            validateSegment(segment);
+            if (originals.put(text(segment, "segmentId"), segment) != null) invalid();
+        }
+        // 채택 판정은 상류 소유다. 다시 계산하지 않고 읽기만 한다 — 보관 전용 구간이 연결되면
+        // 채택하지 않은 자막으로 장면이 검색된다(계약 §4.5). 다만 판정이 모든 원본 ID 에 정확히
+        // 하나씩 있어야 읽은 결과가 상류가 실제로 주장한 집합이다. 중복은 `selected=true` 쪽이
+        // 조용히 이기고, 판정 없는 구간은 조용히 미채택으로 흐른다.
+        Map<String, JsonNode> adopted = new LinkedHashMap<>();
+        var judged = new HashSet<String>();
+        for (JsonNode decision : array(decisionsDocument, "decisions")) {
+            String id = text(decision, "segmentId");
+            JsonNode original = originals.get(id);
+            if (original == null
+                    || !judged.add(id)
+                    || !decision.path("selected").isBoolean()) invalid();
+            if (decision.path("selected").booleanValue()) adopted.put(id, original);
+        }
+        if (!judged.equals(originals.keySet())) invalid();
+        var scenes = jdbc.queryForList("""
+                SELECT scene_id, start_time_ms, end_time_ms FROM npick.scene
+                WHERE pipeline_run_id=? ORDER BY start_time_ms, scene_id
+                """, run);
+        var values = array(output, "scenes");
+        // 상류가 발급한 이 회차의 장면 전부가 정확히 한 번씩이어야 한다. 빠진 장면은 "대사 없음"
+        // 으로 굳고, 중복 장면은 뒤 연결이 앞 연결을 조용히 덮는다.
+        if (scenes.isEmpty() || values.size() != scenes.size()) invalid();
+        var indexes = new HashSet<Long>();
+        var updates = new ArrayList<Object[]>();
+        for (JsonNode scene : values) {
+            long index = integer(scene, "sceneIndex", 0);
+            // 빈 문자열이 정상 값이라 `text()` 를 쓰지 않는다 — 그것은 blank 를 거절한다.
+            // 내용어가 없는 대사는 원문이 있어도 토큰이 비고, 키 생략과는 구분해야 한다.
+            if (index >= scenes.size()
+                    || !indexes.add(index)
+                    || !scene.path("tokens").isTextual()) invalid();
+            var stored = scenes.get((int) index);
+            var links = array(scene, "segments");
+            if (links.isEmpty()) {
+                // 연결이 없는데 토큰이 있다는 것은 스스로 모순인 출력이다. 조용히 버리면
+                // 워커의 결함이 "대사 없는 장면" 으로 위장된다.
+                if (!scene.path("tokens").asString().isEmpty()) invalid();
+                continue;
+            }
+            long sceneStart = ((Number) stored.get("start_time_ms")).longValue();
+            long sceneEnd = ((Number) stored.get("end_time_ms")).longValue();
+            var texts = new ArrayList<String>();
+            var spans = mapper.createArrayNode();
+            boolean provided = false;
+            long previous = -1;
+            var linked = new HashSet<String>();
+            for (JsonNode link : links) {
+                JsonNode original = adopted.get(text(link, "segmentId"));
+                // 같은 구간이 두 번 들어오면 원문도 `transcript_json` 의 구간도 겹쳐 적힌다.
+                if (original == null || !linked.add(text(link, "segmentId"))) invalid();
+                long start = integer(original, "s", 0);
+                long end = integer(original, "e", 1);
+                long overlap = integer(link, "overlapMs", 1);
+                // **겹침은 계산되는 값이지 신고받는 값이 아니다.** `transcript_json.overlap_ms` 의
+                // 정의가 "이 장면과 겹친 시간" 이라, 지어낸 값이나 장면과 겹치지도 않는 구간의
+                // 연결이 그대로 정본에 남는다. 연결 순서는 화면에 보여주는 `transcript_text` 와
+                // `transcript_json` 이 대사 순서대로 읽히도록 시간순이어야 한다 — 토큰과 갈리지는
+                // 않는다. 워커가 같은 목록을 같은 순서로 이어 토큰을 만들기 때문이다.
+                if (overlap != Math.min(sceneEnd, end) - Math.max(sceneStart, start) || start < previous) invalid();
+                previous = start;
+                texts.add(text(original, "t"));
+                provided |= !"asr".equals(text(original, "sourceDetail"));
+                spans.addObject()
+                        .put("s", start)
+                        .put("e", end)
+                        .put("t", text(original, "t"))
+                        .put("overlap_ms", overlap);
+            }
+            updates.add(new Object[] {
+                String.join(" ", texts),
+                storable(scene.path("tokens").asString()),
+                spans.toString(),
+                // 장면 하나가 자막과 ASR 을 함께 쓰면 제공 자막이 이긴다 — 영상 단위 판정과 같은
+                // 방향이다(`JdbcClipPublicationAdapter.activate`).
+                provided ? "provided" : "asr",
+                stored.get("scene_id")
+            });
+        }
+        // 대사가 없는 장면은 칸을 비운 채 둔다. 게시 판정이 공백 여부를 보므로 빈 문자열과 없음이 다르다.
+        for (Object[] update : updates) jdbc.update("""
+                    UPDATE npick.scene SET transcript_text=?, transcript_tokens=?, transcript_json=?::jsonb,
+                        transcript_source=?, updated_at=now() WHERE scene_id=?
+                    """, update);
+        return Map.of();
+    }
+
     private void validateTranscript(long run, JsonNode transcript, Map<String, Ref> refs) {
         Ref segmentsRef = registered(transcript.path("segmentsArtifact"), "transcript_segments", refs);
         Ref decisionsRef = registered(transcript.path("decisionsArtifact"), "transcript_decisions", refs);
@@ -372,7 +485,19 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
 
     private static String text(JsonNode node, String key) {
         if (!node.path(key).isTextual() || node.path(key).asText().isBlank()) invalid();
-        return node.path(key).asText();
+        return storable(node.path(key).asText());
+    }
+
+    /**
+     * NUL 이 든 문자열은 저장 앞에서 거절한다.
+     *
+     * <p>PostgreSQL 의 {@code text} 도 {@code jsonb} 도 {@code U+0000} 을 받지 못한다. 여기서 막지 않으면 드라이버 예외가
+     * {@link BusinessException} 을 우회해 500 으로 나가고, 그 응답은 재시도 가능으로 분류돼 같은 자리에서 lease 만료 → 재배정을 반복한다 ({@code embeddings()}
+     * 의 컬럼 폭 주석과 같은 경로다).
+     */
+    private static String storable(String value) {
+        if (value.indexOf(0) >= 0) invalid();
+        return value;
     }
 
     private static long integer(JsonNode node, String key, long minimum) {
