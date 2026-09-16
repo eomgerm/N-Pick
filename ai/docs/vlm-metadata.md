@@ -350,6 +350,48 @@ transformers 5.17.0 + torch 2.11.0+cu128, bfloat16, thinking off, 예산 20 GiB,
 쓰는 것이고, 정규화가 걸리면 `normalize.py`가 실제로 필요한 코드라는 첫 근거다.** 셋 다 아니면
 — 빈 화면을 두고 장면을 지어내면 — 그건 정규화가 아니라 프롬프트(§5의 근거 요구)가 볼 문제다.
 
+#### 2026-09-16 빈 화면 실측 — 정규화가 걸렸다, 다만 `"없음"`이 아니었다
+
+같은 조건에 빈 화면 3장면을 더해 13장면을 돌렸다
+(`samples/out/20260916T052639Z-blank-Qwen--Qwen3.5-9B/`, Git 밖).
+
+| 값 | 결과 |
+| --- | --- |
+| `attemptedScenes` / `schemaValidScenes` / `failedScenes` | 13 / 13 / 0 |
+| `normalizedScenes` / `normalizedValues` | **3 / 6** — 빈 화면 3장면 전부, 장면당 2자리 |
+| 걸린 자리 | `caption`, `scene_type` (세 장면 모두 같다) |
+
+**정규화는 필요한 코드다. 그러나 이 티켓이 세운 전제는 틀렸다.** 모델은 `"없음"`이라고 쓰지
+않았다 — 한 번도. 대신 판단 객체를 유지한 채 값만 비웠다.
+
+```json
+"caption":    {"value": null, "confidence": 0.0, "evidence": []},
+"shot_type":  {"value": "unknown", "confidence": 0.0, "evidence": []},
+"scene_type": {"value": null, "confidence": 0.0, "evidence": []},
+"tag_candidates": []
+```
+
+프롬프트 규칙 2는 "caption·scene_type은 null"이라고 말하는데 출력 예시는
+`"caption": {"value": ...}` 꼴이다. 모델은 **`caption.value`를 null로** 읽었고, 계약이 원한 것은
+`caption` 자리 통째로 null이다. 같은 답의 다른 표기 — §6이 정규화한다고 적어 둔 바로 그 첫
+줄이다. 그러니 `normalize.py`는 맞게 움직였고, 다만 그 필요를 만든 것은 한국어 `"없음"`이 아니라
+**프롬프트의 중의성**이었다.
+
+**`shot_type`의 예외 처리가 여기서 값을 했다.** 모델이 낸 `"unknown"`은 `NULL_EQUIVALENTS`에도
+들어 있는 문자열이라, `normalize.py`의 `value != _SHOT_TYPE_ABSENT` 가드가 없었으면 계약대로 쓴
+답 3건까지 "모델이 계약과 다르게 답했다"로 세어 `normalizedValues`가 6이 아니라 9가 됐다.
+metric이 준수를 이탈로 세기 시작하면 그 뒤로는 아무것도 못 읽는다.
+
+`tag_candidates`는 세 장면 모두 `[]`로 정확했다. 실제 화면 10장면은 정규화 0건으로 09-16 첫
+실측과 같다.
+
+**프롬프트는 이 티켓에서 고치지 않는다.** 규칙 2를 "`caption` 자리 전체를 null로 둔다"로
+분명히 하면 중의성은 사라지지만, 그 순간 `promptVersion`과 `configVersion`이 움직여 지금
+만든 v2 실측 기록 두 건이 재생 대상에서 빠진다(§6 "재생 대상은 지금 계약의 기록뿐"). 93은
+표기를 모으는 티켓이고 프롬프트를 바꾸는 티켓이 아니다. **어긋난 지점만 여기 적어 두고
+별도 티켓에서 본다** — 그때 판단할 것은 "프롬프트를 고치면 정규화를 지워도 되는가"이고,
+답은 아마 아니다. 모델이 지시를 항상 따른다는 보장이 정규화를 두는 이유이기 때문이다.
+
 실측 기록은 `tests/test_vlm_real_outputs.py`가 그대로 재생한다. 지금 이 기록으로 6건이 통과하며,
 `samples/out/vlm-benchmarks/`의 v1 기록 세 건은 계약이 달라 재생 대상에서 빠진다.
 
