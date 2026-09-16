@@ -72,7 +72,7 @@ C4Deployment
 
     Deployment_Node(gpudev, "SSAFY GPU 서버 — 개발 검증·데모 시드", "NVIDIA CUDA · 팀 공용 · 상시 가동") {
         Deployment_Node(n_wrkdev, "컨테이너: worker", "Python 3.12 · PyTorch") {
-            Container(workerdev, "파이프라인 워커 (검증·데모 시드)", "FastAPI, Python 3.12, PyTorch", "운영과 같은 이미지로 단계 구현과 모델 후보를 검증하고, 데모 시드를 적재한다. 상주하지 않고 큐를 비우면 종료한다.")
+            Container(workerdev, "파이프라인 워커 (검증·데모 시드)", "FastAPI · Python 3.12 · PyTorch", "운영과 같은 이미지로 단계 구현과 모델 후보를 검증하고, 데모 시드를 적재한다. 상주하지 않고 큐를 비우면 종료한다.")
         }
     }
 
