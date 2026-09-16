@@ -86,6 +86,23 @@ class SearchConfigVersionTest {
         assertThat(SearchConfigVersion.canonicalJson(Map.of("k", -0.5))).isEqualTo("{\"k\":-0.5}");
     }
 
+    /**
+     * subnormal 구간에서 유효 자릿수까지 정본과 같은지 고정한다.
+     *
+     * <p>{@link Double#toString} 을 그대로 쓰면 자릿수부터 갈린다 — JDK 21 은 {@code Double.MIN_VALUE} 를 {@code 4.9E-324} 로 쓰는데 한 자리
+     * {@code 5e-324} 로도 같은 double 로 돌아온다. 「지수 표기 조건만 다르다」는 전제로는 규약을 맞출 수 없다.
+     */
+    @Test
+    void subnormalValuesUseTheShortestRoundTripDigitsLikeTheReferenceImplementation() {
+        assertThat(SearchConfigVersion.canonicalJson(Map.of("k", Double.MIN_VALUE))).isEqualTo("{\"k\":5e-324}");
+        assertThat(SearchConfigVersion.canonicalJson(Map.of("k", 1e-323))).isEqualTo("{\"k\":1e-323}");
+        assertThat(SearchConfigVersion.canonicalJson(Map.of("k", 1e-322))).isEqualTo("{\"k\":1e-322}");
+
+        assertThat(version(Map.of("k", Double.MIN_VALUE))).isEqualTo("search-fusion/v1:55ecbb52");
+        assertThat(version(Map.of("k", 1e-323))).isEqualTo("search-fusion/v1:8f76e124");
+        assertThat(version(Map.of("k", 1e-322))).isEqualTo("search-fusion/v1:666eabfa");
+    }
+
     /** 위 형식이 실제 해시까지 정본과 같은지 — 문자열 비교만으로는 규약 위반을 놓친다. */
     @Test
     void fixedCrossLanguageVectorsMatchTheReferenceImplementation() {

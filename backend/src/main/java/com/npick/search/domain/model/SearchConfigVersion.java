@@ -1,5 +1,8 @@
 package com.npick.search.domain.model;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -33,6 +36,9 @@ public final class SearchConfigVersion {
     private static final int HASH_LENGTH = 8;
 
     private static final String HASH_ALGORITHM = "SHA-256";
+
+    /** 이 자릿수면 어떤 double 이든 왕복한다. 최단 자릿수 탐색의 상한이다. */
+    private static final int MAX_SIGNIFICANT_DIGITS = 17;
 
     /** 역슬래시. 소스에 리터럴 이스케이프를 쓰면 이 파일을 편집할 때마다 몇 겹인지 세어야 한다. */
     private static final char ESCAPE = (char) 0x5C;
@@ -134,7 +140,11 @@ public final class SearchConfigVersion {
     /**
      * CPython 의 {@code repr(float)} 과 같은 문자열 (= {@code json.dumps} 가 소수를 쓰는 방식).
      *
-     * <p>두 언어 모두 <b>왕복 가능한 최단 자릿수</b>를 쓰므로 자릿수는 같다. 다른 것은 <b>언제 지수 표기로 바꾸는가</b> 하나뿐이다.
+     * <p>두 가지를 모두 맞춰야 한다 — <b>유효 자릿수 선택</b>과 <b>언제 지수 표기로 바꾸는가</b>.
+     *
+     * <p><b>자릿수를 {@link Double#toString} 에서 가져오면 안 된다.</b> subnormal 구간에서 그 결과가 최단이 아니다. JDK 21 에서
+     * {@code Double.MIN_VALUE} 는 {@code 4.9E-324} 인데 한 자리 {@code 5e-324} 로도 같은 double 로 돌아온다. Python 은 최단을 고르므로
+     * {@code 5e-324} 다. 그래서 값의 정확한 십진 전개에서 왕복 가능한 최소 자릿수를 직접 찾는다.
      *
      * <pre>
      *          0.0001        1e-5        1e15                     1e16
@@ -146,37 +156,14 @@ public final class SearchConfigVersion {
      * ({@code Python/pystrtod.c} 의 {@code format_float_short}). 지수는 부호를 항상 붙이고 최소 두 자리다. 고정 표기에서 소수부가 없으면 {@code .0} 을
      * 붙인다.
      *
-     * <p>자릿수는 {@link Double#toString} 에서 가져온다. JDK 19 부터 이 메서드가 최단 왕복 표현을 보장하므로 자릿수를 직접 구할 필요가 없다.
      */
     static String pythonRepr(double value) {
         if (value == 0) return (Double.doubleToRawLongBits(value) < 0 ? "-0.0" : "0.0");
         String sign = value < 0 ? "-" : "";
-        String plain = Double.toString(Math.abs(value));
-
-        String digits;
-        int decpt;
-        int exponentMark = plain.indexOf('E');
-        if (exponentMark >= 0) {
-            String mantissa = plain.substring(0, exponentMark).replace(".", "");
-            digits = stripTrailingZeros(mantissa);
-            // 자바의 지수 표기는 언제나 d.ddd 라 소수점 앞자리가 하나다.
-            decpt = Integer.parseInt(plain.substring(exponentMark + 1)) + 1;
-        } else {
-            int point = plain.indexOf('.');
-            String whole = plain.substring(0, point);
-            String fraction = plain.substring(point + 1);
-            if ("0".equals(whole)) {
-                int firstSignificant = 0;
-                while (firstSignificant < fraction.length() && fraction.charAt(firstSignificant) == '0') {
-                    firstSignificant++;
-                }
-                digits = stripTrailingZeros(fraction.substring(firstSignificant));
-                decpt = -firstSignificant;
-            } else {
-                digits = stripTrailingZeros(whole + fraction);
-                decpt = whole.length();
-            }
-        }
+        BigDecimal shortest = shortestRoundTrip(Math.abs(value));
+        String digits = stripTrailingZeros(shortest.unscaledValue().toString());
+        // BigDecimal 은 unscaled × 10^-scale 이고 이 코드의 decpt 는 0.digits × 10^decpt 의 자리수다.
+        int decpt = shortest.precision() - shortest.scale();
 
         if (decpt <= -4 || decpt > 16) {
             String mantissa = digits.length() == 1 ? digits : digits.charAt(0) + "." + digits.substring(1);
@@ -188,7 +175,24 @@ public final class SearchConfigVersion {
         return sign + digits.substring(0, decpt) + "." + digits.substring(decpt);
     }
 
-    /** 최단 왕복 자릿수만 남긴다. 값이 0 인 경우는 호출 전에 걸러지므로 빈 문자열이 되지 않는다. */
+    /**
+     * 이 double 로 정확히 되돌아오는 <b>가장 짧은</b> 십진 표현.
+     *
+     * <p>{@code new BigDecimal(double)} 이 이진값의 정확한 십진 전개를 준다. 거기서 유효 자릿수를 1 부터 늘려 가며 처음으로 왕복하는 것을 고른다 — Python 의
+     * {@code repr} 과 같은 선택이다. 같은 자릿수 후보가 둘일 때 정확값에 더 가까운 쪽을 고르는 것은 {@link RoundingMode#HALF_EVEN} 이 해 준다.
+     *
+     * <p>17 자리면 어떤 double 이든 왕복하므로 반복은 반드시 끝난다.
+     */
+    private static BigDecimal shortestRoundTrip(double value) {
+        BigDecimal exact = new BigDecimal(value);
+        for (int precision = 1; precision < MAX_SIGNIFICANT_DIGITS; precision++) {
+            BigDecimal candidate = exact.round(new MathContext(precision, RoundingMode.HALF_EVEN));
+            if (candidate.doubleValue() == value) return candidate;
+        }
+        return exact.round(new MathContext(MAX_SIGNIFICANT_DIGITS, RoundingMode.HALF_EVEN));
+    }
+
+    /** 자릿수 0 을 없앤다. 값이 0 인 경우는 호출 전에 걸러지므로 빈 문자열이 되지 않는다. */
     private static String stripTrailingZeros(String digits) {
         int end = digits.length();
         while (end > 1 && digits.charAt(end - 1) == '0') end--;
