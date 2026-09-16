@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Min;
 
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,6 +14,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.feedback.application.MyInquiryQueryService;
+import com.npick.feedback.presentation.response.MyInquiryDetailResponse;
 import com.npick.feedback.presentation.response.MyInquiryListResponse;
 
 /**
@@ -39,5 +41,12 @@ public class MyInquiryController {
             @LoginMember CurrentMember member) {
         return ApiResponse.success(
                 MyInquiryListResponse.of(queryService.listMine(member.memberId(), page, size), page, size));
+    }
+
+    @GetMapping("/{feedbackId}")
+    public ApiResponse<MyInquiryDetailResponse> detail(
+            @PathVariable @Min(1) long feedbackId, @LoginMember CurrentMember member) {
+        return ApiResponse.success(
+                MyInquiryDetailResponse.from(queryService.detailMine(feedbackId, member.memberId())));
     }
 }
