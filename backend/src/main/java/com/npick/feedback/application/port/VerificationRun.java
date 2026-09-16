@@ -3,8 +3,8 @@ package com.npick.feedback.application.port;
 import java.util.List;
 
 /**
- * 확정이 읽는 검증 실행의 승인 스냅샷 (S15P21A501-84, F-13). {@code search_execution}(replay)의 컬럼과 {@code verification_context_json} 에서
- * 온다. 실제 생산자는 후보 검증(S15P21A501-83)이고, 이 계약이 그 산출물의 최소 형태다.
+ * 확정이 읽는 검증 실행의 승인 스냅샷 (S15P21A501-84, F-13). {@code search_execution}(replay)의 컬럼과 {@code verification_context_json}
+ * 에서 온다. 실제 생산자는 후보 검증(S15P21A501-83)이고, 이 계약이 그 산출물의 최소 형태다.
  *
  * @param executionId 검증 실행 id
  * @param resolution 이 검증이 확정할 교정 종류 (tag_correction/patch_parse)

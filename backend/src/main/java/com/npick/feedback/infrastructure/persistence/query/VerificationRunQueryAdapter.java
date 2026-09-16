@@ -3,13 +3,12 @@ package com.npick.feedback.infrastructure.persistence.query;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-
 import jakarta.persistence.EntityManager;
-
-import org.springframework.stereotype.Repository;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Repository;
+
 import com.npick.common.error.BusinessException;
 import com.npick.feedback.application.error.ConfirmCorrectionErrorCode;
 import com.npick.feedback.application.port.VerificationRun;
@@ -18,8 +17,8 @@ import com.npick.feedback.application.port.VerificationRunPort;
 /**
  * 확정 근거가 되는 검증 실행을 읽는다 (S15P21A501-84). 성공한 replay 이면서 이 신고의 실행일 때만 돌려준다 — 다른 신고·일반 검색 실행을 확정 근거로 쓸 수 없다(F-13 2).
  *
- * <p>승인 스냅샷은 {@code verification_context_json} 에 담긴다. 실제 생산자는 후보 검증(S15P21A501-83)이고, 여기서 읽는 형태가 그 최소 계약이다({@link
- * VerificationRun}).
+ * <p>승인 스냅샷은 {@code verification_context_json} 에 담긴다. 실제 생산자는 후보 검증(S15P21A501-83)이고, 여기서 읽는 형태가 그 최소
+ * 계약이다({@link VerificationRun}).
  */
 @Repository
 class VerificationRunQueryAdapter implements VerificationRunPort {

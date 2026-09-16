@@ -2,7 +2,6 @@ package com.npick.feedback.infrastructure.persistence.query;
 
 import java.util.List;
 import java.util.stream.Collectors;
-
 import jakarta.persistence.EntityManager;
 
 import org.springframework.stereotype.Repository;
@@ -29,14 +28,19 @@ class CurrentCorrectionStateQueryAdapter implements CurrentCorrectionStatePort {
 
     @Override
     public String currentFingerprint(long feedbackId) {
-        return "rules=" + joinedIds("SELECT search_rule_id FROM npick.search_rule "
+        return "rules="
+                + joinedIds("SELECT search_rule_id FROM npick.search_rule "
                         + "WHERE action = 'patch_parse' AND active = true ORDER BY search_rule_id")
-                + ";tags=" + joinedIds("SELECT evidence_id FROM npick.tag_evidence "
+                + ";tags="
+                + joinedIds("SELECT evidence_id FROM npick.tag_evidence "
                         + "WHERE source = 'reviewer_feedback' AND confirmed = true ORDER BY evidence_id");
     }
 
     private String joinedIds(String sql) {
         List<?> rows = em.createNativeQuery(sql).getResultList();
-        return rows.stream().map(v -> ((Number) v).longValue()).map(String::valueOf).collect(Collectors.joining(","));
+        return rows.stream()
+                .map(v -> ((Number) v).longValue())
+                .map(String::valueOf)
+                .collect(Collectors.joining(","));
     }
 }

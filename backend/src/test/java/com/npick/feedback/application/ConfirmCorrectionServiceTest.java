@@ -20,7 +20,6 @@ import com.npick.feedback.domain.repository.FeedbackRepository;
 import com.npick.search.application.ConfirmParseRuleUseCase;
 import com.npick.tag.application.ConfirmTagCorrectionUseCase;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -58,8 +57,13 @@ class ConfirmCorrectionServiceTest {
         correctionStateLock = mock(CorrectionStateLock.class);
         feedbackRepository = mock(FeedbackRepository.class);
         service = new ConfirmCorrectionService(
-                targetPort, verificationRunPort, currentStatePort, confirmTag, confirmParseRule,
-                correctionStateLock, feedbackRepository);
+                targetPort,
+                verificationRunPort,
+                currentStatePort,
+                confirmTag,
+                confirmParseRule,
+                correctionStateLock,
+                feedbackRepository);
     }
 
     private ConfirmCorrectionCommand command(boolean reviewerRole) {
@@ -184,7 +188,8 @@ class ConfirmCorrectionServiceTest {
         target("REVIEWING", "tag_correction", null);
         verificationRun("tag_correction", List.of(7901L, 7902L), null, null);
         when(confirmTag.confirm(FEEDBACK, List.of(7901L, 7902L))).thenReturn(2);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any()))
+                .thenReturn(1);
 
         service.confirm(command(true));
 
@@ -202,7 +207,8 @@ class ConfirmCorrectionServiceTest {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(), 6602L, 6601L);
         when(confirmParseRule.confirm(FEEDBACK, 6602L, 6601L)).thenReturn(1);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any()))
+                .thenReturn(1);
 
         service.confirm(command(true));
 
@@ -220,7 +226,8 @@ class ConfirmCorrectionServiceTest {
         verificationRun("patch_parse", List.of(7901L, 7902L), 6602L, 6601L);
         when(confirmParseRule.confirm(FEEDBACK, 6602L, 6601L)).thenReturn(1);
         when(confirmTag.confirm(FEEDBACK, List.of(7901L, 7902L))).thenReturn(2);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any()))
+                .thenReturn(1);
 
         service.confirm(command(true));
 

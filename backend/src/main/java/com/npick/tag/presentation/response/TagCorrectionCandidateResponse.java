@@ -12,6 +12,8 @@ public record TagCorrectionCandidateResponse(String feedbackId, int created, Lis
 
     public static TagCorrectionCandidateResponse of(long feedbackId, List<Long> ids) {
         return new TagCorrectionCandidateResponse(
-                String.valueOf(feedbackId), ids.size(), ids.stream().map(String::valueOf).toList());
+                String.valueOf(feedbackId),
+                ids.size(),
+                ids.stream().map(String::valueOf).toList());
     }
 }

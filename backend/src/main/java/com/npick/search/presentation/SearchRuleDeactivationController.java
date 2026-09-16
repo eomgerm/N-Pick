@@ -39,10 +39,7 @@ public class SearchRuleDeactivationController {
             @Valid @RequestBody UpdateSearchRuleActiveRequest request,
             @LoginMember CurrentMember member) {
         service.deactivate(new DeactivateSearchRuleCommand(
-                ruleId,
-                REVIEWER_ROLE.equalsIgnoreCase(member.role()),
-                request.active(),
-                request.reason()));
+                ruleId, REVIEWER_ROLE.equalsIgnoreCase(member.role()), request.active(), request.reason()));
         return ApiResponse.success();
     }
 }

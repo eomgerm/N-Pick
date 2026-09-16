@@ -8,5 +8,4 @@ package com.npick.feedback.application.port;
  * @param reviewedById 담당 검수자. 없으면 {@code null}
  * @param verifiedByExecutionId 이미 확정에 연결된 검증 실행. 미확정이면 {@code null}
  */
-public record ConfirmationTarget(
-        String status, String resolution, Long reviewedById, Long verifiedByExecutionId) {}
+public record ConfirmationTarget(String status, String resolution, Long reviewedById, Long verifiedByExecutionId) {}

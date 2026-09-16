@@ -16,9 +16,9 @@ import com.npick.tag.domain.model.TagJudgment;
  * <p>구현은 주변 트랜잭션에 참여해야 한다(같은 {@code DataSource}·커넥션). 후보 검증 검색(F-12)이 한 트랜잭션 안에서 후보를 적용하고 검색한 뒤 되돌리는 방식이라(FRD §11), 다른
  * 커넥션에서 읽으면 그 적용이 보이지 않고 오류 없이 "바뀐 것이 없다" 가 된다.
  *
- * <p><b>후보 저장 방식은 S15P21A501-160 에서 바뀌었다.</b> 검수자 태그 교정 후보는 임시 {@code INSERT}→{@code ROLLBACK} 이 아니라 {@code
- * tag_evidence.confirmed=false} 로 <b>내구성 있게</b> 저장된다. 이 리더는 {@code e.confirmed} 로 그 후보를 일반 검색에서 제외한다. F-12 검증 검색(S15P21A501-83)이
- * 후보를 보려면 그 필터를 여는 경로가 필요하다(현재 미구현).
+ * <p><b>후보 저장 방식은 S15P21A501-160 에서 바뀌었다.</b> 검수자 태그 교정 후보는 임시 {@code INSERT}→{@code ROLLBACK} 이 아니라
+ * {@code tag_evidence.confirmed=false} 로 <b>내구성 있게</b> 저장된다. 이 리더는 {@code e.confirmed} 로 그 후보를 일반 검색에서 제외한다. F-12 검증
+ * 검색(S15P21A501-83)이 후보를 보려면 그 필터를 여는 경로가 필요하다(현재 미구현).
  */
 public interface FindTagJudgmentsQueryPort {
 
