@@ -657,23 +657,22 @@ sudo grep -c secretToken /home/ubuntu/jenkins-data/jobs/npick-ci/config.xml
 > 바꾼 직후 수동 빌드를 하면 dev 에 아직 `Jenkinsfile` 이 없어 실패할 수 있다. 정상이며,
 > 머지되면 해결된다. 확인이 목적이 아니면 Save 만 하고 넘어가도 된다.
 
-`Jenkinsfile` 의 트리거는 `branchFilterType: 'NameBasedFilter'` + `includeBranchesSpec: 'dev'`
-로 **dev 푸시에만 반응**하도록 되어 있다. 그런데 Branch Specifier 가 작업 브랜치를 가리킨 채면
-dev 에 푸시해도 엉뚱한 브랜치를 빌드한다. 두 값의 짝이 맞아야 한다.
+운영 시 잡의 Branch Specifier 는 계속 **`*/dev`** 로 둔다. 이 값은 실행할 코드를 항상 dev 의
+신뢰된 `Jenkinsfile` 로 고정하는 역할을 한다. 실제 검증 대상은 `Jenkinsfile` 의 Checkout 단계가
+GitLab 웹훅 환경변수를 보고 명시적으로 선택한다.
 
-| | 트리거 (Jenkinsfile) | 체크아웃 (잡 설정) |
-|---|---|---|
-| 검증 중 (머지 전) | 임시로 `All` | `*/<작업 브랜치>` |
-| **운영 (머지 후)** | `NameBasedFilter: dev` | **`*/dev`** |
+트리거는 `RegexBasedFilter` 로 대상 브랜치가 `dev` 인 이벤트만 받는다. 그래서 일반 기능 브랜치
+push는 잡을 실행하지 않고, dev push와 dev 대상 MR 이벤트만 실행한다.
 
-> **왜 트리거를 dev 로 좁히는가.** `All` 로 두면 어느 브랜치에 푸시하든 잡이 깨어나는데,
-> 잡은 Branch Specifier 가 가리키는 **한 브랜치만** 체크아웃한다. 결과적으로 푸시한 브랜치와
-> 실제로 빌드된 코드가 달라지고, **검증되지 않은 커밋에 초록불이 찍힌다.**
-> 2026-09-01 진행 중 실제로 이 현상을 확인했다(웹훅 Test 이벤트가 `브랜치: main` 으로 들어왔는데
-> 체크아웃된 것은 작업 브랜치였다).
->
-> 기능 브랜치나 MR 도 머지 전에 검사하고 싶으면 **Multibranch Pipeline** 으로 옮겨야 한다.
-> 단일 Pipeline 잡 구조로는 "푸시한 브랜치를 그대로 빌드"가 깔끔하게 안 된다. 부록 참고.
+| 이벤트 | 모드 | 실제 체크아웃 | 이후 동작 |
+|---|---|---|---|
+| dev 대상 MR 생성·업데이트 | `MR` | MR 소스 + 최신 `origin/dev` 임시 병합 | migration 단조증가 검사만 수행, 배포 안 함 |
+| dev push(머지 포함) | `DEPLOY` | `dev` | 실제 DB 검사 → 이미지 빌드 → 배포 → 검증 |
+| 그 외 브랜치 push | - | - | 필터에서 제외 |
+
+MR 모드에서는 `/deploy` 동기화, Docker 이미지 빌드, 서비스 재기동, 롤백을 전부 건너뛴다.
+실패해도 운영 컨테이너에는 영향을 주지 않는다. `PreBuildMerge` 가 실패하면 dev와의 병합 충돌도
+같은 Checkout 단계에서 드러난다.
 
 ---
 
@@ -758,7 +757,8 @@ sudo sed -n '/<triggers>/,/<\/triggers>/p' /home/ubuntu/jenkins-data/jobs/npick-
 1. 잡 생성 후 **Build Now로 1회 수동 빌드**를 했는가 (9장의 경고)
 2. GitLab 웹훅 **Test**가 200인가 (10장)
 3. 웹훅 URL이 `/project/<잡이름>` 형태인가
-4. 푸시한 브랜치가 Branch Specifier와 맞는가 (`*/dev`인데 기능 브랜치에 푸시한 경우)
+4. GitLab 웹훅에서 **Merge request events** 가 체크되어 있는가
+5. 이벤트가 dev push 또는 dev 대상 MR인가 (`Jenkinsfile` 필터가 그 외 이벤트는 제외한다)
 
 **(4) 빌드는 도는데 GitLab에 결과가 안 보인다**
 
@@ -792,9 +792,17 @@ du -sh /home/ubuntu/jenkins-data
 `V20260915100000`이 먼저 배포된 뒤 `V20260914170000`이 머지되어 backend가 기동하지 못했다.
 `spring.flyway.out-of-order`는 켜지 않고, 버전 역전 자체를 막는다.
 
-현재 `Validate migrations` 단계는 실행 중인 PostgreSQL의 `npick.flyway_schema_history`를 직접
-조회한다. 성공 적용된 최대 버전 이하의 미적용 `V...sql` 파일이 있으면 이미지 빌드와 배포 전에
-파이프라인을 실패시킨다. 로그에는 문제 파일과 적용된 최대 버전이 함께 출력된다.
+검사는 두 겹이다.
+
+1. **MR 생성·업데이트 시** `Validate MR migrations`가 MR에 새로 추가된 파일을 최신
+   `origin/dev`의 최대 migration 버전과 비교한다. 낮거나 같은 번호면 머지 전에 실패한다.
+2. **dev 배포 시** `Validate migrations`가 실행 중인 PostgreSQL의
+   `npick.flyway_schema_history`를 직접 조회한다. 성공 적용된 최대 버전 이하의 미적용 파일이
+   있으면 이미지 빌드와 배포 전에 실패한다.
+
+첫 번째 검사는 병렬 브랜치의 머지 순서 역전을 사전에 차단하고, 두 번째 검사는 실제 DB 상태와
+Git 이력이 어긋난 경우까지 막는 최종 안전장치다. 두 검사 모두 로그에 문제 파일과 비교 기준
+버전을 출력한다.
 
 DB 적용 상태 확인:
 
@@ -839,9 +847,10 @@ cat id_rsa.pub >> ~/.ssh/authorized_keys
 | Docker-outside-of-Docker | 이미지에 docker CLI 설치 + `/var/run/docker.sock` 마운트 + docker 그룹 GID 매칭 | **컨테이너 재생성 필요.** 데이터는 `jenkins-data` 볼륨에 있어 보존된다 |
 | SSH 배포 | Jenkins가 호스트에 SSH로 접속해 배포 스크립트 실행 | 재생성 불필요. 단 `authorized_keys` 를 건드리면 pem 인증이 깨질 수 있다(부록 ssh key 참고) |
 
-**2. 브랜치별 분기 구조** — "모든 브랜치는 빌드, dev만 배포"를 하려면 지금의 단일 Pipeline 잡
-구조가 불편하다. 잡을 2개로 나누거나 **Multibranch Pipeline** 으로 옮긴다. Multibranch로 가면
-13장 (2-2)의 트리거 덮어쓰기 문제도 구조적으로 사라지고, `**` 브랜치 문법도 정상 동작한다.
+**2. 브랜치별 분기 구조** — 현재 단일 Pipeline 잡은 dev 대상 MR에서 migration 단조증가 검사만
+수행하고, dev push에서 전체 빌드·배포를 수행한다. 모든 MR에서 백엔드 테스트와 프론트엔드 빌드까지
+돌리려면 MR 모드를 확장하거나 CI 잡과 CD 잡을 분리한다. GitLab 플러그인의 MR 환경변수는
+Multibranch Pipeline에서 제공되지 않으므로 전환 전 플러그인 동작을 다시 검토해야 한다.
 
 **3. 앱 비밀값** — DB 비밀번호, API 키 등이 생긴다. Jenkins Credentials + `withCredentials` 로
 주입한다. **레포에 커밋하지 않는다**는 제약이 그대로 이어진다.
