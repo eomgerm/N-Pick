@@ -45,6 +45,9 @@ public final class NpickPostgres {
         properties.add("spring.datasource.password", CONTAINER::getPassword);
         // 조회 어댑터의 네이티브 SQL 이 테이블명을 스키마로 한정하지 않는다. 세션 search_path 를 직접 건다.
         properties.add("spring.datasource.hikari.connection-init-sql", () -> "SET search_path TO npick, public");
+        // 단일 JVM 이 Spring 컨텍스트 16개를 캐시하고 각자 Hikari 풀을 유지한다. 기본 10 이면 160 커넥션으로 컨테이너
+        // max_connections(100) 를 넘겨 전체 스위트가 "too many clients" 로 무너진다. 직렬 테스트라 3 이면 충분하다(16×3=48).
+        properties.add("spring.datasource.hikari.maximum-pool-size", () -> "3");
     }
 
     /**
