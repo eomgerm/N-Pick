@@ -179,17 +179,35 @@ public final class SearchConfigVersion {
      * 이 double 로 정확히 되돌아오는 <b>가장 짧은</b> 십진 표현.
      *
      * <p>{@code new BigDecimal(double)} 이 이진값의 정확한 십진 전개를 준다. 거기서 유효 자릿수를 1 부터 늘려 가며 처음으로 왕복하는 것을 고른다 — Python 의
-     * {@code repr} 과 같은 선택이다. 같은 자릿수 후보가 둘일 때 정확값에 더 가까운 쪽을 고르는 것은 {@link RoundingMode#HALF_EVEN} 이 해 준다.
+     * {@code repr} 과 같은 선택이다.
+     *
+     * <p><b>각 자릿수에서 후보를 하나만 보면 안 된다.</b> 2 의 거듭제곱에서는 아래쪽 ulp 가 위쪽의 절반이라, 정확값이 십진 동점에 놓여도 한쪽만 왕복한다. {@code 2^-24} 가
+     * 그렇다 — 16 자리에서 {@code ...062} 는 왕복하지 않고 {@code ...063} 만 왕복한다. 반올림 후보 하나가 실패했다고 다음 자릿수로 넘어가면 더 긴 표현을 고르게 된다. 그래서
+     * 위·아래 두 후보를 모두 검사한다.
+     *
+     * <p>둘 다 왕복하면 정확값에 가까운 쪽을, 거리까지 같으면 끝자리가 짝수인 쪽을 고른다 (Python 과 같은 동점 규칙).
      *
      * <p>17 자리면 어떤 double 이든 왕복하므로 반복은 반드시 끝난다.
      */
     private static BigDecimal shortestRoundTrip(double value) {
         BigDecimal exact = new BigDecimal(value);
         for (int precision = 1; precision < MAX_SIGNIFICANT_DIGITS; precision++) {
-            BigDecimal candidate = exact.round(new MathContext(precision, RoundingMode.HALF_EVEN));
-            if (candidate.doubleValue() == value) return candidate;
+            BigDecimal down = exact.round(new MathContext(precision, RoundingMode.FLOOR));
+            BigDecimal up = exact.round(new MathContext(precision, RoundingMode.CEILING));
+            boolean downRoundTrips = down.doubleValue() == value;
+            boolean upRoundTrips = up.doubleValue() == value;
+            if (downRoundTrips && upRoundTrips) return closerTo(exact, down, up);
+            if (downRoundTrips) return down;
+            if (upRoundTrips) return up;
         }
         return exact.round(new MathContext(MAX_SIGNIFICANT_DIGITS, RoundingMode.HALF_EVEN));
+    }
+
+    /** 같은 자릿수의 두 후보 중 정확값에 가까운 쪽. 거리가 같으면 끝자리가 짝수인 쪽이다. */
+    private static BigDecimal closerTo(BigDecimal exact, BigDecimal down, BigDecimal up) {
+        int comparison = exact.subtract(down).compareTo(up.subtract(exact));
+        if (comparison != 0) return comparison < 0 ? down : up;
+        return down.unscaledValue().testBit(0) ? up : down;
     }
 
     /** 자릿수 0 을 없앤다. 값이 0 인 경우는 호출 전에 걸러지므로 빈 문자열이 되지 않는다. */

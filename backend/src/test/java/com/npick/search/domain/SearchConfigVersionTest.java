@@ -103,6 +103,24 @@ class SearchConfigVersionTest {
         assertThat(version(Map.of("k", 1e-322))).isEqualTo("search-fusion/v1:666eabfa");
     }
 
+    /**
+     * 2 의 거듭제곱 경계에서 최단 표현을 고르는지 고정한다.
+     *
+     * <p>여기서는 아래쪽 ulp 가 위쪽의 절반이라 정확값이 십진 동점에 놓여도 <b>한쪽만 왕복한다</b>. 각 자릿수에서 반올림 후보를 하나만 검사하면 그 자릿수를 통째로 건너뛰고 더 긴 표현을
+     * 고르게 된다 — {@code 2^-24} 는 16 자리로 충분한데 17 자리가 나왔다.
+     */
+    @Test
+    void powerOfTwoBoundariesPickTheShorterNeighbourThatRoundTrips() {
+        double powerOfTwo = Math.scalb(1.0, -24);
+        // 16 자리 두 후보 중 아래쪽은 왕복하지 않는다. 그래서 위쪽을 골라야 한다.
+        assertThat(Double.parseDouble("5.960464477539062e-08")).isNotEqualTo(powerOfTwo);
+        assertThat(Double.parseDouble("5.960464477539063e-08")).isEqualTo(powerOfTwo);
+
+        assertThat(SearchConfigVersion.canonicalJson(Map.of("k", powerOfTwo)))
+                .isEqualTo("{\"k\":5.960464477539063e-08}");
+        assertThat(version(Map.of("k", powerOfTwo))).isEqualTo("search-fusion/v1:cb500cdc");
+    }
+
     /** 위 형식이 실제 해시까지 정본과 같은지 — 문자열 비교만으로는 규약 위반을 놓친다. */
     @Test
     void fixedCrossLanguageVectorsMatchTheReferenceImplementation() {
