@@ -550,14 +550,29 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
 
 1. 로컬 `ai/src`, `ai/pyproject.toml`, `ai/uv.lock`, `ai/run-vlm-smoke.sh`와
    `ai/samples/out/KNI_02205-frames/s*/kf-*.jpg`를 같은 상대 경로로 서버에 복사한다.
-   이번 작업의 `ai/samples/out/vlm-smoke-kit.tgz`는 이 코드와 10장면의 프레임을 담는다.
    `.env`, 모델 캐시, 전체 영상은 제외한다. 미커밋 코드도 포함되며 소스를 바꾸면 묶음도
    다시 만들어야 한다. Git 이력이 없어도 실행 시 `source-hashes.json`이 실제 코드를 구분한다.
+
+   **묶음은 만든 시점의 코드 스냅샷이므로 계약이 바뀌면 그대로 쓰면 안 된다.** 2026-09-13 실행에
+   쓴 `vlm-smoke-kit.tgz`는 schema v1 코드라 §9.6의 기록이 지금 계약과 어긋나 있다. 아래로 다시 만든다.
+
+   ```bash
+   cd ai
+   rm -f samples/out/vlm-smoke-kit-v2.tgz
+   tar czf samples/out/vlm-smoke-kit-v2.tgz \
+     --exclude='__pycache__' --exclude='*.pyc' \
+     README.md docs/vlm-metadata.md pyproject.toml uv.lock run-vlm-smoke.sh \
+     src/npick_worker samples/out/KNI_02205-frames
+   ```
+
+   푼 뒤 `src/npick_worker/vlm_metadata`가 저장소와 같은지, `normalize.py`가 들어 있는지,
+   기본 설정이 `vlm_metadata.v2.toml`인지 확인한다. 그래야 결과 기록의 `versions`가
+   `tests/test_vlm_real_outputs.py`의 기준과 맞아 재생 테스트가 켜진다(§6).
 2. Linux 서버에서 묶음을 풀고 설치한다. 기존 체크아웃이면 새 코드까지 반영한 뒤 `cd ai`부터 한다.
 
    ```bash
    mkdir -p ~/npick-vlm/ai
-   tar -xzf ~/vlm-smoke-kit.tgz -C ~/npick-vlm/ai
+   tar -xzf ~/vlm-smoke-kit-v2.tgz -C ~/npick-vlm/ai
    cd ~/npick-vlm/ai
    # uv가 없을 때 1회. 공식 설치: https://docs.astral.sh/uv/getting-started/installation/
    curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -621,6 +636,23 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
    남긴다. 모델 confidence로 대신하지 않는다. 후보별 caption·shot type·scene metadata·복수
    프레임 이해 판정을 비교표로 정리하고 시간·메모리 실패까지 반영해 조건부 후보를 고른다.
    10장면은 smoke·개발 비교용이며 별도 Gold Set 100장면의 품질 목표 달성을 증명하지 않는다.
+
+6. 결과 디렉터리를 로컬로 가져와 재생 테스트를 켠다. 실행 폴더를 통째로 가져와야 한다 —
+   `vlm-metadata.json` 하나만으로도 재생은 되지만 `run.json` 없이는 어느 GPU·모델의 기록인지
+   나중에 되짚을 수 없다.
+
+   ```powershell
+   cd ai
+   $env:NPICK_AI_VLM_RUN_DIR = "samples/out/vlm-bench/<실행 폴더>"
+   uv run pytest tests/test_vlm_real_outputs.py -v
+   ```
+
+   `skipped`로 남으면 기록이 지금 계약과 다르다는 뜻이고, 건너뛴 사유에 어느 버전의 기록인지
+   찍힌다. 계약이 맞으면 4건이 실제로 돌며, 그때부터 그 원문이 정규화·거부의 회귀 기준이 된다.
+   `summary.json`의 `normalizedScenes`·`normalizedValues`가 FR-PRC-021의 전제를 실측으로
+   답하는 자리다. 0이면 이 실행의 장면들이 부재를 표현할 일이 없었다는 뜻이지 모델이 계약대로
+   쓴다는 근거가 아니다. 0이 아니면 그 장면의 `rawOutput`을 직접 읽어 모델이 어떤 표기를
+   썼는지 확인하고, 필요하면 프롬프트를 고친다. 정규화 목록을 넓혀서 덮지 않는다.
 
 ### 9.6 2026-09-13 실제 세 후보 비교
 
