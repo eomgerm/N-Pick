@@ -44,6 +44,7 @@ export function SearchResultCard({
         </span>
         <span aria-hidden="true" className={styles.playButton}>
           <Play fill="currentColor" />
+          <span>장면 보기</span>
         </span>
         <span className={styles.timecode}>
           {formatTimestamp(result.sceneStart)} – {formatTimestamp(result.sceneEnd)}

@@ -268,6 +268,7 @@ export function ScenePreviewDialog({
             title={result.title}
             autoPlay={autoPlay}
           />
+          <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
 
         <div className={styles.previewSidebar}>
@@ -326,8 +327,8 @@ export function ScenePreviewDialog({
               </ol>
             </section>
           ) : null}
-          <div className={styles.previewDetails}>
-            <p>장면 정보</p>
+          <section className={styles.previewDetails} aria-labelledby="preview-details-title">
+            <h3 id="preview-details-title">장면 정보</h3>
             <dl>
               <div>
                 <dt>방송일</dt>
@@ -349,11 +350,13 @@ export function ScenePreviewDialog({
                 <dt>장면 유형</dt>
                 <dd>{result.sceneType ?? '정보 없음'}</dd>
               </div>
-              <div>
-                <dt>근거</dt>
-                <dd>{evidenceField}</dd>
-              </div>
             </dl>
+          </section>
+          <section
+            className={styles.previewEvidenceSection}
+            aria-labelledby="preview-evidence-title"
+          >
+            <h3 id="preview-evidence-title">{onInquiry ? '검색 근거' : '확인 근거'}</h3>
             <div className={styles.previewEvidence}>
               <div className={styles.previewEvidenceHeading}>
                 <span>
@@ -369,18 +372,19 @@ export function ScenePreviewDialog({
               <strong>{evidenceValue}</strong>
               <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
             </div>
-          </div>
-          {result.additionalEvidence?.map((evidence, index) => (
-            <div className={styles.previewEvidence} key={index}>
-              <strong>
-                {evidence.field} · {evidence.value}
-              </strong>
-              <p>
-                {evidence.source} · {getVerificationStatusLabel(evidence.status)}
-              </p>
-            </div>
-          ))}
-          <SearchResultNotices execution={searchExecution} variant="preview" />
+            {result.additionalEvidence?.map((evidence, index) => (
+              <div className={styles.previewEvidence} key={index}>
+                <div className={styles.previewEvidenceHeading}>
+                  <span>{evidence.field}</span>
+                  <span className={styles.statusBadge} data-status={evidence.status}>
+                    {getVerificationStatusLabel(evidence.status)}
+                  </span>
+                </div>
+                <strong>{evidence.value}</strong>
+                <p>출처 · {evidence.source}</p>
+              </div>
+            ))}
+          </section>
         </div>
       </div>
     </SceneDialog>

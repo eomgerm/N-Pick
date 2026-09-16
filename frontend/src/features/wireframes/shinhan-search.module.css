@@ -357,8 +357,7 @@
   color: #5f564e;
   font-size: 12px;
 }
-.popoverFooter .primaryButton,
-.stateActions .primaryButton {
+.popoverFooter .primaryButton {
   border-color: #2e2a26;
   background: #2e2a26;
   color: white;
@@ -376,19 +375,23 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: clamp(24px, 4vw, 64px);
-  padding: clamp(32px, 6vw, 72px) 24px;
+  gap: clamp(32px, 5vw, 80px);
+  padding: clamp(32px, 6vw, 72px) clamp(24px, 4vw, 56px);
   border: 0;
-  border-radius: 22px;
+  border-radius: 24px;
   background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
   box-shadow: 0 20px 52px rgb(10 32 40 / 18%);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   color: #17243b;
-  text-align: center;
+  text-align: left;
 }
 .statePanel[data-state='loading'] {
   grid-template-columns: minmax(0, 1fr);
+  text-align: center;
+}
+.statePanel[data-state='loading'] .stateSummary {
+  justify-items: center;
 }
 .statePanel[data-state='failed'] {
   min-height: 0;
@@ -402,24 +405,26 @@
 .stateDetails {
   display: grid;
   min-width: 0;
-  justify-items: center;
+  justify-items: start;
 }
 .stateDetails {
-  gap: 24px;
+  width: min(100%, 460px);
+  justify-self: end;
+  gap: 16px;
 }
 .stateIcon {
   display: grid;
   place-items: center;
-  width: 76px;
-  height: 76px;
+  width: 56px;
+  height: 56px;
   margin-bottom: 24px;
-  border-radius: 26px;
-  background: #fdeef4;
-  color: #c81e63;
+  border-radius: 18px;
+  background: rgb(255 255 255 / 42%);
+  color: #0756c6;
 }
 .stateIcon svg {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
 }
 .statePanel[data-state='failed'] .stateIcon {
   background: rgb(251 241 226 / 72%);
@@ -427,8 +432,11 @@
 }
 .statePanel h3 {
   margin: 0 0 12px;
-  font-size: clamp(20px, 3vw, 26px);
-  letter-spacing: -0.04em;
+  font-size: clamp(23px, 2.4vw, 30px);
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 1.4;
+  text-wrap: balance;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
@@ -436,36 +444,45 @@
   max-width: 480px;
   margin: 0;
   color: #4d5462;
+  font-size: 14px;
   line-height: 1.8;
   word-break: keep-all;
+  text-wrap: pretty;
 }
 .searchConditions {
   display: grid;
-  gap: 12px;
-  width: min(100%, 460px);
-  padding: 20px;
+  gap: 0;
+  width: 100%;
+  padding: 8px 20px;
   margin: 0;
   border-radius: 16px;
-  background: rgb(255 255 255 / 32%);
+  background: rgb(255 255 255 / 26%);
   text-align: left;
   font-size: 13px;
+  line-height: 1.65;
 }
 .searchConditions > div {
   display: grid;
-  grid-template-columns: 85px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 12px;
+  padding-block: 12px;
+}
+.searchConditions > div + div {
+  border-top: 1px solid rgb(23 36 59 / 8%);
 }
 .searchConditions dt {
   color: #516477;
 }
 .searchConditions dd {
   margin: 0;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .stateActions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  width: 100%;
   gap: 10px;
 }
 .stateActions button {
@@ -473,10 +490,53 @@
   font: inherit;
   font-size: 13px;
 }
+.stateActions .primaryButton {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #0756c6;
+  color: #ffffff;
+  font-weight: 600;
+  transition: background-color 160ms ease;
+}
+.stateActions .primaryButton:hover {
+  background: #06459d;
+}
+.stateActions .primaryButton:active {
+  background: #05377e;
+}
+.stateActions .primaryButton:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 3px;
+}
 @media (max-width: 760px) {
   .statePanel {
     grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
+    gap: 24px;
+    padding-inline: 20px;
+  }
+  .stateIcon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 18px;
+  }
+  .stateSummary > p {
+    font-size: 13px;
+    line-height: 1.75;
+  }
+  .stateDetails {
+    width: 100%;
+    justify-self: stretch;
+  }
+  .searchConditions {
+    padding-inline: 14px;
+    font-size: 12px;
+  }
+  .searchConditions > div {
+    grid-template-columns: 56px minmax(0, 1fr);
+    padding-block: 10px;
   }
 }
 .demoNote {
@@ -530,7 +590,7 @@
 .loadingBars span {
   height: 12px;
   border-radius: 12px;
-  background: #ece5db;
+  background: rgb(77 94 112 / 16%);
   animation: pulse 1.3s ease-in-out infinite alternate;
 }
 .loadingBars span:last-child {
@@ -573,6 +633,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .stateActions .primaryButton {
+    transition: none;
+  }
   .spinner,
   .loadingBars span {
     animation: none;
