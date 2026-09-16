@@ -224,8 +224,24 @@ def _embed(raw_query: str) -> QueryEmbedding | None:
     것은 차원 불일치·0 벡터 같은 설정·모델 문제이고, 그것으로 검색 전체를 죽일 이유가
     없다 — 다만 로그에는 남아야 한다.
     """
+    encoder = _encoder()
+
+    # **가중치가 준비되기 전에는 시도하지 않는다.** 그냥 부르면 `encode` 가
+    # `_ensure_loaded()` 로 들어가 **요청 스레드가 1.7GB 로딩을 기다린다** — 워밍업이
+    # 상한을 넘겨 백그라운드에서 계속 도는 동안 들어온 요청이 전부 그렇게 된다.
+    # §6.2 가 정한 것은 "의미 검색 실패 → 단어 검색으로 결과 제공" 이지 "준비될
+    # 때까지 대기" 가 아니다. 어댑터의 single-flight 락이 로딩 중복은 막지만, 락을
+    # 기다리는 것도 기다리는 것이라 여기서 먼저 끊는다.
+    #
+    # `getattr` 인 이유는 `TextEncoder` Protocol 에 `is_ready` 가 없기 때문이다.
+    # 상태를 말하지 못하는 구현은 **준비된 것으로 본다** — 그런 어댑터는 로딩이
+    # 지연 단계가 아니거나(원격 API) 생성 시점에 이미 올라와 있다.
+    if not getattr(encoder, "is_ready", True):
+        logger.info("임베딩 가중치가 아직 준비되지 않았다. 이 검색은 BM25 로만 돈다")
+        return None
+
     try:
-        return embed_query(raw_query, encoder=_encoder())
+        return embed_query(raw_query, encoder=encoder)
     except Exception:
         logger.exception("질의 임베딩이 실패했다. dense 채널 없이 검색한다")
         return None

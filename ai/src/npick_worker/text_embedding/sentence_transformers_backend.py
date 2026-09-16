@@ -19,6 +19,7 @@
 
 import logging
 import re
+import threading
 from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -81,6 +82,8 @@ class SentenceTransformerEncoder:
         self._model_dir = model_dir
         self._device = device
         self._model: Any | None = None
+        #: `_load()` 를 한 번만 돌게 한다. 잠그는 것은 로딩이지 `encode` 가 아니다.
+        self._load_lock = threading.Lock()
         self._resolved_revision: str | None = None
         self._dimension: int | None = None
 
@@ -138,24 +141,52 @@ class SentenceTransformerEncoder:
             msg = f"임베딩 호출이 실패했다: {type(exc).__name__}: {exc}"
             raise EmbeddingCallError(msg) from exc
 
+    @property
+    def is_ready(self) -> bool:
+        """가중치가 올라와 있는가. **읽어도 로딩하지 않는다.**
+
+        호출부가 이 값으로 "지금 임베딩을 시도해도 되는가" 를 정한다. 조회가 로딩을
+        일으키면 gate 가 자기가 막으려던 블로킹을 스스로 만든다.
+
+        `dimension` 을 Protocol 에서 뺀 것과 같은 판단이다(`encoder.py`) — 상태를 묻는
+        일에 부작용을 두지 않는다.
+        """
+        return self._model is not None
+
     def warm_up(self) -> str:
         """첫 잡 전에 가중치를 올린다. 배선 티켓의 `_warm_*` 자리가 이것을 부른다."""
         self._ensure_loaded()
         return f"model={self.model_version} engine={self.name} {self.version} dim={self._dimension}"
 
     def _ensure_loaded(self) -> Any:
-        if self._model is None:
-            model, resolved, dimension = _load(
-                self._model_id,
-                self._revision,
-                self._model_dir,
-                self._device,
-            )
-            # 순서가 중요하다. `_model` 을 먼저 넣으면 다른 스레드가 `model_version` 을
-            # 읽을 때 확정 전 ref 를 볼 수 있다(`vlm_metadata` 의 같은 판단).
-            self._resolved_revision = resolved
-            self._dimension = dimension
-            self._model = model
+        """가중치를 올린다. **한 번만 올린다.**
+
+        락이 없으면 같은 인스턴스에서 여러 스레드가 `self._model is None` 을 동시에
+        참으로 보고 제각기 `_load()` 를 부른다. `shared_encoder()` 의 `lru_cache` 는
+        인스턴스를 공유시킬 뿐 이 경합을 막지 못한다 — 1.7GB 로딩이 스레드 수만큼
+        겹치고 VRAM 이 그만큼 든다. 워밍업 스레드와 요청·잡 경로가 실제로 겹친다.
+
+        빠른 경로는 락을 잡지 않는다. 로딩이 끝난 뒤의 모든 `encode` 가 이 함수를
+        거치므로, 거기에 락을 두면 검색마다 직렬화된다.
+        """
+        if self._model is not None:  # 빠른 경로. 로딩이 끝난 뒤에는 락이 필요 없다
+            return self._model
+        with self._load_lock:
+            # 락을 기다리는 동안 다른 스레드가 끝냈을 수 있다.
+            if self._model is None:
+                model, resolved, dimension = _load(
+                    self._model_id,
+                    self._revision,
+                    self._model_dir,
+                    self._device,
+                )
+                # 순서가 중요하다. `_model` 을 먼저 넣으면 다른 스레드가 `model_version`
+                # 을 읽을 때 확정 전 ref 를 볼 수 있다(`vlm_metadata` 의 같은 판단).
+                # `is_ready` 가 `_model` 을 보는 것도 같은 이유다 — 이 값이 참이면
+                # 나머지 둘은 이미 채워져 있다.
+                self._resolved_revision = resolved
+                self._dimension = dimension
+                self._model = model
         return self._model
 
 

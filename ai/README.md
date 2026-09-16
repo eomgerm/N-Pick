@@ -367,6 +367,8 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_EMBEDDING_MODEL_REVISION` | `55ec6e93…`(SHA 고정) | 가중치 리비전. 재현 식별자에 들어간다. `main` 으로 두면 원격 갱신 때 같은 이름이 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수 있는 산출물이 아니다 |
 | `NPICK_AI_EMBEDDING_MODEL_DIR` | 없음 | 임베딩 가중치를 둘 곳. 컨테이너에서는 반드시 준다 |
 | `NPICK_AI_EMBEDDING_BATCH_SIZE` | `16` | 한 번에 모델에 넣는 문장 수. **결과를 바꾸지 않으므로** 버전 붙는 설정 파일이 아니라 여기 있다 |
+| `NPICK_AI_EMBEDDING_QUERY_PREFIX` | `"query: "` | 질의측 접두 (S15P21A501-164). arctic-ko 는 질의에만 요구하고 문서측은 없다. **색인 결과를 바꾸지 않으므로** `text_embedding.v1.toml` 이 아니라 여기 있다 — 거기 두면 `config_version` 과 `stageVersion` 이 함께 움직인다. 모델을 바꾸면 이 값도 확인한다 |
+| `NPICK_AI_EMBEDDING_WARMUP_TIMEOUT_SECONDS` | `60` | 리졸버 기동 시 가중치를 기다릴 상한. 넘기면 기동을 계속하고 로딩은 백그라운드에서 이어지며, 그 동안의 검색은 dense 채널 없이 BM25 로 돈다. 콜드 스타트가 startup probe 유예를 넘겨 **재시작 루프**가 되는 것을 막는다 |
 | `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
 | `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
 | `NPICK_AI_ASR_MODEL` | (없음) | ASR 가중치 식별자(예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기가 결과와 처리 시간을 바꾸고 실측 후 확정이라(FRD §11) 코드가 고르면 근거 없는 동결이다. 비어 있으면 이 단계가 `capabilities` 에서 빠진다. **기동 워밍업이 실패한 워커도 빠진다** — 폴링 중에 수 GB 를 다시 내려받지 않기 위해서이고, 복구는 재워밍업 또는 워커 재시작이다 |
