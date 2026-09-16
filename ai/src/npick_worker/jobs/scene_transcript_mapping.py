@@ -4,11 +4,11 @@ import hashlib
 from collections.abc import Mapping
 from typing import Any, Literal
 
-from pydantic import Field, StrictInt
+from pydantic import Field
 
 from npick_worker.jobs.errors import UpstreamOutputInvalidError
-from npick_worker.jobs.models import ArtifactRef, WireResponse
-from npick_worker.jobs.registry import PendingUpload, StageContext, StageOutcome
+from npick_worker.jobs.models import ArtifactRef, UpstreamSceneOut, WireResponse
+from npick_worker.jobs.registry import PendingUpload, StageContext, StageOutcome, _parse_upstream
 from npick_worker.jobs.transcripts import (
     MappedSegment,
     SceneTranscriptLinks,
@@ -18,6 +18,7 @@ from npick_worker.jobs.transcripts import (
     TranscriptSegment,
     TranscriptSegments,
     TranscriptSnapshot,
+    UpstreamTranscriptSnapshot,
     validate_snapshot,
 )
 from npick_worker.jobs.versions import StageVersion, output_schema_version, stage_version
@@ -26,14 +27,9 @@ from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
 from npick_worker.versioning import canonical_json
 
 
-class _Scene(WireResponse):
-    scene_index: StrictInt = Field(ge=0)
-    start_time_ms: StrictInt = Field(ge=0)
-    end_time_ms: StrictInt = Field(gt=0)
-
-
 class _Scenes(WireResponse):
-    scenes: list[_Scene] = Field(min_length=1)
+    # Mapping needs only intervals, not the duration/frame rate used by frame extraction.
+    scenes: list[UpstreamSceneOut] = Field(min_length=1)
 
 
 class _AsrSegment(TranscriptSegment):
@@ -44,6 +40,13 @@ class _AsrSegment(TranscriptSegment):
 class _Asr(WireResponse):
     segments: list[_AsrSegment]
     reason_code: Literal["NO_SPEECH_DETECTED"] | None = None
+
+
+class SceneTranscriptMappingUpstream(WireResponse):
+    # Keep transcript-dependent models here: transcripts already imports jobs.models.
+    scene_detection: _Scenes
+    transcript: UpstreamTranscriptSnapshot | None = None
+    asr: _Asr | None = None
 
 
 def identity() -> dict[str, str]:
@@ -68,18 +71,16 @@ def _upload(ctx: StageContext, kind: str, payload: Mapping[str, Any]) -> Pending
 
 
 def run(ctx: StageContext) -> StageOutcome:
+    upstream = _parse_upstream(SceneTranscriptMappingUpstream, ctx.upstream)
     try:
-        scene_input = _Scenes.model_validate(ctx.upstream["sceneDetection"])
+        scene_input = upstream.scene_detection
         originals: list[TranscriptSegment] = []
-        if "transcript" in ctx.upstream:
-            # The alias may also contain selection diagnostics: receiving ignores them.
-            refs = ctx.upstream["transcript"]
+        if upstream.transcript is not None:
             snapshot = TranscriptSnapshot.model_validate(
-                {
-                    "segmentsArtifact": refs["segmentsArtifact"],
-                    "decisionsArtifact": refs["decisionsArtifact"],
-                }
+                upstream.transcript.model_dump(by_alias=True)
             )
+            # The runner validates downloads too. Revalidate at this adapter boundary
+            # because direct callers can supply artifact_documents without the runner.
             original = TranscriptSegments.model_validate(
                 ctx.artifact_documents[snapshot.segments_artifact.storage_key]
             )
@@ -88,8 +89,8 @@ def run(ctx: StageContext) -> StageOutcome:
             )
             validate_snapshot(snapshot.segments_artifact, original, decisions)
             originals.extend(original.segments)
-        if "asr" in ctx.upstream:
-            asr = _Asr.model_validate(ctx.upstream["asr"])
+        if upstream.asr is not None:
+            asr = upstream.asr
             if len({s.segment_id for s in asr.segments}) != len(asr.segments):
                 raise ValueError("duplicate ASR segment ID")
             if asr.reason_code == "NO_SPEECH_DETECTED" and asr.segments:
@@ -147,10 +148,10 @@ def run(ctx: StageContext) -> StageOutcome:
         ),
         scenes=[
             SceneTranscriptLinks(
-                scene_index=index,
-                segments=[MappedSegment(segment_id=id_, overlap_ms=ms) for id_, ms in links],
+                scene_index=scene.index,
+                segments=[MappedSegment(segment_id=id_, overlap_ms=ms) for id_, ms in scene.links],
             )
-            for index, links in result.scenes
+            for scene in result.scenes
         ],
     )
     return StageOutcome(

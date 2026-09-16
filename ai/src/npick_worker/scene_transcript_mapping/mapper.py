@@ -6,7 +6,7 @@ from typing import Literal
 
 Source = Literal["uploaded", "embedded", "asr"]
 PRIORITY = {"uploaded": 0, "embedded": 1, "asr": 2}
-ALGORITHM_VERSION = "scene-transcript-mapping/v1"
+ALGORITHM_VERSION = "scene-transcript-mapping/v2"
 
 
 def _interval(start: int, end: int) -> None:
@@ -48,43 +48,47 @@ class Decision:
 
 
 @dataclass(frozen=True, slots=True)
+class SceneLinks:
+    index: int
+    links: tuple[tuple[str, int], ...]  # (segment ID, overlap ms)
+
+
+@dataclass(frozen=True, slots=True)
 class MappingResult:
     segments: tuple[Segment, ...]
     decisions: tuple[Decision, ...]
-    # scene index, followed by (segment ID, overlap ms) links.
-    scenes: tuple[tuple[int, tuple[tuple[str, int], ...]], ...]
+    scenes: tuple[SceneLinks, ...]
 
 
 def map_transcripts(scenes: Sequence[Scene], segments: Sequence[Segment]) -> MappingResult:
     """Exclude whole lower-priority originals, then map selected speech only.
 
-    Every higher-priority original is conflict evidence, even if that original
-    itself loses to an uploaded subtitle. This preserves the §4.5 whole-segment
-    exclusion rule without fabricating partial utterances.
+    Only selected higher-priority originals are conflict evidence. An excluded
+    subtitle cannot block ASR from supplementing a gap. Overlapping lower-priority
+    originals are still excluded whole, without fabricating partial utterances.
     """
     if not scenes or len({s.index for s in scenes}) != len(scenes):
         raise ValueError("expected nonempty unique scenes")
     if len({s.id for s in segments}) != len(segments):
         raise ValueError("duplicate segment ID")
     originals = tuple(sorted(segments, key=lambda s: (s.start, s.end, PRIORITY[s.source], s.id)))
-    decisions = tuple(
-        Decision(
-            segment.id,
-            not (
-                conflicts := tuple(
-                    other.id
-                    for other in originals
-                    if PRIORITY[other.source] < PRIORITY[segment.source]
-                    and max(segment.start, other.start) < min(segment.end, other.end)
-                )
-            ),
-            conflicts,
+    decisions_by_id: dict[str, Decision] = {}
+    selected: set[str] = set()
+    # Resolve higher sources first, even when their timestamps start later.
+    for segment in sorted(originals, key=lambda s: PRIORITY[s.source]):
+        conflicts = tuple(
+            other.id
+            for other in originals
+            if other.id in selected
+            and PRIORITY[other.source] < PRIORITY[segment.source]
+            and max(segment.start, other.start) < min(segment.end, other.end)
         )
-        for segment in originals
-    )
-    selected = {d.segment_id for d in decisions if d.selected}
+        decisions_by_id[segment.id] = Decision(segment.id, not conflicts, conflicts)
+        if not conflicts:
+            selected.add(segment.id)
+    decisions = tuple(decisions_by_id[s.id] for s in originals)
     links = tuple(
-        (
+        SceneLinks(
             scene.index,
             tuple(
                 (segment.id, overlap)

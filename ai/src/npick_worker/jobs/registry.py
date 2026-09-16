@@ -970,7 +970,7 @@ def _warm_scene_detection() -> str:
 
 
 def _run_scene_transcript_mapping(ctx: StageContext) -> StageOutcome:
-    from npick_worker.jobs.transcript_mapping import run
+    from npick_worker.jobs.scene_transcript_mapping import run
 
     return run(ctx)
 
@@ -1074,7 +1074,7 @@ def capability_versions() -> dict[str, str]:
 def _declared_version(stage: str) -> str:
     """실행 없이 계산할 수 있는 단계 버전. `_run_*` 이 만드는 값과 같아야 한다."""
     if stage == "scene_transcript_mapping":
-        from npick_worker.jobs.transcript_mapping import identity
+        from npick_worker.jobs.scene_transcript_mapping import identity
 
         return stage_version(stage, identity())
     if stage == "scene_detection":

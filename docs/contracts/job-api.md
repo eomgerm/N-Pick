@@ -287,7 +287,7 @@ Idempotency-Key: 398021847361024:scene_detection:1
 
 `scene_detection`과 달리 이 단계는 **파일을 올린다.** 그래서 규약이 세 겹이다 — 입력(상류 산출물), 산출물 키, 그리고 순서.
 
-**입력** — `inputs.upstream`에 상류 1단계 산출물을 인라인한다. 워커는 DB에 접속하지 않으므로 BE가 되돌려 줘야 한다. 키 이름은 스테이지 이름의 camelCase다.
+**입력** — `inputs.upstream`에 상류 1단계 산출물을 인라인한다. 워커는 DB에 접속하지 않으므로 BE가 되돌려 줘야 한다. BE의 단계 키는 snake_case다. 타입 입력 모델은 호환용 camelCase 별칭도 받으므로 아래 `sceneDetection` 예시는 `scene_detection`으로도 전달할 수 있다. §4.3.3의 대사 매핑 소비 키는 `scene_transcript_mapping`을 사용한다.
 
 ```json
 "inputs": {
@@ -635,7 +635,9 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 대응 원본 ArtifactRef 전체와 같아야 한다. `decisions`는 모든 원본 ID에 정확히 하나씩 존재하며
 `segmentId`, `selected`, `reasonCode`, `conflictsWith`를 가진다. 채택 사유는
 `PREFERRED_SUBTITLE` 또는 `ASR_SUPPLEMENT`, 제외 사유는 `OVERLAPS_HIGHER_PRIORITY`다.
-제외 근거는 같은 스냅샷의 상위 출처 원본을 참조한다. 겹친 하위 구간은 원문 전체를 보관하고
+제외 근거는 같은 스냅샷에서 **채택된 상위 출처 원본**만 참조한다. 제공 자막 → CC → ASR
+순서로 채택을 판정하며, 제외된 CC는 자막 공백의 ASR을 제외하는 근거가 되지 않는다.
+겹친 하위 구간은 원문 전체를 보관하고
 검색·기본 표시에서 구간 전체를 제외한다. 시간만 잘라 원문을 부분 발화로 만들지 않는다.
 
 단계 결과는 `output.transcript.segmentsArtifact/decisionsArtifact`를 쓰고 두 참조를 `artifacts`에도
@@ -652,7 +654,7 @@ ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정�
 `NO_SPEECH_DETECTED`를 기록한다. ASR 미배정과 실행 후 빈 결과, 실패 및 `NO_ADAPTER`는 구분한다.
 최종 선택은 워커 `scene_transcript_mapping` 직전에 수행한다. VLM은 그 단계 이후 실행한다.
 매핑 워커는 §4.3.1과 같은 `inputs.upstream.sceneDetection.scenes`의 정수 ms 장면 구간을
-필수 입력으로 받는다. `upstream.transcript`가 있으면 원본·판정 artifact 두 개를 함께 검증하고,
+필수 입력으로 받으며 `scene_detection` 표기도 수용한다. `upstream.transcript`가 있으면 원본·판정 artifact 두 개를 함께 검증하고,
 성공한 `upstream.asr.segments`가 있으면 원본에 합쳐 최종 선택을 계산한다. 기존 구간 ID를
 보존하며 같은 ID에 다른 원문·시간·출처가 들어오면 `VALIDATION_ERROR`다. ASR 결과 부재와
 정상 빈 결과 모두 기존 자막을 지우지 않는다. 둘의 실행 상태는 상류 단계 기록으로 구분하고
