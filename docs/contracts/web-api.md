@@ -22,6 +22,7 @@
 | 영상 등록                  | POST   | `/clips`                                    | 연결됨    | 없음                                |
 | 장면 검색                  | POST   | `/search`                                   | 계약 확정 | 실제 호출·화면 바인딩               |
 | 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | 공통 플레이어·문의 상세·검색 카드 연결 |
+| 장면 대표 이미지           | GET    | `/scenes/{sceneId}/thumbnail`               | BE 구현   | 결과 카드·문의 큐 thumbnail 바인딩  |
 | 문의 접수                  | POST   | `/search/results/{resultId}/inquiries`      | BE 구현   | 문의 생성 바인딩                    |
 | 문의 설명 수정             | PATCH  | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 문의 기록 바인딩과 함께 연결 |
 | 검수 문의 목록             | GET    | `/review/inquiries`                         | BE 구현   | 검수 게시판 바인딩                  |
@@ -286,7 +287,7 @@ FE URL 상태와 wire 요청의 대응:
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
 - `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
 - 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
-- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다.
+- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.6, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
 
 ### 5.2 오류 경계
 
@@ -642,7 +643,36 @@ body는 생략하거나 다음처럼 보낸다.
 | `COMM_500`         | 500  | 서버 오류                                     |
 
 **내 검색 기록**(`GET /search/history` 목록·상세)은 미구현이다 — `search_execution`/`search_result` snapshot 저장 계약(S15P21A501-60, 미착수) 선행이라 이 문서에 상세 계약을 넣지 않는다.
+### 6.7 장면 대표 이미지(thumbnail)
 
+`GET /scenes/{sceneId}/thumbnail`
+
+결과 카드와 검수 문의 큐가 장면을 눈으로 알아보게 하는 이미지다(FRD F-03·F-07). 로그인한 `EDITOR`와 `REVIEWER`가 모두 조회한다.
+
+- 대표 이미지는 그 장면의 `keyframe` 중 `timestamp_ms`가 가장 이른 프레임이다. AI가 장면마다 뽑는 프레임 수는 고정이 아니다(FRD F-03).
+- 성공: 이미지 byte, `Content-Type: image/jpeg`(파일 머리글로 판별하며 `image/png`·`image/webp`도 가능), `Content-Length`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`.
+- 성공 byte에는 공통 JSON envelope를 사용하지 않는다. 실패에는 공통 실패 envelope를 사용한다.
+- Range를 지원하지 않는다. 한 장을 통째로 보낸다.
+
+**응답 cache.** `Cache-Control: private, max-age=86400, immutable`이다. 한 `scene_id`가 가리키는 대표 이미지는 바뀌지 않는다 — 재처리는 새 `pipeline_run`과 새 `scene_id`를 만들지 기존 장면의 keyframe을 바꾸지 않는다. `private`인 이유는 프레임이 공유 캐시·중간 프록시에 남으면 안 되기 때문이다(FRD §6.4). 브라우저 한 대의 캐시까지 막으면 카드 10장이 화면을 오갈 때마다 다시 내려받는다.
+
+**검색·문의 응답과의 관계.** 검색·문의 응답은 이미지도 URL도 싣지 않는다. `scene_id`만 주고 FE가 `/api/v1/scenes/{scene_id}/thumbnail`을 조립해 브라우저가 따로 요청한다 — §5.1의 「썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다」를 이 endpoint로 구현한 것이다. JSON에 byte나 Base64를 실으면 결과 10건이 한 응답에 수 MB를 얹고 그 byte가 캐시되지 못한다.
+
+**노출하지 않는 것.** `keyframe.storage_key`, 서버 절대 경로, 내부 예외 문자열은 성공 응답에도 실패 응답에도 나가지 않는다(FRD §6.4). 정규화 후 또는 심볼릭 링크를 따라간 뒤 media root를 벗어나는 key는 파일이 있어도 거부하며, 이때 파일이 있었는지도 알려 주지 않는다.
+
+**세대와 삭제.** 재처리로 활성 `pipeline_run`이 바뀌어도 옛 세대 장면의 이미지는 계속 제공한다. 검수 문의 큐가 접수 당시의 장면을 그대로 보여 주기 때문이다(§6.3). 논리 삭제한 클립의 장면은 없는 장면과 같은 응답을 준다.
+
+| 오류                           | HTTP | 의미                            |
+| ------------------------------ | ---- | ------------------------------- |
+| `SCENE_404_001`                | 404  | 장면 없음 (또는 삭제된 클립)    |
+| `SCENE_404_002`                | 404  | 장면에 keyframe이 아직 없음     |
+| `SCENE_404_003`                | 404  | keyframe 행은 있으나 파일 누락  |
+| `SCENE_500_001`                | 500  | 저장 위치 오류 (경로 이탈 차단) |
+| `SCENE_503_001`, `SCENE_503_002` | 503  | 이미지 읽기 실패 또는 저장소 설정 누락 |
+
+`SCENE_404_001`과 `SCENE_404_002`는 화면 안내가 다르다. 앞은 「없는 장면」, 뒤는 「아직 처리 중」이다(FRD §6.2). `SCENE_404_003`은 저장소 사고이므로 재시도 안내가 아니라 운영 확인 대상이다.
+
+영상 재생(§6.1)과 책임이 다르다. 저쪽은 큰 파일을 Range로 흘려보내며 중간 캐시에 남기지 않고(`private, no-store`), 이쪽은 작은 이미지를 통째로 주며 브라우저가 캐시하기를 바란다.
 ## 7. 앞으로 명세·구현할 API
 
 아래는 [FRD](../frd.md) F-03, F-05, F-08~F-14와 현재 FE 화면이 요구하는 기능 목록이다. 경로·method·JSON·오류 코드는 담당 이슈에서 확정한 뒤 이 문서의 별도 절로 승격한다.
@@ -661,7 +691,6 @@ body는 생략하거나 다음처럼 보낸다.
 | 10       | 교정 후보 작성·검증                  | 태그·해석 patch·장면 제외 후보, 원 문의 검색 조건 서버 재사용, 일반 검색과 분리된 검증 실행 ID | 로컬 검수 state               |
 | 11       | 교정 확정                            | 검증 실행 ID만 입력받고 서버에 저장된 후보를 원자적으로 확정, stale 검증 거부                  | 로컬 완료 state               |
 | 12       | 규칙 사용 중단·재검증                | 수행자·사유, 이후 검색 미적용, 재활성화 전 검증                                                | 로컬 toggle/state             |
-| 13       | 장면 thumbnail                       | `scene_id` 기반 제공, 서버 경로 비노출, cache·권한 정책                                        | CSS thumbnail demo            |
 
 검색 기록은 cache가 아니다. 과거 실행의 immutable snapshot이며 새 검색에 해석을 몰래 재사용하지 않는다.
 
@@ -677,6 +706,5 @@ body는 생략하거나 다음처럼 보낸다.
 | 내 문의 기록       | §6.6으로 확정·구현 완료                                              | 없음(FE 바인딩만 남음)                                                                     |
 | 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
 | 처리 조회          | BE 조회는 §6.5, FE는 아직 UI 데모 모델                                  | 공개 DTO를 화면에 mapping하고 unknown/null을 보존. polling·수동 재처리 연결은 별도 구현    |
-| thumbnail          | 검색 응답에 URL을 넣지 않는 것만 확정                                | `scene_id` 기반 endpoint와 응답 cache 정책 확정                                           |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.

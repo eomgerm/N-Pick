@@ -140,8 +140,8 @@ java -jar build/libs/npick-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 | `LOCAL_DB_USERNAME` | `npick` | `.env` 의 `POSTGRES_USER` 와 같아야 한다 |
 | `LOCAL_DB_PASSWORD` | **없음** | `.env` 의 `POSTGRES_PASSWORD` 를 넘긴다 |
 | `LOCAL_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 허용 origin |
-| `NPICK_MEDIA_ROOT` | **없음** | 영상 원본 저장 위치. 등록·재생이 같은 값을 읽는다 |
-| `CLIP_MEDIA_ROOT` | `NPICK_MEDIA_ROOT` | 재생 전용 오버라이드. 보통 쓰지 않는다 |
+| `NPICK_MEDIA_ROOT` | **없음** | 영상 원본과 keyframe 저장 위치. 등록·재생·썸네일이 같은 값을 읽는다 |
+| `CLIP_MEDIA_ROOT` | `NPICK_MEDIA_ROOT` | 재생·썸네일 오버라이드. 보통 쓰지 않는다 |
 | `CLIP_MEDIA_NGINX_ACCEL` | `false` | `true` 면 재생 바이트 전송을 nginx 에 위임한다 |
 | `CLIP_MEDIA_INTERNAL_LOCATION` | `/internal-media/` | 위임 대상 location. nginx 설정과 같아야 한다 |
 
@@ -175,6 +175,31 @@ nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본�
 첫 프레임 예산의 서버 몫(NFR-PERF-002)은 `com.npick` DEBUG 로그의
 `preview first-byte ... elapsedMs=` 로 측정한다. 요청 진입부터 본문 첫 바이트 직전까지, 즉 clip
 조회·경로 해석·Range 검증까지이며 전송 시간과 클라이언트 디코딩은 포함하지 않는다.
+
+## 장면 대표 이미지 (S15P21A501-170)
+
+`GET /api/v1/scenes/{sceneId}/thumbnail` 하나다. 로그인한 사용자면 `EDITOR`·`REVIEWER` 모두 조회할 수 있다(FRD F-07).
+결과 카드와 검수 문의 큐가 장면을 눈으로 알아보게 하는 이미지이며, 재생(`/api/v1/media/{clipId}`)과 책임이 다르다.
+
+- **ID 로만 접근한다.** 그 장면의 `keyframe` 중 `timestamp_ms` 가 가장 이른 프레임을 대표로 고른다(FRD F-03).
+  `keyframe.storage_key` 는 media root 안에서 해석하며 정규화 후 또는 심볼릭 링크를 따라간 뒤 root 를 벗어나면
+  파일이 있어도 거부한다. storage key·서버 절대 경로·내부 예외 문자열은 응답에 나가지 않는다 (FRD §6.4).
+- **형식을 파일 머리글로 정한다.** `storage_key` 이름은 워커 규약일 뿐이고 DB 에 형식 칸이 없다. JPEG·PNG·WebP 를
+  판별하고 판별하지 못하면 JPEG 로 본다. 응답에 `X-Content-Type-Options: nosniff` 를 함께 보낸다.
+- **브라우저 캐시를 허용한다.** `Cache-Control: private, max-age=86400, immutable`. 한 `scene_id` 의 대표 이미지는
+  바뀌지 않는다 — 재처리는 새 `pipeline_run` 과 새 `scene_id` 를 만든다. 프레임이 공유 캐시에 남지 않도록 `private` 다.
+- **실패 코드를 구분한다.** 장면 없음 `SCENE_404_001`, keyframe 없음 `SCENE_404_002`, 파일 누락 `SCENE_404_003`,
+  저장 위치 이탈 `SCENE_500_001`, 읽기 실패 `SCENE_503_001`, 설정 누락 `SCENE_503_002`. 앞의 둘은 처리 진행 상황이고
+  `SCENE_404_003` 은 저장소 사고다. 성공 응답만 공통 Envelope 를 쓰지 않는다(본문이 이미지 바이트다).
+
+재처리로 활성 `pipeline_run` 이 바뀌어도 옛 세대 장면의 이미지는 계속 제공한다. 검수 문의 큐가 접수 당시의 장면을
+그대로 보여 주기 때문이다. 논리 삭제한 클립의 장면은 없는 장면과 같은 응답을 준다.
+
+keyframe 파일은 워커가 영상 원본과 같은 media root 아래에 남기므로 `CLIP_MEDIA_ROOT` 를 그대로 읽는다.
+썸네일 전용 환경 변수는 없다. 경로 이탈 차단 규칙은 재생과 한 벌(`MediaRootResolver`)을 공유하고 실패 어휘만 다르다.
+
+검색·문의 응답은 이미지도 URL 도 싣지 않는다. `scene_id` 만 주고 FE 가 주소를 조립한다
+([웹 API 계약](../docs/contracts/web-api.md) §5.1·§6.6).
 
 ## 패키지 구조
 
