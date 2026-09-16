@@ -20,7 +20,9 @@ public enum ConfirmCorrectionErrorCode implements ErrorCode {
     /** 태그·해석 교정으로 처리된 신고가 아니다(장면 제외는 S15P21A501-85, no_action·deferred 는 확정 대상 아님). */
     NOT_A_CORRECTION(ErrorType.CONFLICT, "CONFIRM_409_002", "태그·해석 교정으로 처리된 신고가 아니다"),
     /** 검증 이후 관련 상태가 바뀌었다. 다시 검증해야 한다(F-13 4). */
-    NEEDS_REVERIFICATION(ErrorType.CONFLICT, "CONFIRM_409_003", "검증 이후 상태가 바뀌어 다시 검증해야 한다");
+    NEEDS_REVERIFICATION(ErrorType.CONFLICT, "CONFIRM_409_003", "검증 이후 상태가 바뀌어 다시 검증해야 한다"),
+    /** 장면 제외 확정 직전에 대상 장면이 재처리로 사라졌다(F-14). 승격을 중단하고 신고는 reviewing 을 유지한다. */
+    TARGET_SCENE_GONE(ErrorType.CONFLICT, "CONFIRM_409_004", "대상 장면이 재처리로 사라졌다 — 다시 검증해야 한다");
 
     private final ErrorType type;
     private final String code;
