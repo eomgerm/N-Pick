@@ -397,9 +397,22 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_JOB_READ_TIMEOUT_SECONDS` | `30` | claim 이외 |
 | `NPICK_AI_JOB_MAX_BACKOFF_SECONDS` | `60` | |
 | `NPICK_AI_JOB_CONCURRENCY` | `1` | GPU 한 장 전제 |
+| `NPICK_AI_JOB_STAGES` | (없음) | **이 배포가 맡을 단계.** 쉼표 구분. 비우면 구현된 단계 전부를 선언한다. 좁히기만 하므로 모델 미지정·워밍업 실패인 단계는 목록에 있어도 빠진다. 구현 없는 이름은 기동 시 경고하고 무시한다 |
 
 단계 재시도 횟수와 단계 타임아웃은 여기 없다. 워커가 구현하지 않고 BE 가 소유한다
 (`infra/compose/profiles/pipeline.yml` 에서 `null`).
+
+`NPICK_AI_JOB_STAGES` 가 **배포마다 선언 범위를 좁힌다.** 배정 목록은 여전히 BE 에 없고
+워커의 선언이 정한다(계약 §4.1) — 이 값은 그 선언을 좁힐 뿐이다. 설치 구성이 정하는 것은
+*할 수 있는 것*이고 이 값이 정하는 것은 *맡을 것*이다 — CPU 단계 구현(`scene_detection`·
+`frame_extraction`·`ocr`·`indexing`)은 기본 의존성이라 GPU 이미지에도 들어가므로, 이 값이
+없으면 두 워커의 선언이 겹쳐 무엇을 누가 가져갈지 정해지지 않는다. 선언 결과는 `/health`
+의 `pipeline.declared` 로 확인한다.
+
+```
+CPU 워커   NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,ocr,indexing
+GPU 파드   NPICK_AI_JOB_STAGES=vlm_metadata,asr,text_embedding
+```
 
 ```powershell
 $env:NPICK_AI_PORT = "8001"; uv run --directory ai npick-worker

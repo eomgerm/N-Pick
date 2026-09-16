@@ -7,6 +7,7 @@ FRD 단계 이름은 여기서 **전사**한다. `stages.py` 를 import 하면 �
 import ast
 import hashlib
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -383,6 +384,124 @@ def test_handler_without_warm_still_declares_its_version(
     monkeypatch.setattr(registry, "HANDLERS", {"scene_detection": cold})
 
     assert "scene_detection" in capability_versions()
+
+
+# ── 선언 단계 제한 노브 (S15P21A501-186) ────────────────────────────
+# 설치 구성이 정하는 것은 **할 수 있는 것**이고 이 노브가 정하는 것은 **맡을 것**이다.
+# CPU 단계 구현은 기본 의존성이라 어느 이미지에나 들어간다. 그래서 GPU 파드도
+# scene_detection·ocr 를 선언하고, 두 워커의 목록이 겹치면 무엇을 누가 가져갈지
+# 정해지지 않는다. 이 노브가 그것을 가른다.
+
+
+def _with_job_stages(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("NPICK_AI_JOB_STAGES", value)
+    get_settings.cache_clear()
+    # 선언 목록 캐시는 설정에서 파생된 값이다. 설정만 비우면 이 헬퍼를 한 테스트 안에서
+    # 두 번째로 부를 때 앞 목록을 그대로 본다.
+    registry.declared_stages.cache_clear()
+
+
+def test_job_stages_narrows_the_declaration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """구현이 있어도 목록 밖이면 선언하지 않는다. 사람이 넣는 값이라 공백도 받는다."""
+    _with_job_stages(monkeypatch, "scene_detection, frame_extraction")
+
+    assert set(capability_versions()) == {"scene_detection", "frame_extraction"}
+
+
+def test_empty_job_stages_declares_every_implemented_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """비어 있으면 지금과 같다. 이 노브는 기본 동작을 바꾸지 않는다."""
+    _with_job_stages(monkeypatch, "")
+
+    assert {"scene_detection", "frame_extraction", "ocr"} <= set(capability_versions())
+
+
+def test_an_unknown_stage_name_is_warned_and_ignored(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """오타 하나로 능력이 통째로 비면 그 워커는 아무 일도 받지 못한다.
+
+    모르는 이름만 버리고 나머지는 그대로 선언한다. 대신 경고를 남긴다 — 버린 사실이
+    조용하면 오타는 "왜 이 단계가 배정되지 않는가" 로만 드러난다.
+    """
+    _with_job_stages(monkeypatch, "scene_detection,scene_detektion")
+
+    with caplog.at_level(logging.WARNING, logger="npick_worker.jobs.registry"):
+        declared = capability_versions()
+
+    assert set(declared) == {"scene_detection"}
+    assert "scene_detektion" in caplog.text
+
+
+def test_a_list_of_only_unknown_names_declares_nothing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """**노브는 좁히기만 한다.** 전부 모르는 이름이라고 전체 선언으로 되돌아가면
+    CPU 워커가 GPU 단계를 도로 물고, 그 사실이 "빈 목록" 보다 조용히 묻힌다.
+    """
+    _with_job_stages(monkeypatch, "장면분할")
+
+    with caplog.at_level(logging.WARNING, logger="npick_worker.jobs.registry"):
+        assert capability_versions() == {}
+
+    assert "장면분할" in caplog.text
+
+
+def test_the_unknown_name_warning_does_not_repeat_per_poll(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`capability_versions()` 는 claim 한 바퀴마다 불린다. 여기서 매번 경고하면
+    기동 시 한 번 보고 고칠 오타가 폴링 주기로 로그를 채운다.
+    """
+    _with_job_stages(monkeypatch, "scene_detection,오타")
+
+    with caplog.at_level(logging.WARNING, logger="npick_worker.jobs.registry"):
+        capability_versions()
+        capability_versions()
+
+    assert caplog.text.count("오타") == 1
+
+
+def test_warm_up_skips_the_stages_this_deployment_will_not_declare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """선언하지 않을 단계의 가중치를 기동 때 올릴 이유가 없다. CPU 워커가 asr·vlm
+    가중치를 내려받는 것이 이 노브가 겨냥하는 낭비 그 자체다.
+    """
+    _with_job_stages(monkeypatch, "scene_detection")
+
+    assert [outcome.stage for outcome in warm_up().stages] == ["scene_detection"]
+
+
+def test_a_worker_that_declares_nothing_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    """맡을 단계가 하나도 없는 워커를 `ready` 로 보고하면 그 사실이 감춰진다.
+
+    빈 목록에서 `all()` 은 공허하게 참이다. 그대로 두면 오타로 목록이 통째로 날아간
+    워커가 `status: ok` · `warmup.ready: true` · `polling.running: true` 를 전부
+    통과시키고, 밖에서 보이는 단서는 기동 로그 한 줄뿐이다. 잡은 하나도 안 가져간다.
+    """
+    _with_job_stages(monkeypatch, "장면분할")
+
+    report = warm_up()
+
+    assert report.stages == ()
+    assert report.ready is False
+
+
+def test_a_stage_without_its_model_stays_out_even_when_the_knob_names_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**노브는 좁히기만 한다.** 목록에 넣는 것으로 선언이 생기지 않는다.
+
+    모델명은 실측 후 확정 대상이라 기본값이 없다(FRD §11). 이 규칙이 노브보다 먼저다 —
+    아니면 `NPICK_AI_JOB_STAGES=asr` 한 줄로 모델 없는 워커가 asr 을 배정받고 매번
+    `MODEL_UNAVAILABLE` 로 죽는다.
+    """
+    monkeypatch.setenv("NPICK_AI_ASR_MODEL", "")
+    _with_job_stages(monkeypatch, "asr")
+
+    assert capability_versions() == {}
 
 
 # ── ocr 의 상류 입력 선언 ───────────────────────────────────────────

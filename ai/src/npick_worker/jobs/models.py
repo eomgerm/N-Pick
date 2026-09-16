@@ -46,7 +46,11 @@ class StageCapability(WireModel):
 
     BE 는 이 목록에 없는 단계를 배정하지 않는다. `infra/compose/profiles/pipeline.yml` 의
     `placement.*_stages` 를 정적 목록으로 채우는 대신 워커가 선언하는 방식이다 —
-    CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 배치는 설정이 아니라 능력의 문제다.
+    CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 BE 에는 배정 목록이 없다.
+
+    **무엇을 선언할지는 `NPICK_AI_JOB_STAGES` 가 배포별로 좁힌다**(`registry.declared_stages`).
+    CPU 단계 구현은 기본 의존성이라 GPU 이미지에도 들어가므로, 좁히지 않으면 두 워커의
+    선언이 겹친다. 좁히기만 하므로 여기 실리는 것은 여전히 실행 가능한 단계다.
     """
 
     stage: str

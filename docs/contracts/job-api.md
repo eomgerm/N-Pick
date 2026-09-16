@@ -99,7 +99,7 @@ PUT  /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 }
 ```
 
-- `capabilities`는 **워커가 실행할 수 있는 단계와 그 단계의 실제 버전**이다. BE는 이 목록에 없는 단계를 배정하지 않는다. 이것이 `infra/compose/profiles/pipeline.yml`의 `placement.cpu_worker_stages` / `gpu_server_stages`를 채우는 방식이다 — 정적 목록 대신 워커가 선언한다. CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 배치는 설정이 아니라 능력의 문제다.
+- `capabilities`는 **워커가 실행할 수 있는 단계와 그 단계의 실제 버전**이다. BE는 이 목록에 없는 단계를 배정하지 않는다. 이것이 `infra/compose/profiles/pipeline.yml`의 `placement.cpu_worker_stages` / `gpu_server_stages`를 채우는 방식이다 — 정적 목록 대신 워커가 선언한다. CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 BE 에는 배정 목록이 없다. **선언 범위는 워커가 배포별로 좁힐 수 있다**(`NPICK_AI_JOB_STAGES`, S15P21A501-186) — CPU 단계 구현은 기본 의존성이라 GPU 이미지에도 들어가므로, 좁히지 않으면 두 워커의 선언이 겹쳐 무엇을 누가 가져갈지 정해지지 않는다. 좁히기만 할 뿐이라 여기 실리는 것은 여전히 워커가 실제로 실행할 수 있는 단계다.
 - `device.gpuModel`은 **필수**다. 성능 수치에 GPU 모델을 기록하지 않으면 benchmark profile이 성립하지 않는다([03-deployment.md](../architecture/03-deployment.md)).
 - `heldLeases`는 워커가 아직 살아 있다고 믿는 lease다. BE는 이미 회수한 것을 `revokedLeases`로 알려 준다 — 파드가 네트워크 단절에서 복귀했을 때 좀비 작업을 즉시 끊는다.
 
