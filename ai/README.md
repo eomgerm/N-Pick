@@ -209,17 +209,27 @@ ASR로 보완할 수 있다. 선택 알고리즘은 `scene-transcript-mapping/v2
 검증된 원본/판정 artifact, 선택적인 `upstream.asr`를 읽는다. ASR이 없거나 빈 결과여도
 제공 자막·CC를 유지한다. 시간 정보 없는 일반 대본과 잘못된 참조는 `VALIDATION_ERROR`다.
 최종 snapshot 두 개를 현재 attempt에 올린 뒤 `/v1` 매핑 결과를 complete하며,
-기존 VLM 소비자는 장면별 채택 구간 ID로 원문·시간·출처를 읽는다. 모델이나 영상은 필요 없다.
+기존 VLM 소비자는 장면별 채택 구간 ID로 원문·시간·출처를 읽는다. 영상이나 모델 가중치는
+필요 없지만 Kiwi는 쓴다 — 장면마다 채택 대사를 연결 순서대로 이어 색인 토큰
+`scenes[].tokens`를 만든다. 그 값이 곧 `scene.transcript_tokens`이고, BE에는 Kiwi가 없어
+워커가 만들어 보내야 검색이 대사를 찾는다. `versions.detail.tokenizer`가 그 설정을 싣고
+기동 워밍업이 Kiwi를 미리 올린다.
+
+하류 소비 키 `scene_transcript_mapping`은 camelCase 표기도 받는다. 없는 키는 오류가 아니라
+"매핑을 돌리지 않았다"로 흐르므로, 표기가 어긋나면 VLM·임베딩이 실패 없이 대사 0건으로
+돈다 — 그 조용한 결함을 막는 자리다.
 
 검증: `uv run pytest tests/test_scene_transcript_mapping.py`.
 순수 계산, 실제 snapshot 생성 → 기존 VLM 소비, 모의 HTTP 잡 API의 다운로드·업로드·complete를
 검증한다. 실제 BE 왕복 또는 DB 저장 완료를 의미하지 않는다.
 
-**#70 연동 잔여:** 현재 BE 저장 어댑터의 지원 목록에 이 단계가 없으므로 실제 배정·저장은
+**#70·#191 연동 잔여:** 현재 BE 저장 어댑터의 지원 목록에 이 단계가 없으므로 실제 배정·저장은
 아직 불가능하다. 워커는 상류 키 `scene_detection`과 `sceneDetection`을 모두 수용한다.
-`scene.transcript_json`의 `s/e/t/overlap_ms` 변환, `transcript_text`·공유 Kiwi 설정의
-`transcript_tokens` 생성/전달/저장은 #70과 연결해야 한다. `/v1` 매핑 출력에 합의되지 않은
-토큰 필드를 추가하지 않았다. #35의 초기 `transcript_selection` 워커 구현도 별도 선행 작업이다.
+워커가 싣는 `scenes[].tokens`를 `scene.transcript_tokens`에 그대로 넣고,
+`scene.transcript_json`의 `s/e/t/overlap_ms` 변환과 `transcript_text` 조립(연결 순서대로
+원문 잇기)을 #191 저장 어댑터에서 연결해야 한다. #35의 초기 `transcript_selection` 워커
+구현도 별도 선행 작업이며, 그 단계의 `decisions`는 예비 판정이고 이 단계의 snapshot이
+그 run의 최종 정본이다(계약 §4.5).
 
 ## Query Resolver (FRD F-04~06)
 

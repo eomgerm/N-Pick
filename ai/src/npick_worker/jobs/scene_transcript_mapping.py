@@ -22,6 +22,7 @@ from npick_worker.jobs.transcripts import (
     validate_snapshot,
 )
 from npick_worker.jobs.versions import StageVersion, output_schema_version, stage_version
+from npick_worker.korean_tokens import index_tokens
 from npick_worker.scene_transcript_mapping import Scene, Segment, map_transcripts
 from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
 from npick_worker.versioning import canonical_json
@@ -50,7 +51,16 @@ class SceneTranscriptMappingUpstream(WireResponse):
 
 
 def identity() -> dict[str, str]:
-    return {"algorithm": ALGORITHM_VERSION}
+    """재현 튜플. 축이 둘이다.
+
+    `tokenizer` 가 있는 이유는 `ocr`·`vlm_metadata` 와 같다 — 이 단계가 만드는
+    `scenes[].tokens` 가 곧 `scene.transcript_tokens` 이고, 그 토큰 경계가 바뀌면
+    같은 대사에서 다른 색인이 나온다. `asr` 이 이 축을 두지 않은 것과 짝이다
+    (그 docstring: "대사의 토큰화는 채택된 구간을 다루는 하류의 일").
+    """
+    from npick_worker import korean_tokens
+
+    return {"algorithm": ALGORITHM_VERSION, "tokenizer": korean_tokens.tokenizer_version()}
 
 
 def _upload(ctx: StageContext, kind: str, payload: Mapping[str, Any]) -> PendingUpload:
@@ -142,6 +152,7 @@ def run(ctx: StageContext) -> StageOutcome:
         ],
     )
     decision_upload = _upload(ctx, "transcript_decisions", decisions.model_dump(by_alias=True))
+    texts = {s.id: s.text for s in result.segments}
     output = SceneTranscriptMappingOutput(
         transcript=TranscriptSnapshot(
             segments_artifact=segment_upload.ref, decisions_artifact=decision_upload.ref
@@ -150,6 +161,10 @@ def run(ctx: StageContext) -> StageOutcome:
             SceneTranscriptLinks(
                 scene_index=scene.index,
                 segments=[MappedSegment(segment_id=id_, overlap_ms=ms) for id_, ms in scene.links],
+                # 연결 순서(시간순)대로 원문을 이어 한 번에 토큰화한다. 구간마다 따로
+                # 돌려 이으면 경계에서 형태소 분석이 문맥을 잃는다. BE 는 같은 순서로
+                # `transcript_text` 를 만들므로 두 컬럼이 같은 문장을 가리킨다.
+                tokens=" ".join(index_tokens(" ".join(texts[id_] for id_, _ in scene.links))),
             )
             for scene in result.scenes
         ],

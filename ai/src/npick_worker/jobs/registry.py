@@ -986,9 +986,19 @@ def _run_scene_transcript_mapping(ctx: StageContext) -> StageOutcome:
 
 
 def _warm_scene_transcript_mapping() -> str:
+    """Kiwi 를 미리 올린다.
+
+    매핑 자체는 순수 계산이라 앞당길 것이 없지만, 이 단계는 장면별 색인 토큰을
+    만든다(`scenes[].tokens`). `korean_tokens._kiwi` 는 lru_cache 라 **첫 호출이
+    초기화 비용을 통째로 낸다** — 그것이 첫 잡의 처리 시간이 되지 않게 여기서 뺀다
+    (`_warm_ocr` 과 같은 판단). 상수만 돌려주면 `warm_up` 은 "준비됐다" 고 말하면서
+    실제로는 아무것도 앞당기지 않는다.
+    """
+    from npick_worker import korean_tokens
     from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
 
-    return ALGORITHM_VERSION
+    korean_tokens.index_tokens("대사")
+    return f"algorithm={ALGORITHM_VERSION} tokenizer={korean_tokens.tokenizer_version()}"
 
 
 # ── text_embedding (9단계) ───────────────────────────────────────────

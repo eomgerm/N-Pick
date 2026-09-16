@@ -287,7 +287,7 @@ Idempotency-Key: 398021847361024:scene_detection:1
 
 `scene_detection`과 달리 이 단계는 **파일을 올린다.** 그래서 규약이 세 겹이다 — 입력(상류 산출물), 산출물 키, 그리고 순서.
 
-**입력** — `inputs.upstream`에 상류 1단계 산출물을 인라인한다. 워커는 DB에 접속하지 않으므로 BE가 되돌려 줘야 한다. BE의 단계 키는 snake_case다. 타입 입력 모델은 호환용 camelCase 별칭도 받으므로 아래 `sceneDetection` 예시는 `scene_detection`으로도 전달할 수 있다. §4.3.3의 대사 매핑 소비 키는 `scene_transcript_mapping`을 사용한다.
+**입력** — `inputs.upstream`에 상류 1단계 산출물을 인라인한다. 워커는 DB에 접속하지 않으므로 BE가 되돌려 줘야 한다. BE의 단계 키는 snake_case다. **워커는 두 표기를 모두 받는다** — 타입 입력 모델은 camelCase 별칭으로, §4.3.3·§4.3.4의 `scene_transcript_mapping` 소비 키는 명시적 대체 표기로 받는다. 후자를 별칭 없이 두면 표기가 어긋났을 때 그 단계가 실패하지 않고 **대사 0건으로 조용히 성공한다**(없는 키는 "매핑을 돌리지 않았다"는 정상 입력이다).
 
 ```json
 "inputs": {
@@ -777,8 +777,8 @@ ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정�
     "decisionsArtifact": {"kind": "transcript_decisions", "storageKey": "runs/…/decisions.json", "byteSize": 567, "contentHash": "<sha256>"}
   },
   "scenes": [
-    {"sceneIndex": 0, "segments": [{"segmentId": "s1", "overlapMs": 1500}]},
-    {"sceneIndex": 1, "segments": []}
+    {"sceneIndex": 0, "segments": [{"segmentId": "s1", "overlapMs": 1500}], "tokens": "경찰 추격 장면"},
+    {"sceneIndex": 1, "segments": [], "tokens": ""}
   ]
 }
 ```
@@ -788,7 +788,9 @@ ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정�
 - 각 연결은 해당 snapshot에서 `selected=true`인 구간만 가리킨다. `overlapMs`는 양의 정수이고 원본 구간 길이를 넘을 수 없다. 생산 단계가 장면과 실제로 겹치는 구간만 연결하고 정확한 겹침 시간을 계산한다. 여러 장면과 겹치면 같은 ID를 각각 연결하며, 겹치지 않는 구간은 연결하지 않는다.
 - 원문 `t`·정수 ms `s/e`·`sourceDetail`은 원본 snapshot에서 구간 ID로 읽는다. 장면 연결 목록에는 중복 복사하지 않는다. ID의 범위는 segments artifact 하나다.
 - 소비자는 snapshot 관계·채택 여부·장면 및 구간 ID를 검사한다. 알 수 없는 구간·보관 전용 구간·누락/중복 장면·잘못된 artifact는 빈 결과로 처리하지 않는다.
-- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. 토큰 생성·저장 및 실제 매핑 알고리즘은 해당 단계/저장 어댑터 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- `tokens`는 그 장면의 채택 대사를 연결 순서(시간순)대로 이어 한 번에 Kiwi로 분석한 색인 토큰을 공백으로 이은 것이며 곧 `scene.transcript_tokens`다. **BE가 만들 수 없으므로 워커가 싣는다** — 형태소 분석은 파이프라인의 일이고([docs/architecture/02-container.md](../architecture/02-container.md)) 색인과 질의가 같은 Kiwi 설정을 써야 하며 다르면 검색이 0건이 된다. 그래서 `versions.detail.tokenizer`가 그 설정의 식별자를 함께 싣는다(`ocr`·`vlm_metadata`와 같은 규약). 빈 문자열은 정상이다 — 대사가 없는 장면과 내용어가 없는 대사가 모두 여기 해당하며, 키를 생략하는 것과 구분한다. 구간마다 따로 토큰화해 잇지 않는다.
+- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. `scene.transcript_text`도 같은 연결 순서로 원문을 이어 만들어 `transcript_tokens`와 같은 문장을 가리키게 한다. 실제 매핑 알고리즘은 생산 단계의 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- **이 단계의 snapshot이 그 run의 최종 채택 정본이다.** 4단계 `transcript_selection`이 낸 `decisions`는 ASR 이전의 예비 판정이라 같은 run에 두 벌이 남는다. 저장·검색·VLM은 언제나 매핑 결과의 `transcript`가 가리키는 쪽을 쓰고, 예비 판정을 최종으로 되살리지 않는다. 두 단계는 위의 같은 채택 규칙(제공 자막 → CC → ASR, 채택된 상위 출처만 제외 근거)을 따라야 하며, 어긋나면 같은 run 안에서 CC 채택 여부가 갈린다.
 
 **PUT의 키는 경로 세그먼트로 들어가므로 워커가 퍼센트 인코딩한다** — 구분자 `/`는 남기고 `?`·`#`는 인코딩한다. 인코딩하지 않으면 `?`가 질의로 갈려 경로가 잘리고, BE의 접두 검사(`JOB_403_001`)가 의도한 경로에 대해 돌지 않는다. `..`나 절대 경로가 든 키는 인코딩으로 막히지 않으므로(구분자를 남기는 한 정규화된다) **워커가 보내기 전에 거절한다.** GET은 `?key=`로 실으므로 이 문제가 없다.
 

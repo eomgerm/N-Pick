@@ -9,6 +9,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from npick_worker import korean_tokens
 from npick_worker.jobs import registry
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.errors import UpstreamOutputInvalidError
@@ -17,8 +18,10 @@ from npick_worker.jobs.models import WorkerDevice
 from npick_worker.jobs.registry import StageContext
 from npick_worker.jobs.runner import JobRunner
 from npick_worker.jobs.scene_transcript_mapping import run
+from npick_worker.jobs.transcripts import transcript_refs
 from npick_worker.jobs.vlm_inputs import attach_mapped_transcripts
 from npick_worker.scene_transcript_mapping import Scene, SceneLinks, Segment, map_transcripts
+from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
 from npick_worker.vlm_metadata import KeyframeRef, SceneKeyframes
 
 from .conftest import FakeBackend, make_job
@@ -151,10 +154,14 @@ def test_empty_asr_preserves_subtitles_and_vlm_receives_only_selected_scene_text
     assert outcome.versions.stage_version == registry._declared_version(STAGE)
     assert outcome.versions.model_version is outcome.versions.prompt_version is None
     assert outcome.output["scenes"] == [
-        {"sceneIndex": 0, "segments": [{"segmentId": "u", "overlapMs": 500}]},
-        {"sceneIndex": 1, "segments": [{"segmentId": "u", "overlapMs": 500}]},
-        {"sceneIndex": 2, "segments": [{"segmentId": "cc2", "overlapMs": 500}]},
-        {"sceneIndex": 3, "segments": []},
+        {"sceneIndex": 0, "segments": [{"segmentId": "u", "overlapMs": 500}], "tokens": "원문 u"},
+        {"sceneIndex": 1, "segments": [{"segmentId": "u", "overlapMs": 500}], "tokens": "원문 u"},
+        {
+            "sceneIndex": 2,
+            "segments": [{"segmentId": "cc2", "overlapMs": 500}],
+            "tokens": "원문 cc 2",
+        },
+        {"sceneIndex": 3, "segments": [], "tokens": ""},
     ]
     docs = {u.ref.storage_key: json.loads(u.local_path.read_bytes()) for u in outcome.uploads}
     frames = [SceneKeyframes(i, (KeyframeRef(i, i * 1000, f"f{i}"),)) for i in range(4)]
@@ -436,3 +443,79 @@ async def test_runner_uploads_produced_snapshots_then_completes(
         fake_backend.requests.index(r) < complete_position
         for r in fake_backend.calls("artifact_put")
     )
+
+
+def test_scene_tokens_cover_only_adopted_dialogue_and_declare_the_tokenizer(
+    tmp_path: Path,
+) -> None:
+    """`scene.transcript_tokens` 가 될 값. BE 에 Kiwi 가 없어 워커가 만들어 보낸다."""
+    ctx = context(tmp_path)
+    upstream = dict(ctx.upstream)
+    # `cc`(1400~2200)는 `u` 와 겹쳐 보관 전용이다. 그 원문이 토큰에 새면 검색이
+    # 채택하지 않은 자막으로 장면을 찾아낸다.
+    upstream["asr"] = {"segments": [segment("gap", 3000, 3500, "asr")]}
+    outcome = run(replace(ctx, upstream=upstream))
+    scenes = {s["sceneIndex"]: s for s in outcome.output["scenes"]}
+
+    assert scenes[1]["tokens"] == "원문 u"
+    assert "cc" not in scenes[1]["tokens"]
+    assert scenes[3]["tokens"] == "원문 gap"
+    # 대사가 없는 장면과 내용어가 없는 대사는 모두 빈 문자열이다 — 필드 누락이 아니다.
+    empty = run(
+        replace(
+            ctx, upstream={"sceneDetection": ctx.upstream["sceneDetection"]}, artifact_documents={}
+        )
+    )
+    assert [s["tokens"] for s in empty.output["scenes"]] == ["", "", "", ""]
+
+    tokenizer = korean_tokens.tokenizer_version()
+    assert outcome.versions.detail == {"algorithm": ALGORITHM_VERSION, "tokenizer": tokenizer}
+    # 토크나이저가 재현 튜플에 있어야 토큰 경계가 바뀐 재처리를 구분할 수 있다.
+    assert tokenizer in outcome.versions.stage_version or outcome.versions.stage_version.startswith(
+        f"npick.stage.{STAGE}/v1:"
+    )
+
+
+def test_multiple_segments_in_one_scene_tokenize_in_link_order(tmp_path: Path) -> None:
+    ctx = context(tmp_path)
+    upstream = dict(ctx.upstream)
+    upstream["sceneDetection"] = {
+        "scenes": [{"sceneIndex": 0, "startTimeMs": 0, "endTimeMs": 4000}]
+    }
+    upstream["asr"] = {"segments": [segment("gap", 3000, 3500, "asr")]}
+    outcome = run(replace(ctx, upstream=upstream))
+    scene = outcome.output["scenes"][0]
+
+    assert [link["segmentId"] for link in scene["segments"]] == ["u", "cc2", "gap"]
+    # 구간마다 따로 토큰화해 잇지 않고 연결 순서대로 한 문장으로 붙여 분석한다.
+    assert scene["tokens"] == " ".join(korean_tokens.index_tokens("원문 u 원문 cc2 원문 gap"))
+
+
+def test_camel_case_mapping_key_is_not_silently_treated_as_no_dialogue(tmp_path: Path) -> None:
+    """키 표기가 어긋나면 하류가 실패 없이 대사 0건으로 돈다 — 그 자리를 막는다."""
+    ctx = context(tmp_path)
+    outcome = run(ctx)
+    docs = {u.ref.storage_key: json.loads(u.local_path.read_bytes()) for u in outcome.uploads}
+    frames = [SceneKeyframes(i, (KeyframeRef(i, i * 1000, f"f{i}"),)) for i in range(4)]
+
+    snake = attach_mapped_transcripts(frames, {STAGE: outcome.output}, docs)
+    camel = attach_mapped_transcripts(frames, {"sceneTranscriptMapping": outcome.output}, docs)
+    assert [[t.t for t in s.transcripts] for s in camel] == [
+        [t.t for t in s.transcripts] for s in snake
+    ]
+    assert any(s.transcripts for s in camel)
+    assert transcript_refs({"sceneTranscriptMapping": outcome.output}, stage="vlm_metadata") == (
+        transcript_refs({STAGE: outcome.output}, stage="vlm_metadata")
+    )
+
+
+def test_warm_up_actually_loads_kiwi_instead_of_returning_a_constant() -> None:
+    """이 단계의 워밍업이 앞당기는 것은 Kiwi 초기화뿐이다 — 없으면 첫 잡이 그 값을 낸다."""
+    korean_tokens._kiwi.cache_clear()
+    report = registry.warm_up([STAGE])
+    outcome = report.stages[0]
+
+    assert outcome.warmed is True
+    assert korean_tokens._kiwi.cache_info().currsize == 1
+    assert ALGORITHM_VERSION in outcome.detail
+    assert korean_tokens.tokenizer_version() in outcome.detail
