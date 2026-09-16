@@ -97,6 +97,17 @@ pipeline {
       }
     }
 
+    stage('Validate migrations') {
+      // 빈 DB 테스트로는 운영 DB 에 더 높은 버전이 적용된 뒤 들어온 역전을 잡을 수 없다.
+      // 실제 flyway_schema_history 와 비교해 이미지 빌드와 배포 전에 차단한다.
+      when {
+        expression { env.BUILD_BACKEND == 'yes' }
+      }
+      steps {
+        sh 'infra/jenkins/check-migration-versions.sh'
+      }
+    }
+
     stage('Build images') {
       // 코드 빌드가 각 Dockerfile 의 build 스테이지 안에서 일어난다. 그래서 Jenkins 에
       // JDK·Node·uv 를 설치하지 않는다. 태그는 compose 의 ${IMAGE_TAG} 로 붙는다.

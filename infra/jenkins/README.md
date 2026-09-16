@@ -785,6 +785,28 @@ du -sh /home/ubuntu/jenkins-data
 
 빌드 이력이 원인이면 잡 설정의 `Discard old builds`를 조인다. `Jenkinsfile`에 이미 30개 제한이 걸려 있다.
 
+**(7) Flyway가 `Detected resolved migration not applied`로 기동에 실패한다 — 2026-09-14 실측**
+
+이미 더 높은 버전이 적용된 DB에 그보다 낮은 버전의 migration 파일이 나중에 들어온 경우다.
+병렬 브랜치에서 만든 파일의 버전과 `dev` 머지 순서가 어긋나면 발생한다. 실제로
+`V20260915100000`이 먼저 배포된 뒤 `V20260914170000`이 머지되어 backend가 기동하지 못했다.
+`spring.flyway.out-of-order`는 켜지 않고, 버전 역전 자체를 막는다.
+
+현재 `Validate migrations` 단계는 실행 중인 PostgreSQL의 `npick.flyway_schema_history`를 직접
+조회한다. 성공 적용된 최대 버전 이하의 미적용 `V...sql` 파일이 있으면 이미지 빌드와 배포 전에
+파이프라인을 실패시킨다. 로그에는 문제 파일과 적용된 최대 버전이 함께 출력된다.
+
+DB 적용 상태 확인:
+
+```bash
+docker compose exec postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT installed_rank, version, description, success FROM npick.flyway_schema_history ORDER BY installed_rank DESC LIMIT 10;"'
+```
+
+문제 파일이 DB에 적용되지 않은 것이 확인되면 적용된 최대 버전보다 큰 값으로 파일명을 바꾼다.
+이미 성공 적용된 migration은 파일명이나 내용을 바꾸지 않는다. 이 경우에는 후속 migration으로
+수정해야 한다.
+
 ---
 
 ## 부록. ssh key 주의 (가이드 경고 사항)
