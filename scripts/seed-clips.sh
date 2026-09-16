@@ -74,7 +74,11 @@ for video in "$DIR"/*.{mp4,mov,mkv}; do
   # **상태를 `|| rc=$?` 로 받는 것이 핵심이다.** 연결 거부·타임아웃·DNS 실패는 curl 이
   # 비0 으로 끝나는데, 맨 할당문에 두면 set -e 가 남은 영상을 두고 배치를 죽인다.
   # `if ! ...` 로 감싸는 형태도 죽지는 않지만 본문의 $? 가 0 이라 오류 번호를 잃는다.
-  idem=$(sha256sum "$video" | cut -d' ' -f1)
+  # 할당문에 그냥 두면 안 된다 — 읽을 수 없는 파일이나 sha256sum 이 없는 환경
+  # (macOS 는 shasum)에서 set -e 가 배치를 통째로 죽인다. 인자 위치로 되돌리는 것도
+  # 답이 아니다. 실패해도 빈 키로 요청이 나가고, 빈 키끼리 서로 충돌한다.
+  idem=$(sha256sum "$video" | cut -d' ' -f1) ||
+    { fail "멱등 키를 만들지 못했다: $video"; continue; }
   code=$(curl -sS -o "$BODY" -w '%{http_code}' -b "$JAR" -c "$JAR" \
     -H "X-XSRF-TOKEN: $(xsrf)" -H "Idempotency-Key: $idem" \
     "${form[@]}" "$BASE/clips") && rc=0 || rc=$?
