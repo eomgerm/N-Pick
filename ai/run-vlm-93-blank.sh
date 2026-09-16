@@ -13,6 +13,13 @@
 # **이건 품질 측정이 아니다.** 모델이 잘 보는지를 보는 것이 아니라, 정보가 없을 때
 # 계약의 `null`·`unknown`·`[]` 로 쓰는지 아니면 `"없음"` 이라고 쓰는지만 본다.
 # 후보 비교(§9.6)의 성적으로 쓰지 않는다.
+#
+# **`set -e` 를 쓰지 않는다.** 아래에서 `uv run ... | tee` 의 종료 코드를
+# `${PIPESTATUS[0]}` 로 받아 파일에 적는데, `-e` 면 그 줄에 닿기 전에 스크립트가 죽어
+# 실패한 실행의 기록이 남지 않는다. 대신 준비 단계마다 `|| exit 1` 을 붙이고, 덧붙인
+# 장면이 실제로 생겼는지 실행 직전에 확인한다 — 준비가 조용히 실패하면 원본 10장면만
+# 가지고 도는데, 그 결과(`normalizedValues` 0)는 정상 실행과 구분되지 않는다. 이 스크립트가
+# 있는 이유가 바로 그 측정이므로, 측정하지 못한 것을 측정한 것처럼 남기면 안 된다.
 set -u -o pipefail
 
 model="${1:-Qwen/Qwen3.5-9B}"
@@ -29,11 +36,11 @@ fi
 
 # **원본을 건드리지 않는다.** `$src` 는 09-13 후보 비교와 09-16 실측이 함께 쓴 입력이라,
 # 거기에 장면을 더하면 그 기록들의 `inputs.json` 과 더는 같은 입력이 아니게 된다.
-rm -rf "$frames"
-cp -r "$src" "$frames"
-rm -f "$frames/keyframes.json"
+rm -rf "$frames" || exit 1
+cp -r "$src" "$frames" || exit 1
+rm -f "$frames/keyframes.json" || exit 1
 
-uv run --locked --group gpu --group cu128 python - "$frames" <<'PY'
+uv run --locked --group gpu --group cu128 python - "$frames" <<'PY' || exit 1
 """빈 화면 장면을 뒤에 덧붙인다. 크기·형식은 원본 keyframe 과 같게 맞춘다."""
 import sys
 from pathlib import Path
@@ -53,6 +60,15 @@ for offset, (name, color) in enumerate(
         Image.new("RGB", (800, 450), color).save(scene / f"kf-{stamp:09d}.jpg", quality=92)
     print(f"{scene.name}: {name} 2장")
 PY
+
+# 덧붙인 장면이 실제로 생겼는지 본다. 위 heredoc 이 어떤 이유로든(PIL 없음, 디스크 등)
+# 장면을 일부만 만들었으면 `--limit 13` 은 조용히 원본만 돌린다.
+for index in 0010 0011 0012; do
+  if [ ! -d "$frames/s$index" ]; then
+    echo "빈 화면 장면이 없습니다: $frames/s$index — 부재를 재지 못하므로 중단합니다" >&2
+    exit 1
+  fi
+done
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export TOKENIZERS_PARALLELISM=false
