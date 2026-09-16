@@ -25,7 +25,15 @@ def write(path: Path, data: Any) -> None:
 
 
 def archive(output_dir: Path, destination: Path) -> None:
-    """Validate saved outputs against their saved inputs and retain a compact review artifact."""
+    """Validate saved outputs against their saved inputs and retain a compact review artifact.
+
+    **No source text leaves the sample tree.** The corpus is AI-Hub/KBS subtitle and screen
+    text, which `ai/.gitignore` keeps inside `samples/` deliberately — a rights gate that
+    cannot be delegated to how a file happens to be named. What a reviewer needs from here
+    is that every candidate resolved to a real input, and that is recorded as the check
+    itself plus each candidate with its evidence references. Reading the sentences is done
+    in the local output directory, which is where they stay.
+    """
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))
     files = {}
     examples = []
@@ -40,7 +48,7 @@ def archive(output_dir: Path, destination: Path) -> None:
         for scene in output.scenes:
             for candidate in scene.tagCandidates:
                 count += 1
-                evidence_texts = []
+                source_labels = []
                 for ref in candidate.evidence:
                     matches = [
                         t
@@ -51,7 +59,12 @@ def archive(output_dir: Path, destination: Path) -> None:
                         match_key(candidate.value) in match_key(t["text"]) for t in matches
                     ):
                         raise ValueError("saved candidate has no matching source text")
-                    evidence_texts.append(matches[0]["text"])
+                    # The input label and the length of the text it was cut from. Enough to
+                    # tell a whole subtitle sentence from a two-character OCR fragment
+                    # without carrying the sentence.
+                    source_labels.append(
+                        {"label": matches[0]["label"], "sourceChars": len(matches[0]["text"])}
+                    )
                 if candidate.type not in seen_types:
                     seen_types.add(candidate.type)
                     examples.append(
@@ -59,7 +72,7 @@ def archive(output_dir: Path, destination: Path) -> None:
                             "clip": clip,
                             "sceneIndex": scene.sceneIndex,
                             "candidate": candidate.model_dump(mode="json"),
-                            "sourceTexts": evidence_texts,
+                            "sources": source_labels,
                         }
                     )
         for file in sorted((output_dir / clip).glob("*.json")):
@@ -75,6 +88,7 @@ def archive(output_dir: Path, destination: Path) -> None:
                 sum(record["seconds"] for record in summary["clips"]), 3
             ),
             "evidenceResolution": "all candidates checked against saved scene inputs",
+            "sourceTextPolicy": "no source text or media included; rights-gated corpus stays local",
             "artifactsSha256": files,
             "examples": examples,
         },
@@ -199,8 +213,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--archive",
+        type=Path,
+        # Without this the review artifact can only be produced by importing the module,
+        # which means the documented command and the committed file come from two
+        # different paths. One command, one artifact.
+        help="also write the compact review artifact for ai/docs/sample-results/",
+    )
     args = parser.parse_args()
     run(args.corpus, args.out)
+    if args.archive is not None:
+        archive(args.out, args.archive)
 
 
 if __name__ == "__main__":

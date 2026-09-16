@@ -86,6 +86,7 @@
   "totalCandidates": 706,
   "totalInferenceSeconds": 23.856,
   "evidenceResolution": "all candidates checked against saved scene inputs",
+  "sourceTextPolicy": "no source text or media included; rights-gated corpus stays local",
   "artifactsSha256": {
     "KNI_00001/inputs.json": "4ed41dadde9f930882ab56eb57989f83676f0e55e34ae7f4ffa89176921efb67",
     "KNI_00001/output.json": "b3936e87593df55c2e06614df17708ded236fc683d59f0170cd3a7c7885c1344",
@@ -149,8 +150,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "이를 코치에게 말했지만 오히려 자신 탓을 했다고도 했습니다."
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 33
+        }
       ]
     },
     {
@@ -171,8 +175,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "워시원드"
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 4
+        }
       ]
     },
     {
@@ -193,8 +200,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "여자수는기리"
+      "sources": [
+        {
+          "label": "ocr_4",
+          "sourceChars": 6
+        }
       ]
     },
     {
@@ -215,8 +225,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "김A간다k"
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 5
+        }
       ]
     },
     {
@@ -237,8 +250,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "IBK창"
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 4
+        }
       ]
     },
     {
@@ -259,8 +275,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "시B퇴직연금"
+      "sources": [
+        {
+          "label": "ocr_11",
+          "sourceChars": 6
+        }
       ]
     },
     {
@@ -281,8 +300,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "정정원"
+      "sources": [
+        {
+          "label": "ocr_16",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -303,8 +325,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "WNEEET"
+      "sources": [
+        {
+          "label": "ocr_21",
+          "sourceChars": 6
+        }
       ]
     },
     {
@@ -402,19 +427,55 @@
           }
         ]
       },
-      "sourceTexts": [
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai",
-        "Rinnai"
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_5",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_9",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_10",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_11",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_13",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_14",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_18",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_22",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_23",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_27",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_30",
+          "sourceChars": 6
+        }
       ]
     },
     {
@@ -435,8 +496,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "UULAI"
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 5
+        }
       ]
     },
     {
@@ -457,8 +521,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "LLL"
+      "sources": [
+        {
+          "label": "ocr_5",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -479,8 +546,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "KB부통산신탁"
+      "sources": [
+        {
+          "label": "ocr_6",
+          "sourceChars": 7
+        }
       ]
     },
     {
@@ -501,8 +571,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "자준는"
+      "sources": [
+        {
+          "label": "ocr_9",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -523,8 +596,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "의정부시"
+      "sources": [
+        {
+          "label": "ocr_11",
+          "sourceChars": 4
+        }
       ]
     },
     {
@@ -545,8 +621,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "ALT"
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -567,8 +646,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "REA"
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -591,8 +673,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "최민정과 함께 빙판을 가르며 세계 선수권 준비에 한창인 이 선수 이번 시즌만큼은 최민정 못지않은 위상을 자랑 중인 한국 빙상의 깜짝 스타 박지원입니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 84
+        }
       ]
     },
     {
@@ -615,8 +700,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "최민정과 함께 빙판을 가르며 세계 선수권 준비에 한창인 이 선수 이번 시즌만큼은 최민정 못지않은 위상을 자랑 중인 한국 빙상의 깜짝 스타 박지원입니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 84
+        }
       ]
     },
     {
@@ -639,8 +727,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "최민정과 함께 빙판을 가르며 세계 선수권 준비에 한창인 이 선수 이번 시즌만큼은 최민정 못지않은 위상을 자랑 중인 한국 빙상의 깜짝 스타 박지원입니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 84
+        }
       ]
     },
     {
@@ -661,8 +752,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "SK"
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 2
+        }
       ]
     },
     {
@@ -683,8 +777,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "NKWX"
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 4
+        }
       ]
     },
     {
@@ -707,8 +804,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "가장 눈에 띄게 발전한 선수는 프로 3년차 가드인 @이름1입니다."
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 36
+        }
       ]
     },
     {
@@ -731,8 +831,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "가장 눈에 띄게 발전한 선수는 프로 3년차 가드인 @이름1입니다."
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 36
+        }
       ]
     },
     {
@@ -753,8 +856,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "Heunku"
+      "sources": [
+        {
+          "label": "ocr_3",
+          "sourceChars": 6
+        }
       ]
     },
     {
@@ -789,10 +895,19 @@
           }
         ]
       },
-      "sourceTexts": [
-        "배구들",
-        "배구를",
-        "배구을"
+      "sources": [
+        {
+          "label": "ocr_8",
+          "sourceChars": 3
+        },
+        {
+          "label": "ocr_17",
+          "sourceChars": 3
+        },
+        {
+          "label": "ocr_23",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -813,8 +928,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "흥국금융가"
+      "sources": [
+        {
+          "label": "ocr_14",
+          "sourceChars": 5
+        }
       ]
     },
     {
@@ -835,8 +953,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "HEan"
+      "sources": [
+        {
+          "label": "ocr_15",
+          "sourceChars": 4
+        }
       ]
     },
     {
@@ -859,8 +980,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "2쿼터 연속 속공을 성공시키며 분위기를 LG 쪽으로 가져온 이관희는 상대 공을 빼앗은 뒤 기막힌 노룩 패스로 덩크슛을 이끌어내며 홈 팬들을 열광시켰습니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 86
+        }
       ]
     },
     {
@@ -883,8 +1007,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "2쿼터 연속 속공을 성공시키며 분위기를 LG 쪽으로 가져온 이관희는 상대 공을 빼앗은 뒤 기막힌 노룩 패스로 덩크슛을 이끌어내며 홈 팬들을 열광시켰습니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 86
+        }
       ]
     },
     {
@@ -907,8 +1034,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "2쿼터 연속 속공을 성공시키며 분위기를 LG 쪽으로 가져온 이관희는 상대 공을 빼앗은 뒤 기막힌 노룩 패스로 덩크슛을 이끌어내며 홈 팬들을 열광시켰습니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 86
+        }
       ]
     },
     {
@@ -929,8 +1059,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "LU4"
+      "sources": [
+        {
+          "label": "ocr_5",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -951,8 +1084,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "창원"
+      "sources": [
+        {
+          "label": "ocr_7",
+          "sourceChars": 2
+        }
       ]
     },
     {
@@ -980,9 +1116,15 @@
           }
         ]
       },
-      "sourceTexts": [
-        "KBO",
-        "2020KBO"
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 3
+        },
+        {
+          "label": "ocr_16",
+          "sourceChars": 7
+        }
       ]
     },
     {
@@ -1003,8 +1145,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "cneaSd"
+      "sources": [
+        {
+          "label": "ocr_3",
+          "sourceChars": 6
+        }
       ]
     },
     {
@@ -1025,8 +1170,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "BTO"
+      "sources": [
+        {
+          "label": "ocr_27",
+          "sourceChars": 3
+        }
       ]
     },
     {
@@ -1049,8 +1197,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "개막전에서 만날 잠실 라이벌 LG도 포부를 숨기지 않았습니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 34
+        }
       ]
     },
     {
@@ -1073,8 +1224,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "이제 겨울 야구가 된 포스트 시즌 진출에 열망도 드러냈습니다."
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 34
+        }
       ]
     },
     {
@@ -1095,8 +1249,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "롯데리아 홀"
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 6
+        }
       ]
     },
     {
@@ -1117,8 +1274,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "올림픽슬라이딩센터"
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 9
+        }
       ]
     },
     {
@@ -1139,8 +1299,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "강원도 평창군 대관령면"
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 12
+        }
       ]
     },
     {
@@ -1163,8 +1326,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "루지와 봅슬레이 등 썰매 종목이 열리는 슬라이딩 센터입니다."
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 33
+        }
       ]
     },
     {
@@ -1185,8 +1351,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "강원도평창군대관령면"
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 10
+        }
       ]
     },
     {
@@ -1207,8 +1376,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "강원도평창군대관령면"
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 10
+        }
       ]
     },
     {
@@ -1229,8 +1401,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "평창알펜시아 스키점프대"
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 12
+        }
       ]
     },
     {
@@ -1253,8 +1428,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "감독님은 팀의 에이스 아나스의 부진을 뼈아프게 지적합니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 32
+        }
       ]
     },
     {
@@ -1277,8 +1455,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "감독님은 팀의 에이스 아나스의 부진을 뼈아프게 지적합니다."
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 32
+        }
       ]
     },
     {
@@ -1299,8 +1480,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "CEaX"
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 4
+        }
       ]
     },
     {
@@ -1321,8 +1505,11 @@
           }
         ]
       },
-      "sourceTexts": [
-        "나스야"
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 3
+        }
       ]
     }
   ]
