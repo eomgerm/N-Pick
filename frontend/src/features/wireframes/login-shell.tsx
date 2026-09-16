@@ -23,6 +23,7 @@ import {
   type LoginErrorDialogContent,
 } from '@/features/wireframes/login-error';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
+import { LoginMountainBackdrop } from '@/features/wireframes/login-mountain-backdrop';
 import styles from '@/features/wireframes/entry.module.css';
 
 interface LoginShellProps {
@@ -88,6 +89,7 @@ function LoginErrorDialog({
 export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
   const client = useQueryClient();
   const [errors, setErrors] = useState<{ userId?: string; password?: string }>({});
+  const [isLogoutNoticeVisible, setIsLogoutNoticeVisible] = useState(reason === 'logout');
   const inputRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const submissionRef = useRef(false);
@@ -126,6 +128,12 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
     void discardQueries(client);
   }, [client]);
 
+  useEffect(() => {
+    if (!isLogoutNoticeVisible) return;
+    const timeoutId = window.setTimeout(() => setIsLogoutNoticeVisible(false), 3_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [isLogoutNoticeVisible]);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submissionRef.current) return;
@@ -154,8 +162,14 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
   }
 
   return (
-    <div className={styles.shell} data-theme={theme}>
-      <EntryHeader label={`${roleLabel} 워크스페이스`} />
+    <div className={`${styles.shell} ${styles.loginShell}`} data-theme={theme}>
+      <LoginMountainBackdrop />
+      <EntryHeader />
+      {isLogoutNoticeVisible && (
+        <div aria-atomic="true" className={styles.logoutToast} role="status">
+          로그아웃 되었습니다.
+        </div>
+      )}
       {loginErrorDialogContent && (
         <LoginErrorDialog
           {...loginErrorDialogContent}
@@ -164,53 +178,25 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
         />
       )}
       <main className={styles.loginMain}>
-        <section className={styles.welcome} aria-labelledby="welcome-title">
-          <p className={styles.eyebrow}>YOUR NEXT SCENE STARTS HERE</p>
-          <h1 id="welcome-title">
-            <span>안녕하세요</span>
-            <span>
-              <em>N-Pick</em>과 함께 더 스마트하게
-            </span>
-          </h1>
-          <p className={styles.welcomeDescription}>
-            장면을 찾는 순간부터, 더 나은 선택까지.
-            <br />
-            오늘의 작업을 N-Pick과 시작해 보세요.
-          </p>
-          <div aria-hidden="true" className={styles.sceneArt}>
-            <div className={styles.artBack} />
-            <div className={styles.artFront}>
-              <span className={styles.artCorners} />
-              <span className={styles.artPlay} />
-              <span className={styles.artCaption}>THE RIGHT SCENE.</span>
-              <span className={styles.artTimeline}>
-                <i />
-                <i />
-                <i />
-                <i />
-                <i />
-              </span>
-            </div>
-            <span className={styles.artSpark}>✦</span>
-          </div>
-        </section>
         <section
           aria-labelledby="login-title"
-          className={styles.loginCard}
+          className={`${styles.loginCard} backdrop-blur-2xl backdrop-saturate-150`}
           data-invalid-credentials={isInvalidCredentialsFailure}
         >
           <Link className={styles.backLink} href={routes.landing}>
             <ArrowLeft aria-hidden="true" />
             역할 다시 선택
           </Link>
-          <span className={styles.loginIcon}>
-            {role === 'editor' ? (
-              <Clapperboard aria-hidden="true" />
-            ) : (
-              <ShieldCheck aria-hidden="true" />
-            )}
-          </span>
-          <h2 id="login-title">로그인</h2>
+          <div className={styles.loginHeading}>
+            <span className={styles.loginIcon}>
+              {role === 'editor' ? (
+                <Clapperboard aria-hidden="true" />
+              ) : (
+                <ShieldCheck aria-hidden="true" />
+              )}
+            </span>
+            <h2 id="login-title">로그인</h2>
+          </div>
           <p className={styles.cardDescription}>
             {roleLabel}님, 반가워요.
             <br />
@@ -221,7 +207,6 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
               로그인이 만료되었습니다. 다시 로그인해 주세요.
             </p>
           )}
-          {reason === 'logout' && <p role="status">로그아웃되었습니다.</p>}
           {hasInlineLoginError && <ApiErrorNotice id="login-api-error" error={mutation.error} />}
           <form aria-label={`${roleLabel} 로그인`} noValidate onSubmit={handleSubmit}>
             <label className={styles.fieldLabel} htmlFor="login-id">
@@ -253,7 +238,11 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
                 type="text"
               />
             </div>
-            <p aria-live="polite" className={styles.error} id="login-id-error">
+            <p
+              aria-live="polite"
+              className={`${styles.error} ${styles.userIdError}`}
+              id="login-id-error"
+            >
               {errors.userId}
             </p>
             <label className={styles.fieldLabel} htmlFor="login-password">
@@ -308,7 +297,6 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
                   : ''}
             </span>
           </form>
-          <p className={styles.cardFootnote}>좋은 뉴스는, 좋은 장면에서.</p>
         </section>
       </main>
       <EntryFooter />

@@ -251,7 +251,7 @@
   height: 27px;
 }
 .thumbnail[data-image='station'] {
-  background: #233044 url('/images/news-scenes-triptych.png') 0 50% / 300% auto no-repeat;
+  background: #2e2a26 url('/images/news-scenes-triptych.png') 0 50% / 300% auto no-repeat;
 }
 .thumbnail[data-image='station'] svg {
   display: none;

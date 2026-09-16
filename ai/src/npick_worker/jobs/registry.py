@@ -9,6 +9,8 @@
 실행이 아니라 run 전체의 정책이라 BE 의 몫이다.
 """
 
+import hashlib
+import json
 import logging
 import platform
 from collections.abc import Callable, Iterable, Mapping
@@ -43,6 +45,7 @@ from npick_worker.versioning import service_version
 if TYPE_CHECKING:  # 런타임에 단계 구현을 끌어오지 않는다(ocr 은 onnxruntime 이 딸려 온다).
     from npick_worker.asr.engine import AsrEngine
     from npick_worker.ocr.models import KeyframeRef
+    from npick_worker.text_embedding.models import SceneText
     from npick_worker.vlm_metadata.client import VlmClient
     from npick_worker.vlm_metadata.models import SceneKeyframes
 
@@ -50,6 +53,12 @@ logger = logging.getLogger(__name__)
 
 #: keyframe 이미지의 Content-Type. 계약 §4.4 의 PUT 헤더에 그대로 들어간다.
 _JPEG_CONTENT_TYPE: Final[str] = "image/jpeg"
+
+#: artifact 로 올리는 JSON 문서의 Content-Type.
+_JSON_CONTENT_TYPE: Final[str] = "application/json"
+
+#: 그 문서의 파일명. `outputKeyPrefix` 아래 한 장뿐이라 장면 번호를 붙이지 않는다.
+_EMBEDDINGS_FILE_NAME: Final[str] = "embeddings.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,10 +397,38 @@ def _run_ocr(ctx: StageContext) -> StageOutcome:
         engine=result.engine,
         engine_version=result.engine_version,
         tokenizer=result.tokenizer,
+        merge_version=result.merge_config.version_id,
     )
     detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    output = OcrOutput.from_result(result).model_dump(by_alias=True, mode="json")
+    # 관측 배열과 그룹 참조를 한 문서에 보존한다. DB ID로 해석하거나 배열만 정렬하면 안 된다.
+    artifact_bytes = json.dumps(
+        {
+            "outputSchemaVersion": output_schema_version(ctx.stage),
+            "identity": identity,
+            "output": output,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    artifact_path = ctx.work_dir / "ocr-result.json"
+    artifact_path.write_bytes(artifact_bytes)
     return StageOutcome(
-        output=OcrOutput.from_result(result).model_dump(by_alias=True, mode="json"),
+        output=output,
+        uploads=(
+            PendingUpload(
+                ref=ArtifactRef(
+                    kind="ocr_result",
+                    storage_key=_output_key(ctx.output_key_prefix, "ocr-result.json"),
+                    byte_size=len(artifact_bytes),
+                    content_hash=hashlib.sha256(artifact_bytes).hexdigest(),
+                ),
+                local_path=artifact_path,
+                content_type="application/json",
+            ),
+        ),
         versions=StageVersion(
             stage_version=stage_version(ctx.stage, identity),
             output_schema_version=output_schema_version(ctx.stage),
@@ -408,8 +445,7 @@ def _run_ocr(ctx: StageContext) -> StageOutcome:
             # 임계값 미달로 unverified 가 된 수. 이 비율이 튀면 그 클립의 화면 글자
             # 품질이나 임계값을 사람이 한 번 봐야 한다는 신호다.
             "unverifiedObservations": result.unverified_count,
-            # 서로 다른 문구의 수. 관측 수보다 작으면 프레임 사이에 같은 문구가 있다.
-            # **합치지 않았다는 뜻이기도 하다** — 관측은 전부 남아 있다.
+            # 독립 관측을 포함한 scene별 병합 그룹 수. 원본 관측 수는 줄이지 않는다.
             "textGroups": result.text_group_count,
             "minConfidence": result.min_confidence,
         },
@@ -417,20 +453,31 @@ def _run_ocr(ctx: StageContext) -> StageOutcome:
 
 
 def _ocr_identity(
-    *, config_version: str, engine: str, engine_version: str, tokenizer: str
+    *,
+    config_version: str,
+    engine: str,
+    engine_version: str,
+    tokenizer: str,
+    merge_version: str,
 ) -> dict[str, str]:
     """ocr 의 재현 튜플.
 
-    앞의 두 단계와 달리 축이 넷이다. `tokenizer` 가 있는 이유는 `ocr_observation.tokens`
+    병합 설정을 포함해 축이 다섯이다. `tokenizer` 가 있는 이유는 `ocr_observation.tokens`
     가 이 단계의 산출물이기 때문이다 — Kiwi 설정이 바뀌면 화면에서 읽은 글자가 같아도
     색인이 달라진다. 검색이 0 건이 되는 종류의 변화라 재현 식별자에 들어가야 한다
     (`docs/architecture/02-container.md:110`).
+
+    **`merge_version` 에 기본값을 두지 않는다.** `read_keyframes(merge_config=...)` 로
+    패키지 기본값이 아닌 병합 설정을 쓸 수 있으므로, 폴백이 있으면 인자를 빠뜨린 호출자가
+    실제로 돌린 설정 대신 기본값을 `stageVersion` 에 적는다. 그 값으로는 재현이 안 되는데
+    재현 식별자가 된 것이므로, 한 번 더 적는 수고보다 거짓 식별자를 막는 쪽을 택한다.
     """
     return {
         "configVersion": config_version,
         "engine": engine,
         "engineVersion": engine_version,
         "tokenizer": tokenizer,
+        "mergeConfigVersion": merge_version,
     }
 
 
@@ -929,6 +976,189 @@ def _warm_scene_detection() -> str:
     return f"config={config.version_id} engine={detector.name} {detector.version}"
 
 
+# ── text_embedding (9단계) ───────────────────────────────────────────
+
+
+def _text_embedding_identity(
+    *, config_version: str, engine: str, engine_version: str, model_version: str
+) -> dict[str, str]:
+    """text embedding 의 재현 튜플.
+
+    `model_version` 이 따로 있는 이유는 `config_version` 이 설정 파일만 해시하기
+    때문이다 — 가중치를 갈아도 그 값은 그대로인데 벡터는 전부 달라진다. 벡터는 사람이
+    보고 이상하다고 알아챌 수 있는 산출물이 아니라서, 여기서 갈리지 않으면 검색 품질이
+    떨어진 뒤에야 알게 된다.
+    """
+    return {
+        "configVersion": config_version,
+        "engine": engine,
+        "engineVersion": engine_version,
+        "modelVersion": model_version,
+    }
+
+
+def _scene_texts(
+    upstream: Mapping[str, Any], documents: Mapping[str, Mapping[str, Any]]
+) -> tuple["SceneText", ...]:
+    """벡터 하나씩을 만들 재료. 캡션과 대사를 장면 번호로 맞춘다.
+
+    장면의 정본 목록은 `vlm_metadata` 다. 대사 매핑에만 있고 캡션 쪽에 없는 장면은
+    버린다 — 두 상류가 어긋난 것이고, 어느 쪽을 믿을지는 이 단계가 정할 일이 아니다.
+    """
+    from npick_worker.jobs.models import TextEmbeddingUpstream
+    from npick_worker.jobs.transcripts import resolve_mapping
+    from npick_worker.text_embedding import SceneText
+
+    parsed = _parse_upstream(TextEmbeddingUpstream, upstream)
+    resolved = resolve_mapping(upstream, documents)
+    dialogue: dict[int, tuple[str, ...]] = (
+        {}
+        if resolved is None
+        else {
+            scene.scene_index: tuple(resolved[1][link.segment_id].t for link in scene.segments)
+            for scene in resolved[0].scenes
+        }
+    )
+    return tuple(
+        SceneText(
+            scene_index=scene.scene_index,
+            caption="" if scene.caption is None else scene.caption.value,
+            dialogue=dialogue.get(scene.scene_index, ()),
+        )
+        for scene in parsed.vlm_metadata.scenes
+    )
+
+
+def _run_text_embedding(ctx: StageContext) -> StageOutcome:
+    # 지연 임포트. sentence-transformers·torch 는 헬스체크만 하는 프로세스가 낼 비용이
+    # 아니다(`ocr` 의 onnxruntime 과 같은 이유).
+    from npick_worker.jobs.models import (
+        SceneEmbeddingOut,
+        SceneEmbeddingsDocument,
+        TextEmbeddingOutput,
+    )
+    from npick_worker.text_embedding import (
+        EmbeddingCallError,
+        EmbeddingModelUnavailableError,
+        embed_scenes,
+    )
+
+    scenes = _scene_texts(ctx.upstream, ctx.artifact_documents)
+    try:
+        result = embed_scenes(scenes)
+    except EmbeddingModelUnavailableError as exc:
+        # 가중치를 못 받은 것은 이 클립의 문제가 아니다 — 다른 파드나 다음 시도에서
+        # 성공할 수 있다(계약 §9.2 의 일시 오류).
+        raise ModelUnavailableError(str(exc)) from exc
+    except EmbeddingCallError as exc:
+        raise TransientStageError(str(exc)) from exc
+
+    document = SceneEmbeddingsDocument(
+        dimension=result.dimension,
+        scenes=[
+            SceneEmbeddingOut(
+                scene_index=scene.scene_index,
+                vector=scene.vector,
+                source_text=scene.source_text,
+            )
+            for scene in result.scenes
+        ],
+    )
+    # `ensure_ascii=False` 로 한글을 그대로 쓴다. `sourceText` 가 이스케이프되면 파일이
+    # 두 배가 되고 사람이 열어 볼 수 없다.
+    payload = json.dumps(
+        document.model_dump(by_alias=True, mode="json"), ensure_ascii=False
+    ).encode("utf-8")
+    local_path = ctx.work_dir / _EMBEDDINGS_FILE_NAME
+    local_path.write_bytes(payload)
+    ref = ArtifactRef(
+        # BE 가 이 값으로 `artifacts` 의 참조를 대조한다(계약 §4.3.4).
+        kind="scene_embeddings",
+        storage_key=_output_key(ctx.output_key_prefix, _EMBEDDINGS_FILE_NAME),
+        byte_size=len(payload),
+        content_hash=hashlib.sha256(payload).hexdigest(),
+    )
+
+    identity = _text_embedding_identity(
+        config_version=result.config_version,
+        engine=result.engine,
+        engine_version=result.engine_version,
+        model_version=result.model_version,
+    )
+    detail = {key: value for key, value in identity.items() if key != "configVersion"}
+    return StageOutcome(
+        output=TextEmbeddingOutput(
+            embeddings_artifact=ref,
+            dimension=result.dimension,
+            embedded_count=result.embedded_count,
+            skipped_scene_indexes=result.skipped,
+        ).model_dump(by_alias=True, mode="json"),
+        versions=StageVersion(
+            stage_version=stage_version(ctx.stage, identity),
+            output_schema_version=output_schema_version(ctx.stage),
+            config_version=result.config_version,
+            model_version=result.model_version,
+            detail=detail,
+            runtime=_runtime(),
+        ),
+        metrics={
+            "scenes": len(scenes),
+            "embedded": result.embedded_count,
+            # 이 수가 튀면 상류 VLM·자막이 얼마나 비었는지를 사람이 볼 신호가 된다.
+            "skipped": result.skipped_count,
+        },
+        uploads=(PendingUpload(ref=ref, local_path=local_path, content_type=_JSON_CONTENT_TYPE),),
+    )
+
+
+# ── indexing (10단계) ────────────────────────────────────────────────
+
+
+def _run_indexing(ctx: StageContext) -> StageOutcome:
+    """색인 재료가 얼마나 찼는지를 세어 돌려준다.
+
+    **색인을 쓰지 않는다.** BM25·pgvector 인덱스는 마이그레이션이 정본이고 재료는 상류
+    단계가 완료될 때 BE 가 이미 넣었다(FRD §11 — 외부·비동기 색인 없음). 그래서 이
+    단계에 남는 일은 "무엇이 들어왔나" 를 기록하는 것뿐이다.
+
+    **게시 가능 판정도 하지 않는다.** 그 정본은 BE 의 `JdbcClipPublicationAdapter` 이고,
+    거기에는 워커가 볼 수 없는 것(keyframe 파일이 디스크에 실제로 있는가)이 들어간다.
+    여기 요약은 게시가 안 됐을 때 어느 채널이 비었는지를 사람이 보는 값이다.
+    """
+    from npick_worker.jobs.models import IndexingOutput, IndexingUpstream
+
+    parsed = _parse_upstream(IndexingUpstream, ctx.upstream)
+    captions = parsed.vlm_metadata.scenes if parsed.vlm_metadata is not None else ()
+    dialogue = parsed.scene_transcript_mapping.scenes if parsed.scene_transcript_mapping else ()
+    observations = parsed.ocr.observations if parsed.ocr is not None else ()
+
+    output = IndexingOutput(
+        scene_count=len(parsed.scene_detection.scenes),
+        # **산문이 아니라 색인 토큰을 센다.** 게시 판정이 보는 것은 `scene.caption_tokens`
+        # 이고, 조사·기호뿐인 설명은 `value` 가 있어도 그 컬럼이 빈다. 산문을 세면 요약은
+        # "캡션 채널이 찼다" 고 말하는데 게시는 안 되고, 사람이 요약을 열어도 왜인지 모른다.
+        captioned_scenes=sum(
+            1 for scene in captions if scene.caption is not None and scene.caption.tokens.strip()
+        ),
+        dialogue_scenes=sum(1 for scene in dialogue if scene.segments),
+        # 관측이 아니라 **장면**을 센다. 한 장면에서 여러 프레임을 읽으므로 관측 수는
+        # 다른 채널과 축이 다르고, 나란히 놓으면 사람이 반드시 잘못 읽는다.
+        ocr_scenes=len({o.scene_index for o in observations if o.tokens.strip()}),
+        embedded_scenes=parsed.text_embedding.embedded_count if parsed.text_embedding else 0,
+    )
+    return StageOutcome(
+        output=output.model_dump(by_alias=True, mode="json"),
+        versions=StageVersion(
+            # **재현 튜플이 비어 있다.** 설정도 모델도 토크나이저도 쓰지 않는 단계라
+            # 결과를 바꿀 수 있는 입력이 상류 산출물뿐이고, 그것은 버전이 아니라 데이터다.
+            stage_version=stage_version(ctx.stage, {}),
+            output_schema_version=output_schema_version(ctx.stage),
+            runtime=_runtime(),
+        ),
+        metrics={"scenes": output.scene_count},
+    )
+
+
 HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
     {
         handler.name: handler
@@ -956,13 +1186,23 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
             # 인라인으로 오고, 무엇을 채택할지 정하는 일은 하류의 몫이다(계약 §4.5).
             # `needs_video` 는 기본값 True 다. 오디오가 원본 파일 안에 있다.
             StageHandler("asr", _run_asr, _warm_asr),
+            # 아래 둘도 영상을 열지 않는다. 캡션·대사·관측은 `upstream` 에 인라인으로
+            # 오고, 대사 원문은 러너가 모든 단계에 주는 `artifact_documents` 에 있다.
+            StageHandler(
+                "text_embedding",
+                _run_text_embedding,
+                # 워밍업을 두지 않는다. 가중치는 첫 `encode` 에서 올라가고, 여기서
+                # 끌어올리면 기동이 1.7GB 내려받기만큼 늦어진다.
+                needs_video=False,
+            ),
+            StageHandler("indexing", _run_indexing, needs_video=False),
         )
     }
 )
 
 
 def resolve(stage: str) -> StageHandler | None:
-    """구현이 있으면 돌려준다. 나머지 아홉 단계는 None 이고 호출부가 생략으로 보고한다."""
+    """구현이 있으면 돌려준다. 나머지 세 단계는 None 이고 호출부가 생략으로 보고한다."""
     return HANDLERS.get(stage)
 
 
@@ -1053,6 +1293,7 @@ def _declared_version(stage: str) -> str:
         from npick_worker import korean_tokens
         from npick_worker.ocr import get_default_config as get_ocr_config
         from npick_worker.ocr import shared_engine
+        from npick_worker.ocr.merge import get_merge_config
 
         ocr_config = get_ocr_config()
         # **엔진을 만들어 본다.** 여기서 읽는 값(`name` 은 상수, `version` 은
@@ -1073,6 +1314,10 @@ def _declared_version(stage: str) -> str:
                 engine=ocr_engine.name,
                 engine_version=ocr_engine.version,
                 tokenizer=korean_tokens.tokenizer_version(),
+                # 배정 전에 광고하는 값이라 잡별 병합 설정이 아직 없다. 워커가 잡을
+                # 받으면 `read_keyframes` 가 같은 기본값을 쓰므로 여기서 선언한 것과
+                # 실제 실행이 일치한다.
+                merge_version=get_merge_config().version_id,
             ),
         )
     if stage == "vlm_metadata":
@@ -1133,5 +1378,46 @@ def _declared_version(stage: str) -> str:
                 model_version=asr_engine.model_version,
             ),
         )
+    if stage == "text_embedding":
+        # **움직이는 ref 로는 선언하지 않는다.** `main` 같은 값이면 `model_version` 이
+        # 로딩 전 `…@main`, 로딩 후 `…@<sha>` 라 claim 에 실은 `stageVersion` 과 결과가
+        # 보고하는 값이 갈린다(계약 §7 의 버전 불일치). `vlm_metadata`·`asr` 가 워밍업
+        # 가드를 둔 이유와 같고, 여기서는 가중치를 올리지 않고 설정만 보고 닫는다.
+        from npick_worker.text_embedding.sentence_transformers_backend import (
+            _PINNED_REVISION,
+            DEFAULT_REVISION,
+        )
+
+        revision = get_settings().embedding_model_revision or DEFAULT_REVISION
+        if not _PINNED_REVISION.fullmatch(revision):
+            msg = f"임베딩 가중치 리비전이 SHA 로 고정되지 않았다: {revision}"
+            raise ModelUnavailableError(msg)
+
+        # **라이브러리를 실제로 끌어온다.** 인코더 생성자는 sentence-transformers 를
+        # 지연 임포트하고 `engine_version` 은 없으면 `unknown` 으로 떨어진다. 그대로
+        # 선언하면 `gpu` 그룹을 설치하지 않은 워커가 배정받아 매번 죽고, 나중에
+        # 설치되면 같은 단계의 `stageVersion` 이 조용히 바뀐다(계약 §7 의 버전 불일치).
+        import sentence_transformers  # noqa: F401
+
+        from npick_worker.text_embedding import get_default_config as get_embedding_config
+        from npick_worker.text_embedding import shared_encoder
+
+        embedding_config = get_embedding_config()
+        # **모델 이름이 비면 여기서 걸린다**(`EmbeddingModelUnavailableError`).
+        # 가중치 로딩은 트리거하지 않는다 — `model_version` 은 고정 리비전을 쓰므로
+        # 로딩 전후가 같고, `vlm_metadata`·`asr` 의 워밍업 가드가 필요 없다.
+        encoder = shared_encoder()
+        return stage_version(
+            stage,
+            _text_embedding_identity(
+                config_version=embedding_config.version_id,
+                engine=encoder.name,
+                engine_version=encoder.version,
+                model_version=encoder.model_version,
+            ),
+        )
+    if stage == "indexing":
+        # 재현 튜플이 비어 있다. `_run_indexing` 이 만드는 값과 같아야 한다.
+        return stage_version(stage, {})
     msg = f"버전을 선언할 수 없는 단계다: {stage}"
     raise KeyError(msg)

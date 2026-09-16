@@ -1,0 +1,4 @@
+# S15P21A501-95. 원문은 보존하고 비교용 문자열만 NFKC/casefold/공백 제거한다.
+# 1.0: 실제 자막 개발셋으로 유사도 임계값을 확정하기 전의 보수적 기본값.
+schema = "ocr-merge/v1"
+similarity_threshold = 1.0

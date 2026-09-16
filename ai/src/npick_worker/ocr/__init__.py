@@ -11,9 +11,8 @@
   `keyframe` 행이 가리키는 이미지와 읽은 이미지가 달라질 수 있다. 그 프레임은
   `frame_extraction` 이 **원본 해상도로** 저장한 것이라 같은 문장의 "축소된 대표
   이미지 대신 원본 해상도의 프레임" 요구도 함께 지켜진다.
-- **관측을 합치지 않는다.** 프레임 사이의 같은 문구도 각자 행으로 남는다. 묶어야
-  하는 소비자는 `text_key` 로 묶고, 그래도 원본 관측과 keyframe 이 그대로 있다
-  (`postprocess.py` 의 판단 근거).
+- **관측을 보존하며 문구를 병합한다.** `merge.py`가 scene별 그룹과 원본 관측 참조를
+  만든다. 대표 문구를 선택해도 각 관측의 원문·confidence·bbox는 그대로 남는다.
 - **미달 결과를 버리지 않는다.** `min_confidence` 미만은 `unverified` 로 **표시만**
   한다. 검색 후보로는 쓸 수 있어야 하고, 높은 confidence 만으로 verified 가 되지도
   않는다 — 그 판단은 `tag_evidence.verification_status` 의 몫이지 이 단계가 아니다

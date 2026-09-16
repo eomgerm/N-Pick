@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.search.application.error.SearchRuleDeactivationErrorCode;
 import com.npick.search.domain.repository.SearchRuleDeactivationRepository;
 
@@ -17,9 +18,12 @@ import com.npick.search.domain.repository.SearchRuleDeactivationRepository;
 public class DeactivateSearchRuleService {
 
     private final SearchRuleDeactivationRepository repository;
+    private final CorrectionStateLock correctionStateLock;
 
-    public DeactivateSearchRuleService(SearchRuleDeactivationRepository repository) {
+    public DeactivateSearchRuleService(
+            SearchRuleDeactivationRepository repository, CorrectionStateLock correctionStateLock) {
         this.repository = repository;
+        this.correctionStateLock = correctionStateLock;
     }
 
     @Transactional
@@ -30,6 +34,8 @@ public class DeactivateSearchRuleService {
         if (command.active()) {
             throw new BusinessException(SearchRuleDeactivationErrorCode.CANNOT_REACTIVATE);
         }
+        // 규칙 중단은 확정 지문에 든 활성 규칙 집합을 바꾸므로, 확정과 같은 잠금을 잡아 확정의 drift 검사를 우회하지 못하게 한다(F-13, S15P21A501-84 리뷰).
+        correctionStateLock.acquire();
         if (repository.deactivate(command.ruleId()) == 0) {
             // 0 행 — 없는 규칙인지 이미 꺼진 규칙인지 갈라 원인을 알린다.
             throw new BusinessException(

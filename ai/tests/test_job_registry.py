@@ -5,6 +5,7 @@ FRD 단계 이름은 여기서 **전사**한다. `stages.py` 를 import 하면 �
 """
 
 import ast
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import pytest
 from npick_worker.jobs import registry
 from npick_worker.jobs.errors import (
     ExternalProcessingRefusedError,
+    ModelUnavailableError,
     UpstreamOutputInvalidError,
     VlmOutputInvalidError,
     classify,
@@ -96,14 +98,16 @@ def _context(
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_implemented_stages_are_exactly_the_five_present() -> None:
-    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 다섯은 resolve() 가 None 이다."""
+def test_implemented_stages_are_exactly_the_seven_present() -> None:
+    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 셋은 resolve() 가 None 이다."""
     assert set(HANDLERS) == {
         "scene_detection",
         "frame_extraction",
         "vlm_metadata",
         "ocr",
         "asr",
+        "text_embedding",
+        "indexing",
     }
 
 
@@ -414,6 +418,8 @@ def test_keyframe_reading_stages_skip_the_source_video() -> None:
     `ocr` 과 `vlm_metadata` 는 상류 keyframe 만 보므로 False 다. 나머지는 영상을 열어야
     하고, 거기서 False 가 되면 `require_video()` 가 실행 중에 터진다. `asr` 이 True 인
     이유는 앞의 둘과 다르다 — 보는 것이 화면이 아니라 **원본 파일 안의 오디오**다.
+    `text_embedding` 과 `indexing` 은 이미지조차 열지 않는다. 상류가 만든 텍스트와
+    숫자만 본다.
     """
     assert {name: handler.needs_video for name, handler in HANDLERS.items()} == {
         "scene_detection": True,
@@ -421,6 +427,8 @@ def test_keyframe_reading_stages_skip_the_source_video() -> None:
         "vlm_metadata": False,
         "ocr": False,
         "asr": True,
+        "text_embedding": False,
+        "indexing": False,
     }
 
 
@@ -543,8 +551,16 @@ def test_ocr_reports_counts_and_versions(tmp_path: Path, monkeypatch: pytest.Mon
         "textGroups": 2,
         "minConfidence": 0.7,
     }
-    # 이 단계는 파일을 올리지 않는다. 관측은 전부 payload 로 간다.
-    assert outcome.uploads == ()
+    assert len(outcome.uploads) == 1
+    upload = outcome.uploads[0]
+    saved = upload.local_path.read_bytes()
+    assert upload.ref.kind == "ocr_result"
+    assert upload.ref.storage_key == "runs/1/ocr/a1/ocr-result.json"
+    assert upload.ref.content_hash == hashlib.sha256(saved).hexdigest()
+    assert upload.ref.byte_size == len(saved)
+    assert json.loads(saved)["output"] == outcome.output
+    assert json.loads(saved)["outputSchemaVersion"] == "npick.stage.ocr.output/v2"
+    assert outcome.versions.detail["mergeConfigVersion"] == outcome.output["mergeConfigVersion"]
     assert outcome.versions.config_version == "ocr/v1:test"
     # 가중치를 쓰는 첫 단계다. 앞의 둘과 달리 modelVersion 이 비어 있지 않다.
     assert outcome.versions.model_version == "fake/0"
@@ -768,5 +784,343 @@ def test_external_backend_fails_closed_before_sending(
         assert record.authorization["payloadBytes"] == 1024
         assert record.authorization["payloadCategory"] == "selected_keyframes"
         assert "1024" in record.getMessage()
+    finally:
+        get_settings.cache_clear()
+
+
+# ── text_embedding · indexing (S15P21A501-183) ───────────────────────
+
+
+def _caption_upstream(*captions: str | None) -> dict[str, object]:
+    """장면마다 캡션 하나. `None` 은 VLM 이 캡션을 내지 않은 장면이다.
+
+    `tokens` 를 `value` 와 같게 둔다. 둘이 갈리는 경우는
+    `test_indexing_counts_captions_by_index_tokens_not_by_prose` 가 따로 본다.
+    """
+    return {
+        "vlmMetadata": {
+            "scenes": [
+                {
+                    "sceneIndex": index,
+                    "caption": None if caption is None else {"value": caption, "tokens": caption},
+                }
+                for index, caption in enumerate(captions)
+            ]
+        }
+    }
+
+
+def _fake_embed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """가중치 없이 어댑터만 확인한다. 차원은 동봉 설정을 그대로 따른다."""
+    from collections.abc import Sequence
+
+    import npick_worker.text_embedding as text_embedding
+
+    class FakeEncoder:
+        name = "fake"
+        version = "0.0.0"
+        model_version = "fake@0"
+
+        def encode(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+            dimension = text_embedding.get_default_config().dimension
+            return tuple((1.0,) * dimension for _ in texts)
+
+    real = text_embedding.embed_scenes
+    monkeypatch.setattr(
+        text_embedding,
+        "embed_scenes",
+        lambda scenes, **kwargs: real(scenes, encoder=FakeEncoder()),
+    )
+
+
+def test_text_embedding_reads_no_video_and_fetches_no_upstream_file() -> None:
+    """캡션과 대사는 인라인·artifact 문서로 온다. 영상도 keyframe 도 열지 않는다."""
+    handler = resolve("text_embedding")
+    assert handler is not None
+    assert handler.needs_video is False
+    assert handler.required_inputs is None
+
+
+def test_text_embedding_uploads_the_vectors_as_an_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """벡터를 payload 에 인라인하면 `stage_states_json` 이 장면 수만큼 부푼다."""
+    _fake_embed(monkeypatch)
+    handler = resolve("text_embedding")
+    assert handler is not None
+    context = StageContext(
+        stage="text_embedding",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/text_embedding/a1/",
+        upstream=_caption_upstream("부산 광안대교", "해운대 해수욕장"),
+    )
+
+    outcome = handler.run(context)
+
+    assert len(outcome.uploads) == 1
+    upload = outcome.uploads[0]
+    assert upload.ref.kind == "scene_embeddings"
+    assert upload.ref.storage_key == "runs/1/text_embedding/a1/embeddings.json"
+    assert upload.content_type == "application/json"
+    document = json.loads(upload.local_path.read_text(encoding="utf-8"))
+    assert document["schemaVersion"] == "npick.scene.embeddings/v1"
+    assert [scene["sceneIndex"] for scene in document["scenes"]] == [0, 1]
+    assert len(document["scenes"][0]["vector"]) == document["dimension"]
+    assert outcome.output["embeddingsArtifact"]["storageKey"] == upload.ref.storage_key
+    assert outcome.output["embeddedCount"] == 2
+    assert outcome.output["skippedSceneIndexes"] == []
+
+
+def test_text_embedding_skips_a_scene_without_caption_or_dialogue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """빈 문자열을 임베딩하면 빈 장면끼리 최근접이 된다. `scene.embedding` 은 nullable 이다."""
+    _fake_embed(monkeypatch)
+    handler = resolve("text_embedding")
+    assert handler is not None
+    context = StageContext(
+        stage="text_embedding",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/text_embedding/a1/",
+        upstream=_caption_upstream("부산 광안대교", None, "   "),
+    )
+
+    outcome = handler.run(context)
+
+    assert outcome.output["embeddedCount"] == 1
+    assert outcome.output["skippedSceneIndexes"] == [1, 2]
+    document = json.loads(outcome.uploads[0].local_path.read_text(encoding="utf-8"))
+    assert [scene["sceneIndex"] for scene in document["scenes"]] == [0]
+
+
+def test_text_embedding_rejects_upstream_without_vlm_metadata(tmp_path: Path) -> None:
+    """영구 오류다. BE 가 다시 보내도 같은 것을 보낸다."""
+    handler = resolve("text_embedding")
+    assert handler is not None
+    context = StageContext(
+        stage="text_embedding",
+        video_path=None,
+        storage_key="clips/1/source.mp4",
+        work_dir=tmp_path,
+        output_key_prefix="runs/1/text_embedding/a1/",
+        upstream={"sceneDetection": {}},
+    )
+    with pytest.raises(UpstreamOutputInvalidError):
+        handler.run(context)
+
+
+def test_text_embedding_joins_mapped_dialogue_to_the_caption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FRD §11 은 캡션과 **대사**를 합쳐 벡터 하나를 만들라고 한다."""
+    from .test_vlm_transcript_input import sample
+
+    _fake_embed(monkeypatch)
+    mapping_upstream, documents = sample()
+    upstream = dict(_caption_upstream("첫 장면", "둘째 장면", "셋째 장면"))
+    upstream["scene_transcript_mapping"] = mapping_upstream["scene_transcript_mapping"]
+    handler = resolve("text_embedding")
+    assert handler is not None
+
+    outcome = handler.run(
+        StageContext(
+            stage="text_embedding",
+            video_path=None,
+            storage_key="clips/1/source.mp4",
+            work_dir=tmp_path,
+            output_key_prefix="runs/1/text_embedding/a1/",
+            upstream=upstream,
+            artifact_documents=documents,
+        )
+    )
+
+    document = json.loads(outcome.uploads[0].local_path.read_text(encoding="utf-8"))
+    sources = {scene["sceneIndex"]: scene["sourceText"] for scene in document["scenes"]}
+    assert "부산 축제 소개" in sources[0]
+    assert "첫 장면" in sources[0]
+    # 2번 장면은 연결된 대사가 없다. 캡션만 남는다.
+    assert "부산 축제 소개" not in sources[2]
+
+
+def test_indexing_summarises_every_index_channel(tmp_path: Path) -> None:
+    """색인 재료가 얼마나 찼는지를 숫자로 남긴다. 색인을 쓰지도 게시를 정하지도 않는다."""
+    handler = resolve("indexing")
+    assert handler is not None
+    upstream: dict[str, object] = {
+        "sceneDetection": {"scenes": [{"sceneIndex": index} for index in range(3)]},
+        "ocr": {
+            "observations": [
+                {"sceneIndex": 0, "tokens": "부산"},
+                {"sceneIndex": 0, "tokens": ""},
+            ]
+        },
+        "textEmbedding": {"embeddedCount": 2},
+    }
+    upstream.update(_caption_upstream("부산 광안대교", None, "해운대"))
+    upstream["scene_transcript_mapping"] = {
+        "scenes": [
+            {"sceneIndex": 0, "segments": [{"segmentId": "s1", "overlapMs": 1500}]},
+            {"sceneIndex": 1, "segments": []},
+            {"sceneIndex": 2, "segments": []},
+        ]
+    }
+
+    outcome = handler.run(
+        StageContext(
+            stage="indexing",
+            video_path=None,
+            storage_key="clips/1/source.mp4",
+            work_dir=tmp_path,
+            output_key_prefix="runs/1/indexing/a1/",
+            upstream=upstream,
+        )
+    )
+
+    assert outcome.output == {
+        "sceneCount": 3,
+        "captionedScenes": 2,
+        "dialogueScenes": 1,
+        "ocrScenes": 1,
+        "embeddedScenes": 2,
+    }
+    assert outcome.uploads == ()
+
+
+def test_indexing_succeeds_when_every_text_channel_is_empty(tmp_path: Path) -> None:
+    """게시 가능 판정은 `JdbcClipPublicationAdapter` 가 정본이다. 여기서 흉내내지 않는다."""
+    handler = resolve("indexing")
+    assert handler is not None
+
+    outcome = handler.run(
+        StageContext(
+            stage="indexing",
+            video_path=None,
+            storage_key="clips/1/source.mp4",
+            work_dir=tmp_path,
+            output_key_prefix="runs/1/indexing/a1/",
+            upstream={"sceneDetection": {"scenes": [{"sceneIndex": 0}]}},
+        )
+    )
+
+    assert outcome.output == {
+        "sceneCount": 1,
+        "captionedScenes": 0,
+        "dialogueScenes": 0,
+        "ocrScenes": 0,
+        "embeddedScenes": 0,
+    }
+
+
+def test_indexing_rejects_a_run_without_scenes(tmp_path: Path) -> None:
+    """장면이 없으면 색인할 것도 없다. 치명 단계이므로 조용히 통과시키지 않는다."""
+    handler = resolve("indexing")
+    assert handler is not None
+    with pytest.raises(UpstreamOutputInvalidError):
+        handler.run(
+            StageContext(
+                stage="indexing",
+                video_path=None,
+                storage_key="clips/1/source.mp4",
+                work_dir=tmp_path,
+                output_key_prefix="runs/1/indexing/a1/",
+                upstream={"sceneDetection": {"scenes": []}},
+            )
+        )
+
+
+def test_indexing_needs_neither_video_nor_upstream_files() -> None:
+    handler = resolve("indexing")
+    assert handler is not None
+    assert handler.needs_video is False
+    assert handler.required_inputs is None
+
+
+def test_indexing_always_declares_a_capability_version() -> None:
+    """BE 는 목록에 없는 단계를 배정하지 않는다. 모델도 설정도 없는 단계라 항상 선언된다."""
+    assert "indexing" in capability_versions()
+
+
+def test_text_embedding_is_not_declared_without_a_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`vlm_metadata`·`asr` 와 같은 이유다. 배정받아 매번 죽는 것보다 낫다."""
+    monkeypatch.setenv("NPICK_AI_EMBEDDING_MODEL", "")
+    get_settings.cache_clear()
+    try:
+        assert "text_embedding" not in capability_versions()
+    finally:
+        get_settings.cache_clear()
+
+
+def test_indexing_counts_captions_by_index_tokens_not_by_prose(tmp_path: Path) -> None:
+    """게시 판정이 보는 것은 `scene.caption_tokens` 다.
+
+    설명이 조사·기호뿐이면 `tokens` 가 빈 문자열이고(`CaptionOut` 이 허용한다) 그 장면은
+    캡션 채널로 검색되지 않는다. 산문을 세면 요약은 "캡션 채널이 찼다" 고 말하는데 게시는
+    안 되고, 사람이 요약을 열어도 왜인지 알 수 없다.
+    """
+    handler = resolve("indexing")
+    assert handler is not None
+    upstream: dict[str, object] = {
+        "sceneDetection": {"scenes": [{"sceneIndex": 0}, {"sceneIndex": 1}]},
+        "vlmMetadata": {
+            "scenes": [
+                {"sceneIndex": 0, "caption": {"value": "광안대교 야경", "tokens": "광안대교 야경"}},
+                # 설명은 있는데 색인할 내용어가 없다.
+                {"sceneIndex": 1, "caption": {"value": "그리고 그것은", "tokens": "  "}},
+            ]
+        },
+    }
+
+    outcome = handler.run(
+        StageContext(
+            stage="indexing",
+            video_path=None,
+            storage_key="clips/1/source.mp4",
+            work_dir=tmp_path,
+            output_key_prefix="runs/1/indexing/a1/",
+            upstream=upstream,
+        )
+    )
+
+    assert outcome.output["captionedScenes"] == 1
+
+
+def test_indexing_does_not_validate_scene_fields_it_never_reads(tmp_path: Path) -> None:
+    """장면 수만 센다. 쓰지 않는 필드를 검증하면 상류가 모양을 바꿀 때 색인이 죽는다."""
+    handler = resolve("indexing")
+    assert handler is not None
+
+    outcome = handler.run(
+        StageContext(
+            stage="indexing",
+            video_path=None,
+            storage_key="clips/1/source.mp4",
+            work_dir=tmp_path,
+            output_key_prefix="runs/1/indexing/a1/",
+            # `sceneIndex` 가 없다. 이 단계는 그 값을 읽지 않는다.
+            upstream={"sceneDetection": {"scenes": [{"startTimeMs": 0}, {"startTimeMs": 1000}]}},
+        )
+    )
+
+    assert outcome.output["sceneCount"] == 2
+
+
+def test_text_embedding_is_not_declared_with_a_moving_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`main` 같은 ref 는 로딩 전후로 `model_version` 이 달라진다.
+
+    claim 에 실은 `stageVersion` 과 결과가 보고하는 값이 갈리고, 그게 계약 §7 의 버전
+    불일치다. `vlm_metadata`·`asr` 가 워밍업 가드를 둔 이유와 같다.
+    """
+    monkeypatch.setenv("NPICK_AI_EMBEDDING_MODEL_REVISION", "main")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ModelUnavailableError, match="리비전"):
+            registry._declared_version("text_embedding")
+        assert "text_embedding" not in capability_versions()
     finally:
         get_settings.cache_clear()
