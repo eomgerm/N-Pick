@@ -159,6 +159,30 @@ def hallucination_hit(finding_actions: Iterable[str]) -> bool:
     return any(DEMOTED in action for action in finding_actions)
 
 
+#: validator 가 span 오프셋을 고쳤을 때 쓰는 action.
+SPAN_CORRECTED: Final[str] = "span_corrected"
+#: anchor 를 결과에서 아예 뺄 때 쓰는 action.
+DROPPED: Final[str] = "dropped"
+
+
+def span_corrected_count(finding_lines: Iterable[str]) -> int:
+    """`span_exact_rate` 의 분자. **나중에 drop 된 path 는 세지 않는다.**
+
+    validator 는 span 을 먼저 고치고 그 다음 중복 anchor 를 버린다. 버려진 anchor 는
+    결과에 남지 않으므로 분모(`to_spans`)에서도 사라지는데, 분자에만 남으면 비율이
+    1 을 넘거나 음수가 된다(실측: `gpt-4o-mini` id=98 이 분모 0 에 분자 1).
+
+    finding 줄은 `"<path> <action>: <reason>"` 형식이고 path 에는 공백이 없다.
+    """
+    lines = list(finding_lines)
+    dropped = {line.split(" ", 1)[0] for line in lines if f" {DROPPED}:" in line}
+    return sum(
+        1
+        for line in lines
+        if f" {SPAN_CORRECTED}:" in line and line.split(" ", 1)[0] not in dropped
+    )
+
+
 # ── 유의성 ────────────────────────────────────────────────────────────
 
 

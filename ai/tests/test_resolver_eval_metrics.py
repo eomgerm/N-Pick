@@ -9,6 +9,7 @@ mlflow 도 필요 없어 **프로젝트 기본 venv 의 pytest 로 돈다** — 
 
 from __future__ import annotations
 
+import statistics
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,10 +27,18 @@ from metrics import (
     leak_hit,
     load_gold,
     slot_prf,
+    span_corrected_count,
     to_slots,
     to_spans,
 )
-from resolver_bench import call_with_backoff, dump, gms_factory, rescore, run_model
+from resolver_bench import (
+    call_with_backoff,
+    compare,
+    dump,
+    gms_factory,
+    rescore,
+    run_model,
+)
 
 from npick_worker.query_resolver import (
     ResolverCallError,
@@ -260,6 +269,34 @@ def test_hallucination_hit_reads_validator_demotion() -> None:
     assert hallucination_hit(["locations.0 demoted_to_inferred"]) is True
     assert hallucination_hit(["locations.0 span_corrected"]) is False
     assert hallucination_hit([]) is False
+
+
+# ── span_corrected_count ─────────────────────────────────────────────
+
+
+def test_span_corrected_count_ignores_later_dropped_paths() -> None:
+    """validator 가 span 을 고친 뒤 같은 path 를 drop 하면, 그 anchor 는 결과에 남지
+    않는다. 분모(`to_spans`)에서는 사라지는데 분자에 남으면 비율이 1 을 넘거나
+    음수가 된다 — 커밋된 데이터에 실제로 2건 있었다."""
+    lines = [
+        "entities[0] span_corrected: 모델 span [0, 8) 을 원문에서 찾은 [0, 7) 로 고쳤다",
+        "entities[0] dropped: locations 에 같은 값이 있다: '주한미국대사관'",
+    ]
+    assert span_corrected_count(lines) == 0
+
+
+def test_span_corrected_count_counts_surviving_corrections() -> None:
+    lines = [
+        "locations[0] span_corrected: 모델 span [8, 12) 을 [7, 10) 로 고쳤다",
+        "entities[0] span_corrected: 모델 span [8, 12) 을 [7, 10) 로 고쳤다",
+        "entities[0] dropped: locations 에 같은 값이 있다: '기차역'",
+        "classifications[0] span_corrected: 모델 span [0, 4) 을 [0, 3) 로 고쳤다",
+    ]
+    assert span_corrected_count(lines) == 2
+
+
+def test_span_corrected_count_is_zero_without_findings() -> None:
+    assert span_corrected_count([]) == 0
 
 
 # ── bootstrap_ci ──────────────────────────────────────────────────────
@@ -494,6 +531,62 @@ def test_rescore_reproduces_metrics_without_calling_the_api(tmp_path: Path) -> N
     assert again.params["rescored_from"] == str(out)
 
 
+def test_aggregate_splits_anchored_and_suppression(tmp_path: Path) -> None:
+    """빈-gold 문항은 아무것도 안 내면 F1 1.0 이라 헤드라인 지표에 공짜 점수를 준다.
+    실측: 아무것도 안 내는 null 모델이 slot_f1_macro 0.225, frame 0.13 을 받는다.
+    앵커가 있는 문항만 모은 지표와 억제 정확도를 따로 낸다."""
+    entries = [
+        _gold_entry(
+            id=1,
+            query="서울역 인파 화면 찾아줘",
+            locations=[{"type": "facility", "value": "서울역", "origin": "explicit_query"}],
+        ),
+        _gold_entry(id=2, query="사람들 많이 모여있는 거 아무거나"),
+    ]
+    gold = load_gold(_gold_file(tmp_path, entries))
+    result = run_model(
+        "stub",
+        gold,
+        get_default_config(),
+        timeout_s=5.0,
+        concurrency=1,
+        resolver_factory=lambda: _ScriptedResolver([_OK_PAYLOAD] * 4),
+    )
+    # 둘 다 빈 결과 → 1번은 recall 0, 2번은 만점
+    assert result.metrics["slot_f1_anchored"] == 0.0
+    assert result.metrics["suppression_accuracy"] == 1.0
+    assert result.metrics["anchored_queries"] == 1.0
+    assert result.metrics["unanchored_queries"] == 1.0
+
+
+def test_compare_ranks_and_tests_the_same_values(tmp_path: Path) -> None:
+    """기준 모델을 micro 로 고르고 차이를 macro 로 재면 표와 CI 가 다른 지표를 말한다.
+    출력의 기준값은 검정에 쓴 질의별 값의 평균이어야 한다."""
+    gold = load_gold(
+        _gold_file(tmp_path, [_gold_entry(id=i, intent="scene_search") for i in range(1, 5)])
+    )
+    a = run_model(
+        "a",
+        gold,
+        get_default_config(),
+        timeout_s=5.0,
+        concurrency=1,
+        resolver_factory=lambda: _ScriptedResolver([_OK_PAYLOAD] * 8),
+    )
+    b = run_model(
+        "b",
+        gold,
+        get_default_config(),
+        timeout_s=5.0,
+        concurrency=1,
+        resolver_factory=lambda: _ScriptedResolver([_OK_PAYLOAD] * 8),
+    )
+    text = compare([a, b])
+    mean_a = statistics.fmean(r["slot_f1"] for r in a.per_query)
+    assert "slot_f1" in text
+    assert f"{mean_a:.4f}" in text  # 기준값 = 검정에 쓴 값의 평균
+
+
 def test_run_model_micro_f1_never_exceeds_one(tmp_path: Path) -> None:
     """micro recall 의 분자는 **필수 슬롯과의 교집합**이어야 한다.
 
@@ -550,3 +643,97 @@ def test_run_model_scores_every_gold_query(tmp_path: Path) -> None:
     assert len(result.per_query) == 8
     assert result.metrics["schema_valid_rate"] == 1.0
     assert result.metrics["intent_accuracy"] == 1.0
+
+
+# ── 운영 편의 (리뷰 지적) ─────────────────────────────────────────────
+
+
+def test_rescore_accepts_a_filtered_gold_subset(tmp_path: Path) -> None:
+    """--rescore 를 --only-domain 과 같이 쓰면 골드셋이 걸러진 상태로 들어온다.
+    그때 '다른 골드셋으로 잰 결과다'라고 틀린 진단을 내면 안 된다."""
+    full = load_gold(_gold_file(tmp_path / "full", [_gold_entry(id=i) for i in range(1, 5)]))
+    live = run_model(
+        "stub",
+        full,
+        get_default_config(),
+        timeout_s=5.0,
+        concurrency=1,
+        resolver_factory=lambda: _ScriptedResolver([_OK_PAYLOAD] * 8),
+    )
+    out = tmp_path / "results.json"
+    dump([live], out)
+
+    subset = tuple(g for g in full if g.id in {1, 2})
+    (rescored,) = rescore(out, subset)
+    assert len(rescored.per_query) == 2
+    assert {r["id"] for r in rescored.per_query} == {1, 2}
+
+
+def test_rescore_rejects_a_completely_unrelated_gold_set(tmp_path: Path) -> None:
+    """겹치는 질의가 하나도 없으면 그건 정말 다른 골드셋이다."""
+    full = load_gold(_gold_file(tmp_path / "a", [_gold_entry(id=1)]))
+    other = load_gold(_gold_file(tmp_path / "b", [_gold_entry(id=99)]))
+    live = run_model(
+        "stub",
+        full,
+        get_default_config(),
+        timeout_s=5.0,
+        concurrency=1,
+        resolver_factory=lambda: _ScriptedResolver([_OK_PAYLOAD] * 4),
+    )
+    out = tmp_path / "results.json"
+    dump([live], out)
+    with pytest.raises(ValueError, match="겹치는 질의가 없다"):
+        rescore(out, other)
+
+
+def test_gms_factory_names_the_missing_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    """맨 KeyError 는 무엇을 넣어야 하는지 알려주지 않는다."""
+    monkeypatch.delenv("NPICK_AI_GMS_BASE_URL", raising=False)
+    monkeypatch.delenv("NPICK_AI_GMS_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="NPICK_AI_GMS_BASE_URL"):
+        gms_factory("gpt-4o-mini", get_default_config().call)
+
+
+def test_eval_requirements_match_the_project_lock() -> None:
+    """평가 venv 의 pydantic·httpx2 가 uv.lock 과 갈리면 검증 동작이 프로덕션과
+    달라진다. 여기서 잰 숫자를 프로덕션 근거로 쓸 수 없게 된다."""
+    root = Path(__file__).resolve().parents[1]
+    reqs = {}
+    for line in (
+        (root / "eval" / "query_resolver" / "requirements.txt")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ):
+        line = line.strip()
+        if line and not line.startswith("#") and "==" in line:
+            name, version = line.split("==", 1)
+            reqs[name] = version
+
+    locked = _locked_versions(root / "uv.lock")
+    for package in ("pydantic", "httpx2"):
+        assert package in reqs, f"{package} 핀이 requirements.txt 에서 빠졌다"
+        assert package in locked, f"{package} 가 uv.lock 에 없다"
+        assert reqs[package] == locked[package], (
+            f"{package}: requirements.txt {reqs[package]} != uv.lock {locked[package]}"
+        )
+
+
+def _locked_versions(lock_path: Path) -> dict[str, str]:
+    """uv.lock 의 [[package]] 블록에서 이름->버전을 뽑는다.
+
+    단순 문자열 검색은 쓸 수 없다 — `name = "pydantic"` 이 다른 패키지의 의존성
+    목록에도 나오기 때문이다.
+    """
+    versions: dict[str, str] = {}
+    name: str | None = None
+    for line in lock_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped == "[[package]]":
+            name = None
+        elif stripped.startswith("name = ") and name is None:
+            name = stripped.split('"')[1]
+        elif stripped.startswith("version = ") and name is not None:
+            versions.setdefault(name, stripped.split('"')[1])
+            name = None
+    return versions

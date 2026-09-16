@@ -42,6 +42,7 @@ from metrics import (
     leak_hit,
     load_gold,
     slot_prf,
+    span_corrected_count,
     to_slots,
     to_spans,
 )
@@ -78,9 +79,9 @@ LATENCY_SAMPLE: Final[int] = 20
 
 _RATE_LIMITED: Final[str] = "RESOLVER_RATE_LIMITED"
 _BACKOFF_BASE_S: Final[float] = 1.5
+#: gms backend 에 반드시 있어야 하는 환경 변수.
+_GMS_ENV: Final[tuple[str, ...]] = ("NPICK_AI_GMS_BASE_URL", "NPICK_AI_GMS_API_KEY")
 _MLFLOW_KEY: Final[re.Pattern[str]] = re.compile(r"[^\w.\- /]", re.UNICODE)
-#: validator 가 span 오프셋을 고쳤을 때 쓰는 action.
-_SPAN_CORRECTED: Final[str] = "span_corrected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +147,10 @@ def gms_factory(model: str, params: CallParams) -> Callable[[], QueryResolver]:
     인스턴스를 공유하면 그 필드에 경합이 생겨 `model_version` 기록이 섞인다.
     """
     local = threading.local()
+    missing = [name for name in _GMS_ENV if not os.environ.get(name)]
+    if missing:
+        msg = f"{', '.join(missing)} 이 비어 있다. 환경 변수로 지정한다 (README 참조)"
+        raise ValueError(msg)
     base_url = os.environ["NPICK_AI_GMS_BASE_URL"]
     api_key = os.environ["NPICK_AI_GMS_API_KEY"]
 
@@ -234,7 +239,7 @@ def score_row(
         # span 정확도는 validator 가 몇 개를 고쳤는지로 잰다. 결과의 span 을 gold 와 비교하면
         # 이미 고쳐진 값을 보게 되어 모델이 아니라 validator 를 재게 된다.
         span_total=len(to_spans(resolution)),
-        span_corrected=sum(1 for line in finding_lines if _SPAN_CORRECTED in line),
+        span_corrected=span_corrected_count(finding_lines),
         resolution=resolution,
         findings=list(finding_lines),
     )
@@ -267,6 +272,8 @@ def _aggregate(rows: Sequence[dict[str, Any]], *, concurrent: bool) -> dict[str,
     micro_p = tp_p / n_pred if n_pred else 1.0
     micro_r = tp_r / n_gold if n_gold else 1.0
     micro_f1 = 2 * micro_p * micro_r / (micro_p + micro_r) if micro_p + micro_r else 0.0
+    anchored = [r["slot_f1"] for r in rows if r["n_gold"]]
+    unanchored = [float(r["frame_hit"]) for r in rows if not r["n_gold"]]
     span_total = sum(r["span_total"] for r in rows)
     span_corrected = sum(r["span_corrected"] for r in rows)
 
@@ -277,6 +284,13 @@ def _aggregate(rows: Sequence[dict[str, Any]], *, concurrent: bool) -> dict[str,
         "slot_recall": micro_r,
         "slot_f1": micro_f1,
         "slot_f1_macro": statistics.fmean(r["slot_f1"] for r in rows),
+        # 빈-gold 문항은 아무것도 안 내면 F1 1.0 이다. 그래서 위 두 지표에는 "덜 내는
+        # 모델"에게 주는 공짜 점수가 섞여 있다 — 실측으로 null 모델이 slot_f1_macro
+        # 0.225, frame_accuracy 0.13 을 받는다. 아래 둘은 그 둘을 분리해서 본다.
+        "slot_f1_anchored": statistics.fmean(anchored) if anchored else 1.0,
+        "suppression_accuracy": statistics.fmean(unanchored) if unanchored else 1.0,
+        "anchored_queries": float(len(anchored)),
+        "unanchored_queries": float(len(unanchored)),
         "frame_accuracy": sum(r["frame_hit"] for r in rows) / total,
         "leak_rate": sum(r["leak"] for r in rows) / total,
         "hallucination_rate": sum(r["hallucination"] for r in rows) / total,
@@ -353,24 +367,24 @@ def rescore(results_path: Path, gold: Sequence[GoldQuery]) -> list[Result]:
     out: list[Result] = []
     for entry in stored:
         rows: list[dict[str, Any]] = []
-        for old in entry["per_query"]:
-            g = by_id.get(old["id"])
+        for old_row in entry["per_query"]:
+            g = by_id.get(old_row["id"])
             if g is None:
-                msg = (
-                    f"{entry['model']}: 결과의 질의 id={old['id']} 가 골드셋에 없다. "
-                    f"다른 골드셋으로 잰 결과다"
-                )
-                raise ValueError(msg)
+                # --only-domain 으로 골드셋이 걸러진 경우다. 겹치는 질의만 다시 채점한다.
+                continue
             rows.append(
                 score_row(
                     g,
-                    resolution=old.get("resolution"),
-                    finding_lines=old.get("findings") or (),
-                    seconds=old["sec"],
-                    retries=old["retries"],
-                    error=old.get("error"),
+                    resolution=old_row.get("resolution"),
+                    finding_lines=old_row.get("findings") or (),
+                    seconds=old_row["sec"],
+                    retries=old_row["retries"],
+                    error=old_row.get("error"),
                 )
             )
+        if not rows:
+            msg = f"{entry['model']}: 결과와 골드셋에 겹치는 질의가 없다. 다른 골드셋으로 잰 결과다"
+            raise ValueError(msg)
         params = dict(entry["params"])
         params["rescored_from"] = str(results_path)
         out.append(
@@ -387,14 +401,23 @@ def rescore(results_path: Path, gold: Sequence[GoldQuery]) -> list[Result]:
 # ── 비교 ──────────────────────────────────────────────────────────────
 
 
-def compare(results: Sequence[Result], metric: str = "slot_f1") -> str:
-    """1위 모델과 나머지의 짝지은 차이에 95% 부트스트랩 신뢰구간을 붙인다."""
+def compare(results: Sequence[Result], per_query_key: str = "slot_f1") -> str:
+    """1위 모델과 나머지의 짝지은 차이에 95% 부트스트랩 신뢰구간을 붙인다.
+
+    **순위와 검정에 같은 값을 쓴다.** 전에는 순위를 집계 지표(micro)로 매기고 차이는
+    질의별 값(macro)으로 재서, 표에 적힌 기준값과 CI 가 다른 지표를 말했다
+    (실측: micro 차이 0.0225 인데 CI 는 macro 차이 0.0004 에 붙었다).
+    """
     if len(results) < 2:
         return ""
-    ranked = sorted(results, key=lambda r: r.metrics.get(metric, 0.0), reverse=True)
+
+    def mean_of(result: Result) -> float:
+        values = [r.get(per_query_key, 0.0) for r in result.per_query]
+        return statistics.fmean(values) if values else 0.0
+
+    ranked = sorted(results, key=mean_of, reverse=True)
     best = ranked[0]
-    per_query_key = "slot_f1" if metric.startswith("slot_f1") else metric
-    lines = [f"\n기준 {best.model} ({metric}={best.metrics.get(metric, 0.0):.4f}) 대비 차이"]
+    lines = [f"\n기준 {best.model} ({per_query_key} 질의별 평균 {mean_of(best):.4f}) 대비 차이"]
     base = {r["id"]: r.get(per_query_key, 0.0) for r in best.per_query}
     for other in ranked[1:]:
         diffs = [
