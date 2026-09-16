@@ -86,6 +86,20 @@ def _read(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _config_for(path: Path) -> VlmMetadataConfig:
+    """그 실행이 쓴 설정. `benchmark.py` 가 `config.toml` 을 함께 남긴다.
+
+    설정이 바뀌면 어휘와 상한이 바뀌어 같은 원문의 판정이 달라진다. 실행의 설정을 두고
+    현재 기본값으로 재생하면 무엇이 회귀인지 구분할 수 없다.
+
+    **`_stale_reason` 보다 위에 있어야 한다.** `_partition()` 이 수집 시점(모듈 실행)에
+    부르므로 아래에 두면 `NameError` 가 난다. 옛 계약의 기록은 schema 에서 먼저 걸러져
+    여기까지 오지 않아, 지금 계약의 기록이 처음 생기는 날에야 드러난다.
+    """
+    beside = path.parent / "config.toml"
+    return load_config(beside) if beside.is_file() else get_default_config()
+
+
 def _stale_reason(path: Path, record: dict[str, Any]) -> str | None:
     """이 기록이 지금 계약의 것이 아니라면 그 이유. 맞으면 `None`.
 
@@ -135,16 +149,6 @@ requires_records = pytest.mark.skipif(
 
 def _records() -> list[tuple[Path, dict[str, Any]]]:
     return _RECORDS
-
-
-def _config_for(path: Path) -> VlmMetadataConfig:
-    """그 실행이 쓴 설정. `benchmark.py` 가 `config.toml` 을 함께 남긴다.
-
-    설정이 바뀌면 어휘와 상한이 바뀌어 같은 원문의 판정이 달라진다. 실행의 설정을 두고
-    현재 기본값으로 재생하면 무엇이 회귀인지 구분할 수 없다.
-    """
-    beside = path.parent / "config.toml"
-    return load_config(beside) if beside.is_file() else get_default_config()
 
 
 def _keyframes(row: dict[str, Any], scene_index: int) -> tuple[KeyframeRef, ...]:
