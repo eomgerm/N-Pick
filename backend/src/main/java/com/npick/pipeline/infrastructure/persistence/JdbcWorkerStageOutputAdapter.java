@@ -27,6 +27,13 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
     private final ObjectMapper mapper;
     private final WorkerArtifactPort artifacts;
 
+    /**
+     * {@code <모델>@<40자리 hex>}. Must stay identical to the pattern the dense reader enforces in SQL
+     * ({@code DenseSceneCandidateAdapter}); a vector this side accepts and that side rejects is invisible everywhere
+     * except an empty dense result.
+     */
+    private static final String PINNED_MODEL_VERSION = "[^\\s@]+@[0-9a-f]{40}";
+
     @Override
     public boolean supports(String stage) {
         return java.util.Set.of(
@@ -80,7 +87,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                 }
                 yield Map.of();
             }
-            case "text_embedding" -> embeddings(runId, output, refs);
+            case "text_embedding" -> embeddings(runId, output, body.path("versions"), refs);
             case "indexing" -> {
                 summarised(runId, output);
                 yield Map.of();
@@ -178,9 +185,14 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
      * Fill {@code scene.embedding}. The vectors live in the uploaded artifact, not in the payload: a 1024-float vector
      * per scene would push {@code stage_states_json} into megabytes, and that column travels whole on every run read.
      */
-    private Map<String, Object> embeddings(long run, JsonNode output, Map<String, Ref> refs) {
+    private Map<String, Object> embeddings(long run, JsonNode output, JsonNode versions, Map<String, Ref> refs) {
         Ref ref = registered(output.path("embeddingsArtifact"), "scene_embeddings", refs);
         JsonNode document = artifactJson(ref);
+        // **어느 가중치가 만든 벡터인지 고정 리비전으로 말해야 한다.** 이 형식은 dense
+        // 리더가 강제하는 것과 같다(`DenseSceneCandidateAdapter`) — 어긋난 벡터는 저장돼도
+        // `missing_model` 로 후보에서 전량 제외되고, 그 제외는 정본·요약·채널 상태 어디에도
+        // 드러나지 않는다. `dimension` 과 달리 조용히 죽는다는 점이 여기서 막는 이유다.
+        if (!text(versions.path("detail"), "modelVersion").matches(PINNED_MODEL_VERSION)) invalid();
         long dimension = integer(output, "dimension", 1);
         // 컬럼 폭을 카탈로그에서 읽는다. payload·artifact·벡터 길이는 셋 다 워커가 만드는
         // 값이라 서로 맞는 것만으로는 아무것도 보장하지 않는다 — 설정만 768 로 바꾸고
@@ -252,11 +264,18 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
 
     /** The {@code scene.embedding} column width, read from the catalog so it cannot drift from the migration. */
     private long storedEmbeddingDimension() {
-        Integer typmod = jdbc.queryForObject(
+        // queryForObject 는 행이 없으면 null 이 아니라 EmptyResultDataAccessException 을 던지고,
+        // 그 예외는 BusinessException 을 우회해 500 으로 나간다 — embeddings() 위 주석이
+        // 막으려던 재배정 루프 그 경로다. 행 없음을 여기서 직접 다룬다.
+        var typmod = jdbc.queryForList(
                 "SELECT atttypmod FROM pg_attribute WHERE attrelid='npick.scene'::regclass AND attname='embedding'",
                 Integer.class);
-        if (typmod == null || typmod <= 0) invalid();
-        return typmod;
+        // **invalid() 를 쓰지 않는다.** 그것은 JOB_400_001(영구, 워커 과실)이라 워커가 자기
+        // 출력을 의심하며 단계를 실패로 닫는데, 여기 걸리는 원인은 BE 스키마다. 고칠 사람도
+        // 볼 로그도 다르다. 트랜잭션 가드와 같은 등급으로 올린다.
+        if (typmod.size() != 1 || typmod.getFirst() == null || typmod.getFirst() <= 0)
+            throw new IllegalStateException("scene.embedding must be declared with a fixed vector dimension");
+        return typmod.getFirst();
     }
 
     private void validateTranscript(long run, JsonNode transcript, Map<String, Ref> refs) {

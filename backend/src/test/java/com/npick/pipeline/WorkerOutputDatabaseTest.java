@@ -229,6 +229,9 @@ class WorkerOutputDatabaseTest {
 
     private static final int DIMENSION = 1024;
 
+    /** S15P21A501-175 확정 모델. 리비전은 dense 리더가 요구하는 40자리 hex 다. */
+    private static final String PINNED_MODEL = "dragonkue/snowflake-arctic-embed-l-v2.0-ko@" + "a".repeat(40);
+
     private void storeTwoScenes() {
         adapter.validateAndStore(
                 703,
@@ -290,6 +293,7 @@ class WorkerOutputDatabaseTest {
                         "skippedSceneIndexes",
                         skipped)));
         result.put("artifacts", register ? List.of(ref) : List.of());
+        result.put("versions", versions(PINNED_MODEL));
         return result;
     }
 
@@ -548,5 +552,64 @@ class WorkerOutputDatabaseTest {
         correct.put("embeddedScenes", 1);
         assertThat(adapter.validateAndStore(703, 702, "indexing", "runs/703/indexing/a1/", body("indexing", correct)))
                 .isEmpty();
+    }
+
+    private static Map<String, Object> versions(String modelVersion) {
+        return Map.of(
+                "outputSchemaVersion",
+                "npick.stage.text_embedding.output/v1",
+                "detail",
+                Map.of("modelVersion", modelVersion));
+    }
+
+    @Test
+    void rejectsAModelVersionWhoseRevisionIsNotPinned() throws Exception {
+        storeTwoScenes();
+        var result = embeddingResult(document(DIMENSION, DIMENSION, 0), 1, List.of(1), true);
+
+        // 움직이는 ref 로 만든 벡터는 저장돼도 dense 리더가 `missing_model` 로 전량
+        // 제외한다(`DenseSceneCandidateAdapter`). 여기서 막지 않으면 정본·요약·채널 상태가
+        // 전부 정상이라고 말하는데 dense 채널만 조용히 죽는다.
+        result.put("versions", versions("dragonkue/snowflake-arctic-embed-l-v2.0-ko@main"));
+
+        assertThatThrownBy(() ->
+                        adapter.validateAndStore(703, 702, "text_embedding", "runs/703/text_embedding/a1/", result))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.errorCode().code()).isEqualTo("JOB_400_001"));
+        assertThat(embeddedScenes()).isZero();
+    }
+
+    @Test
+    void rejectsAnEmbeddingResultThatDoesNotSayWhichWeightsMadeIt() throws Exception {
+        storeTwoScenes();
+        var withoutDetail = embeddingResult(document(DIMENSION, DIMENSION, 0), 1, List.of(1), true);
+        withoutDetail.put("versions", Map.of("outputSchemaVersion", "npick.stage.text_embedding.output/v1"));
+        var withSpace = embeddingResult(document(DIMENSION, DIMENSION, 0), 1, List.of(1), true);
+        withSpace.put("versions", versions("두 낱말@" + "a".repeat(40)));
+
+        for (var invalid : List.of(withoutDetail, withSpace))
+            assertThatThrownBy(() -> adapter.validateAndStore(
+                            703, 702, "text_embedding", "runs/703/text_embedding/a1/", invalid))
+                    .isInstanceOf(BusinessException.class);
+        assertThat(embeddedScenes()).isZero();
+    }
+
+    @Test
+    void attributesABrokenEmbeddingColumnToTheSchemaNotTheWorker() throws Exception {
+        storeTwoScenes();
+        // 차원 없는 `vector` 로 바꾸면 atttypmod 가 -1 이다. @DataJpaTest 가 롤백한다.
+        jdbc.execute("ALTER TABLE npick.scene ALTER COLUMN embedding TYPE vector");
+
+        // 워커 과실이 아니다. `invalid()` 는 JOB_400_001(영구)이라 워커가 자기 출력을
+        // 의심하며 단계를 실패로 닫는데, 고쳐야 하는 것은 BE 스키마다.
+        assertThatThrownBy(() -> adapter.validateAndStore(
+                        703,
+                        702,
+                        "text_embedding",
+                        "runs/703/text_embedding/a1/",
+                        embeddingResult(document(DIMENSION, DIMENSION, 0), 1, List.of(1), true)))
+                .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(BusinessException.class);
     }
 }

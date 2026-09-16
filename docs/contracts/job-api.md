@@ -644,7 +644,9 @@ artifact 본문 (`npick.scene.embeddings/v1`):
 
 **텍스트가 없는 장면은 벡터가 없다.** 캡션도 대사도 비면 `skippedSceneIndexes`에 들어가고 `scene.embedding`은 `NULL`로 남는다. **실패가 아니다** — 그 컬럼이 nullable 인 이유이고 그 장면은 BM25 채널로만 검색된다. 빈 문자열을 임베딩하면 모든 빈 장면이 서로 최근접이 되어 보조 채널이 오염된다.
 
-**BE 의 거부 조건** — `embeddingsArtifact`가 `artifacts`에 등록되지 않았거나, artifact 의 `schemaVersion`·`dimension`이 payload 와 다르거나, **`dimension`이 `scene.embedding` 컬럼의 폭과 다르거나**, 벡터 길이가 `dimension`과 다르거나, 성분에 유한하지 않은 값(NaN·inf)이 있거나, `sourceText`가 없거나 공백뿐이거나, `sceneIndex`가 범위 밖·중복이거나, `skippedSceneIndexes`가 범위 밖·중복이거나 `sceneIndex`와 겹치거나, **임베딩과 생략을 합쳐 그 run 의 장면 전체를 덮지 않거나**, `embeddedCount`가 artifact 의 장면 수와 다르면 **결과 전체를 거절한다**.
+**BE 의 거부 조건** — `embeddingsArtifact`가 `artifacts`에 등록되지 않았거나, **`versions.detail.modelVersion`이 `<모델>@<40자리 hex>` 형식이 아니거나**, artifact 의 `schemaVersion`·`dimension`이 payload 와 다르거나, **`dimension`이 `scene.embedding` 컬럼의 폭과 다르거나**, 벡터 길이가 `dimension`과 다르거나, 성분에 유한하지 않은 값(NaN·inf)이 있거나, `sourceText`가 없거나 공백뿐이거나, `sceneIndex`가 범위 밖·중복이거나, `skippedSceneIndexes`가 범위 밖·중복이거나 `sceneIndex`와 겹치거나, **임베딩과 생략을 합쳐 그 run 의 장면 전체를 덮지 않거나**, `embeddedCount`가 artifact 의 장면 수와 다르면 **결과 전체를 거절한다**.
+
+**`modelVersion`이 고정 리비전이어야 하는 이유는 무증상이기 때문이다.** 이 형식은 dense 리더가 SQL 로 강제하는 것과 같아야 한다(`DenseSceneCandidateAdapter`) — 어긋난 벡터는 저장까지 되고 `indexing`의 `embeddedScenes` 대조(`embedding IS NOT NULL`)도 통과하는데, 검색에서는 `missing_model`로 후보에서 전량 제외된다. 정본·요약·채널 상태가 전부 정상이라고 말하는데 dense 채널만 조용히 죽는 조합이라, `dimension`처럼 시끄럽게 실패하지 않는다. 워커도 `_declared_version()`에서 같은 가드를 걸지만 그것은 검증 대상이 스스로 만드는 보장이므로, 아래 컬럼 폭과 같은 이유로 BE 가 따로 본다.
 
 **컬럼 폭 대조는 다른 셋과 축이 다르다.** `output.dimension`·artifact 의 `dimension`·실제 벡터 길이는 셋 다 워커가 만드는 값이라 서로 맞는 것만으로는 아무것도 보장하지 않는다 — 워커 설정만 768 로 바꾸고 마이그레이션을 두면 셋이 사이좋게 통과한다. BE 는 `pg_attribute`에서 실제 컬럼 폭을 읽어 대조한다(상수로 박으면 어긋날 수 있는 자리가 하나 더 생긴다). 이 대조가 없으면 `vector(1024)` 컬럼이 트랜잭션 전체를 SQL 오류로 끊고, 워커가 받는 것은 `JOB_400_001`이 아니라 **500** 이다 — 그 응답은 재시도 가능으로 분류돼 단계가 실패로 기록조차 되지 않은 채 lease 만료 → 재배정을 반복한다.
 
