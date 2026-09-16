@@ -231,9 +231,13 @@ def to_json(
                     {"type": tag.type, "value": tag.value, "confidence": tag.confidence}
                     for tag in described.metadata.tag_candidates
                 ],
-                # 정규화한 자리. 비어 있지 않으면 그 후보가 계약과 다른 표기로 '없음' 을
-                # 말했다는 뜻이라 후보 비교에서 읽을 값이다(`normalize.py`).
+                # 정규화한 자리 전부와, 그중 **문자열 표기**였던 자리(`normalize.py`).
+                # 뒤엣것이 비어 있지 않을 때만 그 후보가 계약과 다른 어휘를 썼다는 뜻이다 —
+                # 나머지는 읽을 것이 없는 장면에서 정상적으로 나온다. 둘 다 남기는 이유는
+                # 기록이 일어난 일을 빠뜨리지 않아야 하기 때문이고, 세는 방식은 읽는 쪽
+                # (`benchmark.summarize`)이 고른다.
                 "normalizations": list(described.normalizations),
+                "notations": list(described.notations),
                 "rawOutput": described.raw_output,
             }
             for described, elapsed in rows
@@ -365,11 +369,16 @@ def main(argv: Sequence[str] | None = None, *, client: VlmClient | None = None) 
             f"reserved {memory['peakReservedBytes'] / 1024**3:.2f} GiB"
         )
     total = sum(elapsed for _, elapsed in rows)
-    # 정규화 자리 수를 함께 찍는다. 0 이 아니면 이 후보가 '없음' 을 계약과 다른 표기로
-    # 썼다는 뜻이고(`normalize.py`), 출력이 유효해도 사람이 원문을 봐야 한다.
-    normalized = sum(len(described.normalizations) for described, _ in rows)
+    # 정규화 자리 수를 갈래별로 찍는다. **표기**가 0 이 아니면 이 후보가 '없음' 을 계약과
+    # 다른 어휘로 썼다는 뜻이고(`normalize.py`), 출력이 유효해도 사람이 원문을 봐야 한다.
+    # **모양**은 읽을 것이 없는 장면에서 정상적으로 오르므로 그 자체로는 신호가 아니다.
+    notations = sum(len(described.notations) for described, _ in rows)
+    reshaped = sum(
+        len(described.normalizations) - len(described.notations) for described, _ in rows
+    )
     print(
-        f"성공 {len(rows)}장면 | 거부 {len(rejected)}장면 | 정규화 {normalized}자리 | "
+        f"성공 {len(rows)}장면 | 거부 {len(rejected)}장면 | "
+        f"표기 {notations}자리 | 모양 {reshaped}자리 | "
         f"총 {total:.1f}초 | 장면당 평균 {total / len(rows):.1f}초"
         if rows
         else f"성공 0장면 | 거부 {len(rejected)}장면"

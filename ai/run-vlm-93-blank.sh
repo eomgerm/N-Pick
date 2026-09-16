@@ -96,7 +96,9 @@ echo "=== summary.json ==="
 cat "$out/summary.json" 2>/dev/null || echo "(없음 — $out/run.json 과 $out.log 를 확인하세요)"
 echo
 echo "=== 빈 화면 3장면이 무엇을 냈는가 ==="
-# 정규화가 걸렸는지, 걸렸다면 어느 자리인지. 이 세 줄이 이 실행의 전부다.
+# 정규화가 걸렸는지, 걸렸다면 어느 자리이고 **어느 갈래**인지. 이 세 줄이 이 실행의 전부다.
+# `notations` 가 비어 있으면 모델은 계약의 `null` 로 답한 것이고(모양), 거기 자리가 적히면
+# `"없음"` 처럼 계약에 없는 어휘를 쓴 것이다(표기). 이 티켓이 가정했던 것은 뒤엣것이다.
 uv run --locked --group gpu --group cu128 python - "$out/vlm-metadata.json" <<'PY'
 import json
 import sys
@@ -105,7 +107,10 @@ record = json.loads(open(sys.argv[1], encoding="utf-8").read())
 for row in record["scenes"]:
     if row["sceneIndex"] < 10:
         continue
-    print(f"--- scene {row['sceneIndex']} | normalizations={row['normalizations']}")
+    print(
+        f"--- scene {row['sceneIndex']} | normalizations={row['normalizations']}"
+        f" | notations={row.get('notations')}"
+    )
     print(row["rawOutput"])
 for row in record["rejected"]:
     if row["sceneIndex"] >= 10:

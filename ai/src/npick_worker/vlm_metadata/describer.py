@@ -48,10 +48,13 @@ class SceneDescription:
     raw_output: str
     #: 실제로 모델에 넣은 keyframe. 골라 넣었으므로 상류가 준 전부와 다를 수 있다.
     inputs: tuple[KeyframeRef, ...]
-    #: '없음' 의 다른 표기를 계약의 '없음' 으로 모은 자리(`normalize.py`). 비어 있는 것이
-    #: 정상이고, 비어 있지 않다는 것은 모델이 계약과 다른 표기를 썼다는 뜻이다 — 값은
-    #: 정본에 들어가도 되지만 그 사실은 기록으로 남아야 한다.
+    #: 계약의 '없음' 으로 모은 자리 **전부**(`normalize.py`). 값은 정본에 들어가도 되지만
+    #: 그 사실은 기록으로 남아야 한다.
     normalizations: tuple[str, ...] = ()
+    #: 그중 모델이 **문자열 표기**로 '없음' 을 쓴 자리. 비어 있지 않다는 것이 곧 "모델이
+    #: 계약과 다른 어휘를 썼다" 이고, 나머지(`{"value": null}` 류)는 읽을 것이 없는 장면에서
+    #: 정상적으로 나온다 — 갈래를 나누는 이유는 `normalize.Normalized` 에 있다.
+    notations: tuple[str, ...] = ()
 
 
 def select_keyframes(
@@ -140,6 +143,7 @@ def describe_scene(
         raw_output=raw_output,
         inputs=selected,
         normalizations=parsed.normalizations,
+        notations=parsed.notations,
     )
 
 
@@ -158,7 +162,11 @@ def describe_scenes(
     described = tuple(describe_scene(scene, image_paths, client, config) for scene in scenes)
     return VlmResult(
         scenes=tuple(description.metadata for description in described),
-        normalized_value_count=sum(len(description.normalizations) for description in described),
+        normalized_value_count=sum(len(description.notations) for description in described),
+        reshaped_value_count=sum(
+            len(description.normalizations) - len(description.notations)
+            for description in described
+        ),
         schema_version=SCHEMA_VERSION,
         config_version=config.version_id,
         prompt_version=prompt_version(config),

@@ -23,6 +23,7 @@ from npick_worker.vlm_metadata import (
     SceneKeyframes,
     VlmMetadataConfig,
     VlmSchemaInvalidError,
+    declares_absent,
     describe_scene,
     describe_scenes,
     get_default_config,
@@ -532,6 +533,8 @@ def test_null_equivalent_caption_becomes_no_caption(value: object) -> None:
 
     assert metadata.caption is None
     assert parsed.normalizations == ("caption",)
+    # 갈래는 다르다 — `null` 은 계약의 값을 한 칸 안쪽에 쓴 것이라 표기로 세지 않는다.
+    assert parsed.notations == (() if value is None else ("caption",))
 
 
 def test_null_equivalent_scene_type_becomes_no_candidate() -> None:
@@ -543,6 +546,7 @@ def test_null_equivalent_scene_type_becomes_no_candidate() -> None:
 
     assert metadata.scene_type is None
     assert parsed.normalizations == ("scene_type",)
+    assert parsed.notations == ("scene_type",)
 
 
 def test_null_shot_type_value_becomes_unknown() -> None:
@@ -555,6 +559,19 @@ def test_null_shot_type_value_becomes_unknown() -> None:
     assert metadata.shot_type.value == "unknown"
     assert metadata.shot_type.evidence == ()
     assert parsed.normalizations == ("shot_type.value",)
+    assert parsed.notations == (), "`null` 은 표기가 아니라 자리 모양이다"
+
+
+def test_a_written_absence_in_shot_type_is_counted_as_a_notation() -> None:
+    """같은 자리라도 **문자열로** 쓴 '없음' 은 계약에 없는 어휘다 (S15P21A501-93 리뷰)."""
+    raw = _raw(shot_type={"value": "N/A", "confidence": 0.2, "evidence": []})
+
+    parsed = parse_output(raw)
+    metadata = validate(parsed.raw, 0, _scene().keyframes, get_default_config())
+
+    assert metadata.shot_type.value == "unknown"
+    assert parsed.normalizations == ("shot_type.value",)
+    assert parsed.notations == ("shot_type.value",)
 
 
 def test_null_arrays_become_empty_ones() -> None:
@@ -570,6 +587,9 @@ def test_null_arrays_become_empty_ones() -> None:
     assert metadata.tag_candidates == ()
     assert metadata.shot_type.evidence == ()
     assert parsed.normalizations == ("tag_candidates", "shot_type.evidence")
+    # 셋 다 `null` 을 옮긴 것이라 표기가 아니다. 합쳐 세면 `normalizedValues` 가 읽을 수
+    # 없는 값이 된다 — 이 장면들은 모델이 계약대로 답한 장면이다.
+    assert parsed.notations == ()
 
 
 def test_normalized_evidence_still_has_to_be_there_when_required() -> None:
@@ -632,9 +652,35 @@ def test_normalization_is_counted_in_the_stage_result() -> None:
     result = describe_scenes([scene], _image_paths(scene), _FakeClient([raw]))
 
     assert described.normalizations == ("caption",)
+    assert described.notations == ("caption",)
     assert result.normalized_value_count == 1
+    assert result.reshaped_value_count == 0
     # 원문은 그대로 남는다. 정규화한 값이 무엇이었는지는 여기서만 볼 수 있다.
     assert "없음" in described.raw_output
+
+
+def test_an_empty_screen_does_not_look_like_a_model_that_ignores_the_contract() -> None:
+    """빈 화면 실측이 낸 모양을 그대로 흘려 본다 (S15P21A501-93 리뷰).
+
+    2026-09-16 실측에서 선정 모델은 읽을 것이 없는 장면에 `{"value": null, ...}` 을 냈다
+    (`docs/vlm-metadata.md` §6). 그것이 `normalizedValues` 를 올리면, 전환·암전이 섞인
+    클립마다 "프롬프트를 사람이 봐야 한다" 는 신호가 잘못 켜진다.
+    """
+    scene = _scene()
+    raw = _raw(
+        caption={"value": None, "confidence": 0.0, "evidence": []},
+        shot_type={"value": "unknown", "confidence": 0.0, "evidence": []},
+        scene_type={"value": None, "confidence": 0.0, "evidence": []},
+        tag_candidates=[],
+    )
+
+    described = describe_scene(scene, _image_paths(scene), _FakeClient([raw]))
+    result = describe_scenes([scene], _image_paths(scene), _FakeClient([raw]))
+
+    assert described.normalizations == ("caption", "scene_type"), "옮긴 자리는 기록에 남는다"
+    assert described.notations == ()
+    assert result.normalized_value_count == 0, "모델은 계약의 값으로 답했다"
+    assert result.reshaped_value_count == 2
 
 
 def test_zero_is_a_value_not_an_absence() -> None:
@@ -642,6 +688,42 @@ def test_zero_is_a_value_not_an_absence() -> None:
     assert means_absent(0) is False
     assert means_absent("") is False
     assert means_absent("서울") is False
+
+
+@pytest.mark.parametrize("value", ["NA", "N/A", "-", "--", "nil", "unknown"])
+def test_a_tag_value_that_might_be_a_real_value_is_not_read_as_an_absence(value: str) -> None:
+    """태그 자리에서 보는 목록은 좁다 (S15P21A501-93 리뷰).
+
+    `NA` 는 조직 약칭이고 `-` 는 화면에서 읽히는 글자다. 그것을 '없음' 으로 읽으면 후보
+    하나 때문에 장면이 거부되고, 장면 하나의 거부는 단계 전체 실패이자 §9.2 상 영구다.
+    """
+    assert means_absent(value) is True, "넓은 목록에는 그대로 있다"
+    assert declares_absent(value) is False
+
+    raw = _raw(
+        tag_candidates=[
+            {"type": "organization", "value": value, "confidence": 0.5, "evidence": ["kf_1"]}
+        ]
+    )
+    metadata = validate(parse_raw(raw), 0, _scene().keyframes, get_default_config())
+
+    # `scene_type` 도 태그 후보로 들어오므로(전용 필드 → 후보) 유형으로 걸러 본다.
+    organizations = [tag.value for tag in metadata.tag_candidates if tag.type == "organization"]
+    assert organizations == [value]
+
+
+@pytest.mark.parametrize("value", ["없음", "해당 없음", "미상", "null", "None"])
+def test_a_tag_value_that_says_it_is_absent_is_still_rejected(value: str) -> None:
+    """좁혔다고 해서 '없다' 고 적힌 글자까지 값으로 받지는 않는다."""
+    assert declares_absent(value) is True
+
+    raw = _raw(
+        tag_candidates=[
+            {"type": "organization", "value": value, "confidence": 0.5, "evidence": ["kf_1"]}
+        ]
+    )
+    with pytest.raises(VlmSchemaInvalidError, match="값이 아니다"):
+        validate(parse_raw(raw), 0, _scene().keyframes, get_default_config())
 
 
 # ── 입력 선정 ────────────────────────────────────────────────────────

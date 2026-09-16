@@ -177,13 +177,20 @@ class VlmResult:
     model_version: str
     #: 색인 토큰을 만든 규칙의 식별자 (`korean_tokens.tokenizer_version`).
     tokenizer: str
-    #: '없음' 의 다른 표기를 계약의 '없음' 으로 모은 자리의 수(`normalize.py`).
+    #: 모델이 **문자열 표기**로 '없음' 을 써서 모은 자리의 수(`normalize.py`).
     #:
     #: **산출물이 아니라 기록이다.** 값 자체는 정규화 뒤의 것이 정본이므로 payload 에
-    #: 나가지 않고, 이 수만 metric 으로 올라간다. 0 이 아니면 모델이 계약과 다른 표기를
+    #: 나가지 않고, 이 수만 metric 으로 올라간다. 0 이 아니면 모델이 계약과 다른 어휘를
     #: 쓰고 있다는 뜻이고, 비율이 튀면 프롬프트를 사람이 봐야 한다는 신호다
     #: (`unknown_shot_type_count` 와 같은 용도).
     normalized_value_count: int = 0
+    #: 계약의 `null` 을 한 칸 다른 자리에 써서 옮긴 자리의 수(`normalize.Normalized`).
+    #:
+    #: **이쪽은 0 이 아닌 것이 정상이다.** 읽을 것이 없는 장면(암전·전환)에서 선정 모델이
+    #: `{"value": null, ...}` 을 내는 것이 2026-09-16 실측으로 확인됐고, 그런 장면이 섞인
+    #: 클립이면 상시 오른다. `normalized_value_count` 와 합쳐 세면 그쪽이 "모델이 계약과
+    #: 다르게 답했다" 를 세는 값이 아니게 되어 따로 둔다.
+    reshaped_value_count: int = 0
 
     @property
     def scene_count(self) -> int:

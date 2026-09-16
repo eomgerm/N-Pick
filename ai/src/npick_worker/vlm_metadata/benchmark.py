@@ -59,12 +59,26 @@ def summarize(result: dict[str, Any], expected: int) -> dict[str, Any]:
         "attemptedScenes": len(attempted),
         "schemaValidScenes": len(successes),
         "failedScenes": len(failures),
-        # '없음' 을 계약과 다른 표기로 쓴 장면과 그 자리 수(`normalize.py`, S15P21A501-93).
+        # '없음' 을 계약과 다른 **표기**로 쓴 장면과 그 자리 수(`normalize.py`, S15P21A501-93).
         # **smoke 판정에 넣지 않는다** — 정규화된 출력은 유효한 출력이다. 그런데도 요약에
         # 올리는 이유는 이 값이 후보를 가르는 근거이기 때문이다. 0 이 아닌 후보는 프롬프트를
         # 그대로 따르지 않았다는 뜻이고, 그건 사람이 원문을 봐야 하는 차이다.
-        "normalizedScenes": sum(1 for row in successes if row.get("normalizations")),
-        "normalizedValues": sum(len(row.get("normalizations", ())) for row in successes),
+        "normalizedScenes": sum(1 for row in successes if row.get("notations")),
+        "normalizedValues": sum(len(row.get("notations", ())) for row in successes),
+        # 계약의 `null` 을 한 칸 다른 자리에 써서 옮긴 장면과 자리 수. **후보를 가르는 값이
+        # 아니다** — 빈 화면·전환 장면이 있으면 오르는 것이 정상이라(2026-09-16 실측) 후보
+        # 사이 비교는 같은 입력일 때만 뜻이 있다.
+        #
+        # `notations` 가 없는 옛 기록은 갈래를 알 수 없다. 그때는 전부 이쪽으로 센다 —
+        # 모르는 것을 "표기였다" 로 세면 없는 신호를 만들어 내기 때문이다.
+        "reshapedScenes": sum(
+            1
+            for row in successes
+            if len(row.get("normalizations", ())) > len(row.get("notations", ()))
+        ),
+        "reshapedValues": sum(
+            len(row.get("normalizations", ())) - len(row.get("notations", ())) for row in successes
+        ),
         "smokePassed": (
             expected >= 10
             and len(successes) == expected

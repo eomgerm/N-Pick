@@ -31,7 +31,7 @@
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from pydantic import ValidationError
 
@@ -46,7 +46,7 @@ from npick_worker.vlm_metadata.models import (
     ShotTypeJudgement,
     TagCandidate,
 )
-from npick_worker.vlm_metadata.normalize import means_absent, normalize
+from npick_worker.vlm_metadata.normalize import declares_absent, normalize
 from npick_worker.vlm_metadata.prompt import labels_for
 from npick_worker.vlm_metadata.schema import RawJudgement, RawSceneMetadata
 
@@ -88,8 +88,32 @@ class ParsedOutput:
     """
 
     raw: RawSceneMetadata
-    #: 정규화한 자리의 경로. 예: `("caption", "shot_type.value")`. 비어 있는 것이 정상이다.
+    #: 정규화한 자리의 경로 **전부**. 예: `("caption", "shot_type.value")`. 비어 있는 것이
+    #: 정상이다.
     normalizations: tuple[str, ...] = ()
+    #: 그중 값 자리에 문자열 표기가 들어와 바꾼 자리(`normalize.Normalized`). 세는 쪽이
+    #: 갈래를 나눠 읽어야 하는 이유는 그 파일의 docstring 에 있다.
+    notations: tuple[str, ...] = ()
+
+
+def load_output(payload: str) -> dict[str, Any]:
+    """원문에서 JSON 객체를 꺼낸다. `parse_output` 의 0단계다.
+
+    **따로 떼어 둔 이유는 원문을 읽는 길이 둘이 되면 안 되기 때문이다.** 코드펜스를 벗기는
+    일이 여기 있는데 다른 곳에서 `json.loads` 를 직접 부르면, 펜스가 붙은 원문에서만 그쪽이
+    터진다 — 실측 기록의 `rawOutput` 은 벗기기 **전**의 원문이라(`report.to_json`) 그 조합이
+    실제로 생긴다.
+    """
+    text = _strip_code_fence(payload.strip())
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        msg = f"VLM 출력이 JSON 이 아니다: line={exc.lineno} column={exc.colno}"
+        raise VlmSchemaInvalidError(msg, payload) from exc
+    if not isinstance(data, dict):
+        msg = f"VLM 출력이 객체가 아니다: {type(data).__name__}"
+        raise VlmSchemaInvalidError(msg, payload)
+    return data
 
 
 def parse_output(payload: str) -> ParsedOutput:
@@ -103,18 +127,11 @@ def parse_output(payload: str) -> ParsedOutput:
     `normalize` 는 교정이 아니다. `"없음"` 과 `null` 처럼 **같은 답의 다른 표기**를 하나로
     모을 뿐이고, 무엇이 그에 해당하는지는 `normalize.py` 의 표가 정본이다.
     """
-    text = _strip_code_fence(payload.strip())
+    result = normalize(load_output(payload))
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        msg = f"VLM 출력이 JSON 이 아니다: line={exc.lineno} column={exc.colno}"
-        raise VlmSchemaInvalidError(msg, payload) from exc
-    if not isinstance(data, dict):
-        msg = f"VLM 출력이 객체가 아니다: {type(data).__name__}"
-        raise VlmSchemaInvalidError(msg, payload)
-    normalized, changed = normalize(data)
-    try:
-        return ParsedOutput(RawSceneMetadata.model_validate(normalized), changed)
+        return ParsedOutput(
+            RawSceneMetadata.model_validate(result.data), result.changed, result.notations
+        )
     except ValidationError as exc:
         # input/ctx와 알 수 없는 필드명에는 원문이 들어갈 수 있다. 오류 종류만 요약한다.
         kinds = sorted(
@@ -266,10 +283,15 @@ def _to_tag_candidates(
         if not value:
             msg = f"{path} 의 value 가 공백뿐이다"
             raise VlmSchemaInvalidError(msg)
-        if means_absent(value):
+        if declares_absent(value):
             # 태그 자리의 '없음' 은 값이 아니라 빈 배열이다(`normalize.py`). 항목만 조용히
             # 빼면 그것이 부분 적용이므로, 여기서는 거부한다 — `scene_type` 과 달리 옮길
             # '없음' 의 자리가 태그에는 없다.
+            #
+            # **`means_absent` 가 아니라 `declares_absent` 다.** 넓은 목록에는 `"NA"`·`"-"`
+            # 가 있는데 태그 자리에는 진짜 값이 온다 — 조직 약칭 `NA`, 화면에서 읽은 `-`.
+            # 그것을 '없음' 으로 읽으면 후보 하나 때문에 장면이 거부되고, 장면 하나의 거부는
+            # 단계 전체 실패이자 §9.2 상 영구다. 되돌릴 수 없는 쪽으로 추측하지 않는다.
             msg = f"{path} 의 value 가 값이 아니다: {value!r}. 후보가 없으면 빈 배열이다"
             raise VlmSchemaInvalidError(msg)
         candidates.append(

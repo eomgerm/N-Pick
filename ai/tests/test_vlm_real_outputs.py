@@ -54,7 +54,12 @@ from npick_worker.vlm_metadata.describer import SceneDescription
 from npick_worker.vlm_metadata.models import KeyframeRef
 from npick_worker.vlm_metadata.normalize import normalize
 from npick_worker.vlm_metadata.schema import SCHEMA_VERSION
-from npick_worker.vlm_metadata.validator import VlmSchemaInvalidError, parse_output, validate
+from npick_worker.vlm_metadata.validator import (
+    VlmSchemaInvalidError,
+    load_output,
+    parse_output,
+    validate,
+)
 
 #: 실행 기록 디렉터리. `report.py --out` 이나 `benchmark.py --out` 이 만든 자리다.
 RUN_DIR_ENV: Final[str] = "NPICK_AI_VLM_RUN_DIR"
@@ -208,8 +213,15 @@ def _check_normalizations(path: Path, record: dict[str, Any]) -> None:
             # 읽지 않는다.
             continue
         where = f"{path} scene {row['sceneIndex']}"
-        produced = list(parse_output(row["rawOutput"]).normalizations)
+        parsed = parse_output(row["rawOutput"])
+        produced = list(parsed.normalizations)
         assert produced == row["normalizations"], f"{where}: {produced} != {row['normalizations']}"
+        if "notations" not in row:
+            # 갈래를 나누기(S15P21A501-93 리뷰) 전에 남은 기록이다. `normalizations` 는 그때와
+            # 같은 값이라 위 검사가 그대로 성립하고, 갈래만 확인하지 않는다.
+            continue
+        notations = list(parsed.notations)
+        assert notations == row["notations"], f"{where}: {notations} != {row['notations']}"
 
 
 def _check_rejections(path: Path, record: dict[str, Any]) -> None:
@@ -232,10 +244,16 @@ def _check_rejections(path: Path, record: dict[str, Any]) -> None:
 
 
 def _check_normalization_is_a_fixed_point(path: Path, record: dict[str, Any]) -> None:
-    """정규화가 멱등인가. 두 번째 통과에서 바뀌는 자리가 있으면 정규화가 아니라 변형이다."""
+    """정규화가 멱등인가. 두 번째 통과에서 바뀌는 자리가 있으면 정규화가 아니라 변형이다.
+
+    **`json.loads` 를 직접 부르지 않는다.** 기록의 `rawOutput` 은 코드펜스를 벗기기 **전**의
+    원문이고(`report.to_json`), 이 모듈 docstring 이 적었듯 모델은 펜스를 자주 붙인다. 직접
+    읽으면 그런 장면에서 이 검사가 검사 실패가 아니라 `JSONDecodeError` 로 죽는다 — 원문을
+    읽는 길은 `validator.load_output` 하나뿐이어야 한다.
+    """
     for row in record["scenes"]:
-        once, _ = normalize(json.loads(row["rawOutput"]))
-        twice, changed = normalize(once)
+        once = normalize(load_output(row["rawOutput"])).data
+        twice, changed, _ = normalize(once)
         assert changed == (), f"{path} scene {row['sceneIndex']}: {changed}"
         assert twice == once
 
@@ -298,6 +316,7 @@ def _described(raw_output: str, keyframes: tuple[KeyframeRef, ...]) -> SceneDesc
         raw_output=raw_output,
         inputs=keyframes,
         normalizations=parsed.normalizations,
+        notations=parsed.notations,
     )
 
 
@@ -325,6 +344,9 @@ def test_the_replay_checks_run_against_a_synthesized_record(tmp_path: Path) -> N
     )
     described = _described(accepted, keyframes)
     assert described.normalizations == ("caption", "tag_candidates")
+    # `caption` 만 문자열 표기다. `tag_candidates: null` 은 계약의 값을 다른 자리에 쓴 것이라
+    # 갈래가 다르고, 그 구분이 기록에 남는지까지 `_check_normalizations` 가 본다.
+    assert described.notations == ("caption",)
 
     rejected = report.Rejected(
         scene_index=1,
@@ -344,6 +366,80 @@ def test_the_replay_checks_run_against_a_synthesized_record(tmp_path: Path) -> N
     _check_normalizations(path, loaded)
     _check_rejections(path, loaded)
     _check_normalization_is_a_fixed_point(path, loaded)
+
+
+def test_a_recorded_output_wrapped_in_a_code_fence_still_replays(tmp_path: Path) -> None:
+    """코드펜스가 붙은 원문이 기록돼도 재생이 돈다 (S15P21A501-93 리뷰).
+
+    `parse_output` 이 펜스를 벗겨 주므로 **펜스가 붙은 원문은 통과 장면으로 기록된다.**
+    그런데 재생 쪽에서 `json.loads` 를 직접 부르면 거기서만 `JSONDecodeError` 로 죽어,
+    회귀를 잡으라고 둔 파일이 회귀를 만나기도 전에 터진다. 프롬프트가 펜스를 금지해도
+    모델이 자주 붙인다는 것이 이 모듈 docstring 의 전제다.
+    """
+    keyframes = tuple(
+        KeyframeRef(scene_index=0, timestamp_ms=stamp, storage_key=f"s0000/kf-{stamp:09d}.jpg")
+        for stamp in (1000, 2000)
+    )
+    body = json.dumps(
+        {
+            "caption": {"value": "없음", "confidence": 0.9, "evidence": ["kf_1"]},
+            "shot_type": {"value": "anchor", "confidence": 0.88, "evidence": ["kf_1"]},
+            "scene_type": {"value": None, "confidence": 0.0, "evidence": []},
+            "tag_candidates": [],
+        },
+        ensure_ascii=False,
+    )
+    fenced = f"```json\n{body}\n```"
+
+    described = _described(fenced, keyframes)
+    # 갈래가 섞인 원문이다 — `caption` 은 표기, `scene_type` 은 모양.
+    assert described.normalizations == ("caption", "scene_type")
+    assert described.notations == ("caption",)
+
+    record = report.to_json([(described, 1.0)], [], get_default_config(), _StubClient())
+    path = tmp_path / _RECORD_NAME
+    path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    loaded = _read(path)
+
+    assert record["scenes"][0]["rawOutput"] == fenced, "기록은 벗기기 전 원문을 남긴다"
+    assert _check_accepted(path, loaded) == 1
+    _check_normalizations(path, loaded)
+    _check_normalization_is_a_fixed_point(path, loaded)
+
+
+def test_a_record_without_the_notation_split_still_replays(tmp_path: Path) -> None:
+    """갈래를 나누기 전 기록도 그대로 재생된다 (S15P21A501-93 리뷰).
+
+    `normalizations` 의 내용과 순서를 바꾸지 않은 것이 이 성질을 위해서다. GPU 서버에
+    남아 있는 실측 기록은 `notations` 를 모르는데, 세는 방식이 달라졌다는 이유로 그것이
+    회귀처럼 보이면 안 된다 — 계약(`schemaVersion`·`configVersion`)은 그대로라 skip 으로
+    빠지지도 않는다.
+    """
+    keyframes = tuple(
+        KeyframeRef(scene_index=0, timestamp_ms=stamp, storage_key=f"s0000/kf-{stamp:09d}.jpg")
+        for stamp in (1000, 2000)
+    )
+    accepted = json.dumps(
+        {
+            "caption": {"value": "없음", "confidence": 0.9, "evidence": ["kf_1"]},
+            "shot_type": {"value": "anchor", "confidence": 0.88, "evidence": ["kf_1"]},
+            "scene_type": {"value": None, "confidence": 0.0, "evidence": []},
+            "tag_candidates": [],
+        },
+        ensure_ascii=False,
+    )
+    record = report.to_json(
+        [(_described(accepted, keyframes), 1.0)], [], get_default_config(), _StubClient()
+    )
+    for row in record["scenes"]:
+        del row["notations"]
+
+    path = tmp_path / _RECORD_NAME
+    path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+    loaded = _read(path)
+
+    assert _stale_reason(path, loaded) is None, "갈래는 계약이 아니라 세는 방식이다"
+    _check_normalizations(path, loaded)
 
 
 def test_a_record_from_another_contract_is_not_replayed(tmp_path: Path) -> None:

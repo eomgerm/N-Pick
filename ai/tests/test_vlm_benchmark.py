@@ -26,13 +26,43 @@ def test_summary_does_not_pass_an_incomplete_run() -> None:
 def test_summary_counts_normalized_values_without_failing_the_run() -> None:
     """정규화는 유효한 출력이다. 세되 합격 판정을 뒤집지 않는다 (S15P21A501-93)."""
     clean = {"inputs": [1, 2], "elapsedSeconds": 1.0}
-    normalized = {**clean, "normalizations": ["caption", "tag_candidates"]}
+    normalized = {
+        **clean,
+        "normalizations": ["caption", "tag_candidates"],
+        "notations": ["caption"],
+    }
     result = {"scenes": [*[clean] * 9, normalized], "rejected": []}
 
     summary = benchmark.summarize(result, 10)
 
     assert summary["normalizedScenes"] == 1
-    assert summary["normalizedValues"] == 2
+    assert summary["normalizedValues"] == 1
+    assert summary["reshapedScenes"] == 1
+    assert summary["reshapedValues"] == 1
+    assert summary["smokePassed"] is True
+
+
+def test_summary_separates_an_empty_screen_from_a_model_that_ignores_the_contract() -> None:
+    """빈 화면만 있는 후보를 "계약을 안 따른다" 로 읽지 않는다 (S15P21A501-93 리뷰).
+
+    2026-09-16 빈 화면 실측이 낸 모양이다 — 장면마다 `caption`·`scene_type` 두 자리가
+    옮겨지지만 모델은 계약의 `null` 로 답했다. 후보를 가르는 값은 `normalizedValues` 고,
+    그 값이 이런 장면에서 오르면 후보 비교표가 읽히지 않는다.
+    """
+    blank = {
+        "inputs": [1, 2],
+        "elapsedSeconds": 1.0,
+        "normalizations": ["caption", "scene_type"],
+        "notations": [],
+    }
+    result = {"scenes": [blank] * 10, "rejected": []}
+
+    summary = benchmark.summarize(result, 10)
+
+    assert summary["normalizedScenes"] == 0
+    assert summary["normalizedValues"] == 0
+    assert summary["reshapedScenes"] == 10
+    assert summary["reshapedValues"] == 20
     assert summary["smokePassed"] is True
 
 
@@ -44,6 +74,23 @@ def test_summary_reads_a_record_from_before_normalization() -> None:
 
     assert summary["normalizedScenes"] == 0
     assert summary["normalizedValues"] == 0
+    assert summary["reshapedScenes"] == 0
+    assert summary["reshapedValues"] == 0
+
+
+def test_summary_reads_a_record_from_before_the_notation_split() -> None:
+    """갈래를 모르는 기록은 전부 '모양' 으로 센다 (S15P21A501-93 리뷰).
+
+    모르는 것을 '표기' 로 세면 없는 신호를 만들어 낸다. `normalizedValues` 는 사람을
+    부르는 값이라, 틀리는 방향은 부르지 않는 쪽이어야 한다.
+    """
+    row = {"inputs": [1, 2], "elapsedSeconds": 1.0, "normalizations": ["caption"]}
+    result = {"scenes": [row], "rejected": []}
+
+    summary = benchmark.summarize(result, 10)
+
+    assert summary["normalizedValues"] == 0
+    assert summary["reshapedValues"] == 1
 
 
 def test_summary_includes_failed_scene_latency() -> None:
