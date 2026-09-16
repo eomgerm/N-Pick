@@ -287,7 +287,7 @@ FE URL 상태와 wire 요청의 대응:
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
 - `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
 - 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
-- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.6, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
+- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.7, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
 
 ### 5.2 오류 경계
 
@@ -651,7 +651,7 @@ body는 생략하거나 다음처럼 보낸다.
 결과 카드와 검수 문의 큐가 장면을 눈으로 알아보게 하는 이미지다(FRD F-03·F-07). 로그인한 `EDITOR`와 `REVIEWER`가 모두 조회한다.
 
 - 대표 이미지는 AI가 선명도로 골라 목록 첫 원소로 보낸 프레임이며, BE가 그 순서대로 저장하므로 그 장면의 최소 `keyframe_id`다([job-api.md](job-api.md) §4.3.1). **`timestamp_ms`가 가장 이른 프레임이 아니다** — 장면 앞머리에는 디졸브·암전이 오기 쉬워 대표가 시각상 첫 장이 아니다. AI가 장면마다 뽑는 프레임 수도 고정이 아니다(FRD F-03).
-- 성공: 이미지 byte, `Content-Type: image/jpeg`(파일 머리글로 판별하며 `image/png`·`image/webp`도 가능), `Content-Length`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`.
+- 성공: 이미지 byte, 파일 머리글에 맞는 `Content-Type`(`image/jpeg`·`image/png`·`image/webp`), `Content-Length`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`. 지원하지 않는 머리글은 `SCENE_503_001`로 거부한다.
 - 성공 byte에는 공통 JSON envelope를 사용하지 않는다. 실패에는 공통 실패 envelope를 사용한다.
 - Range를 지원하지 않는다. 한 장을 통째로 보낸다.
 - **응답은 축소하지 않은 원본 해상도 keyframe이다.** 장당 크기는 1080p 기본 화질에서 약 420 KiB다([job-api.md](job-api.md) §4.3.1의 실측). 카드 10장이면 한 화면이 4 MB 급이므로 FE는 이 값을 전제로 지연 로딩·동시 요청 수를 잡는다.
@@ -721,6 +721,6 @@ body는 생략하거나 다음처럼 보낸다.
 | 내 문의 기록       | §6.6으로 확정·구현 완료                                              | 없음(FE 바인딩만 남음)                                                                     |
 | 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
 | 처리 조회          | BE 조회는 §6.5, FE는 아직 UI 데모 모델                                  | 공개 DTO를 화면에 mapping하고 unknown/null을 보존. polling·수동 재처리 연결은 별도 구현    |
-| thumbnail 축소     | §6.6은 원본 해상도 keyframe을 그대로 제공. job-api §4.3.1이 BE에 넘긴 카드용 축소는 미구현 | FE 카드 규격과 함께 최대 크기, 비율 유지/crop, 출력 형식과 품질, 리사이즈 캐시 방법, 원본 크기·픽셀 수 상한을 확정 |
+| thumbnail 축소     | §6.7은 원본 해상도 keyframe을 그대로 제공. job-api §4.3.1이 BE에 넘긴 카드용 축소는 미구현 | FE 카드 규격과 함께 최대 크기, 비율 유지/crop, 출력 형식과 품질, 리사이즈 캐시 방법, 원본 크기·픽셀 수 상한을 확정 |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.

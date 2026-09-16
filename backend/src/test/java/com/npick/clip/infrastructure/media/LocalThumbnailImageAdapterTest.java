@@ -60,12 +60,12 @@ class LocalThumbnailImageAdapterTest {
         assertThat(adapter.read(STORAGE_KEY).contentType()).isEqualTo("image/webp");
     }
 
-    /** 판별하지 못한 머리글은 JPEG 로 본다. 응답에 nosniff 가 함께 나가므로 브라우저가 이 값을 넘겨 추측하지 않는다. */
+    /** 판별하지 못한 머리글을 JPEG 로 가장하지 않는다. nosniff 응답에서 잘못된 Content-Type 은 깨진 이미지만 만든다. */
     @Test
-    void fallsBackToJpegForAnUnrecognisedHeader() throws IOException {
+    void rejectsAnUnrecognisedImageHeader() throws IOException {
         Files.write(root.resolve(STORAGE_KEY), "not an image".getBytes(StandardCharsets.UTF_8));
 
-        assertThat(adapter.read(STORAGE_KEY).contentType()).isEqualTo("image/jpeg");
+        assertThatFails(() -> adapter.read(STORAGE_KEY), SceneThumbnailErrorCode.THUMBNAIL_READ_FAILED);
     }
 
     /** media root 밖을 가리키는 key 는 그 파일이 실제로 있어도 거부한다 (FRD §6.4). */

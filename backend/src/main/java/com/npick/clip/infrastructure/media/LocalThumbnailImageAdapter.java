@@ -65,8 +65,8 @@ public final class LocalThumbnailImageAdapter implements ThumbnailImagePort {
      * 파일 머리글로 형식을 정한다.
      *
      * <p>확장자를 믿지 않는 이유는 {@code storage_key} 가 워커가 정한 이름이고 DB 에 형식 칸이 없기 때문이다. 현재 워커는 JPEG 만 남기지만(frame_extraction 의
-     * {@code FILE_NAME_TEMPLATE}), 형식이 바뀌어도 응답 Content-Type 이 조용히 틀리지 않게 머리글을 읽는다. 판별하지 못하면 JPEG 로 본다 — 응답에는
-     * {@code X-Content-Type-Options: nosniff} 가 함께 나가므로 브라우저가 이 값을 넘겨 다시 추측하지 않는다.
+     * {@code FILE_NAME_TEMPLATE}), 형식이 바뀌어도 응답 Content-Type 이 조용히 틀리지 않게 머리글을 읽는다. 지원하지 않는 머리글을 JPEG 로 가장하면
+     * {@code X-Content-Type-Options: nosniff} 때문에 브라우저가 복구할 수도 없으므로 저장소 읽기 실패로 거부한다.
      */
     private static String contentType(byte[] image) {
         if (startsWith(image, 0xFF, 0xD8, 0xFF)) {
@@ -78,7 +78,7 @@ public final class LocalThumbnailImageAdapter implements ThumbnailImagePort {
         if (startsWith(image, 'R', 'I', 'F', 'F') && image.length >= 12 && isWebp(image)) {
             return WEBP_CONTENT_TYPE;
         }
-        return JPEG_CONTENT_TYPE;
+        throw new BusinessException(SceneThumbnailErrorCode.THUMBNAIL_READ_FAILED);
     }
 
     private static boolean isWebp(byte[] image) {

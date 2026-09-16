@@ -187,7 +187,7 @@ nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본�
   `keyframe.storage_key` 는 media root 안에서 해석하며 정규화 후 또는 심볼릭 링크를 따라간 뒤 root 를 벗어나면
   파일이 있어도 거부한다. storage key·서버 절대 경로·내부 예외 문자열은 응답에 나가지 않는다 (FRD §6.4).
 - **형식을 파일 머리글로 정한다.** `storage_key` 이름은 워커 규약일 뿐이고 DB 에 형식 칸이 없다. JPEG·PNG·WebP 를
-  판별하고 판별하지 못하면 JPEG 로 본다. 응답에 `X-Content-Type-Options: nosniff` 를 함께 보낸다.
+  판별하고, 지원하지 않는 머리글은 읽기 실패(`SCENE_503_001`)로 거부한다. 응답에 `X-Content-Type-Options: nosniff` 를 함께 보낸다.
 - **브라우저 캐시를 허용한다.** `Cache-Control: private, max-age=86400, immutable`. 한 `scene_id` 의 대표 이미지는
   바뀌지 않는다 — 재처리는 새 `pipeline_run` 과 새 `scene_id` 를 만든다. 프레임이 공유 캐시에 남지 않도록 `private` 다.
 - **실패 코드를 구분한다.** 장면 없음 `SCENE_404_001`, keyframe 없음 `SCENE_404_002`, 파일 누락 `SCENE_404_003`,
@@ -203,7 +203,7 @@ keyframe 파일은 워커가 영상 원본과 같은 media root 아래에 남기
 썸네일 전용 환경 변수는 없다. 경로 이탈 차단 규칙은 재생과 한 벌(`MediaRootResolver`)을 공유하고 실패 어휘만 다르다.
 
 검색·문의 응답은 이미지도 URL 도 싣지 않는다. `scene_id` 만 주고 FE 가 주소를 조립한다
-([웹 API 계약](../docs/contracts/web-api.md) §5.1·§6.6).
+([웹 API 계약](../docs/contracts/web-api.md) §5.1·§6.7).
 
 ### 미구현 — 카드용 축소 (후속 이슈)
 
@@ -220,7 +220,7 @@ BE 는 대표 keyframe 을 축소해 카드에 제공한다」로 축소 책임�
 - 리사이즈 결과를 캐시하는 방법(요청마다 계산할지, 파생 파일로 남길지)
 - 받아들일 원본 이미지의 크기·픽셀 수 상한
 
-축소를 넣으면 응답 `Content-Type` 과 `Cache-Control` 이 바뀔 수 있으므로 그 이슈가 웹 API 계약 §6.6 을 함께 고친다.
+축소를 넣으면 응답 `Content-Type` 과 `Cache-Control` 이 바뀔 수 있으므로 그 이슈가 웹 API 계약 §6.7 을 함께 고친다.
 그때까지 FE 는 원본 해상도가 내려온다는 전제로 지연 로딩과 동시 요청 수를 잡는다.
 
 ## 패키지 구조
