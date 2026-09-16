@@ -170,6 +170,14 @@ python_version = "3.12"
 files = ["src", "tests"]
 strict = true
 warn_unused_configs = true
+# 평가 하네스는 `src/npick_worker` 밖에 있고 테스트가 sys.path 로 얹어 import 한다.
+# 여기 적어야 mypy 가 그 모듈을 **찾고 실제로 검사한다** — 적지 않으면 import-not-found
+# 로 건너뛰어서 하네스 코드의 타입 오류가 통째로 안 잡힌다.
+# `eval/embedding` 은 넣지 않는다. 넣으면 import-not-found 1건이 사라지는 대신
+# 그 파일이 strict 검사 대상이 되어 오류 9건이 새로 뜬다(type-arg 6·import-not-found
+# 1·no-any-return 1·union-attr 1). 다른 티켓(S15P21A501-175)의 하네스라 여기서
+# 고치지 않고, 통과시키려고 override 로 약화시키지도 않는다.
+mypy_path = ["eval/query_resolver"]
 
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
@@ -182,6 +190,13 @@ module = [
     "PIL.*",
     "faster_whisper.*",
 ]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# mlflow 는 평가 하네스 전용 venv(.venv-eval)에만 설치된다 — gpu 그룹과 같은 판단이다.
+# 프로젝트 venv 에 없어도 mypy 가 돌아야 한다. 하네스는 lazy import 라 --no-mlflow 로는
+# 이 패키지 없이도 실행된다(eval/query_resolver/requirements.txt 머리말).
+module = ["mlflow.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

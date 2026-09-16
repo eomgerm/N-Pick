@@ -14,6 +14,7 @@
 | [docs/asr.md](docs/asr.md) | ASR — 엔진 경계·VAD 가 실행기 안인 이유·빈 결과/실패/미실행 구분·설정 키. **임계값과 모델 크기는 미측정(§5)** |
 | [docs/text-embedding.md](docs/text-embedding.md) | scene dense 벡터 — 입력이 캡션+대사인 이유·모델 교체 층·재현 식별자 네 축. **모델은 `S15P21A501-175` 가 확정** |
 | **[../docs/frd.md](../docs/frd.md) F-04~06, §6.2, §11** | **Query Resolver 정본.** 질의 해석·명시 조건 보호·실패 처리. 출력 schema와 span 검증 방식은 모듈 계약. `query_resolver/` 를 고치기 전에 읽는다 |
+| [eval/query_resolver/README.md](eval/query_resolver/README.md) | Query Resolver 모델 비교 하네스 — 골드셋 200문항·지표 정의·유의성 판정·라벨 한계. **프롬프트나 모델을 바꾸면 여기로 회귀를 잰다** |
 | [../AGENTS.md](../AGENTS.md) | 저장소 공통 규칙 (커밋/브랜치/문서 템플릿) |
 
 - 커밋 scope 와 브랜치 플랫폼은 `ai` 를 쓴다.
