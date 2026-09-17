@@ -85,10 +85,13 @@ def extract(
                     raise EntitySchemaInvalidError("invalid NER label or source span")
                 tag_type = label_map[span.label]
                 value = text.text[span.start : span.end]
-                if not match_key(value):
-                    raise EntitySchemaInvalidError("empty entity display value")
                 if tag_type is None or span.confidence < minimum_confidence:
                     continue
+                # Only spans that are actually emitted are validated. Half the KPF labels map
+                # to None, so failing the whole clip over a span this stage discards anyway
+                # would turn a category we never use into a permanent stage failure.
+                if not match_key(value):
+                    raise EntitySchemaInvalidError("empty entity display value")
                 candidates.append(
                     Candidate(
                         type=tag_type,

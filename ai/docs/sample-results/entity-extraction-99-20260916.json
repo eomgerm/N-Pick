@@ -7,7 +7,7 @@
       "modelVersion": "KPF/KPF-bert-ner@efff871f686098933bf76d699c437c3f53abc19e",
       "engineVersion": "transformers5.17.0+torch2.13.0+cu130"
     },
-    "stageVersion": "npick.stage.entity_extraction/v1:7c6b99ce",
+    "harnessVersion": "npick.entity-extraction.harness/v1:7c6b99ce",
     "corpusSha256": "15cdbae8a7ba2805b45d38b5118c158466018a1343320c04764415d62b9bdc26",
     "device": "NVIDIA GeForce RTX 4070 Laptop GPU",
     "loadSeconds": 13.081,

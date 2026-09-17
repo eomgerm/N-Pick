@@ -1027,10 +1027,10 @@ def _warm_entity_extraction() -> str:
     실패하면 `warm_up` 이 삼키고(그 함수의 규칙) 아래 `_declared_version` 이 이 단계를
     capabilities 에서 뺀다 — 배정받아 매번 `MODEL_UNAVAILABLE` 로 죽지 않는다.
     """
-    from npick_worker.entity_extraction.config import load_config
+    from npick_worker.entity_extraction.config import get_default_config
     from npick_worker.entity_extraction.local_ner import shared_ner
 
-    config = load_config()
+    config = get_default_config()
     # `shared_ner` 라야 첫 잡이 여기서 올린 그 인스턴스를 그대로 받는다(`_warm_ocr` 과
     # 같은 이유). 새로 만들면 워밍업이 앞당기는 것은 파일 캐시뿐이고 GPU 로딩은 잡마다 낸다.
     shared_ner(config)
@@ -1505,13 +1505,13 @@ def _declared_version(stage: str) -> str:
         # 단계를 돌릴 방법이 아예 없다.
         import torch
 
-        from npick_worker.entity_extraction.config import load_config as load_entity_config
+        from npick_worker.entity_extraction.config import get_default_config
         from npick_worker.entity_extraction.local_ner import is_loaded
         from npick_worker.jobs.entity_extraction import identity as entity_identity
 
         if not torch.cuda.is_available():
             raise ModelUnavailableError("entity NER 은 워커 CUDA 가 있어야 한다")
-        entity_config = load_entity_config()
+        entity_config = get_default_config()
         if not is_loaded(entity_config):
             raise ModelUnavailableError("entity NER 워밍업이 완료되지 않아 버전을 선언할 수 없다")
         return stage_version(stage, entity_identity(config=entity_config))

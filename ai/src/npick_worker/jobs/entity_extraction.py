@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from npick_worker.entity_extraction.config import Config, load_config
+from npick_worker.entity_extraction.config import Config, get_default_config
 from npick_worker.entity_extraction.extractor import (
     EntitySchemaInvalidError,
     EntitySpan,
@@ -158,7 +158,7 @@ def identity(merge: OcrMergeConfig | None = None, config: Config | None = None) 
     docstring. There is no prompt axis — this stage does not prompt anything.
     """
     return {
-        **ner_identity(config if config is not None else load_config()),
+        **ner_identity(config if config is not None else get_default_config()),
         "mergeVersion": (merge if merge is not None else get_merge_config()).version_id,
     }
 
@@ -291,7 +291,7 @@ def _inputs(
 def run(ctx: StageContext) -> StageOutcome:
     upstream = _parse_upstream(EntityExtractionUpstream, ctx.upstream)
     merge = get_merge_config()
-    config = load_config()
+    config = get_default_config()
     try:
         scenes = _inputs(ctx, upstream, merge)
     except (ValueError, KeyError, TypeError) as exc:

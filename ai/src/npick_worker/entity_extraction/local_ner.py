@@ -7,7 +7,6 @@ from typing import Any, Final
 
 from npick_worker.entity_extraction.config import Config
 from npick_worker.entity_extraction.extractor import EntitySchemaInvalidError, EntitySpan
-from npick_worker.versioning import version_id
 
 #: Labels whose position in the BIO table is load-bearing. `num_labels` only proves the
 #: table is the right size; a reordered table keeps that count and silently relabels every
@@ -103,10 +102,6 @@ class LocalNer:
         if self._pipeline is None:
             raise RuntimeError("model has not been loaded")
         return identity(self.config)
-
-    @property
-    def stage_version(self) -> str:
-        return version_id("npick.stage.entity_extraction/v1", self.identity)
 
     def predict(self, text: str) -> tuple[EntitySpan, ...]:
         if self._pipeline is None:

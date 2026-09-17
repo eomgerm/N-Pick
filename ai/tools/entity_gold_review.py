@@ -160,7 +160,7 @@ def build(run: Path, out: Path) -> dict[str, Any]:
         "schema": "npick.entity-extraction.gold-review/v1",
         "run": str(run).replace("\\", "/"),
         "identity": summary["identity"],
-        "stageVersion": summary["stageVersion"],
+        "harnessVersion": summary["harnessVersion"],
         "corpusSha256": summary["corpusSha256"],
         "labeledBy": "",
         "howTo": [
@@ -281,7 +281,7 @@ def score(sheet: dict[str, Any]) -> dict[str, Any]:
         "schema": "npick.entity-extraction.gold-metrics/v1",
         "run": sheet["run"],
         "identity": sheet["identity"],
-        "stageVersion": sheet["stageVersion"],
+        "harnessVersion": sheet["harnessVersion"],
         "corpusSha256": sheet["corpusSha256"],
         "labeledBy": sheet["labeledBy"],
         "coverage": {

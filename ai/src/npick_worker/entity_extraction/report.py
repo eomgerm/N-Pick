@@ -17,6 +17,14 @@ from npick_worker.entity_extraction.config import load_config
 from npick_worker.entity_extraction.extractor import SceneInput, TextInput, extract, match_key
 from npick_worker.entity_extraction.local_ner import LocalNer
 from npick_worker.entity_extraction.schema import Evidence, OcrEvidence, Output, TranscriptEvidence
+from npick_worker.versioning import version_id
+
+#: **단계 버전이 아니다.** 잡 어댑터는 OCR 병합을 직접 다시 계산하므로 `mergeVersion` 을
+#: 더한 다섯 축으로 `npick.stage.entity_extraction/v1:…` 을 만든다(계약 §7). 이 하네스는
+#: corpus 에서 이미 병합된 텍스트를 읽어 그 축을 돌리지 않으므로, 돌리지도 않은 축을
+#: 주장하지 않는다. 접두사를 갈라 두 값이 같은 것으로 읽히지 않게 한다. 실제로 대조할
+#: 축은 `identity` 네 개이고 그것은 양쪽이 같은 값을 쓴다.
+HARNESS_VERSION_PREFIX = "npick.entity-extraction.harness/v1"
 
 
 def write(path: Path, data: Any) -> None:
@@ -168,7 +176,7 @@ def run(corpus_path: Path, output_dir: Path) -> dict[str, Any]:
             output_dir / clip / "output.json",
             {
                 "outputSchemaVersion": "npick.stage.entity_extraction.output/v1",
-                "stageVersion": ner.stage_version,
+                "harnessVersion": version_id(HARNESS_VERSION_PREFIX, ner.identity),
                 "identity": ner.identity,
                 "output": result.model_dump(mode="json"),
             },
@@ -191,7 +199,7 @@ def run(corpus_path: Path, output_dir: Path) -> dict[str, Any]:
         print(json.dumps(records[-1]), flush=True)
     report = {
         "identity": ner.identity,
-        "stageVersion": ner.stage_version,
+        "harnessVersion": version_id(HARNESS_VERSION_PREFIX, ner.identity),
         "corpusSha256": hashlib.sha256(corpus_bytes).hexdigest(),
         "device": torch.cuda.get_device_name(),
         "loadSeconds": round(load_seconds, 3),

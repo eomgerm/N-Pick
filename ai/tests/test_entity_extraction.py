@@ -67,6 +67,34 @@ def test_invalid_later_span_rejects_whole_result() -> None:
         )
 
 
+def test_discarded_span_with_empty_value_does_not_fail_the_clip() -> None:
+    """버려질 span 이 클립 전체를 영구 실패시키지 않는다.
+
+    KPF 라벨 150종 중 74종이 None 으로 매핑된다. 그 중 하나가 공백·ZWSP 만 걸친 구간을
+    내면 이 단계는 그것을 어차피 방출하지 않는다. 방출되는 후보의 빈 비교키는 그대로
+    `EntitySchemaInvalidError` 로 막힌다(아래 테스트).
+    """
+    span = EntitySpan(label="DT_DAY", start=2, end=4, confidence=0.9)
+    result = extract(
+        (SceneInput(scene_index=0, texts=(text("서울​ 역"),)),),
+        {(0, "ocr_1"): (span,)},
+        label_map=load_config().label_map,
+        minimum_confidence=0.0,
+    )
+    assert result.scenes[0].tagCandidates == ()
+
+
+def test_emitted_span_with_empty_value_still_rejects_whole_result() -> None:
+    span = EntitySpan(label="PS_NAME", start=2, end=4, confidence=0.9)
+    with pytest.raises(EntitySchemaInvalidError):
+        extract(
+            (SceneInput(scene_index=0, texts=(text("서울​ 역"),)),),
+            {(0, "ocr_1"): (span,)},
+            label_map=load_config().label_map,
+            minimum_confidence=0.0,
+        )
+
+
 def test_missing_prediction_is_failure_not_empty_success() -> None:
     with pytest.raises(EntitySchemaInvalidError):
         extract(

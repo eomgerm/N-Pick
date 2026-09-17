@@ -218,18 +218,21 @@ AI-Hub/KBS 자막 원문은 `ai/.gitignore`의 권리 게이트가 `samples/`·`
 | 추론 합계 | 23.856초 | **5.487초** |
 | peak allocated | 465,347,072 bytes | 466,395,648 bytes |
 | peak reserved | 515,899,392 bytes | 517,996,544 bytes |
-| `stageVersion` | `…/v1:7c6b99ce` | `…/v1:0489c4de` |
+| `harnessVersion` | `…harness/v1:7c6b99ce` | `…harness/v1:0489c4de` |
 | 반입 결과 | [4070](sample-results/entity-extraction-99-20260916.json) | [SSAFY](sample-results/entity-extraction-99-ssafy-20260916.json) |
 
 메모리는 사실상 같고(차이 1 MB 미만) 시간만 4.3배 빠르다. 후보가 같으므로 장비 교체가
-출력을 바꾸지 않는다는 것도 확인된다. `stageVersion`이 다른 것은 `engineVersion`에 torch
+출력을 바꾸지 않는다는 것도 확인된다. `harnessVersion`이 다른 것은 `engineVersion`에 torch
 빌드가 들어가기 때문이며, 같은 입력·같은 `configVersion`·같은 `corpusSha256`에서 나온 값이다.
 수치의 정본은 각 반입 결과이고 여기 적은 값은 그 인용이다.
 
-그 파일의 `stageVersion`은 하네스가 계산한 네 축(`local_ner.identity`) 기준이다. 잡
-어댑터는 OCR 병합 설정을 직접 다시 계산하므로 `mergeVersion`을 더한 다섯 축을 쓴다
-(계약 §7) — 하네스는 corpus에서 텍스트를 바로 읽어 그 축이 없다. 두 값은 그래서 다르며,
-파이프라인이 보고하는 것은 다섯 축 쪽이다.
+**`harnessVersion`은 파이프라인이 보고하는 `stageVersion`이 아니다.** 이 값은 하네스가
+실제로 돌린 네 축(`local_ner.identity`)만 덮는다. 잡 어댑터는 OCR 병합을 직접 다시
+계산하므로 `mergeVersion`을 더한 다섯 축으로 `npick.stage.entity_extraction/v1:…`을
+만든다(계약 §7). 하네스는 corpus에서 이미 병합된 텍스트를 읽어 그 축을 돌리지 않으므로
+그 축을 주장하지 않는다. 접두사를 갈라 둔 것이 그래서다 — 반입 파일만 따로 읽어도 두
+값이 같은 것으로 보이지 않는다. 실제로 대조할 수 있는 것은 `identity`의 네 축이고,
+그것은 하네스와 파이프라인이 같은 값을 쓴다.
 
 품질 평가를 다시 매기려면:
 

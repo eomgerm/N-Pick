@@ -7,7 +7,7 @@
       "modelVersion": "KPF/KPF-bert-ner@efff871f686098933bf76d699c437c3f53abc19e",
       "engineVersion": "transformers5.17.0+torch2.11.0+cu128"
     },
-    "stageVersion": "npick.stage.entity_extraction/v1:0489c4de",
+    "harnessVersion": "npick.entity-extraction.harness/v1:0489c4de",
     "corpusSha256": "15cdbae8a7ba2805b45d38b5118c158466018a1343320c04764415d62b9bdc26",
     "device": "NVIDIA L40S",
     "loadSeconds": 8.028,

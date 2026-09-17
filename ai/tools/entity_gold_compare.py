@@ -108,7 +108,14 @@ def build(result: dict[str, Any], gold: dict[str, Any]) -> dict[str, Any]:
                 prefilled += 1
             elif (*where, key) in valued:
                 verdict, note = "type_wrong", "정답에 같은 값이 다른 유형으로 있다"
-                gold_type = next(t for w in [where] for t in ENTITY_TYPES if (*w, t, key) in keyed)
+                gold_type = next((t for t in ENTITY_TYPES if (*where, t, key) in keyed), None)
+                if gold_type is None:
+                    # missed[].type 과 goldType 은 사람이 손으로 쓰는 칸이다. 오타나 VLM
+                    # 전용 유형(season 등)이면 값은 정답에 있는데 유형이 없다.
+                    raise ValueError(
+                        f"정답표 {where[0]}#{where[1]} 의 '{candidate['value']}' 유형이 "
+                        f"{list(ENTITY_TYPES)} 밖이다. gold 시트의 missed/goldType 을 고쳐라."
+                    )
                 prefilled += 1
             rows.append(
                 {
@@ -181,6 +188,10 @@ def score(sheet: dict[str, Any], gold: dict[str, Any]) -> dict[str, Any]:
     reviewed = sum(verdicts.values())
     readable = reviewed - verdicts["unreadable_source"]
     gold_answered = {g for g in keyed if (g[0], g[1]) in answered}
+    # 정답에 없는 correct 를 분자에 넣으면 재현율이 1.0 을 넘는다. 시트는 이 방법만 찾은
+    # 개체를 correct 로 적고 gold 의 missed 에도 더하라고 안내하는데, 뒤를 빠뜨리면 여기로
+    # 온다. 조용히 부풀리지 않고 분자에서 빼되 무엇이 빠졌는지 남긴다.
+    outside_gold = sorted(f"{c}#{i} {t} {v}" for c, i, t, v in found - keyed)
     return {
         "schema": "npick.entity-extraction.method-compare-metrics/v1",
         "method": sheet["method"],
@@ -206,12 +217,13 @@ def score(sheet: dict[str, Any], gold: dict[str, Any]) -> dict[str, Any]:
         },
         "recall": {
             # 침묵한 장면까지 포함한 값이 실제로 쓸 수 있는 재현율이다.
-            "stage": ratio(len(found), len(keyed)),
+            "stage": ratio(len(found & keyed), len(keyed)),
             "stageGold": len(keyed),
             # 답을 낸 장면만 놓고 본 값. 침묵을 빼면 얼마나 잘하는지를 보여준다.
-            "answeredScenes": ratio(len(found), len(gold_answered)),
+            "answeredScenes": ratio(len(found & gold_answered), len(gold_answered)),
             "answeredScenesGold": len(gold_answered),
-            "found": len(found),
+            "found": len(found & keyed),
+            "correctOutsideGold": outside_gold,
         },
         "byType": {k: dict(c) for k, c in sorted(by_type.items())},
         "bySourceKind": {k: dict(c) for k, c in sorted(by_kind.items())},
