@@ -186,14 +186,24 @@ def mapping_payload(upstream: Mapping[str, Any]) -> Any | None:
     return None
 
 
+#: 매핑이 가리키는 snapshot 을 직접 읽는 단계. `resolve_mapping` 호출부와 짝이다.
+_MAPPING_CONSUMERS: Final[frozenset[str]] = frozenset(
+    {"vlm_metadata", "text_embedding", "entity_extraction"}
+)
+
+
 def transcript_refs(
     upstream: Mapping[str, Any], *, stage: str | None = None
 ) -> tuple[ArtifactRef, ...]:
     # 상위 transcript 별칭이 이전 snapshot이어도 최종 매핑의 참조가 정본이다.
-    # `text_embedding` 도 같은 이유로 매핑 쪽을 본다 — 별칭이 가리키는 옛 snapshot 을
-    # 받아 오면 `resolve_mapping` 이 문서를 찾지 못해 이 단계가 통째로 죽는다.
+    # `text_embedding`·`entity_extraction` 도 같은 이유로 매핑 쪽을 본다 — 별칭이 가리키는
+    # 옛 snapshot 을 받아 오면 `resolve_mapping` 이 문서를 찾지 못해 이 단계가 통째로 죽는다.
+    #
+    # **이 목록은 `resolve_mapping` 을 부르는 단계와 같아야 한다.** 여기서 빠진 단계는
+    # 문서를 한 장도 받지 못한 채 그 함수를 불러 `VALIDATION_ERROR`(영구)로 죽는다.
+    # 6단계가 성공한 run 이면 예외가 아니라 **항상** 그렇게 된다.
     payload = mapping_payload(upstream)
-    if stage in {"vlm_metadata", "text_embedding"} and payload is not None:
+    if stage in _MAPPING_CONSUMERS and payload is not None:
         mapping = parse_scene_transcript_mapping(payload)
         return (mapping.transcript.segments_artifact, mapping.transcript.decisions_artifact)
     transcript = upstream.get("transcript")
