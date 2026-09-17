@@ -16,7 +16,7 @@ from npick_worker.jobs.errors import UpstreamOutputInvalidError
 from npick_worker.jobs.media import MediaResolver
 from npick_worker.jobs.models import WorkerDevice
 from npick_worker.jobs.registry import StageContext
-from npick_worker.jobs.runner import JobRunner
+from npick_worker.jobs.runner import ClaimOutcome, JobRunner
 from npick_worker.jobs.scene_transcript_mapping import run
 from npick_worker.jobs.transcripts import transcript_refs
 from npick_worker.jobs.vlm_inputs import attach_mapped_transcripts
@@ -432,7 +432,7 @@ async def test_runner_uploads_produced_snapshots_then_completes(
         media_root=None,
         device=WorkerDevice(kind="cpu"),
     )
-    assert await runner.run_once()
+    assert await runner.run_once() is ClaimOutcome.SUCCEEDED
     result = json.loads(fake_backend.calls("complete")[0].content)
     assert result["status"] == "succeeded"
     assert len(fake_backend.calls("artifact_get")) == 2  # no source-video download

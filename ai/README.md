@@ -29,6 +29,36 @@ uv run npick-worker     # http://127.0.0.1:8000
 
 Windows PowerShell 에서는 저장소 루트에서 `uv run --directory ai npick-worker`.
 
+### 배치 실행 — `npick-worker-drain`
+
+상주 서버를 띄울 수 없는 노드(`docs/architecture/03-deployment.md` 의 SSAFY GPU 서버)용
+진입점이다. uvicorn·포트 바인딩·`/health` 없이 **잡을 받을 수 있는 동안 처리하고 종료한다.**
+데모 시드 적재가 그 용도다.
+
+```bash
+export NPICK_AI_JOB_POLL_ENABLED=true
+export NPICK_AI_JOB_API_BASE_URL=https://호스트
+export NPICK_AI_JOB_API_TOKEN=...      # fleet 과 짝이 맞아야 한다
+export NPICK_AI_JOB_FLEET=prod         # 기본값 local 로 두면 경고가 뜨고 BE 가 403 을 준다
+export NPICK_AI_JOB_STAGES=...         # 선택. 이 노드가 맡을 단계를 좁힌다
+uv run --directory ai npick-worker-drain
+```
+
+앞의 셋은 필수이고, 하나라도 없으면 워밍업 전에 **exit 2** 로 멈춘다.
+
+종료 코드가 뜻하는 것:
+
+| 코드 | 뜻 |
+| --- | --- |
+| `0` | 선언한 단계에 더 배정이 없어 정상 종료. **처리 건수가 0 이어도 0 이다** — 경고 로그를 본다 |
+| `1` | 단계가 실패했거나, BE 과부하가 이어져 큐를 비우지 못하고 포기했다 |
+| `2` | 위 환경 변수가 없다 |
+
+**"큐를 비웠다" 는 `NPICK_AI_JOB_STAGES` 로 좁힌 범위 안에서다.** 좁혀 띄운 drain 이
+끝나도 남은 단계는 다른 워커 몫이므로 pipeline run 이 끝났다는 뜻이 아니다.
+
+시드 영상을 먼저 등록하는 스크립트는 `scripts/seed-clips.sh` 다.
+
 기동 확인:
 
 ```bash

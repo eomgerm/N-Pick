@@ -21,6 +21,7 @@ import com.npick.search.application.query.structured.StructuredScoresResult;
 import com.npick.search.domain.model.FusionChannel;
 import com.npick.search.domain.model.FusionSettings;
 import com.npick.search.domain.model.LexicalSearchSettings;
+import com.npick.search.domain.model.SoftRankingSettings;
 import com.npick.search.domain.policy.RrfFusionPolicy;
 
 @Service
@@ -28,11 +29,16 @@ public class SearchRankingFusionService implements FuseSearchRankingUseCase {
 
     private final FusionSettings settings;
     private final LexicalSearchSettings lexicalSettings;
+    /** 순위에 쓰지 않는다. 보조 랭킹은 -55 가 하고, 여기서는 실행 설정 기록에만 싣는다 — 설정 스냅샷이 한 곳이어야 버전이 갈리지 않는다. */
+    private final SoftRankingSettings softSettings;
+
     private final RrfFusionPolicy policy = new RrfFusionPolicy();
 
-    public SearchRankingFusionService(FusionSettings settings, LexicalSearchSettings lexicalSettings) {
+    public SearchRankingFusionService(
+            FusionSettings settings, LexicalSearchSettings lexicalSettings, SoftRankingSettings softSettings) {
         this.settings = settings;
         this.lexicalSettings = lexicalSettings;
+        this.softSettings = softSettings;
     }
 
     @Override
@@ -64,7 +70,8 @@ public class SearchRankingFusionService implements FuseSearchRankingUseCase {
                     List.of(lexical, denseContribution)));
         }
         // -52 가 이미 sceneId 오름차순으로 준다. 그 순서를 그대로 지키는 것이 계약이므로 다시 정렬하지 않는다.
-        var snapshot = new SearchConfigSnapshot(settings, lexicalSettings, dense.settings(), structured.settings());
+        var snapshot = new SearchConfigSnapshot(
+                settings, lexicalSettings, dense.settings(), structured.settings(), softSettings);
         return new FusionResult(candidates, snapshot, snapshot.version());
     }
 

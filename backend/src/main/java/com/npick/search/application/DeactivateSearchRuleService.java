@@ -11,11 +11,11 @@ import com.npick.search.domain.repository.SearchRuleDeactivationRepository;
 /**
  * 승인된 교정 규칙을 사용 중단한다 (S15P21A501-86, F-11).
  *
- * <p>끄기만 한다. 재사용(재활성화)은 여기서 켜지 않고 현재 조건에서 검증·승인하는 경로(-83→-84)를 지나므로, 목표 상태가 {@code active=true} 인 요청은 거부한다. 사유는 받아
- * 검증하되 저장하지 않는다 — FRD 가 켜기·끄기의 수행자·사유·시각 전체 복원을 명시적으로 de-scope 한다.
+ * <p>끄기만 한다. 재사용(재활성화)은 여기서 켜지 않고 현재 조건에서 검증·승인하는 경로(-83→-84)를 지나므로, 목표 상태가 {@code active=true} 인 요청은 거부한다. 사유는 받아 검증하되
+ * 저장하지 않는다 — FRD 가 켜기·끄기의 수행자·사유·시각 전체 복원을 명시적으로 de-scope 한다.
  */
 @Service
-public class DeactivateSearchRuleService {
+public class DeactivateSearchRuleService implements DeactivateSearchRuleUseCase {
 
     private final SearchRuleDeactivationRepository repository;
     private final CorrectionStateLock correctionStateLock;
@@ -26,6 +26,7 @@ public class DeactivateSearchRuleService {
         this.correctionStateLock = correctionStateLock;
     }
 
+    @Override
     @Transactional
     public void deactivate(DeactivateSearchRuleCommand command) {
         if (!command.reviewerRole()) {

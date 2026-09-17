@@ -19,7 +19,7 @@ class ConfirmExcludeSceneUseCaseTest {
     @BeforeEach
     void setUp() {
         repository = mock(SearchRuleConfirmationRepository.class);
-        useCase = new ConfirmExcludeSceneUseCase(repository);
+        useCase = new ConfirmExcludeSceneService(repository);
     }
 
     @Test
