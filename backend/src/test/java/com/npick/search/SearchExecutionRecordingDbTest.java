@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.search.application.port.CompleteSearchExecution;
+import com.npick.search.application.port.RecordSearchExecutionResolution;
 import com.npick.search.application.port.SearchExecutionRecordPort;
 import com.npick.search.application.port.SearchRecordingException;
 import com.npick.search.application.port.StartSearchExecution;
@@ -120,10 +121,24 @@ class SearchExecutionRecordingDbTest {
                 MEMBER_ID,
                 StartSearchExecution.ExecutionType.NORMAL,
                 null,
-                "명절 교통",
+                "명절 교통"));
+
+        assertThat(jdbc.queryForObject(
+                        "SELECT normalized_query FROM npick.search_execution WHERE search_execution_id=?",
+                        String.class,
+                        executionId))
+                .isNull();
+        assertThat(jdbc.queryForObject(
+                        "SELECT resolver_output_json FROM npick.search_execution WHERE search_execution_id=?",
+                        String.class,
+                        executionId))
+                .isNull();
+
+        records.recordResolution(new RecordSearchExecutionResolution(
+                executionId,
                 ExplicitDateFilters.none(),
                 NormalizedSearch.of("명절 교통", Map.of(), "normalizer/v1"),
-                new StartSearchExecution.ResolverOutput(raw, verified, "query-resolver/v2", "prompt/v3", "model/v1"),
+                new RecordSearchExecutionResolution.ResolverOutput(raw, verified, "query-resolver/v2", "prompt/v3", "model/v1"),
                 List.of(),
                 StartSearchExecution.ParseSource.RESOLVER,
                 12,
@@ -162,6 +177,8 @@ class SearchExecutionRecordingDbTest {
         assertThat(detail.parsedQuery().path("intent").asString()).isEqualTo("scene_search");
         assertThat(detail.appliedRules().get(0).path("status").asString()).isEqualTo("skipped_incompatible");
         assertThat(detail.filtered().path("returned_count").asInt()).isEqualTo(1);
+        assertThat(detail.searchConfig().at("/fusion/rrf_k").asDouble()).isEqualTo(60.0);
+        assertThat(detail.searchConfig().at("/fusion/rrfK").isMissingNode()).isTrue();
         assertThat(detail.verificationContext()).isNull();
         assertThat(detail.results()).singleElement().satisfies(result -> {
             assertThat(result.sceneId()).isEqualTo(SCENE_ID);
@@ -174,7 +191,9 @@ class SearchExecutionRecordingDbTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.search_execution_id").value(Long.toString(executionId)))
                 .andExpect(jsonPath("$.data.results[0].search_result_id").isString())
-                .andExpect(jsonPath("$.data.resolver_output.raw.intent").value("unknown"));
+                .andExpect(jsonPath("$.data.resolver_output.raw.intent").value("unknown"))
+                .andExpect(jsonPath("$.data.search_config.fusion.rrf_k").value(60.0))
+                .andExpect(jsonPath("$.data.search_config.fusion.rrfK").doesNotExist());
         mockMvc.perform(get("/api/v1/search/executions/{id}", executionId)
                         .with(user(new AuthenticatedMember(OTHER_MEMBER_ID, "s60-other", "h", "EDITOR"))))
                 .andExpect(status().isNotFound())

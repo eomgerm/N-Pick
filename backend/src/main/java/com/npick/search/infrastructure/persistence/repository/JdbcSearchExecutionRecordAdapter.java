@@ -18,10 +18,12 @@ import tools.jackson.databind.ObjectMapper;
 
 import com.npick.common.persistence.TsidGenerator;
 import com.npick.search.application.port.CompleteSearchExecution;
+import com.npick.search.application.port.RecordSearchExecutionResolution;
 import com.npick.search.application.port.SearchExecutionRecordPort;
 import com.npick.search.application.port.SearchRecordingException;
 import com.npick.search.application.port.StartSearchExecution;
 import com.npick.search.application.resolution.SearchDegradedReason;
+import com.npick.search.domain.model.ExplicitDateFilters;
 import com.npick.search.domain.model.ParseRuleOutcome;
 import com.npick.search.domain.model.QueryResolution;
 
@@ -44,33 +46,50 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
             jdbc.update(
                     """
                     INSERT INTO npick.search_execution (
-                        search_execution_id, searched_by_id, query_text, normalized_query,
-                        explicit_filters_json, normalized_filters_json, query_fingerprint,
-                        normalization_version, execution_type, replay_of_feedback_id, status,
-                        degraded_reasons_json, parse_source, parser_version, parse_ms,
-                        applied_excludes_json, search_config_json, config_version,
-                        resolver_output_json, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, 'running', ?::jsonb, ?, ?, ?,
-                            '[]'::jsonb, '{}'::jsonb, 'pending', ?::jsonb, now(), now())
+                        search_execution_id, searched_by_id, query_text, execution_type,
+                        replay_of_feedback_id, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 'running', now(), now())
                     """,
                     id,
                     command.searchedById(),
                     command.rawQuery(),
+                    command.executionType().databaseValue(),
+                    command.replayOfFeedbackId());
+            return id;
+        } catch (RuntimeException failure) {
+            throw recordingFailure("검색 실행 시작 기록을 저장하지 못했다", failure);
+        }
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordResolution(RecordSearchExecutionResolution command) {
+        try {
+            int updated = jdbc.update(
+                    """
+                    UPDATE npick.search_execution
+                       SET normalized_query=?, explicit_filters_json=?::jsonb,
+                           normalized_filters_json=?::jsonb, query_fingerprint=?, normalization_version=?,
+                           degraded_reasons_json=?::jsonb, parse_source=?, parser_version=?, parse_ms=?,
+                           resolver_output_json=?::jsonb, updated_at=now()
+                     WHERE search_execution_id=? AND status='running'
+                    """,
                     command.normalizedSearch().normalizedQuery(),
-                    json(explicitFilters(command)),
+                    json(explicitFilters(command.explicitFilters())),
                     json(command.normalizedSearch().normalizedFilters()),
                     command.normalizedSearch().fingerprint(),
                     command.normalizedSearch().normalizationVersion(),
-                    command.executionType().databaseValue(),
-                    command.replayOfFeedbackId(),
                     json(degraded(command.degradedReasons(), List.of())),
                     command.parseSource().databaseValue(),
                     parserVersion(command.resolverOutput()),
                     command.parseMs(),
-                    nullableJson(resolverOutput(command)));
-            return id;
+                    nullableJson(resolverOutput(command)),
+                    command.searchExecutionId());
+            if (updated != 1) throw new SearchRecordingException("running 검색 실행에만 해석을 기록할 수 있다");
+        } catch (SearchRecordingException failure) {
+            throw failure;
         } catch (RuntimeException failure) {
-            throw recordingFailure("검색 실행 시작 기록을 저장하지 못했다", failure);
+            throw recordingFailure("검색 실행 해석 기록을 저장하지 못했다", failure);
         }
     }
 
@@ -83,14 +102,26 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
         command.rankedScenes().forEach(scene -> rejectSensitiveFields(scene.explain()));
         rejectSensitiveFields(command.verificationContext());
         try {
-            String executionType = jdbc.queryForObject(
-                    "SELECT execution_type FROM npick.search_execution WHERE search_execution_id=? FOR UPDATE",
-                    String.class,
+            ExecutionState state = jdbc.queryForObject(
+                    """
+                    SELECT execution_type,
+                           normalized_query IS NOT NULL
+                               AND explicit_filters_json IS NOT NULL
+                               AND normalized_filters_json IS NOT NULL
+                               AND query_fingerprint IS NOT NULL
+                               AND normalization_version IS NOT NULL AS resolution_recorded
+                      FROM npick.search_execution
+                     WHERE search_execution_id=? FOR UPDATE
+                    """,
+                    (row, index) -> new ExecutionState(row.getString("execution_type"), row.getBoolean("resolution_recorded")),
                     command.searchExecutionId());
-            if (executionType == null) {
+            if (state == null) {
                 throw new SearchRecordingException("시작되지 않은 검색 실행이다");
             }
-            if (command.verificationContext() != null && !"replay".equals(executionType)) {
+            if (command.status() != CompleteSearchExecution.ExecutionStatus.FAILED && !state.resolutionRecorded()) {
+                throw new SearchRecordingException("검색 해석 기록 없이 실행을 완료할 수 없다");
+            }
+            if (command.verificationContext() != null && !"replay".equals(state.executionType())) {
                 throw new SearchRecordingException("검증 맥락은 replay 실행에만 저장할 수 있다");
             }
             String parseSource =
@@ -155,9 +186,9 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
         }
     }
 
-    private Map<String, Object> explicitFilters(StartSearchExecution command) {
+    private static Map<String, Object> explicitFilters(ExplicitDateFilters filters) {
         var value = new LinkedHashMap<String, Object>();
-        command.explicitFilters()
+        filters
                 .ranges()
                 .forEach((field, range) -> value.put(
                         field.name().toLowerCase(java.util.Locale.ROOT),
@@ -165,7 +196,7 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
         return value;
     }
 
-    private Map<String, Object> resolverOutput(StartSearchExecution command) {
+    private Map<String, Object> resolverOutput(RecordSearchExecutionResolution command) {
         if (command.resolverOutput() == null) return null;
         var versions = new LinkedHashMap<String, Object>();
         versions.put("schema", command.resolverOutput().resolutionSchemaVersion());
@@ -179,7 +210,7 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
         return value;
     }
 
-    private static String parserVersion(StartSearchExecution.ResolverOutput output) {
+    private static String parserVersion(RecordSearchExecutionResolution.ResolverOutput output) {
         if (output == null) return null;
         String joined = String.join(
                 "|", safe(output.resolutionSchemaVersion()), safe(output.promptVersion()), safe(output.modelVersion()));
@@ -357,4 +388,6 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
         }
         return (SearchRecordingException) failure;
     }
+
+    private record ExecutionState(String executionType, boolean resolutionRecorded) {}
 }

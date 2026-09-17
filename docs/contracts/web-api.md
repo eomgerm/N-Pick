@@ -319,10 +319,11 @@ FE URL 상태와 wire 요청의 대응:
 - `applied_rules`는 규칙 본문 snapshot, 적용 순서, 상태와 미적용·실패 사유를 보존한다.
 - `filtered.returned_count`와 `filtered.shortage_reasons`는 실제 반환 수와 부족 사유다.
 - `results[].explain`은 검색 당시 표시값과 점수 snapshot이다. 조회 시 현재 장면 정보로 다시 계산하지 않는다.
+- `search_config`를 포함한 중첩 JSON key도 모두 snake_case다. 설정 snapshot의 내부 키(`rrf_k`, `channel_weights`, `config_version`, `weight_status` 등)는 저장 당시 값 그대로 반환한다.
 - 일반 검색의 `verification_context`는 null이다. 검수 replay에서만 값이 존재할 수 있다.
 - `running` 실행은 아직 완결되지 않았으므로 후보·필터·결과 등 완료 시점 필드가 null 또는 빈 목록일 수 있다. 이를 성공으로 해석하지 않는다.
 
-저장 lifecycle은 검색 orchestration이 호출하는 내부 계약이다. 리졸버가 정규화 결과를 만든 직후 `running` 행을 독립 트랜잭션으로 시작하고, 계산 종료 후 실행 갱신과 `search_result` 삽입을 다른 독립 트랜잭션 하나로 완결한다. 시작 저장 실패 시 검색 계산을 진행하지 않는다. 완료 저장 실패 시 계산 결과는 `snapshot_save_failed` degraded 응답으로 반환하며 실행·결과 ID는 모두 null이고 문의를 비활성화한다. 완료 기록은 재시도하지 않는다.
+저장 lifecycle은 검색 orchestration이 호출하는 내부 계약이다. 원문·실행자만으로 `running` 행을 독립 트랜잭션에서 먼저 시작한 뒤에 리졸버를 호출하고, 리졸버 산출물은 별도 독립 트랜잭션에서 running 행에 기록한다. 계산 종료 후 실행 갱신과 `search_result` 삽입은 또 다른 독립 트랜잭션 하나로 완결한다. 시작 저장 실패 시 AI 호출과 검색 계산을 진행하지 않는다. 완료 저장 실패 시 계산 결과는 `snapshot_save_failed` degraded 응답으로 반환하며 실행·결과 ID는 모두 null이고 문의를 비활성화한다. 완료 기록은 재시도하지 않는다.
 
 ## 6. BE 구현 완료, FE 연결 대기 API
 

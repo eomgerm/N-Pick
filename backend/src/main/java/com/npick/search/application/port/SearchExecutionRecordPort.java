@@ -6,5 +6,7 @@ import java.util.List;
 public interface SearchExecutionRecordPort {
     long start(StartSearchExecution command);
 
+    void recordResolution(RecordSearchExecutionResolution command);
+
     List<Long> complete(CompleteSearchExecution command);
 }
