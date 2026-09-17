@@ -5,8 +5,8 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
-import com.npick.clip.application.query.media.GetWorkerMediaInputUseCase;
 import com.npick.pipeline.application.command.WorkerInputAssembler;
+import com.npick.pipeline.application.port.ClipMediaInputPort;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,7 +19,7 @@ class WorkerInputAssemblerTest {
                 var assembler = new WorkerInputAssembler(
                         id -> {
                             assertThat(id).isEqualTo(2);
-                            return new GetWorkerMediaInputUseCase.MediaInput("clips/2/source.mp4", 123);
+                            return new ClipMediaInputPort.MediaInput("clips/2/source.mp4", 123);
                         },
                         server);
                 var result = assembler.attach(

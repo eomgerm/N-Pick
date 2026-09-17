@@ -360,6 +360,11 @@ public final class PipelineRun {
         return JsonValues.copy(result);
     }
 
+    /** 식별자만 필요한 곳을 위한 접근자. {@link #snapshot()} 은 stage_states_json 전체를 재귀 복사한다. */
+    public long clipId() {
+        return clipId;
+    }
+
     public Snapshot snapshot() {
         Map<String, Object> root = new LinkedHashMap<>(envelope);
         root.put("schemaVersion", SCHEMA);
