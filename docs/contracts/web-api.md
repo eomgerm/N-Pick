@@ -31,7 +31,8 @@
 | 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
 | 내 문의 기록 목록          | GET    | `/inquiries`                                | 연결됨    | 없음                               |
 | 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | 연결됨    | 없음                               |
-| 내 검색 기록 목록·상세     | 미정   | 미정                                        | 명세 필요 | -60 선행, 편집자 하단 기록 시트 바인딩 |
+| 내 검색 기록 목록          | GET    | `/search/history`                           | BE 구현   | 편집자 하단 기록 시트 바인딩        |
+| 내 검색 기록 상세          | GET    | `/search/history/{searchExecutionId}`       | BE 구현   | 기록 선택 시 당시 결과 바인딩       |
 | 영상 처리 목록             | GET    | `/clips`                                    | 연결됨    | 없음                               |
 | 영상 처리 상세             | GET    | `/clips/{id}`                               | 연결됨    | 없음                               |
 | 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
@@ -292,7 +293,7 @@ FE URL 상태와 wire 요청의 대응:
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
 - `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
 - 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
-- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.7, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
+- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.8, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
 
 ### 5.2 오류 경계
 
@@ -704,9 +705,168 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `FEEDBACK_404_002` | 404  | 본인 소유 아님·타인 검색 참조·존재하지 않음(동일 취급) |
 | `COMM_500`         | 500  | 서버 오류                                     |
 
-**내 검색 기록**(`GET /search/history` 목록·상세)은 별도 작업이다. S15P21A501-60은 실행 snapshot 저장과 소유자/검수자용 단건 상세 조회(`/search/executions/{executionId}`)를 제공한다.
+### 6.7 내 검색 기록 (S15P21A501-198)
 
-### 6.7 장면 대표 이미지(thumbnail) — 원본 반환
+검색 화면 사이드바에서 로그인 사용자가 **본인이 실행한 검색**만 조회하고, 항목을 선택해 당시 결과를 다시 본다. §6.6과 같은 규약이다 — 세션 사용자 ID로만 범위를 좁히고, 응답은 snake_case, 모든 `*_id`는 십진 문자열이다. `EDITOR`와 `REVIEWER` 모두 여기서는 자기 기록만 본다.
+
+§5의 `GET /search/executions/{executionId}`(S15P21A501-60)와 책임이 다르다. 저쪽은 소유자·검수자가 **한 실행의 해석·적용 규칙·제외 사유**를 감사하는 단건 조회이고, 이쪽은 사용자가 **자기 기록을 목록으로 훑고 당시 결과 카드를 복원**하는 화면용 조회다. 두 endpoint는 같은 `search_execution`/`search_result` 저장을 읽되 응답 모델과 대상 범위가 다르다.
+
+**조회 대상.** 본인의 `execution_type='original'` 중 `status`가 `succeeded`/`degraded`인 실행이다. `replay`(교정 검증 재검색)·`running`·`failed`는 DB에 보존하되 이 화면에서 제외한다. 정상 결과 0건 실행은 **포함한다.** 검색 1회가 1건이며 같은 검색어를 다시 실행하면 별도 기록이다. 대표 장면은 당시 1위 결과이며 사용자가 실제로 본 장면이라는 뜻이 아니다.
+
+**정렬·페이지.** `created_at DESC, search_execution_id DESC` 고정(시각 동률도 결정적). `page`는 0 이상 정수 기본 0, `size`는 1~100 기본 10이며 **범위를 벗어나면 clamp하지 않고 400으로 거부한다.** 목록과 총계는 같은 범위 조건을 쓴다. 결과가 없어도 404가 아니라 200과 빈 `items: []`다. 마지막 페이지 이후 요청도 빈 `items`에 실제 `total_*`를 유지한다.
+
+**`snapshot_status` 판정.** 목록과 상세가 **같은 규칙**을 쓴다 — 변하지 않은 기록의 판정이 두 응답에서 갈리지 않는다.
+
+| 조건 | `snapshot_status` | `result_count`·`representative_result`·`search_snapshot` |
+| --- | --- | --- |
+| `filtered_json`이 object이고, `parse_source`가 스키마의 세 값 중 하나이고, 모든 결과 행에 `explain_json.display`·`.match`가 있음 | `available` | 실제 값 (결과 0건이면 `0`/`null`/`results: []`) |
+| `filtered_json`이 없음 (결과 확정 전·저장 불완전) | `unavailable` | 전부 `null` |
+| `filtered_json`이 object가 아님 (SQL NULL, JSON 리터럴 `null`, 배열 등) | `unavailable` | 전부 `null` |
+| `parse_source`가 NULL이거나 스키마에 없는 값 | `unavailable` | 전부 `null` |
+| 결과 행 하나라도 `display`/`match` 결측 | `unavailable` | 전부 `null` |
+
+`filtered_json`의 유무가 **정상 0건과 저장 불완전을 가르는 유일한 근거**다. 둘을 섞지 않는다. `jsonb` 컬럼은 SQL NULL뿐 아니라 JSON 리터럴 `null`도 담을 수 있으므로 값이 비었는지가 아니라 **object인지**로 판정한다.
+
+`parse_source`가 없으면 「어떻게 해석했는지 기록이 없다」는 뜻이므로 `resolved`로 접지 않는다. 없던 사실을 만들어 내지 않는다는 원칙은 아래 `display_name`과 같다(FRD §7.2).
+
+`explicit_filters`는 `explicit_filters_json`이 NOT NULL이라 항상 읽히므로 `unavailable`에서도 실제 object를 유지한다 — 결과 snapshot만 손상된 경우와 필터 자체를 못 읽는 경우를 구분한다.
+
+`GET /search/history?page=0&size=10`
+
+성공 `data`:
+
+```json
+{
+  "items": [
+    {
+      "search_execution_id": "9701",
+      "query_text": "서울역 귀성 인파",
+      "explicit_filters": { "broadcast_date": { "from": "2026-09-01", "to": "2026-09-15" } },
+      "created_at": "2026-09-15T03:00:00Z",
+      "status": "succeeded",
+      "snapshot_status": "available",
+      "result_count": 1,
+      "representative_result": {
+        "search_result_id": "9801",
+        "scene_id": "9301",
+        "clip_id": "9101",
+        "display_name": "예시 뉴스 · 서울역",
+        "scene_description": "대합실 인파",
+        "start_time_ms": 42000,
+        "end_time_ms": 49000,
+        "rank": 1
+      }
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "total_elements": 1,
+  "total_pages": 1,
+  "has_next": false
+}
+```
+
+`result_count`·`representative_result`는 nullable이며 key를 생략하지 않고 null로 명시한다. 목록 항목에는 `search_snapshot`을 싣지 않는다.
+
+| 오류           | HTTP | 의미                                   |
+| -------------- | ---- | -------------------------------------- |
+| `COMM_401`     | 401  | 미인증                                 |
+| `COMM_400`     | 400  | `page`/`size` 형식 오류(정수 아님)     |
+| `COMM_400_001` | 400  | `page`/`size` 범위 오류(size 1~100 밖) |
+| `COMM_500`     | 500  | 서버 오류                              |
+
+`GET /search/history/{searchExecutionId}`
+
+목록 항목의 모든 필드에 `search_snapshot`을 더한다. `search_snapshot`은 **§5 `POST /search` 성공 `data`와 같은 object**이며 안에 envelope를 중첩하지 않는다. `search_execution_id`·`status`는 상위와 일치한다.
+
+당시 기록에서만 복원한다 — 현재 태그·resolver·검색 API로 재계산하지 않는다(FRD §7.2). 복원에 쓰는 값과 출처:
+
+| `search_snapshot` 필드 | 복원 출처 |
+| --- | --- |
+| `degraded_reasons` | `search_execution.degraded_reasons_json` |
+| `query_resolution_status` | `parse_source` — `resolver`·`resolver_rule`은 `resolved`, `fallback`은 `fallback`. 그 밖의 값과 NULL은 `unavailable` 판정 |
+| `has_applied_review_rule` | `applied_rules_json`에 `status="applied"` 존재 여부 |
+| `guard_summary.excluded_result_count`·`reasons` | `filtered_json.guard.verdicts` 중 `exclusion_reason`이 있는 것만 |
+| `shortage_reasons` | `filtered_json.shortage_reasons` |
+| `results[]` | `search_result` 행 + `explain_json`의 `display`·`match` 블록 |
+
+`results[]` 한 항목은 `explain_json.display`·`explain_json.match`에 컬럼 4개(`search_result_id`·`scene_id`·`clip_id`·`rank`)를 얹은 것이다. 저장된 JSON을 **그대로 통과**시키며 필드별로 옮겨 담지 않는다. 키가 겹치면 **컬럼이 이긴다** — 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지지 않게 한다. `shot_type`은 저장값 원문을 그대로 낸다(§5.1의 4값 제약은 `POST /search` 응답에만 적용된다 — 기록을 소급 수정하지 않는다, FRD §7.2). `guard_summary`는 `explain_json.guard`가 아니라 `filtered_json`에서 온다 — `search_result`에는 살아남은 장면만 남으므로 제외 건수를 알 수 없다.
+
+성공 `data`(결과 1건, `available`):
+
+```json
+{
+  "search_execution_id": "9701",
+  "query_text": "서울역 귀성 인파",
+  "explicit_filters": { "broadcast_date": { "from": "2026-09-01", "to": "2026-09-15" } },
+  "created_at": "2026-09-15T03:00:00Z",
+  "status": "succeeded",
+  "snapshot_status": "available",
+  "result_count": 1,
+  "representative_result": {
+    "search_result_id": "9801",
+    "scene_id": "9301",
+    "clip_id": "9101",
+    "display_name": "예시 뉴스 · 서울역",
+    "scene_description": "대합실 인파",
+    "start_time_ms": 42000,
+    "end_time_ms": 49000,
+    "rank": 1
+  },
+  "search_snapshot": {
+    "search_execution_id": "9701",
+    "status": "succeeded",
+    "degraded_reasons": [],
+    "query_resolution_status": "resolved",
+    "has_applied_review_rule": true,
+    "guard_summary": { "excluded_result_count": 1, "reasons": ["explicit_date_conflict"] },
+    "shortage_reasons": ["candidate_pool_exhausted"],
+    "results": [
+      {
+        "search_result_id": "9801",
+        "scene_id": "9301",
+        "clip_id": "9101",
+        "rank": 1,
+        "display_name": "예시 뉴스 · 서울역",
+        "scene_description": "대합실 인파",
+        "start_time_ms": 42000,
+        "end_time_ms": 49000,
+        "shot_type": "b_roll",
+        "scene_type": "역사 인파",
+        "broadcast_date": { "value": "2026-09-14", "verification_status": "verified" },
+        "filmed_date": { "value": null, "verification_status": "unknown" },
+        "matched_keywords": ["서울역"],
+        "match_evidence": [
+          {
+            "field": "ocr",
+            "value": "서울역",
+            "source": "keyframe_ocr",
+            "verification_status": "verified"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`unavailable` 기록은 `result_count`·`representative_result`·`search_snapshot`이 null이며 `query_text`·`explicit_filters`·`created_at`·`status`는 유지한다.
+
+**`display_name`은 nullable이다.** `clip.title`(`varchar(500)` nullable)을 그대로 기록하므로 제목 없는 클립이면 null이 남는다. 서버는 대체 문자열로 메우지 않는다 — 메우면 「제목이 없었다」와 「제목이 이랬다」를 나중에 구분할 수 없다(FRD §7.2). 표시 대체는 FE가 정한다. S15P21A501-185 본문의 「`display_name`은 non-empty string」은 이 스키마와 어긋나므로 nullable이 정본이다.
+
+타인 소유·존재하지 않는 ID·이 화면 대상이 아닌 실행(`replay`/`running`/`failed`)은 **모두 같은 404**다(존재 여부 비노출).
+
+| 오류            | HTTP | 의미                                                         |
+| --------------- | ---- | ------------------------------------------------------------ |
+| `COMM_401`      | 401  | 미인증                                                       |
+| `COMM_400`      | 400  | `searchExecutionId` 형식 오류                                |
+| `COMM_400_001`  | 400  | `searchExecutionId` 범위 오류(1 미만)                        |
+| `SRCH_404_001`  | 404  | 본인 소유 아님·대상 밖 실행·존재하지 않음(동일 취급)         |
+| `COMM_500`      | 500  | 서버 오류                                                    |
+
+**저장 계약과의 관계.** 이 절은 S15P21A501-60이 소유하는 `search_execution`/`search_result` 저장 형식을 **읽기만** 한다. 저장 구현이 아직 없어 현재 검증은 고정 DB fixture로 했다 — 실제 검색 실행(§5, S15P21A501-59) → 기록 조회 왕복 확인은 -59/-60 병합 후 별도로 기록한다.
+
+### 6.8 장면 대표 이미지(thumbnail) — 원본 반환
 
 `GET /scenes/{sceneId}/thumbnail`
 
@@ -749,7 +909,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | 우선순위 | API 기능                             | 최소 계약 요구                                                                                 | 현재 FE 대체 상태             |
 | -------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------- |
 | 1        | 검색 실행                            | §5 계약 그대로 구현하고 실제 결과·loading·empty·degraded·failed를 연결                         | 고정 장면과 URL demo          |
-| 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination(S15P21A501-60 저장 계약 선행, 미착수) | `search-history.tsx` 고정 5건 |
+| 2        | 검색 기록 목록·상세                  | §6.7로 확정·BE 구현. FE 연결(loading·empty·error·`unavailable` 구분)만 남음                    | `search-history.tsx` 고정 5건 |
 | 3        | 편집자 문의 기록 목록·상세           | §6.6 목록·상세 FE 연결 완료. 본인 조회·페이지 이동·접수 후 갱신                                | 실제 API 연결                 |
 | 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
 | 5        | 영상 재생                            | §6.1 공통 Preview·문의 상세·검색 결과 clipId 바인딩 완료                               | 배포 BE endpoint 확인 필요      |
@@ -773,7 +933,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
 | 내 문의 기록       | §6.6으로 확정·BE 구현·FE 목록과 상세 연결 완료                       | 없음                                                                                      |
-| 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
+| 내 검색 기록       | §6.7로 확정·BE 구현(조회만). FE 연결 남음                            | 실제 검색 실행(-59)·기록 저장(-60) 병합 후 왕복 확인 필요. `explain_json.display` 키 구성은 -60 미결 |
 | 처리 조회          | §6.5 실제 목록·상세·polling 연결, unknown/null 보존                    | 수동 재처리·장면 목록·썸네일 및 추가 메타데이터 계약 필요                                 |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.
