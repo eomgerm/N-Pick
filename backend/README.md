@@ -176,52 +176,16 @@ nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본�
 `preview first-byte ... elapsedMs=` 로 측정한다. 요청 진입부터 본문 첫 바이트 직전까지, 즉 clip
 조회·경로 해석·Range 검증까지이며 전송 시간과 클라이언트 디코딩은 포함하지 않는다.
 
-## 장면 대표 이미지 (S15P21A501-170) — 원본 해상도까지 구현
+## 장면 대표 이미지
 
-`GET /api/v1/scenes/{sceneId}/thumbnail` 하나다. 로그인한 사용자면 `EDITOR`·`REVIEWER` 모두 조회할 수 있다(FRD F-07).
-결과 카드와 검수 문의 큐가 장면을 눈으로 알아보게 하는 이미지이며, 재생(`/api/v1/media/{clipId}`)과 책임이 다르다.
-
-- **ID 로만 접근한다.** 대표는 AI 가 선명도로 골라 첫 번째로 보낸 프레임, 즉 그 장면의 최소 `keyframe_id` 다
-  ([잡 계약](../docs/contracts/job-api.md) §4.3.1). `timestamp_ms` 로 정렬하면 안 된다 — 장면 앞머리의 디졸브·암전이
-  결과 카드의 얼굴이 된다.
-  `keyframe.storage_key` 는 media root 안에서 해석하며 정규화 후 또는 심볼릭 링크를 따라간 뒤 root 를 벗어나면
-  파일이 있어도 거부한다. storage key·서버 절대 경로·내부 예외 문자열은 응답에 나가지 않는다 (FRD §6.4).
-- **형식을 파일 머리글로 정한다.** `storage_key` 이름은 워커 규약일 뿐이고 DB 에 형식 칸이 없다. JPEG·PNG·WebP 를
-  판별하고, 지원하지 않는 머리글은 읽기 실패(`SCENE_503_001`)로 거부한다. 응답에 `X-Content-Type-Options: nosniff` 를 함께 보낸다.
-- **브라우저 캐시를 허용한다.** `Cache-Control: private, max-age=86400, immutable`. 한 `scene_id` 의 대표 이미지는
-  바뀌지 않는다 — 재처리는 새 `pipeline_run` 과 새 `scene_id` 를 만든다. 프레임이 공유 캐시에 남지 않도록 `private` 다.
-- **실패 코드를 구분한다.** 장면 없음 `SCENE_404_001`, keyframe 없음 `SCENE_404_002`, 파일 누락 `SCENE_404_003`,
-  저장 위치 이탈 `SCENE_500_001`, 읽기 실패 `SCENE_503_001`, 설정 누락 `SCENE_503_002`. 앞의 둘은 처리 진행 상황이고
-  `SCENE_404_003` 은 저장소 사고다. 성공 응답만 공통 Envelope 를 쓰지 않는다(본문이 이미지 바이트다).
-- **축소하지 않는다.** 응답은 원본 해상도 keyframe 이며 장당 1080p 기본 화질에서 약 420 KiB 다. 카드용 축소는
-  아래 「미구현」 을 본다.
-
-재처리로 활성 `pipeline_run` 이 바뀌어도 옛 세대 장면의 이미지는 계속 제공한다. 검수 문의 큐가 접수 당시의 장면을
-그대로 보여 주기 때문이다. 논리 삭제한 클립의 장면은 없는 장면과 같은 응답을 준다.
+`GET /api/v1/scenes/{sceneId}/thumbnail` — 로그인한 `EDITOR`·`REVIEWER` 가 장면의 대표 keyframe 이미지를 받는다.
+요청·응답 계약은 [웹 API 계약](../docs/contracts/web-api.md) §6.7 이 정본이다.
 
 keyframe 파일은 워커가 영상 원본과 같은 media root 아래에 남기므로 `CLIP_MEDIA_ROOT` 를 그대로 읽는다.
-썸네일 전용 환경 변수는 없다. 경로 이탈 차단 규칙은 재생과 한 벌(`MediaRootResolver`)을 공유하고 실패 어휘만 다르다.
+**썸네일 전용 환경 변수는 없다.** 경로 이탈 차단은 재생과 한 벌(`MediaRootResolver`)을 공유하고 실패 어휘만 다르다.
 
-검색·문의 응답은 이미지도 URL 도 싣지 않는다. `scene_id` 만 주고 FE 가 주소를 조립한다
-([웹 API 계약](../docs/contracts/web-api.md) §5.1·§6.7).
-
-### 미구현 — 카드용 축소 (후속 이슈)
-
-[잡 계약](../docs/contracts/job-api.md) §4.3.1 은 AI 가 축소본을 만들지 않기로 하면서 「컬럼을 새로 만들지 않았으므로
-BE 는 대표 keyframe 을 축소해 카드에 제공한다」로 축소 책임을 조회 시점에 넘겼다. `ai/docs/frame-extraction.md` §1 의
-「카드용 축소는 조회 시점의 몫」 도 같은 말이다. **이번 구현은 그 축소를 하지 않는다.** 축소 규격이 FE 카드
-레이아웃과 함께 정해져야 하는 값이라 별도 이슈로 분리했다.
-
-후속 이슈에서 FE 카드 규격과 함께 확정할 항목이다. 확정 전에는 BE 가 단독으로 기본값을 정하지 않는다.
-
-- 최대 가로·세로 크기
-- 비율 유지인지 crop 인지
-- 출력 형식과 JPEG/WebP 품질
-- 리사이즈 결과를 캐시하는 방법(요청마다 계산할지, 파생 파일로 남길지)
-- 받아들일 원본 이미지의 크기·픽셀 수 상한
-
-축소를 넣으면 응답 `Content-Type` 과 `Cache-Control` 이 바뀔 수 있으므로 그 이슈가 웹 API 계약 §6.7 을 함께 고친다.
-그때까지 FE 는 원본 해상도가 내려온다는 전제로 지연 로딩과 동시 요청 수를 잡는다.
+응답은 `Cache-Control: private, no-cache` 와 `ETag` 를 함께 보낸다. 브라우저는 바이트를 보관하되 쓰기 전에 매번
+재검증하므로, 권한과 클립 논리 삭제 판정이 조회마다 다시 내려진다.
 
 ## 패키지 구조
 

@@ -150,7 +150,33 @@ class SceneThumbnailHttpIntegrationTest {
         assertThat(response.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
         assertThat(response.headers().firstValue("Cache-Control").orElseThrow())
                 .contains("private")
-                .contains("max-age=");
+                .contains("no-cache");
+        assertThat(response.headers().firstValue("ETag")).isPresent();
+    }
+
+    /**
+     * 브라우저가 보관한 장을 다시 쓰기 전에 서버가 권한과 {@code deleted_at} 을 다시 판정한다.
+     *
+     * <p>바뀌지 않았으면 바이트 없이 304 로 끝나고, 그 사이 클립이 논리 삭제됐으면 같은 ETag 를 들고 와도 404 다 — {@code max-age} 였다면 요청 자체가 오지 않아 두 번째 판정이
+     * 없다.
+     */
+    @Test
+    void revalidatesWithTheEntityTagAndStillHidesADeletedClip() throws Exception {
+        login("scene-thumb-editor");
+        String entityTag =
+                image(SCENE_WITH_KEYFRAMES).headers().firstValue("ETag").orElseThrow();
+
+        HttpResponse<byte[]> unchanged = image(SCENE_WITH_KEYFRAMES, entityTag);
+        assertThat(unchanged.statusCode()).isEqualTo(304);
+        assertThat(unchanged.body()).isEmpty();
+
+        jdbc.update("UPDATE npick.clip SET deleted_at = now() WHERE clip_id = ?", CLIP_ID);
+        try {
+            assertThat(image(SCENE_WITH_KEYFRAMES, entityTag).statusCode()).isEqualTo(404);
+        } finally {
+            // seed 는 @BeforeAll 이라 같은 클래스의 다른 테스트가 이 클립을 그대로 쓴다. 되돌리지 않으면 실행 순서에 따라 남을 물들인다.
+            jdbc.update("UPDATE npick.clip SET deleted_at = NULL WHERE clip_id = ?", CLIP_ID);
+        }
     }
 
     @ParameterizedTest
@@ -206,11 +232,16 @@ class SceneThumbnailHttpIntegrationTest {
     }
 
     private HttpResponse<byte[]> image(long sceneId) throws Exception {
-        return client.send(
-                HttpRequest.newBuilder(uri("/api/v1/scenes/" + sceneId + "/thumbnail"))
-                        .GET()
-                        .build(),
-                HttpResponse.BodyHandlers.ofByteArray());
+        return image(sceneId, null);
+    }
+
+    private HttpResponse<byte[]> image(long sceneId, String ifNoneMatch) throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder(uri("/api/v1/scenes/" + sceneId + "/thumbnail"))
+                .GET();
+        if (ifNoneMatch != null) {
+            request.header("If-None-Match", ifNoneMatch);
+        }
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
     }
 
     private void login(String loginId) throws Exception {

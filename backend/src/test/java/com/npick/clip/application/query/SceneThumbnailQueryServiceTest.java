@@ -62,6 +62,26 @@ class SceneThumbnailQueryServiceTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    /**
+     * ETag 는 바이트에서 나온다.
+     *
+     * <p>{@code scene_id} 나 {@code keyframe_id} 로 만들면 파일이 교체됐을 때 값이 그대로여서 브라우저가 옛 장을 계속 쓴다.
+     */
+    @Test
+    void derivesTheEntityTagFromTheImageBytesSoAReplacedFileGetsANewOne() {
+        byte[] other = "different-jpeg-bytes".getBytes(StandardCharsets.UTF_8);
+
+        String first = service(SceneKeyframeSource.of(STORAGE_KEY)).get(30).entityTag();
+        String again = service(SceneKeyframeSource.of(STORAGE_KEY)).get(30).entityTag();
+        String replaced = new SceneThumbnailQueryService(
+                        sceneId -> SceneKeyframeSource.of(STORAGE_KEY),
+                        storageKey -> new ThumbnailImagePort.ThumbnailImage("image/jpeg", other))
+                .get(30)
+                .entityTag();
+
+        assertThat(first).isNotBlank().isEqualTo(again).isNotEqualTo(replaced);
+    }
+
     /** Port 가 알려 온 파일 누락은 서비스가 삼키지 않고 그대로 올려 보낸다. */
     @Test
     void propagatesTheMissingFileFailureFromThePort() {

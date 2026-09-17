@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -34,6 +35,8 @@ import com.npick.member.infrastructure.security.MemberUserDetailsService;
 import com.npick.member.presentation.AuthController;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -64,6 +67,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class SceneThumbnailControllerTest {
 
     private static final byte[] IMAGE = "fake-jpeg-bytes".getBytes(StandardCharsets.UTF_8);
+    private static final String ETAG = "9f1a2b3c4d5e6f70";
+    private static final String QUOTED_ETAG = "\"" + ETAG + "\"";
     private static final String URL = "/api/v1/scenes/30/thumbnail";
 
     @Autowired
@@ -88,7 +93,7 @@ class SceneThumbnailControllerTest {
 
     @Test
     void servesTheRepresentativeImageBytesWithItsOwnContentType() throws Exception {
-        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult("image/jpeg", IMAGE));
+        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult(ETAG, "image/jpeg", IMAGE));
 
         mvc.perform(get(URL).session(login("editor")))
                 .andExpect(status().isOk())
@@ -100,23 +105,74 @@ class SceneThumbnailControllerTest {
                 .andExpect(content().bytes(IMAGE));
     }
 
-    /** 카드 목록이 화면을 오갈 때마다 다시 내려받지 않게 브라우저 캐시를 허용하되 공유 캐시에는 남기지 않는다. */
+    /**
+     * 브라우저는 바이트를 보관해도 되지만 쓰기 전에 매번 서버에 되물어야 한다.
+     *
+     * <p>{@code max-age} 를 주면 그 시간 동안 요청이 오지 않아, 로그아웃·계정 전환·클립 논리 삭제 뒤에도 권한과 {@code deleted_at} 판정을 건너뛴 옛 프레임이 화면에 남는다.
+     * 공유 캐시에는 애초에 남기지 않는다 (FRD §6.4).
+     */
     @Test
-    void letsTheBrowserCacheTheImageButNotAnySharedCache() throws Exception {
-        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult("image/jpeg", IMAGE));
+    void makesTheBrowserRevalidateEveryTimeAndNeverCachesInAnySharedCache() throws Exception {
+        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult(ETAG, "image/jpeg", IMAGE));
 
-        String cacheControl = mvc.perform(get(URL).session(login("editor")))
+        mvc.perform(get(URL).session(login("editor")))
                 .andExpect(status().isOk())
-                .andReturn()
-                .getResponse()
-                .getHeader("Cache-Control");
+                .andExpect(header().string("Cache-Control", containsString("private")))
+                .andExpect(header().string("Cache-Control", containsString("no-cache")))
+                .andExpect(header().string("Cache-Control", not(containsString("immutable"))))
+                .andExpect(header().string("Cache-Control", not(containsString("max-age=86400"))))
+                .andExpect(header().string("ETag", QUOTED_ETAG));
+    }
 
-        assertThat(cacheControl).contains("private").contains("max-age=").doesNotContain("no-store");
+    /** 재검증이 맞아떨어지면 바이트 없이 304 다. 카드 10장이 화면을 오갈 때 아끼는 것이 이 전송이다. */
+    @Test
+    void answersUnchangedRevalidationWithNotModifiedAndNoBytes() throws Exception {
+        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult(ETAG, "image/jpeg", IMAGE));
+
+        mvc.perform(get(URL).session(login("editor")).header("If-None-Match", QUOTED_ETAG))
+                .andExpect(status().isNotModified())
+                .andExpect(header().string("ETag", QUOTED_ETAG))
+                .andExpect(header().string("Cache-Control", containsString("no-cache")))
+                .andExpect(content().bytes(new byte[0]));
+    }
+
+    /** 대표 이미지가 바뀌었으면 304 로 끝내지 않고 새 바이트를 보낸다. */
+    @Test
+    void sendsTheBytesAgainWhenTheEntityTagNoLongerMatches() throws Exception {
+        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult(ETAG, "image/jpeg", IMAGE));
+
+        mvc.perform(get(URL).session(login("editor")).header("If-None-Match", "\"0000000000000000\""))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(IMAGE));
+    }
+
+    /** {@code If-None-Match} 는 값을 여럿 실을 수 있고 약한 검증자 접두사가 붙을 수 있다 (RFC 9110 §13.1.2). */
+    @ParameterizedTest
+    @ValueSource(strings = {"\"0000000000000000\", \"9f1a2b3c4d5e6f70\"", "W/\"9f1a2b3c4d5e6f70\"", "*"})
+    void understandsListsWeakValidatorsAndTheWildcard(String ifNoneMatch) throws Exception {
+        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult(ETAG, "image/jpeg", IMAGE));
+
+        mvc.perform(get(URL).session(login("editor")).header("If-None-Match", ifNoneMatch))
+                .andExpect(status().isNotModified());
+    }
+
+    /**
+     * 재검증도 UseCase 를 다시 거친다 — 이것이 {@code no-cache} 를 고른 이유다.
+     *
+     * <p>UseCase 안에서 {@code deleted_at} 과 장면 존재가 다시 판정되므로, 논리 삭제된 뒤의 재검증은 304 가 아니라 404 로 끝난다.
+     */
+    @Test
+    void stillAnswers404WhenTheClipWasDeletedSinceTheBrowserCachedIt() throws Exception {
+        when(thumbnail.get(30)).thenThrow(new BusinessException(SceneThumbnailErrorCode.SCENE_NOT_FOUND));
+
+        mvc.perform(get(URL).session(login("editor")).header("If-None-Match", QUOTED_ETAG))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SCENE_404_001"));
     }
 
     @Test
     void keepsTheContentTypeTheAdapterDetermined() throws Exception {
-        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult("image/png", IMAGE));
+        when(thumbnail.get(30)).thenReturn(new SceneThumbnailResult(ETAG, "image/png", IMAGE));
 
         mvc.perform(get(URL).session(login("editor"))).andExpect(header().string("Content-Type", "image/png"));
     }
@@ -187,7 +243,7 @@ class SceneThumbnailControllerTest {
     @ParameterizedTest(name = "{0} -> HTTP {1}")
     @CsvSource({"anonymous, 401", "editor, 200", "reviewer, 200"})
     void allowsEveryLoggedInMemberToSeeTheThumbnail(String actor, int expectedStatus) throws Exception {
-        when(thumbnail.get(anyLong())).thenReturn(new SceneThumbnailResult("image/jpeg", IMAGE));
+        when(thumbnail.get(anyLong())).thenReturn(new SceneThumbnailResult(ETAG, "image/jpeg", IMAGE));
         var request = get(URL);
         if (!actor.equals("anonymous")) {
             request.session(login(actor));
