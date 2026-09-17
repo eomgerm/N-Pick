@@ -13,9 +13,10 @@ import com.npick.feedback.application.query.MyInquiryDetail;
 /**
  * 「내 문의 기록」 상세 응답 (S15P21A501-185). 목록 응답과 같은 snake_case/문자열 ID 규칙을 따른다({@link MyInquiryListResponse}).
  *
- * <p>{@code snapshot_status}/{@code result_snapshot} 판정: 저장된 {@code result_explain_json}에 {@code display_name}이
- * 있으면 available과 당시 순위·explain을 담은 스냅샷을, 없으면(빈 객체·score-only·null·공백) unavailable과 null을 반환한다.
- * {@link #from}이 이 판정을 모으는 유일한 지점이다. 표시값은 저장된 explain_json에서만 오며 현재 태그/장면으로 재생성하지 않는다.
+ * <p>{@code snapshot_status}/{@code result_snapshot} 판정: 저장된 {@code result_explain_json}의 {@code display.display_name}
+ * (-60 생산자 형식 {@code {"display":{"display_name":...}}})이 있으면 available과 당시 순위·explain을 담은 스냅샷을,
+ * 없으면(부재·null·공백·display 미기록) unavailable과 null을 반환한다. {@link #from}이 이 판정을 모으는 유일한 지점이다.
+ * 표시값은 저장된 explain_json에서만 오며 현재 태그/장면으로 재생성하지 않는다.
  */
 public record MyInquiryDetailResponse(
         @JsonProperty("feedback_id") String feedbackId,
@@ -76,10 +77,11 @@ public record MyInquiryDetailResponse(
             return null;
         }
         JsonNode explain = parseExplain(explainJson);
-        JsonNode displayName = explain.get("display_name");
-        // 재생성 금지: display 값은 저장된 explain 블롭에서만 온다. display_name 이 없으면 -59 가 표시값 스냅샷을
-        // 기록하지 않은 것(불완전) → unavailable. 현재 태그/장면으로 채우지 않는다.
-        if (displayName == null || displayName.isNull()) {
+        // 재생성 금지: display 값은 저장된 explain 블롭에서만 온다. -60 생산자 형식은 표시값을
+        // {"display":{"display_name":...}} 로 중첩 저장하고(SearchExecutionRecordingDbTest, /display/display_name 검증),
+        // display.display_name 이 없으면 정상 스냅샷 미기록(불완전) → unavailable. 현재 태그/장면으로 채우지 않는다.
+        JsonNode displayName = explain.at("/display/display_name");
+        if (displayName.isMissingNode() || displayName.isNull()) {
             return null;
         }
         return new ResultSnapshot(

@@ -20,10 +20,10 @@ class MyInquiryDetailResponseTest {
     }
 
     @Test
-    @DisplayName("explain_json 에 display_name 이 있으면 available 과 당시 순위·explain 을 담은 result_snapshot 을 만든다")
+    @DisplayName("explain 의 display.display_name(-60 생산자 형식)이 있으면 available 과 당시 순위·explain 을 담은 result_snapshot 을 만든다")
     void availableWhenDisplayNamePresent() {
-        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(
-                detailWithExplain("{\"display_name\":\"KBC 뉴스9\",\"scene_description\":\"서울역 인파\",\"score\":2}"));
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain(
+                "{\"display\":{\"display_name\":\"KBC 뉴스9\",\"scene_description\":\"서울역 인파\"},\"score\":2}"));
 
         assertThat(res.snapshotStatus()).isEqualTo("available");
         assertThat(res.resultSnapshot()).isNotNull();
@@ -31,11 +31,31 @@ class MyInquiryDetailResponseTest {
         assertThat(snap.searchResultId()).isEqualTo("9802");
         assertThat(snap.sceneId()).isEqualTo("9302");
         assertThat(snap.rank()).isEqualTo(2);
-        assertThat(snap.explain().get("display_name").asText()).isEqualTo("KBC 뉴스9");
+        assertThat(snap.explain().at("/display/display_name").asText()).isEqualTo("KBC 뉴스9");
     }
 
     @Test
-    @DisplayName("explain_json 에 display_name 이 없으면(score-only) unavailable 과 null result_snapshot 이다")
+    @DisplayName("최상위 display_name(생산자 형식 아님)만 있으면 unavailable 이다 — display.display_name 경로만 인정")
+    void unavailableWhenDisplayNameOnlyAtTopLevel() {
+        MyInquiryDetailResponse res =
+                MyInquiryDetailResponse.from(detailWithExplain("{\"display_name\":\"KBC 뉴스9\",\"score\":2}"));
+
+        assertThat(res.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(res.resultSnapshot()).isNull();
+    }
+
+    @Test
+    @DisplayName("display 객체는 있으나 display_name 이 없으면 unavailable 이다")
+    void unavailableWhenDisplayWithoutName() {
+        MyInquiryDetailResponse res =
+                MyInquiryDetailResponse.from(detailWithExplain("{\"display\":{\"scene_description\":\"서울역 인파\"}}"));
+
+        assertThat(res.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(res.resultSnapshot()).isNull();
+    }
+
+    @Test
+    @DisplayName("explain 이 score-only 면 unavailable 과 null result_snapshot 이다")
     void unavailableWhenNoDisplayName() {
         MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain("{\"score\":2}"));
 
