@@ -62,16 +62,7 @@ pipeline {
             // 최신 dev 의 임시 병합 결과로 바꿔, 머지 충돌과 버전 역전을 머지 전에 잡는다.
             checkout([
               $class: 'GitSCM',
-              branches: [[name: "origin/${env.gitlabSourceBranch}"]],
-              extensions: [[
-                $class: 'PreBuildMerge',
-                options: [
-                  fastForwardMode: 'FF',
-                  mergeRemote: 'origin',
-                  mergeStrategy: 'DEFAULT',
-                  mergeTarget: env.gitlabTargetBranch
-                ]
-              ]],
+              branches: [[name: "origin/${env.gitlabTargetBranch}"]],
               userRemoteConfigs: [[
                 credentialsId: 'gitlab-repo-credentials',
                 name: 'origin',
@@ -79,6 +70,12 @@ pipeline {
                 url: 'https://lab.ssafy.com/s15-ai-image-sub1/S15P21A501.git'
               ]]
             ])
+            withEnv([
+              "MR_SOURCE_BRANCH=${env.gitlabSourceBranch}",
+              "MR_TARGET_BRANCH=${env.gitlabTargetBranch}"
+            ]) {
+              sh 'infra/jenkins/merge-mr.sh "$MR_SOURCE_BRANCH" "$MR_TARGET_BRANCH"'
+            }
           } else {
             checkout scm
           }
