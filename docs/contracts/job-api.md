@@ -163,7 +163,7 @@ PUT  /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 
 `retryAfterMs`는 BE가 과부하일 때만 0보다 크다. **평시 빈 응답에 워커는 쉬지 않고 즉시 다시 claim한다** — 대기는 이미 서버가 25초 했다.
 
-### 4.2 heartbeat — lease 연장과 중단 지시
+### 4.2 heartbeat — lease 연장과 중단 지시(예약)
 
 주기는 claim이 준 `heartbeatIntervalMs`(10초). lease TTL은 60초이고 성공한 heartbeat 하나가 `leaseUntil`을 `now + 60s`로 민다. **연장하는 것은 heartbeat뿐이다** — artifacts 업로드는 lease를 연장하지 않으므로, 업로드가 오래 걸리는 동안에도 워커는 별도로 heartbeat를 쳐야 한다.
 
