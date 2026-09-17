@@ -801,7 +801,11 @@ ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정�
 - 원문 `t`·정수 ms `s/e`·`sourceDetail`은 원본 snapshot에서 구간 ID로 읽는다. 장면 연결 목록에는 중복 복사하지 않는다. ID의 범위는 segments artifact 하나다.
 - 소비자는 snapshot 관계·채택 여부·장면 및 구간 ID를 검사한다. 알 수 없는 구간·보관 전용 구간·누락/중복 장면·잘못된 artifact는 빈 결과로 처리하지 않는다.
 - `tokens`는 그 장면의 채택 대사를 연결 순서(시간순)대로 이어 한 번에 Kiwi로 분석한 색인 토큰을 공백으로 이은 것이며 곧 `scene.transcript_tokens`다. **BE가 만들 수 없으므로 워커가 싣는다** — 형태소 분석은 파이프라인의 일이고([docs/architecture/02-container.md](../architecture/02-container.md)) 색인과 질의가 같은 Kiwi 설정을 써야 하며 다르면 검색이 0건이 된다. 그래서 `versions.detail.tokenizer`가 그 설정의 식별자를 함께 싣는다(`ocr`·`vlm_metadata`와 같은 규약). 빈 문자열은 정상이다 — 대사가 없는 장면과 내용어가 없는 대사가 모두 여기 해당하며, 키를 생략하는 것과 구분한다. 구간마다 따로 토큰화해 잇지 않는다.
-- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. `scene.transcript_text`도 같은 연결 순서로 원문을 이어 만들어 `transcript_tokens`와 같은 문장을 가리키게 한다. 실제 매핑 알고리즘은 생산 단계의 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. `scene.transcript_text`도 같은 연결 순서로 원문을 **공백 한 칸**으로 이어 만들어 `transcript_tokens`와 같은 문장을 가리키게 한다. 실제 매핑 알고리즘은 생산 단계의 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- **`overlapMs`는 계산되는 값이지 신고받는 값이 아니다.** BE는 저장한 장면 구간과 원본 구간에서 `min(장면 끝, 구간 끝) − max(장면 시작, 구간 시작)`을 직접 구해 대조하고, 값이 다르거나 0 이하면 거절한다. 그러지 않으면 장면과 겹치지도 않는 구간의 연결과 지어낸 겹침 시간이 `transcript_json`에 그대로 남는데, 그 칸의 정의가 "이 장면과 겹친 시간"이다.
+- **장면의 연결은 시간순(`s` 오름차순)이고 같은 구간이 두 번 오지 않는다.** 그 순서가 곧 원문을 잇는 순서이고, `transcript_text`와 `transcript_json`은 화면에 보여주는 값이라 대사 순서대로 읽혀야 한다. 단 이 규약이 어긋나도 `transcript_tokens`와 갈리지는 않는다 — 워커가 같은 연결 목록을 같은 순서·같은 구분자로 이어 토큰을 만들기 때문이다. 두 칸의 불일치를 BE가 검출할 방법은 없다.
+- **두 snapshot은 같은 짝이어야 한다.** BE는 `decisions` 파일 안의 `segmentsArtifact`가 `segmentsArtifact` 참조와 통째로 같은지, 두 파일의 `schemaVersion`이 맞는지, 판정이 모든 원본 ID에 정확히 하나씩 있는지를 검사한다. 구간 ID는 snapshot 사이에 보존되므로, 판정만 4단계 `transcript_selection`의 예비 파일을 가리켜도 모든 ID가 해석되고 아무것도 실패하지 않은 채 예비 판정이 최종으로 되살아난다.
+- `scene.transcript_source`는 **BE가 채택 구간의 `sourceDetail`에서 유도한다.** 어휘는 `provided`·`asr` 둘뿐이고, 한 장면이 자막과 ASR을 함께 쓰면 `provided`다 — 영상 단위 판정과 같은 방향이다. 자막 파일이 앞부분만 덮으면 뒷부분 장면은 `asr`이 되므로 영상 단위 값과 다를 수 있다(FRD §3 F-03). 연결이 없는 장면은 이 칸과 나머지 세 칸을 모두 비운 채 둔다.
 - **이 단계의 snapshot이 그 run의 최종 채택 정본이다.** 4단계 `transcript_selection`이 낸 `decisions`는 ASR 이전의 예비 판정이라 같은 run에 두 벌이 남는다. 저장·검색·VLM은 언제나 매핑 결과의 `transcript`가 가리키는 쪽을 쓰고, 예비 판정을 최종으로 되살리지 않는다. 두 단계는 위의 같은 채택 규칙(제공 자막 → CC → ASR, 채택된 상위 출처만 제외 근거)을 따라야 하며, 어긋나면 같은 run 안에서 CC 채택 여부가 갈린다.
 
 **PUT의 키는 경로 세그먼트로 들어가므로 워커가 퍼센트 인코딩한다** — 구분자 `/`는 남기고 `?`·`#`는 인코딩한다. 인코딩하지 않으면 `?`가 질의로 갈려 경로가 잘리고, BE의 접두 검사(`JOB_403_001`)가 의도한 경로에 대해 돌지 않는다. `..`나 절대 경로가 든 키는 인코딩으로 막히지 않으므로(구분자를 남기는 한 정규화된다) **워커가 보내기 전에 거절한다.** GET은 `?key=`로 실으므로 이 문제가 없다.
@@ -1079,7 +1083,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 5단계 — `ocr`·`vlm_metadata`는 BE 저장만, `transcript_selection`은 워커 구현만, `scene_transcript_mapping`·`entity_extraction`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서 양쪽 다 배선됐다 |
+| 미구현 4단계 — `ocr`·`vlm_metadata`는 BE 저장만, `transcript_selection`은 워커 구현만, `entity_extraction`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서, `scene_transcript_mapping`은 워커가 `S15P21A501-98`·BE가 `S15P21A501-191`에서 양쪽 다 배선됐다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 
