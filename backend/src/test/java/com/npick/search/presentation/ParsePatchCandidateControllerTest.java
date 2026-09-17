@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.hamcrest.Matchers.instanceOf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -71,7 +72,10 @@ class ParsePatchCandidateControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.searchRuleId").value(777))
+                .andExpect(jsonPath("$.data.searchRuleId").value("777"))
+                .andExpect(jsonPath("$.data.searchRuleId", instanceOf(String.class)))
+                .andExpect(jsonPath("$.data.feedbackId").value("1"))
+                .andExpect(jsonPath("$.data.feedbackId", instanceOf(String.class)))
                 .andExpect(jsonPath("$.data.active").value(false));
     }
 
@@ -87,7 +91,8 @@ class ParsePatchCandidateControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.searchRuleId").value(777));
+                .andExpect(jsonPath("$.data.searchRuleId").value("777"))
+                .andExpect(jsonPath("$.data.searchRuleId", instanceOf(String.class)));
     }
 
     @Test
