@@ -175,13 +175,19 @@ public class StageExecutionService
     @Override
     @Transactional
     public Map<String, Object> complete(CompleteStageCommand command) {
-        Map<String, Object> body = command.result();
-        validateEnvelope(command);
-        UUID lease = UUID.fromString((String) body.get("leaseId"));
-        PipelineRun run = requireRun(command.runId());
-        putJobContext(run.clipId(), command.runId(), command.stage());
+        // 봉투 검증·run 조회 실패도 어느 run·단계였는지 남아야 한다. clipId 는 run 을 읽은 뒤 채운다.
+        putJobContext(null, command.runId(), command.stage());
         try {
+            Map<String, Object> body = command.result();
+            validateEnvelope(command);
+            UUID lease = UUID.fromString((String) body.get("leaseId"));
+            PipelineRun run = requireRun(command.runId());
+            putJobContext(run.clipId(), command.runId(), command.stage());
             return accept(command, run, body, lease);
+        } catch (RuntimeException failure) {
+            // 전역 예외 핸들러의 로그는 이 구간 밖에서 찍힌다. 상관키가 붙은 실패 기록을 여기서 남긴다.
+            LOG.warn("스테이지 결과를 수락하지 못했다 worker={} 원인={}", command.workerId(), reason(failure));
+            throw failure;
         } finally {
             clearJobContext();
         }
@@ -240,14 +246,18 @@ public class StageExecutionService
     @Override
     @Transactional
     public Instant heartbeat(long runId, String stage, String workerId, UUID leaseId) {
-        PipelineRun run = requireRun(runId);
-        putJobContext(run.clipId(), runId, stage);
+        putJobContext(null, runId, stage);
         try {
+            PipelineRun run = requireRun(runId);
+            putJobContext(run.clipId(), runId, stage);
             run.heartbeat(stage, leaseId, workerId, clock.instant());
             runs.save(run, clock.instant());
             Instant until = run.snapshot().leaseExpiresAt();
             LOG.debug("heartbeat 로 lease 를 연장했다 worker={} leaseUntil={}", workerId, until);
             return until;
+        } catch (RuntimeException failure) {
+            LOG.warn("heartbeat 를 처리하지 못했다 worker={} 원인={}", workerId, reason(failure));
+            throw failure;
         } finally {
             clearJobContext();
         }
@@ -293,11 +303,18 @@ public class StageExecutionService
      * <p>개별 키는 구조화 소비자(JSON appender 등)를 위한 것이고 {@code job} 은 표시용이다 — 텍스트 패턴에 개별 키를 나열하면 파이프라인과 무관한 모든 로그 줄에 빈 자리가 남는다.
      * 값이 없을 때 통째로 사라지도록 한 토큰으로 조립해 둔다.
      */
-    private static void putJobContext(long clipId, long runId, String stage) {
-        MDC.put("clipId", Long.toString(clipId));
+    private static void putJobContext(Long clipId, long runId, String stage) {
+        if (clipId != null) MDC.put("clipId", Long.toString(clipId));
         MDC.put("runId", Long.toString(runId));
         MDC.put("stage", stage);
-        MDC.put("job", " clip=" + clipId + " run=" + runId + " stage=" + stage);
+        MDC.put("job", (clipId == null ? "" : " clip=" + clipId) + " run=" + runId + " stage=" + stage);
+    }
+
+    /** 로그 위생 — 메시지 본문 대신 오류 코드나 예외 종류만 남긴다 (FRD v3.2 §6.4). */
+    private static String reason(RuntimeException failure) {
+        return failure instanceof BusinessException business
+                ? business.errorCode().code()
+                : failure.getClass().getSimpleName();
     }
 
     /** 스레드가 재사용되므로 구간을 벗어나면 반드시 지운다 ({@code RequestIdFilter} 와 같은 원칙). */

@@ -15,7 +15,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 
+import com.npick.common.error.BusinessException;
 import com.npick.pipeline.application.command.StageExecutionService;
+import com.npick.pipeline.application.command.complete.CompleteStageCommand;
 import com.npick.pipeline.application.command.worker.ClaimWorkerJobUseCase;
 import com.npick.pipeline.domain.model.PipelineRun;
 import com.npick.pipeline.domain.model.PipelineStages;
@@ -23,6 +25,7 @@ import com.npick.pipeline.domain.repository.PipelineRunRepository;
 import com.npick.pipeline.presentation.WorkerJobController;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -86,6 +89,50 @@ class WorkerJobLoggingContextTest {
                 // 키가 어긋나면 값이 MDC 에 있어도 로그에는 한 글자도 안 나온다.
                 .containsEntry("job", " clip=42 run=7 stage=ocr");
         assertThat(MDC.getCopyOfContextMap()).isNullOrEmpty();
+    }
+
+    /**
+     * complete 는 셋 중 가장 복잡한 경로다. run 을 읽기도 전에 나는 실패(봉투 검증·조회 실패)에도 상관키가 남아야 하고 — 전역 예외 핸들러의 로그는 이 구간 밖에서 찍히므로 여기서 남기지
+     * 않으면 아무 데도 없다 — 그 뒤 스레드에는 아무것도 남으면 안 된다.
+     */
+    @Test
+    void completePublishesJobContextBeforeTheRunIsLoadedAndClearsItAfterwards() {
+        var runs = mock(PipelineRunRepository.class);
+        var during = new AtomicReference<Map<String, String>>();
+        when(runs.lock(7L)).thenAnswer(invocation -> {
+            during.set(MDC.getCopyOfContextMap());
+            // 여기서 끝내면 저장 경로를 건드리지 않고 실패 구간만 본다.
+            return Optional.empty();
+        });
+        var service = new StageExecutionService(runs, null, null, null, Clock.systemUTC(), null);
+
+        assertThatThrownBy(() ->
+                        service.complete(new CompleteStageCommand(7L, "ocr", "worker-1", "key-1", failedResult())))
+                .isInstanceOf(BusinessException.class);
+
+        assertThat(during.get()).containsEntry("runId", "7").containsEntry("stage", "ocr");
+        assertThat(MDC.getCopyOfContextMap()).isNullOrEmpty();
+    }
+
+    private static Map<String, Object> failedResult() {
+        Map<String, Object> versions = new LinkedHashMap<>();
+        versions.put("stageVersion", "v1");
+        versions.put("outputSchemaVersion", PipelineStages.outputSchema("ocr"));
+        versions.put("modelVersion", null);
+        versions.put("promptVersion", null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("envelopeVersion", "stage-result/v1");
+        result.put("stage", "ocr");
+        result.put("idempotencyKey", "key-1");
+        result.put("leaseId", UUID.randomUUID().toString());
+        result.put("status", "failed");
+        result.put("attempt", 1);
+        result.put("durationMs", 10);
+        result.put("startedAt", "2026-09-17T00:00:00Z");
+        result.put("finishedAt", "2026-09-17T00:00:01Z");
+        result.put("versions", versions);
+        result.put("error", Map.of("code", "STAGE_FAILED", "retryable", true));
+        return result;
     }
 
     private static PipelineRun.Snapshot snapshot(
