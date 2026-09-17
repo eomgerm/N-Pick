@@ -1,0 +1,4 @@
+#
+#Thu Sep 17 10:34:55 KST 2026
+no\ cyclic\ dependency\ between\ com.npick\ modules=6ea33301-c3a8-4e74-9dd4-b55c17e7135c
+tag\ must\ not\ depend\ on\ clip\ infrastructure\ (module-private)=c2952ecf-84ca-48e0-8117-86b14ca45c45
