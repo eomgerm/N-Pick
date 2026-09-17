@@ -6,12 +6,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { DateRange } from '@/features/wireframes/date-range';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
 import { results } from '@/features/wireframes/demo-scenes';
-import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
-import {
-  InquiryDialog,
-  ScenePreviewDialog,
-  type InquiryDetails,
-} from '@/features/wireframes/scene-dialogs';
+import { MyInquiryHistory } from '@/features/wireframes/my-inquiry-history';
+import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/search-history.module.css';
 
@@ -22,7 +18,6 @@ interface HistoryItem {
   sceneId: number;
   daysAgo: number;
   query: string;
-  inquiry?: InquiryDetails;
 }
 
 const searchHistory: HistoryItem[] = [
@@ -33,59 +28,6 @@ const searchHistory: HistoryItem[] = [
   { id: 'view-5', sceneId: 1, daysAgo: 7, query: '서울역 대합실 귀성객' },
 ];
 
-const inquiryHistory: HistoryItem[] = [
-  {
-    id: 'inquiry-1',
-    sceneId: 1,
-    daysAgo: 1,
-    query: '2025년 추석 경부고속도로 귀성길 정체',
-    inquiry: { comment: '고속도로를 검색했는데 역 내부 장면이 나와요', status: 'open' },
-  },
-  {
-    id: 'inquiry-2',
-    sceneId: 2,
-    daysAgo: 2,
-    query: '2026년 설 연휴 고속도로 정체',
-    inquiry: { comment: '요청한 연도와 다른 교통 자료화면이에요', status: 'reviewing' },
-  },
-  {
-    id: 'inquiry-3',
-    sceneId: 3,
-    daysAgo: 3,
-    query: '귀성길 고속도로 외경',
-    inquiry: {
-      comment: '도로 외경 대신 교통상황실이 검색돼요',
-      status: 'closed',
-      resolution: 'exclude_scene',
-      resolutionSummary: '같은 검색 조건에서 해당 구간이 노출되지 않도록 제외했습니다.',
-    },
-  },
-  {
-    id: 'inquiry-4',
-    sceneId: 1,
-    daysAgo: 5,
-    query: '서울역 귀성 인파 전경',
-    inquiry: {
-      comment: '인파 전경을 찾았는데 인터뷰 장면이 포함돼요',
-      status: 'closed',
-      resolution: 'exclude_scene',
-      resolutionSummary: '같은 조건으로 다시 검색해 해당 구간이 제외되는 것을 확인했습니다.',
-    },
-  },
-  {
-    id: 'inquiry-5',
-    sceneId: 2,
-    daysAgo: 7,
-    query: '원활한 경부고속도로 소통 상황',
-    inquiry: {
-      comment: '같은 검색에 적합하지 않은 구간이 보여요',
-      status: 'closed',
-      resolution: 'exclude_scene',
-      resolutionSummary: '같은 검색 조건에서 다른 후보 구간이 표시되는 것을 확인했습니다.',
-    },
-  },
-];
-
 function groupByRecency(items: HistoryItem[]) {
   return [
     { label: '오늘', items: items.filter(({ daysAgo }) => daysAgo === 0) },
@@ -94,19 +36,17 @@ function groupByRecency(items: HistoryItem[]) {
 }
 
 interface HistorySectionProps {
-  kind: HistoryKind;
   items: HistoryItem[];
   onSelect: (item: HistoryItem) => void;
 }
 
-function HistorySection({ kind, items, onSelect }: HistorySectionProps) {
-  const title = kind === 'search' ? '이전 검색 기록' : '문의 사항';
-  const Icon = kind === 'search' ? History : MessageSquareText;
+function HistorySection({ items, onSelect }: HistorySectionProps) {
+  const title = '이전 검색 기록';
 
   return (
-    <section aria-labelledby={`${kind}-history-title`} className={styles.section}>
-      <h2 className={styles.sectionHeading} id={`${kind}-history-title`}>
-        <Icon aria-hidden="true" />
+    <section aria-labelledby="search-history-title" className={styles.section}>
+      <h2 className={styles.sectionHeading} id="search-history-title">
+        <History aria-hidden="true" />
         <span>{title}</span>
         <small>{items.length}</small>
       </h2>
@@ -120,7 +60,7 @@ function HistorySection({ kind, items, onSelect }: HistorySectionProps) {
             <ul aria-label={group.label} className={styles.list}>
               {group.items.map((item) => {
                 const scene = results.find(({ id }) => id === item.sceneId)!;
-                const text = item.inquiry?.comment || scene.title;
+                const text = scene.title;
                 return (
                   <li key={item.id}>
                     <button
@@ -139,16 +79,9 @@ function HistorySection({ kind, items, onSelect }: HistorySectionProps) {
                         <span className={styles.rowTitle} title={text}>
                           {text}
                         </span>
-                        <span className={styles.rowSubtitle}>
-                          {kind === 'search' ? scene.time : scene.title}
-                        </span>
+                        <span className={styles.rowSubtitle}>{scene.time}</span>
                       </span>
                       <span className={styles.rowMeta}>
-                        {item.inquiry ? (
-                          <span className={styles.status} data-status={item.inquiry.status}>
-                            {inquiryStatusLabels[item.inquiry.status]}
-                          </span>
-                        ) : null}
                         <span className={styles.age}>
                           <Clock3 aria-hidden="true" />
                           {item.daysAgo}일 전
@@ -186,24 +119,14 @@ export function SearchHistory({
 }: SearchHistoryProps) {
   const [isNavExpanded, setIsNavExpanded] = useState(false);
   const [activePanel, setActivePanel] = useState<HistoryKind | null>(null);
-  const [inquiries, setInquiries] = useState(inquiryHistory);
-  const [selectedHistory, setSelectedHistory] = useState<{ kind: HistoryKind; id: string } | null>(
-    null,
-  );
-  const [isCreatingInquiry, setIsCreatingInquiry] = useState(false);
-  const [submittedSceneIds, setSubmittedSceneIds] = useState<number[]>([]);
-  const [notice, setNotice] = useState('');
+  const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null);
+  const [isInquiryDetailOpen, setIsInquiryDetailOpen] = useState(false);
   const dockRef = useRef<HTMLElement>(null);
   const activeTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const selectedItem = selectedHistory
-    ? (selectedHistory.kind === 'search' ? searchHistory : inquiries).find(
-        ({ id }) => id === selectedHistory.id,
-      )
-    : undefined;
-  const selectedScene = results.find(({ id }) => id === selectedItem?.sceneId);
+  const selectedScene = results.find(({ id }) => id === selectedHistory?.sceneId);
 
   useEffect(() => {
-    if (!isNavExpanded || selectedHistory) return;
+    if (!isNavExpanded || selectedHistory || isInquiryDetailOpen) return;
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setActivePanel(null);
@@ -222,7 +145,7 @@ export function SearchHistory({
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('pointerdown', handleOutside);
     };
-  }, [isNavExpanded, selectedHistory]);
+  }, [isNavExpanded, selectedHistory, isInquiryDetailOpen]);
 
   function closePanel() {
     setActivePanel(null);
@@ -241,24 +164,6 @@ export function SearchHistory({
 
   function handleClose() {
     setSelectedHistory(null);
-    setIsCreatingInquiry(false);
-  }
-
-  function handleInquiryCreate(comment: string) {
-    if (!selectedItem || !selectedScene) return;
-    setInquiries((current) => [
-      {
-        id: `inquiry-${current.length + 1}`,
-        sceneId: selectedScene.id,
-        daysAgo: 0,
-        query: selectedItem.query,
-        inquiry: { comment, status: 'open' },
-      },
-      ...current,
-    ]);
-    setSubmittedSceneIds((current) => [...current, selectedScene.id]);
-    setNotice('문의가 접수되었습니다. 문의 사항에서 확인할 수 있어요.');
-    handleClose();
   }
 
   return (
@@ -357,39 +262,16 @@ export function SearchHistory({
             >
               <ChevronLeft aria-hidden="true" />
             </button>
-            <HistorySection
-              items={kind === 'search' ? searchHistory : inquiries}
-              kind={kind}
-              onSelect={(item) => {
-                setNotice('');
-                setSelectedHistory({ kind, id: item.id });
-              }}
-            />
+            {kind === 'search' ? (
+              <HistorySection items={searchHistory} onSelect={setSelectedHistory} />
+            ) : activePanel === 'inquiry' ? (
+              <MyInquiryHistory theme={theme} onDetailOpenChange={setIsInquiryDetailOpen} />
+            ) : null}
           </aside>
         ))}
       </aside>
-      <p className={styles.notice} role="status">
-        {notice}
-      </p>
-      {selectedScene && selectedHistory?.kind === 'search' && !isCreatingInquiry ? (
-        <ScenePreviewDialog
-          isSubmitted={submittedSceneIds.includes(selectedScene.id)}
-          onClose={handleClose}
-          onInquiry={() => setIsCreatingInquiry(true)}
-          result={selectedScene}
-          theme={theme}
-        />
-      ) : null}
-      {selectedScene && selectedItem && (selectedItem.inquiry || isCreatingInquiry) ? (
-        <InquiryDialog
-          history={selectedItem.inquiry}
-          key={isCreatingInquiry ? `new-${selectedItem.id}` : selectedItem.id}
-          onClose={handleClose}
-          onSubmit={handleInquiryCreate}
-          query={selectedItem.query}
-          result={selectedScene}
-          theme={theme}
-        />
+      {selectedScene ? (
+        <ScenePreviewDialog onClose={handleClose} result={selectedScene} theme={theme} />
       ) : null}
     </>
   );

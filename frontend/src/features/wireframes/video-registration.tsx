@@ -47,6 +47,11 @@ interface VideoRegistrationProps {
   onRegister: (video: RegisteredVideo) => void;
 }
 
+interface VideoRegistrationHeadingProps {
+  isDisabled: boolean;
+  onBack: () => void;
+}
+
 type DropzoneKind = 'video' | 'subtitle' | 'script';
 
 interface FileDropzoneProps {
@@ -179,6 +184,26 @@ function FieldError({ children, id }: { children: string; id: string }) {
   );
 }
 
+export function VideoRegistrationHeading({ isDisabled, onBack }: VideoRegistrationHeadingProps) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, []);
+
+  return (
+    <div className={styles.heading}>
+      <h1 ref={headingRef} tabIndex={-1}>
+        영상 등록
+      </h1>
+      <button className={styles.backButton} disabled={isDisabled} onClick={onBack} type="button">
+        <ArrowLeft aria-hidden="true" /> 문의 목록으로
+      </button>
+    </div>
+  );
+}
+
 export function VideoRegistration({
   isNavigating,
   onBusyChange,
@@ -200,7 +225,6 @@ export function VideoRegistration({
     useState<ClipRegistrationErrorPresentation | null>(null);
   const [liveMessage, setLiveMessage] = useState('영상 등록 내용을 입력할 수 있어요.');
   const formRef = useRef<HTMLFormElement>(null);
-  const headingRef = useRef<HTMLHeadingElement>(null);
   const globalErrorRef = useRef<HTMLDivElement>(null);
   const lockedRef = useRef(false);
   const activeSubmissionRef = useRef<ClipRegistrationSubmission | null>(null);
@@ -255,11 +279,6 @@ export function VideoRegistration({
     },
   });
   const isBusy = isNavigating || mutation.isPending || isSubmissionLocked;
-
-  useEffect(() => {
-    headingRef.current?.focus({ preventScroll: true });
-    window.scrollTo({ top: 0, behavior: 'instant' });
-  }, []);
 
   function scheduleErrorFocus(errors: RegistrationFieldErrors, showGlobal: boolean) {
     const firstField = Object.keys(focusSelectors).find(
@@ -373,16 +392,6 @@ export function VideoRegistration({
 
   return (
     <div className={styles.page}>
-      <button className={styles.backButton} disabled={isBusy} onClick={onCancel} type="button">
-        <ArrowLeft aria-hidden="true" /> 문의 목록으로
-      </button>
-      <header className={styles.heading}>
-        <p>VIDEO UPLOAD</p>
-        <h1 ref={headingRef} tabIndex={-1}>
-          영상 등록
-        </h1>
-        <span>방송분과 자료 영상을 등록하고 처리 대기 상태를 확인하세요.</span>
-      </header>
       <form
         aria-busy={isBusy}
         aria-label="영상 등록"
@@ -679,7 +688,6 @@ export function VideoRegistration({
         ) : null}
 
         <footer className={styles.footer}>
-          <p>등록 성공 뒤 서버가 발급한 영상 ID와 처리 ID를 처리 상세에서 확인할 수 있어요.</p>
           <div>
             <button
               className={styles.cancelButton}

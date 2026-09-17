@@ -7,6 +7,7 @@ import { type FormEvent, useEffect, useRef, useState, useTransition } from 'reac
 import { emptyDateRange } from '@/features/wireframes/date-range';
 import { EntryFooter } from '@/features/wireframes/entry-chrome';
 import { SearchLayout } from '@/features/wireframes/search-layout';
+import { prepareSearchTransition } from '@/features/wireframes/search-transition';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
@@ -25,6 +26,7 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
   const [broadcastRange, setBroadcastRange] = useState(emptyDateRange);
   const [filmingRange, setFilmingRange] = useState(emptyDateRange);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchFieldRef = useRef<HTMLDivElement>(null);
   const navigationLockRef = useRef(false);
   const hasObservedNavigationRef = useRef(false);
 
@@ -56,9 +58,11 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
       return;
 
     navigationLockRef.current = true;
+    const cancelTransition = prepareSearchTransition(searchFieldRef.current, href);
     try {
       startNavigation(() => router.push(href));
     } catch (error) {
+      cancelTransition();
       navigationLockRef.current = false;
       throw error;
     }
@@ -89,7 +93,7 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
             onSubmit={handleSubmit}
             role="search"
           >
-            <div className={styles.searchForm}>
+            <div className={styles.searchForm} ref={searchFieldRef}>
               <Search aria-hidden="true" className={styles.searchIcon} />
               <label className={styles.srOnly} htmlFor="scene-search">
                 뉴스 장면 검색어

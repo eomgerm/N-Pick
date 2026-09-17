@@ -28,11 +28,11 @@
 | 검수 문의 상세             | GET    | `/review/inquiries/{feedbackId}`            | BE 구현   | 검수 상세 바인딩                    |
 | 검수 시작                  | POST   | `/review/inquiries/{feedbackId}/claim`      | BE 구현   | 검수 흐름 바인딩                    |
 | 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
-| 내 문의 기록 목록          | GET    | `/inquiries`                                | BE 구현   | 편집자 하단 기록 시트 바인딩        |
-| 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 하단 기록 시트 바인딩        |
+| 내 문의 기록 목록          | GET    | `/inquiries`                                | 연결됨    | 없음                               |
+| 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | 연결됨    | 없음                               |
 | 내 검색 기록 목록·상세     | 미정   | 미정                                        | 명세 필요 | -60 선행, 편집자 하단 기록 시트 바인딩 |
-| 영상 처리 목록             | GET    | `/clips`                                    | BE 구현   | 처리 화면 목록 바인딩               |
-| 영상 처리 상세             | GET    | `/clips/{id}`                               | BE 구현   | 처리 상세 바인딩·polling            |
+| 영상 처리 목록             | GET    | `/clips`                                    | 연결됨    | 없음                               |
+| 영상 처리 상세             | GET    | `/clips/{id}`                               | 연결됨    | 없음                               |
 | 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
 | 태그 교정 후보             | POST   | `/review/inquiries/{feedbackId}/tag-correction-candidate` | BE 구현 | 검수 교정 바인딩            |
 | 해석 교정 후보             | POST   | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 검수 교정 바인딩            |
@@ -274,6 +274,8 @@ FE URL 상태와 wire 요청의 대응:
 ```
 
 검색 결과 배열의 정확한 위치는 `data.results`다.
+
+`query_resolution_status`는 해석의 완료·대체 검색 상태이며 해석 내용 자체가 아니다. 현재 계약에는 인물·장소·날짜 등 실제 해석 내용을 FE에 전달하는 필드가 없다. FE 상단은 원문을 `검색어`로 표시하고 해석 상태만 서버 응답으로 안내한다. 검색어 토큰이나 결과의 `matched_keywords`로 해석 내용을 합성하지 않는다. 실제 해석 칩 연결(S15P21A501-118/167)의 선행 작업은 S15P21A501-59에서 공개 응답 필드·예시와 규칙 적용 후 최종 해석 여부, fallback·내용 없음 규칙을 확정하는 것이다. 이는 과거 기록 복원용 저장 계약(S15P21A501-60)과 구분하며, 신규 필드 이름·형식은 아직 확정하지 않는다.
 
 ### 5.1 응답 불변식
 
@@ -558,16 +560,32 @@ body는 생략하거나 다음처럼 보낸다.
 검수자 전용 `GET /clips`, `GET /clips/{id}`. 필드별 스키마는 서버 OpenAPI의 `ClipPageResponse`, `ClipSummaryResponse`, `ClipDetailResponse`, `ProcessingDetailsResponse`, `ProcessingProgressResponse`를 따른다.
 
 - 목록은 `page=0`, `size=20` 기본값이며 size는 1~100이다. `status=queued,running` 또는 반복 status 파라미터로 최신 run 상태를 OR 필터링한다. 허용값은 `queued/running/failed/succeeded/no_run`, 생략하면 전체다. `no_run`은 run이 없는 클립이다.
-- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 필터·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
+- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. 한 페이지의 `items`에는 같은 `clip_id`가 중복되지 않는다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 필터·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
 - `items[].progress`는 해당 `latest_run`의 기록 요약이다. `current_stage`는 running 단계가 정확히 하나일 때 그 이름이며, 그 외에는 null이다. `total_steps/succeeded_steps/skipped_steps/failed_steps`는 저장된 단계 상태의 수이며 생략은 실패 수에 중복 포함하지 않는다. 필수 단계 생략으로 run 자체가 실패할 수 있다.
 - run이 없으면 progress는 null이다. 기록이 부분·미확인·지원하지 않는 버전이면 `record_status`로 구분하고 단계 수는 null이다. 이 값을 0%나 완료로 추정하지 않는다. 진행 수는 소요 시간 기반 백분율이 아니다.
-- `search_available`과 `active_pipeline_run_id`는 현재 검색 제공 결과, `latest_run`·`progress`·`processing_details`는 최신 처리 시도다. 재처리 실패가 활성 결과를 무효화하지 않으며 검색 준비와 검수 완료는 별개다. 상세의 기본 대사 출처는 활성 결과 기준이다.
+- `search_available`과 `active_pipeline_run_id`는 현재 검색 제공 결과, `latest_run`·`progress`·`processing_details`는 최신 처리 시도다. 논리 삭제를 제외하는 이 목록·상세 API에서 `search_available`은 `active_pipeline_run_id != null`과 동치다. 활성 처리 ID가 있으면 true, 없으면 false이며 최신 run 상태로 계산하지 않는다. 재처리 실패가 활성 결과를 무효화하지 않으며 검색 준비와 검수 완료는 별개다. 상세의 기본 대사 출처는 활성 결과 기준이다.
 - 처리 상세는 단계 상태·실패 사유·누락 채널·실제 채택 대사 출처를 반환한다. `automatic_retryable`은 승인된 다음 자동 시도가 대기 중인지 나타낸다. 수동 재처리 가능 여부 `retryable`은 저장된 판정이 없어 null이며 재처리 API에서 별도로 연결한다.
 - 잘못된 페이지는 `CLIP_QUERY_400`, 허용하지 않는 상태는 `CLIP_QUERY_400_001`, 없는/삭제된 클립은 `CLIP_QUERY_404`를 반환한다.
+
+FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문의 목록을 연결한다. 영상 탭은 `queued,running,failed,no_run`과 `succeeded`를 서버에서 필터링하고, `progressPage` URL로 10건 단위 페이지를 유지한다. 영상 요약은 필터·페이지와 무관한 `run_counts`, 문의 요약은 `statusCounts`를 사용한다. 상세에서 원본 영상은 §6.1 미디어 API로 재생한다. 등록 후에는 응답 ID로 상세를 다시 조회하며 로컬 처리·장면 데이터를 합성하지 않는다. 영상 목록은 전체 queued/running이 있으면, 상세는 해당 최신 run이 queued/running이면 5초마다 조회한다. 상세 응답의 `latest_run`이 null인 경우에도 `clip.created_at` 기준 등록 후 1분 동안은 5초마다 재조회한다. 그 이후에도 기록이 없으면 반복 조회를 멈추고 ‘상태 새로고침’으로 다시 확인하도록 안내한다. 완료·실패 및 조회 오류에서는 polling을 멈추며 사용자가 다시 조회할 수 있다.
+
+기존 처리 화면의 mock 기능 중 다음 항목은 BE 추가·확장이 필요하다. 아래는 필요한 기능과 최소 데이터이며, 새로운 경로·method는 아직 확정하지 않는다.
+
+| 기능 | BE 추가·확장 요구 | 현재 FE 처리 |
+| --- | --- | --- |
+| 수동 재처리 | 검수자 전용 command와 가능 여부·불가 사유. 대상 clip/최신 run 사전조건, 중복 요청 멱등성, 진행 중·영구 실패 거절 규칙, 기존 active run 보존, 새 pipeline run ID·상태 반환. `automatic_retryable`과 구분 | 가짜 재처리 버튼 제거. 실제 자동 재시도 이력만 표시 |
+| 영상별 장면 목록 | 대상 clip과 run을 식별하는 페이지 조회. scene ID, 순서, 시작·종료 ms, 설명, 총 건수. active/latest run 중 어느 결과인지 명시 | 고정 장면 카드·장면 수 제거. 원본 영상 재생 제공 |
+| 장면 썸네일 | scene ID 기반 byte 조회와 인증·cache 정책. 서버 내부 파일 경로 비노출 | 관련 없는 데모 이미지 대신 일반 영상 아이콘 |
+| 영상 파일 메타데이터 | 기존 상세 응답에 공개 가능한 원본 파일명·용량·길이·방송일·촬영일을 필요에 따라 추가. nullable·단위 명시. 업로더 표시는 계정 공개 범위 결정 필요 | 서버가 제공하는 제목·유형·등록 시각 표시. 요청 메모리로 누락값을 채우지 않음 |
+| 문의 행의 추가 정보 | 기존 목록에 의견 미리보기·담당 검수자 등 실제 저장 정보 확장. 문의자·주제 노출은 도메인/권한 정책 확정 필요 | 실제 queryText·scene·createdAt·hasComment 표시 |
+
+교정 흐름의 태그·해석·장면 제외 후보 생성과 최종 확정, 규칙 사용 중단은 §6.4에 공개 API가 정의되어 있다. 이를 신규 API 요구로 분류하지 않는다. 처리 화면의 문의 상세는 기존 실제 조회·claim·resolution 화면을 재사용하며, 후보 생성 전용 편집 UI와 재검색 검증·확정 흐름의 FE 연결은 별도 작업이다.
 
 ### 6.6 내 문의 기록 (S15P21A501-185)
 
 검색 화면 사이드바에서 로그인 사용자가 **본인이 작성했고 본인이 실행한 검색에 대한 문의**만 조회한다. §6.3~6.4 검수 문의 API(`/review/inquiries`)와 달리 세션 사용자 ID로만 범위를 좁히며 파라미터로 다른 사용자 ID를 받지 않는다. 남의 검색 결과에 자기 명의로 만든 문의는 목록·카운트에서 제외해 그 검색어가 새어나가지 않게 한다. 신규 계약이라 응답은 snake_case, 모든 `*_id`는 십진 문자열이다.
+
+FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 있다. 패널을 열 때 10건 단위로 조회하고 항목 선택 시 상세를 다시 읽는다. 문의 접수 성공 후 캐시를 갱신하며 loading·empty·error·재시도를 구분한다. 상세의 미제공 snapshot·nullable 처리 결과는 예시 근거로 채우지 않는다. 문의 설명 수정 UI는 이번 조회 연결에 포함하지 않는다.
 
 `GET /inquiries?page=0&size=10`
 
@@ -674,13 +692,13 @@ body는 생략하거나 다음처럼 보낸다.
 | -------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------- |
 | 1        | 검색 실행                            | §5 계약 그대로 구현하고 실제 결과·loading·empty·degraded·failed를 연결                         | 고정 장면과 URL demo          |
 | 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination(S15P21A501-60 저장 계약 선행, 미착수) | `search-history.tsx` 고정 5건 |
-| 3        | 편집자 문의 기록 목록·상세           | §6.6으로 승격·BE 구현 완료. 남은 작업은 FE 화면 바인딩뿐                                       | 고정 문의와 memory 추가       |
+| 3        | 편집자 문의 기록 목록·상세           | §6.6 목록·상세 FE 연결 완료. 본인 조회·페이지 이동·접수 후 갱신                                | 실제 API 연결                 |
 | 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
 | 5        | 영상 재생                            | §6.1 공통 Preview·문의 상세·검색 결과 clipId 바인딩 완료                               | 배포 BE endpoint 확인 필요      |
 | 6        | 검수 문의 목록·상세·claim·resolution | §6.3~6.4 응답을 검수 화면 모델로 mapping                                                       | 23건 고정 문의                |
-| 7        | 영상 처리 목록 FE 연결               | §6.5 상태 필터·진행 요약·전체 상태 건수·pagination을 화면에 연결                             | 고정 진행·완료 영상           |
-| 8        | 영상 처리 상세·polling               | §6.5 처리 기록을 연결하고 terminal 상태에서 polling 종료. 장면 목록은 별도 조회 계약 필요      | 등록 응답을 memory로 합성     |
-| 9        | 처리 재시도                          | 일시/영구 실패 구분, 중복 클릭 방지, 기존 제공 run 보존, 새 run 식별자 반환                    | 버튼 demo                     |
+| 7        | 영상 처리 목록 FE 연결               | §6.5 상태 필터·진행 요약·전체 상태 건수·pagination 연결 완료                                  | 실제 API 연결                 |
+| 8        | 영상 처리 상세·polling               | §6.5 연결 완료. terminal 상태에서 polling 종료. 장면 목록은 별도 조회 계약 필요                | 실제 API 연결                 |
+| 9        | 처리 재시도                          | 일시/영구 실패 구분, 중복 클릭 방지, 기존 제공 run 보존, 새 run 식별자 반환                    | mock 동작 제거, command 미제공 |
 | 10       | 교정 후보 작성·검증                  | §6.4로 명세·BE 구현 완료(태그·해석 patch·장면 제외 후보 3종). 원 문의 검색 조건 서버 재사용·분리된 검증 실행 ID 포함. 남은 작업은 FE 바인딩 | 로컬 검수 state               |
 | 11       | 교정 확정                            | 검증 실행 ID만 입력받고 서버에 저장된 후보를 원자적으로 확정, stale 검증 거부                  | 로컬 완료 state               |
 | 12       | 규칙 사용 중단·재검증                | 수행자·사유, 이후 검색 미적용, 재활성화 전 검증                                                | 로컬 toggle/state             |
@@ -697,9 +715,9 @@ body는 생략하거나 다음처럼 보낸다.
 | 문의 상태          | BE는 `OPEN/REVIEWING/CLOSED`, FE demo는 `pending/reviewing/resolved` | BE 상태를 정본으로 하고 FE adapter에서 사용자 문구로 변환                                 |
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
-| 내 문의 기록       | §6.6으로 확정·구현 완료                                              | 없음(FE 바인딩만 남음)                                                                     |
+| 내 문의 기록       | §6.6으로 확정·BE 구현·FE 목록과 상세 연결 완료                       | 없음                                                                                      |
 | 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
-| 처리 조회          | BE 조회는 §6.5, FE는 아직 UI 데모 모델                                  | 공개 DTO를 화면에 mapping하고 unknown/null을 보존. polling·수동 재처리 연결은 별도 구현    |
+| 처리 조회          | §6.5 실제 목록·상세·polling 연결, unknown/null 보존                    | 수동 재처리·장면 목록·썸네일 및 추가 메타데이터 계약 필요                                 |
 | thumbnail          | 검색 응답에 URL을 넣지 않는 것만 확정                                | `scene_id` 기반 endpoint와 응답 cache 정책 확정                                           |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.

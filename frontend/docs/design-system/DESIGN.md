@@ -22,7 +22,7 @@ colors:
   shadow-near: '#324259'
 typography:
   family:
-    fontFamily: 'DM Sans, Segoe UI, Arial, sans-serif'
+    fontFamily: 'Pretendard Variable, Apple SD Gothic Neo, Malgun Gothic, sans-serif'
   title:
     fontSize: 29px
     fontWeight: '750'
@@ -115,6 +115,8 @@ N-Pick Glass는 사진 배경 위에 작업 진입점을 하나의 떠 있는 �
 ## Typography
 
 기본 글꼴은 `{typography.family.fontFamily}`이다. 로그인 제목은 `{typography.title}`을 사용해 짧고 분명하게 보이게 한다. 설명과 알림은 `{typography.body}` 및 `{typography.toast}`를 사용한다. 특히 성공 토스트는 강조를 위해 굵게 만들지 않고 `400`을 유지한다.
+
+랜딩의 한글 문구와 로그인·검색·검수 UI는 Pretendard Variable로 통일한다. [공식 v1.3.9](https://github.com/orioncactus/pretendard/tree/v1.3.9)의 WOFF2와 SIL OFL 라이선스를 `public/fonts/pretendard/`에 함께 보관하고, 루트 layout의 `next/font/local`에서 `45–920` 가변 굵기와 `display: swap`으로 제공한다. 전역 `--font-ui`와 Tailwind `font-sans`는 같은 글꼴을 사용하며 화면별 기본 서체를 다시 지정하지 않는다. 랜딩의 영문 브랜드 헤드라인은 Black Han Sans, 타임코드·코드의 고정폭 글꼴은 유지한다.
 
 라벨은 `{typography.label}`을 사용하고 입력창 위에 항상 노출한다. 플레이스홀더는 라벨을 대체하지 않는다. 주요 버튼만 `{typography.action}`으로 강조한다.
 

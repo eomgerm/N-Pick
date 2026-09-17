@@ -1,8 +1,18 @@
 import type { Metadata } from 'next';
+import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
 import { QueryProvider } from '@/components/query-provider';
 
 import './globals.css';
+
+const pretendard = localFont({
+  src: '../../public/fonts/pretendard/PretendardVariable.woff2',
+  variable: '--font-ui',
+  weight: '45 920',
+  style: 'normal',
+  display: 'swap',
+  fallback: ['Apple SD Gothic Neo', 'Malgun Gothic', 'sans-serif'],
+});
 
 export const metadata: Metadata = {
   title: 'N-Pick',
@@ -11,7 +21,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html data-scroll-behavior="smooth" lang="ko">
+    <html className={pretendard.variable} data-scroll-behavior="smooth" lang="ko">
       <body>
         <QueryProvider>{children}</QueryProvider>
       </body>
