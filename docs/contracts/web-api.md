@@ -642,7 +642,8 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 - `explicit_filters`: 검색 실행 당시 명시 filter(JSON object). 값이 없어도 빈 object `{}`이며 null이 아니다.
 - `resolution_note`, `review_started_at`, `closed_at`: 검수 처리 사유·시작·종료 시각. `OPEN` 상태면 셋 다 null이다.
-- `snapshot_status`, `result_snapshot`: 문의 당시 검색 결과 snapshot 복원 여부. **현재 구현은 항상 `snapshot_status: "unavailable"`, `result_snapshot: null`이다** — `search_result`에 snapshot을 복원할 저장 컬럼이 아직 없고, 그 저장 계약은 S15P21A501-60(미착수)이 소유한다. -60이 저장 형식을 확정하면 `available` 경로를 채운다.
+- `snapshot_status`: `"available"`(당시 결과 스냅샷 복원됨) | `"unavailable"`(문의는 조회되나 저장된 검색 결과 스냅샷 없음). 후자는 `result_snapshot: null`이다.
+- `result_snapshot`: available일 때 `{ search_result_id, scene_id, rank, explain }`. `explain`은 검색 당시 표시값·점수 snapshot(`display_name`·`scene_description` 등)이며 **조회 시 현재 태그·장면으로 재계산하지 않는다**. 조회 오류는 unavailable로 처리하지 않고 `COMM_500`으로 응답한다.
 
 성공 `data` 예시(`CLOSED`·`no_action`):
 
@@ -668,10 +669,17 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
   "resolution_note": "사유 없음으로 처리",
   "review_started_at": "2026-09-11T03:05:00Z",
   "closed_at": "2026-09-11T03:10:00Z",
-  "snapshot_status": "unavailable",
-  "result_snapshot": null
+  "snapshot_status": "available",
+  "result_snapshot": {
+    "search_result_id": "9802",
+    "scene_id": "9302",
+    "rank": 2,
+    "explain": { "display_name": "KBC 뉴스9 · 설 연휴 교통", "scene_description": "서울역 귀성 인파", "score": 2 }
+  }
 }
 ```
+
+저장된 검색 결과 snapshot이 없으면 `"snapshot_status": "unavailable", "result_snapshot": null`이다.
 
 본인 소유가 아니거나, 참조하는 검색을 본인이 실행하지 않았거나, 존재하지 않는 `feedbackId`는 **동일하게 404**로 응답한다(존재 여부 비노출). 문의 작성자와 원 검색자가 모두 세션 사용자일 때만 조회된다 — 남의 검색 결과에 자기 명의로 만든 문의로 그 검색어·필터가 새어나가지 않게 한다.
 
