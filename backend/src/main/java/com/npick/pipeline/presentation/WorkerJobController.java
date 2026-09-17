@@ -5,6 +5,7 @@ import java.util.UUID;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,11 +55,17 @@ public class WorkerJobController {
     public DeferredResult<ApiResponse<Map<String, Object>>> claim(
             @RequestHeader("X-Worker-Id") String worker, @RequestBody Map<String, Object> request) {
         var response = new DeferredResult<ApiResponse<Map<String, Object>>>(30000L);
+        // 롱폴 본체는 요청 스레드가 아니라 새 가상 스레드에서 돈다. MDC 는 스레드 로컬이라
+        // 넘겨주지 않으면 이 구간 로그에 requestId 가 붙지 않는다 (S15P21A501-204).
+        Map<String, String> context = MDC.getCopyOfContextMap();
         Thread.startVirtualThread(() -> {
             try {
+                if (context != null) MDC.setContextMap(context);
                 response.setResult(ApiResponse.success(claims.claim(worker, request)));
             } catch (Exception failure) {
                 response.setErrorResult(failure);
+            } finally {
+                MDC.clear();
             }
         });
         return response;
