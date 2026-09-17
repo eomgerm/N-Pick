@@ -139,6 +139,33 @@ test('자동 재시도 이력과 수동 재처리 가능 여부를 분리한다'
   assert.equal(parsed.processing_details.retryable, null);
 });
 
+test('영상 조회 계약은 활성 처리 ID 유무와 검색 제공 여부의 동치를 보장한다', () => {
+  const unavailable = {
+    ...clip,
+    clip_id: '21',
+    search_available: false,
+    active_pipeline_run_id: null,
+    latest_run: null,
+    progress: null,
+  };
+  const parsed = parseClipPage({
+    ...page,
+    size: 10,
+    total_elements: 2,
+    items: [clip, unavailable],
+  });
+  assert.equal(parsed.items.length, 2);
+  assert.equal(parsed.items[0].search_available, true);
+  assert.equal(parsed.items[1].search_available, false);
+  for (const invalid of [
+    { ...clip, search_available: false },
+    { ...unavailable, search_available: true },
+  ]) {
+    assert.throws(() => parseClipSummary(invalid));
+    assert.throws(() => parseClipPage({ ...page, items: [invalid] }));
+  }
+});
+
 test('목록은 서버 필터·0 기반 페이지·취소 신호·세션을 전달한다', async (context) => {
   const fetch = context.mock.method(globalThis, 'fetch', async () =>
     Response.json({ isSuccess: true, code: 'COMM_200', message: '성공', data: page }),
@@ -172,4 +199,21 @@ test('실제 실행 중에만 polling하고 완료·실패·미확인·오류에
   assert.equal(clipListPollInterval({ queued: 0, running: 0 }), false);
   assert.equal(clipListPollInterval({ queued: 1, running: 2 }, true), false);
   assert.equal(clipListPollInterval(undefined), false);
+});
+
+test('최근 등록의 실행 없음은 1분 동안 재조회하되 오래된 기록·조회 전·오류는 반복하지 않는다', () => {
+  const createdAt = '2026-09-17T01:00:00Z';
+  const createdMs = Date.parse(createdAt);
+  assert.equal(clipDetailPollInterval(null, false, createdAt, createdMs), 5000);
+  assert.equal(clipDetailPollInterval(null, false, createdAt, createdMs + 59_999), 5000);
+  assert.equal(clipDetailPollInterval(null, false, createdAt, createdMs + 60_000), false);
+  assert.equal(clipDetailPollInterval(null, false, createdAt, createdMs + 86_400_000), false);
+  assert.equal(clipDetailPollInterval(null, true, createdAt, createdMs), false);
+  assert.equal(clipDetailPollInterval(undefined, false, createdAt, createdMs), false);
+  assert.equal(clipDetailPollInterval(null), false);
+  assert.equal(clipDetailPollInterval('queued', false, createdAt, createdMs + 60_000), 5000);
+  assert.equal(clipDetailPollInterval('running', false, createdAt, createdMs + 60_000), 5000);
+  for (const status of ['succeeded', 'failed']) {
+    assert.equal(clipDetailPollInterval(status, false, createdAt, createdMs), false);
+  }
 });

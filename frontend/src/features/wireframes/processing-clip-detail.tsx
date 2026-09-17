@@ -52,8 +52,11 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
     queryFn: ({ signal }) => getProcessingClip(clipId, signal),
     refetchInterval: (query) =>
       clipDetailPollInterval(
-        query.state.data?.clip.latest_run?.status,
+        query.state.data?.clip.latest_run === null
+          ? null
+          : query.state.data?.clip.latest_run?.status,
         query.state.status === 'error',
+        query.state.data?.clip.created_at,
       ),
   });
   const loadedId = detail.data?.clip.clip_id;
@@ -112,6 +115,9 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                 상태 새로고침
               </button>
             </div>
+            {!run && (
+              <p>아직 처리 기록이 없습니다. 잠시 후 ‘상태 새로고침’으로 다시 확인해 주세요.</p>
+            )}
             <dl className={styles.facts}>
               <div>
                 <dt>영상 유형</dt>

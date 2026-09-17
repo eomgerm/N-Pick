@@ -60,6 +60,17 @@ export function clipListPollInterval(
 ) {
   return !hasError && counts && counts.queued + counts.running > 0 ? 5_000 : false;
 }
-export function clipDetailPollInterval(status: ClipRunStatus | undefined, hasError = false) {
-  return !hasError && isProcessingRun(status) ? 5_000 : false;
+export function clipDetailPollInterval(
+  status: ClipRunStatus | null | undefined,
+  hasError = false,
+  createdAt?: string,
+  now = Date.now(),
+) {
+  if (hasError) return false;
+  // null은 조회된 실행 없음, undefined는 아직 상세 응답이 없는 상태다.
+  if (status === null) {
+    const age = createdAt === undefined ? NaN : now - Date.parse(createdAt);
+    return age >= 0 && age < 60_000 ? 5_000 : false;
+  }
+  return isProcessingRun(status) ? 5_000 : false;
 }

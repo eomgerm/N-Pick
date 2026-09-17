@@ -243,6 +243,8 @@ test('기록 없는 영상은 대기 또는 0단계 완료로 만들지 않는�
 test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침해도 유지한다', async ({ page }) => {
   let registrations = 0;
   let reads = 0;
+  const createdAt = '2026-09-17T01:00:00Z';
+  await page.clock.install({ time: new Date(createdAt) });
   await page.route('**/api/v1/clips', async (route) => {
     expect(route.request().method()).toBe('POST');
     registrations++;
@@ -250,7 +252,25 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   });
   await page.route('**/api/v1/clips/21', async (route) => {
     reads++;
-    await success(route, detail('21', 'succeeded'));
+    const response = detail('21', reads === 2 ? 'queued' : reads === 3 ? 'running' : 'succeeded');
+    await success(
+      route,
+      reads === 1
+        ? {
+            ...response,
+            clip: {
+              ...response.clip,
+              created_at: createdAt,
+              search_available: false,
+              active_pipeline_run_id: null,
+              latest_run: null,
+              progress: null,
+            },
+            processing_details: null,
+            default_transcript_source: 'none',
+          }
+        : response,
+    );
   });
   await page.goto('/review?view=upload');
   await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
@@ -260,8 +280,68 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await page.getByRole('button', { name: '등록', exact: true }).click();
   await expect(page).toHaveURL(/view=processing&tab=uploads&clip=21/);
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
+  const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
+  const noRunNotice = overview.getByText(
+    '아직 처리 기록이 없습니다. 잠시 후 ‘상태 새로고침’으로 다시 확인해 주세요.',
+  );
+  await expect(noRunNotice).toBeVisible();
+  for (const state of ['처리 대기', '진행 중', '처리 완료']) {
+    await page.clock.fastForward(5_100);
+    await expect(overview).toContainText(state);
+  }
+  await expect(noRunNotice).toHaveCount(0);
+  const settledReads = reads;
+  await page.clock.fastForward(15_000);
+  expect(reads).toBe(settledReads);
   await page.reload();
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
   expect(registrations).toBe(1);
   expect(reads).toBeGreaterThanOrEqual(2);
+});
+
+test('최근 등록의 기록 없음 재조회는 1분 뒤 멈추고 수동 조회로 복구한다', async ({ page }) => {
+  let reads = 0;
+  let hasRun = false;
+  const createdAt = '2026-09-17T01:00:00Z';
+  await page.clock.install({ time: new Date(createdAt) });
+  await page.route('**/api/v1/clips/21', (route) => {
+    reads++;
+    return success(
+      route,
+      hasRun
+        ? detail('21', 'running')
+        : {
+            ...detail(),
+            clip: {
+              ...clip(),
+              created_at: createdAt,
+              search_available: false,
+              active_pipeline_run_id: null,
+              latest_run: null,
+              progress: null,
+            },
+            processing_details: null,
+            default_transcript_source: 'none',
+          },
+    );
+  });
+  await page.goto('/review?view=processing&tab=uploads&clip=21');
+  const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
+  const refresh = overview.getByRole('button', { name: '상태 새로고침', exact: true });
+  await expect(overview).toContainText('처리 기록 없음');
+  await expect(refresh).toBeEnabled();
+  await page.clock.fastForward(5_100);
+  await expect.poll(() => reads).toBe(2);
+  await expect(refresh).toBeEnabled();
+  await page.clock.fastForward(60_000);
+  await expect.poll(() => reads).toBe(3);
+  await expect(refresh).toBeEnabled();
+  await page.clock.fastForward(60_000);
+  expect(reads).toBe(3);
+  await expect(overview).toContainText('잠시 후 ‘상태 새로고침’으로 다시 확인해 주세요.');
+  hasRun = true;
+  await refresh.click();
+  await expect(overview).toContainText('진행 중');
+  await expect(overview.getByText(/아직 처리 기록이 없습니다/)).toHaveCount(0);
+  expect(reads).toBe(4);
 });

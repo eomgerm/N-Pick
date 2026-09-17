@@ -535,14 +535,14 @@ body는 생략하거나 다음처럼 보낸다.
 검수자 전용 `GET /clips`, `GET /clips/{id}`. 필드별 스키마는 서버 OpenAPI의 `ClipPageResponse`, `ClipSummaryResponse`, `ClipDetailResponse`, `ProcessingDetailsResponse`, `ProcessingProgressResponse`를 따른다.
 
 - 목록은 `page=0`, `size=20` 기본값이며 size는 1~100이다. `status=queued,running` 또는 반복 status 파라미터로 최신 run 상태를 OR 필터링한다. 허용값은 `queued/running/failed/succeeded/no_run`, 생략하면 전체다. `no_run`은 run이 없는 클립이다.
-- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 필터·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
+- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. 한 페이지의 `items`에는 같은 `clip_id`가 중복되지 않는다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 필터·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
 - `items[].progress`는 해당 `latest_run`의 기록 요약이다. `current_stage`는 running 단계가 정확히 하나일 때 그 이름이며, 그 외에는 null이다. `total_steps/succeeded_steps/skipped_steps/failed_steps`는 저장된 단계 상태의 수이며 생략은 실패 수에 중복 포함하지 않는다. 필수 단계 생략으로 run 자체가 실패할 수 있다.
 - run이 없으면 progress는 null이다. 기록이 부분·미확인·지원하지 않는 버전이면 `record_status`로 구분하고 단계 수는 null이다. 이 값을 0%나 완료로 추정하지 않는다. 진행 수는 소요 시간 기반 백분율이 아니다.
-- `search_available`과 `active_pipeline_run_id`는 현재 검색 제공 결과, `latest_run`·`progress`·`processing_details`는 최신 처리 시도다. 재처리 실패가 활성 결과를 무효화하지 않으며 검색 준비와 검수 완료는 별개다. 상세의 기본 대사 출처는 활성 결과 기준이다.
+- `search_available`과 `active_pipeline_run_id`는 현재 검색 제공 결과, `latest_run`·`progress`·`processing_details`는 최신 처리 시도다. 논리 삭제를 제외하는 이 목록·상세 API에서 `search_available`은 `active_pipeline_run_id != null`과 동치다. 활성 처리 ID가 있으면 true, 없으면 false이며 최신 run 상태로 계산하지 않는다. 재처리 실패가 활성 결과를 무효화하지 않으며 검색 준비와 검수 완료는 별개다. 상세의 기본 대사 출처는 활성 결과 기준이다.
 - 처리 상세는 단계 상태·실패 사유·누락 채널·실제 채택 대사 출처를 반환한다. `automatic_retryable`은 승인된 다음 자동 시도가 대기 중인지 나타낸다. 수동 재처리 가능 여부 `retryable`은 저장된 판정이 없어 null이며 재처리 API에서 별도로 연결한다.
 - 잘못된 페이지는 `CLIP_QUERY_400`, 허용하지 않는 상태는 `CLIP_QUERY_400_001`, 없는/삭제된 클립은 `CLIP_QUERY_404`를 반환한다.
 
-FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문의 목록을 연결한다. 영상 탭은 `queued,running,failed,no_run`과 `succeeded`를 서버에서 필터링하고, `progressPage` URL로 10건 단위 페이지를 유지한다. 영상 요약은 필터·페이지와 무관한 `run_counts`, 문의 요약은 `statusCounts`를 사용한다. 상세에서 원본 영상은 §6.1 미디어 API로 재생한다. 등록 후에는 응답 ID로 상세를 다시 조회하며 로컬 처리·장면 데이터를 합성하지 않는다. 영상 목록은 전체 queued/running이 있으면, 상세는 해당 최신 run이 queued/running이면 5초마다 조회한다. 완료·실패 및 조회 오류에서는 polling을 멈추며 사용자가 다시 조회할 수 있다.
+FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문의 목록을 연결한다. 영상 탭은 `queued,running,failed,no_run`과 `succeeded`를 서버에서 필터링하고, `progressPage` URL로 10건 단위 페이지를 유지한다. 영상 요약은 필터·페이지와 무관한 `run_counts`, 문의 요약은 `statusCounts`를 사용한다. 상세에서 원본 영상은 §6.1 미디어 API로 재생한다. 등록 후에는 응답 ID로 상세를 다시 조회하며 로컬 처리·장면 데이터를 합성하지 않는다. 영상 목록은 전체 queued/running이 있으면, 상세는 해당 최신 run이 queued/running이면 5초마다 조회한다. 상세 응답의 `latest_run`이 null인 경우에도 `clip.created_at` 기준 등록 후 1분 동안은 5초마다 재조회한다. 그 이후에도 기록이 없으면 반복 조회를 멈추고 ‘상태 새로고침’으로 다시 확인하도록 안내한다. 완료·실패 및 조회 오류에서는 polling을 멈추며 사용자가 다시 조회할 수 있다.
 
 기존 처리 화면의 mock 기능 중 다음 항목은 BE 추가·확장이 필요하다. 아래는 필요한 기능과 최소 데이터이며, 새로운 경로·method는 아직 확정하지 않는다.
 
