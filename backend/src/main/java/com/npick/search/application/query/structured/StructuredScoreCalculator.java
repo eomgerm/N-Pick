@@ -32,18 +32,20 @@ final class StructuredScoreCalculator {
         //
         // entities 는 PERSON·ORGANIZATION 으로, locations 는 LOCATION·FACILITY 로만 간다. 두 배열의 교차
         // 중복은 애초에 같은 축에 들어올 수 없으므로 add() 의 normalize 와 축별 Set 은 그것을 볼 일이 없다 —
-        // 축 안의 표기 차이만 접는다. 교차 중복을 거르는 단계는 워커 validator 의 _fold 하나뿐이다.
+        // 축 안의 표기 차이만 접는다.
         //
-        // 그 _fold 가 놓친 것은 여기 그대로 남는데, 그래도 맞다. 타입이 다르면 다른 조건이기 때문이다 —
+        // 교차 중복을 거르는 단계는 **어디에도 없다.** 이름이 같고 타입이 다르면 다른 조건이기 때문이다 —
         // sameNameWithDifferentTypesRemainsDistinctInNumeratorAndDenominator 가 그 상태를 고정한다.
-        // 두 겹 방어가 아니다. #59 가 그렇게 읽으면 잘못된 전제로 배선한다.
+        // 워커도 거르지 않는다 (S15P21A501-205 에서 validator 의 교차 중복 drop 을 지웠다. 그 drop 은
+        // FRD F-05 가 「종류가 다르면 이름이 같아도 다른 조건이다 (기관과 시설)」 로 명시한 바로 그 쌍을
+        // 지우고 있었다). #59 가 워커를 방어선으로 읽으면 잘못된 전제로 배선한다.
         //
-        // _fold 와 normalize 는 규칙도 다르다 — 앞은 공백을 접고 casefold 를 걸며, 뒤는 공백을 지우고
-        // casefold 를 걸지 않는다. entities "서울 역" 과 locations "서울역" 은 _fold 가 다르다고 보아
-        // 거르지 않는다. 이 차이는 S15P21A501-101 소관으로 남겼다.
+        // 같은 대상이 두 축에 걸리면 축이 하나 늘어 **분모가 커진다.** 한쪽 태그만 맞은 장면은 그만큼
+        // 점수가 깎이는데, 그게 F-05 의 「정보가 없는 항목에 가점을 주지 않는다」 이고 의도된 동작이다.
+        // 해석기가 같은 대상을 양쪽에 올리는 빈도는 프롬프트 품질 문제로 Gate B 에서 본다.
         //
-        // 판정 기준은 백엔드의 normalize 하나다. 워커의 비교 키를 고치거나 이 규칙을 Python 에
-        // 복제하지 않는다 — 구현이 둘이 되는 순간이 「조용히 0건」 의 원천이다 (S15P21A501-169).
+        // 판정 기준은 백엔드의 normalize 하나다. 이 규칙을 Python 에 복제하지 않는다 — 구현이 둘이 되는
+        // 순간이 「조용히 0건」 의 원천이다 (S15P21A501-169).
         for (var entity : resolution.entities()) {
             switch (entity.type()) {
                 case PERSON -> add(axes, StructuredAxis.PERSON, TagType.PERSON, entity.value());

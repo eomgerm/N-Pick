@@ -28,8 +28,9 @@ import java.util.List;
  *   <li><b>원 질의 토큰과 겹치는 확장어 토큰은 빼고 넘긴다.</b> 겹친 토큰은 두 절에서 각각 가산된다 (F-05 「같은 개체를 중복 계산하지
  *       않는다」). 확장어 목록 자체의 중복도 뺀다 — {@code validator.py} 는 이 축을 중복 제거하지 않는다
  *   <li><b>토큰은 원 질의와 같은 Kiwi 설정·전처리에서 나와야 한다.</b> 교정({@code patch_parse})으로 추가된 확장어는 리졸버가 모르는
- *       값이라 <b>규칙 적용 뒤</b> 토큰화해야 하는데, 백엔드에는 Kiwi 가 없고 워커 라우트는 {@code /health}·{@code /query/resolve}
- *       둘뿐이다. 토큰화 창구는 아직 없고 담당 일감도 없다
+ *       값이라 <b>규칙 적용 뒤</b> 토큰화해야 하는데 백엔드에는 Kiwi 가 없다. 그 창구가 워커의
+ *       {@code POST /query/tokenize} 다 (S15P21A501-205). 계약은 {@code docs/contracts/resolver-api.md} 이고, 색인 측
+ *       {@code ocr} 단계와 같은 함수를 쓰므로 토큰 경계가 어긋나지 않는다
  *   <li><b>가중치는 인자가 아니라 실행 설정이다.</b> {@code SceneCandidateProperties} 에 두고 <b>{@code LexicalSearchSettings} 와
  *       {@code SearchConfigSnapshot.lexicalPayload()} 에도 함께 더한다.</b> 그 payload 는 필드를 하나씩 열거하므로 properties 에만
  *       넣으면 순위를 바꾸는 값이 {@code config_version} 에 실리지 않아, 가중치가 다른 두 실행이 같은 버전으로 보인다. 값은 실측
