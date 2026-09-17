@@ -19,11 +19,6 @@ public class FalseHitGuardService implements ApplyFalseHitGuardUseCase {
 
     private final FalseHitGuardPolicy policy = new FalseHitGuardPolicy();
 
-    /** 사건명 충돌 자동 제외가 켜져 있는가. §8.3 의 「측정 불가」 구분을 위해 품질 리포트(-108)가 읽는다. */
-    public boolean incidentGuardActive() {
-        return policy.incidentGuardActive();
-    }
-
     @Override
     public FalseHitGuardResult apply(ApplyFalseHitGuardQuery query) {
         Objects.requireNonNull(query, "query");
@@ -40,6 +35,6 @@ public class FalseHitGuardService implements ApplyFalseHitGuardUseCase {
             excluded.add(new FalseHitGuardResult.ExcludedScene(
                     sceneId, exclusion.reason(), exclusion.field(), exclusion.conflictingTagIds()));
         }
-        return new FalseHitGuardResult(kept, excluded);
+        return new FalseHitGuardResult(kept, excluded, policy.incidentGuardActive());
     }
 }

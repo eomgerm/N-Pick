@@ -14,8 +14,12 @@ import com.npick.search.domain.model.QueryResolution.DateField;
  * @param sceneIds 제외 후 남은 장면. 입력 순위 그대로다
  * @param excludedScenes 빠진 장면과 그 근거. -60 의 {@code explain_json}·{@code filtered_json} 재료이며, 응답의
  *     {@code guard_summary} 도 이 목록에서 나온다
+ * @param incidentGuardActive 사건명 충돌 자동 제외가 켜져 있었는가. 실행마다 싣는다 — §8.3 이 「규칙이 승인되지 않았다면 해당
+ *     자동 제외를 끄고 그 지표를 측정 불가로 구분한다」 를 요구하는데, 이 값이 없으면 품질 리포트가 「꺼져서 0 건」 과 「켜져 있는데 0 건」 을
+ *     가를 수 없다
  */
-public record FalseHitGuardResult(List<Long> sceneIds, List<ExcludedScene> excludedScenes) {
+public record FalseHitGuardResult(
+        List<Long> sceneIds, List<ExcludedScene> excludedScenes, boolean incidentGuardActive) {
 
     public FalseHitGuardResult {
         sceneIds = List.copyOf(sceneIds);

@@ -36,6 +36,9 @@ class FalseHitGuardServiceTest {
         var result = service.apply(query);
 
         assertThat(result.sceneIds()).containsExactly(10L, 30L);
+        assertThat(result.incidentGuardActive())
+                .as("승인된 사건 충돌 규칙이 없으므로 이 실행의 지표는 측정 불가다")
+                .isFalse();
         assertThat(result.excludedScenes()).singleElement().satisfies(excluded -> {
             assertThat(excluded.sceneId()).isEqualTo(20L);
             assertThat(excluded.reason()).isEqualTo(GuardExclusionReason.EXPLICIT_DATE_CONFLICT);
@@ -58,12 +61,6 @@ class FalseHitGuardServiceTest {
         assertThatThrownBy(() -> new ApplyFalseHitGuardQuery(resolution(), List.of(10L, 20L), Map.of(10L, List.of())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("20");
-    }
-
-    @Test
-    @DisplayName("사건명 충돌 자동 제외는 꺼져 있다")
-    void incidentGuardIsInactive() {
-        assertThat(service.incidentGuardActive()).isFalse();
     }
 
     private static QueryResolution resolution() {
