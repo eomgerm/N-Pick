@@ -13,9 +13,9 @@ import com.npick.feedback.application.query.MyInquiryDetail;
 /**
  * 「내 문의 기록」 상세 응답 (S15P21A501-185). 목록 응답과 같은 snake_case/문자열 ID 규칙을 따른다({@link MyInquiryListResponse}).
  *
- * <p>{@code snapshot_status}/{@code result_snapshot} 판정: 계약상 당시 검색결과 스냅샷(display_name·scene_description 등)을
- * 담아야 하지만, {@code search_result} 테이블에 이를 복원할 저장 컬럼이 아직 없다(선행 S15P21A501-60 이 저장 계약을 소유, 미착수).
- * 이 메서드가 그 판정을 모으는 유일한 지점이다 — -60 이 서면 여기서 available 경로를 채운다. 지금은 항상 unavailable/null 이다.
+ * <p>{@code snapshot_status}/{@code result_snapshot} 판정: 저장된 {@code result_explain_json}에 {@code display_name}이
+ * 있으면 available과 당시 순위·explain을 담은 스냅샷을, 없으면(빈 객체·score-only·null·공백) unavailable과 null을 반환한다.
+ * {@link #from}이 이 판정을 모으는 유일한 지점이다. 표시값은 저장된 explain_json에서만 오며 현재 태그/장면으로 재생성하지 않는다.
  */
 public record MyInquiryDetailResponse(
         @JsonProperty("feedback_id") String feedbackId,
@@ -37,6 +37,12 @@ public record MyInquiryDetailResponse(
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    public record ResultSnapshot(
+            @JsonProperty("search_result_id") String searchResultId,
+            @JsonProperty("scene_id") String sceneId,
+            int rank,
+            JsonNode explain) {}
+
     public static MyInquiryDetailResponse from(MyInquiryDetail detail) {
         MyInquiryListResponse.Scene scene = new MyInquiryListResponse.Scene(
                 String.valueOf(detail.scene().sceneId()),
@@ -44,6 +50,7 @@ public record MyInquiryDetailResponse(
                 detail.scene().clipTitle(),
                 detail.scene().startTimeMs(),
                 detail.scene().endTimeMs());
+        ResultSnapshot snapshot = restoreSnapshot(detail);
         return new MyInquiryDetailResponse(
                 String.valueOf(detail.feedbackId()),
                 String.valueOf(detail.searchExecutionId()),
@@ -59,8 +66,35 @@ public record MyInquiryDetailResponse(
                 detail.resolutionNote(),
                 detail.reviewStartedAt(),
                 detail.closedAt(),
-                "unavailable",
-                null);
+                snapshot == null ? "unavailable" : "available",
+                snapshot);
+    }
+
+    private static ResultSnapshot restoreSnapshot(MyInquiryDetail detail) {
+        String explainJson = detail.resultExplainJson();
+        if (explainJson == null || explainJson.isBlank()) {
+            return null;
+        }
+        JsonNode explain = parseExplain(explainJson);
+        JsonNode displayName = explain.get("display_name");
+        // 재생성 금지: display 값은 저장된 explain 블롭에서만 온다. display_name 이 없으면 -59 가 표시값 스냅샷을
+        // 기록하지 않은 것(불완전) → unavailable. 현재 태그/장면으로 채우지 않는다.
+        if (displayName == null || displayName.isNull()) {
+            return null;
+        }
+        return new ResultSnapshot(
+                String.valueOf(detail.searchResultId()),
+                String.valueOf(detail.scene().sceneId()),
+                detail.resultRank(),
+                explain);
+    }
+
+    private static JsonNode parseExplain(String json) {
+        try {
+            return OBJECT_MAPPER.readTree(json);
+        } catch (JacksonException e) {
+            throw new IllegalStateException("result explain_json 파싱 실패", e);
+        }
     }
 
     private static JsonNode parseExplicitFilters(String json) {

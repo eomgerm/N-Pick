@@ -1,0 +1,61 @@
+package com.npick.feedback.presentation.response;
+
+import java.time.Instant;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import com.npick.feedback.application.query.InquiryScene;
+import com.npick.feedback.application.query.MyInquiryDetail;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class MyInquiryDetailResponseTest {
+
+    private static final InquiryScene SCENE = new InquiryScene(9302L, 9101L, "설 연휴 교통", 49000L, 55000L, 9201L, 3);
+
+    private MyInquiryDetail detailWithExplain(String explainJson) {
+        return new MyInquiryDetail(9902L, 9701L, 9802L, Instant.now(), Instant.now(),
+                "테스트 질의", null, "OPEN", null, SCENE, 2, explainJson, "{}", null, null, null);
+    }
+
+    @Test
+    @DisplayName("explain_json 에 display_name 이 있으면 available 과 당시 순위·explain 을 담은 result_snapshot 을 만든다")
+    void availableWhenDisplayNamePresent() {
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(
+                detailWithExplain("{\"display_name\":\"KBC 뉴스9\",\"scene_description\":\"서울역 인파\",\"score\":2}"));
+
+        assertThat(res.snapshotStatus()).isEqualTo("available");
+        assertThat(res.resultSnapshot()).isNotNull();
+        MyInquiryDetailResponse.ResultSnapshot snap = (MyInquiryDetailResponse.ResultSnapshot) res.resultSnapshot();
+        assertThat(snap.searchResultId()).isEqualTo("9802");
+        assertThat(snap.sceneId()).isEqualTo("9302");
+        assertThat(snap.rank()).isEqualTo(2);
+        assertThat(snap.explain().get("display_name").asText()).isEqualTo("KBC 뉴스9");
+    }
+
+    @Test
+    @DisplayName("explain_json 에 display_name 이 없으면(score-only) unavailable 과 null result_snapshot 이다")
+    void unavailableWhenNoDisplayName() {
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain("{\"score\":2}"));
+
+        assertThat(res.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(res.resultSnapshot()).isNull();
+    }
+
+    @Test
+    @DisplayName("explain_json 이 빈 객체여도 unavailable 로 취급한다")
+    void unavailableWhenEmptyObject() {
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain("{}"));
+
+        assertThat(res.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(res.resultSnapshot()).isNull();
+    }
+
+    @Test
+    @DisplayName("explain_json 이 null·공백이어도(방어적) unavailable 로 취급한다")
+    void unavailableWhenExplainNullOrBlank() {
+        assertThat(MyInquiryDetailResponse.from(detailWithExplain(null)).snapshotStatus()).isEqualTo("unavailable");
+        assertThat(MyInquiryDetailResponse.from(detailWithExplain("   ")).snapshotStatus()).isEqualTo("unavailable");
+    }
+}
