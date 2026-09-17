@@ -19,3 +19,8 @@ spring:
       # 되므로 QueryResolverClientWiringTest 가 그 이름을 검증한다.
       queryResolver:
         base-url: http://localhost:1
+
+# main 의 cors 블록은 local 프로파일 전용이라 test 에서는 비어 모든 Origin 이 거부된다.
+# RequestIdTracingHttpTest 의 CORS 검증(preflight 허용·X-Request-Id expose)이 성립하도록 허용 출처를 고정한다.
+cors:
+  allowed-origins: http://localhost:3000

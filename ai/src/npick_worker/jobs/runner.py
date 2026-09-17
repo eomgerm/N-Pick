@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Final
 
@@ -72,6 +73,30 @@ _UNEXPECTED_ERROR_BACKOFF_SECONDS: Final[float] = 5.0
 #: `_unwrap` 의 봉투 실패(`200 {"isSuccess": false}`)는 재시도도 수면도 없이 올라온다.
 #: 그 경로에 하한이 없으면 워커가 /claim 을 무제한 두드린다.
 _UNAVAILABLE_MIN_BACKOFF_SECONDS: Final[float] = 1.0
+
+
+class ClaimOutcome(Enum):
+    """claim 한 번의 결과. **네 갈래를 bool 로 뭉개면 배치 실행이 오판한다.**
+
+    상주 워커(`run`)는 어느 쪽이든 계속 돌면 되므로 이 구분이 필요 없지만, 배치 실행
+    (`drain`)은 "이제 그만 돌아도 되는가" 와 "색인이 실제로 됐는가" 를 이 값 하나로
+    판단한다. IDLE 과 BACKPRESSURE 를 뭉치면 BE 과부하에서 배치가 조기 종료하고,
+    SUCCEEDED 와 FAILED 를 뭉치면 단계가 전부 죽어도 종료 코드가 0 이 된다.
+    """
+
+    #: 배정이 없다. 큐가 비었다.
+    IDLE = "idle"
+    #: BE 가 `retryAfterMs` 로 물렀다 (계약 §4.1). 큐가 비었다는 뜻이 **아니다**.
+    BACKPRESSURE = "backpressure"
+    #: 잡을 처리했고 반납한 단계가 전부 성공이다.
+    SUCCEEDED = "succeeded"
+    #: 잡을 받았으나 성공으로 끝나지 않았다 — 단계 실패·lease 상실·결과 폐기.
+    FAILED = "failed"
+
+    # `__bool__` 을 두지 않는다. "잡을 받았는가" 로 쓰기 편해 보이지만 그러면 IDLE 과
+    # BACKPRESSURE 가 같은 falsy 가 되고, 그게 이 타입이 없애려는 오판이다.
+    # 호출부는 멤버를 직접 본다.
+
 
 #: 실패·생략을 보고할 때 쓰는 자리표시자 버전. 단계를 돌리지 못했으므로 실제 재현
 #: 식별자가 없다. 봉투는 versions 를 요구하므로 "확인되지 않았다" 를 명시적으로 적는다.
@@ -224,19 +249,21 @@ class JobRunner:
                 logger.exception("잡 루프에서 예상치 못한 오류가 났다. 계속 폴링한다.")
                 await asyncio.sleep(_UNEXPECTED_ERROR_BACKOFF_SECONDS)
 
-    async def run_once(self) -> bool:
-        """잡을 하나 받아 처리한다. 배정이 없으면 False.
+    async def run_once(self) -> ClaimOutcome:
+        """잡을 하나 받아 처리하고 그 결말을 돌려준다.
 
         빈 응답에서 쉬지 않는 것이 중요하다 — 대기는 이미 서버가 25초 했다.
+        `retryAfterMs` 가 실렸을 때만 그만큼 쉬고, 그건 과부하지 큐가 빈 것이 아니다.
         """
         response = await self._client.claim(self._claim_request())
         if not response.assigned or response.job is None or response.lease is None:
             if response.retry_after_ms:
                 await asyncio.sleep(response.retry_after_ms / 1000)
-            return False
+                return ClaimOutcome.BACKPRESSURE
+            return ClaimOutcome.IDLE
 
-        await self._process(response.job, response.lease)
-        return True
+        succeeded = await self._process(response.job, response.lease)
+        return ClaimOutcome.SUCCEEDED if succeeded else ClaimOutcome.FAILED
 
     def _claim_request(self) -> ClaimRequest:
         return ClaimRequest(
@@ -262,11 +289,16 @@ class JobRunner:
 
     # ── 잡 하나 ──────────────────────────────────────────────────────
 
-    async def _process(self, job: JobAssignment, lease: LeaseGrant) -> None:
+    async def _process(self, job: JobAssignment, lease: LeaseGrant) -> bool:
         """배정 하나를 처리하고, BE 가 다음 단계를 실어 보내면 이어서 처리한다.
 
         `next` 를 무시하면 BE 가 배정한 lease 가 실행도 heartbeat 도 없이 만료된다.
+
+        반환은 **사슬의 단계가 전부 성공으로 반납됐는가**다. `skipped` 는 성공으로
+        친다 — 비치명 단계의 생략은 계약이 허용하는 정상 결말이다(`stages.py`).
+        결과를 버리고 나온 경로(폐기·lease 상실·반납 충돌)는 성공이 아니다.
         """
+        succeeded = True
         while True:
             control = _JobControl(abandoned=asyncio.Event())
             self._client.bind_artifact_lease(job.pipeline_run_id, lease.lease_id)
@@ -283,7 +315,7 @@ class JobRunner:
                         job.pipeline_run_id,
                         job.stage,
                     )
-                    return
+                    return False
 
                 # **반납도 heartbeat 안에서 한다.** `_send` 는 complete 에 5회 시도를
                 # 주고 각 시도의 read timeout 이 30초라 최악 ~165초인데 lease TTL 은
@@ -293,7 +325,7 @@ class JobRunner:
                 ack = await self._client.complete(job.pipeline_run_id, job.stage, result)
             except LeaseLostError:
                 logger.warning("lease 를 잃어 결과를 버린다: %s/%s", job.pipeline_run_id, job.stage)
-                return
+                return False
             except (StageAlreadyCompletedError, JobApiConflictError) as exc:
                 logger.warning(
                     "결과를 반납하지 못했다 (%s): %s/%s",
@@ -301,7 +333,7 @@ class JobRunner:
                     job.pipeline_run_id,
                     job.stage,
                 )
-                return
+                return False
             finally:
                 self._client.release_artifact_lease(job.pipeline_run_id)
                 heartbeat.cancel()
@@ -311,9 +343,11 @@ class JobRunner:
                 # 여기서 올려 `try` 의 예외까지 가린다.
                 await asyncio.gather(heartbeat, return_exceptions=True)
 
+            succeeded = succeeded and result.status != "failed"
+
             nxt = ack.next
             if nxt is None or not nxt.assigned or nxt.job is None or nxt.lease is None:
-                return
+                return succeeded
             job, lease = nxt.job, nxt.lease
 
     async def _heartbeat_loop(

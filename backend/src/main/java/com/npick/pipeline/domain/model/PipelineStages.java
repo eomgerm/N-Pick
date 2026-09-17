@@ -20,7 +20,11 @@ public final class PipelineStages {
 
     private PipelineStages() {}
 
+    /** 출력 payload 의 schema 문자열. 워커의 {@code jobs/versions.py} 와 같은 예외 목록을 가진다. */
     public static String outputSchema(String stage) {
-        return "npick.stage." + stage + (stage.equals("vlm_metadata") ? ".output/v2" : ".output/v1");
+        return "npick.stage." + stage + (V2_OUTPUT.contains(stage) ? ".output/v2" : ".output/v1");
     }
+
+    /** {@code ocr} 은 병합 그룹(S15P21A501-95), {@code vlm_metadata} 는 텍스트 근거(S15P21A501-92)로 봉투가 올라갔다. */
+    private static final Set<String> V2_OUTPUT = Set.of("ocr", "vlm_metadata");
 }

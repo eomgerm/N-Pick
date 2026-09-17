@@ -14,8 +14,8 @@ public interface SceneExcludeCandidateRepository {
     /**
      * 후보를 저장하고 생성된 id 를 준다. 같은 신고·대상 장면의 후보가 이미 있으면 아무것도 하지 않고 {@link Optional#empty()} 를 준다.
      *
-     * <p>{@code ON CONFLICT (source_feedback_id, target_scene_id) DO NOTHING} 으로 충돌을 예외 없이 흡수한다 — 어떤 propagation
-     * 에서도 안전하고 동시 재시도가 500 이 되지 않는다. exclude 후보는 장면당 하나뿐이라 request_key 가 달라진 재시도도 중복을 만들지 않는다.
+     * <p>{@code ON CONFLICT (source_feedback_id, target_scene_id) DO NOTHING} 으로 충돌을 예외 없이 흡수한다 — 어떤 propagation 에서도
+     * 안전하고 동시 재시도가 500 이 되지 않는다. exclude 후보는 장면당 하나뿐이라 request_key 가 달라진 재시도도 중복을 만들지 않는다.
      */
     Optional<Long> insertIfAbsent(SceneExcludeCandidate candidate);
 

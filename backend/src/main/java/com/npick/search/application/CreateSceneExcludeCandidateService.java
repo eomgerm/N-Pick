@@ -20,7 +20,7 @@ import com.npick.search.domain.repository.SceneExcludeCandidateRepository;
  * <p><b>트랜잭션 경계는 저장소가 갖는다.</b> 이 서비스는 트랜잭션을 열지 않는다. 유니크 위반이 저장소 트랜잭션 안에서만 롤백되어야 복구 조회(멱등)가 오염 없이 성립하기 때문이다.
  */
 @Service
-public class CreateSceneExcludeCandidateService {
+public class CreateSceneExcludeCandidateService implements CreateSceneExcludeCandidateUseCase {
 
     private final ExcludeContextPort excludeContextPort;
     private final SceneExcludeCandidateRepository candidateRepository;
@@ -31,6 +31,7 @@ public class CreateSceneExcludeCandidateService {
         this.candidateRepository = candidateRepository;
     }
 
+    @Override
     public ParseCandidateOutcome create(CreateSceneExcludeCandidateCommand command) {
         if (!command.reviewerRole()) {
             throw new BusinessException(SceneExcludeCandidateErrorCode.EDITOR_FORBIDDEN);

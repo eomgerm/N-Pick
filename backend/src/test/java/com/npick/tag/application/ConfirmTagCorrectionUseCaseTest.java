@@ -21,7 +21,7 @@ class ConfirmTagCorrectionUseCaseTest {
     @BeforeEach
     void setUp() {
         repository = mock(TagCorrectionConfirmationRepository.class);
-        useCase = new ConfirmTagCorrectionUseCase(repository);
+        useCase = new ConfirmTagCorrectionService(repository);
     }
 
     @Test

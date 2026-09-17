@@ -2,7 +2,6 @@ package com.npick.feedback.infrastructure.persistence.query;
 
 import java.util.List;
 import java.util.Optional;
-
 import jakarta.persistence.EntityManager;
 
 import org.springframework.stereotype.Repository;
@@ -30,8 +29,7 @@ class ConfirmationTargetQueryAdapter implements ConfirmationTargetPort {
             return Optional.empty();
         }
         Object[] row = (Object[]) rows.get(0);
-        return Optional.of(new ConfirmationTarget(
-                (String) row[0], (String) row[1], toLong(row[2]), toLong(row[3])));
+        return Optional.of(new ConfirmationTarget((String) row[0], (String) row[1], toLong(row[2]), toLong(row[3])));
     }
 
     private static Long toLong(Object value) {
