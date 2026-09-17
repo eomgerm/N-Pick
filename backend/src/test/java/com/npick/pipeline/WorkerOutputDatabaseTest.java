@@ -419,8 +419,13 @@ class WorkerOutputDatabaseTest {
         assertThat(adapter.supports("text_embedding")).isTrue();
         assertThat(adapter.supports("indexing")).isTrue();
         assertThat(adapter.supports("scene_transcript_mapping")).isTrue();
-        // 워커도 BE 도 없는 단계는 여전히 거짓이다. 저장 자리가 없는 성공 결과를 받지 않는다.
-        assertThat(adapter.supports("entity_extraction")).isFalse();
+        assertThat(adapter.supports("entity_extraction")).isTrue();
+        // 단계 표와 지원 집합이 같아야 한다. 하나가 빠지면 그 단계가 claim capabilities 에서
+        // 지워져 run 이 그 자리에서 멈추고, 표에 없는 이름을 받으면 저장 자리 없는 성공 결과를
+        // 정상으로 받는다.
+        assertThat(PipelineStages.NAMES.stream().filter(adapter::supports).toList())
+                .isEqualTo(PipelineStages.NAMES);
+        assertThat(adapter.supports("montage")).isFalse();
     }
 
     @Test
@@ -634,7 +639,13 @@ class WorkerOutputDatabaseTest {
     private static final String KEY_0 = FRAMES + "s0000/kf-000000500.jpg";
     private static final String KEY_1 = FRAMES + "s0001/kf-000001500.jpg";
 
-    /** 장면 2개와 각 장면의 keyframe 1장. `ocr`·`vlm_metadata` 가 붙을 자리다. */
+    /**
+     * 장면 0 의 두 번째 프레임. 한 장면에 프레임이 하나뿐이면 그 장면의 OCR 근거가 이미지 근거와 같은 프레임을 가리킬 수밖에 없어, 저장이 OCR 근거를 통째로 버려도 아무 테스트가 깨지지 않는다.
+     * 계약도 장면당 여러 장을 넣는다고 적는다(§4.3.3).
+     */
+    private static final String KEY_0B = FRAMES + "s0000/kf-000000900.jpg";
+
+    /** 장면 2개와 keyframe 3장(장면 0 이 두 장). `ocr`·`vlm_metadata` 가 붙을 자리다. */
     private void storeKeyframes() throws Exception {
         storeTwoScenes();
         byte[] image = new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff};
@@ -642,7 +653,7 @@ class WorkerOutputDatabaseTest {
                 .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(image));
         var store = new LocalWorkerArtifactAdapter(root);
         List<Map<String, Object>> refs = new java.util.ArrayList<>();
-        for (String key : List.of(KEY_0, KEY_1)) {
+        for (String key : List.of(KEY_0, KEY_0B, KEY_1)) {
             try (var upload =
                     store.prepareUpload(FRAMES, key, image.length, hash, new java.io.ByteArrayInputStream(image))) {
                 upload.publish();
@@ -664,7 +675,9 @@ class WorkerOutputDatabaseTest {
                                         "representativeTimestampMs",
                                         500,
                                         "keyframes",
-                                        List.of(Map.of("sceneIndex", 0, "timestampMs", 500, "storageKey", KEY_0))),
+                                        List.of(
+                                                Map.of("sceneIndex", 0, "timestampMs", 500, "storageKey", KEY_0),
+                                                Map.of("sceneIndex", 0, "timestampMs", 900, "storageKey", KEY_0B))),
                                 Map.of(
                                         "sceneIndex",
                                         1,
@@ -801,7 +814,7 @@ class WorkerOutputDatabaseTest {
                         702,
                         "ocr",
                         "runs/703/ocr/a1/",
-                        ocrResult(List.of(observation(0, 500, KEY_0, "강원도 대표 볼거리관", "강원도 대표 볼거리 관", 0.9981)), 2, true)))
+                        ocrResult(List.of(observation(0, 500, KEY_0, "강원도 대표 볼거리관", "강원도 대표 볼거리 관", 0.9981)), 3, true)))
                 .isEmpty();
 
         var stored = storedObservations();
@@ -848,7 +861,7 @@ class WorkerOutputDatabaseTest {
                 702,
                 "ocr",
                 "runs/703/ocr/a1/",
-                ocrResult(List.of(observation(0, 500, KEY_0, "▶", "", 0.71)), 2, true));
+                ocrResult(List.of(observation(0, 500, KEY_0, "▶", "", 0.71)), 3, true));
 
         assertThat(storedObservations()).singleElement().hasFieldOrPropertyWithValue("tokens", "");
     }
@@ -858,17 +871,17 @@ class WorkerOutputDatabaseTest {
         storeKeyframes();
 
         // "0장을 읽고 0건" 과 "23장을 읽고 0건" 을 가르는 값이다(계약 §4.3.2). OCR 은 모든
-        // keyframe 을 읽으므로 많아도 적어도 안 된다 — 2장 중 1장만 읽고 죽다 만 워커가
+        // keyframe 을 읽으므로 많아도 적어도 안 된다 — 3장 중 1장만 읽고 죽다 만 워커가
         // `keyframesRead: 1, observations: []` 로 성공을 신고하면 "이 영상에는 화면 글자가
         // 없다" 는 거짓이 정본에 남는다.
-        for (int read : new int[] {3, 1})
+        for (int read : new int[] {4, 1})
             assertThatThrownBy(() -> adapter.validateAndStore(
                             703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(List.of(), read, true)))
                     .isInstanceOfSatisfying(
                             BusinessException.class,
                             e -> assertThat(e.errorCode().code()).isEqualTo("JOB_400_001"));
         // 글자가 없는 영상은 실패가 아니다. 읽은 장 수가 맞으면 관측 0건으로 통과한다.
-        assertThat(adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(List.of(), 2, true)))
+        assertThat(adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(List.of(), 3, true)))
                 .isEmpty();
     }
 
@@ -880,11 +893,11 @@ class WorkerOutputDatabaseTest {
         // 산출물이 없으면 `textGroups`·`mergeConfigVersion` 의 보관처가 사라진다. 그 둘은
         // `ocr_observation` 에 칸이 없어 파일이 유일한 정본이다(계약 §4.3.2).
         assertThatThrownBy(
-                        () -> adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 2, false)))
+                        () -> adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 3, false)))
                 .isInstanceOf(BusinessException.class);
         // 파일과 complete 가 갈리면 그룹의 관측 인덱스가 어느 배열을 가리키는지 알 수 없다.
         assertThatThrownBy(() -> adapter.validateAndStore(
-                        703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 2, true, stored -> {
+                        703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 3, true, stored -> {
                             var changed = new java.util.LinkedHashMap<>(stored);
                             changed.put("keyframesRead", 1);
                             return changed;
@@ -892,7 +905,7 @@ class WorkerOutputDatabaseTest {
                 .isInstanceOf(BusinessException.class);
         assertThat(storedObservations()).isEmpty();
 
-        adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 2, true));
+        adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 3, true));
         assertThat(storedObservations()).hasSize(1);
     }
 
@@ -900,12 +913,12 @@ class WorkerOutputDatabaseTest {
     void rejectsASecondSetOfObservationsForTheSameRun() throws Exception {
         storeKeyframes();
         var read = List.of(observation(0, 500, KEY_0, "강원도", "강원도", 0.99));
-        adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 2, true));
+        adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 3, true));
 
         // 같은 run 에 두 번 저장되면 같은 글자가 두 근거로 남아 검색 결과가 중복된다
         // (`scenes()` 와 같은 불변식).
         assertThatThrownBy(
-                        () -> adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 2, true)))
+                        () -> adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 3, true)))
                 .isInstanceOf(BusinessException.class);
         assertThat(storedObservations()).hasSize(1);
     }
@@ -1057,12 +1070,13 @@ class WorkerOutputDatabaseTest {
                                         "홍길동",
                                         0.8,
                                         frame(0, 500, KEY_0),
-                                        readText(0, 500, KEY_0, 3),
+                                        readText(0, 900, KEY_0B, 3),
                                         spoken(0, "s1", 0, 900))),
                         described(1, judgement("anchor", 0.9, frame(1, 1500, KEY_1)), null)));
 
         // OCR 근거도 프레임 참조를 실으므로 `keyframe` 으로 되돌린다. 관측 인덱스는 DB ID 가
         // 아니라 `ocr_result` 산출물이 정본이다. 대사는 계약대로 scene 근거로 간다.
+        // 세 근거가 서로 다른 곳을 가리키므로 세 행이 남는다.
         assertThat(jdbc.queryForList(
                         "SELECT source_ref_type, count(*) AS rows FROM npick.tag_evidence GROUP BY 1 ORDER BY 1"))
                 .containsExactly(
@@ -1083,7 +1097,8 @@ class WorkerOutputDatabaseTest {
 
         for (Map<String, Object> broken : List.<Map<String, Object>>of(
                 Map.of("sourceRefType", "montage", "sceneIndex", 0, "timestampMs", 500, "storageKey", KEY_0),
-                // 모양이 맞아도 이 run 에 없는 장면을 가리키면 근거가 아니다.
+                // 모양이 맞아도 판단이 달린 장면이 아니면 근거가 아니다. 이 run 에 아예 없는
+                // 장면이기도 하다.
                 Map.of(
                         "sourceRefType",
                         "scene",
@@ -1114,6 +1129,48 @@ class WorkerOutputDatabaseTest {
                     .isInstanceOf(BusinessException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag", Long.class))
                 .isZero();
+    }
+
+    @Test
+    void rejectsEvidenceThatPointsAtAnotherScene() throws Exception {
+        storeKeyframes();
+
+        // 워커는 장면마다 그 장면의 라벨만 준다(`vlm_metadata/validator.py`). 남의 장면
+        // 근거가 들어오면 그 태그는 장면 0 밑에 장면 1 의 참조를 달고 굳는데, 저장되는 것은
+        // 참조 ID 뿐이라 나중에 가려낼 방법이 없다. 8단계 워커는 같은 payload 를 되받아
+        // `same_scene` 으로 거절하므로 그 클립의 8단계가 매 시도 영구 실패한다.
+        for (Map<String, Object> across :
+                List.<Map<String, Object>>of(frame(1, 1500, KEY_1), spoken(1, "s1", 1000, 1900)))
+            assertThatThrownBy(() -> adapter.validateAndStore(
+                            703,
+                            702,
+                            "vlm_metadata",
+                            "runs/703/vlm_metadata/a1/",
+                            vlmResult(
+                                    described(
+                                            0,
+                                            judgement("b_roll", 0.82, frame(0, 500, KEY_0)),
+                                            null,
+                                            candidate("keyword", "사고", 0.5, across)),
+                                    described(1, judgement("anchor", 0.9, frame(1, 1500, KEY_1)), null))))
+                    .isInstanceOf(BusinessException.class);
+
+        // 캡션 근거도 같은 규칙이다.
+        assertThatThrownBy(() -> adapter.validateAndStore(
+                        703,
+                        702,
+                        "vlm_metadata",
+                        "runs/703/vlm_metadata/a1/",
+                        vlmResult(
+                                described(
+                                        0,
+                                        judgement("b_roll", 0.82, frame(0, 500, KEY_0)),
+                                        caption("앵커", "앵커", 0.7, frame(1, 1500, KEY_1))),
+                                described(1, judgement("anchor", 0.9, frame(1, 1500, KEY_1)), null))))
+                .isInstanceOf(BusinessException.class);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag", Long.class))
+                .isZero();
+        assertThat(storedScenes()).allSatisfy(scene -> assertThat(scene).containsEntry("caption", null));
     }
 
     @Test
@@ -1281,7 +1338,7 @@ class WorkerOutputDatabaseTest {
         // 워커는 두 단계에 v2 를 싣는다. 봉투 문자열을 BE 가 따로 조립하면 배정 payload 와
         // complete 검사가 갈려, 저장 분기가 있어도 성공 결과가 거절된다(계약 §11-12).
         for (Map<String, Object> result : List.of(
-                ocrResult(List.of(), 2, true),
+                ocrResult(List.of(), 3, true),
                 vlmResult(
                         described(0, judgement("unknown", 0.1), null),
                         described(1, judgement("unknown", 0.1), null)))) {
@@ -1297,7 +1354,7 @@ class WorkerOutputDatabaseTest {
     private Map<String, Object> ocrWith(
             List<Map<String, Object>> observations, java.util.function.UnaryOperator<Map<String, Object>> change)
             throws Exception {
-        return ocrResult(observations, 2, true, change, change);
+        return ocrResult(observations, 3, true, change, change);
     }
 
     private static Map<String, Object> replacing(Map<String, Object> output, String key, Object value) {
@@ -1332,7 +1389,7 @@ class WorkerOutputDatabaseTest {
                     .isInstanceOf(BusinessException.class);
         assertThat(storedObservations()).isEmpty();
 
-        adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 2, true));
+        adapter.validateAndStore(703, 702, "ocr", "runs/703/ocr/a1/", ocrResult(read, 3, true));
         assertThat(storedObservations()).hasSize(2);
     }
 
@@ -1366,7 +1423,7 @@ class WorkerOutputDatabaseTest {
                         702,
                         "ocr",
                         "runs/703/ocr/a1/",
-                        ocrResult(List.of(observation(0, 500, KEY_0, "강원도", "강원도", 0.99815)), 2, true)))
+                        ocrResult(List.of(observation(0, 500, KEY_0, "강원도", "강원도", 0.99815)), 3, true)))
                 .isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> adapter.validateAndStore(
                         703,
@@ -1679,7 +1736,7 @@ class WorkerOutputDatabaseTest {
 
         // 이 단계가 올리는 파일은 하나다(계약 §4.3.2). 곁다리 참조가 함께 오면 그것이
         // 무엇인지 이 어댑터가 알지 못하고, 보존 대상인지도 계약에 없다.
-        var extra = new java.util.LinkedHashMap<>(ocrResult(read, 2, true));
+        var extra = new java.util.LinkedHashMap<>(ocrResult(read, 3, true));
         byte[] bytes = "{}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         String hash = java.util.HexFormat.of()
                 .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
@@ -2082,5 +2139,311 @@ class WorkerOutputDatabaseTest {
         var unregistered = new java.util.LinkedHashMap<>(mappingResult(segments, List.of("a"), scenes));
         unregistered.put("artifacts", List.of());
         assertRejects(unregistered);
+    }
+
+    // ── entity_extraction (S15P21A501-192) ──────────────────────────────
+
+    /** 8단계 후보 하나. {@code source} 는 자체 NER 이면 {@code rule}, VLM 패스스루면 {@code vlm} 이다(계약 §4.3.6). */
+    private static Map<String, Object> entity(
+            String type, String value, String source, double confidence, Object... evidence) {
+        return Map.of(
+                "type",
+                type,
+                "value",
+                value,
+                "source",
+                source,
+                "confidence",
+                confidence,
+                "evidence",
+                List.of(evidence));
+    }
+
+    /** 후보가 없는 장면도 한 칸을 차지한다 — 워커는 장면 전부를 돌려준다. */
+    private static Map<String, Object> entityScene(int sceneIndex, Object... candidates) {
+        return Map.of("sceneIndex", sceneIndex, "tagCandidates", List.of(candidates));
+    }
+
+    private static Map<String, Object> entityResult(Object... scenes) {
+        return body("entity_extraction", Map.of("scenes", List.of(scenes)));
+    }
+
+    private Map<String, Object> storeEntities(Map<String, Object> result) {
+        return adapter.validateAndStore(703, 702, "entity_extraction", "runs/703/entity_extraction/a1/", result);
+    }
+
+    private void assertEntityRejected(Map<String, Object> result) {
+        assertThatThrownBy(() -> storeEntities(result))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.errorCode().code()).isEqualTo("JOB_400_001"));
+    }
+
+    @Test
+    void storesSceneTagCandidatesAsUnverifiedRuleEvidence() throws Exception {
+        storeKeyframes();
+
+        assertThat(storeEntities(entityResult(
+                        entityScene(0, entity("person", "홍 길동", "rule", 0.8712, frame(0, 500, KEY_0))),
+                        entityScene(1))))
+                .isEmpty();
+
+        // 표시값은 `name`, 매칭값은 NFKC + 공백 제거다.
+        assertThat(jdbc.queryForList("SELECT tag_type, match_value, name FROM npick.tag"))
+                .containsExactly(Map.of("tag_type", "person", "match_value", "홍길동", "name", "홍 길동"));
+        assertThat(jdbc.queryForList("""
+                        SELECT e.source, e.verification_status, e.confirmed, e.source_ref_type, e.confidence,
+                               e.source_feedback_id, t.clip_id, t.scene_id IS NOT NULL AS scoped
+                        FROM npick.tag_evidence e JOIN npick.tagging t USING (tagging_id)
+                        """)).singleElement().satisfies(row -> {
+            // 자동 후보는 검증되지 않은 상태로 고정한다 (FR-PRC-052). 신뢰도가 높다고
+            // verified 로 올리지 않으며, 사람 판단은 `reviewer_feedback` 으로 따로 남는다.
+            assertThat(row)
+                    .containsEntry("source", "rule")
+                    .containsEntry("verification_status", "unverified")
+                    .containsEntry("confirmed", true)
+                    .containsEntry("source_ref_type", "keyframe")
+                    .containsEntry("source_feedback_id", null)
+                    .containsEntry("clip_id", 702L)
+                    // 클립 태그를 자동 생성하지 않는다 (FR-PRC-055).
+                    .containsEntry("scoped", true);
+            assertThat(((Number) row.get("confidence")).doubleValue()).isEqualTo(0.8712);
+        });
+    }
+
+    @Test
+    void keepsEveryEvidenceOfAnEntityCandidate() throws Exception {
+        storeKeyframes();
+
+        storeEntities(entityResult(
+                entityScene(
+                        0,
+                        entity(
+                                "organization",
+                                "국회",
+                                "rule",
+                                0.72,
+                                frame(0, 500, KEY_0),
+                                readText(0, 900, KEY_0B, 3),
+                                spoken(0, "s1", 0, 900))),
+                entityScene(1)));
+
+        // OCR 근거도 프레임 참조를 실으므로 `keyframe` 으로 되돌린다. 대사는 scene 근거다.
+        // 셋이 서로 다른 곳을 가리키므로 하나도 접히지 않는다.
+        assertThat(jdbc.queryForList(
+                        "SELECT source_ref_type, count(*) AS rows FROM npick.tag_evidence GROUP BY 1 ORDER BY 1"))
+                .containsExactly(
+                        Map.of("source_ref_type", "keyframe", "rows", 2L),
+                        Map.of("source_ref_type", "scene", "rows", 1L));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tagging", Long.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void foldsEvidenceThatWouldBeStoredAsTheSameReference() throws Exception {
+        storeKeyframes();
+
+        // 같은 프레임의 이미지 근거와 OCR 근거는 저장하면 `('keyframe', keyframe_id)` 로
+        // 같아져 `evidence_id` 말고는 구분할 칸이 없다. 두 행을 남겨도 어느 쪽이 무엇이었는지
+        // 조회로 답할 수 없으므로 한 행으로 접는다 — 관측 단위는 `ocr_result` 가 정본이다.
+        storeEntities(entityResult(
+                entityScene(
+                        0,
+                        entity("organization", "국회", "rule", 0.72, frame(0, 500, KEY_0), readText(0, 500, KEY_0, 3))),
+                entityScene(1)));
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag_evidence", Long.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void keepsTheHighestConfidenceWhenTwoCandidatesNormaliseToOneTag() throws Exception {
+        storeKeyframes();
+
+        // 7단계는 정규화 전 표기로만 후보를 합친다(`vlm_metadata/validator.py`). 표기만 다른
+        // 두 후보가 BE 에서 같은 `match_value` 가 되면 같은 태그·같은 근거가 되는데, 그때
+        // 뒤 후보를 그냥 버리면 신뢰도가 조용히 낮은 쪽으로 굳는다. 워커가 자기 안에서 쓰는
+        // 규칙과 같게 접는다 — 최초 표시값, 최대 신뢰도, 근거 합집합(계약 §4.3.6).
+        adapter.validateAndStore(
+                703,
+                702,
+                "vlm_metadata",
+                "runs/703/vlm_metadata/a1/",
+                vlmResult(
+                        described(
+                                0,
+                                judgement("b_roll", 0.82, frame(0, 500, KEY_0)),
+                                null,
+                                candidate("person", "홍 길동", 0.4, frame(0, 500, KEY_0)),
+                                candidate("person", "홍길동", 0.9, frame(0, 500, KEY_0), frame(0, 900, KEY_0B))),
+                        described(1, judgement("anchor", 0.9, frame(1, 1500, KEY_1)), null)));
+
+        assertThat(jdbc.queryForList("SELECT tag_type, match_value, name FROM npick.tag"))
+                .containsExactly(Map.of("tag_type", "person", "match_value", "홍길동", "name", "홍 길동"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tagging", Long.class))
+                .isEqualTo(1);
+        // 근거는 두 프레임의 합집합이고, 둘 다 높은 쪽 신뢰도를 단다.
+        assertThat(jdbc.queryForList("SELECT confidence FROM npick.tag_evidence"))
+                .hasSize(2)
+                .allSatisfy(row -> assertThat(((Number) row.get("confidence")).doubleValue())
+                        .isEqualTo(0.9));
+    }
+
+    @Test
+    void addsRuleEvidenceToTheVlmTaggingOfTheSameTag() throws Exception {
+        storeKeyframes();
+        adapter.validateAndStore(
+                703,
+                702,
+                "vlm_metadata",
+                "runs/703/vlm_metadata/a1/",
+                vlmResult(
+                        described(
+                                0,
+                                judgement("b_roll", 0.82, frame(0, 500, KEY_0)),
+                                null,
+                                candidate("person", "홍길동", 0.6, frame(0, 500, KEY_0))),
+                        described(1, judgement("anchor", 0.9, frame(1, 1500, KEY_1)), null)));
+
+        // 같은 장면·같은 태그를 두 단계가 각자 찾아냈다. `tagging` 은 UNIQUE 로 하나로
+        // 접히고 근거만 둘이 된다 — 출처가 다르므로 접으면 어느 단계가 찾았는지가 사라진다.
+        storeEntities(entityResult(
+                entityScene(0, entity("person", "홍길동", "rule", 0.9, frame(0, 500, KEY_0))), entityScene(1)));
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag", Long.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tagging", Long.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT source, count(*) AS rows FROM npick.tag_evidence GROUP BY 1 ORDER BY 1"))
+                .containsExactly(Map.of("source", "rule", "rows", 1L), Map.of("source", "vlm", "rows", 1L));
+    }
+
+    @Test
+    void dropsAVlmCandidateEvenWhenItWasNeverStored() throws Exception {
+        storeKeyframes();
+
+        // 7단계가 저장한 적 없는 `vlm` 후보도 버린다. 저장 여부를 조회해 갈라내면 "이 단계가
+        // 만든 판단" 과 "되실은 상류 후보" 의 경계가 DB 상태에 매달린다. 규약상 닿지 않는
+        // 입력이다 — `upstream()` 이 7단계 출력을 그대로 돌려주고 `captions()` 는 그것을
+        // 전부 저장하거나 전체를 거절한다. 검증은 그대로 하므로 망가진 후보는 거절된다.
+        assertThat(storeEntities(entityResult(
+                        entityScene(0, entity("scene_type", "사고 현장", "vlm", 0.61, frame(0, 500, KEY_0))),
+                        entityScene(1))))
+                .isEmpty();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag", Long.class))
+                .isZero();
+    }
+
+    @Test
+    void doesNotStoreVlmCandidatesTwice() throws Exception {
+        storeKeyframes();
+        adapter.validateAndStore(
+                703,
+                702,
+                "vlm_metadata",
+                "runs/703/vlm_metadata/a1/",
+                vlmResult(
+                        described(
+                                0,
+                                judgement("b_roll", 0.82, frame(0, 500, KEY_0)),
+                                null,
+                                candidate("scene_type", "사고 현장", 0.61, frame(0, 500, KEY_0))),
+                        described(1, judgement("anchor", 0.9, frame(1, 1500, KEY_1)), null)));
+
+        // 8단계는 7단계 후보를 그대로 되싣는다. 다시 넣으면 `tagging` 은 UNIQUE 로 접히지만
+        // `tag_evidence` 는 쌓여 같은 태그가 같은 근거를 두 번 갖는다.
+        storeEntities(entityResult(
+                entityScene(
+                        0,
+                        entity("scene_type", "사고 현장", "vlm", 0.61, frame(0, 500, KEY_0)),
+                        entity("person", "홍길동", "rule", 0.7, frame(0, 500, KEY_0))),
+                entityScene(1)));
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tagging", Long.class))
+                .isEqualTo(2);
+        assertThat(jdbc.queryForList("SELECT source, count(*) AS rows FROM npick.tag_evidence GROUP BY 1 ORDER BY 1"))
+                .containsExactly(Map.of("source", "rule", "rows", 1L), Map.of("source", "vlm", "rows", 1L));
+    }
+
+    @Test
+    void rejectsAMalformedEntityCandidate() throws Exception {
+        storeKeyframes();
+
+        for (Map<String, Object> broken : List.<Map<String, Object>>of(
+                // 출처 어휘는 둘뿐이다. 입력이 OCR·CC 여도 `source` 는 바뀌지 않는다.
+                entity("person", "홍길동", "ocr", 0.7, frame(0, 500, KEY_0)),
+                // 출처 자체가 없으면 저장할 후보인지 되실은 후보인지 가를 수 없다.
+                Map.of("type", "person", "value", "홍길동", "confidence", 0.7, "evidence", List.of(frame(0, 500, KEY_0))),
+                // 분류 유형은 VLM 입력 후보만 전달한다 — 자체 NER 이 낼 수 있는 값이 아니다.
+                entity("scene_type", "사고 현장", "rule", 0.7, frame(0, 500, KEY_0)),
+                // 날짜 유형은 v1 자동 후보에서 제외다 — 화면에 날짜가 보인다는 사실과
+                // 그것이 방송일이라는 판단은 다르다 (FRD §3 F-04).
+                entity("broadcast_date", "2026-09-17", "rule", 0.9, frame(0, 500, KEY_0)),
+                // `numeric(5,4)` 라 다섯째 자리는 DB 가 반올림해 워커 기록과 저장값이 갈린다.
+                entity("person", "홍길동", "rule", 0.12345, frame(0, 500, KEY_0)),
+                entity("person", "홍길동", "rule", 1.5, frame(0, 500, KEY_0)),
+                // 근거 없는 후보는 검수자가 확인할 방법이 없다.
+                entity("person", "홍길동", "rule", 0.7),
+                // 후보는 자기 장면만 가리킨다. 다른 장면의 프레임이 근거로 붙으면
+                // 잘못 붙은 근거를 나중에 가려낼 방법이 없다.
+                entity("person", "홍길동", "rule", 0.7, frame(1, 1500, KEY_1))))
+            assertEntityRejected(entityResult(entityScene(0, broken), entityScene(1)));
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag", Long.class))
+                .isZero();
+    }
+
+    @Test
+    void rejectsAnEntityPayloadThatDoesNotCoverTheRun() throws Exception {
+        storeKeyframes();
+        var one = entityScene(0, entity("person", "홍길동", "rule", 0.7, frame(0, 500, KEY_0)));
+
+        // 빠진 장면은 "후보 없는 장면" 으로 굳고, 중복 장면은 뒤 후보가 앞 후보를 가린다.
+        assertEntityRejected(entityResult(one));
+        assertEntityRejected(entityResult(one, entityScene(0)));
+        assertEntityRejected(entityResult(one, entityScene(2)));
+
+        assertThat(storeEntities(entityResult(one, entityScene(1)))).isEmpty();
+        // 같은 run 에 두 번 쓰면 `tagging` 은 접히지만 근거만 두 배가 된다.
+        assertEntityRejected(entityResult(one, entityScene(1)));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag_evidence", Long.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void foldsEntityCandidatesThatOnlyTheBackendNormalisesTogether() throws Exception {
+        storeKeyframes();
+
+        // 워커의 `match_key` 는 공백과 ZWSP·BOM·soft hyphen 셋만 지우고, `TagMatchValue` 는
+        // `\p{Cf}` 전체와 CGJ 까지 지운다. WORD JOINER(U+2060)가 섞인 값은 워커에서 갈라져
+        // 오고 BE 에서 같은 태그가 된다 — 그때 신뢰도가 낮은 쪽으로 굳으면 안 된다.
+        storeEntities(entityResult(
+                entityScene(
+                        0,
+                        entity("person", "홍길동⁠", "rule", 0.3, frame(0, 500, KEY_0)),
+                        entity("person", "홍길동", "rule", 0.88, frame(0, 900, KEY_0B))),
+                entityScene(1)));
+
+        assertThat(jdbc.queryForList("SELECT tag_type, match_value, name FROM npick.tag"))
+                .containsExactly(Map.of("tag_type", "person", "match_value", "홍길동", "name", "홍길동⁠"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tagging", Long.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForList("SELECT confidence FROM npick.tag_evidence"))
+                .hasSize(2)
+                .allSatisfy(row -> assertThat(((Number) row.get("confidence")).doubleValue())
+                        .isEqualTo(0.88));
+    }
+
+    @Test
+    void acceptsScenesWithNoCandidates() throws Exception {
+        storeKeyframes();
+
+        // 후보 0건은 정상이다. 텍스트가 없었던 것과 텍스트에서 아무것도 못 찾은 것은
+        // 워커의 `metrics` 가 가른다 (계약 §4.3.6).
+        assertThat(storeEntities(entityResult(entityScene(0), entityScene(1)))).isEmpty();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tagging", Long.class))
+                .isZero();
     }
 }
