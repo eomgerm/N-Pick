@@ -40,10 +40,7 @@ public class CorrectionConfirmController {
             @Valid @RequestBody ConfirmCorrectionRequest request,
             @LoginMember CurrentMember member) {
         service.confirm(new ConfirmCorrectionCommand(
-                feedbackId,
-                member.memberId(),
-                REVIEWER_ROLE.equalsIgnoreCase(member.role()),
-                request.executionId()));
+                feedbackId, member.memberId(), REVIEWER_ROLE.equalsIgnoreCase(member.role()), request.executionId()));
         return ApiResponse.success();
     }
 }

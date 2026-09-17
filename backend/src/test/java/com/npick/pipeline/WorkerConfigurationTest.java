@@ -12,8 +12,10 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import com.npick.pipeline.application.port.StageOutputPort;
+import com.npick.pipeline.application.port.TagVocabularyPort;
 import com.npick.pipeline.infrastructure.config.WorkerJobSecurityConfiguration;
 import com.npick.pipeline.infrastructure.config.WorkerStorageConfiguration;
+import com.npick.tag.infrastructure.WorkerTagVocabularyAdapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -32,7 +34,10 @@ class WorkerConfigurationTest {
             assertThat(context).hasNotFailed().hasSingleBean(StageOutputPort.class);
             assertThat(context.getBean(StageOutputPort.class).supports("transcript_selection"))
                     .isTrue();
-            assertThat(context.getBean(StageOutputPort.class).supports("ocr")).isFalse();
+            // 워커도 BE 도 아직 없는 마지막 단계다. `ocr` 은 S15P21A501-184,
+            // `scene_transcript_mapping` 은 S15P21A501-191 에서 지원으로 넘어갔다.
+            assertThat(context.getBean(StageOutputPort.class).supports("entity_extraction"))
+                    .isFalse();
         });
     }
 
@@ -67,6 +72,8 @@ class WorkerConfigurationTest {
                         Security.class, WorkerJobSecurityConfiguration.class, WorkerStorageConfiguration.class)
                 .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
                 .withBean(ObjectMapper.class, JsonMapper::new)
+                // 구현은 `tag` 모듈에 있고 이 슬라이스는 그 패키지를 스캔하지 않는다.
+                .withBean(TagVocabularyPort.class, WorkerTagVocabularyAdapter::new)
                 .withPropertyValues("npick.worker-jobs.tokens=short", "npick.clip-registration.media-root=" + root);
     }
 }

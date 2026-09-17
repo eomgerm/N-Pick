@@ -69,6 +69,25 @@ class PipelineContractTest {
         assertThat(PipelineStages.FATAL).doesNotContain("vlm_metadata", "ocr", "asr");
     }
 
+    @Test
+    void outputSchemaVersionsMatchTheWorkerExceptionList() throws Exception {
+        // 이 목록이 어긋나면 배정 payload 와 `complete` 검사가 갈려 그 단계의 성공 결과가
+        // 전부 거절된다 — `ocr` 이 3단계에서 멈춰 있던 고장이 정확히 그것이었다(계약 §11-12).
+        // 그래서 리터럴을 비교하지 않고 워커의 예외 분기를 실제로 읽어 대조한다.
+        String python = Files.readString(Path.of("../ai/src/npick_worker/jobs/versions.py"));
+        var matcher = Pattern.compile("if stage == \"([^\"]+)\":\\s*\\n\\s*return \"(npick\\.stage\\.[^\"]+)\"")
+                .matcher(python);
+        Map<String, String> exceptions = new LinkedHashMap<>();
+        while (matcher.find()) exceptions.put(matcher.group(1), matcher.group(2));
+        assertThat(exceptions).isNotEmpty();
+        exceptions.forEach((stage, schema) ->
+                assertThat(PipelineStages.outputSchema(stage)).isEqualTo(schema));
+        // 예외 목록에 없는 단계는 v1 이다. 반대 방향도 막아야 표가 워커보다 넓어지지 않는다.
+        for (String stage : PipelineStages.NAMES)
+            if (!exceptions.containsKey(stage))
+                assertThat(PipelineStages.outputSchema(stage)).endsWith(".output/v1");
+    }
+
     private static PipelineRun run(String status) {
         Map<String, Object> stages = new LinkedHashMap<>();
         PipelineStages.NAMES.forEach(s -> stages.put(s, Map.of("status", "pending", "attempts", 0)));
