@@ -65,9 +65,13 @@ def _patch_build_worker(
     monkeypatch.setattr(drain_module, "build_worker", lambda settings: (client, runner))
 
 
-@pytest.fixture(autouse=True)
-def _no_real_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """백오프를 실제로 자지 않는다. 잔 시간이 아니라 재시도 여부가 관심사다."""
+@pytest.fixture
+def no_real_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """백오프를 실제로 자지 않는다. 잔 시간이 아니라 재시도 여부가 관심사다.
+
+    autouse 로 두지 않는다 — `asyncio.sleep` 은 모듈 전역이라 pytest-asyncio 내부까지
+    영향권이다. 실제로 백오프를 타는 테스트에서만 건다.
+    """
 
     async def quick_sleep(seconds: float) -> None:
         return None
@@ -148,7 +152,7 @@ async def test_drain_closes_the_client_even_when_the_loop_raises(
 
 @pytest.mark.asyncio
 async def test_transient_unavailability_does_not_kill_the_batch(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, no_real_sleep: None
 ) -> None:
     """BE 재기동·네트워크 순단은 일시 오류다. 시드 30건 중 12번째에서 났다고
     나머지 18건을 버릴 이유가 없다."""
@@ -163,7 +167,9 @@ async def test_transient_unavailability_does_not_kill_the_batch(
 
 
 @pytest.mark.asyncio
-async def test_persistent_unavailability_gives_up(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_persistent_unavailability_gives_up(
+    monkeypatch: pytest.MonkeyPatch, no_real_sleep: None
+) -> None:
     """일시 오류를 무한히 참으면 배치가 끝나지 않는다. 연속 상한에서 포기한다."""
     limit = drain_module.MAX_CONSECUTIVE_UNAVAILABLE
     client = _FakeClient()
@@ -215,7 +221,7 @@ async def test_the_backpressure_streak_resets_after_a_job(
 
 @pytest.mark.asyncio
 async def test_the_unavailable_streak_resets_after_a_success(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, no_real_sleep: None
 ) -> None:
     """상한은 **연속** 실패에 대한 것이다. 사이에 잡이 처리되면 다시 센다.
 
@@ -256,6 +262,68 @@ def test_main_warms_up_before_draining(monkeypatch: pytest.MonkeyPatch) -> None:
     drain_module.main()
 
     assert order == ["warm_up", "drain"]
+
+
+def test_main_refuses_to_run_without_a_job_api_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """토큰은 기본값이 빈 SecretStr 이라 가드가 없으면 그냥 통과한다.
+
+    그러면 `warm_up()` 이 ASR·VLM 가중치를 수 분 올린 뒤 첫 claim 에서 401 이 나고,
+    `JobApiUnauthorizedError` 는 drain 이 잡지 않으므로 트레이스백으로 끝난다.
+    상주 워커는 `run()` 이 잡아 사유를 남기므로 배치 쪽이 오히려 더 나쁘다.
+    """
+    order: list[str] = []
+    _patch_main(monkeypatch, drain_module.DrainReport(succeeded=0, failed=0), order)
+    monkeypatch.setattr(drain_module, "get_settings", lambda: _settings(job_api_token=""))
+
+    with pytest.raises(SystemExit) as exc:
+        drain_module.main()
+
+    assert exc.value.code == 2
+    assert order == [], "토큰이 없는데 워밍업과 폴링을 시작했다"
+
+
+def test_main_warns_when_the_fleet_is_still_the_default(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`job_fleet` 기본값 `local` 로 운영 무리를 겨냥하면 계약상 JOB_403_002 다.
+
+    막지는 않는다 — 로컬 drain 은 정당하고 Settings 로는 명시적 `local` 과 기본값을
+    구분할 수 없다. 대신 첫 claim 전에 보이게 한다.
+    """
+    order: list[str] = []
+    _patch_main(monkeypatch, drain_module.DrainReport(succeeded=1, failed=0), order)
+
+    with caplog.at_level(logging.WARNING, logger=drain_module.logger.name):
+        drain_module.main()
+
+    assert order == ["warm_up", "drain"], "경고가 배치를 막았다"
+    assert any("local" in record.getMessage() for record in caplog.records)
+
+
+def test_main_warns_when_nothing_was_processed(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """ "0건 처리" 와 "30건 색인 성공" 이 같은 종료 코드면 침묵한 실패다.
+
+    종료 코드는 0 으로 둔다 — 이미 비운 큐에 다시 돌리는 것이 정상 재실행 경로다.
+    """
+    order: list[str] = []
+    _patch_main(monkeypatch, drain_module.DrainReport(succeeded=0, failed=0), order)
+
+    with caplog.at_level(logging.WARNING, logger=drain_module.logger.name):
+        drain_module.main()
+
+    assert any("한 건도" in record.getMessage() for record in caplog.records)
+
+
+def test_claim_outcome_has_no_truthiness_shortcut() -> None:
+    """`__bool__` 을 두면 IDLE 과 BACKPRESSURE 가 같은 falsy 가 된다.
+
+    그게 이 브랜치가 없앤 오판이다. 호환해야 할 호출부가 없으므로 남겨 둘 이유도 없다 —
+    남기면 다음 사람의 `if not await run_once(): break` 가 버그를 되살린다.
+    """
+    assert "__bool__" not in vars(ClaimOutcome)
+    assert all(bool(outcome) for outcome in ClaimOutcome), "네 갈래 모두 평범한 enum 이어야 한다"
 
 
 def test_main_exits_non_zero_when_the_batch_gave_up(monkeypatch: pytest.MonkeyPatch) -> None:

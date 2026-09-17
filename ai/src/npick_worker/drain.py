@@ -6,6 +6,10 @@
 포트 바인딩도 `/health` 도 없이 큐를 비우고 스스로 끝나는 진입점 하나면 그 서버에서
 데모 시드를 색인할 수 있다.
 
+**비우는 것은 "이 워커가 선언한 단계" 의 큐다.** `NPICK_AI_JOB_STAGES` 로 선언을 좁히면
+(`jobs/registry.py` 의 `declared_stages`) 배정도 그 단계로 좁혀지므로, 좁혀 띄운 drain 이
+끝났다는 것은 pipeline run 이 끝났다는 뜻이 아니다 — 남은 단계는 다른 워커 몫이다.
+
 루프는 새로 만들지 않는다. `JobRunner.run_once()` 가 잡 하나를 끝까지 처리하고 그
 결말을 `ClaimOutcome` 으로 돌려주므로, 여기서 하는 일은 그 네 갈래를 **종료 조건과
 종료 코드로 번역하는 것**뿐이다.
@@ -31,6 +35,9 @@ UNAVAILABLE_BACKOFF_SECONDS: Final[float] = 5.0
 #: 적다. 없으면 BE 가 죽어 있을 때 배치가 영원히 끝나지 않아 배치 실행이라는 성질
 #: 자체가 사라진다. 사이에 잡이 하나라도 처리되면 다시 센다.
 MAX_CONSECUTIVE_UNAVAILABLE: Final[int] = 5
+
+#: `Settings.job_fleet` 의 기본값. 명시적으로 준 값과 구분할 수 없어 경고만 올린다.
+_DEFAULT_FLEET: Final[str] = "local"
 
 #: **연속** 과부하 상한. 같은 이유로 둔다 — BE 가 계속 `retryAfterMs` 를 내리면
 #: 배치가 끝나지 않는다. 도달 실패보다 넉넉한 이유는 과부하가 고장이 아니라 정상
@@ -60,8 +67,9 @@ class DrainReport:
 async def drain(settings: Settings) -> DrainReport:
     """배정이 없을 때까지 잡을 처리하고 결말을 집계해 돌려준다.
 
-    정상적으로 멈추는 것은 `IDLE` 하나뿐이다. `BACKPRESSURE` 는 BE 가 과부하라 물린
-    것이지 큐가 빈 것이 아니므로 계속 돈다 — 다만 영원히 돌 수는 없으므로 연속 상한을
+    정상적으로 멈추는 것은 `IDLE` 하나뿐이고, 그것은 **이 워커가 선언한 단계에** 배정이
+    없다는 뜻이다. `BACKPRESSURE` 는 BE 가 과부하라 물린 것이지 큐가 빈 것이 아니므로
+    계속 돈다 — 다만 영원히 돌 수는 없으므로 연속 상한을
     두고, 거기 걸리면 `gave_up` 으로 표시해 끝낸다. 예외를 던지지 않는 이유는 BE 가
     멀쩡히 응답하고 있어서다. 도달 실패로 보고하면 거짓이 된다.
 
@@ -119,14 +127,33 @@ def main() -> None:
         level=settings.log_level,
         format="%(asctime)s %(levelname)-8s %(name)s %(message)s",
     )
-    if not settings.job_poll_enabled or not settings.job_api_base_url:
+    if (
+        not settings.job_poll_enabled
+        or not settings.job_api_base_url
+        or not settings.job_api_token.get_secret_value()
+    ):
         # `app.lifespan` 은 이 조건에서 질의 리졸버로 갈라지지만 배치 실행에는 갈 곳이
         # 없다. 가드가 없으면 base_url 이 빈 클라이언트가 만들어져 첫 요청에서
         # 프로토콜 오류로 터진다 — 원인이 설정이라는 것이 드러나지 않는다.
+        #
+        # **토큰도 같은 자리다.** 기본값이 빈 SecretStr 이라 통과해 버리면 `warm_up()`
+        # 이 가중치를 수 분 올린 뒤 첫 claim 에서 401 이 나고, 그 `JobApiUnauthorizedError`
+        # 를 drain 은 잡지 않아 트레이스백으로 끝난다. 상주 워커는 `run()` 이 잡아 사유를
+        # 남기므로 배치 쪽이 오히려 더 나쁘다.
         logger.error(
-            "잡 API 설정이 없다. NPICK_AI_JOB_POLL_ENABLED 와 NPICK_AI_JOB_API_BASE_URL 을 준다"
+            "잡 API 설정이 없다. NPICK_AI_JOB_POLL_ENABLED · "
+            "NPICK_AI_JOB_API_BASE_URL · NPICK_AI_JOB_API_TOKEN 을 준다"
         )
         raise SystemExit(2)
+
+    if settings.job_fleet == _DEFAULT_FLEET:
+        # 막지는 않는다. 로컬 drain 은 정당하고, Settings 로는 명시적 `local` 과 기본값을
+        # 구분할 수 없다. 다만 BE 는 토큰과 무리가 어긋나면 JOB_403_002 로 거절하므로
+        # (`docs/contracts/job-api.md` §3) 첫 claim 이 죽기 전에 보이게 한다.
+        logger.warning(
+            "NPICK_AI_JOB_FLEET 이 기본값 %r 이다. 운영 무리를 겨냥했다면 토큰과 어긋나 거절된다",
+            _DEFAULT_FLEET,
+        )
 
     registry.warm_up()
     report = asyncio.run(drain(settings))
@@ -134,12 +161,21 @@ def main() -> None:
     # 줄 알면 남은 시드를 다 됐다고 읽는다.
     log = logger.error if report.gave_up else logger.info
     log(
-        "잡 %d건을 처리했다 (성공 %d · 실패 %d). %s",
+        "잡 %d건을 처리했다 (성공 %d · 실패 %d, 무리 %s). %s",
         report.processed,
         report.succeeded,
         report.failed,
-        "큐를 비우지 못한 채 끝냈다" if report.gave_up else "배정이 없어 종료한다",
+        settings.job_fleet,
+        "큐를 비우지 못한 채 끝냈다" if report.gave_up else "선언한 단계에 배정이 없어 종료한다",
     )
+    if not report.processed and not report.gave_up:
+        # "0건 처리" 와 "30건 색인 성공" 이 같은 종료 코드다. 디스패치가 늦었거나
+        # 토큰·무리·NPICK_AI_JOB_STAGES 가 엉뚱한 곳을 봐도 여기로 온다. 종료 코드는
+        # 0 으로 둔다 — 이미 비운 큐에 다시 돌리는 것이 정상 재실행 경로다.
+        logger.warning(
+            "한 건도 처리하지 않았다. 시드 등록·디스패치와 "
+            "NPICK_AI_JOB_FLEET · NPICK_AI_JOB_STAGES 를 확인한다"
+        )
     if report.failed or report.gave_up:
         # 종료 코드가 0 이면 시드가 전부 죽어도 호출한 쪽이 알 수 없다.
         raise SystemExit(1)

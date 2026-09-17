@@ -10,7 +10,7 @@ from npick_worker.jobs.errors import LeaseLostError
 from npick_worker.jobs.media import MediaResolver
 from npick_worker.jobs.models import CompleteAck, StageResult, WorkerDevice
 from npick_worker.jobs.registry import StageContext, StageHandler, StageOutcome
-from npick_worker.jobs.runner import JobRunner
+from npick_worker.jobs.runner import ClaimOutcome, JobRunner
 from npick_worker.jobs.versions import StageVersion
 
 
@@ -91,7 +91,7 @@ async def exercise(url: str, root: Path) -> None:
                 media_root=None,
                 device=WorkerDevice(kind="cpu"),
             )
-            assert await runner.run_once()
+            assert await runner.run_once() is ClaimOutcome.FAILED
             other_runner = JobRunner(
                 client=replacement,
                 media=MediaResolver(None, replacement),
@@ -111,8 +111,8 @@ async def exercise(url: str, root: Path) -> None:
             assert replay == results[0][2].model_copy(update={"duplicate": True})
             await other_runner._process(assigned.job, assigned.lease)
             for _ in range(5):
-                assert await runner.run_once()
-            assert not await runner.run_once()
+                assert await runner.run_once() is not ClaimOutcome.IDLE
+            assert await runner.run_once() is ClaimOutcome.IDLE
         assert [(run, result.attempt, result.status) for run, result, _ in results] == [
             ("913", 1, "failed"),
             ("913", 2, "succeeded"),

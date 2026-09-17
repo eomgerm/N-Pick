@@ -93,9 +93,9 @@ class ClaimOutcome(Enum):
     #: 잡을 받았으나 성공으로 끝나지 않았다 — 단계 실패·lease 상실·결과 폐기.
     FAILED = "failed"
 
-    def __bool__(self) -> bool:
-        """ "잡을 받았는가". 루프를 계속 돌지 말지를 묻는 호출부가 이 뜻을 쓴다."""
-        return self in (ClaimOutcome.SUCCEEDED, ClaimOutcome.FAILED)
+    # `__bool__` 을 두지 않는다. "잡을 받았는가" 로 쓰기 편해 보이지만 그러면 IDLE 과
+    # BACKPRESSURE 가 같은 falsy 가 되고, 그게 이 타입이 없애려는 오판이다.
+    # 호출부는 멤버를 직접 본다.
 
 
 #: 실패·생략을 보고할 때 쓰는 자리표시자 버전. 단계를 돌리지 못했으므로 실제 재현
