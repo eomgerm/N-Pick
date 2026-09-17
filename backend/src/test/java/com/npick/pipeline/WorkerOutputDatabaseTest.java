@@ -998,6 +998,25 @@ class WorkerOutputDatabaseTest {
     }
 
     @Test
+    void rejectsAConflictThatPointsAtAnExcludedSegment() throws Exception {
+        storeTwoScenes();
+        // 셋이 같은 시간대다. CC 는 제공 자막에 밀리고, ASR 은 그 밀려난 CC 를 근거로 든다.
+        var segments = List.of(
+                segment("u", 0, 600, "제공 자막", "uploaded"),
+                segment("e", 0, 600, "내장 CC", "embedded"),
+                segment("a", 0, 600, "발화", "asr"));
+        var scenes = List.of(mapped(0, "제공 자막", List.of(link("u", 600))), mapped(1, "", List.of()));
+        var adopted = decision("u", true, "PREFERRED_SUBTITLE", List.of());
+        var excludedCc = decision("e", false, "OVERLAPS_HIGHER_PRIORITY", List.of("u"));
+        // "제외된 CC 는 자막 공백의 ASR 을 제외하는 근거가 되지 않는다"(계약 §4.5).
+        var chained = decision("a", false, "OVERLAPS_HIGHER_PRIORITY", List.of("e"));
+
+        // 판정 순서는 임의다. 훑으면서 그때까지 모인 채택 집합만 보는 구현은 뒤집힌 순서를 통과시킨다.
+        assertRejects(mappingWithDecisions(segments, List.of(adopted, excludedCc, chained), scenes));
+        assertRejects(mappingWithDecisions(segments, List.of(chained, excludedCc, adopted), scenes));
+    }
+
+    @Test
     void rejectsDecisionsWithAnImpossibleReasonOrConflict() throws Exception {
         storeTwoScenes();
         var subtitle = segment("sub", 0, 600, "자막", "uploaded");

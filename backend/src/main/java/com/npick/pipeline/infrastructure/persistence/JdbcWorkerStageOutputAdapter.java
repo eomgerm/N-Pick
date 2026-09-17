@@ -432,33 +432,41 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
      * 읽으므로, 저장 쪽이 느슨하면 대사는 저장되는데 처리 상세는 자막을 {@code unavailable} 로 보고한다 — 화면과 정본이 갈린다.
      */
     private static Map<String, JsonNode> adoptions(JsonNode decisions, Map<String, JsonNode> originals) {
+        var values = array(decisions, "decisions");
+        // **채택 집합을 먼저 완성한다.** 판정 순서는 임의라, 훑으면서 그때까지 모인 채택만 보면
+        // 뒤에 오는 채택을 근거로 든 제외가 순서에 따라 통과하기도 하고 아니기도 한다.
         Map<String, JsonNode> adopted = new LinkedHashMap<>();
         var seen = new HashSet<String>();
-        for (JsonNode decision : array(decisions, "decisions")) {
+        for (JsonNode decision : values) {
             String id = text(decision, "segmentId");
             if (!originals.containsKey(id)
                     || !seen.add(id)
                     || !decision.path("selected").isBoolean()) invalid();
-            JsonNode original = originals.get(id);
+            if (decision.path("selected").booleanValue()) adopted.put(id, originals.get(id));
+        }
+        if (!seen.equals(originals.keySet())) invalid();
+        for (JsonNode decision : values) {
+            JsonNode original = originals.get(text(decision, "segmentId"));
             var conflicts = array(decision, "conflictsWith");
             String reason = text(decision, "reasonCode");
             if (decision.path("selected").booleanValue()) {
                 String expected =
                         text(original, "sourceDetail").equals("asr") ? "ASR_SUPPLEMENT" : "PREFERRED_SUBTITLE";
                 if (!expected.equals(reason) || !conflicts.isEmpty()) invalid();
-                adopted.put(id, original);
             } else if (!reason.equals("OVERLAPS_HIGHER_PRIORITY") || conflicts.isEmpty()) invalid();
             var conflictIds = new HashSet<String>();
             for (JsonNode conflict : conflicts) {
                 if (!conflict.isTextual() || !conflictIds.add(conflict.asText())) invalid();
-                JsonNode other = originals.get(conflict.asText());
+                // **근거는 채택된 것만이다.** 원본에 있기만 하면 통과시키면 제외된 구간을 근거로
+                // 또 다른 구간을 연쇄 제외할 수 있다 — 제외된 CC 가 자막 공백의 ASR 을 밀어내는
+                // 그 경우이고, 계약 §4.5 가 이름을 붙여 금지한 자리다.
+                JsonNode other = adopted.get(conflict.asText());
                 if (other == null
                         || priority(other) >= priority(original)
                         || Math.max(integer(other, "s", 0), integer(original, "s", 0))
                                 >= Math.min(integer(other, "e", 1), integer(original, "e", 1))) invalid();
             }
         }
-        if (!seen.equals(originals.keySet())) invalid();
         return adopted;
     }
 
