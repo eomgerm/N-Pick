@@ -34,7 +34,10 @@
 | 영상 처리 목록             | GET    | `/clips`                                    | BE 구현   | 처리 화면 목록 바인딩               |
 | 영상 처리 상세             | GET    | `/clips/{id}`                               | BE 구현   | 처리 상세 바인딩·polling            |
 | 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
-| 교정 후보 검증·확정        | 미정   | 미정                                        | 명세 필요 | 검수 재검색·확정 바인딩             |
+| 태그 교정 후보             | POST   | `/review/inquiries/{feedbackId}/tag-correction-candidate` | BE 구현 | 검수 교정 바인딩            |
+| 해석 교정 후보             | POST   | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 검수 교정 바인딩            |
+| 장면 제외 후보             | POST   | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 검수 교정 바인딩            |
+| 교정 확정                  | POST   | `/review/inquiries/{feedbackId}/confirm`                  | BE 구현 | 검수 재검색·확정 바인딩     |
 | 검색 규칙 사용 중단         | PATCH  | `/review/search-rules/{ruleId}`             | BE 구현   | 검수 규칙 관리 바인딩               |
 
 ## 2. 공통 규약
@@ -493,7 +496,7 @@ body는 생략하거나 다음처럼 보낸다.
 - Header: `Idempotency-Key` 필수, 공백 불가.
 - Body: `{ "targetSceneId": "9301" }` — 정수 또는 양의 정수 문자열. 신고 컨텍스트의 장면과 같아야 한다.
 - 멱등은 `(feedbackId, targetSceneId)` 단위다. 내용이 전부 신고 컨텍스트에서 파생돼 장면당 후보는 하나뿐이므로, `Idempotency-Key`가 달라진 재시도도 같은 장면이면 기존 후보를 돌려준다.
-- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, active }`.
+- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`.
 
 | 오류            | HTTP | 의미                                    |
 | --------------- | ---- | --------------------------------------- |
@@ -504,6 +507,26 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_404_211`  | 404  | 신고 없음                               |
 | `SRCH_409_211`  | 409  | 검수 중이 아님                          |
 | `SRCH_409_212`  | 409  | 장면 제외로 처리된 신고 아님            |
+
+`POST /review/inquiries/{feedbackId}/parse-patch-candidate` (S15P21A501-81)
+
+검수 중(`REVIEWING`)이고 처리 결과가 `patch_parse`(해석 교정, F-09)인 신고에서, 담당 검수자가 AI 원본 해석에 대한 조건·패치 규칙을 후보로 저장한다(F-11). 후보는 `search_rule`에 `active=false`로 대기하며 검증·확정(F-12~F-13) 전까지 검색·해석에 반영되지 않는다.
+
+- Header: `Idempotency-Key` 필수, 공백 불가, 최대 64자.
+- Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
+- 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
+- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }` (현재 `searchRuleId`·`feedbackId`는 숫자로 나간다 — §8의 신규 응답 string 규칙 적용은 별건).
+
+| 오류            | HTTP | 의미                              |
+| --------------- | ---- | --------------------------------- |
+| `SRCH_400_201`  | 400  | 규칙 후보 본문이 올바르지 않음    |
+| `SRCH_400_202`  | 400  | 교체 대상 규칙을 찾을 수 없음     |
+| `SRCH_403_201`  | 403  | 검수자 아님                       |
+| `SRCH_403_202`  | 403  | 담당 검수자 아님                  |
+| `SRCH_404_201`  | 404  | 신고 없음                         |
+| `SRCH_409_201`  | 409  | 검수 중이 아님                    |
+| `SRCH_409_202`  | 409  | 해석 교정으로 처리된 신고 아님    |
+| `SRCH_409_203`  | 409  | 원 검색에 교정할 해석 출력이 없음 |
 
 `POST /review/inquiries/{feedbackId}/confirm` (S15P21A501-84)
 
@@ -658,7 +681,7 @@ body는 생략하거나 다음처럼 보낸다.
 | 7        | 영상 처리 목록 FE 연결               | §6.5 상태 필터·진행 요약·전체 상태 건수·pagination을 화면에 연결                             | 고정 진행·완료 영상           |
 | 8        | 영상 처리 상세·polling               | §6.5 처리 기록을 연결하고 terminal 상태에서 polling 종료. 장면 목록은 별도 조회 계약 필요      | 등록 응답을 memory로 합성     |
 | 9        | 처리 재시도                          | 일시/영구 실패 구분, 중복 클릭 방지, 기존 제공 run 보존, 새 run 식별자 반환                    | 버튼 demo                     |
-| 10       | 교정 후보 작성·검증                  | 태그·해석 patch·장면 제외 후보, 원 문의 검색 조건 서버 재사용, 일반 검색과 분리된 검증 실행 ID | 로컬 검수 state               |
+| 10       | 교정 후보 작성·검증                  | §6.4로 명세·BE 구현 완료(태그·해석 patch·장면 제외 후보 3종). 원 문의 검색 조건 서버 재사용·분리된 검증 실행 ID 포함. 남은 작업은 FE 바인딩 | 로컬 검수 state               |
 | 11       | 교정 확정                            | 검증 실행 ID만 입력받고 서버에 저장된 후보를 원자적으로 확정, stale 검증 거부                  | 로컬 완료 state               |
 | 12       | 규칙 사용 중단·재검증                | 수행자·사유, 이후 검색 미적용, 재활성화 전 검증                                                | 로컬 toggle/state             |
 | 13       | 장면 thumbnail                       | `scene_id` 기반 제공, 서버 경로 비노출, cache·권한 정책                                        | CSS thumbnail demo            |
