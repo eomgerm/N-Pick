@@ -18,6 +18,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from npick_worker import query_api
+from npick_worker.query_api import (
+    MAX_TOKENIZE_ITEMS,
+    MAX_TOKENIZE_TEXT_LENGTH,
+)
 from npick_worker.query_resolver import ResolverCallError, ResolverSchemaInvalidError
 from npick_worker.query_resolver.gms_backend import _NETWORK, _RATE_LIMITED, _TIMEOUT
 from npick_worker.query_resolver.ollama_backend import _NETWORK as _OLLAMA_NETWORK
@@ -375,3 +379,99 @@ def test_embedding_error_carries_no_vendor_detail(
 
     assert body["embedding_error"]["category"] == "EMBEDDING_FAILED"
     assert secret not in response_text(body)
+
+
+# ── POST /query/tokenize (S15P21A501-205) ──────────────────────────────────
+#
+# 확장어를 후보 조회에 넣으려면 **규칙 적용 뒤** 토큰화해야 한다 (S15P21A501-48 계약
+# 7). 교정(`patch_parse`)으로 검수자가 넣은 확장어는 리졸버가 모르는 값이라
+# `/query/resolve` 응답에 토큰을 실어 보내는 방식으로는 덮이지 않는다.
+#
+# 검사하는 것은 셋이다.
+#
+# 1. 색인 측과 **같은 토큰**인가 — 별칭·불용어·정렬이 걸리면 안 된다. 색인이 하지
+#    않는 변형을 질의에만 걸면 오류 없이 0 건이 된다.
+# 2. 토큰이 0 개인 항목이 요청 전체를 깨뜨리지 않는가 — 계약 9 는 토큰화 실패를
+#    degraded 로도 치지 않는다.
+# 3. `normalization_version` 이 `/query/resolve` 의 값과 같은가.
+
+
+def test_tokenize_returns_one_token_list_per_input_in_order(client: TestClient) -> None:
+    response = client.post("/query/tokenize", json={"texts": ["귀성객", "부산 침수", "서울역"]})
+
+    assert response.status_code == 200
+    tokens = response.json()["tokens"]
+    # 항목별 결과를 **위치로** 맞춘다. 입력을 되돌려 주지 않으므로 이 정렬이 계약이다.
+    assert len(tokens) == 3
+    assert tokens[0] == ["귀성객"]
+    assert tokens[1] == ["부산", "침수"]
+    # 색인 측과 같은 분절이다 — 사용자 사전의 「서울」 때문에 「서울역」 이 쪼개진다.
+    # 문서 쪽 ocr 단계가 같은 경로를 쓰므로 이렇게 쪼개져야 맞는다.
+    assert tokens[2] == ["서울", "역"]
+
+
+def test_tokenize_item_without_content_tokens_is_empty_not_error(client: TestClient) -> None:
+    """토큰이 0 개인 항목은 빈 목록이고 요청 전체는 200 이다.
+
+    확장어 한 건이 기호뿐이라고 검색을 끊으면 안 된다 — 계약 9 는 토큰화 실패를
+    degraded 로도 치지 않는다. `normalize()` 를 재사용하지 않는 이유가 이것이다.
+    그쪽은 내용어가 없으면 `ValueError` 를 던진다.
+    """
+    response = client.post("/query/tokenize", json={"texts": ["···", "귀성객"]})
+
+    assert response.status_code == 200
+    assert response.json()["tokens"] == [[], ["귀성객"]]
+
+
+def test_tokenize_applies_no_alias(client: TestClient) -> None:
+    """색인 측이 하지 않는 변형은 걸지 않는다 (계약 7).
+
+    `normalize()` 의 지문(`normalized_query`)은 별칭을 걸어 「서울시」를 「서울」로
+    바꾸지만, 색인 토큰은 그러지 않는다. 여기서 별칭이 걸리면 질의 토큰만 색인과
+    어긋나 오류 없이 0 건이 된다.
+    """
+    tokens = client.post("/query/tokenize", json={"texts": ["서울시"]}).json()["tokens"]
+
+    assert tokens == [["서울시"]]
+
+
+def test_tokenize_version_matches_resolve(client: TestClient, stub: StubFactory) -> None:
+    """두 라우트가 같은 규칙으로 토큰을 만든다는 것을 버전으로 고정한다."""
+    stub(_valid_payload())
+
+    tokenize = client.post("/query/tokenize", json={"texts": ["귀성객"]}).json()
+    resolve = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
+
+    assert tokenize["normalization_version"] == resolve["normalization"]["normalization_version"]
+
+
+def test_tokenize_accepts_request_at_the_limit(client: TestClient) -> None:
+    """경계값은 받는다. 상한은 「이하」 다.
+
+    초과 케이스만 두면 상한이 63 이나 199 로 밀려도 테스트가 통과한다.
+    """
+    at_limit = ["귀성객"] * (MAX_TOKENIZE_ITEMS - 1) + ["가" * MAX_TOKENIZE_TEXT_LENGTH]
+
+    response = client.post("/query/tokenize", json={"texts": at_limit})
+
+    assert response.status_code == 200
+    assert len(response.json()["tokens"]) == MAX_TOKENIZE_ITEMS
+
+
+def test_tokenize_rejects_too_many_items(client: TestClient) -> None:
+    """동기 검색 예산 안에서 도는 경로다. 상한은 pydantic 이 막는다.
+
+    호출부는 이때 확장어 없이 검색을 이어간다 (계약 9).
+    """
+    response = client.post("/query/tokenize", json={"texts": ["귀성객"] * (MAX_TOKENIZE_ITEMS + 1)})
+
+    assert response.status_code == 422
+
+
+def test_tokenize_rejects_too_long_text(client: TestClient) -> None:
+    """항목 하나가 길어도 Kiwi 비용은 똑같이 는다. 개수 상한만으로는 못 막는다."""
+    response = client.post(
+        "/query/tokenize", json={"texts": ["가" * (MAX_TOKENIZE_TEXT_LENGTH + 1)]}
+    )
+
+    assert response.status_code == 422

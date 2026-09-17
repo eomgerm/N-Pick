@@ -19,6 +19,7 @@ StageErrorCode = Literal[
     # ── 단계별 실패 ──
     "SCENE_DETECTION_FAILED",
     "VLM_SCHEMA_INVALID",
+    "ENTITY_SCHEMA_INVALID",
     "OCR_FAILED",
     "ASR_FAILED",
     "INDEX_FAILED",
@@ -157,6 +158,21 @@ class VlmOutputInvalidError(PermanentStageError):
     error_code: ClassVar[str] = "VLM_SCHEMA_INVALID"
 
 
+class EntityOutputInvalidError(PermanentStageError):
+    """NER 출력이 계약과 다르다(계약 §9.2 `ENTITY_SCHEMA_INVALID`, **영구**).
+
+    `VlmOutputInvalidError` 와 같은 자리의 코드이고 가르는 이유도 같다. 상류 산출물이
+    잘못된 것(`UpstreamOutputInvalidError`)과 모델이 형식을 지키지 않은 것은 고칠 곳이
+    다르다 — 앞엣것은 상류 단계, 뒤엣것은 가중치나 라벨표다.
+
+    영구인 이유: 이 단계는 같은 가중치로 같은 텍스트를 다시 읽는다. 표본 추출도
+    temperature 도 없으므로 재시도는 GPU 분만 태운다. 계약 §4.3.6 이 요구하는 원자적
+    폐기 — "단계 전체 출력의 어떤 필드도 쓰지 않는다" — 가 이 코드로 보고된다.
+    """
+
+    error_code: ClassVar[str] = "ENTITY_SCHEMA_INVALID"
+
+
 class ExternalProcessingRefusedError(PermanentStageError):
     """외부 전송 조건이 확인되지 않아 **보내지 않았다**(PRD §12.4 fail-closed).
 
@@ -266,6 +282,8 @@ _STAGE_DEFAULT_CODE: Final[dict[str, StageErrorCode]] = {
     # `STAGE_FAILED`(일시) 로 떨어진다 — "분류를 미룰 뿐 숨기지 않는다".
     "ocr": "OCR_FAILED",
     "asr": "ASR_FAILED",
+    # `entity_extraction` 도 여기 없다. 이유는 위 `vlm_metadata` 와 같다 —
+    # `ENTITY_SCHEMA_INVALID` 는 영구이고 이 표의 값은 정체 모를 예외에 붙는다.
     "indexing": "INDEX_FAILED",
 }
 

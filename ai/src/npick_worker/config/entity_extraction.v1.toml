@@ -1,0 +1,24 @@
+schema = "entity-extraction-config/v1"
+model = "KPF/KPF-bert-ner"
+revision = "efff871f686098933bf76d699c437c3f53abc19e"
+# No quality cutoff has been calibrated. Keep all mapped candidates for review.
+minimum_confidence = 0.0
+stride = 64
+aggregation_strategy = "simple"
+
+[mapping]
+PS_NAME = "person"
+PS_CHARACTER = "person"
+AF_BUILDING = "facility"
+AF_ROAD = "facility"
+
+[prefix_mapping]
+OGG_ = "organization"
+LCP_ = "location"
+LCG_ = "location"
+LC_ = "location"
+EV_ = "event"
+CV_ = "keyword"
+FD_ = "keyword"
+TR_ = "keyword"
+TM_ = "keyword"

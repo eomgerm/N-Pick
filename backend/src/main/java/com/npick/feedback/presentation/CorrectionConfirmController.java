@@ -12,7 +12,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.feedback.application.ConfirmCorrectionCommand;
-import com.npick.feedback.application.ConfirmCorrectionService;
+import com.npick.feedback.application.ConfirmCorrectionUseCase;
 import com.npick.feedback.presentation.request.ConfirmCorrectionRequest;
 
 /**
@@ -27,9 +27,9 @@ public class CorrectionConfirmController {
 
     private static final String REVIEWER_ROLE = "reviewer";
 
-    private final ConfirmCorrectionService service;
+    private final ConfirmCorrectionUseCase service;
 
-    public CorrectionConfirmController(ConfirmCorrectionService service) {
+    public CorrectionConfirmController(ConfirmCorrectionUseCase service) {
         this.service = service;
     }
 
@@ -40,10 +40,7 @@ public class CorrectionConfirmController {
             @Valid @RequestBody ConfirmCorrectionRequest request,
             @LoginMember CurrentMember member) {
         service.confirm(new ConfirmCorrectionCommand(
-                feedbackId,
-                member.memberId(),
-                REVIEWER_ROLE.equalsIgnoreCase(member.role()),
-                request.executionId()));
+                feedbackId, member.memberId(), REVIEWER_ROLE.equalsIgnoreCase(member.role()), request.executionId()));
         return ApiResponse.success();
     }
 }

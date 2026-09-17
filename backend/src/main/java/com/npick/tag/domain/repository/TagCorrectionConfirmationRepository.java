@@ -5,8 +5,8 @@ import java.util.Collection;
 /**
  * 검수자 태그 교정 후보를 확정한다 (S15P21A501-84, F-13).
  *
- * <p>후보 근거({@code tag_evidence.confirmed=false})를 확정({@code confirmed=true})으로 올린다. 확정 대상은 검증 실행이 승인한 근거 id 이며, 원 신고 범위로
- * 한 번 더 좁혀 다른 신고의 근거가 섞여 들어오지 못하게 한다(F-13 "다른 변경안을 끼워 넣어 저장할 수 없다").
+ * <p>후보 근거({@code tag_evidence.confirmed=false})를 확정({@code confirmed=true})으로 올린다. 확정 대상은 검증 실행이 승인한 근거 id 이며, 원 신고
+ * 범위로 한 번 더 좁혀 다른 신고의 근거가 섞여 들어오지 못하게 한다(F-13 "다른 변경안을 끼워 넣어 저장할 수 없다").
  */
 public interface TagCorrectionConfirmationRepository {
 

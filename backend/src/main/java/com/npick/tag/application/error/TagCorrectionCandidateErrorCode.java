@@ -20,9 +20,7 @@ public enum TagCorrectionCandidateErrorCode implements ErrorCode {
     FEEDBACK_NOT_FOUND(ErrorType.NOT_FOUND, "TAG_404_001", "대상 신고를 찾을 수 없다"),
     /** 검수 중이 아니다. */
     NOT_REVIEWING(ErrorType.CONFLICT, "TAG_409_001", "검수 중인 신고에서만 태그 교정 후보를 만들 수 있다"),
-    /**
-     * 태그 교정 후보를 만들 수 있는 판정이 아니다. tag_correction 과 patch_parse(태그·해석 모두 잘못) 두 경로에서만 태그 변경안을 만든다 (F-09 진단표).
-     */
+    /** 태그 교정 후보를 만들 수 있는 판정이 아니다. tag_correction 과 patch_parse(태그·해석 모두 잘못) 두 경로에서만 태그 변경안을 만든다 (F-09 진단표). */
     NOT_TAG_CORRECTION(ErrorType.CONFLICT, "TAG_409_002", "태그 교정·해석 교정으로 처리된 신고에서만 태그 변경안을 만들 수 있다"),
     /** 변경안이 하나도 없다. */
     EMPTY_OPERATIONS(ErrorType.BAD_REQUEST, "TAG_400_001", "변경안이 비어 있다"),

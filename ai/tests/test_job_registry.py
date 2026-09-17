@@ -99,8 +99,8 @@ def _context(
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_implemented_stages_are_exactly_the_eight_present() -> None:
-    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 둘은 resolve() 가 None 이다."""
+def test_implemented_stages_are_exactly_the_nine_present() -> None:
+    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 하나는 resolve() 가 None 이다."""
     assert set(HANDLERS) == {
         "scene_detection",
         "frame_extraction",
@@ -108,6 +108,7 @@ def test_implemented_stages_are_exactly_the_eight_present() -> None:
         "ocr",
         "asr",
         "scene_transcript_mapping",
+        "entity_extraction",
         "text_embedding",
         "indexing",
     }
@@ -538,8 +539,8 @@ def test_keyframe_reading_stages_skip_the_source_video() -> None:
     `ocr` 과 `vlm_metadata` 는 상류 keyframe 만 보므로 False 다. 나머지는 영상을 열어야
     하고, 거기서 False 가 되면 `require_video()` 가 실행 중에 터진다. `asr` 이 True 인
     이유는 앞의 둘과 다르다 — 보는 것이 화면이 아니라 **원본 파일 안의 오디오**다.
-    `text_embedding` 과 `indexing` 은 이미지조차 열지 않는다. 상류가 만든 텍스트와
-    숫자만 본다.
+    `entity_extraction`·`text_embedding`·`indexing` 은 이미지조차 열지 않는다. 상류가
+    만든 텍스트와 숫자만 본다 — 화면 글자도 상류가 이미 읽어 둔 것을 받는다.
     """
     assert {name: handler.needs_video for name, handler in HANDLERS.items()} == {
         "scene_detection": True,
@@ -548,6 +549,7 @@ def test_keyframe_reading_stages_skip_the_source_video() -> None:
         "ocr": False,
         "asr": True,
         "scene_transcript_mapping": False,
+        "entity_extraction": False,
         "text_embedding": False,
         "indexing": False,
     }

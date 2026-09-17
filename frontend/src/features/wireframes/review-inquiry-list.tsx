@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Film, Inbox, Plus } from 'lucide-react';
+import { ArrowUpRight, Film, Inbox, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef } from 'react';
@@ -12,8 +12,8 @@ import {
   formatInquiryDate,
   formatInquiryTimecode,
 } from '@/features/wireframes/review-inquiry-view';
-import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
-import boardStyles from '@/features/wireframes/reviewer-board.module.css';
+import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import boardStyles from '@/features/wireframes/review-dashboard.module.css';
 
 const filters: Array<{ value: 'all' | InquiryStatus; label: string }> = [
   { value: 'all', label: '전체' },
@@ -25,6 +25,40 @@ const filters: Array<{ value: 'all' | InquiryStatus; label: string }> = [
 interface InquiryListProps {
   data: ReviewInquiryList;
   currentStatus?: InquiryStatus;
+}
+
+interface InquiryListHeadingProps {
+  data?: ReviewInquiryList;
+}
+
+export function InquiryListHeading({ data }: InquiryListHeadingProps) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const totalCount = data
+    ? data.statusCounts.open + data.statusCounts.reviewing + data.statusCounts.closed
+    : undefined;
+
+  return (
+    <section className={boardStyles.heading} aria-labelledby="reviewer-greeting">
+      <div className={boardStyles.greetingTitle}>
+        <h1 id="reviewer-greeting">문의 검수</h1>
+        <span className={boardStyles.totalCount}>
+          전체 <em>{totalCount ?? '—'}건</em>
+        </span>
+      </div>
+      <Link
+        aria-label="영상 등록"
+        className={boardStyles.primaryButton}
+        href={getReviewUrl(pathname, searchParams.toString(), {
+          view: 'upload',
+          inquiry: null,
+        })}
+        title="영상 등록"
+      >
+        <Plus aria-hidden="true" /> <span>영상 등록</span>
+      </Link>
+    </section>
+  );
 }
 
 export function InquiryList({ data, currentStatus }: InquiryListProps) {
@@ -47,43 +81,16 @@ export function InquiryList({ data, currentStatus }: InquiryListProps) {
   }
 
   return (
-    <div className={boardStyles.board}>
-      <section className={boardStyles.greeting} aria-labelledby="reviewer-greeting">
-        <div>
-          <p className={boardStyles.eyebrow}>REVIEWER WORKSPACE</p>
-          <h1 id="reviewer-greeting">
-            문의 검수
-            <br />
-            <span>
-              전체 <em>{counts.all}건</em>
-            </span>
-          </h1>
-        </div>
-        <div className={boardStyles.headerActions}>
-          <Link
-            className={boardStyles.processingLink}
-            href={getReviewTabUrl(pathname, searchParams.toString(), 'processing')}
-          >
-            영상 처리 현황 <ArrowRight aria-hidden="true" />
-          </Link>
-          <Link
-            className={boardStyles.registrationLink}
-            href={getReviewUrl(pathname, searchParams.toString(), {
-              view: 'upload',
-              inquiry: null,
-            })}
-          >
-            <Plus aria-hidden="true" /> 영상 등록
-          </Link>
-        </div>
-      </section>
-
+    <div className={boardStyles.dashboard}>
       <section className={boardStyles.panel} aria-labelledby="inquiry-board-title">
         <div className={boardStyles.panelHeading}>
-          <h2 id="inquiry-board-title" ref={listHeadingRef} tabIndex={-1}>
-            문의 목록
-          </h2>
-          <span>최근 접수 순 · 10개씩</span>
+          <div>
+            <h2 id="inquiry-board-title" ref={listHeadingRef} tabIndex={-1}>
+              문의 목록
+            </h2>
+            <p>검색어와 장면을 확인하고 접수된 문의를 검수해 주세요.</p>
+          </div>
+          <span>최근 접수 순</span>
         </div>
         <div className={boardStyles.filterRow}>
           <div aria-label="문의 상태" className={boardStyles.statusFilters} role="group">
@@ -103,15 +110,14 @@ export function InquiryList({ data, currentStatus }: InquiryListProps) {
           <p aria-live="polite" role="status">
             총 <strong>{data.totalElements}</strong>개의 문의
           </p>
-          <span>페이지 {currentPage}</span>
+          <span>페이지 {currentPage} · 10개씩</span>
         </div>
 
         {data.items.length === 0 ? (
-          <div className="grid min-h-56 place-items-center text-center text-(--muted)">
-            <div>
-              <Inbox aria-hidden="true" className="mx-auto mb-3" />
-              <p>이 상태의 문의가 없습니다.</p>
-            </div>
+          <div className={boardStyles.empty}>
+            <Inbox aria-hidden="true" />
+            <h3>이 상태의 문의가 없습니다.</h3>
+            <p>다른 상태를 선택하면 접수된 문의를 확인할 수 있어요.</p>
           </div>
         ) : (
           <ul aria-label="문의 목록" className={boardStyles.list}>
@@ -124,28 +130,31 @@ export function InquiryList({ data, currentStatus }: InquiryListProps) {
                 >
                   <span aria-hidden="true" className={boardStyles.thumbnail}>
                     <Film />
-                    <small>
-                      {formatInquiryTimecode(item.scene.startTimeMs)}–
-                      {formatInquiryTimecode(item.scene.endTimeMs)}
-                    </small>
                   </span>
                   <span className={boardStyles.rowCopy}>
                     <span className={boardStyles.rowMeta}>
                       문의 #{item.feedbackId}
-                      <i aria-hidden="true" />
-                      {item.hasComment ? '설명 있음' : '설명 없음'}
-                      <span className={boardStyles.statusChip} data-status={item.status}>
-                        {inquiryStatusLabels[item.status]}
+                      <span>{item.hasComment ? '설명 있음' : '설명 없음'}</span>
+                    </span>
+                    <strong>
+                      <span className={boardStyles.queryLabel}>검색어</span>
+                      {item.queryText}
+                    </strong>
+                    <span className={boardStyles.sceneMeta}>
+                      <span>{displayClipTitle(item.scene.clipTitle)}</span>
+                      <span className={boardStyles.timecode}>
+                        {formatInquiryTimecode(item.scene.startTimeMs)}–
+                        {formatInquiryTimecode(item.scene.endTimeMs)}
                       </span>
                     </span>
-                    <strong>{displayClipTitle(item.scene.clipTitle)}</strong>
-                    <span>
-                      {formatInquiryTimecode(item.scene.startTimeMs)}–
-                      {formatInquiryTimecode(item.scene.endTimeMs)}
-                    </span>
-                    <span className={boardStyles.comment}>{item.queryText}</span>
                   </span>
-                  <span className={boardStyles.age}>{formatInquiryDate(item.createdAt)}</span>
+                  <span className={boardStyles.rowEnd}>
+                    <span className={boardStyles.statusChip} data-status={item.status}>
+                      {inquiryStatusLabels[item.status]}
+                    </span>
+                    <span className={boardStyles.date}>{formatInquiryDate(item.createdAt)}</span>
+                    <ArrowUpRight aria-hidden="true" />
+                  </span>
                 </button>
               </li>
             ))}

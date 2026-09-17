@@ -22,6 +22,5 @@ public interface TagCorrectionConfirmationJpaRepository extends JpaRepository<Ta
             value = "UPDATE tag_evidence SET confirmed = true "
                     + "WHERE source_feedback_id = :feedbackId AND evidence_id IN (:evidenceIds) AND confirmed = false",
             nativeQuery = true)
-    int confirm(
-            @Param("feedbackId") long feedbackId, @Param("evidenceIds") Collection<Long> evidenceIds);
+    int confirm(@Param("feedbackId") long feedbackId, @Param("evidenceIds") Collection<Long> evidenceIds);
 }

@@ -477,7 +477,7 @@ runs/398021847361024/frame_extraction/a1/s0000/kf-000004200.jpg
 
 **JSON 보존 산출물.** v2의 `artifacts`에는 `kind: "ocr_result"`, `storageKey: "runs/{runId}/ocr/a{attempt}/ocr-result.json"`, 실제 `byteSize`·`contentHash`(SHA256)를 가진 참조 한 개가 온다. 위 예제의 크기·해시는 자리 표시용이며 실제 파일 바이트에서 계산한다. 파일은 `{outputSchemaVersion, identity, output}` 구조다. `identity`는 §7의 OCR 재현 튜플이고 `output`은 complete의 출력과 동일하다. UTF-8·키 정렬·공백 없는 JSON으로 만들며 실행 시각은 넣지 않아 같은 결과가 같은 바이트가 된다. 러너가 성공 업로드 후 complete에 참조를 싣는다.
 
-**보존·소비 조건.** BE는 OCR 지원을 추가할 때 v2 출력 검증, 산출물 참조·크기·해시 확인, complete 출력과 JSON 내용 일치 확인, 원본 관측 저장, 성공 단계의 산출물 참조 보존을 함께 구현해야 한다. 후속 소비자는 이 문서 전체를 읽어 대표 문구와 근거를 조회한다. 배열을 단독 정렬·필터링하거나 관측 인덱스를 DB ID로 변환 없이 사용하지 않는다. **현재 BE는 OCR 단계 자체를 지원하지 않고 v1 검사만 있어 이 경로는 아직 연동되지 않는다**(§11 항목 12). 별도 그룹 테이블을 임의로 추가하지 않는다.
+**보존·소비 조건.** BE는 v2 출력 검증, 산출물 참조·크기·해시 확인, complete 출력과 JSON 내용 일치 확인, 원본 관측 저장, 성공 단계의 산출물 참조 보존을 함께 구현한다(`S15P21A501-184`). 후속 소비자는 이 문서 전체를 읽어 대표 문구와 근거를 조회한다. 배열을 단독 정렬·필터링하거나 관측 인덱스를 DB ID로 변환 없이 사용하지 않는다. 별도 그룹 테이블을 임의로 추가하지 않는다.
 
 기본 규칙은 NFKC·casefold·공백 제거 후 일치이며, 원문은 수정하지 않는다. 유사도 병합과 모호성 보류 규칙·실측은 `ai/docs/ocr.md` §4가 설명한다. `mergeConfigVersion`은 출력과 `versions.detail` 모두에 넣고 `stageVersion`에도 반영한다. 기본 `textGroups` metric은 이전의 전역 textKey 개수가 아니라 독립 관측을 포함한 scene별 그룹 수다.
 
@@ -568,7 +568,7 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
 **텍스트 근거(v2)** — 모델은 제공된 `ocr_N`·`tr_N` 라벨을 기존 `evidence` 배열에서 인용한다. 라벨은 모델 출력용이며 DB ID가 아니다. 입력에 없는 라벨은 기존 근거 해석 경로에서 거부한다. `shotType`은 이미지 라벨만 사용한다. 기존 이미지 근거 객체는 유지하며 caption·tagCandidates의 근거에 다음 객체가 추가된다.
 
 - OCR: `{sourceRefType: "ocr_observation", sceneIndex, timestampMs, storageKey, observationIndex}`. `observationIndex`는 현재 run의 원본 `ocr.observations` 배열 위치이며 DB ID가 아니다. OCR을 묶은 라벨은 해당 원본 관측 전부로 되돌린다.
-- 대사: `{sourceRefType: "scene", sceneIndex, storageKey, segmentId, s, e, sourceDetail}`. `storageKey`는 원본 segments snapshot이며 `segmentId`는 그 안에서만 유일하다. 저장 시 scene 근거를 사용하되 구간 참조를 손실시키지 않는다.
+- 대사: `{sourceRefType: "scene", sceneIndex, storageKey, segmentId, s, e, sourceDetail}`. `storageKey`는 원본 segments snapshot이며 `segmentId`는 그 안에서만 유일하다. **BE는 이 근거를 `tag_evidence`의 `('scene', scene_id)`까지만 저장한다** — `segmentId`·`s`·`e`·`sourceDetail`을 담을 칸이 그 표에 없다. 그래서 조회로 답할 수 있는 것은 "이 장면의 대사를 보고 나왔다"까지이며, 어느 구간이었는지는 태그 근거를 읽는 경로에 나타나지 않는다(`S15P21A501-184`). 원문이 사라지는 것은 아니다 — 단계 응답의 `output`은 그대로 `stage_states_json`에 보존되므로(`PipelineRun`) 그 run을 열면 구간 참조를 꺼낼 수 있고, 다만 조인·검색에 쓸 수 있는 자리에는 없다. 구간을 근거 화면에서 직접 쓰려면 표에 칸을 늘리는 별도 티켓이 필요하다.
 
 출력 payload는 `npick.stage.vlm_metadata.output/v2`, 모델 schema는 `vlm-metadata/v2`다. 기존 이미지 전용 v1 소비자가 이 출력을 정상 데이터로 받아서는 안 된다. BE 저장·부분 저장 방지 및 대사 매핑 결과 생성은 각 담당 연동 구현에서 이 계약과 맞춰야 한다. 이 확장만으로 해당 저장 경로가 완성됐음을 의미하지 않는다.
 
@@ -712,6 +712,96 @@ artifact 본문 (`npick.scene.embeddings/v1`):
 
 **오류 코드** — 상류 산출물이 잘못됐으면 `VALIDATION_ERROR`(영구), 그 밖의 정체 모를 실패는 `INDEX_FAILED`(일시)다.
 
+### 4.3.6 `entity_extraction` — 장면 태그 후보
+
+`outputSchemaVersion`은 `npick.stage.entity_extraction.output/v1`이다. 99번은 순수 단계
+모듈, 자체 GPU 어댑터, 그리고 잡 registry/runner 배선까지 제공한다. **가중치와 CUDA가 있는
+워커만 이 단계를 capabilities에 싣는다** — 외부 추론 경로가 없으므로 CPU 워커에는 이 단계를
+돌릴 방법이 아예 없고, 배정받아 매번 `MODEL_UNAVAILABLE`로 죽는 것보다 배정받지 않는 편이
+낫다(`ocr`·`vlm_metadata`와 같은 가드). BE의 tag·tagging·tag_evidence 저장은 아직 없다.
+
+입력은 같은 clip/run의 OCR v2 병합 결과, 최종 채택·장면 연결된 대사와 segments snapshot 키,
+검증된 VLM `tagCandidates`다. 실패한 상류는 입력 없음으로 구분한다. 형식이 틀린 상류를
+빈 성공으로 바꾸지 않는다. 일반 대본·보관 전용·미채택 대사는 넣지 않는다.
+OCR은 병합 그룹의 대표 관측 **원문**에서 추출하고 그 관측의 전역 `observationIndex`를
+보존한다. 원본 그룹과 다른 구성원은 상류 OCR 산출물에서 추적한다.
+**병합은 이 단계가 다시 계산한다.** BE는 `inputs.upstream.ocr`을 `ocr_observation` 행에서
+조립하는데 그 표에 그룹 컬럼이 없어 `textGroups`가 돌아오지 않는다(§4.3.2). 이 단계는 받은
+배열을 같은 기본 병합 설정으로 다시 묶으므로 `mergeVersion`이 재현 축에 들어간다. 근거의
+`observationIndex`는 **BE가 보낸 그 배열의 위치**이지 다시 묶은 사본의 위치가 아니다.
+
+```json
+{
+  "scenes": [{
+    "sceneIndex": 0,
+    "tagCandidates": [{
+      "type": "person",
+      "value": "홍길동",
+      "source": "rule",
+      "confidence": 0.87,
+      "evidence": [{
+        "sourceRefType": "scene",
+        "sceneIndex": 0,
+        "storageKey": "runs/example/transcript/segments.json",
+        "segmentId": "seg-1",
+        "s": 1000,
+        "e": 3000,
+        "sourceDetail": "uploaded"
+      }]
+    }]
+  }]
+}
+```
+
+- 새 텍스트 후보 유형은 `person`·`organization`·`location`·`facility`·`keyword`·`event`다.
+  `season`·`weather`·`scene_type`은 VLM 입력 후보만 전달한다. `shot_type`은 받지 않는다.
+  `filmed_date`·`broadcast_date`는 v1 자동 후보에서 제외한다. NER의 날짜 언급은 날짜의
+  역할을 입증하지 못하므로 화면 문자열을 방송일·촬영일로 승격하지 않는다. 수동 날짜와
+  BE의 실제 달력 `YYYY-MM-DD` 검증은 그대로 적용된다.
+- `value`는 NER 원문 구간 또는 VLM 입력 표시값이다. `match_value`는 출력하지 않는다.
+  중복 비교만 NFKC → 공백·ZWSP·BOM·soft hyphen 제거 → NFKC를 사용한다. casefold와
+  별칭 확장은 하지 않는다. 같은 `(type, 비교값, source)`는 최초 표시값, 최대 confidence,
+  중복 없는 근거 합집합으로 합친다. NER와 VLM은 서로 보정된 점수가 아니므로 다른 source는
+  독립 후보로 유지한다. BE는 동일 tag/tagging에 여러 evidence를 연결할 수 있다.
+- 자체 NER의 생성 출처는 `rule`, VLM에서 전달한 후보는 `vlm`이다. 입력이 OCR·CC여도
+  `source`를 `ocr`·`cc`로 바꾸지 않는다. `sourceDetail`은 대사 원본의 종류일 뿐이다.
+  검증 상태 필드는 없으며 BE가 `unverified`로 저장한다. confidence는 유한한 0~1이고
+  NER 점수는 소수 넷째 자리로 반올림한다. 높은 confidence는 verified의 근거가 아니다.
+- 근거는 §4.3.3의 해석된 참조 3종을 따른다. keyframe은
+  `{sourceRefType:"keyframe", sceneIndex, timestampMs, storageKey}`, OCR은
+  `{sourceRefType:"ocr_observation", sceneIndex, timestampMs, storageKey, observationIndex}`,
+  대사는 예제처럼 `scene` 참조와 snapshot 키·segmentId·원본 `[s,e)`·sourceDetail을 함께
+  보존한다. `ocr_N`·`tr_N`은 입력 내 라벨일 뿐 DB ID가 아니며 출력은 실제 참조로 풀어 쓴다.
+  BE는 대사 근거를 scene 행에 연결하되 구간 상세를 버리지 않아야 한다.
+- 모든 후보는 해당 `sceneIndex`를 가리킨다. 영상 범위 후보, verification_status,
+  hard filter·제외 여부 필드는 허용하지 않는다. 빈 후보 배열은 정상이다.
+- JSON/schema·유한 점수·알려진 NER 라벨·원문 span·근거·장면 일관성 검사 중 하나라도
+  실패하면 **단계 전체 출력의 어떤 필드도 쓰지 않는다**. 명시적으로 매핑 대상에서 제외한
+  정상 NER 유형(날짜·수량 등)을 만들지 않는 것은 부분 오류 복구가 아니다.
+  누락된 추론 응답을 빈 후보로 처리하지 않는다.
+- 외부 추론 경로는 제공하지 않는다. 모델은 사전 배치된 고정 revision을 `local_files_only`
+  로 로드한다. 원문은 워커 GPU 안에서 처리하며 외부 API로 보내지 않는다.
+
+대사는 `scene_transcript_mapping`이 올린 segments·decisions snapshot을 워커가 직접 읽는다
+(§4.5). 상위 `transcript` 별칭이 아니라 **매핑이 가리키는 참조**가 정본이다 — 별칭은 이전
+snapshot을 가리킬 수 있고, 그것을 받아 오면 매핑이 말하는 문서를 찾지 못한다.
+`vlm_metadata`·`text_embedding`과 같은 규약이다.
+
+상류는 `sceneDetection`만 필수다. 나머지 셋(`ocr`·`scene_transcript_mapping`·
+`vlmMetadata`)은 전부 비치명 상류라 없을 수 있고, 없으면 그 입력 없이 돈다 — 여기서
+필수로 걸면 비치명 실패 하나가 둘이 된다. 장면 목록만은 필수다. 모든 후보가 장면 범위라
+그것 없이는 후보가 어느 장면 것인지 말할 수 없다. `metrics`의 `ocrTexts`·`transcriptTexts`·
+`vlmCandidates`가 어느 상류가 실제로 텍스트를 줬는지 남긴다 — 텍스트 0건에서 후보 0건인
+것과 300건에서 0건인 것은 다른 사실이다.
+
+비치명 단계(`fatal=False`)이므로 실패 후 run은 계속될 수 있으며 오류는
+`stage_states_json`에 기록해야 한다. §9.2 `ENTITY_SCHEMA_INVALID`는 영구 실패이고
+`EntityOutputInvalidError`가 그 코드를 단다. 상류 오류는 `VALIDATION_ERROR`, 모델 준비
+실패는 `MODEL_UNAVAILABLE`(일시), 메모리 부족은 `OUT_OF_MEMORY`, 기타 실행 실패는
+`STAGE_FAILED`다. `ENTITY_SCHEMA_INVALID`는 단계별 기본 코드 표에 넣지 않는다 — 그 표의
+값은 정체 모를 예외에 붙는 기본값인데 이 코드는 영구라서, 그렇게 두면 원인과 분류가 동시에
+거짓이 된다(`vlm_metadata`와 같은 판단).
+
 ### 4.4 artifacts — 입력 내려받기 / 산출물 올리기
 
 ```
@@ -801,7 +891,11 @@ ASR 정상 출력은 `segments` 배열이 있는 객체이며 빈 배열도 정�
 - 원문 `t`·정수 ms `s/e`·`sourceDetail`은 원본 snapshot에서 구간 ID로 읽는다. 장면 연결 목록에는 중복 복사하지 않는다. ID의 범위는 segments artifact 하나다.
 - 소비자는 snapshot 관계·채택 여부·장면 및 구간 ID를 검사한다. 알 수 없는 구간·보관 전용 구간·누락/중복 장면·잘못된 artifact는 빈 결과로 처리하지 않는다.
 - `tokens`는 그 장면의 채택 대사를 연결 순서(시간순)대로 이어 한 번에 Kiwi로 분석한 색인 토큰을 공백으로 이은 것이며 곧 `scene.transcript_tokens`다. **BE가 만들 수 없으므로 워커가 싣는다** — 형태소 분석은 파이프라인의 일이고([docs/architecture/02-container.md](../architecture/02-container.md)) 색인과 질의가 같은 Kiwi 설정을 써야 하며 다르면 검색이 0건이 된다. 그래서 `versions.detail.tokenizer`가 그 설정의 식별자를 함께 싣는다(`ocr`·`vlm_metadata`와 같은 규약). 빈 문자열은 정상이다 — 대사가 없는 장면과 내용어가 없는 대사가 모두 여기 해당하며, 키를 생략하는 것과 구분한다. 구간마다 따로 토큰화해 잇지 않는다.
-- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. `scene.transcript_text`도 같은 연결 순서로 원문을 이어 만들어 `transcript_tokens`와 같은 문장을 가리키게 한다. 실제 매핑 알고리즘은 생산 단계의 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- BE의 `scene.transcript_json` 저장 시 연결 ID를 원본과 결합해 기존 `s/e/t/overlap_ms` 형식으로 변환한다. 출력의 `overlapMs`와 저장 JSON의 `overlap_ms`를 구분한다. `scene.transcript_text`도 같은 연결 순서로 원문을 **공백 한 칸**으로 이어 만들어 `transcript_tokens`와 같은 문장을 가리키게 한다. 실제 매핑 알고리즘은 생산 단계의 책임이며 VLM 소비자가 대신 수행하지 않는다.
+- **`overlapMs`는 계산되는 값이지 신고받는 값이 아니다.** BE는 저장한 장면 구간과 원본 구간에서 `min(장면 끝, 구간 끝) − max(장면 시작, 구간 시작)`을 직접 구해 대조하고, 값이 다르거나 0 이하면 거절한다. 그러지 않으면 장면과 겹치지도 않는 구간의 연결과 지어낸 겹침 시간이 `transcript_json`에 그대로 남는데, 그 칸의 정의가 "이 장면과 겹친 시간"이다.
+- **장면의 연결은 시간순(`s` 오름차순)이고 같은 구간이 두 번 오지 않는다.** 그 순서가 곧 원문을 잇는 순서이고, `transcript_text`와 `transcript_json`은 화면에 보여주는 값이라 대사 순서대로 읽혀야 한다. 단 이 규약이 어긋나도 `transcript_tokens`와 갈리지는 않는다 — 워커가 같은 연결 목록을 같은 순서·같은 구분자로 이어 토큰을 만들기 때문이다. 두 칸의 불일치를 BE가 검출할 방법은 없다.
+- **두 snapshot은 같은 짝이어야 한다.** BE는 `decisions` 파일 안의 `segmentsArtifact`가 `segmentsArtifact` 참조와 통째로 같은지, 두 파일의 `schemaVersion`이 맞는지, 판정이 모든 원본 ID에 정확히 하나씩 있는지를 검사한다. 구간 ID는 snapshot 사이에 보존되므로, 판정만 4단계 `transcript_selection`의 예비 파일을 가리켜도 모든 ID가 해석되고 아무것도 실패하지 않은 채 예비 판정이 최종으로 되살아난다.
+- `scene.transcript_source`는 **BE가 채택 구간의 `sourceDetail`에서 유도한다.** 어휘는 `provided`·`asr` 둘뿐이고, 한 장면이 자막과 ASR을 함께 쓰면 `provided`다 — 영상 단위 판정과 같은 방향이다. 자막 파일이 앞부분만 덮으면 뒷부분 장면은 `asr`이 되므로 영상 단위 값과 다를 수 있다(FRD §3 F-03). 연결이 없는 장면은 이 칸과 나머지 세 칸을 모두 비운 채 둔다.
 - **이 단계의 snapshot이 그 run의 최종 채택 정본이다.** 4단계 `transcript_selection`이 낸 `decisions`는 ASR 이전의 예비 판정이라 같은 run에 두 벌이 남는다. 저장·검색·VLM은 언제나 매핑 결과의 `transcript`가 가리키는 쪽을 쓰고, 예비 판정을 최종으로 되살리지 않는다. 두 단계는 위의 같은 채택 규칙(제공 자막 → CC → ASR, 채택된 상위 출처만 제외 근거)을 따라야 하며, 어긋나면 같은 run 안에서 CC 채택 여부가 갈린다.
 
 **PUT의 키는 경로 세그먼트로 들어가므로 워커가 퍼센트 인코딩한다** — 구분자 `/`는 남기고 `?`·`#`는 인코딩한다. 인코딩하지 않으면 `?`가 질의로 갈려 경로가 잘리고, BE의 접두 검사(`JOB_403_001`)가 의도한 경로에 대해 돌지 않는다. `..`나 절대 경로가 든 키는 인코딩으로 막히지 않으므로(구분자를 남기는 한 정규화된다) **워커가 보내기 전에 거절한다.** GET은 `?key=`로 실으므로 이 문제가 없다.
@@ -853,6 +947,15 @@ compose에서는 backend와 ai-worker가 `media:/srv/npick/media`를 함께 마�
 `status` ∈ `pending | running | succeeded | failed | skipped`. BE는 run 생성 시 `stages.py`의 **10개 키를 전부 `pending`으로 초기화**한다 — "다음 단계가 뭔가"를 조인 없이 답할 수 있다.
 
 ## 7. 버전 규약과 `pipeline_version` 롤업
+
+`entity_extraction`의 재현 축은 `{algorithmVersion, configVersion, modelVersion,
+engineVersion, mergeVersion}`이다. 다섯째 축은 이 단계가 직접 다시 계산하는 OCR 병합
+설정이다(§4.3.6) — 다르게 묶으면 같은 관측에서 다른 텍스트를 읽는데 나머지 네 축은 하나도
+움직이지 않는다. 접두 `npick.stage.entity_extraction/v1`과 공용 canonical JSON SHA256
+앞 8자리로 `stageVersion`을 만든다. `configVersion`은 TOML 설정과 고정 BIO 라벨 표를
+함께 해시한다. confidence 임계값·유형 매핑·stride·aggregation·모델 revision이 바뀌면
+버전도 바뀐다. `modelVersion`은 모델 ID와 실제 로드한 고정 revision이고 로드 전에는
+성공 식별자를 내지 않는다. 이 단계는 색인 토큰과 LLM 프롬프트를 생성하지 않는다.
 
 두 층으로 나눈다. 해시 규칙 자체는 [README.md](README.md)의 공용 규약이다.
 
@@ -967,6 +1070,7 @@ BE의 실제 `ErrorType`(`BAD_REQUEST`, `LENGTH_REQUIRED`, `UNAUTHORIZED`, `FORB
 | --- | --- | --- |
 | `SCENE_DETECTION_FAILED` | 일시 | scene_detection |
 | `VLM_SCHEMA_INVALID` | **영구** | vlm_metadata |
+| `ENTITY_SCHEMA_INVALID` | **영구** | entity_extraction |
 | `OCR_FAILED` | 일시 | ocr |
 | `ASR_FAILED` | 일시 | asr |
 | `INDEX_FAILED` | 일시 | indexing |
@@ -1056,12 +1160,11 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 10. **artifacts 저장소 어댑터** — 미디어 루트 정규화·경로 이탈 차단·sha256 검증.
 11. **`pipeline.yml`에 `stage_versions:` 키 신설**, 기동 시 롤업 계산·로그.
 12. **stage output 저장 어댑터가 지원하는 단계를 늘린다.** BE는 `StageOutputPort.supports(stage)`가 거짓인 단계를 워커 `capabilities`에서 **제거한다**(`WorkerExecutionBinding`). 그래서 워커가 구현하고 버전을 선언해도 그 단계는 배정되지 않고, 강제로 결과를 보내도 `validateAndStore`의 `default` 분기에서 거절된다.
-    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`transcript_selection`·`asr`·`text_embedding`·`indexing` 여섯이다(뒤의 둘은 `S15P21A501-183`). **`ocr`(`S15P21A501-94`, dev 머지됨)과 `vlm_metadata`(`S15P21A501-92`)는 워커 쪽이 끝났고 BE 저장 경로만 없다.** 둘 다 §4.3.2·§4.3.3이 저장 자리를 이미 지정한다 — `ocr`은 `ocr_observation` 행, `vlm_metadata`는 `scene.caption`·`scene.caption_tokens`·`scene.shot_type` 갱신과 `tag`·`tagging`·`tag_evidence` 후보(`source='vlm'`, `verification_status='unverified'`, `source_ref_type='keyframe'`)다.
-    **출력 스키마가 v2인 단계가 둘이다** — `ocr`(`npick.stage.ocr.output/v2`, §4.3.2, S15P21A501-95)과 `vlm_metadata`(`npick.stage.vlm_metadata.output/v2`, S15P21A501-92). `PipelineStages.outputSchema`가 모든 단계에 `/v1`을 돌려주고 `StageExecutionService`가 배정과 `complete` 양쪽에서 그 값을 대조하므로, **단계별 출력 스키마 버전을 그 표에서 읽도록 고치지 않으면 저장 어댑터를 붙여도 두 단계의 성공 결과는 거절된다.** `JdbcWorkerStageOutputAdapter`의 `.output/v1` 문자열 조립도 같은 자리다. 이 한 번의 수정이 두 단계를 함께 푼다.
-    `ocr` 저장 어댑터는 관측 행을 저장하고 `kind: "ocr_result"` 산출물 참조를 보존한다. `textGroups`·`mergeConfigVersion`은 `ocr_observation`에 담을 칸이 없고 별도 그룹 테이블도 만들지 않으므로, 그 둘의 영구 보관처는 산출물 파일이다 — 그룹은 원본 관측 배열의 인덱스라 배열을 재정렬하거나 일부만 저장하면 참조가 끊긴다. 같은 이유로 BE가 `vlm_metadata`에 넘기는 `inputs.upstream.ocr`에는 `textGroups`가 없다(§4.3.3). 워커의 `UpstreamOcrOutput`이 그것을 요구하지 않는다.
-    이건 설계 미결이 아니라 **미구현**이다. 계약이 정한 payload를 받아 쓰는 쪽이 아직 없다는 뜻이므로, 두 단계의 end-to-end 확인은 이 항목이 끝나야 가능하다.
+    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`ocr`·`transcript_selection`·`asr`·`scene_transcript_mapping`·`vlm_metadata`·`text_embedding`·`indexing` 아홉이다(`text_embedding`·`indexing`은 `S15P21A501-183`, `scene_transcript_mapping`은 `S15P21A501-98`·`-191`, `ocr`·`vlm_metadata`는 `S15P21A501-184`). **남은 것은 `entity_extraction` 하나이며 양쪽 다 없다.**
+    **출력 스키마가 v2인 단계가 둘이다** — `ocr`(`npick.stage.ocr.output/v2`, §4.3.2, S15P21A501-95)과 `vlm_metadata`(`npick.stage.vlm_metadata.output/v2`, S15P21A501-92). `PipelineStages.outputSchema`가 그 예외 목록을 들고 있고 배정 payload·`complete` 검사·저장 어댑터가 모두 그 표 하나를 읽는다. 문자열을 따로 조립하는 자리를 다시 만들면 배정과 검사가 갈려 성공 결과가 저장 분기에 닿기도 전에 거절된다.
+    `ocr` 저장 어댑터는 관측 행을 저장하고 `kind: "ocr_result"` 산출물 참조를 보존한다. `textGroups`·`mergeConfigVersion`은 `ocr_observation`에 담을 칸이 없고 별도 그룹 테이블도 만들지 않으므로, 그 둘의 영구 보관처는 산출물 파일이다 — 그룹은 원본 관측 배열의 인덱스라 배열을 재정렬하거나 일부만 저장하면 참조가 끊긴다. 그래서 어댑터는 파일의 `output`이 `complete`의 `output`과 **같은지**까지 확인한다. 같은 이유로 BE가 `vlm_metadata`에 넘기는 `inputs.upstream.ocr`에는 `textGroups`가 없다(§4.3.3). 워커의 `UpstreamOcrOutput`이 그것을 요구하지 않는다.
 
-    **`ocr`이 막히면 run 은 3단계에서 멈춘다.** `nextStage()`는 첫 `pending` 단계를 고르고, `supports()`가 거짓인 단계는 claim `capabilities`에서 지워져 배정 후보가 되지 않는다. 그래서 `text_embedding`·`indexing`이 배선된 뒤에도 등록→게시 end-to-end 는 `ocr`(또는 `vlm_metadata`)의 저장 경로가 생겨야 처음 성립한다. 게시 조건이 `scene.caption_tokens`·`scene.transcript_tokens`·`ocr_observation.tokens` 중 **하나 이상이 비어 있지 않을 것**이라(`JdbcClipPublicationAdapter`), 넷 중 어느 것도 쓰이지 않는 동안에는 `indexing`이 성공해도 `clip.active_pipeline_run_id`가 전환되지 않는다.
+    **8단계 `entity_extraction`이 마지막 구멍이다.** `nextStage()`는 첫 `pending` 단계를 고르고 `supports()`가 거짓인 단계는 claim `capabilities`에서 지워지므로, run은 `vlm_metadata`(7단계)까지 간 뒤 그 자리에서 멈춘다. `text_embedding`·`indexing`이 배선돼 있어도 도달하지 못하므로, 등록→게시 end-to-end는 그 단계가 뚫려야 처음 성립한다. 게시 조건이 `scene.caption_tokens`·`scene.transcript_tokens`·`ocr_observation.tokens` 중 **하나 이상이 비어 있지 않을 것**이라(`JdbcClipPublicationAdapter`), 앞의 세 단계 중 하나라도 실제 내용을 채워 오면 그 조건 자체는 충족된다.
 
 ## 12. 워커 쪽 구현
 
@@ -1079,7 +1182,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 5단계 — `ocr`·`vlm_metadata`는 BE 저장만, `transcript_selection`은 워커 구현만, `scene_transcript_mapping`·`entity_extraction`은 양쪽 다 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서 양쪽 다 배선됐다 |
+| 미구현 2단계 — `entity_extraction`은 BE 저장만, `transcript_selection`은 워커 구현만 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서, `scene_transcript_mapping`은 워커가 `S15P21A501-98`·BE가 `S15P21A501-191`에서, `ocr`·`vlm_metadata`는 `S15P21A501-184`에서 배선됐다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 

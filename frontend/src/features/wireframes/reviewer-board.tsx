@@ -70,7 +70,6 @@ export function ReviewerBoard({
     <div className={styles.board}>
       <section className={styles.greeting} aria-labelledby="reviewer-greeting">
         <div>
-          <p className={styles.eyebrow}>REVIEWER WORKSPACE</p>
           <h1 id="reviewer-greeting">
             안녕하세요 {loginId}님.
             <br />

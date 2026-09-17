@@ -46,10 +46,10 @@ class SearchRuleDeactivationRepositoryAdapterDbTest {
 
         assertThat(off).isEqualTo(1);
         assertThat(activeFlag(RULE)).isFalse();
-        Number activeCount = (Number) em.createNativeQuery(
-                        "SELECT count(*) FROM search_rule WHERE search_rule_id = :id AND active = true")
-                .setParameter("id", RULE)
-                .getSingleResult();
+        Number activeCount = (Number)
+                em.createNativeQuery("SELECT count(*) FROM search_rule WHERE search_rule_id = :id AND active = true")
+                        .setParameter("id", RULE)
+                        .getSingleResult();
         assertThat(activeCount.intValue()).isEqualTo(0);
     }
 

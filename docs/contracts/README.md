@@ -10,9 +10,9 @@ C4 문서 세 종([docs/architecture/](../architecture/))은 배포 단위와 �
 | ---------- | ------------------------ | ----------------------------- | ------------------------------------ |
 | 웹 API     | [web-api.md](web-api.md) | 브라우저 FE ↔ 서비스 서버     | 세션 기반 동기 HTTP                  |
 | 잡 API     | [job-api.md](job-api.md) | 서비스 서버 ↔ 파이프라인 워커 | 워커가 발신자, long-poll             |
-| 리졸버 API | _(미작성)_               | 서비스 서버 ↔ 질의 리졸버     | 서비스 서버가 발신자, 동기 호출 전용 |
+| 리졸버 API | [resolver-api.md](resolver-api.md) | 서비스 서버 ↔ 질의 리졸버 | 서비스 서버가 발신자, 동기 호출 전용 |
 
-출력 JSON 키와 schema는 확정됐다. 정본은 `ai/src/npick_worker/query_resolver/schema.py`이고 버전은 `query-resolver/v2`다([docs/frd.md](../frd.md) §11). 그 파일이 스스로 정본임을 적고 있으므로 여기에 옮겨 적지 않는다. HTTP 계층의 계약 문서(주소·오류 코드·요청 형식)는 아직 쓰지 않았고, 작성 여부는 별건으로 판단한다.
+출력 JSON 키와 schema는 확정됐다. 정본은 `ai/src/npick_worker/query_resolver/schema.py`이고 버전은 `query-resolver/v2`다([docs/frd.md](../frd.md) §11). 그 파일이 스스로 정본임을 적고 있으므로 여기에 옮겨 적지 않는다. `/query/tokenize` 의 HTTP 계층은 [resolver-api.md](resolver-api.md) 에 있고, `/query/resolve` 쪽(주소·오류 코드·요청 형식)은 아직 쓰지 않았다. 작성 여부는 별건으로 판단한다.
 
 ## 왜 문서를 나누는가
 
@@ -38,7 +38,7 @@ AI 컨테이너는 둘이다 — 질의 리졸버와 파이프라인 워커([02-
 ```
 scene-detect/v1
 npick.stage.scene_detection.output/v1
-query-resolver/v1
+query-resolver/v2
 ```
 
 **값 해시**는 `<schema>:<정규화 JSON의 sha256 앞 N자>` 다.
@@ -63,13 +63,14 @@ BE의 오류 코드는 `<PREFIX>_<HTTPSTATUS>[_<NNN>]` 형식이다(`backend/src
 
 | 접두        | 소유                     |
 | ----------- | ------------------------ |
-| `COMM_`     | 공통 (`CommonErrorCode`) |
-| `MEMBER_`   | 계정·로그인 API          |
-| `CLIP_`     | 영상 등록·재생 API       |
-| `SRCH_`     | 검색 API                 |
-| `FEEDBACK_` | 문의·검수 API            |
-| `JOB_`      | 잡 API                   |
-| _(미정)_    | 리졸버 API               |
+| `COMM_`     | 공통 (`CommonErrorCode`)          |
+| `MEMBER_`   | 계정·로그인 API                   |
+| `CLIP_`     | 영상 등록·재생 API                |
+| `SRCH_`     | 검색·리졸버 API (`QueryResolverErrorCode` 포함) |
+| `FEEDBACK_` | 문의·검수 API                     |
+| `TAG_`      | 태그 교정 API                     |
+| `CONFIRM_`  | 교정 확정 API                     |
+| `JOB_`      | 잡 API                            |
 
 HTTP 계층의 코드와 별개로, 단계 산출물에 실리는 도메인 오류 어휘(`stage_states_json`의 `errorCode` 등)는 접두 없이 대문자 스네이크로 쓴다. 계약마다 목록을 자기 문서에 둔다.
 

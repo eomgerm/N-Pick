@@ -1,7 +1,7 @@
 .board {
-  width: min(1120px, 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: 14px 0 40px;
+  padding: 0;
 }
 .greeting {
   display: flex;
@@ -23,13 +23,22 @@
   font-weight: 750;
   letter-spacing: -1.4px;
   line-height: 1.5;
+  color: #f0fbf7;
 }
-.greeting h1 > span {
-  color: var(--muted);
+.greetingTitle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.totalCount {
+  color: #d4e4dd;
+  font-size: 18px;
   font-weight: 500;
+  white-space: nowrap;
 }
 .greeting em {
-  color: var(--accent-strong);
+  color: #ffd3e2;
   font-style: normal;
   font-weight: 750;
 }
@@ -37,6 +46,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+.greeting.headerGreeting {
+  width: 100%;
+  margin: 0 auto;
+  align-items: center;
+  flex-direction: row;
+}
+.headerGreeting .greetingTitle {
+  flex-wrap: nowrap;
+}
+.headerGreeting h1,
+.headerGreeting .registrationLink {
+  white-space: nowrap;
 }
 .processingLink,
 .registrationLink,
@@ -515,6 +537,27 @@
   .greeting h1 {
     font-size: 26px;
   }
+  .greeting.headerGreeting {
+    gap: 12px;
+  }
+  .headerGreeting h1 {
+    font-size: 20px;
+  }
+  .headerGreeting .greetingTitle {
+    gap: 8px;
+  }
+  .headerGreeting .totalCount {
+    font-size: 14px;
+  }
+  .headerGreeting .registrationLink {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    padding: 0;
+  }
+  .headerGreeting .registrationLink span {
+    display: none;
+  }
   .panel {
     padding: 22px 18px;
   }
@@ -531,12 +574,14 @@
     gap: 12px;
   }
   .statusFilters {
+    flex-wrap: wrap;
     gap: 5px;
   }
   .statusFilters button {
     padding: 8px 10px;
     gap: 5px;
     font-size: 11px;
+    white-space: nowrap;
   }
   .sortControl {
     margin-left: auto;
@@ -552,8 +597,8 @@
     padding: 8px 14px;
   }
   .inquiryRow {
-    grid-template-columns: 72px minmax(0, 1fr) auto;
-    gap: 12px;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px 12px;
     padding: 18px 0;
   }
   .thumbnail {
@@ -566,11 +611,15 @@
   }
   .rowCopy strong {
     font-size: 13px;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .comment {
     font-size: 11px;
   }
   .age {
+    grid-column: 2;
+    justify-self: start;
     font-size: 10px;
   }
   .age svg {

@@ -26,7 +26,10 @@ from npick_worker.query_api import (
     QueryNotNormalizableError,
     QueryResolveRequest,
     QueryResolveResponse,
+    TokenizeRequest,
+    TokenizeResponse,
     resolve,
+    tokenize,
     warm_query_encoder,
 )
 from npick_worker.schemas import (
@@ -101,6 +104,25 @@ def resolve_query_endpoint(request: QueryResolveRequest) -> QueryResolveResponse
         return resolve(request)
     except QueryNotNormalizableError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/query/tokenize",
+    response_model=TokenizeResponse,
+    summary="확장어 토큰화 (색인 측과 같은 규칙)",
+)
+def tokenize_endpoint(request: TokenizeRequest) -> TokenizeResponse:
+    """규칙 적용 뒤의 확장어를 후보 조회용 토큰으로 바꾼다 (S15P21A501-48 계약 7).
+
+    `/query/resolve` 와 달리 실패 경로가 없다. 규칙 기반이라 LLM·DB·임베딩을 부르지
+    않고, 토큰이 0 개인 항목은 빈 목록으로 나간다 — 확장어 한 건 때문에 검색을 끊지
+    않는다 (계약 9). **400 을 내는 자리가 없다.**
+
+    422 는 pydantic 이 요청을 거부한 것 전부다 — 상한 초과뿐 아니라 필드 누락·타입
+    불일치도 같은 코드로 온다. 호출부가 422 를 「상한 초과」 로만 읽으면 자기 직렬화
+    버그를 조용히 먹으므로, 가르려면 응답 본문의 `detail[].type` 을 봐야 한다.
+    """
+    return tokenize(request)
 
 
 def _to_status(report: WarmupReport) -> WarmupStatus:

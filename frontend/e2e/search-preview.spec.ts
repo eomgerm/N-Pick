@@ -7,6 +7,59 @@ test.beforeEach(async ({ context }) => {
   ]);
 });
 
+test('검색 요약은 서버 해석 상태를 표시하고 모바일·실패에도 검색어와 구분한다', async ({
+  page,
+}, testInfo) => {
+  let responseState: 'resolved' | 'fallback' | 'failed' = 'resolved';
+  await page.route('**/api/v1/search', (route) =>
+    route.fulfill(
+      responseState === 'failed'
+        ? {
+            status: 503,
+            json: { isSuccess: false, code: 'SEARCH_503', message: '검색을 사용할 수 없습니다.' },
+          }
+        : {
+            json: {
+              isSuccess: true,
+              code: 'COMM_200',
+              message: '성공',
+              data: {
+                ...searchFixture,
+                status: responseState === 'fallback' ? 'degraded' : 'succeeded',
+                degraded_reasons: responseState === 'fallback' ? ['resolver_fallback'] : [],
+                query_resolution_status: responseState,
+              },
+            },
+          },
+    ),
+  );
+  await page.goto('/search/results?q=서울%20귀성%20교통');
+  const summary = page.getByRole('region', { name: '검색 요약', exact: true });
+  const interpretation = summary.getByRole('status');
+  await expect(summary.getByText('검색어', { exact: true })).toBeVisible();
+  await expect(summary.getByText('서울 귀성 교통', { exact: true })).toBeVisible();
+  await expect(summary.getByText('서울', { exact: true })).toHaveCount(0);
+  await expect(interpretation).toHaveText('검색 해석: 정상 완료');
+
+  responseState = 'fallback';
+  await page.getByRole('button', { name: '검색', exact: true }).click();
+  await expect(interpretation).toHaveText(
+    '검색 해석: 해석을 사용할 수 없어 기본 단어 검색으로 전환',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(interpretation).toBeVisible();
+  const bounds = (await interpretation.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath('search-interpretation-mobile.png') });
+
+  responseState = 'failed';
+  await page.getByRole('button', { name: '검색', exact: true }).click();
+  await expect(interpretation).toHaveText('검색 해석: 확인하지 못함');
+  await expect(summary).not.toContainText('정상 완료');
+  await expect(summary).not.toContainText('기본 단어 검색으로 전환');
+});
+
 test('검색 POST의 실제 응답 카드에서 clip ID와 밀리초 구간으로 원본을 재생한다', async ({
   page,
 }) => {

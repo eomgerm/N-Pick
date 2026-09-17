@@ -3,9 +3,7 @@ package com.npick.feedback.application.error;
 import com.npick.common.error.ErrorCode;
 import com.npick.common.error.ErrorType;
 
-/**
- * 교정 확정(S15P21A501-84, F-13) 실패. 확정은 태그·규칙·신고를 걸쳐 조정하므로 application 계층이 오류를 소유한다(설계 정본 §16).
- */
+/** 교정 확정(S15P21A501-84, F-13) 실패. 확정은 태그·규칙·신고를 걸쳐 조정하므로 application 계층이 오류를 소유한다(설계 정본 §16). */
 public enum ConfirmCorrectionErrorCode implements ErrorCode {
     /** 검수자가 아니다. */
     EDITOR_FORBIDDEN(ErrorType.FORBIDDEN, "CONFIRM_403_001", "검수자만 교정을 확정할 수 있다"),
