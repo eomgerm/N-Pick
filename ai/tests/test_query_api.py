@@ -12,7 +12,7 @@
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +21,12 @@ from npick_worker import query_api
 from npick_worker.query_resolver import ResolverCallError, ResolverSchemaInvalidError
 from npick_worker.query_resolver.gms_backend import _NETWORK, _RATE_LIMITED, _TIMEOUT
 from npick_worker.query_resolver.ollama_backend import _NETWORK as _OLLAMA_NETWORK
+from npick_worker.settings import get_settings
+from npick_worker.text_embedding.encoder import (
+    EmbeddingCallError,
+    EmbeddingModelUnavailableError,
+)
+from tests.conftest import SCENE_EMBEDDING_DIMENSION
 
 RAW_QUERY = "작년 여름에 부산 침수됐던 장면 좀 찾아줘"
 
@@ -81,6 +87,51 @@ def stub(monkeypatch: pytest.MonkeyPatch) -> StubFactory:
         resolver = StubResolver(payload)
         monkeypatch.setattr(query_api, "_resolver", lambda: resolver)
         return resolver
+
+    return install
+
+
+class StubEncoder:
+    """`TextEncoder` 스텁. 받은 텍스트를 기록하고 고정 벡터를 돌려준다.
+
+    **차원을 상수로 박는다.** 설정에서 읽으면 "응답 길이가 설정과 같다" 는 단정이
+    순환이 된다 — 스텁과 단정이 같은 출처를 보므로 어떤 값이든 통과한다. 여기 1024 는
+    `scene.embedding vector(1024)` 컬럼의 값이고 그것이 정본이다.
+    """
+
+    name = "stub"
+    version = "stub@v0"
+    model_version = "stub/embedding@0"
+
+    def __init__(self, failure: Exception | None = None) -> None:
+        self._failure = failure
+        self._dimension = SCENE_EMBEDDING_DIMENSION
+        self.texts: list[str] = []
+
+    def encode(self, texts: Sequence[str]) -> tuple[tuple[float, ...], ...]:
+        self.texts.extend(texts)
+        if self._failure is not None:
+            raise self._failure
+        # 성분을 전부 1 로 두지 않는다 — 정규화가 걸렸는지 norm 으로만 보면
+        # 어떤 상수 벡터든 통과한다.
+        return tuple(tuple(float(index % 7 + 1) for index in range(self._dimension)) for _ in texts)
+
+
+@pytest.fixture(autouse=True)
+def encoder(monkeypatch: pytest.MonkeyPatch) -> StubEncoder:
+    """**autouse 다.** 배선 후에는 모든 요청이 인코더를 거치므로, 스텁을 깔지 않으면
+    이 파일의 모든 테스트가 1.7GB 가중치를 내려받으려 든다."""
+    fake = StubEncoder()
+    monkeypatch.setattr(query_api, "_encoder", lambda: fake)
+    return fake
+
+
+@pytest.fixture
+def broken_encoder(monkeypatch: pytest.MonkeyPatch) -> Callable[[Exception], StubEncoder]:
+    def install(failure: Exception) -> StubEncoder:
+        fake = StubEncoder(failure)
+        monkeypatch.setattr(query_api, "_encoder", lambda: fake)
+        return fake
 
     return install
 
@@ -195,3 +246,132 @@ def test_error_response_carries_no_vendor_detail(client: TestClient, stub: StubF
 
 def response_text(body: dict) -> str:
     return json.dumps(body, ensure_ascii=False)
+
+
+# ── 질의 임베딩 (S15P21A501-164) ────────────────────────────────────────
+
+
+def test_response_carries_the_query_embedding(
+    client: TestClient, stub: StubFactory, encoder: StubEncoder
+) -> None:
+    stub(_valid_payload())
+
+    body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
+
+    assert len(body["embedding"]) == SCENE_EMBEDDING_DIMENSION
+    assert body["embedding_model_version"] == "stub/embedding@0"
+    assert body["embedding_error"] is None
+
+
+def test_embedding_uses_the_raw_query_with_the_model_prefix(
+    client: TestClient, stub: StubFactory, encoder: StubEncoder
+) -> None:
+    """정규화 질의를 넣으면 색인 측(자연어 문장)과 입력 분포가 어긋난다."""
+    stub(_valid_payload())
+
+    body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
+
+    assert encoder.texts == [get_settings().embedding_query_prefix + RAW_QUERY]
+    assert body["normalization"]["normalized_query"] not in encoder.texts[0]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        EmbeddingCallError("CUDA 런타임 오류"),
+        EmbeddingModelUnavailableError("가중치를 못 받았다"),
+        RuntimeError("분류되지 않은 실패"),
+    ],
+)
+def test_embedding_failure_keeps_the_rest_of_the_response(
+    client: TestClient,
+    stub: StubFactory,
+    broken_encoder: Callable[[Exception], StubEncoder],
+    failure: Exception,
+) -> None:
+    """FRD v3.1 §6.2 — "텍스트 의미 검색 실패 → 단어 검색과 사용 가능한 신호로 결과 제공".
+
+    임베딩이 죽어도 200 이고, 이 응답의 `search_tokens` 로 BM25 가 이어진다.
+    해석 결과도 함께 살아 나온다 — 두 실패는 별개 축이다.
+    """
+    stub(_valid_payload())
+    broken_encoder(failure)
+
+    response = client.post("/query/resolve", json={"query": RAW_QUERY})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["embedding"] is None
+    assert body["embedding_model_version"] is None
+    assert body["embedding_error"]["category"] == "EMBEDDING_FAILED"
+    assert body["normalization"]["search_tokens"]
+    assert body["resolution"]["intent"] == "scene_search"
+    assert body["error"] is None
+
+
+def test_resolver_failure_does_not_kill_the_embedding(
+    client: TestClient, stub: StubFactory, encoder: StubEncoder
+) -> None:
+    """해석과 임베딩은 독립이다. 하나가 죽었다고 다른 하나를 버리지 않는다."""
+    stub(ResolverCallError("timed out", category=_TIMEOUT))
+
+    body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
+
+    assert body["resolution"] is None
+    assert body["error"]["category"] == _TIMEOUT
+    assert len(body["embedding"]) == SCENE_EMBEDDING_DIMENSION
+    assert body["embedding_error"] is None
+
+
+def test_embedding_vector_is_normalized(
+    client: TestClient, stub: StubFactory, encoder: StubEncoder
+) -> None:
+    """색인 벡터와 같은 크기 규칙이어야 코사인 순위가 성립한다."""
+    stub(_valid_payload())
+
+    body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
+
+    norm = sum(value * value for value in body["embedding"]) ** 0.5
+    assert abs(norm - 1.0) < 1e-9
+
+
+def test_unnormalizable_query_never_reaches_the_model(
+    client: TestClient, stub: StubFactory, encoder: StubEncoder
+) -> None:
+    """400 이 될 질의로 GPU 를 쓰지 않는다."""
+    stub(_valid_payload())
+
+    client.post("/query/resolve", json={"query": "   "})
+
+    assert encoder.texts == []
+
+
+def test_warm_up_loads_the_weights_before_the_first_search(encoder: StubEncoder) -> None:
+    """**리졸버 배포 단위는 `jobs.warm_up()` 을 타지 않는다** — `job_poll_enabled` 가
+    꺼져 있기 때문이다. 그러면 부팅 후 첫 검색이 1.7GB 로딩을 물고 동기 예산을 날린다.
+    """
+    assert query_api.warm_query_encoder() is True
+    assert encoder.texts, "워밍업이 인코더를 부르지 않았다"
+
+
+def test_warm_up_failure_does_not_stop_the_process(
+    broken_encoder: Callable[[Exception], StubEncoder],
+) -> None:
+    """가중치가 없어도 리졸버는 뜬다. 검색은 BM25 로 이어진다 (`ai/AGENTS.md`)."""
+    broken_encoder(EmbeddingModelUnavailableError("캐시 볼륨이 안 붙었다"))
+
+    assert query_api.warm_query_encoder() is False
+
+
+def test_embedding_error_carries_no_vendor_detail(
+    client: TestClient, stub: StubFactory, broken_encoder: Callable[[Exception], StubEncoder]
+) -> None:
+    """FRD v3.1 §6.4 — 모델 경로·내부 메시지가 응답으로 새면 안 된다."""
+    secret = "/runpod-volume/models/arctic-ko"
+    stub(_valid_payload())
+    broken_encoder(EmbeddingModelUnavailableError(f"가중치를 못 받았다: {secret}"))
+
+    body = client.post("/query/resolve", json={"query": RAW_QUERY}).json()
+
+    assert body["embedding_error"]["category"] == "EMBEDDING_FAILED"
+    assert secret not in response_text(body)

@@ -1,15 +1,15 @@
 'use client';
 
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
+import { CalendarDays, X } from 'lucide-react';
+import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import {
   type DateRange,
   emptyDateRange,
   formatDateRange,
-  selectRangeDate,
   validateDateRange,
 } from '@/features/wireframes/date-range';
+import { DateRangeCalendar } from '@/features/wireframes/date-range-calendar';
 import styles from '@/features/wireframes/shinhan-search.module.css';
 
 interface DateRangePickerProps {
@@ -25,21 +25,11 @@ interface DateRangePickerProps {
   onChange: (value: DateRange) => void;
 }
 
-const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
-const iso = (date: Date) => date.toISOString().slice(0, 10);
-const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
-
 function localToday() {
   const today = new Date();
   const month = String(today.getMonth() + 1).padStart(2, '0');
   const day = String(today.getDate()).padStart(2, '0');
   return `${today.getFullYear()}-${month}-${day}`;
-}
-
-function shiftMonth(month: string, offset: number) {
-  const date = new Date(`${month}T00:00:00Z`);
-  date.setUTCMonth(date.getUTCMonth() + offset);
-  return iso(date);
 }
 
 /**
@@ -60,8 +50,6 @@ export function DateRangePicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState(value);
-  const [month, setMonth] = useState(() => monthStart(localToday()));
-  const [focusDate, setFocusDate] = useState('');
   const [error, setError] = useState('');
   const [placement, setPlacement] = useState<'above' | 'below'>('below');
 
@@ -75,61 +63,29 @@ export function DateRangePicker({
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [isOpen]);
 
-  function focusDay(day: string) {
-    requestAnimationFrame(() =>
-      containerRef.current?.querySelector<HTMLButtonElement>(`[data-date="${day}"]`)?.focus(),
-    );
-  }
+  useLayoutEffect(() => {
+    if (isOpen) {
+      containerRef.current
+        ?.querySelector<HTMLButtonElement>('[data-endpoint="from"] [tabindex="0"]')
+        ?.focus({ preventScroll: true });
+    }
+  }, [isOpen]);
 
   function handleOpen() {
     navigationTrigger?.onOpen();
-    const start = value.from || localToday();
     const trigger = triggerRef.current?.getBoundingClientRect();
     // 아래 공간이 모자라면 위로 펼칩니다.
     const spaceBelow = trigger ? window.innerHeight - trigger.bottom : Number.POSITIVE_INFINITY;
     setPlacement(spaceBelow < 380 && trigger && trigger.top > spaceBelow ? 'above' : 'below');
     setDraft(value);
-    setMonth(monthStart(start));
-    setFocusDate(start);
     setError('');
     setIsOpen(true);
-    focusDay(start);
   }
 
   function handleClose() {
     setIsOpen(false);
     triggerRef.current?.focus();
   }
-
-  function handleMonthShift(offset: number) {
-    const next = shiftMonth(month, offset);
-    setMonth(next);
-    setFocusDate(next);
-  }
-
-  function handleDayKey(event: KeyboardEvent<HTMLButtonElement>, day: string) {
-    const date = new Date(`${day}T00:00:00Z`);
-    const offsets: Record<string, number> = {
-      ArrowLeft: -1,
-      ArrowRight: 1,
-      ArrowUp: -7,
-      ArrowDown: 7,
-      Home: -date.getUTCDay(),
-      End: 6 - date.getUTCDay(),
-    };
-    if (!(event.key in offsets)) return;
-    event.preventDefault();
-    date.setUTCDate(date.getUTCDate() + offsets[event.key]);
-    const next = iso(date);
-    if (next < month || next >= shiftMonth(month, 1)) setMonth(monthStart(next));
-    setFocusDate(next);
-    focusDay(next);
-  }
-
-  const first = new Date(`${month}T00:00:00Z`);
-  const year = first.getUTCFullYear();
-  const monthNumber = first.getUTCMonth() + 1;
-  const dayCount = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
 
   return (
     <div
@@ -156,6 +112,7 @@ export function DateRangePicker({
         aria-label={`${label} 기간 선택: ${formatDateRange(value)}`}
         className={navigationTrigger?.className ?? styles.rangeTrigger}
         data-active={isOpen}
+        data-applied={Boolean(value.from && value.to)}
         disabled={isDisabled}
         onClick={() => (isOpen ? handleClose() : handleOpen())}
         ref={triggerRef}
@@ -164,7 +121,17 @@ export function DateRangePicker({
       >
         {navigationTrigger ? navigationTrigger.icon : <CalendarDays aria-hidden="true" />}
         {navigationTrigger ? (
-          <span>{label}</span>
+          <span className={styles.navigationLabel}>
+            <span>{label}</span>
+            {value.from && value.to ? (
+              <small aria-hidden="true" className={styles.navigationRange}>
+                <time dateTime={value.from}>{value.from.replaceAll('-', '.')}</time>
+                <span>
+                  – <time dateTime={value.to}>{value.to.replaceAll('-', '.')}</time>
+                </span>
+              </small>
+            ) : null}
+          </span>
         ) : !isCompact ? (
           <span>{formatDateRange(value)}</span>
         ) : null}
@@ -179,71 +146,41 @@ export function DateRangePicker({
         >
           <div className={styles.popoverHeader}>
             <h2 id={`${id}-title`}>{label} 기간</h2>
-            <button
-              className={styles.resetButton}
-              onClick={() => {
-                setDraft(emptyDateRange);
-                setError('');
-              }}
-              type="button"
-            >
-              초기화
-            </button>
+            <div className={styles.popoverActions}>
+              <button
+                className={styles.resetButton}
+                onClick={() => {
+                  setDraft(emptyDateRange);
+                  setError('');
+                }}
+                type="button"
+              >
+                초기화
+              </button>
+              <button
+                aria-label={`${label} 기간 선택 닫기`}
+                className={styles.popoverClose}
+                onClick={handleClose}
+                type="button"
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
           </div>
-          <div className={styles.monthNavigation}>
-            <button aria-label="이전 달" onClick={() => handleMonthShift(-1)} type="button">
-              <ChevronLeft aria-hidden="true" />
-            </button>
-            <span aria-live="polite">
-              {year}년 {monthNumber}월
-            </span>
-            <button aria-label="다음 달" onClick={() => handleMonthShift(1)} type="button">
-              <ChevronRight aria-hidden="true" />
-            </button>
-          </div>
-          <div aria-label={`${year}년 ${monthNumber}월`} className={styles.days} role="group">
-            {weekdays.map((day) => (
-              <span aria-hidden="true" className={styles.weekday} key={day}>
-                {day}
-              </span>
+          <div className={styles.calendarColumns}>
+            {(['from', 'to'] as const).map((endpoint) => (
+              <DateRangeCalendar
+                endpoint={endpoint}
+                initialDate={value[endpoint] || value.from || localToday()}
+                key={endpoint}
+                onSelect={(date) => {
+                  setDraft((current) => ({ ...current, [endpoint]: date }));
+                  setError('');
+                }}
+                range={draft}
+              />
             ))}
-            {Array.from({ length: first.getUTCDay() }, (_, index) => (
-              <span aria-hidden="true" key={`blank-${index}`} />
-            ))}
-            {Array.from({ length: dayCount }, (_, index) => {
-              const day = `${month.slice(0, 8)}${String(index + 1).padStart(2, '0')}`;
-              const isBoundary = day === draft.from || day === draft.to;
-              const isWithin = Boolean(
-                draft.from && draft.to && day >= draft.from && day <= draft.to,
-              );
-              return (
-                <button
-                  aria-label={`${year}년 ${monthNumber}월 ${index + 1}일${day === draft.from ? ', 시작일' : ''}${day === draft.to ? ', 종료일' : ''}`}
-                  aria-pressed={isBoundary || isWithin}
-                  className={styles.day}
-                  data-boundary={isBoundary}
-                  data-date={day}
-                  data-within={isWithin}
-                  key={day}
-                  onClick={() => {
-                    setDraft(selectRangeDate(draft, day));
-                    setFocusDate(day);
-                    setError('');
-                  }}
-                  onKeyDown={(event) => handleDayKey(event, day)}
-                  tabIndex={day === focusDate ? 0 : -1}
-                  type="button"
-                >
-                  {index + 1}
-                </button>
-              );
-            })}
           </div>
-          <p aria-live="polite" className={styles.rangeSummary}>
-            {draft.from && !draft.to
-              ? `${draft.from.replaceAll('-', '.')}부터 · 종료일을 선택해 주세요`
-              : formatDateRange(draft)}
-          </p>
           {error ? (
             <p className={styles.fieldError} id={`${id}-error`} role="alert">
               {error}

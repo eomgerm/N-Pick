@@ -20,6 +20,7 @@ import com.npick.pipeline.domain.model.PipelineStages;
 import com.npick.pipeline.infrastructure.artifact.LocalWorkerArtifactAdapter;
 import com.npick.pipeline.infrastructure.persistence.JdbcWorkerStageOutputAdapter;
 import com.npick.support.NpickPostgres;
+import com.npick.tag.infrastructure.WorkerTagVocabularyAdapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -62,7 +63,10 @@ class WorkerOutputDatabaseTest {
                 INSERT INTO npick.pipeline_run (pipeline_run_id, clip_id, processing_no, pipeline_version, status,
                     stage_states_json, created_at, updated_at) VALUES (703, 702, 1, 'pipeline-test', 'running', '{}', now(), now())
                 """);
-        adapter = new JdbcWorkerStageOutputAdapter(jdbc, new JsonMapper(), new LocalWorkerArtifactAdapter(root));
+        // 정규화는 실제 구현을 쓴다 — `TagMatchValue` 를 대역으로 바꾸면 이 테스트가 확인하는
+        // "표기가 달라도 한 행" 이 구현이 아니라 대역의 성질이 된다.
+        adapter = new JdbcWorkerStageOutputAdapter(
+                jdbc, new JsonMapper(), new LocalWorkerArtifactAdapter(root), new WorkerTagVocabularyAdapter());
     }
 
     static Map<String, Object> body(String stage, Map<String, Object> output) {
@@ -207,9 +211,9 @@ class WorkerOutputDatabaseTest {
         assertThatThrownBy(() -> adapter.validateAndStore(
                         703,
                         702,
-                        "scene_transcript_mapping",
-                        "runs/703/scene_transcript_mapping/a1/",
-                        body("scene_transcript_mapping", Map.of("scenes", List.of()))))
+                        "entity_extraction",
+                        "runs/703/entity_extraction/a1/",
+                        body("entity_extraction", Map.of("entities", List.of()))))
                 .isInstanceOf(BusinessException.class);
         adapter.validateAndStore(703, 702, "asr", "runs/703/asr/a1/", body("asr", Map.of("segments", List.of())));
     }
@@ -407,10 +411,16 @@ class WorkerOutputDatabaseTest {
     }
 
     @Test
-    void supportsTheTwoNewlyWiredStages() {
+    void supportsTheWiredStagesAndNoOthers() {
         // `supports()` 가 거짓이면 WorkerExecutionBinding 이 claim capabilities 에서 지운다.
+        // `ocr` 이 거짓인 동안 3단계가 pending 인 run 은 하류 7개 단계에 도달하지 못했다(계약 §11-12).
+        assertThat(adapter.supports("ocr")).isTrue();
+        assertThat(adapter.supports("vlm_metadata")).isTrue();
         assertThat(adapter.supports("text_embedding")).isTrue();
         assertThat(adapter.supports("indexing")).isTrue();
+        assertThat(adapter.supports("scene_transcript_mapping")).isTrue();
+        // 워커도 BE 도 없는 단계는 여전히 거짓이다. 저장 자리가 없는 성공 결과를 받지 않는다.
+        assertThat(adapter.supports("entity_extraction")).isFalse();
     }
 
     @Test
@@ -1393,6 +1403,224 @@ class WorkerOutputDatabaseTest {
                         e -> assertThat(e.errorCode().code()).isEqualTo("JOB_400_001"));
     }
 
+    // ── scene_transcript_mapping (S15P21A501-191) ──────────────────────
+
+    private static final String MAPPING_PREFIX = "runs/703/scene_transcript_mapping/a1/";
+
+    private static final String MAPPING_SCHEMA = "npick.stage.scene_transcript_mapping.output/v1";
+
+    /** S15P21A501-98 이 싣는 축. `ocr`·`vlm_metadata` 와 같은 모양이다. */
+    private static final String TOKENIZER = "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0";
+
+    private static Map<String, Object> segment(String id, int s, int e, String text, String source) {
+        return Map.<String, Object>of("segmentId", id, "s", s, "e", e, "t", text, "sourceDetail", source);
+    }
+
+    private static Map<String, Object> link(String segmentId, int overlapMs) {
+        return Map.<String, Object>of("segmentId", segmentId, "overlapMs", overlapMs);
+    }
+
+    private static Map<String, Object> mapped(int index, String tokens, List<Map<String, Object>> links) {
+        return Map.<String, Object>of("sceneIndex", index, "segments", links, "tokens", tokens);
+    }
+
+    /** 로컬 저장소에 올리고 등록용 ArtifactRef 를 돌려준다. 본문 해시로 키를 갈라 한 테스트가 여러 변형을 올린다. */
+    private Map<String, Object> upload(String kind, String name, String json) throws Exception {
+        byte[] bytes = json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String hash = java.util.HexFormat.of()
+                .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        String key = MAPPING_PREFIX + name + "-" + hash.substring(0, 8) + ".json";
+        try (var upload = new LocalWorkerArtifactAdapter(root)
+                .prepareUpload(MAPPING_PREFIX, key, bytes.length, hash, new java.io.ByteArrayInputStream(bytes))) {
+            upload.publish();
+        }
+        return Map.<String, Object>of("kind", kind, "storageKey", key, "byteSize", bytes.length, "contentHash", hash);
+    }
+
+    /**
+     * 두 snapshot 을 올리고 매핑 단계의 complete payload 를 만든다.
+     *
+     * <p>{@code adopted} 에 없는 구간은 {@code selected=false} 인 보관 전용이다. 채택 정책 자체는 상류 소유라 사유 코드는 모양만 맞춘다.
+     */
+    private Map<String, Object> mappingResult(
+            List<Map<String, Object>> segments, List<String> adopted, List<Map<String, Object>> scenes)
+            throws Exception {
+        return mappingResult(
+                segmentsDocument(segments), segmentsRef -> decisionsDocument(segments, adopted, segmentsRef), scenes);
+    }
+
+    private static Map<String, Object> segmentsDocument(List<Map<String, Object>> segments) {
+        return Map.of("schemaVersion", "npick.transcript.segments/v1", "segments", segments);
+    }
+
+    private static Map<String, Object> decision(String id, boolean selected, String reason, List<String> conflicts) {
+        return Map.<String, Object>of(
+                "segmentId", id, "selected", selected, "reasonCode", reason, "conflictsWith", conflicts);
+    }
+
+    private static final List<String> SOURCES = List.of("uploaded", "embedded", "asr");
+
+    /** 제외 근거는 같은 snapshot 에서 <b>채택된 상위 출처</b>여야 하고 실제로 시간이 겹쳐야 한다(계약 §4.5). */
+    private static String higherPriorityOverlap(
+            List<Map<String, Object>> segments, List<String> adopted, Map<String, Object> excluded) {
+        for (var other : segments)
+            if (adopted.contains(other.get("segmentId"))
+                    && SOURCES.indexOf(other.get("sourceDetail")) < SOURCES.indexOf(excluded.get("sourceDetail"))
+                    && Math.max((int) other.get("s"), (int) excluded.get("s"))
+                            < Math.min((int) other.get("e"), (int) excluded.get("e")))
+                return (String) other.get("segmentId");
+        // 조용히 넘기면 거절 사유가 테스트 이름과 어긋난 채로 초록이 된다.
+        throw new IllegalArgumentException("fixture has no valid conflict for " + excluded.get("segmentId"));
+    }
+
+    private static Map<String, Object> decisionsDocument(
+            List<Map<String, Object>> segments, List<String> adopted, Map<String, Object> segmentsRef) {
+        var decisions = new java.util.ArrayList<Map<String, Object>>();
+        for (var segment : segments) {
+            String id = (String) segment.get("segmentId");
+            decisions.add(
+                    adopted.contains(id)
+                            ? decision(
+                                    id,
+                                    true,
+                                    "asr".equals(segment.get("sourceDetail")) ? "ASR_SUPPLEMENT" : "PREFERRED_SUBTITLE",
+                                    List.of())
+                            : decision(
+                                    id,
+                                    false,
+                                    "OVERLAPS_HIGHER_PRIORITY",
+                                    List.of(higherPriorityOverlap(segments, adopted, segment))));
+        }
+        return decisionsDocument(segmentsRef, decisions);
+    }
+
+    private static Map<String, Object> decisionsDocument(
+            Map<String, Object> segmentsRef, List<Map<String, Object>> decisions) {
+        return Map.of(
+                "schemaVersion",
+                "npick.transcript.decisions/v1",
+                "segmentsArtifact",
+                segmentsRef,
+                "decisions",
+                decisions);
+    }
+
+    /** 판정 목록을 직접 주입한다. 계약을 어기는 판정을 만드는 테스트가 쓴다. */
+    private Map<String, Object> mappingWithDecisions(
+            List<Map<String, Object>> segments, List<Map<String, Object>> decisions, List<Map<String, Object>> scenes)
+            throws Exception {
+        return mappingResult(segmentsDocument(segments), ref -> decisionsDocument(ref, decisions), scenes);
+    }
+
+    /** {@code decisions} 는 segments 참조를 받아 만든다 — 올려 봐야 그 참조를 알 수 있다. */
+    private Map<String, Object> mappingResult(
+            Map<String, Object> segmentsDocument,
+            java.util.function.Function<Map<String, Object>, Map<String, Object>> decisionsDocument,
+            List<Map<String, Object>> scenes)
+            throws Exception {
+        var mapper = new JsonMapper();
+        var segmentsRef = upload("transcript_segments", "segments", mapper.writeValueAsString(segmentsDocument));
+        var decisionsRef = upload(
+                "transcript_decisions", "decisions", mapper.writeValueAsString(decisionsDocument.apply(segmentsRef)));
+        var result = new java.util.LinkedHashMap<>(body(
+                "scene_transcript_mapping",
+                Map.of(
+                        "transcript",
+                        Map.of("segmentsArtifact", segmentsRef, "decisionsArtifact", decisionsRef),
+                        "scenes",
+                        scenes)));
+        result.put("artifacts", List.of(segmentsRef, decisionsRef));
+        // 색인과 질의가 같은 Kiwi 설정을 썼는지 나중에 되짚을 수 있는 유일한 기록이다(계약 §4.5).
+        result.put("versions", Map.of("outputSchemaVersion", MAPPING_SCHEMA, "detail", Map.of("tokenizer", TOKENIZER)));
+        return result;
+    }
+
+    private Map<String, Object> storeMapping(Map<String, Object> result) {
+        return adapter.validateAndStore(703, 702, "scene_transcript_mapping", MAPPING_PREFIX, result);
+    }
+
+    /** {@code sceneIndex} 순서로 읽는다 — 어댑터가 장면을 가리키는 것과 같은 규약이다. */
+    private Map<String, Object> sceneRow(int index) {
+        return jdbc.queryForList("""
+                        SELECT transcript_text, transcript_tokens, transcript_json, transcript_source
+                        FROM npick.scene WHERE pipeline_run_id=703 ORDER BY start_time_ms, scene_id
+                        """).get(index);
+    }
+
+    @Test
+    void storesDialogueTextTokensAndJsonForEachLinkedScene() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "첫 대사", "uploaded"), segment("b", 600, 900, "둘째 대사", "uploaded"));
+
+        storeMapping(mappingResult(
+                segments,
+                List.of("a", "b"),
+                List.of(mapped(0, "첫 대사 둘째", List.of(link("a", 600), link("b", 300))), mapped(1, "", List.of()))));
+
+        var linked = sceneRow(0);
+        assertThat(linked.get("transcript_text")).isEqualTo("첫 대사 둘째 대사");
+        // 워커가 만든 토큰을 그대로 둔다. BE 에 Kiwi 가 없어 다시 만들 수도 없고,
+        // 색인과 질의가 다른 설정을 쓰면 검색이 0건이 된다.
+        assertThat(linked.get("transcript_tokens")).isEqualTo("첫 대사 둘째");
+        assertThat(linked.get("transcript_source")).isEqualTo("provided");
+        var json = new JsonMapper().readTree(String.valueOf(linked.get("transcript_json")));
+        assertThat(json.size()).isEqualTo(2);
+        assertThat(json.get(0).get("s").asInt()).isEqualTo(0);
+        assertThat(json.get(0).get("e").asInt()).isEqualTo(600);
+        assertThat(json.get(0).get("t").asString()).isEqualTo("첫 대사");
+        assertThat(json.get(0).get("overlap_ms").asInt()).isEqualTo(600);
+        assertThat(json.get(1).get("overlap_ms").asInt()).isEqualTo(300);
+        // 대사 없는 장면은 칸을 비운 채 둔다. 빈 문자열과 없음은 게시 판정에서 갈린다.
+        assertThat(sceneRow(1)).allSatisfy((column, value) -> assertThat(value).isNull());
+    }
+
+    @Test
+    void joinsAdoptedTextWithASingleSpaceInLinkOrder() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(
+                segment("a", 0, 300, "하나", "uploaded"),
+                segment("b", 300, 600, "둘", "uploaded"),
+                segment("c", 600, 900, "셋", "uploaded"));
+
+        storeMapping(mappingResult(
+                segments,
+                List.of("a", "b", "c"),
+                List.of(
+                        mapped(0, "하나 둘 셋", List.of(link("a", 300), link("b", 300), link("c", 300))),
+                        mapped(1, "", List.of()))));
+
+        // 워커가 토큰을 만들 때 이은 것과 같은 구분자·같은 순서다. 두 칸이 같은 문장을 가리켜야 한다.
+        assertThat(sceneRow(0).get("transcript_text")).isEqualTo("하나 둘 셋");
+    }
+
+    @Test
+    void derivesProvidedWhenAnyAdoptedSegmentIsNotAsr() throws Exception {
+        storeTwoScenes();
+        var cases = Map.of("uploaded", "provided", "embedded", "provided", "asr", "asr");
+
+        for (var expected : cases.entrySet()) {
+            storeMapping(mappingResult(
+                    List.of(segment("a", 0, 600, "대사", expected.getKey())),
+                    List.of("a"),
+                    List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "", List.of()))));
+            assertThat(sceneRow(0).get("transcript_source")).isEqualTo(expected.getValue());
+        }
+
+        // 자막 공백을 ASR 이 채운 장면이다. 영상 단위 출처와 장면 출처가 갈리는 자리(FRD F-03).
+        storeMapping(mappingResult(
+                List.of(segment("a", 0, 300, "자막", "uploaded"), segment("b", 300, 600, "발화", "asr")),
+                List.of("a", "b"),
+                List.of(mapped(0, "자막 발화", List.of(link("a", 300), link("b", 300))), mapped(1, "", List.of()))));
+        assertThat(sceneRow(0).get("transcript_source")).isEqualTo("provided");
+    }
+
+    private void assertRejects(Map<String, Object> result) {
+        assertThatThrownBy(() -> storeMapping(result))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        e -> assertThat(e.errorCode().code()).isEqualTo("JOB_400_001"));
+    }
+
     @Test
     void rejectsAMetadataSchemaVersionThisAdapterCannotRead() throws Exception {
         storeKeyframes();
@@ -1525,13 +1753,334 @@ class WorkerOutputDatabaseTest {
     }
 
     @Test
-    void supportsTheTwoStagesThatStalledTheRunAtItsThirdStep() {
-        // `supports()` 가 거짓인 동안 `ocr` 은 claim capabilities 에서 지워져 배정되지
-        // 않았고, 3단계가 pending 인 run 은 하류 7개 단계에 도달하지 못했다(계약 §11-12).
-        assertThat(adapter.supports("ocr")).isTrue();
-        assertThat(adapter.supports("vlm_metadata")).isTrue();
-        // 워커도 BE 도 없는 단계는 여전히 거짓이다. 저장 자리가 없는 성공 결과를 받지 않는다.
-        assertThat(adapter.supports("scene_transcript_mapping")).isFalse();
-        assertThat(adapter.supports("entity_extraction")).isFalse();
+    void rejectsLinksToSegmentsThatWereNotAdopted() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("keep", 0, 600, "채택", "uploaded"), segment("drop", 0, 600, "보관", "embedded"));
+
+        // 보관 전용 구간의 원문이 새면 채택하지 않은 자막으로 장면이 검색된다.
+        assertRejects(mappingResult(
+                segments,
+                List.of("keep"),
+                List.of(mapped(0, "보관", List.of(link("drop", 600))), mapped(1, "", List.of()))));
+        // 어느 snapshot 에도 없는 ID 다. 원문을 찾을 수 없으므로 빈 대사로 넘기지 않는다.
+        assertRejects(mappingResult(
+                segments,
+                List.of("keep"),
+                List.of(mapped(0, "유령", List.of(link("ghost", 600))), mapped(1, "", List.of()))));
+        assertThat(sceneRow(0).get("transcript_text")).isNull();
+    }
+
+    @Test
+    void rejectsSceneIndexesThatAreNotThisRunsScenes() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "대사", "uploaded"));
+        var linked = mapped(0, "대사", List.of(link("a", 600)));
+        var empty = mapped(1, "", List.of());
+
+        for (var scenes : List.of(
+                // 이 회차에 없는 장면. 다른 회차의 장면을 건드리지 않는다.
+                List.of(linked, empty, mapped(2, "", List.of())),
+                // 같은 장면이 두 번. 뒤 연결이 앞 연결을 조용히 덮는다.
+                List.of(linked, mapped(0, "대사", List.of(link("a", 600)))),
+                // 장면 하나가 빠졌다. 빠진 장면은 "대사 없음" 으로 굳는다.
+                List.of(linked))) assertRejects(mappingResult(segments, List.of("a"), scenes));
+        assertThat(sceneRow(0).get("transcript_text")).isNull();
+    }
+
+    @Test
+    void rejectsAnOverlapLongerThanTheSegment() throws Exception {
+        storeTwoScenes();
+
+        assertRejects(mappingResult(
+                List.of(segment("a", 0, 600, "대사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(link("a", 700))), mapped(1, "", List.of()))));
+    }
+
+    @Test
+    void rejectsLinksThatAreNotInTimeOrder() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 300, "먼저", "uploaded"), segment("b", 300, 600, "나중", "uploaded"));
+
+        // 워커는 연결 순서대로 이어 토큰을 만든다. 순서가 시간순이 아니면 BE 가 만드는
+        // `transcript_text` 와 그 토큰이 다른 문장을 가리킨다.
+        assertRejects(mappingResult(
+                segments,
+                List.of("a", "b"),
+                List.of(mapped(0, "먼저 나중", List.of(link("b", 300), link("a", 300))), mapped(1, "", List.of()))));
+    }
+
+    @Test
+    void rejectsTheSameSegmentLinkedTwiceToOneScene() throws Exception {
+        storeTwoScenes();
+
+        // 같은 구간이 두 번 들어오면 원문이 두 번 이어져 워커가 한 번만 센 토큰과 갈린다.
+        assertRejects(mappingResult(
+                List.of(segment("a", 0, 600, "대사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(link("a", 600), link("a", 600))), mapped(1, "", List.of()))));
+    }
+
+    @Test
+    void requiresTokensToBePresentEvenWhenEmpty() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "어", "uploaded"));
+
+        assertRejects(mappingResult(
+                segments,
+                List.of("a"),
+                List.of(
+                        Map.<String, Object>of("sceneIndex", 0, "segments", List.of(link("a", 600))),
+                        mapped(1, "", List.of()))));
+        // 내용어가 없는 대사는 원문이 있어도 토큰이 빈 문자열이다. 키 생략과 구분한다.
+        storeMapping(mappingResult(
+                segments, List.of("a"), List.of(mapped(0, "", List.of(link("a", 600))), mapped(1, "", List.of()))));
+        assertThat(sceneRow(0).get("transcript_tokens")).isEqualTo("");
+        assertThat(sceneRow(0).get("transcript_text")).isEqualTo("어");
+    }
+
+    @Test
+    void doesNotPartiallyStoreWhenALaterSceneIsInvalid() throws Exception {
+        storeTwoScenes();
+        var segments =
+                List.of(segment("first", 0, 600, "앞", "uploaded"), segment("second", 1000, 1600, "뒤", "uploaded"));
+
+        // 뒤 장면이 신고한 겹침이 실제와 다르다 — 장면 1 은 1000~2000 이라 600 이어야 한다.
+        // 앞 장면은 멀쩡하므로 거절 사유가 이 테스트의 이름과 정확히 맞는다.
+        assertRejects(mappingResult(
+                segments,
+                List.of("first", "second"),
+                List.of(mapped(0, "앞", List.of(link("first", 600))), mapped(1, "뒤", List.of(link("second", 500))))));
+
+        // 앞 장면만 남으면 거절된 run 에 반쪽 대사가 굳는다. 검증을 모두 마친 뒤에 쓴다.
+        assertThat(sceneRow(0)).allSatisfy((column, value) -> assertThat(value).isNull());
+    }
+
+    @Test
+    void rejectsDecisionsThatDoNotBelongToTheSegmentsSnapshot() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "대사", "uploaded"));
+        var scenes = List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "", List.of()));
+        // 구간 ID 는 snapshot 사이에 보존된다. 그래서 4단계의 예비 판정 파일을 가리켜도 모든
+        // ID 가 해석되고 아무것도 실패하지 않는다 — 예비 판정이 최종으로 되살아난다(계약 §4.5).
+        var stale = upload(
+                "transcript_segments",
+                "stale-segments",
+                new JsonMapper().writeValueAsString(segmentsDocument(segments)) + " ");
+
+        assertRejects(mappingResult(
+                segmentsDocument(segments), ignored -> decisionsDocument(segments, List.of("a"), stale), scenes));
+    }
+
+    @Test
+    void rejectsSnapshotsWithTheWrongSchemaVersion() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "대사", "uploaded"));
+        var scenes = List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "", List.of()));
+
+        assertRejects(mappingResult(
+                Map.of("schemaVersion", "npick.transcript.segments/v2", "segments", segments),
+                ref -> decisionsDocument(segments, List.of("a"), ref),
+                scenes));
+        assertRejects(mappingResult(
+                segmentsDocument(segments),
+                ref -> Map.of(
+                        "schemaVersion",
+                        "npick.transcript.decisions/v2",
+                        "segmentsArtifact",
+                        ref,
+                        "decisions",
+                        List.of(Map.of(
+                                "segmentId",
+                                "a",
+                                "selected",
+                                true,
+                                "reasonCode",
+                                "PREFERRED_SUBTITLE",
+                                "conflictsWith",
+                                List.of()))),
+                scenes));
+    }
+
+    @Test
+    void rejectsDecisionsThatAreDuplicatedOrIncomplete() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "대사", "uploaded"), segment("b", 600, 900, "둘째", "uploaded"));
+        var scenes = List.of(mapped(0, "대사 둘째", List.of(link("a", 600), link("b", 300))), mapped(1, "", List.of()));
+        var a = decision("a", true, "PREFERRED_SUBTITLE", List.of());
+
+        for (var broken : List.of(
+                // 같은 구간에 판정이 둘. `selected=true` 쪽이 조용히 이긴다.
+                List.of(a, a, decision("b", true, "PREFERRED_SUBTITLE", List.of())),
+                // `b` 의 판정이 없다. 상류가 채택을 주장한 적 없는데 미채택으로 조용히 흐른다.
+                List.of(a))) assertRejects(mappingWithDecisions(segments, broken, scenes));
+    }
+
+    @Test
+    void rejectsAConflictThatPointsAtAnExcludedSegment() throws Exception {
+        storeTwoScenes();
+        // 셋이 같은 시간대다. CC 는 제공 자막에 밀리고, ASR 은 그 밀려난 CC 를 근거로 든다.
+        var segments = List.of(
+                segment("u", 0, 600, "제공 자막", "uploaded"),
+                segment("e", 0, 600, "내장 CC", "embedded"),
+                segment("a", 0, 600, "발화", "asr"));
+        var scenes = List.of(mapped(0, "제공 자막", List.of(link("u", 600))), mapped(1, "", List.of()));
+        var adopted = decision("u", true, "PREFERRED_SUBTITLE", List.of());
+        var excludedCc = decision("e", false, "OVERLAPS_HIGHER_PRIORITY", List.of("u"));
+        // "제외된 CC 는 자막 공백의 ASR 을 제외하는 근거가 되지 않는다"(계약 §4.5).
+        var chained = decision("a", false, "OVERLAPS_HIGHER_PRIORITY", List.of("e"));
+
+        // 판정 순서는 임의다. 훑으면서 그때까지 모인 채택 집합만 보는 구현은 뒤집힌 순서를 통과시킨다.
+        assertRejects(mappingWithDecisions(segments, List.of(adopted, excludedCc, chained), scenes));
+        assertRejects(mappingWithDecisions(segments, List.of(chained, excludedCc, adopted), scenes));
+    }
+
+    @Test
+    void rejectsDecisionsWithAnImpossibleReasonOrConflict() throws Exception {
+        storeTwoScenes();
+        var subtitle = segment("sub", 0, 600, "자막", "uploaded");
+        var speech = segment("voice", 0, 600, "발화", "asr");
+        var far = segment("far", 1200, 1800, "먼 자막", "embedded");
+        var bySubtitle = List.of(mapped(0, "자막", List.of(link("sub", 600))), mapped(1, "", List.of()));
+        var bySpeech = List.of(mapped(0, "발화", List.of(link("voice", 600))), mapped(1, "", List.of()));
+        var adoptedSubtitle = decision("sub", true, "PREFERRED_SUBTITLE", List.of());
+
+        // 채택된 ASR 구간의 사유는 `ASR_SUPPLEMENT` 다. `ProcessingRecordReader.selectedSources` 가
+        // 같은 규칙으로 이 snapshot 을 읽으므로, 어긋나면 대사는 저장되는데 처리 상세는
+        // "자막 없음" 으로 뜬다 — 저장·검색 상태와 화면이 갈린다.
+        assertRejects(mappingWithDecisions(
+                List.of(speech), List.of(decision("voice", true, "PREFERRED_SUBTITLE", List.of())), bySpeech));
+        // 제외 근거가 이 snapshot 에 없는 ID 다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(adoptedSubtitle, decision("voice", false, "OVERLAPS_HIGHER_PRIORITY", List.of("ghost"))),
+                bySubtitle));
+        // 채택된 구간에는 제외 근거가 없어야 하고, 제외된 구간에는 있어야 한다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(
+                        decision("sub", true, "PREFERRED_SUBTITLE", List.of("voice")),
+                        decision("voice", false, "OVERLAPS_HIGHER_PRIORITY", List.of("sub"))),
+                bySubtitle));
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(adoptedSubtitle, decision("voice", false, "OVERLAPS_HIGHER_PRIORITY", List.of())),
+                bySubtitle));
+        // 근거가 하위 출처다 — ASR 이 제공 자막을 밀어낼 수 없다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, speech),
+                List.of(
+                        decision("voice", true, "ASR_SUPPLEMENT", List.of()),
+                        decision("sub", false, "OVERLAPS_HIGHER_PRIORITY", List.of("voice"))),
+                bySpeech));
+        // 근거와 시간이 겹치지 않는다. 겹치지 않는 구간은 서로를 밀어낼 수 없다.
+        assertRejects(mappingWithDecisions(
+                List.of(subtitle, far),
+                List.of(adoptedSubtitle, decision("far", false, "OVERLAPS_HIGHER_PRIORITY", List.of("sub"))),
+                bySubtitle));
+    }
+
+    @Test
+    void rejectsAMissingTokenizerIdentity() throws Exception {
+        storeTwoScenes();
+        var result = new java.util.LinkedHashMap<>(mappingResult(
+                List.of(segment("a", 0, 600, "대사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "", List.of()))));
+
+        // 색인과 질의의 Kiwi 설정이 어긋나면 검색이 오류 없이 0건이 된다. 그때 어느 설정이
+        // 이 토큰을 만들었는지 되짚을 근거가 이 축 하나뿐이다(계약 §4.5).
+        for (Map<String, Object> versions : List.of(
+                Map.<String, Object>of("outputSchemaVersion", MAPPING_SCHEMA),
+                Map.<String, Object>of("outputSchemaVersion", MAPPING_SCHEMA, "detail", Map.of()),
+                Map.<String, Object>of("outputSchemaVersion", MAPPING_SCHEMA, "detail", Map.of("tokenizer", " ")))) {
+            result.put("versions", versions);
+            assertRejects(Map.copyOf(result));
+        }
+    }
+
+    @Test
+    void rejectsAnOverlapThatIsNotTheActualSceneOverlap() throws Exception {
+        storeTwoScenes();
+
+        // 장면 0 은 0~1000 이다. 이 구간은 장면과 전혀 겹치지 않는데 연결됐다.
+        assertRejects(mappingResult(
+                List.of(segment("a", 1200, 1800, "다른 장면", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "다른 장면", List.of(link("a", 600))), mapped(1, "", List.of()))));
+        // 겹치기는 하지만 신고한 시간이 실제와 다르다. `transcript_json.overlap_ms` 의 정의가
+        // "이 장면과 겹친 시간" 이라 지어낸 값이 정본에 남는다.
+        assertRejects(mappingResult(
+                List.of(segment("a", 0, 600, "대사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(link("a", 500))), mapped(1, "", List.of()))));
+    }
+
+    @Test
+    void rejectsANulCharacterInsteadOfBreakingTheTransaction() throws Exception {
+        storeTwoScenes();
+
+        // PostgreSQL 의 `text`·`jsonb` 가 NUL 을 받지 못한다. 여기서 막지 않으면 드라이버 예외가
+        // BusinessException 을 우회해 500 이 되고, 그 응답은 재시도 가능으로 분류돼 재배정을 반복한다.
+        assertRejects(mappingResult(
+                List.of(segment("a", 0, 600, "대 사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "", List.of()))));
+        assertRejects(mappingResult(
+                List.of(segment("a", 0, 600, "대사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대 사", List.of(link("a", 600))), mapped(1, "", List.of()))));
+    }
+
+    @Test
+    void rejectsTokensOnASceneWithNoLinks() throws Exception {
+        storeTwoScenes();
+
+        // 연결이 없는데 토큰이 있다는 것은 스스로 모순인 출력이다. 조용히 버리면 워커의
+        // 결함이 "대사 없는 장면" 으로 위장된다.
+        assertRejects(mappingResult(
+                List.of(segment("a", 0, 600, "대사", "uploaded")),
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "있음", List.of()))));
+    }
+
+    @Test
+    void rejectsAnOverlapThatIsZeroNegativeOrNotAnInteger() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "대사", "uploaded"));
+
+        for (Object overlap : List.of(0, -600, 600.5, "600"))
+            assertRejects(mappingResult(
+                    segments,
+                    List.of("a"),
+                    List.of(
+                            mapped(0, "대사", List.of(Map.<String, Object>of("segmentId", "a", "overlapMs", overlap))),
+                            mapped(1, "", List.of()))));
+        // 키 자체가 없는 경우도 같다.
+        assertRejects(mappingResult(
+                segments,
+                List.of("a"),
+                List.of(mapped(0, "대사", List.of(Map.<String, Object>of("segmentId", "a"))), mapped(1, "", List.of()))));
+    }
+
+    @Test
+    void rejectsAMalformedMappingEnvelope() throws Exception {
+        storeTwoScenes();
+        var segments = List.of(segment("a", 0, 600, "대사", "uploaded"));
+        var scenes = List.of(mapped(0, "대사", List.of(link("a", 600))), mapped(1, "", List.of()));
+
+        // `transcript` 가 통째로 없다. 두 snapshot 없이는 원문을 찾을 수 없다.
+        assertRejects(body("scene_transcript_mapping", Map.of("scenes", scenes)));
+        // 한 장면의 `segments` 가 배열이 아니다.
+        assertRejects(mappingResult(
+                segments,
+                List.of("a"),
+                List.of(
+                        Map.<String, Object>of("sceneIndex", 0, "segments", "없음", "tokens", "대사"),
+                        mapped(1, "", List.of()))));
+        // 참조가 `artifacts` 에 등록되지 않았다 — 올린 적 없는 파일을 정본으로 읽지 않는다.
+        var unregistered = new java.util.LinkedHashMap<>(mappingResult(segments, List.of("a"), scenes));
+        unregistered.put("artifacts", List.of());
+        assertRejects(unregistered);
     }
 }

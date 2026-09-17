@@ -19,13 +19,53 @@ async function applyDateRange(page: Page, label: string, from: string, to: strin
     .getByRole('dialog')
     .filter({ has: page.getByRole('heading', { name: `${label} 기간` }) });
   if (from.startsWith('2026-08')) {
-    await dialog.getByRole('button', { name: '이전 달' }).click();
+    await dialog.getByRole('button', { name: '시작일 이전 달' }).click();
+    await dialog.getByRole('button', { name: '종료일 이전 달' }).click();
   }
-  await dialog.locator(`[data-date="${from}"]`).click();
-  await dialog.locator(`[data-date="${to}"]`).click();
+  await dialog.locator(`[data-endpoint="from"] [data-date="${from}"]`).click();
+  await dialog.locator(`[data-endpoint="to"] [data-date="${to}"]`).click();
   await dialog.getByRole('button', { name: '적용' }).click();
   await expect(dialog).not.toBeVisible();
 }
+
+test('검색 오류 팝업은 자동·수동으로 닫히고 재시도 오류를 다시 알린다', async ({ page }) => {
+  await page.clock.install();
+  await page.route('**/api/v1/search', (route) =>
+    route.fulfill({
+      status: 404,
+      json: {
+        isSuccess: false,
+        code: 'COMM_404',
+        message: '요청한 항목을 찾을 수 없습니다.',
+        requestId: 'search-error-test',
+      },
+    }),
+  );
+  await openAsEditor(page, '/search/results?q=장면');
+
+  const notice = page.getByRole('alert').filter({ hasText: 'COMM_404' });
+  const retry = page.getByRole('button', { name: '같은 조건으로 다시 시도' });
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText('search-error-test');
+  await expect(notice.locator('..')).toHaveCSS('position', 'fixed');
+
+  await page.clock.fastForward(5_000);
+  await expect(notice).toHaveCount(0);
+  await expect(retry).toBeVisible();
+
+  await retry.click();
+  await expect(notice).toBeVisible();
+  await page.getByRole('button', { name: '오류 알림 닫기' }).click();
+  await expect(notice).toHaveCount(0);
+
+  await retry.click();
+  await expect(notice).toBeVisible();
+  await page.clock.fastForward(4_000);
+  await expect(notice).toBeVisible();
+  await page.clock.fastForward(1_000);
+  await expect(notice).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: '뉴스 장면 검색어' })).toHaveValue('장면');
+});
 
 test('저장에 실패한 검색 결과 Preview는 문의 요청을 보내지 않는다', async ({ page }) => {
   const inquiryRequests: string[] = [];
@@ -104,7 +144,7 @@ test('빈 검색어와 달력 날짜 선택 Enter는 검색을 시작하지 않�
   const dialog = page
     .getByRole('dialog')
     .filter({ has: page.getByRole('heading', { name: '방송일 기간' }) });
-  const startDate = dialog.locator('[data-date="2026-09-01"]');
+  const startDate = dialog.locator('[data-endpoint="from"] [data-date="2026-09-01"]');
   await startDate.focus();
   await startDate.press('Enter');
 

@@ -1,14 +1,12 @@
 'use client';
 
-import { AppShell } from '@/components/app-shell';
-
 import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useRef, useState, useTransition } from 'react';
 
 import { emptyDateRange } from '@/features/wireframes/date-range';
 import { EntryFooter } from '@/features/wireframes/entry-chrome';
-import { SearchHistory } from '@/features/wireframes/search-history';
+import { SearchLayout } from '@/features/wireframes/search-layout';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
@@ -67,20 +65,23 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
   }
 
   return (
-    <AppShell
+    <SearchLayout
       className={`${styles.shell} ${styles.searchShell}`}
-      data-theme={theme}
-      headerTone="light"
-      isBackdropUnveiled
+      theme={theme}
+      broadcastRange={broadcastRange}
+      filmingRange={filmingRange}
+      isDisabled={isNavigating}
+      onBroadcastChange={setBroadcastRange}
+      onFilmingChange={setFilmingRange}
     >
       <main className={styles.searchMain}>
+        <div className={styles.searchIntro}>
+          <h1>안녕하세요.</h1>
+          <p className={styles.searchDescription}>
+            찾고 싶은 뉴스 장면을 자연스럽게 설명해 주세요.
+          </p>
+        </div>
         <div className={styles.searchHero}>
-          <div className={styles.searchIntro}>
-            <h1>안녕하세요.</h1>
-            <p className={styles.searchDescription}>
-              찾고 싶은 뉴스 장면을 자연스럽게 설명해 주세요.
-            </p>
-          </div>
           <form
             aria-busy={isNavigating}
             aria-label="뉴스 장면 검색"
@@ -132,16 +133,8 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
             </p>
           </form>
         </div>
-        <SearchHistory
-          broadcastRange={broadcastRange}
-          filmingRange={filmingRange}
-          isDisabled={isNavigating}
-          onBroadcastChange={setBroadcastRange}
-          onFilmingChange={setFilmingRange}
-          theme={theme}
-        />
       </main>
       <EntryFooter />
-    </AppShell>
+    </SearchLayout>
   );
 }

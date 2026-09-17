@@ -235,6 +235,7 @@ Qwen3.6-27B는 같은 규모의 더 최근 후보 Qwen3.8-27B를 우선해 별�
 | `tag_candidates` 안의 `scene_type` | 전용 필드가 있다 (§4) |
 | caption이 상한을 넘음 | 자르지 않는다. 잘린 문장은 그 설명의 일부이지 설명이 아니다 |
 | 태그 후보 상한 초과 | 프롬프트가 상한을 말하므로 지시된 규칙이다 |
+| 태그 후보의 값이 `"없음"`·`"미상"` 류 | 태그 자리의 '없음'은 빈 배열이다. 항목만 빼면 부분 적용이다 |
 
 **날짜 유형을 schema에서 뺀 것은 티켓보다 한 칸 엄격하다.** 티켓은 "화면에 날짜가 보인다는
 이유만으로 `broadcast_date`·`filmed_date`로 **확정**하지 않는다"이고, 이 구현은 후보 자체를
@@ -242,6 +243,189 @@ Qwen3.6-27B는 같은 규모의 더 최근 후보 Qwen3.8-27B를 우선해 별�
 (`docs/frd.md:133`), FRD F-04가 "OCR 신뢰도와 원본 문맥을 확인하지 않고 화면의 날짜
 문자열을 방송일·촬영일로 간주하지 않는다"로 그 판단의 입력을 OCR 쪽에 두었다. VLM이 날짜
 후보를 만들 자리가 없다.
+
+### 무엇을 정규화하는가 (S15P21A501-93)
+
+거부의 반대편에 자리 하나가 있다. **"없음"의 다른 표기**다. 프롬프트가 "정보가 없으면
+caption·scene_type은 null, shot_type은 unknown, tag_candidates는 빈 배열"이라고 말해 두었는데,
+모델은 같은 답을 `"없음"`·`"미상"`·`"N/A"`로 쓰기도 한다. 그건 다른 답이 아니라 같은 답의 다른
+표기이므로 계약의 '없음'으로 모은다. 정본은 `vlm_metadata/normalize.py`다.
+
+| 모델이 낸 것 | 옮기는 값 | 갈래 |
+| --- | --- | --- |
+| `caption.value`가 `"없음"` 류 문자열 | `caption: null` | 표기 |
+| `caption.value`가 `null` | `caption: null` | 모양 |
+| `scene_type.value`가 같은 값 | `scene_type: null` (닫힌 어휘 밖이라고 거부하지 않는다) | 같다 |
+| `shot_type.value`가 같은 값 | `"unknown"` — 그 자리는 `NOT NULL`이고 '없음'이 어휘에 있다 | 같다 |
+| `tag_candidates: null` | `[]` | 모양 |
+| 판단의 `evidence: null` | `[]` (그 뒤 근거가 필요한지는 §5·§6이 본다) | 모양 |
+
+**이건 보정이 아니다.** 티켓 제약은 "검증 실패 출력을 고쳐서 넣는 자동 보정 금지"이고, 여기서
+하는 일은 실패한 출력을 고치는 것이 아니라 표기를 모으는 것이다. 경계를 넓히면 그 순간 보정이
+되므로 **정규화하지 않는 것**을 함께 적는다.
+
+| 정규화하지 않는다 | 왜 |
+| --- | --- |
+| `shot_type` 자리 자체가 `null`·없음 | 자리를 만들려면 `confidence`를 지어내야 한다. 값 자리의 표기만 옮긴다 |
+| 공백뿐인 문자열 | "없음"이라고 답한 것과 아무것도 쓰지 못한 것은 다르다. 뒤엣것은 출력이 깨진 것이다 |
+| `tag_candidates[i].value`의 '없음' | 태그 자리의 '없음'은 빈 배열이지 값이 아니다. 항목만 빼면 그게 부분 적용이다. 다만 여기서 보는 목록은 **`EXPLICIT_ABSENT`**로 좁다 — 아래 참고 |
+| `confidence`의 `null` | 숫자 자리의 '없음'은 0이 아니다 |
+
+**모은 자리는 센다. 다만 갈래를 나누어 센다.** 조용히 받아 주면 "프롬프트를 고쳤는데 출력이
+그대로"를 못 잡는다는 지적(§6의 `extra="forbid"`)이 여기에도 걸린다. `SceneDescription`이
+`normalizations`(전부)와 `notations`(그중 표기)를 함께 들고 나오고, 단계 metric 둘이 그 수를
+올린다.
+
+| metric | 무엇을 세나 | 0이 아니면 |
+| --- | --- | --- |
+| `normalizedValues` | 값 자리에 **문자열로** '없음'을 쓴 자리 (`"없음"`, `"N/A"`) | 모델이 계약에 없는 어휘를 쓴다. 프롬프트를 사람이 봐야 한다 |
+| `reshapedValues` | 계약의 `null`을 한 칸 다른 자리에 쓴 것 (`{"value": null}`) | **정상이다.** 읽을 것이 없는 장면마다 오른다 |
+
+**합쳐 세면 둘 다 못 읽는다.** 아래 빈 화면 실측이 보여 주듯 선정 모델이 실제로 내는 것은
+`{"value": null, ...}`이고, 그건 장면당 두 자리를 올린다. 전환·암전이 섞인 평범한 클립이면
+합계가 상시 0이 아니게 되어, 그 숫자를 "프롬프트를 봐야 한다"로 읽기로 한 운영자에게는 매
+런이 오탐이 된다. `shot_type`의 `unknown` 예외와 같은 이유다 — metric이 준수를 이탈로 세기
+시작하면 그 뒤로는 아무것도 못 읽는다.
+
+**태그 자리에서만 좁은 목록을 쓴다.** 위 표의 정규화는 값이 올 수 없는 자리(계약이 `null`을
+열어 둔 자리)를 다루므로 넓은 `NULL_EQUIVALENTS`가 맞다. 그러나 `tag_candidates[i].value`는
+**진짜 값이 오는 자리**다. 거기서 `"NA"`(조직 약칭)나 `"-"`(화면에서 읽은 글자)를 '없음'으로
+읽으면 멀쩡한 후보 하나 때문에 장면이 거부되고, 장면 하나의 거부는 단계 전체 실패이자 §9.2
+상 영구다. 그래서 그 자리는 `EXPLICIT_ABSENT` — 한국어 '없음' 류와 `null`·`none`·`undefined`
+·`unspecified`만 본다. `-`·`--`·`na`·`n/a`·`nil`·`unknown`은 뺀다.
+
+**어휘가 설정이 아니라 코드에 있다.** `scene_type_vocabulary`와 반대다. 저쪽은 모델에게
+**요구하는** 어휘라 바뀌면 프롬프트가 바뀌지만, 이 목록은 모델에게 말한 적 없는 **받아 읽는**
+규칙이다. 설정에 두면 값 하나를 더할 때마다 `config_version`과 `stage_version`이 움직이는데
+프롬프트도 요청도 그대로다 — §7이 세운 재현 기록이 거짓말을 하게 된다.
+
+#### 실제 출력으로 확인하는 자리
+
+정규화는 **모델이 `"없음"`이라고 쓴다**는 전제 위에 서 있다. 그 전제는 실제 출력을 보기 전까지
+추측이고, 가짜 클라이언트를 쓰는 `tests/test_vlm_metadata.py`로는 확인되지 않는다 — 거기서
+검증되는 것은 "우리가 상상한 깨진 출력을 거부하는가"다.
+
+그래서 `tests/test_vlm_real_outputs.py`가 실측 실행 기록(`report.main`의 `vlm-metadata.json`)의
+`rawOutput`을 지금 코드로 다시 흘려 본다. 통과했던 원문이 **같은 값**으로 통과하는가, 기록된
+정규화 자리가 지금 코드의 것과 같은가, 거부됐던 원문이 지금도 거부되는가를 본다. 마지막이
+이 작업의 유일한 실패 방식이다 — 정규화를 한 칸씩 넓히면 어느 지점에서 깨진 출력이 통과하기
+시작하고, 그 지점은 지어낸 예제보다 실제 출력에서 먼저 드러난다.
+
+```bash
+NPICK_AI_VLM_RUN_DIR=<run_dir> uv run pytest tests/test_vlm_real_outputs.py
+```
+
+**기록은 Git 밖에 둔다**(§9.6, `.gitignore`의 `samples/*`). 기본 탐색 자리는 `samples/out/`이고,
+지금 계약의 기록이 없으면 건너뛴다 — `addopts`의 `-ra`가 그 사유를 매 실행 끝에 찍는다.
+
+**재생 대상은 지금 계약의 기록뿐이다.** `schemaVersion`·`configVersion`이 다른 기록은 빼고 그
+사유만 남긴다. 계약이 바뀌면 같은 원문의 판정이 달라지는 것이 정상이라서다. §9.6의 후보 비교
+기록 세 건이 지금 그 상태다 — 셋 다 `vlm-metadata/v1`이고 현재는 v2다. 참고로 그 30장면을
+현재 코드로 흘려 보면 28장면이 통과하고, 2장면은 태그 후보가 9개라 현재 상한
+(`max_tag_candidates_per_scene = 8`)에 걸려 거부된다. 코드 회귀가 아니라 설정이 바뀐 것이다.
+**정규화가 걸리는 자리는 하나도 없다.** 다만 그 30장면에는 '없음'을 답해야 하는 장면이 없었다 —
+그러니 이 값은 "모델이 계약대로 쓴다"의 근거가 아니라 **아직 재본 적 없다**는 뜻이다. v2 실측이
+들어오면 `summary.json`의 `normalizedScenes`·`normalizedValues`가 그 답이다.
+
+#### 2026-09-16 v2 실측 — 정규화 0건, 그리고 그 값이 뜻하지 않는 것
+
+선정 모델로 지금 계약을 한 번 돌렸다. SSAFY L40S(driver 570.211.01), `Qwen/Qwen3.5-9B@c2022362`,
+transformers 5.17.0 + torch 2.11.0+cu128, bfloat16, thinking off, 예산 20 GiB, `KNI_02205` 10장면.
+실행 기록은 `samples/out/20260916T045428Z-Qwen--Qwen3.5-9B/`이고 Git 밖에 있다.
+
+| 값 | 결과 |
+| --- | --- |
+| `attemptedScenes` / `schemaValidScenes` / `failedScenes` | 10 / 10 / 0 |
+| `normalizedScenes` / `normalizedValues` | **0 / 0** |
+| 장면당 소요 (mean / median / p95) | 8.81s / 8.85s / 14.54s |
+| `peakAllocatedBytes` | 19.78 GB (예산 20 GiB 안) |
+
+**이 0은 "모델이 계약대로 쓴다"가 아니다.** 원문 10건 전체를 훑어도 `"없음"`·`"미상"`·`"N/A"`는
+물론 `null`·`unknown`도 한 번 나오지 않는다. 열 장면 모두 caption·shot_type·태그 후보를 하나
+이상 채웠다 — **부재를 표현할 일 자체가 없었다.** §6이 정규화하는 자리는 이번에도 지나가지
+않았고, 위 30장면 때와 같은 이유로 전제는 여전히 미확인이다.
+
+그래서 이 결과로 `normalize.py`의 목록을 넓히지도 줄이지도 않는다. 넓히면 근거 없이 경계를
+움직이는 것이고, 줄이면 재본 적 없는 자리를 지우는 것이다. 재려면 **부재가 실제로 생기는
+입력**을 넣어야 한다.
+
+#### 빈 화면을 넣어 재는 자리 — `run-vlm-93-blank.sh`
+
+`run-vlm-93-blank.sh`가 그 입력을 만든다. `KNI_02205-frames`를 복사한 뒤 뒤에 세 장면을
+덧붙인다 — 암전(검정), 백색, 중간 회색 각 2장. 셋 다 caption할 것도 `scene_type`도 태그도 없는
+화면이고, 밝기를 갈라 둔 것은 "어두워서 안 보인다"와 "아무것도 없다"를 모델이 구분해 답하는지도
+함께 보기 위해서다. 지어낸 프레임이지만 방송에서 실제로 나오는 자리다(암전, 전환 사이).
+
+**원본 프레임 디렉터리는 건드리지 않는다.** `KNI_02205-frames`는 §9.6의 후보 비교와 위 09-16
+실측이 함께 쓴 입력이라, 거기에 장면을 더하면 그 기록들의 `inputs.json`과 더는 같은 입력이
+아니게 된다. 스크립트는 `KNI_02205-frames-blank`를 따로 만든다. `--limit`은 앞에서부터 자르므로
+13이어야 덧붙인 `s0010`~`s0012`가 들어간다.
+
+**이 실행은 품질 측정이 아니다.** 모델이 잘 보는지가 아니라, 정보가 없을 때 계약의
+`null`·`unknown`·`[]`로 쓰는지 아니면 `"없음"`이라고 쓰는지만 본다. 후보 비교의 성적으로
+쓰지 않는다 — 스크립트도 세 장면의 `rawOutput`과 `normalizations`만 따로 찍는다.
+
+읽는 법은 하나다. **`normalizations`가 비어 있고 값이 `null`·`unknown`·`[]`이면 모델이 계약대로
+쓰는 것이고, 정규화가 걸리면 `normalize.py`가 실제로 필요한 코드라는 첫 근거다.** 셋 다 아니면
+— 빈 화면을 두고 장면을 지어내면 — 그건 정규화가 아니라 프롬프트(§5의 근거 요구)가 볼 문제다.
+
+#### 2026-09-16 빈 화면 실측 — 정규화가 걸렸다, 다만 `"없음"`이 아니었다
+
+같은 조건에 빈 화면 3장면을 더해 13장면을 돌렸다
+(`samples/out/20260916T052639Z-blank-Qwen--Qwen3.5-9B/`, Git 밖).
+
+| 값 | 결과 |
+| --- | --- |
+| `attemptedScenes` / `schemaValidScenes` / `failedScenes` | 13 / 13 / 0 |
+| `normalizedScenes` / `normalizedValues` | **3 / 6** — 빈 화면 3장면 전부, 장면당 2자리 |
+| 걸린 자리 | `caption`, `scene_type` (세 장면 모두 같다) |
+| 갈래 | 6자리 **전부 '모양'**, 표기는 0 (아래) |
+
+위 표의 3 / 6은 **갈래를 나누기 전 집계**다. 지금 코드로 같은 원문을 흘려 보면
+`normalizedValues` 0 / `reshapedValues` 6으로 읽힌다. 기록 파일은 그때의 값을 그대로 둔다 —
+실측 기록을 나중 코드에 맞춰 고쳐 쓰면 그건 기록이 아니다.
+
+**정규화는 필요한 코드다. 그러나 이 티켓이 세운 전제는 틀렸다.** 모델은 `"없음"`이라고 쓰지
+않았다 — 한 번도. 대신 판단 객체를 유지한 채 값만 비웠다.
+
+```json
+"caption":    {"value": null, "confidence": 0.0, "evidence": []},
+"shot_type":  {"value": "unknown", "confidence": 0.0, "evidence": []},
+"scene_type": {"value": null, "confidence": 0.0, "evidence": []},
+"tag_candidates": []
+```
+
+프롬프트 규칙 2는 "caption·scene_type은 null"이라고 말하는데 출력 예시는
+`"caption": {"value": ...}` 꼴이다. 모델은 **`caption.value`를 null로** 읽었고, 계약이 원한 것은
+`caption` 자리 통째로 null이다. 같은 답의 다른 표기 — §6이 정규화한다고 적어 둔 바로 그 첫
+줄이다. 그러니 `normalize.py`는 맞게 움직였고, 다만 그 필요를 만든 것은 한국어 `"없음"`이 아니라
+**프롬프트의 중의성**이었다.
+
+**`shot_type`의 예외 처리가 여기서 값을 했다.** 모델이 낸 `"unknown"`은 `NULL_EQUIVALENTS`에도
+들어 있는 문자열이라, `normalize.py`의 `value != _SHOT_TYPE_ABSENT` 가드가 없었으면 계약대로 쓴
+답 3건까지 "모델이 계약과 다르게 답했다"로 세어 `normalizedValues`가 6이 아니라 9가 됐다.
+metric이 준수를 이탈로 세기 시작하면 그 뒤로는 아무것도 못 읽는다.
+
+`tag_candidates`는 세 장면 모두 `[]`로 정확했다. 실제 화면 10장면은 정규화 0건으로 09-16 첫
+실측과 같다.
+
+**이 실측이 metric의 집계를 바꿨다 (MR 리뷰 반영).** 걸린 6자리가 전부 '모양'이라는 것은,
+읽을 것이 없는 장면이 하나만 섞여도 `normalizedValues`가 0이 아니게 된다는 뜻이다. 방송 클립에
+전환·암전이 안 섞이는 경우는 거의 없으므로 그 값은 사실상 상시 0이 아니고, 계약이 적어 둔
+"0이 아니면 프롬프트를 사람이 봐야 한다"를 그대로 따르면 매 런이 오탐이 된다. 바로 위
+`shot_type` 문단이 말한 함정과 같은 것이 `caption`·`scene_type`에서 일어난 셈이다. 그래서
+§6이 두 갈래를 나누어 세고, `normalizedValues`는 **표기**만 센다. 프롬프트를 고치지 않고도
+계약 문장이 참이 되는 자리가 여기다.
+
+**프롬프트는 이 티켓에서 고치지 않는다.** 규칙 2를 "`caption` 자리 전체를 null로 둔다"로
+분명히 하면 중의성은 사라지지만, 그 순간 `promptVersion`과 `configVersion`이 움직여 지금
+만든 v2 실측 기록 두 건이 재생 대상에서 빠진다(§6 "재생 대상은 지금 계약의 기록뿐"). 93은
+표기를 모으는 티켓이고 프롬프트를 바꾸는 티켓이 아니다. **어긋난 지점만 여기 적어 두고
+별도 티켓에서 본다** — 그때 판단할 것은 "프롬프트를 고치면 정규화를 지워도 되는가"이고,
+답은 아마 아니다. 모델이 지시를 항상 따른다는 보장이 정규화를 두는 이유이기 때문이다.
+
+실측 기록은 `tests/test_vlm_real_outputs.py`가 그대로 재생한다. 지금 이 기록으로 6건이 통과하며,
+`samples/out/vlm-benchmarks/`의 v1 기록 세 건은 계약이 달라 재생 대상에서 빠진다.
 
 ### 장면 하나가 깨지면 전체가 실패다
 
@@ -485,14 +669,29 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
 
 1. 로컬 `ai/src`, `ai/pyproject.toml`, `ai/uv.lock`, `ai/run-vlm-smoke.sh`와
    `ai/samples/out/KNI_02205-frames/s*/kf-*.jpg`를 같은 상대 경로로 서버에 복사한다.
-   이번 작업의 `ai/samples/out/vlm-smoke-kit.tgz`는 이 코드와 10장면의 프레임을 담는다.
    `.env`, 모델 캐시, 전체 영상은 제외한다. 미커밋 코드도 포함되며 소스를 바꾸면 묶음도
    다시 만들어야 한다. Git 이력이 없어도 실행 시 `source-hashes.json`이 실제 코드를 구분한다.
+
+   **묶음은 만든 시점의 코드 스냅샷이므로 계약이 바뀌면 그대로 쓰면 안 된다.** 2026-09-13 실행에
+   쓴 `vlm-smoke-kit.tgz`는 schema v1 코드라 §9.6의 기록이 지금 계약과 어긋나 있다. 아래로 다시 만든다.
+
+   ```bash
+   cd ai
+   rm -f samples/out/vlm-smoke-kit-v2.tgz
+   tar czf samples/out/vlm-smoke-kit-v2.tgz \
+     --exclude='__pycache__' --exclude='*.pyc' \
+     README.md docs/vlm-metadata.md pyproject.toml uv.lock run-vlm-smoke.sh \
+     src/npick_worker samples/out/KNI_02205-frames
+   ```
+
+   푼 뒤 `src/npick_worker/vlm_metadata`가 저장소와 같은지, `normalize.py`가 들어 있는지,
+   기본 설정이 `vlm_metadata.v2.toml`인지 확인한다. 그래야 결과 기록의 `versions`가
+   `tests/test_vlm_real_outputs.py`의 기준과 맞아 재생 테스트가 켜진다(§6).
 2. Linux 서버에서 묶음을 풀고 설치한다. 기존 체크아웃이면 새 코드까지 반영한 뒤 `cd ai`부터 한다.
 
    ```bash
    mkdir -p ~/npick-vlm/ai
-   tar -xzf ~/vlm-smoke-kit.tgz -C ~/npick-vlm/ai
+   tar -xzf ~/vlm-smoke-kit-v2.tgz -C ~/npick-vlm/ai
    cd ~/npick-vlm/ai
    # uv가 없을 때 1회. 공식 설치: https://docs.astral.sh/uv/getting-started/installation/
    curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -507,7 +706,22 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
    최초 설치·모델 다운로드에는 네트워크와 디스크 여유가 필요하다. CUDA 드라이버와 잠긴
    torch 휠이 맞지 않거나 AutoModel이 후보를 지원하지 않으면 로그를 보존하고 환경부터
    맞춘다. 한 후보만 라이브러리를 갱신했다면 다른 후보도 같은 환경으로 다시 측정한다.
+
+   **`cu128`·`cu130` 그룹에는 torchvision이 함께 들어 있다.** Transformers 5의
+   `AutoProcessor`가 Qwen3-VL 계열 processor를 조립할 때 `Qwen3VLVideoProcessor`를 같이
+   불러오고 그것이 torchvision을 요구하기 때문이다. 영상을 넣지 않아도 조립 단계에서 걸려
+   선정 모델이 아예 로드되지 않는다. 2026-09-16까지 `pyproject.toml`에 torchvision이 없어
+   `uv sync --group gpu --group cu128`만으로는 §2의 선정 모델을 한 번도 올릴 수 없었다 —
+   §9.6의 09-13 실측이 통과한 것은 사용자가 손으로 꾸린 cu126+torchvision 환경이었기
+   때문이고, 저장소 정의로 재현된 적이 없다. 그래서 이 줄을 믿지 말고
+   `uv pip list | grep torchvision`으로 실제 설치를 확인한다.
 3. 먼저 4B 한 개로 smoke를 실행한다. SSH를 끊을 예정이면 `tmux` 세션에서 실행한다.
+
+   **이 4B-우선 순서는 후보 비교(S15P21A501-92) 때 환경을 싸게 확인하려던 것이다.
+   선정 결과가 아니다.** §2·§9.6의 선정 모델은 `Qwen/Qwen3.5-9B`이고 4B는 메모리 제약 시
+   대체 모델이다. 선정이 끝난 뒤의 실측(예: S15P21A501-93의 정규화 확인)은 9B로 돌린다 —
+   답해야 하는 질문이 "선정 모델이 실제로 무엇을 내는가"이기 때문이다. 환경만 확인하려는
+   것이라면 4B 먼저도 된다.
 
    ```bash
    bash run-vlm-smoke.sh samples/out/KNI_02205-frames samples/out/vlm-bench 20 Qwen/Qwen3.5-4B
@@ -557,6 +771,25 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
    프레임 이해 판정을 비교표로 정리하고 시간·메모리 실패까지 반영해 조건부 후보를 고른다.
    10장면은 smoke·개발 비교용이며 별도 Gold Set 100장면의 품질 목표 달성을 증명하지 않는다.
 
+6. 결과 디렉터리를 로컬로 가져와 재생 테스트를 켠다. 실행 폴더를 통째로 가져와야 한다 —
+   `vlm-metadata.json` 하나만으로도 재생은 되지만 `run.json` 없이는 어느 GPU·모델의 기록인지
+   나중에 되짚을 수 없다.
+
+   ```powershell
+   cd ai
+   $env:NPICK_AI_VLM_RUN_DIR = "samples/out/vlm-bench/<실행 폴더>"
+   uv run pytest tests/test_vlm_real_outputs.py -v
+   ```
+
+   `skipped`로 남으면 기록이 지금 계약과 다르다는 뜻이고, 건너뛴 사유에 어느 버전의 기록인지
+   찍힌다. 계약이 맞으면 4건이 실제로 돌며, 그때부터 그 원문이 정규화·거부의 회귀 기준이 된다.
+   `summary.json`의 `normalizedScenes`·`normalizedValues`가 FR-PRC-021의 전제를 실측으로
+   답하는 자리다. 0이면 이 실행의 장면들이 부재를 **표기로** 쓸 일이 없었다는 뜻이지 모델이
+   계약대로 쓴다는 근거가 아니다. 0이 아니면 그 장면의 `rawOutput`을 직접 읽어 모델이 어떤
+   표기를 썼는지 확인하고, 필요하면 프롬프트를 고친다. 정규화 목록을 넓혀서 덮지 않는다.
+   `reshapedValues`는 이 판단에 쓰지 않는다 — 빈 화면·전환 장면이 있으면 오르는 것이
+   정상이고, 후보 사이 비교는 같은 입력일 때만 뜻이 있다(§6).
+
 ### 9.6 2026-09-13 실제 세 후보 비교
 
 실행일은 2026-09-13 UTC (한국 시각 2026-09-13~14), 문서 검토일은 2026-09-14 KST다.
@@ -589,7 +822,9 @@ FRD의 기존 333클립·약 2,200장면·약 2시간 목표는 평가 기준이
   `configVersion=vlm-metadata-config/v1:fcd15e10`,
   `promptVersion=vlm-metadata-prompt/v1:587f345d`, `schemaVersion=vlm-metadata/v1`이다.
   tokenizer는 `query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0`이다.
-  현재 저장소 config·prompt 버전과도 일치한다.
+  검토 시점(2026-09-14)에는 저장소 config·prompt 버전과도 일치했다. **지금은 아니다** —
+  schema는 `vlm-metadata/v2`, config는 `vlm-metadata-config/v2`다. 그래서
+  `tests/test_vlm_real_outputs.py`는 이 세 기록을 회귀 기준으로 쓰지 않는다(§6).
 - 전달받은 30개 `rawOutput`을 현재 `parse_raw`와 `validate`로 다시 검사했다.
   schema·닫힌 어휘·근거 라벨 검증 모두 통과했고, scene별 시간으로 summary 평균·중앙값·p95를 재계산해 일치를 확인했다.
   이는 **근거 라벨의 유효성**을 확인한 것이며 이미지가 주장을 뒷받침하는지는 별도로 판단한다.

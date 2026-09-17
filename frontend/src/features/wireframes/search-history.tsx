@@ -134,15 +134,13 @@ function HistorySection({ kind, items, onSelect }: HistorySectionProps) {
                         className={styles.thumbnail}
                         data-scene={scene.id}
                         role="img"
-                      >
-                        <span aria-hidden="true">{scene.time}</span>
-                      </span>
+                      />
                       <span className={styles.rowCopy}>
                         <span className={styles.rowTitle} title={text}>
                           {text}
                         </span>
                         <span className={styles.rowSubtitle}>
-                          {kind === 'search' ? `시청한 구간 · ${scene.time}` : scene.title}
+                          {kind === 'search' ? scene.time : scene.title}
                         </span>
                       </span>
                       <span className={styles.rowMeta}>
@@ -233,6 +231,10 @@ export function SearchHistory({
   }
 
   function openPanel(kind: HistoryKind) {
+    if (activePanel === kind) {
+      closePanel();
+      return;
+    }
     setIsNavExpanded(true);
     setActivePanel(kind);
   }
@@ -259,11 +261,10 @@ export function SearchHistory({
     handleClose();
   }
 
-  const panelItems = activePanel === 'search' ? searchHistory : inquiries;
-
   return (
     <>
       <button
+        aria-hidden={!activePanel}
         aria-label="열린 정보 패널 닫기"
         className={styles.pageBackdrop}
         data-open={Boolean(activePanel)}
@@ -275,6 +276,7 @@ export function SearchHistory({
         aria-label="검색 도구"
         className={styles.navDock}
         data-expanded={isNavExpanded}
+        data-has-range={Boolean(broadcastRange.from || filmingRange.from)}
         ref={dockRef}
         onClickCapture={(event) => {
           const button = (event.target as HTMLElement).closest('button');
@@ -337,11 +339,15 @@ export function SearchHistory({
             </button>
           </div>
         </div>
-        {activePanel ? (
+        {(['search', 'inquiry'] as const).map((kind) => (
           <aside
-            aria-label={activePanel === 'search' ? '이전 검색 기록' : '문의 사항'}
+            aria-hidden={activePanel !== kind}
+            aria-label={kind === 'search' ? '이전 검색 기록' : '문의 사항'}
             className={styles.detailPanel}
-            id={`${activePanel}-history-panel`}
+            data-open={activePanel === kind}
+            id={`${kind}-history-panel`}
+            inert={activePanel !== kind}
+            key={kind}
           >
             <button
               aria-label="정보 패널 닫기"
@@ -352,15 +358,15 @@ export function SearchHistory({
               <ChevronLeft aria-hidden="true" />
             </button>
             <HistorySection
-              items={panelItems}
-              kind={activePanel}
+              items={kind === 'search' ? searchHistory : inquiries}
+              kind={kind}
               onSelect={(item) => {
                 setNotice('');
-                setSelectedHistory({ kind: activePanel, id: item.id });
+                setSelectedHistory({ kind, id: item.id });
               }}
             />
           </aside>
-        ) : null}
+        ))}
       </aside>
       <p className={styles.notice} role="status">
         {notice}

@@ -22,7 +22,7 @@ import com.npick.tag.domain.repository.TagCorrectionCandidateRepository;
  * 대상을 지정할 수 없다. 저장되는 판단은 모두 {@code confirmed=false} 이며 확정(-84) 전까지 검색·해석에 반영되지 않는다.
  */
 @Service
-public class CreateTagCorrectionCandidateService {
+public class CreateTagCorrectionCandidateService implements CreateTagCorrectionCandidateUseCase {
 
     private final TagContextPort tagContextPort;
     private final TagCorrectionCandidateRepository candidateRepository;
@@ -33,6 +33,7 @@ public class CreateTagCorrectionCandidateService {
         this.candidateRepository = candidateRepository;
     }
 
+    @Override
     @Transactional
     public List<Long> create(CreateTagCorrectionCandidateCommand command) {
         if (!command.reviewerRole()) {

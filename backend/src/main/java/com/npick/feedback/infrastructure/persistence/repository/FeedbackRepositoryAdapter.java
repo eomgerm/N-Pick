@@ -40,8 +40,8 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
     }
 
     @Override
-    public boolean existsSearchResult(long searchResultId) {
-        return jpaRepository.existsSearchResult(searchResultId);
+    public boolean existsSearchResultSearchedBy(long searchResultId, long searchedById) {
+        return jpaRepository.existsSearchResultSearchedBy(searchResultId, searchedById);
     }
 
     @Override

@@ -19,7 +19,7 @@ from npick_worker.jobs.models import (
 )
 from npick_worker.jobs.offline import import_result
 from npick_worker.jobs.registry import PendingUpload, StageContext, StageHandler, StageOutcome
-from npick_worker.jobs.runner import JobRunner
+from npick_worker.jobs.runner import ClaimOutcome, JobRunner
 from npick_worker.jobs.versions import StageVersion
 
 VERSION = "npick.stage.transcript_selection/v1:aaaaaaaa"
@@ -126,7 +126,7 @@ async def exercise(url: str, bundle: Path) -> None:
                 media_root=None,
                 device=WorkerDevice(kind="cpu"),
             )
-            assert await runner.run_once()
+            assert await runner.run_once() is ClaimOutcome.SUCCEEDED
             assert completed[0].status == "succeeded", completed[0].error
             run_id = completed[0].idempotency_key.split(":")[0]
             ack = await original_complete(run_id, "transcript_selection", completed[0])

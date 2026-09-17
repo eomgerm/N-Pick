@@ -20,13 +20,14 @@ from fastapi import APIRouter, FastAPI, HTTPException, status
 
 from npick_worker.device import detect_device
 from npick_worker.jobs.client import JobApiClient
-from npick_worker.jobs.registry import WarmupReport, warm_up
+from npick_worker.jobs.registry import WarmupReport, declared_stages, warm_up
 from npick_worker.jobs.runner import JobRunner, generate_worker_id
 from npick_worker.query_api import (
     QueryNotNormalizableError,
     QueryResolveRequest,
     QueryResolveResponse,
     resolve,
+    warm_query_encoder,
 )
 from npick_worker.schemas import (
     DeviceStatus,
@@ -73,6 +74,7 @@ def health() -> HealthResponse:
         pipeline=PipelineRegistry(
             stage_count=len(STAGES),
             stages=[StageSummary(order=s.order, name=s.name, fatal=s.fatal) for s in STAGES],
+            declared=list(declared_stages()),
         ),
         warmup=_warmup,
         polling=_polling_status(),
@@ -148,6 +150,43 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     if not settings.job_poll_enabled or not settings.job_api_base_url:
         logger.info("잡 폴링 비활성 (NPICK_AI_JOB_POLL_ENABLED / NPICK_AI_JOB_API_BASE_URL)")
+        # 이 갈래가 질의 리졸버다. 단계 워밍업(`jobs.warm_up`)은 타지 않지만 질의 임베딩
+        # 가중치는 여기서 올린다 — 어댑터는 첫 `encode` 에서 모델을 읽으므로, 이게 없으면
+        # **부팅 후 첫 검색**이 1.7GB 로딩을 물고 동기 예산을 날린다.
+        #
+        # `yield` 앞이라 이 동안 서버는 연결을 받지 않는다. 그게 의도다 — 뒤로 미루면
+        # 첫 검색이 로딩과 겹친다. 대신 **상한을 둔다**: 캐시 볼륨이 비어 원격에서 받는
+        # 콜드 스타트가 startup probe 유예를 넘기면 재시작 루프가 되고, 리졸버는 사용자
+        # 검색의 동기 경로 앞단이라 그 루프가 바로 장애로 보인다.
+        #
+        # 상한을 넘겨도 버리는 일이 아니다. `wait_for` 는 대기만 끊고 스레드는 계속 돌아
+        # 로딩을 끝낸다. 그 사이의 검색은 `query_api._embed` 의 readiness 확인에 걸려
+        # dense 채널 없이 BM25 로 나간다 (FRD v3.1 §6.2) — **그 확인이 없으면 요청
+        # 스레드가 로딩을 기다린다.** 여기서 상한을 두는 것만으로는 부족하고 둘이 짝이다.
+        # 실패도 마찬가지로 기동을 막지 않는다 — `warm_query_encoder` 가 삼킨다.
+        #
+        # **끊는 것은 기동뿐이고 종료는 아니다.** 스레드는 취소할 수 없어서 계속 도는데,
+        # `asyncio.run` 의 종료가 `loop.shutdown_default_executor(THREAD_JOIN_TIMEOUT)` 로
+        # 그 스레드를 기다린다(3.12 기준 300초). 그래서 상한을 넘긴 상태에서 SIGTERM 이
+        # 오면 이번에는 **종료가** 로딩이 끝날 때까지 막힌다. 하필 이 상한이 겨냥하는
+        # 상황(캐시가 빈 콜드 스타트)이 재배포·롤백과 겹치기 쉬운 때라 짚어 둔다.
+        # k8s 기본 grace period 30초면 SIGKILL 로 잘리므로 지금은 받아들인다.
+        #
+        # **워커 갈래(아래)에는 이 상한이 없다.** `warm_up()` 도 같은 모양으로 `yield`
+        # 앞에서 무제한 블록하고 ASR·VLM 가중치를 올린다 — 같은 결함이다. 리졸버가
+        # 사용자 검색의 동기 경로 앞단이라 먼저 막았고, 워커 쪽은 이 일감에서 건드리지
+        # 않았다. 거기도 필요하다고 판단되면 별건으로 연다.
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(warm_query_encoder),
+                timeout=settings.embedding_warmup_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "질의 임베딩 워밍업이 %.1f초 안에 끝나지 않아 기동을 계속한다. "
+                "로딩은 계속되며 그때까지의 검색은 dense 채널 없이 돈다",
+                settings.embedding_warmup_timeout_seconds,
+            )
         yield
         return
 

@@ -28,11 +28,16 @@
 | 검수 문의 상세             | GET    | `/review/inquiries/{feedbackId}`            | BE 구현   | 검수 상세 바인딩                    |
 | 검수 시작                  | POST   | `/review/inquiries/{feedbackId}/claim`      | BE 구현   | 검수 흐름 바인딩                    |
 | 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
-| 검색·문의 기록             | 미정   | 미정                                        | 명세 필요 | 편집자 하단 기록 시트 영속화        |
+| 내 문의 기록 목록          | GET    | `/inquiries`                                | BE 구현   | 편집자 하단 기록 시트 바인딩        |
+| 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 하단 기록 시트 바인딩        |
+| 내 검색 기록 목록·상세     | 미정   | 미정                                        | 명세 필요 | -60 선행, 편집자 하단 기록 시트 바인딩 |
 | 영상 처리 목록             | GET    | `/clips`                                    | BE 구현   | 처리 화면 목록 바인딩               |
 | 영상 처리 상세             | GET    | `/clips/{id}`                               | BE 구현   | 처리 상세 바인딩·polling            |
 | 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
-| 교정 후보 검증·확정        | 미정   | 미정                                        | 명세 필요 | 검수 재검색·확정 바인딩             |
+| 태그 교정 후보             | POST   | `/review/inquiries/{feedbackId}/tag-correction-candidate` | BE 구현 | 검수 교정 바인딩            |
+| 해석 교정 후보             | POST   | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 검수 교정 바인딩            |
+| 장면 제외 후보             | POST   | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 검수 교정 바인딩            |
+| 교정 확정                  | POST   | `/review/inquiries/{feedbackId}/confirm`                  | BE 구현 | 검수 재검색·확정 바인딩     |
 | 검색 규칙 사용 중단         | PATCH  | `/review/search-rules/{ruleId}`             | BE 구현   | 검수 규칙 관리 바인딩               |
 
 ## 2. 공통 규약
@@ -331,6 +336,8 @@ body는 생략하거나 다음처럼 보낸다.
 { "comment": "검색 조건과 다른 장면입니다." }
 ```
 
+세션 사용자가 **본인이 실행한 검색**의 결과에만 문의를 접수한다. 타인이 실행한 검색 결과에 접수하면 그 문의를 통해 원 검색자의 검색어·필터가 노출되므로, 미존재와 동일하게 `FEEDBACK_404_001`로 거부한다(존재 여부 비노출).
+
 성공 `data`의 현재 BE 모양:
 
 ```json
@@ -429,7 +436,7 @@ body는 생략하거나 다음처럼 보낸다.
 | `FEEDBACK_400_002` | 400  | 허용되지 않은 처리 결과         |
 | `FEEDBACK_403_001` | 403  | 문의 작성자 아님                |
 | `FEEDBACK_403_002` | 403  | 담당 검수자 아님                |
-| `FEEDBACK_404_001` | 404  | 신고 가능한 저장 검색 결과 아님 |
+| `FEEDBACK_404_001` | 404  | 신고 가능한 저장 검색 결과 아님(미존재·타인이 실행한 검색 동일 취급) |
 | `FEEDBACK_404_002` | 404  | 문의 없음                       |
 | `FEEDBACK_409_001` | 409  | 이미 다른 검수가 시작됨         |
 | `FEEDBACK_409_002` | 409  | 수정 가능한 상태 아님           |
@@ -489,7 +496,7 @@ body는 생략하거나 다음처럼 보낸다.
 - Header: `Idempotency-Key` 필수, 공백 불가.
 - Body: `{ "targetSceneId": "9301" }` — 정수 또는 양의 정수 문자열. 신고 컨텍스트의 장면과 같아야 한다.
 - 멱등은 `(feedbackId, targetSceneId)` 단위다. 내용이 전부 신고 컨텍스트에서 파생돼 장면당 후보는 하나뿐이므로, `Idempotency-Key`가 달라진 재시도도 같은 장면이면 기존 후보를 돌려준다.
-- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, active }`.
+- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`.
 
 | 오류            | HTTP | 의미                                    |
 | --------------- | ---- | --------------------------------------- |
@@ -501,6 +508,26 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_409_211`  | 409  | 검수 중이 아님                          |
 | `SRCH_409_212`  | 409  | 장면 제외로 처리된 신고 아님            |
 
+`POST /review/inquiries/{feedbackId}/parse-patch-candidate` (S15P21A501-81)
+
+검수 중(`REVIEWING`)이고 처리 결과가 `patch_parse`(해석 교정, F-09)인 신고에서, 담당 검수자가 AI 원본 해석에 대한 조건·패치 규칙을 후보로 저장한다(F-11). 후보는 `search_rule`에 `active=false`로 대기하며 검증·확정(F-12~F-13) 전까지 검색·해석에 반영되지 않는다.
+
+- Header: `Idempotency-Key` 필수, 공백 불가, 최대 64자.
+- Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
+- 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
+- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }` (현재 `searchRuleId`·`feedbackId`는 숫자로 나간다 — §8의 신규 응답 string 규칙 적용은 별건).
+
+| 오류            | HTTP | 의미                              |
+| --------------- | ---- | --------------------------------- |
+| `SRCH_400_201`  | 400  | 규칙 후보 본문이 올바르지 않음    |
+| `SRCH_400_202`  | 400  | 교체 대상 규칙을 찾을 수 없음     |
+| `SRCH_403_201`  | 403  | 검수자 아님                       |
+| `SRCH_403_202`  | 403  | 담당 검수자 아님                  |
+| `SRCH_404_201`  | 404  | 신고 없음                         |
+| `SRCH_409_201`  | 409  | 검수 중이 아님                    |
+| `SRCH_409_202`  | 409  | 해석 교정으로 처리된 신고 아님    |
+| `SRCH_409_203`  | 409  | 원 검색에 교정할 해석 출력이 없음 |
+
 `POST /review/inquiries/{feedbackId}/confirm` (S15P21A501-84)
 
 검수자가 확인한 검증 실행을 근거로 교정을 확정한다(F-13). 태그 근거 `confirmed=true`·규칙 활성화·교체와 신고 종료를 한 트랜잭션으로 처리한다.
@@ -510,7 +537,8 @@ body는 생략하거나 다음처럼 보낸다.
 ```
 
 - `executionId`는 이 신고의 성공한 재검색(replay) 실행이어야 한다 — 다른 신고·일반 검색 실행은 근거로 쓸 수 없다.
-- `tag_correction`은 태그 근거만, `patch_parse`(태그·해석 모두 잘못)는 규칙과 태그를 함께 확정한다(F-09).
+- `tag_correction`은 태그 근거만, `patch_parse`(태그·해석 모두 잘못)는 규칙과 태그를 함께 확정한다(F-09). `exclude_scene`은 제외 규칙을 활성화한다.
+- **`exclude_scene`은 확정 직전에 대상 장면 유효성을 재확인한다(F-14).** 재처리로 대상 장면이 사라졌으면 `CONFIRM_409_004`로 승격을 중단하고 신고는 `reviewing`을 유지한다 — 구 장면 제외를 새 장면에 자동 적용하지 않는다.
 - 검증 이후 관련 상태가 바뀌면(drift) `CONFIRM_409_003`으로 거부하고 재검증을 요구한다. 같은 검증 실행으로 이미 확정된 신고의 재요청은 성공으로 간주한다(멱등).
 - 성공은 body 없는 `200`(색인 갱신이 필요한 구성의 반영 상태 구분은 색인 도입 시 더한다).
 
@@ -523,6 +551,7 @@ body는 생략하거나 다음처럼 보낸다.
 | `CONFIRM_409_001` | 409  | 검수 중이 아님                          |
 | `CONFIRM_409_002` | 409  | 태그·해석 교정으로 처리된 신고 아님     |
 | `CONFIRM_409_003` | 409  | 검증 이후 상태 변경 — 재검증 필요       |
+| `CONFIRM_409_004` | 409  | 대상 장면이 재처리로 사라짐 — 재검증 필요 |
 
 ### 6.5 영상 처리 조회
 
@@ -536,6 +565,107 @@ body는 생략하거나 다음처럼 보낸다.
 - 처리 상세는 단계 상태·실패 사유·누락 채널·실제 채택 대사 출처를 반환한다. `automatic_retryable`은 승인된 다음 자동 시도가 대기 중인지 나타낸다. 수동 재처리 가능 여부 `retryable`은 저장된 판정이 없어 null이며 재처리 API에서 별도로 연결한다.
 - 잘못된 페이지는 `CLIP_QUERY_400`, 허용하지 않는 상태는 `CLIP_QUERY_400_001`, 없는/삭제된 클립은 `CLIP_QUERY_404`를 반환한다.
 
+### 6.6 내 문의 기록 (S15P21A501-185)
+
+검색 화면 사이드바에서 로그인 사용자가 **본인이 작성했고 본인이 실행한 검색에 대한 문의**만 조회한다. §6.3~6.4 검수 문의 API(`/review/inquiries`)와 달리 세션 사용자 ID로만 범위를 좁히며 파라미터로 다른 사용자 ID를 받지 않는다. 남의 검색 결과에 자기 명의로 만든 문의는 목록·카운트에서 제외해 그 검색어가 새어나가지 않게 한다. 신규 계약이라 응답은 snake_case, 모든 `*_id`는 십진 문자열이다.
+
+`GET /inquiries?page=0&size=10`
+
+- `page`: 0 이상 정수, 기본값 0.
+- `size`: 1~100 정수, 기본값 10. **범위를 벗어나면 clamp하지 않고 400으로 거부한다.**
+- 정렬은 `created_at DESC, feedback_id DESC` 고정(최신순, 동률은 ID 역순)이며 변경 불가.
+- 결과가 없어도 404가 아니라 200과 빈 `items: []`를 반환한다.
+
+성공 `data`:
+
+```json
+{
+  "items": [
+    {
+      "feedback_id": "9902",
+      "search_execution_id": "9701",
+      "search_result_id": "9802",
+      "created_at": "2026-09-11T03:00:00Z",
+      "updated_at": "2026-09-11T03:05:00Z",
+      "query_text": "테스트 질의",
+      "comment": null,
+      "status": "REVIEWING",
+      "resolution": "no_action",
+      "scene": {
+        "scene_id": "9302",
+        "clip_id": "9101",
+        "clip_title": "설 연휴 교통",
+        "start_time_ms": 49000,
+        "end_time_ms": 55000
+      }
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "total_elements": 1,
+  "total_pages": 1,
+  "has_next": false
+}
+```
+
+- `comment`·`resolution`은 nullable이며 key를 생략하지 않고 null로 명시한다. `status`는 `OPEN`/`REVIEWING`/`CLOSED`, `resolution`은 처리 전이면 null, 처리됐으면 §6.4 표의 다섯 값(`tag_correction`/`patch_parse`/`exclude_scene`/`no_action`/`deferred`) 중 하나다.
+
+| 오류           | HTTP | 의미                               |
+| -------------- | ---- | ---------------------------------- |
+| `COMM_401`     | 401  | 미인증                             |
+| `COMM_400`     | 400  | `page`/`size` 형식 오류(정수 아님) |
+| `COMM_400_001` | 400  | `page`/`size` 범위 오류(size 1~100 밖) |
+| `COMM_500`     | 500  | 서버 오류                           |
+
+`GET /inquiries/{feedbackId}`
+
+목록 항목의 모든 필드에 아래를 더한다.
+
+- `explicit_filters`: 검색 실행 당시 명시 filter(JSON object). 값이 없어도 빈 object `{}`이며 null이 아니다.
+- `resolution_note`, `review_started_at`, `closed_at`: 검수 처리 사유·시작·종료 시각. `OPEN` 상태면 셋 다 null이다.
+- `snapshot_status`, `result_snapshot`: 문의 당시 검색 결과 snapshot 복원 여부. **현재 구현은 항상 `snapshot_status: "unavailable"`, `result_snapshot: null`이다** — `search_result`에 snapshot을 복원할 저장 컬럼이 아직 없고, 그 저장 계약은 S15P21A501-60(미착수)이 소유한다. -60이 저장 형식을 확정하면 `available` 경로를 채운다.
+
+성공 `data` 예시(`CLOSED`·`no_action`):
+
+```json
+{
+  "feedback_id": "9902",
+  "search_execution_id": "9701",
+  "search_result_id": "9802",
+  "created_at": "2026-09-11T03:00:00Z",
+  "updated_at": "2026-09-11T03:10:00Z",
+  "query_text": "테스트 질의",
+  "comment": null,
+  "status": "CLOSED",
+  "resolution": "no_action",
+  "scene": {
+    "scene_id": "9302",
+    "clip_id": "9101",
+    "clip_title": "설 연휴 교통",
+    "start_time_ms": 49000,
+    "end_time_ms": 55000
+  },
+  "explicit_filters": {},
+  "resolution_note": "사유 없음으로 처리",
+  "review_started_at": "2026-09-11T03:05:00Z",
+  "closed_at": "2026-09-11T03:10:00Z",
+  "snapshot_status": "unavailable",
+  "result_snapshot": null
+}
+```
+
+본인 소유가 아니거나, 참조하는 검색을 본인이 실행하지 않았거나, 존재하지 않는 `feedbackId`는 **동일하게 404**로 응답한다(존재 여부 비노출). 문의 작성자와 원 검색자가 모두 세션 사용자일 때만 조회된다 — 남의 검색 결과에 자기 명의로 만든 문의로 그 검색어·필터가 새어나가지 않게 한다.
+
+| 오류               | HTTP | 의미                                          |
+| ------------------ | ---- | --------------------------------------------- |
+| `COMM_401`         | 401  | 미인증                                        |
+| `COMM_400`         | 400  | `feedbackId` 형식 오류                        |
+| `COMM_400_001`     | 400  | `feedbackId` 범위 오류(1 미만)                |
+| `FEEDBACK_404_002` | 404  | 본인 소유 아님·타인 검색 참조·존재하지 않음(동일 취급) |
+| `COMM_500`         | 500  | 서버 오류                                     |
+
+**내 검색 기록**(`GET /search/history` 목록·상세)은 미구현이다 — `search_execution`/`search_result` snapshot 저장 계약(S15P21A501-60, 미착수) 선행이라 이 문서에 상세 계약을 넣지 않는다.
+
 ## 7. 앞으로 명세·구현할 API
 
 아래는 [FRD](../frd.md) F-03, F-05, F-08~F-14와 현재 FE 화면이 요구하는 기능 목록이다. 경로·method·JSON·오류 코드는 담당 이슈에서 확정한 뒤 이 문서의 별도 절로 승격한다.
@@ -543,15 +673,15 @@ body는 생략하거나 다음처럼 보낸다.
 | 우선순위 | API 기능                             | 최소 계약 요구                                                                                 | 현재 FE 대체 상태             |
 | -------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------- |
 | 1        | 검색 실행                            | §5 계약 그대로 구현하고 실제 결과·loading·empty·degraded·failed를 연결                         | 고정 장면과 URL demo          |
-| 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination   | `search-history.tsx` 고정 5건 |
-| 3        | 편집자 문의 기록 목록·상세           | 본인 문의만 조회, `OPEN/REVIEWING/CLOSED`와 처리 결과·설명·장면·원 검색 연결                   | 고정 문의와 memory 추가       |
+| 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination(S15P21A501-60 저장 계약 선행, 미착수) | `search-history.tsx` 고정 5건 |
+| 3        | 편집자 문의 기록 목록·상세           | §6.6으로 승격·BE 구현 완료. 남은 작업은 FE 화면 바인딩뿐                                       | 고정 문의와 memory 추가       |
 | 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
 | 5        | 영상 재생                            | §6.1 공통 Preview·문의 상세·검색 결과 clipId 바인딩 완료                               | 배포 BE endpoint 확인 필요      |
 | 6        | 검수 문의 목록·상세·claim·resolution | §6.3~6.4 응답을 검수 화면 모델로 mapping                                                       | 23건 고정 문의                |
 | 7        | 영상 처리 목록 FE 연결               | §6.5 상태 필터·진행 요약·전체 상태 건수·pagination을 화면에 연결                             | 고정 진행·완료 영상           |
 | 8        | 영상 처리 상세·polling               | §6.5 처리 기록을 연결하고 terminal 상태에서 polling 종료. 장면 목록은 별도 조회 계약 필요      | 등록 응답을 memory로 합성     |
 | 9        | 처리 재시도                          | 일시/영구 실패 구분, 중복 클릭 방지, 기존 제공 run 보존, 새 run 식별자 반환                    | 버튼 demo                     |
-| 10       | 교정 후보 작성·검증                  | 태그·해석 patch·장면 제외 후보, 원 문의 검색 조건 서버 재사용, 일반 검색과 분리된 검증 실행 ID | 로컬 검수 state               |
+| 10       | 교정 후보 작성·검증                  | §6.4로 명세·BE 구현 완료(태그·해석 patch·장면 제외 후보 3종). 원 문의 검색 조건 서버 재사용·분리된 검증 실행 ID 포함. 남은 작업은 FE 바인딩 | 로컬 검수 state               |
 | 11       | 교정 확정                            | 검증 실행 ID만 입력받고 서버에 저장된 후보를 원자적으로 확정, stale 검증 거부                  | 로컬 완료 state               |
 | 12       | 규칙 사용 중단·재검증                | 수행자·사유, 이후 검색 미적용, 재활성화 전 검증                                                | 로컬 toggle/state             |
 | 13       | 장면 thumbnail                       | `scene_id` 기반 제공, 서버 경로 비노출, cache·권한 정책                                        | CSS thumbnail demo            |
@@ -567,7 +697,8 @@ body는 생략하거나 다음처럼 보낸다.
 | 문의 상태          | BE는 `OPEN/REVIEWING/CLOSED`, FE demo는 `pending/reviewing/resolved` | BE 상태를 정본으로 하고 FE adapter에서 사용자 문구로 변환                                 |
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
-| 검색·문의 기록     | 화면 필드는 있으나 목록 endpoint 없음                                | pagination, 정렬, 상세 분리, ID와 nullable 규칙 확정                                      |
+| 내 문의 기록       | §6.6으로 확정·구현 완료                                              | 없음(FE 바인딩만 남음)                                                                     |
+| 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
 | 처리 조회          | BE 조회는 §6.5, FE는 아직 UI 데모 모델                                  | 공개 DTO를 화면에 mapping하고 unknown/null을 보존. polling·수동 재처리 연결은 별도 구현    |
 | thumbnail          | 검색 응답에 URL을 넣지 않는 것만 확정                                | `scene_id` 기반 endpoint와 응답 cache 정책 확정                                           |
 

@@ -14,12 +14,15 @@ import com.npick.feedback.application.error.ConfirmCorrectionErrorCode;
 import com.npick.feedback.application.port.ConfirmationTarget;
 import com.npick.feedback.application.port.ConfirmationTargetPort;
 import com.npick.feedback.application.port.CurrentCorrectionStatePort;
+import com.npick.feedback.application.port.ExcludeTargetValidityPort;
 import com.npick.feedback.application.port.VerificationRun;
 import com.npick.feedback.application.port.VerificationRunPort;
 import com.npick.feedback.domain.repository.FeedbackRepository;
+import com.npick.search.application.ConfirmExcludeSceneUseCase;
 import com.npick.search.application.ConfirmParseRuleUseCase;
 import com.npick.tag.application.ConfirmTagCorrectionUseCase;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -43,6 +46,8 @@ class ConfirmCorrectionServiceTest {
     private CurrentCorrectionStatePort currentStatePort;
     private ConfirmTagCorrectionUseCase confirmTag;
     private ConfirmParseRuleUseCase confirmParseRule;
+    private ConfirmExcludeSceneUseCase confirmExcludeScene;
+    private ExcludeTargetValidityPort excludeValidity;
     private CorrectionStateLock correctionStateLock;
     private FeedbackRepository feedbackRepository;
     private ConfirmCorrectionService service;
@@ -54,16 +59,13 @@ class ConfirmCorrectionServiceTest {
         currentStatePort = mock(CurrentCorrectionStatePort.class);
         confirmTag = mock(ConfirmTagCorrectionUseCase.class);
         confirmParseRule = mock(ConfirmParseRuleUseCase.class);
+        confirmExcludeScene = mock(ConfirmExcludeSceneUseCase.class);
+        excludeValidity = mock(ExcludeTargetValidityPort.class);
         correctionStateLock = mock(CorrectionStateLock.class);
         feedbackRepository = mock(FeedbackRepository.class);
         service = new ConfirmCorrectionService(
-                targetPort,
-                verificationRunPort,
-                currentStatePort,
-                confirmTag,
-                confirmParseRule,
-                correctionStateLock,
-                feedbackRepository);
+                targetPort, verificationRunPort, currentStatePort, confirmTag, confirmParseRule,
+                confirmExcludeScene, excludeValidity, correctionStateLock, feedbackRepository);
     }
 
     private ConfirmCorrectionCommand command(boolean reviewerRole) {
@@ -113,13 +115,45 @@ class ConfirmCorrectionServiceTest {
     }
 
     @Test
-    @DisplayName("장면 제외·무처리 등 태그·해석 교정이 아니면 확정할 수 없다")
+    @DisplayName("무처리·보류 등 교정이 아니면 확정할 수 없다")
     void notACorrection() {
-        target("REVIEWING", "exclude_scene", null);
+        target("REVIEWING", "no_action", null);
 
         assertThatThrownBy(() -> service.confirm(command(true)))
                 .extracting("errorCode")
                 .isEqualTo(ConfirmCorrectionErrorCode.NOT_A_CORRECTION);
+    }
+
+    @Test
+    @DisplayName("장면 제외 확정: 대상 장면이 유효하면 제외 규칙을 활성화하고 신고를 종료한다")
+    void confirmsExcludeScene() {
+        target("REVIEWING", "exclude_scene", null);
+        verificationRun("exclude_scene", List.of(), 6601L, null);
+        when(excludeValidity.targetSceneActive(6601L)).thenReturn(true);
+        when(confirmExcludeScene.confirm(FEEDBACK, 6601L)).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
+
+        service.confirm(command(true));
+
+        verify(confirmExcludeScene).confirm(FEEDBACK, 6601L);
+        verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
+        // 제외도 규칙이므로 created_rule_id 에 규칙 id 를 기록한다.
+        verify(feedbackRepository)
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6601L), eq("exclude_scene"), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("장면 제외 확정: 대상 장면이 재처리로 사라졌으면 거부하고 아무것도 바꾸지 않는다")
+    void rejectsWhenTargetSceneGone() {
+        target("REVIEWING", "exclude_scene", null);
+        verificationRun("exclude_scene", List.of(), 6601L, null);
+        when(excludeValidity.targetSceneActive(6601L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.confirm(command(true)))
+                .extracting("errorCode")
+                .isEqualTo(ConfirmCorrectionErrorCode.TARGET_SCENE_GONE);
+        verify(confirmExcludeScene, never()).confirm(anyLong(), anyLong());
+        verify(feedbackRepository, never()).confirm(anyLong(), anyLong(), anyLong(), any(), any(), any());
     }
 
     @Test
@@ -188,8 +222,7 @@ class ConfirmCorrectionServiceTest {
         target("REVIEWING", "tag_correction", null);
         verificationRun("tag_correction", List.of(7901L, 7902L), null, null);
         when(confirmTag.confirm(FEEDBACK, List.of(7901L, 7902L))).thenReturn(2);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any()))
-                .thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
@@ -207,8 +240,7 @@ class ConfirmCorrectionServiceTest {
         target("REVIEWING", "patch_parse", null);
         verificationRun("patch_parse", List.of(), 6602L, 6601L);
         when(confirmParseRule.confirm(FEEDBACK, 6602L, 6601L)).thenReturn(1);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any()))
-                .thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 
@@ -226,8 +258,7 @@ class ConfirmCorrectionServiceTest {
         verificationRun("patch_parse", List.of(7901L, 7902L), 6602L, 6601L);
         when(confirmParseRule.confirm(FEEDBACK, 6602L, 6601L)).thenReturn(1);
         when(confirmTag.confirm(FEEDBACK, List.of(7901L, 7902L))).thenReturn(2);
-        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any()))
-                .thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any())).thenReturn(1);
 
         service.confirm(command(true));
 

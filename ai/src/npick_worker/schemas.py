@@ -30,6 +30,12 @@ class StageSummary(BaseModel):
 class PipelineRegistry(BaseModel):
     stage_count: int
     stages: list[StageSummary]
+    #: 이 배포가 맡기로 선언한 단계(`NPICK_AI_JOB_STAGES`). 위 `stages` 는 FRD §5.1 표의
+    #: 전사라 배포와 무관한 상수이므로 둘을 갈라 둔다 — CPU 워커와 GPU 파드가 무엇을
+    #: 맡았는지는 이 값으로만 구분된다.
+    #: **claim 에 실리는 목록과 같지 않을 수 있다.** 여기 있어도 모델 미지정·워밍업
+    #: 실패인 단계는 claim 에서 빠지고, 그것은 `warmup` 이 보여 준다.
+    declared: list[str]
 
 
 class WarmStageStatus(BaseModel):

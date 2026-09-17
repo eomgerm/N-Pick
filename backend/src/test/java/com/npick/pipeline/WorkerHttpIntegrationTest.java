@@ -226,9 +226,9 @@ class WorkerHttpIntegrationTest {
                         "capabilities",
                         java.util.List.of(Map.of(
                                 "stage",
-                                "scene_transcript_mapping",
+                                "entity_extraction",
                                 "stageVersion",
-                                "npick.stage.scene_transcript_mapping/v1:aaaaaaaa")),
+                                "npick.stage.entity_extraction/v1:aaaaaaaa")),
                         "device",
                         Map.of())),
                 Map.of());

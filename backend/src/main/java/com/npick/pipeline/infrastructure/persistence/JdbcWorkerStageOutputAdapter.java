@@ -17,18 +17,18 @@ import tools.jackson.databind.ObjectMapper;
 import com.npick.common.error.BusinessException;
 import com.npick.common.persistence.TsidGenerator;
 import com.npick.pipeline.application.error.WorkerIntegrationErrorCode;
+import com.npick.pipeline.application.port.TagVocabularyPort;
 import com.npick.pipeline.application.port.WorkerArtifactPort;
 import com.npick.pipeline.application.port.WorkerArtifactPort.Ref;
 import com.npick.pipeline.domain.model.PipelineStages;
 import com.npick.pipeline.infrastructure.artifact.LocalWorkerArtifactAdapter;
-import com.npick.tag.domain.model.TagMatchValue;
-import com.npick.tag.domain.model.TagType;
 
 /** #36 StageOutputPort method binding. Does not claim, transition, retry or publish a run. */
 public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.application.port.StageOutputPort {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final WorkerArtifactPort artifacts;
+    private final TagVocabularyPort vocabulary;
 
     /**
      * {@code <모델>@<40자리 hex>}. Must stay identical to the pattern the dense reader enforces in SQL
@@ -45,16 +45,19 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                         "ocr",
                         "transcript_selection",
                         "asr",
+                        "scene_transcript_mapping",
                         "vlm_metadata",
                         "text_embedding",
                         "indexing")
                 .contains(stage);
     }
 
-    public JdbcWorkerStageOutputAdapter(JdbcTemplate jdbc, ObjectMapper mapper, WorkerArtifactPort artifacts) {
+    public JdbcWorkerStageOutputAdapter(
+            JdbcTemplate jdbc, ObjectMapper mapper, WorkerArtifactPort artifacts, TagVocabularyPort vocabulary) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.artifacts = artifacts;
+        this.vocabulary = vocabulary;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -95,6 +98,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                 }
                 yield Map.of();
             }
+            case "scene_transcript_mapping" -> transcripts(runId, output, body.path("versions"), refs);
             case "vlm_metadata" -> captions(runId, clipId, output);
             case "text_embedding" -> embeddings(runId, output, body.path("versions"), refs);
             case "indexing" -> {
@@ -499,22 +503,15 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
      *
      * <p>정규화는 백엔드에 하나뿐인 {@link TagMatchValue} 를 지난다. 구현이 둘이 되면 같은 값이 두 표기로 {@code UNIQUE} 를 통과하고 정확 일치 조회가 조용히 0건이 된다.
      */
-    private static String matchValue(String type, String value) {
-        TagType tagType;
-        try {
-            tagType = TagType.from(type);
-        } catch (BusinessException unknown) {
-            // 워커가 보낸 유형이 어휘 밖이면 태그 오류가 아니라 잘못된 단계 출력이다.
-            throw new BusinessException(WorkerIntegrationErrorCode.INVALID_OUTPUT, unknown);
-        }
-        String match = TagMatchValue.normalize(value);
-        // 화면에 날짜가 보인다는 사실과 그것이 방송일·촬영일이라는 판단은 다르다(FRD §3 F-04).
-        // 워커 schema 에 그 유형이 없으므로 여기 오는 것은 계약 위반이다.
-        //
-        // 길이는 `tag.match_value` 의 varchar(255) 다. 워커 schema 의 `value` 에는 상한이
-        // 없어, 여기서 막지 않으면 INSERT 가 트랜잭션을 SQL 오류로 끊는다 — 워커가 받는 것은
-        // JOB_400_001 이 아니라 500 이고 그 응답은 재시도 가능으로 분류돼 같은 자리를 반복한다.
-        if (tagType.date() || match.isBlank() || match.length() > 255) invalid();
+    /**
+     * 유형을 확인하고 {@code tag.match_value} 를 만든다. 쓰기는 하지 않는다 — 뒤 장면의 위반이 앞 장면의 태그를 남기지 않도록 검증을 저장 앞에서 끝낸다.
+     *
+     * <p>판정 자체는 {@link TagVocabularyPort} 가 한다({@code tag} 모듈). 여기서 직접 부르면 모듈 고리가 닫히기 때문이고, 그 포트가 {@code null} 을 주면
+     * 이쪽에서 잘못된 단계 출력으로 번역한다 — 어휘 밖 유형은 태그 오류가 아니라 워커가 계약을 어긴 것이다.
+     */
+    private String matchValue(String type, String value) {
+        String match = vocabulary.matchValue(type, value);
+        if (match == null) invalid();
         return match;
     }
 
@@ -615,6 +612,111 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
         return result;
     }
 
+    /**
+     * {@code scene} 의 대사 네 칸을 채운다 (계약 §4.5).
+     *
+     * <p><b>토큰은 워커가 만든 것을 그대로 넣는다.</b> BE 에 Kiwi 가 없고 색인과 질의가 같은 설정을 써야 하며, 다르면 검색이 오류 없이 0건이 된다
+     * ({@code scene.transcript_tokens} 주석). {@code transcript_text} 는 워커가 토큰을 만들 때 쓴 것과 같은 순서·같은 구분자(공백 한 칸)로 잇는다 — 두
+     * 칸이 같은 문장을 가리켜야 한다.
+     */
+    private Map<String, Object> transcripts(long run, JsonNode output, JsonNode versions, Map<String, Ref> refs) {
+        JsonNode transcript = output.path("transcript");
+        Ref segmentsRef = registered(transcript.path("segmentsArtifact"), "transcript_segments", refs);
+        JsonNode segmentsDocument = artifactJson(segmentsRef);
+        JsonNode decisionsDocument =
+                artifactJson(registered(transcript.path("decisionsArtifact"), "transcript_decisions", refs));
+        // **두 파일이 같은 짝인지 본다.** 구간 ID 는 snapshot 사이에 보존되므로, 판정만 4단계
+        // `transcript_selection` 의 예비 파일을 가리켜도 모든 ID 가 해석되고 아무것도 실패하지
+        // 않는다 — 그 예비 판정이 최종으로 되살아난다(계약 §4.5). `validateTranscript` 와 같은 검사다.
+        if (!"npick.transcript.segments/v1".equals(text(segmentsDocument, "schemaVersion"))
+                || !"npick.transcript.decisions/v1".equals(text(decisionsDocument, "schemaVersion"))
+                || !segmentsRef.equals(ref(decisionsDocument.path("segmentsArtifact")))) invalid();
+        Map<String, JsonNode> originals = new LinkedHashMap<>();
+        for (JsonNode segment : array(segmentsDocument, "segments")) {
+            validateSegment(segment);
+            if (originals.put(text(segment, "segmentId"), segment) != null) invalid();
+        }
+        // 채택 판정은 상류 소유다. 다시 계산하지 않고 읽기만 한다 — 보관 전용 구간이 연결되면
+        // 채택하지 않은 자막으로 장면이 검색된다(계약 §4.5). 다만 판정이 모든 원본 ID 에 정확히
+        // 하나씩 있어야 읽은 결과가 상류가 실제로 주장한 집합이다. 중복은 `selected=true` 쪽이
+        // 조용히 이기고, 판정 없는 구간은 조용히 미채택으로 흐른다.
+        Map<String, JsonNode> adopted = adoptions(decisionsDocument, originals);
+        // 색인과 질의가 같은 Kiwi 설정을 써야 하고 어긋나면 검색이 조용히 0건이 된다. 그때 어느
+        // 설정이 이 토큰을 만들었는지 되짚을 근거가 이 축 하나뿐이다(계약 §4.5) — `embeddings()`
+        // 가 `modelVersion` 을 요구하는 것과 같은 자리다.
+        text(versions.path("detail"), "tokenizer");
+        var scenes = jdbc.queryForList("""
+                SELECT scene_id, start_time_ms, end_time_ms FROM npick.scene
+                WHERE pipeline_run_id=? ORDER BY start_time_ms, scene_id
+                """, run);
+        var values = array(output, "scenes");
+        // 상류가 발급한 이 회차의 장면 전부가 정확히 한 번씩이어야 한다. 빠진 장면은 "대사 없음"
+        // 으로 굳고, 중복 장면은 뒤 연결이 앞 연결을 조용히 덮는다.
+        if (scenes.isEmpty() || values.size() != scenes.size()) invalid();
+        var indexes = new HashSet<Long>();
+        var updates = new ArrayList<Object[]>();
+        for (JsonNode scene : values) {
+            long index = integer(scene, "sceneIndex", 0);
+            // 빈 문자열이 정상 값이라 `text()` 를 쓰지 않는다 — 그것은 blank 를 거절한다.
+            // 내용어가 없는 대사는 원문이 있어도 토큰이 비고, 키 생략과는 구분해야 한다.
+            if (index >= scenes.size()
+                    || !indexes.add(index)
+                    || !scene.path("tokens").isTextual()) invalid();
+            var stored = scenes.get((int) index);
+            var links = array(scene, "segments");
+            if (links.isEmpty()) {
+                // 연결이 없는데 토큰이 있다는 것은 스스로 모순인 출력이다. 조용히 버리면
+                // 워커의 결함이 "대사 없는 장면" 으로 위장된다.
+                if (!scene.path("tokens").asString().isEmpty()) invalid();
+                continue;
+            }
+            long sceneStart = ((Number) stored.get("start_time_ms")).longValue();
+            long sceneEnd = ((Number) stored.get("end_time_ms")).longValue();
+            var texts = new ArrayList<String>();
+            var spans = mapper.createArrayNode();
+            boolean provided = false;
+            long previous = -1;
+            var linked = new HashSet<String>();
+            for (JsonNode link : links) {
+                JsonNode original = adopted.get(text(link, "segmentId"));
+                // 같은 구간이 두 번 들어오면 원문도 `transcript_json` 의 구간도 겹쳐 적힌다.
+                if (original == null || !linked.add(text(link, "segmentId"))) invalid();
+                long start = integer(original, "s", 0);
+                long end = integer(original, "e", 1);
+                long overlap = integer(link, "overlapMs", 1);
+                // **겹침은 계산되는 값이지 신고받는 값이 아니다.** `transcript_json.overlap_ms` 의
+                // 정의가 "이 장면과 겹친 시간" 이라, 지어낸 값이나 장면과 겹치지도 않는 구간의
+                // 연결이 그대로 정본에 남는다. 연결 순서는 화면에 보여주는 `transcript_text` 와
+                // `transcript_json` 이 대사 순서대로 읽히도록 시간순이어야 한다 — 토큰과 갈리지는
+                // 않는다. 워커가 같은 목록을 같은 순서로 이어 토큰을 만들기 때문이다.
+                if (overlap != Math.min(sceneEnd, end) - Math.max(sceneStart, start) || start < previous) invalid();
+                previous = start;
+                texts.add(text(original, "t"));
+                provided |= !"asr".equals(text(original, "sourceDetail"));
+                spans.addObject()
+                        .put("s", start)
+                        .put("e", end)
+                        .put("t", text(original, "t"))
+                        .put("overlap_ms", overlap);
+            }
+            updates.add(new Object[] {
+                String.join(" ", texts),
+                storable(scene.path("tokens").asString()),
+                spans.toString(),
+                // 장면 하나가 자막과 ASR 을 함께 쓰면 제공 자막이 이긴다 — 영상 단위 판정과 같은
+                // 방향이다(`JdbcClipPublicationAdapter.activate`).
+                provided ? "provided" : "asr",
+                stored.get("scene_id")
+            });
+        }
+        // 대사가 없는 장면은 칸을 비운 채 둔다. 게시 판정이 공백 여부를 보므로 빈 문자열과 없음이 다르다.
+        for (Object[] update : updates) jdbc.update("""
+                    UPDATE npick.scene SET transcript_text=?, transcript_tokens=?, transcript_json=?::jsonb,
+                        transcript_source=?, updated_at=now() WHERE scene_id=?
+                    """, update);
+        return Map.of();
+    }
+
     private void validateTranscript(long run, JsonNode transcript, Map<String, Ref> refs) {
         Ref segmentsRef = registered(transcript.path("segmentsArtifact"), "transcript_segments", refs);
         Ref decisionsRef = registered(transcript.path("decisionsArtifact"), "transcript_decisions", refs);
@@ -641,13 +743,42 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             if (!original.equals(originals.get(text(original, "segmentId")))) invalid();
         }
         if (!originals.keySet().equals(inputIds)) invalid();
+        adoptions(decisions, originals);
+        if (!transcript.path("asrRequired").isBoolean()) invalid();
+        var ranges = array(transcript, "candidateRanges");
+        for (JsonNode range : ranges) if (integer(range, "e", 1) <= integer(range, "s", 0)) invalid();
+        String reason = text(transcript, "reasonCode");
+        if (!List.of("SUBTITLE_COVERED", "UNCOVERED_RANGES", "NO_VALID_SUBTITLE")
+                .contains(reason)) invalid();
+        if (transcript.path("asrRequired").booleanValue() != !ranges.isEmpty()
+                || reason.equals("SUBTITLE_COVERED") != ranges.isEmpty()) invalid();
+    }
+
+    /**
+     * {@code decisions} 가 원본 집합에 대해 완전하고 일관적인지 확인하고 <b>채택 집합</b>을 돌려준다 (계약 §4.5).
+     *
+     * <p>선택 정책을 다시 계산하지 않는다 — 정책은 상류 소유다. 여기서 보는 것은 판정이 스스로 모순인지뿐이다: 모든 원본 ID 에 정확히 하나씩, 채택 사유는 출처와 맞고 제외 근거를 달지 않으며,
+     * 제외 사유는 하나뿐이고 근거는 <b>같은 snapshot 에서 채택된 상위 출처</b>이면서 실제로 시간이 겹쳐야 한다.
+     *
+     * <p><b>4단계와 이 단계가 같은 검사를 쓴다.</b> {@code ProcessingRecordReader.selectedSources} 가 두 snapshot 중 살아 있는 쪽을 같은 규칙으로
+     * 읽으므로, 저장 쪽이 느슨하면 대사는 저장되는데 처리 상세는 자막을 {@code unavailable} 로 보고한다 — 화면과 정본이 갈린다.
+     */
+    private static Map<String, JsonNode> adoptions(JsonNode decisions, Map<String, JsonNode> originals) {
+        var values = array(decisions, "decisions");
+        // **채택 집합을 먼저 완성한다.** 판정 순서는 임의라, 훑으면서 그때까지 모인 채택만 보면
+        // 뒤에 오는 채택을 근거로 든 제외가 순서에 따라 통과하기도 하고 아니기도 한다.
+        Map<String, JsonNode> adopted = new LinkedHashMap<>();
         var seen = new HashSet<String>();
-        for (JsonNode decision : array(decisions, "decisions")) {
+        for (JsonNode decision : values) {
             String id = text(decision, "segmentId");
             if (!originals.containsKey(id)
                     || !seen.add(id)
                     || !decision.path("selected").isBoolean()) invalid();
-            JsonNode original = originals.get(id);
+            if (decision.path("selected").booleanValue()) adopted.put(id, originals.get(id));
+        }
+        if (!seen.equals(originals.keySet())) invalid();
+        for (JsonNode decision : values) {
+            JsonNode original = originals.get(text(decision, "segmentId"));
             var conflicts = array(decision, "conflictsWith");
             String reason = text(decision, "reasonCode");
             if (decision.path("selected").booleanValue()) {
@@ -658,21 +789,17 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             var conflictIds = new HashSet<String>();
             for (JsonNode conflict : conflicts) {
                 if (!conflict.isTextual() || !conflictIds.add(conflict.asText())) invalid();
-                JsonNode other = originals.get(conflict.asText());
+                // **근거는 채택된 것만이다.** 원본에 있기만 하면 통과시키면 제외된 구간을 근거로
+                // 또 다른 구간을 연쇄 제외할 수 있다 — 제외된 CC 가 자막 공백의 ASR 을 밀어내는
+                // 그 경우이고, 계약 §4.5 가 이름을 붙여 금지한 자리다.
+                JsonNode other = adopted.get(conflict.asText());
                 if (other == null
                         || priority(other) >= priority(original)
                         || Math.max(integer(other, "s", 0), integer(original, "s", 0))
                                 >= Math.min(integer(other, "e", 1), integer(original, "e", 1))) invalid();
             }
         }
-        if (!seen.equals(originals.keySet()) || !transcript.path("asrRequired").isBoolean()) invalid();
-        var ranges = array(transcript, "candidateRanges");
-        for (JsonNode range : ranges) if (integer(range, "e", 1) <= integer(range, "s", 0)) invalid();
-        String reason = text(transcript, "reasonCode");
-        if (!List.of("SUBTITLE_COVERED", "UNCOVERED_RANGES", "NO_VALID_SUBTITLE")
-                .contains(reason)) invalid();
-        if (transcript.path("asrRequired").booleanValue() != !ranges.isEmpty()
-                || reason.equals("SUBTITLE_COVERED") != ranges.isEmpty()) invalid();
+        return adopted;
     }
 
     private static int priority(JsonNode segment) {
@@ -709,7 +836,19 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
 
     private static String text(JsonNode node, String key) {
         if (!node.path(key).isTextual() || node.path(key).asText().isBlank()) invalid();
-        return node.path(key).asText();
+        return storable(node.path(key).asText());
+    }
+
+    /**
+     * NUL 이 든 문자열은 저장 앞에서 거절한다.
+     *
+     * <p>PostgreSQL 의 {@code text} 도 {@code jsonb} 도 {@code U+0000} 을 받지 못한다. 여기서 막지 않으면 드라이버 예외가
+     * {@link BusinessException} 을 우회해 500 으로 나가고, 그 응답은 재시도 가능으로 분류돼 같은 자리에서 lease 만료 → 재배정을 반복한다 ({@code embeddings()}
+     * 의 컬럼 폭 주석과 같은 경로다).
+     */
+    private static String storable(String value) {
+        if (value.indexOf(0) >= 0) invalid();
+        return value;
     }
 
     private static long integer(JsonNode node, String key, long minimum) {

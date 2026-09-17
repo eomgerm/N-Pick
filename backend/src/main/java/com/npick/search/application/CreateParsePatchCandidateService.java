@@ -27,7 +27,7 @@ import com.npick.search.infrastructure.persistence.mapper.ParseRuleJsonMapper;
  * <p><b>트랜잭션 경계는 저장소가 갖는다.</b> 이 서비스는 트랜잭션을 열지 않는다. 유니크 위반이 저장소 트랜잭션 안에서만 롤백되어야 복구 조회(멱등)가 오염 없이 성립하기 때문이다.
  */
 @Service
-public class CreateParsePatchCandidateService {
+public class CreateParsePatchCandidateService implements CreateParsePatchCandidateUseCase {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -44,6 +44,7 @@ public class CreateParsePatchCandidateService {
         this.jsonMapper = jsonMapper;
     }
 
+    @Override
     public ParseCandidateOutcome create(CreateParsePatchCandidateCommand command) {
         if (!command.reviewerRole()) {
             throw new BusinessException(ParseRuleCandidateErrorCode.EDITOR_FORBIDDEN);

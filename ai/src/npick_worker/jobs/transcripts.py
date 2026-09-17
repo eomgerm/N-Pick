@@ -1,7 +1,7 @@
 """Approved transcript artifact boundary; selection and ASR remain stage implementations."""
 
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from pydantic import Field, StrictBool, StrictInt, model_validator
 
@@ -73,6 +73,13 @@ class MappedSegment(WireModel):
 class SceneTranscriptLinks(WireModel):
     scene_index: StrictInt = Field(ge=0)
     segments: list[MappedSegment]
+    #: Kiwi 색인 토큰을 공백으로 이은 것. 곧 `scene.transcript_tokens` 가 된다.
+    #: **BE 가 만들 수 없는 값이라 여기 있다** — 형태소 분석은 파이프라인의 일이고
+    #: (`docs/architecture/02-container.md`), 색인과 질의가 같은 설정을 써야 한다.
+    #: 그래서 `versions.detail.tokenizer` 가 그 설정의 식별자를 함께 싣는다
+    #: (`ocr`·`vlm_metadata` 와 같은 규약). 빈 문자열이 정상이다 — 조사·감탄사뿐인
+    #: 대사는 원문이 있어도 내용어가 없고, 대사 없는 장면은 연결 자체가 비어 있다.
+    tokens: str
 
     @model_validator(mode="after")
     def unique_links(self) -> "SceneTranscriptLinks":
@@ -113,6 +120,9 @@ class UpstreamMappedSegment(WireResponse):
 class UpstreamSceneTranscriptLinks(WireResponse):
     scene_index: StrictInt
     segments: list[UpstreamMappedSegment]
+    #: 기본값을 두는 이유는 `UpstreamSceneCaption.tokens` 와 같다 — 이 모델을 쓰는
+    #: 하류가 토큰을 읽지 않아도 모양이 깨지지 않아야 한다.
+    tokens: str = ""
 
 
 class UpstreamSceneTranscriptMapping(WireResponse):
@@ -161,14 +171,30 @@ def validate_snapshot(
                 raise ValueError("invalid higher-priority overlap reference")
 
 
+#: 매핑 결과의 상류 키. BE 의 단계 키는 snake_case 지만 계약 예시 다수가 camelCase 라
+#: 두 표기를 모두 본다. **없는 키는 오류가 아니라 "매핑을 돌리지 않았다" 로 흐르므로**
+#: (`resolve_mapping` 이 None 을 준다) 표기가 어긋나면 하류가 실패 없이 대사 0건으로
+#: 돈다 — 조용한 결함이라 여기서 막는다.
+_MAPPING_KEYS: Final = ("scene_transcript_mapping", "sceneTranscriptMapping")
+
+
+def mapping_payload(upstream: Mapping[str, Any]) -> Any | None:
+    """`scene_transcript_mapping` 단계 결과. 두 표기를 모두 받고 없으면 None 이다."""
+    for key in _MAPPING_KEYS:
+        if key in upstream:
+            return upstream[key]
+    return None
+
+
 def transcript_refs(
     upstream: Mapping[str, Any], *, stage: str | None = None
 ) -> tuple[ArtifactRef, ...]:
     # 상위 transcript 별칭이 이전 snapshot이어도 최종 매핑의 참조가 정본이다.
     # `text_embedding` 도 같은 이유로 매핑 쪽을 본다 — 별칭이 가리키는 옛 snapshot 을
     # 받아 오면 `resolve_mapping` 이 문서를 찾지 못해 이 단계가 통째로 죽는다.
-    if stage in {"vlm_metadata", "text_embedding"} and "scene_transcript_mapping" in upstream:
-        mapping = parse_scene_transcript_mapping(upstream["scene_transcript_mapping"])
+    payload = mapping_payload(upstream)
+    if stage in {"vlm_metadata", "text_embedding"} and payload is not None:
+        mapping = parse_scene_transcript_mapping(payload)
         return (mapping.transcript.segments_artifact, mapping.transcript.decisions_artifact)
     transcript = upstream.get("transcript")
     if transcript is None:
@@ -199,10 +225,11 @@ def resolve_mapping(
     Returns:
         `(매핑, segmentId → 원본 세그먼트)`. 사전에는 **연결된 것만** 들어간다.
     """
-    if "scene_transcript_mapping" not in upstream:
+    payload = mapping_payload(upstream)
+    if payload is None:
         return None
     try:
-        mapping = parse_scene_transcript_mapping(upstream["scene_transcript_mapping"])
+        mapping = parse_scene_transcript_mapping(payload)
         snapshot = mapping.transcript
         segments = TranscriptSegments.model_validate(
             documents[snapshot.segments_artifact.storage_key]
