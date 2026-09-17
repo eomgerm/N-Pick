@@ -390,9 +390,6 @@
   grid-template-columns: minmax(0, 1fr);
   text-align: center;
 }
-.statePanel[data-state='loading'] .stateSummary {
-  justify-items: center;
-}
 .statePanel[data-state='failed'] {
   min-height: 0;
   flex: 1;
@@ -406,6 +403,10 @@
   display: grid;
   min-width: 0;
   justify-items: start;
+}
+.stateSummary {
+  justify-items: center;
+  text-align: center;
 }
 .stateDetails {
   width: min(100%, 460px);

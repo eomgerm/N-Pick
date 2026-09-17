@@ -9,6 +9,7 @@ import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-d
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
 import { SearchLayout } from '@/features/wireframes/search-layout';
+import { useSearchArrival } from '@/features/wireframes/search-transition';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
@@ -72,6 +73,7 @@ export function WireframeShell({
 }: WireframeShellProps) {
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
+  const { searchFieldRef, workspaceRef } = useSearchArrival();
   const [isNavigating, startNavigation] = useTransition();
   const navigationLockRef = useRef(false);
   const hasObservedNavigationRef = useRef(false);
@@ -266,7 +268,7 @@ export function WireframeShell({
       onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
       searchField={
         <form className={styles.searchForm} onSubmit={handleSearch}>
-          <div className={styles.searchField}>
+          <div className={styles.searchField} ref={searchFieldRef}>
             <input
               aria-label="뉴스 장면 검색어"
               disabled={isSearchPending}
@@ -286,7 +288,7 @@ export function WireframeShell({
         </form>
       }
     >
-      <div className={styles.workspace} data-state={resultState}>
+      <div className={styles.workspace} data-state={resultState} ref={workspaceRef}>
         <main className={styles.mainContent}>
           <h1 className={styles.visuallyHidden}>뉴스 장면 검색 결과</h1>
           <section className={styles.resolution} aria-label="검색 해석">
