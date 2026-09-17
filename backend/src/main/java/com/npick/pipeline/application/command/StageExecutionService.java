@@ -8,6 +8,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.clip.application.command.activate.ActivateProcessedClipUseCase;
@@ -37,6 +40,8 @@ public class StageExecutionService
                 CompleteStageUseCase,
                 HeartbeatStageUseCase,
                 ReclaimStagesUseCase {
+    private static final Logger LOG = LoggerFactory.getLogger(StageExecutionService.class);
+
     private final PipelineRunRepository runs;
     private final GetPipelineDefinitionUseCase definitions;
     private final StageOutputPort outputs;
@@ -102,7 +107,16 @@ public class StageExecutionService
                 Instant now = clock.instant();
                 run.claim(stage, command.workerId(), UUID.randomUUID(), command.device(), now, retries);
                 runs.save(run, now);
-                return Optional.of(assignment(run, stage));
+                putJobContext(snapshot.clipId(), snapshot.id(), stage);
+                try {
+                    LOG.info(
+                            "스테이지를 배정했다 worker={} attempt={}",
+                            command.workerId(),
+                            run.state(stage).get("attempts"));
+                    return Optional.of(assignment(run, stage));
+                } finally {
+                    clearJobContext();
+                }
             }
         }
     }
@@ -165,11 +179,22 @@ public class StageExecutionService
         validateEnvelope(command);
         UUID lease = UUID.fromString((String) body.get("leaseId"));
         PipelineRun run = requireRun(command.runId());
+        putJobContext(run.clipId(), command.runId(), command.stage());
+        try {
+            return accept(command, run, body, lease);
+        } finally {
+            clearJobContext();
+        }
+    }
+
+    private Map<String, Object> accept(
+            CompleteStageCommand command, PipelineRun run, Map<String, Object> body, UUID lease) {
         String hash = json.hash(body);
         var duplicate = run.duplicate(command.stage(), lease, command.workerId(), command.idempotencyKey(), hash);
         if (duplicate != null) {
             Map<String, Object> response = new LinkedHashMap<>(duplicate);
             response.put("duplicate", true);
+            LOG.info("이미 수락한 결과의 재전송이다 worker={}", command.workerId());
             return JsonValues.copy(response);
         }
         Instant now = clock.instant();
@@ -204,6 +229,11 @@ public class StageExecutionService
         run.recordAssignedIds(command.stage(), ids);
         run.rememberCompletion(command.stage(), response);
         runs.save(run, now);
+        LOG.info(
+                "스테이지 결과를 수락했다 worker={} status={} runStatus={}",
+                command.workerId(),
+                body.get("status"),
+                response.get("runStatus"));
         return JsonValues.copy(response);
     }
 
@@ -211,9 +241,16 @@ public class StageExecutionService
     @Transactional
     public Instant heartbeat(long runId, String stage, String workerId, UUID leaseId) {
         PipelineRun run = requireRun(runId);
-        run.heartbeat(stage, leaseId, workerId, clock.instant());
-        runs.save(run, clock.instant());
-        return run.snapshot().leaseExpiresAt();
+        putJobContext(run.clipId(), runId, stage);
+        try {
+            run.heartbeat(stage, leaseId, workerId, clock.instant());
+            runs.save(run, clock.instant());
+            Instant until = run.snapshot().leaseExpiresAt();
+            LOG.debug("heartbeat 로 lease 를 연장했다 worker={} leaseUntil={}", workerId, until);
+            return until;
+        } finally {
+            clearJobContext();
+        }
     }
 
     @Override
@@ -248,6 +285,27 @@ public class StageExecutionService
         run.heartbeat("transcript_selection", leaseId, workerId, now);
         runs.save(run, now);
         return assignment(run, "transcript_selection");
+    }
+
+    /**
+     * 워커 처리 구간 로그에 clip·run·stage 를 싣는다 (S15P21A501-204).
+     *
+     * <p>개별 키는 구조화 소비자(JSON appender 등)를 위한 것이고 {@code job} 은 표시용이다 — 텍스트 패턴에 개별 키를 나열하면 파이프라인과 무관한 모든 로그 줄에 빈 자리가 남는다.
+     * 값이 없을 때 통째로 사라지도록 한 토큰으로 조립해 둔다.
+     */
+    private static void putJobContext(long clipId, long runId, String stage) {
+        MDC.put("clipId", Long.toString(clipId));
+        MDC.put("runId", Long.toString(runId));
+        MDC.put("stage", stage);
+        MDC.put("job", " clip=" + clipId + " run=" + runId + " stage=" + stage);
+    }
+
+    /** 스레드가 재사용되므로 구간을 벗어나면 반드시 지운다 ({@code RequestIdFilter} 와 같은 원칙). */
+    private static void clearJobContext() {
+        MDC.remove("clipId");
+        MDC.remove("runId");
+        MDC.remove("stage");
+        MDC.remove("job");
     }
 
     private PipelineRun requireRun(long id) {

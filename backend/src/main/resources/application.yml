@@ -168,8 +168,10 @@ logging:
     org.hibernate.orm.jdbc.extract: OFF
   # 모든 로그 라인에 request ID 를 붙여 한 요청을 역추적할 수 있게 한다 (S15P21A501-136).
   # RequestIdFilter 가 MDC 에 넣는 값이며, 없으면 빈 값이다.
+  # job 은 워커 스테이지 처리 구간에서만 채워지는 clip·run·stage 묶음이다 (S15P21A501-204).
+  # 그 밖의 로그에서는 키가 없어 통째로 사라진다.
   pattern:
-    level: "%5p [%X{requestId:-}]"
+    level: "%5p [%X{requestId:-}]%X{job:-}"
 
 management:
   endpoints:
