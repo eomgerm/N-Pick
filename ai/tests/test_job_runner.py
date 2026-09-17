@@ -25,7 +25,7 @@ from npick_worker.jobs.registry import (
     StageHandler,
     StageOutcome,
 )
-from npick_worker.jobs.runner import JobRunner, _JobControl
+from npick_worker.jobs.runner import ClaimOutcome, JobRunner, _JobControl
 from npick_worker.jobs.versions import StageVersion
 
 from .conftest import FakeBackend, envelope, make_job, make_lease
@@ -108,7 +108,7 @@ async def test_round_trip_scene_detection_job(
         make_job(inputs={"media": {"storageKey": storage_key, "transport": "shared-volume"}})
     )
 
-    assert await _runner(job_client, media_root).run_once() is True
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.SUCCEEDED
 
     body = _complete_body(fake_backend)
     assert body["stage"] == "scene_detection"
@@ -210,8 +210,45 @@ async def test_no_assignment_does_not_complete(
     job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
 ) -> None:
     fake_backend.enqueue_empty_claim()
-    assert await _runner(job_client, media_root).run_once() is False
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.IDLE
     assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_backpressure_is_not_reported_as_an_empty_queue(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """`retryAfterMs` 는 BE 과부하지 큐가 비었다는 뜻이 아니다 (계약 §4.1).
+
+    둘을 한 값으로 뭉개면 배치 실행이 과부하를 "다 끝났다" 로 읽고 남은 영상을
+    색인하지 않은 채 0 으로 끝난다.
+    """
+    fake_backend.enqueue(
+        "claim",
+        httpx2.Response(200, json=envelope({"assigned": False, "retryAfterMs": 1000})),
+    )
+
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.BACKPRESSURE
+    assert fake_backend.calls("complete") == []
+
+
+@pytest.mark.asyncio
+async def test_failed_stage_is_not_reported_as_success(
+    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+) -> None:
+    """잡을 받아 반납했다는 것과 단계가 성공했다는 것은 다르다.
+
+    `maxAttempts` 가 1 이라 재시도도 없다. 둘을 뭉개면 시드가 전부 죽어도 배치가
+    성공으로 끝난다.
+    """
+    _plant_default_media(media_root)
+    job = make_job()
+    job["inputs"]["config"] = {"threshold": 41.0}  # type: ignore[index]  # 거부되는 설정
+    fake_backend.enqueue_claim(job=job)
+
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.FAILED
+
+    assert fake_backend.body("complete")["status"] == "failed"
 
 
 # ── 구현되지 않은 단계 ───────────────────────────────────────────────
@@ -611,7 +648,7 @@ async def test_heartbeat_403_does_not_stop_the_worker(
     fake_backend.enqueue_status("heartbeat", 403, code="JOB_403_002")
     runner = _runner(job_client, media_root)
 
-    assert await runner.run_once() is True
+    assert await runner.run_once() is ClaimOutcome.FAILED
 
     assert fake_backend.calls("complete") == []
 
@@ -626,7 +663,7 @@ async def test_heartbeat_409_001_discards_the_result(
     fake_backend.enqueue_claim()
     fake_backend.enqueue_status("heartbeat", 409, code="JOB_409_001")
 
-    assert await _runner(job_client, media_root).run_once() is True
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.FAILED
 
     assert fake_backend.calls("complete") == []
 
@@ -640,7 +677,7 @@ async def test_heartbeat_conflict_discards_the_result(
     fake_backend.enqueue_claim()
     fake_backend.enqueue_status("heartbeat", 404, code="JOB_404_001")
 
-    assert await _runner(job_client, media_root).run_once() is True
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.FAILED
 
     assert fake_backend.calls("complete") == []
 
@@ -658,7 +695,7 @@ async def test_lease_lost_during_execution_is_not_masked_by_the_join(
     # 실행 중 lease 회수 + heartbeat 도 실패한다. 둘이 겹쳐도 폐기 경로로 가야 한다.
     fake_backend.enqueue_status("heartbeat", 409, code="JOB_409_002")
 
-    assert await _runner(job_client, media_root).run_once() is True
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.FAILED
 
     assert fake_backend.calls("complete") == []
 
@@ -681,7 +718,9 @@ async def test_heartbeat_stays_alive_while_complete_retries(
     seen: list[str] = []
     fake_backend.on_request = lambda route, request: seen.append(route)
 
-    assert await _runner(job_client, media_root).run_once() is True
+    # 입력이 placeholder 바이트라 단계 자체는 실패한다. 관심사는 그게 아니라
+    # 반납이 재시도되는 동안 heartbeat 가 뛰었는가다.
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.FAILED
 
     assert len(fake_backend.calls("complete")) == 3
     # complete 첫 시도 뒤에 heartbeat 가 한 번이라도 있었는가.
@@ -736,7 +775,7 @@ async def test_non_empty_config_is_rejected(
     job["inputs"]["config"] = {"threshold": 41.0}  # type: ignore[index]
     fake_backend.enqueue_claim(job=job)
 
-    assert await _runner(job_client, media_root).run_once() is True
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.FAILED
 
     body = fake_backend.body("complete")
     assert body["status"] == "failed"
@@ -800,7 +839,7 @@ async def test_round_trip_frame_extraction_job(
     )
     fake_backend.enqueue_claim(_frame_job("clips/a/source.mp4", UPSTREAM_TWO_SCENES))
 
-    assert await _runner(job_client, media_root).run_once() is True
+    assert await _runner(job_client, media_root).run_once() is ClaimOutcome.SUCCEEDED
 
     body = _complete_body(fake_backend)
     assert body["stage"] == "frame_extraction"

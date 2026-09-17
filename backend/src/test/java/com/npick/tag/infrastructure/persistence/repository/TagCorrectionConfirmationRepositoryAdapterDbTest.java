@@ -1,7 +1,6 @@
 package com.npick.tag.infrastructure.persistence.repository;
 
 import java.util.List;
-
 import jakarta.persistence.EntityManager;
 
 import org.junit.jupiter.api.DisplayName;

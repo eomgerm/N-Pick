@@ -64,7 +64,11 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
 
     @Override
     public int confirm(
-            long feedbackId, long reviewerId, long executionId, Long createdRuleId, String expectedResolution,
+            long feedbackId,
+            long reviewerId,
+            long executionId,
+            Long createdRuleId,
+            String expectedResolution,
             Instant now) {
         return jpaRepository.confirm(feedbackId, reviewerId, executionId, createdRuleId, expectedResolution, now);
     }
