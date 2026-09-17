@@ -27,9 +27,8 @@ import com.npick.clip.application.query.thumbnail.SceneThumbnailResult;
  * 필터 체인이 응답마다 붙이므로 여기서 다시 붙이지 않는다 — 두 곳이 같은 헤더를 쓰면 어느 쪽이 정본인지 알 수 없다. 대신 {@code SceneThumbnailControllerTest} 가 이 응답에
  * 실제로 붙는지 고정한다.
  *
- * <p><b>축소하지 않는다.</b> 응답은 원본 해상도 keyframe 이다. {@code docs/contracts/job-api.md} §4.3.1 은 AI 가 축소본을 만들지 않기로 하면서 카드용 축소를
- * 이 조회 시점에 넘겨 두었지만, 축소 규격(최대 크기·비율 유지 여부·출력 형식과 품질·캐시 방법·원본 크기 상한)이 FE 카드 레이아웃과 함께 정해져야 하는 값이라 별도 이슈로 분리했다. 여기서 서버가
- * 단독으로 기본값을 정하면 FE 규격이 나온 뒤 되돌려야 한다. 현재 상태는 계약 정본 §6.7 에 「원본 해상도까지 구현」 으로 적혀 있다.
+ * <p><b>축소하지 않는다.</b> 응답은 원본 해상도 keyframe 이다. 서버는 resize·crop·재인코딩하지 않고, FE 가 원본 크기를 전제로 지연 로딩·동시 요청 수와 화면 표시 크기를 조절한다.
+ * 계약 정본은 {@code docs/contracts/web-api.md} §6.7 이다.
  *
  * <p>원본 영상 재생({@code /api/v1/media/{clipId}}, S15P21A501-133)과 책임이 다르다. 저 쪽은 큰 파일을 Range 로 흘려보내며 중간 캐시에 남기지 않고, 이 쪽은 한
  * 장을 통째로 주며 브라우저가 캐시하되 쓸 때마다 서버에 되묻게 한다.

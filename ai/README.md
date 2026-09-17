@@ -129,8 +129,8 @@ result.engine_version  # '18.1.0+numpy2.5.2'  ← PyAV + numpy (둘 다 결과�
 INSERT 하고 대표가 그 scene 의 최소 `keyframe_id` 가 된다. 규약 정본은
 [../docs/contracts/job-api.md](../docs/contracts/job-api.md) §4.3.1.
 
-**작은 글자 OCR 을 위해 원본 해상도를 유지한다**(FRD §3 F-03). 축소본 파일은 만들지 않는다 —
-담을 컬럼이 없고, 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있다. 원본 영상 자체도
+**작은 글자 OCR 을 위해 원본 해상도를 유지한다**(FRD §3 F-03). 별도 축소본 파일은 만들지
+않으며, 결과 카드도 ID 기반 조회 API로 대표 keyframe 원본을 받는다. 원본 영상 자체도
 `clip.storage_key` 로 계속 접근할 수 있으므로 필요하면 프레임을 다시 뽑을 수 있다.
 
 같은 입력 + 같은 `(config_version, engine, engine_version)` 이면 **같은 프레임을 고르고 같은

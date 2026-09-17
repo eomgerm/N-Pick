@@ -26,7 +26,7 @@ CREATE TABLE "keyframe" (
 | scene과의 연결 | `scene_id` | 워커는 `scene_index`로 보내고 BE가 TSID를 발급한다 |
 | 이미지 위치 | `storage_key` | 파일명만 단계가 정하고 접두는 잡 레이어가 붙인다 |
 | 대표 이미지 1개 | **없음** | 목록 **순서**로 전달한다 (§2) |
-| 축소 thumbnail | **없음** | 만들지 않는다. 카드용 축소는 조회 시점의 몫 (§4) |
+| 카드 표시 이미지 | 대표 keyframe의 `storage_key` | 별도 축소본을 만들지 않고 조회 API가 원본을 반환한다 (§4) |
 | 같은 프레임 두 번 금지 | `UNIQUE(scene_id, timestamp_ms)` | 중복 제거 단위가 **프레임 번호**여야 한다 (§5) |
 
 ## 2. 대표 이미지를 순서로 표현하는 이유
@@ -241,10 +241,11 @@ FRD는 "작은 글자를 읽을 때는 축소된 대표 이미지 대신 원본 
 (`docs/frd.md:131`)를 요구한다. 그래서 **다운스케일하지 않는다.** 이 자산의 1차 소비자는 사람
 눈이 아니라 OCR이다.
 
-축소본 파일은 만들지 않는다. **담을 컬럼이 없다** — `keyframe.storage_key`는 하나뿐이고
-`clip`에도 thumbnail 칸이 없다. 결과 카드용 축소는 ID 기반 조회 응답에서 만들 수 있으므로
-저장이 필요 없다. `stages.py`의 2단계 필수 출력 문구가 "복수 keyframe·thumbnail"인 것과
-어긋나는 지점이라 계약 문서 §4.3.1에도 적어 두었다.
+축소본 파일은 만들지 않는다. `keyframe.storage_key` 하나가 원본 JPEG를 가리키고 목록의 첫
+keyframe이 대표 이미지다. BE의 ID 기반 조회 API도 이 원본을 resize·crop·재인코딩하지 않고
+그대로 반환한다. `stages.py`의 2단계 필수 출력 "복수 keyframe·thumbnail"에서 thumbnail도
+별도 축소 파일이 아니라 이 대표 keyframe을 뜻한다. wire 계약은
+[job-api.md](../../docs/contracts/job-api.md) §4.3.1이 정본이다.
 
 ### 품질(qscale) 실측
 
