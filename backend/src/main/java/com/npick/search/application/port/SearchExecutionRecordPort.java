@@ -35,6 +35,16 @@ public interface SearchExecutionRecordPort {
      */
     List<Long> complete(CompleteSearchExecution command);
 
+    /**
+     * 결과를 내지 못하고 끝난 실행을 닫는다.
+     *
+     * <p>{@link #complete} 와 따로 둔 이유는 실패 시점에 넘길 것이 없기 때문이다. 설정 스냅샷과 후보는 순위 계산이 끝나야 나오는데, 그 전에 끊긴 실행도 {@code running} 으로
+     * 남겨 두면 안 된다 — 성공 기록과 구분되지 않는 행이 영구히 쌓인다.
+     *
+     * <p>이 호출이 실패해도 예외를 밖으로 내보내지 않는다. 사용자에게 돌아가야 하는 것은 검색이 왜 실패했는가이지 그 실패를 기록하다 또 실패했다는 사실이 아니다. 조립이 삼키고 원래 예외를 올린다.
+     */
+    void fail(long searchExecutionId, String errorCode, int executionMs);
+
     /** {@code search_execution.execution_type}. baseline COLUMN COMMENT 가 어휘를 닫아 두었다. */
     @Getter
     @Accessors(fluent = true)

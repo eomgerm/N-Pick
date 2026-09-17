@@ -28,6 +28,7 @@ import com.npick.search.application.query.fusion.FusionResult;
 import com.npick.search.application.query.guard.ApplyFalseHitGuardQuery;
 import com.npick.search.application.query.guard.ApplyFalseHitGuardUseCase;
 import com.npick.search.application.query.guard.FalseHitGuardResult;
+import com.npick.search.application.query.search.SearchCandidates.ScoredScene;
 import com.npick.search.application.query.soft.AdjustSoftRankingQuery;
 import com.npick.search.application.query.soft.AdjustSoftRankingUseCase;
 import com.npick.search.application.query.soft.SoftRankingResult;
@@ -94,8 +95,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     public SearchCandidates rank(Query query) {
         List<SearchDegradedReason> degraded = new ArrayList<>();
 
-        List<SceneCandidateResult> lexical =
-                lexicalCandidates.findByWords(query.normalization().searchTokens());
+        List<SceneCandidateResult> lexical = lexical(query);
         DenseCandidatesResult dense = dense(query, degraded);
 
         StructuredScoresResult structured = structuredScores.score(
@@ -115,14 +115,32 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         ActiveSceneExclusionResult excluded = sceneExclusions.apply(
                 new ApplyActiveSceneExclusionsQuery(query.normalizedSearch(), guarded.sceneIds()));
 
+        // 부족 사유는 실제로 내보내는 수로 센다. 제외 뒤 개수로 세면 카드가 없어 빠진 장면이
+        // 누락돼 «9개인데 사유 없음» 이 나가고 계약 §5.1 이 깨진다.
+        List<ScoredScene> scenes = scenes(excluded.sceneIds(), ordered, fused, guarded, tags);
         return new SearchCandidates(
-                scenes(excluded.sceneIds(), ordered, fused, guarded, tags),
+                scenes,
                 fuseQuery,
                 guarded,
                 excluded.excludedScenes(),
                 fused.config(),
                 degraded,
-                shortageReasons(excluded.sceneIds().size(), guarded, excluded));
+                shortageReasons(scenes.size(), guarded, excluded));
+    }
+
+    /**
+     * 단어 채널을 돌린다.
+     *
+     * <p>꺼져 있으면 <b>조회하지 않는다</b>. {@code FusionSettings} 는 「채널 하나 이상이 양수」만 강제하므로 {@code LEXICAL} 가중치 0 은 유효한 설정이고, 그때
+     * 후보를 넘기면 순위 결합이 {@code INACTIVE_CHANNEL_RESULT_PRESENT} 로 검색을 죽인다. dense 와 같은 규칙이다.
+     *
+     * <p>dense 와 달리 사유를 남기지 않는다. 끈 채널은 장애가 아니고, 설정으로 끈 것을 사용자에게 「일부 기능 누락」으로 안내하면 매 검색이 degraded 가 된다.
+     */
+    private List<SceneCandidateResult> lexical(Query query) {
+        if (!fusionSettings.isActive(FusionChannel.LEXICAL)) {
+            return List.of();
+        }
+        return lexicalCandidates.findByWords(query.normalization().searchTokens());
     }
 
     /**
@@ -160,7 +178,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      *
      * <p>카드 조회는 여기 한 번뿐이다. 후보 전체가 아니라 최대 10건에만 필요하고, 대사 원문까지 함께 읽기 때문이다.
      */
-    private List<SearchCandidates.ScoredScene> scenes(
+    private List<ScoredScene> scenes(
             List<Long> sceneIds,
             SoftRankingResult ordered,
             FusionResult fused,
@@ -174,7 +192,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         guarded.verdicts().forEach(verdict -> verdicts.put(verdict.sceneId(), verdict));
 
         Map<Long, SceneCard> cards = sceneCards.find(sceneIds);
-        List<SearchCandidates.ScoredScene> scenes = new ArrayList<>();
+        List<ScoredScene> scenes = new ArrayList<>();
         for (Long sceneId : sceneIds) {
             SceneCard card = cards.get(sceneId);
             if (card == null) {
@@ -183,7 +201,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                 continue;
             }
             SoftRankingResult.OrderedCandidate candidate = soft.get(sceneId);
-            scenes.add(new SearchCandidates.ScoredScene(
+            scenes.add(new ScoredScene(
                     sceneId,
                     candidate.clipId(),
                     card,

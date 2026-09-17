@@ -47,7 +47,9 @@ public record QueryResolutionApiResponse(
             // 파싱됐고, 여기서 던지면 어댑터가 RESOLVER_SCHEMA_INVALID 로 올려 그 토큰이
             // 사라진다. 계약을 어긴 쪽을 벌하려다 검색을 같이 죽이는 셈이다 (§6.2).
             return failed(
-                    normalized, error == null ? QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID : error.toErrorCode());
+                    normalized,
+                    toQueryEmbedding(),
+                    error == null ? QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID : error.toErrorCode());
         }
         try {
             // 둘 다 오면 어느 쪽이 진짜인지 알 수 없다. 성공으로 밀면 error 를 조용히 버린다.
@@ -68,12 +70,17 @@ public record QueryResolutionApiResponse(
         } catch (RuntimeException ex) {
             // 해석 부분만 못 읽었다. 정규화는 이미 파싱됐으므로 버리지 않는다 — 그 토큰이 없으면
             // FRD v3.1 §6.2 의 원 검색어 BM25 fallback 자체가 불가능해진다.
-            return failed(normalized, QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+            return failed(normalized, toQueryEmbedding(), QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
         }
     }
 
-    private static QueryResolutionResult failed(QueryNormalization normalized, QueryResolverErrorCode failure) {
-        return new QueryResolutionResult(normalized, null, List.of(), null, null, null, null, failure);
+    /**
+     * 해석은 실패했지만 임베딩은 살린다. 둘은 독립된 축이라 벡터만 멀쩡히 온 응답이 있고, 그때 버리면 dense 채널이 해석 부재를 보완할 바로 그 순간에 사라진다 (§6.2 는 fallback 을 「단어
+     * 검색으로 전환」이라 적었을 뿐 의미 검색을 끄라고 하지 않는다).
+     */
+    private static QueryResolutionResult failed(
+            QueryNormalization normalized, DenseQuery embedding, QueryResolverErrorCode failure) {
+        return new QueryResolutionResult(normalized, null, List.of(), embedding, null, null, null, failure);
     }
 
     /**

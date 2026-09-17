@@ -371,6 +371,28 @@ class QueryResolverAdapterTest {
         assertThat(result.queryEmbedding()).isNull();
     }
 
+    @Test
+    @DisplayName("해석이 실패해도 임베딩은 살려서 dense 채널을 남긴다")
+    void keepsTheEmbeddingWhenResolutionFails() {
+        // 해석과 임베딩은 독립된 축이다. 버리면 dense 가 해석 부재를 보완할 바로 그 순간에
+        // 사라진다 — §6.2 는 fallback 을 "단어 검색으로 전환" 이라 적었을 뿐 의미 검색을 끄라고
+        // 하지 않는다.
+        respondWith("""
+                {"normalization": {"normalized_query": "어제 뉴스",
+                                   "search_tokens": ["어제", "뉴스"],
+                                   "normalization_version": "v1"},
+                 "embedding": [0.5, 0.5],
+                 "embedding_model_version": "bge-m3:1024",
+                 "error": {"category": "RESOLVER_TIMEOUT"}}
+                """);
+
+        QueryResolutionResult result = adapter().resolve("어제 뉴스");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.queryEmbedding()).isNotNull();
+        assertThat(result.queryEmbedding().embedding()).containsExactly(0.5f, 0.5f);
+    }
+
     private void respondWith(String body) {
         server.expect(requestTo(BASE_URL + "/query/resolve")).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
     }

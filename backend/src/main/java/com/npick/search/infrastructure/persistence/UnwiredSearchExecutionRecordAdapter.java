@@ -42,4 +42,10 @@ class UnwiredSearchExecutionRecordAdapter implements SearchExecutionRecordPort {
     public List<Long> complete(CompleteSearchExecution command) {
         throw new SearchRecordingException(NOT_WIRED);
     }
+
+    @Override
+    public void fail(long searchExecutionId, String errorCode, int executionMs) {
+        // 남길 곳이 없다. 던지지 않는 이유는 계약이 그렇기도 하고, 여기서 던지면 조립이 삼켜야 할
+        // 예외가 하나 더 느는 것뿐이기 때문이다.
+    }
 }

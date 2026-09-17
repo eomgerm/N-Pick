@@ -39,6 +39,9 @@ import com.npick.search.domain.repository.ParseRuleRepository;
 @Service
 public class SearchAssemblyService implements ExecuteSearchUseCase {
 
+    /** 계약 §5.1 의 허용 사유. guard 판정이 내는 값이 아니라 승인된 장면 제외(-58)가 내는 값이라 여기 둔다. */
+    private static final String APPROVED_SCENE_EXCLUSION = "approved_scene_exclusion";
+
     private final QueryResolverPort resolver;
     private final ParseRuleRepository parseRules;
     private final RankSearchCandidatesUseCase pipeline;
@@ -77,6 +80,23 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         NormalizedSearch normalizedSearch = normalize(query, resolved);
         long executionId = openExecution(query, resolved, normalizedSearch, parseMs, degradedReasons);
 
+        try {
+            return rank(query, resolved, normalizedSearch, executionId, degradedReasons, startedAt);
+        } catch (BusinessException failed) {
+            // 열어 둔 실행을 닫는다. 안 닫으면 running 상태의 행이 영구히 남아 성공 기록과
+            // 구분되지 않는다 (§6.2 「성공 기록이 남았다고 주장하지 않는다」).
+            abandon(executionId, failed, elapsedMs(startedAt));
+            throw failed;
+        }
+    }
+
+    private SearchExecutionResult rank(
+            ExecuteSearchQuery query,
+            QueryResolutionResult resolved,
+            NormalizedSearch normalizedSearch,
+            long executionId,
+            List<SearchDegradedReason> degradedReasons,
+            long startedAt) {
         ParseRulePolicy.Result rules = applyRules(resolved);
         // fallback 에서도 명시 필터는 살아 있어야 한다. 사용자가 직접 건 날짜는 AI 해석과 무관한
         // 조건이고, F-06 의 「명시한 날짜와 검증된 날짜가 충돌하면 제외」가 그 값을 근거로 쓴다.
@@ -96,13 +116,6 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
                 ? ParseSource.FALLBACK
                 : appliedRule ? ParseSource.RESOLVER_RULE : ParseSource.RESOLVER;
 
-        // 경로별로 나눠 재지 않으면 95% 10초 목표가 어느 경로 때문에 깨지는지 알 수 없다 (§8.2).
-        // 태그 값은 기록의 execution_type·parse_source 와 같은 판정에서 나온다.
-        searchTimer.record(
-                System.nanoTime() - startedAt,
-                TimeUnit.NANOSECONDS,
-                SearchPath.of(ExecutionType.ORIGINAL, parseSource));
-
         List<String> queryTokens = resolved.normalization().searchTokens();
         List<Long> resultIds = completeRecord(
                 executionId,
@@ -113,6 +126,14 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
                 degradedReasons,
                 queryTokens,
                 elapsedMs(startedAt));
+
+        // 기록 저장까지 포함해 찍는다. 앞에서 끊으면 같은 실행의 execution_ms 와 값이 갈리고,
+        // 저장이 느릴 때 그 시간이 어느 지표에도 안 잡힌다 (§8.2).
+        // 태그 값은 기록의 execution_type·parse_source 와 같은 판정에서 나온다.
+        searchTimer.record(
+                System.nanoTime() - startedAt,
+                TimeUnit.NANOSECONDS,
+                SearchPath.of(ExecutionType.ORIGINAL, parseSource));
 
         return new SearchExecutionResult(
                 resultIds == null ? null : executionId,
@@ -198,14 +219,37 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         return cards;
     }
 
-    /** 제외 건만 센다. 통과한 장면의 판정까지 실으면 화면이 존재하지 않는 충돌을 띄운다 (§5.1). */
+    /**
+     * 걷어낸 건수와 사유. 통과한 장면의 판정까지 실으면 화면이 존재하지 않는 충돌을 띄운다 (§5.1).
+     *
+     * <p><b>승인된 장면 제외도 여기 센다.</b> 계약이 {@code approved_scene_exclusion} 을 허용 사유로 들어 두었고, 사용자에게는 「내가 아는 그 장면이 왜 안 나왔나」가
+     * guard 판정이든 검수자 승인이든 같은 질문이다. 하나만 세면 그 수가 실제로 빠진 것보다 적게 나간다.
+     */
     private SearchExecutionResult.GuardSummary guardSummary(SearchCandidates candidates) {
-        List<String> reasons = candidates.guard().excluded().stream()
+        List<String> reasons = new ArrayList<>(candidates.guard().excluded().stream()
                 .map(verdict -> verdict.exclusionReason().wireValue())
                 .distinct()
-                .toList();
-        return new SearchExecutionResult.GuardSummary(
-                candidates.guard().excluded().size(), reasons);
+                .toList());
+        int excluded = candidates.guard().excluded().size();
+        if (!candidates.appliedExcludes().isEmpty()) {
+            reasons.add(APPROVED_SCENE_EXCLUSION);
+            excluded += candidates.appliedExcludes().size();
+        }
+        return new SearchExecutionResult.GuardSummary(excluded, reasons);
+    }
+
+    /**
+     * 실패로 끝난 실행을 닫는다.
+     *
+     * <p>여기서 난 예외는 삼킨다. 사용자에게 돌아가야 하는 것은 검색이 왜 실패했는가이지, 그 실패를 기록하다 또 실패했다는 사실이 아니다. 삼키지 않으면 원래 사유가
+     * {@code SearchRecordingException} 에 가려진다.
+     */
+    private void abandon(long executionId, BusinessException failed, int executionMs) {
+        try {
+            record.fail(executionId, failed.errorCode().code(), executionMs);
+        } catch (RuntimeException notRecorded) {
+            // 실행은 running 으로 남는다. 그 행을 성공으로 읽지 않는 것은 기록을 읽는 쪽의 규약이다.
+        }
     }
 
     /**

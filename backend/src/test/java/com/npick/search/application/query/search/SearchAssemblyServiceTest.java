@@ -21,6 +21,7 @@ import com.npick.search.application.port.SearchExecutionRecordPort;
 import com.npick.search.application.port.SearchRecordingException;
 import com.npick.search.application.port.StartSearchExecution;
 import com.npick.search.application.query.card.SceneCard;
+import com.npick.search.application.query.exclusion.ActiveSceneExclusionResult;
 import com.npick.search.application.query.fusion.FuseSearchRankingQuery;
 import com.npick.search.application.query.fusion.FusionResult;
 import com.npick.search.application.query.fusion.SearchConfigSnapshot;
@@ -46,6 +47,9 @@ import com.npick.search.domain.repository.ParseRuleRepository;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -488,6 +492,61 @@ class SearchAssemblyServiceTest {
         ArgumentCaptor<CompleteSearchExecution> captor = ArgumentCaptor.forClass(CompleteSearchExecution.class);
         verify(record, atLeastOnce()).complete(captor.capture());
         return captor.getValue();
+    }
+
+    @Test
+    @DisplayName("검색이 실패하면 열어 둔 실행을 실패로 닫는다")
+    void closesTheExecutionWhenTheSearchFails() {
+        // 안 닫으면 running 행이 영구히 남아 성공 기록과 구분되지 않는다
+        // (§6.2 「성공 기록이 남았다고 주장하지 않는다」).
+        givenResolved();
+        when(pipeline.rank(any())).thenThrow(new IllegalStateException("색인 접근 실패"));
+
+        assertThatThrownBy(() -> service.execute(query())).isInstanceOf(BusinessException.class);
+
+        verify(record).fail(eq(700L), eq(SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED.code()), anyInt());
+    }
+
+    @Test
+    @DisplayName("실패를 기록하다 또 실패해도 원래 사유를 가리지 않는다")
+    void recordingFailureDoesNotMaskTheOriginalCause() {
+        givenResolved();
+        when(pipeline.rank(any())).thenThrow(new IllegalStateException("색인 접근 실패"));
+        org.mockito.Mockito.doThrow(new SearchRecordingException("기록 실패"))
+                .when(record)
+                .fail(anyLong(), any(), anyInt());
+
+        assertThatThrownBy(() -> service.execute(query()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED);
+    }
+
+    @Test
+    @DisplayName("승인된 장면 제외도 guard 요약에 센다")
+    void countsApprovedSceneExclusionsInTheGuardSummary() {
+        // §5.1 이 approved_scene_exclusion 을 허용 사유로 들어 두었다. guard 판정만 세면
+        // 그 수가 실제로 빠진 것보다 적게 나가고 그 사유는 영원히 안 나온다.
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidatesWithApprovedExclusion(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.guardSummary().excludedResultCount()).isEqualTo(1);
+        assertThat(result.guardSummary().reasons()).containsExactly("approved_scene_exclusion");
+    }
+
+    private SearchCandidates candidatesWithApprovedExclusion(SearchCandidates.ScoredScene... scenes) {
+        SearchCandidates base = candidates(scenes);
+        return new SearchCandidates(
+                base.scenes(),
+                base.candidates(),
+                base.guard(),
+                List.of(new ActiveSceneExclusionResult.ExcludedScene(9999L, List.of(301L))),
+                base.config(),
+                base.degradedReasons(),
+                base.shortageReasons());
     }
 
     private void givenResolved() {

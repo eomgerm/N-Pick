@@ -228,13 +228,36 @@ final class SearchExplain {
                         tag.verification().trustedForConflict() ? "verified" : "unverified"));
             }
         }
-        if (evidence.isEmpty() && card.caption() != null) {
+        if (evidence.isEmpty()) {
             // 순위에 오른 이상 무언가는 걸렸다. 토큰 대조로 되짚지 못하는 경로(dense·구조화 점수)로
             // 올라온 장면이면 설명을 근거로 내보낸다 — 계약이 빈 배열을 허용하지 않는다.
-            evidence.add(new SearchExecutionResult.MatchEvidence(
-                    FIELD_CAPTION, card.caption(), "scene_caption", "unverified"));
+            evidence.add(fallbackEvidence(card));
         }
         return evidence;
+    }
+
+    /**
+     * 토큰 대조로 되짚지 못한 장면의 근거.
+     *
+     * <p>순위에 오른 이상 무언가는 걸렸다 — dense 나 구조화 점수로 올라온 경우다. 계약이 빈 배열을 허용하지 않으므로(§5.1) 설명·대사·화면 글자 중 <b>있는 것</b>을 내보낸다. 셋 다
+     * 없으면 걸린 태그라도 싣는다. 여기서 caption 만 보면 설명 없는 장면이 빈 배열로 나가 계약이 깨진다.
+     */
+    private static SearchExecutionResult.MatchEvidence fallbackEvidence(SceneCard card) {
+        if (card.caption() != null) {
+            return new SearchExecutionResult.MatchEvidence(
+                    FIELD_CAPTION, card.caption(), "scene_caption", "unverified");
+        }
+        if (card.transcriptText() != null) {
+            return new SearchExecutionResult.MatchEvidence(
+                    FIELD_TRANSCRIPT, card.transcriptText(), "scene_transcript", "unverified");
+        }
+        if (!card.ocrTexts().isEmpty()) {
+            return new SearchExecutionResult.MatchEvidence(
+                    FIELD_OCR, card.ocrTexts().getFirst().rawText(), "keyframe_ocr", "unverified");
+        }
+        // 텍스트가 하나도 없는 장면이다. 이런 장면은 구조화 축(태그)으로만 올라올 수 있으므로
+        // 그 사실 자체를 근거로 남긴다 — 값이 없다고 키를 비우면 계약이 깨진다.
+        return new SearchExecutionResult.MatchEvidence(FIELD_TAG, null, "structured_score", "unverified");
     }
 
     private static boolean hits(Set<String> tokens, List<String> indexed) {
