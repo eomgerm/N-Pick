@@ -208,7 +208,6 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
                 candidates.guard().excluded().size(), reasons);
     }
 
-
     /**
      * 실행을 연다. 실패하면 검색을 중단한다 (§6.2 「검색 실행의 최초 저장 실패」).
      *
@@ -241,8 +240,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
     /**
      * 후보 구간을 돌린다.
      *
-     * <p>{@link BusinessException} 은 그대로 올린다 — 채널·후보 계층이 이미 자기 사유로 분류한 실패다. 그 밖의 예외만 「기본 단어 검색도 불가」로 본다 (§6.2).
-     * 여기서 삼키면 검색 실패가 0건의 성공 응답으로 나간다.
+     * <p>{@link BusinessException} 은 그대로 올린다 — 채널·후보 계층이 이미 자기 사유로 분류한 실패다. 그 밖의 예외만 「기본 단어 검색도 불가」로 본다 (§6.2). 여기서 삼키면
+     * 검색 실패가 0건의 성공 응답으로 나간다.
      */
     private SearchCandidates runPipeline(
             QueryResolutionResult resolved, QueryResolution finalResolution, NormalizedSearch normalizedSearch) {

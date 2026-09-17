@@ -10,8 +10,8 @@ import com.npick.common.error.ErrorType;
 /**
  * 검색 실행이 중간에 끊긴 이유 (FRD §6.2).
  *
- * <p>여기 값들은 전부 <b>검색 실패</b>다. 일부 기능만 빠진 경우는 {@code SearchDegradedReason} 이 맡고 200 으로 나간다. 둘을 가르는 기준은 §6.2 가 정한
- * 「결과를 줄 수 있는가」 하나다 — 줄 수 있으면 degraded, 없으면 여기.
+ * <p>여기 값들은 전부 <b>검색 실패</b>다. 일부 기능만 빠진 경우는 {@code SearchDegradedReason} 이 맡고 200 으로 나간다. 둘을 가르는 기준은 §6.2 가 정한 「결과를 줄 수
+ * 있는가」 하나다 — 줄 수 있으면 degraded, 없으면 여기.
  *
  * <p><b>결과 0건으로 위장하지 않는다.</b> 검색이 실패했는데 빈 배열의 성공 응답을 주면 사용자는 「그런 장면이 없다」로 읽는다 (F-06 완료 기준).
  */
@@ -37,8 +37,8 @@ public enum SearchExecutionErrorCode implements ErrorCode {
     /**
      * 실행을 열지 못했다.
      *
-     * <p>§6.2 「검색 실행의 최초 저장 실패 → AI 호출 전에 중단하고 재시도 안내」. 결과 계산 <b>뒤</b>의 저장 실패와 다르다 — 그쪽은 계산이 이미 끝나 결과를 미저장
-     * 상태로 줄 수 있으므로 degraded 다.
+     * <p>§6.2 「검색 실행의 최초 저장 실패 → AI 호출 전에 중단하고 재시도 안내」. 결과 계산 <b>뒤</b>의 저장 실패와 다르다 — 그쪽은 계산이 이미 끝나 결과를 미저장 상태로 줄 수 있으므로
+     * degraded 다.
      */
     EXECUTION_NOT_RECORDED(ErrorType.SERVICE_UNAVAILABLE, "SRCH_503_013", "검색 실행을 기록하지 못해 중단했다");
 
