@@ -22,6 +22,7 @@
 | 영상 등록                  | POST   | `/clips`                                    | 연결됨    | 없음                                |
 | 장면 검색                  | POST   | `/search`                                   | 계약 확정 | 실제 호출·화면 바인딩               |
 | 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | 공통 플레이어·문의 상세·검색 카드 연결 |
+| 장면 대표 이미지           | GET    | `/scenes/{sceneId}/thumbnail`               | BE 구현   | 결과 카드·문의 큐 thumbnail 바인딩  |
 | 문의 접수                  | POST   | `/search/results/{resultId}/inquiries`      | BE 구현   | 문의 생성 바인딩                    |
 | 문의 설명 수정             | PATCH  | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 문의 기록 바인딩과 함께 연결 |
 | 검수 문의 목록             | GET    | `/review/inquiries`                         | BE 구현   | 검수 게시판 바인딩                  |
@@ -291,7 +292,7 @@ FE URL 상태와 wire 요청의 대응:
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
 - `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
 - 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
-- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다.
+- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.7, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
 
 ### 5.2 오류 경계
 
@@ -684,6 +685,42 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 **내 검색 기록**(`GET /search/history` 목록·상세)은 미구현이다 — `search_execution`/`search_result` snapshot 저장 계약(S15P21A501-60, 미착수) 선행이라 이 문서에 상세 계약을 넣지 않는다.
 
+### 6.7 장면 대표 이미지(thumbnail) — 원본 반환
+
+`GET /scenes/{sceneId}/thumbnail`
+
+결과 카드와 검수 문의 큐가 장면을 눈으로 알아보게 하는 이미지다(FRD F-03·F-07). 로그인한 `EDITOR`와 `REVIEWER`가 모두 조회한다.
+
+- 대표 이미지는 AI가 선명도로 골라 목록 첫 원소로 보낸 프레임이며, BE가 그 순서대로 저장하므로 그 장면의 최소 `keyframe_id`다([job-api.md](job-api.md) §4.3.1). **`timestamp_ms`가 가장 이른 프레임이 아니다** — 장면 앞머리에는 디졸브·암전이 오기 쉬워 대표가 시각상 첫 장이 아니다. AI가 장면마다 뽑는 프레임 수도 고정이 아니다(FRD F-03).
+- 성공: 이미지 byte, 파일 머리글에 맞는 `Content-Type`(`image/jpeg`·`image/png`·`image/webp`), `Content-Length`, `Content-Disposition: inline`, `X-Content-Type-Options: nosniff`. 지원하지 않는 머리글은 `SCENE_503_001`로 거부한다.
+- 성공 byte에는 공통 JSON envelope를 사용하지 않는다. 실패에는 공통 실패 envelope를 사용한다.
+- Range를 지원하지 않는다. 한 장을 통째로 보낸다.
+- **응답은 축소하지 않은 원본 해상도 keyframe이다.** 서버는 resize·crop·재인코딩하지 않는다. 장당 크기는 1080p 기본 화질에서 약 420 KiB다([job-api.md](job-api.md) §4.3.1의 실측). 카드 10장이면 한 화면이 4 MB 급이므로 FE는 이 값을 전제로 지연 로딩·동시 요청 수를 잡고 표시 크기는 UI에서 조절한다.
+
+**응답 cache.** `Cache-Control: private, no-cache`와 이미지 byte에서 뽑은 `ETag`다. 브라우저는 byte를 보관하되 쓰기 전에 매번 재검증한다. `If-None-Match`가 맞으면 `304`로 끝나고 byte는 오가지 않는다.
+
+`max-age`를 주지 않는 이유는 **권한과 삭제를 다시 판정할 자리가 사라지기 때문**이다. 그 시간 동안은 요청 자체가 오지 않으므로 로그아웃·계정 전환 뒤에도, 클립을 논리 삭제한 뒤에도 인증과 `deleted_at` 조회를 거치지 않은 옛 프레임이 화면에 남는다 — 아래 「세대와 삭제」가 정한 「논리 삭제한 클립의 장면은 없는 장면과 같은 응답을 준다」와 어긋난다. `no-cache`는 보관을 막는 것이 아니라 재검증을 강제하는 지시이므로, 카드 10장이 화면을 오갈 때 아끼려던 전송은 `304`로 그대로 아낀다.
+
+`private`인 이유는 프레임이 공유 캐시·중간 프록시에 남으면 안 되기 때문이다(FRD §6.4). `ETag`는 `scene_id`가 아니라 이미지 byte에서 뽑는다 — ID로 만들면 파일이 교체됐을 때 값이 그대로여서 브라우저가 옛 장을 계속 쓴다.
+
+**검색·문의 응답과의 관계.** 검색·문의 응답은 이미지도 URL도 싣지 않는다. `scene_id`만 주고 FE가 `/api/v1/scenes/{scene_id}/thumbnail`을 조립해 브라우저가 따로 요청한다 — §5.1의 「썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다」를 이 endpoint로 구현한 것이다. JSON에 byte나 Base64를 실으면 결과 10건이 한 응답에 수 MB를 얹고 그 byte가 캐시되지 못한다.
+
+**노출하지 않는 것.** `keyframe.storage_key`, 서버 절대 경로, 내부 예외 문자열은 성공 응답에도 실패 응답에도 나가지 않는다(FRD §6.4). 정규화 후 또는 심볼릭 링크를 따라간 뒤 media root를 벗어나는 key는 파일이 있어도 거부하며, 이때 파일이 있었는지도 알려 주지 않는다.
+
+**세대와 삭제.** 재처리로 활성 `pipeline_run`이 바뀌어도 옛 세대 장면의 이미지는 계속 제공한다. 검수 문의 큐가 접수 당시의 장면을 그대로 보여 주기 때문이다(§6.3). 논리 삭제한 클립의 장면은 없는 장면과 같은 응답을 준다.
+
+| 오류                           | HTTP | 의미                            |
+| ------------------------------ | ---- | ------------------------------- |
+| `SCENE_404_001`                | 404  | 장면 없음 (또는 삭제된 클립)    |
+| `SCENE_404_002`                | 404  | 장면에 keyframe이 아직 없음     |
+| `SCENE_404_003`                | 404  | keyframe 행은 있으나 파일 누락  |
+| `SCENE_500_001`                | 500  | 저장 위치 오류 (경로 이탈 차단) |
+| `SCENE_503_001`, `SCENE_503_002` | 503  | 이미지 읽기 실패 또는 저장소 설정 누락 |
+
+`SCENE_404_001`과 `SCENE_404_002`는 화면 안내가 다르다. 앞은 「없는 장면」, 뒤는 「아직 처리 중」이다(FRD §6.2). `SCENE_404_003`은 저장소 사고이므로 재시도 안내가 아니라 운영 확인 대상이다.
+
+영상 재생(§6.1)과 책임이 다르다. 저쪽은 큰 파일을 Range로 흘려보내며 중간 캐시에 남기지 않고(`private, no-store`), 이쪽은 한 장을 통째로 주며 브라우저가 보관하고 매 사용마다 재검증하기를 바란다(`private, no-cache` + `ETag`).
+
 ## 7. 앞으로 명세·구현할 API
 
 아래는 [FRD](../frd.md) F-03, F-05, F-08~F-14와 현재 FE 화면이 요구하는 기능 목록이다. 경로·method·JSON·오류 코드는 담당 이슈에서 확정한 뒤 이 문서의 별도 절로 승격한다.
@@ -702,7 +739,6 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | 10       | 교정 후보 작성·검증                  | §6.4로 명세·BE 구현 완료(태그·해석 patch·장면 제외 후보 3종). 원 문의 검색 조건 서버 재사용·분리된 검증 실행 ID 포함. 남은 작업은 FE 바인딩 | 로컬 검수 state               |
 | 11       | 교정 확정                            | 검증 실행 ID만 입력받고 서버에 저장된 후보를 원자적으로 확정, stale 검증 거부                  | 로컬 완료 state               |
 | 12       | 규칙 사용 중단·재검증                | 수행자·사유, 이후 검색 미적용, 재활성화 전 검증                                                | 로컬 toggle/state             |
-| 13       | 장면 thumbnail                       | `scene_id` 기반 제공, 서버 경로 비노출, cache·권한 정책                                        | CSS thumbnail demo            |
 
 검색 기록은 cache가 아니다. 과거 실행의 immutable snapshot이며 새 검색에 해석을 몰래 재사용하지 않는다.
 
@@ -718,6 +754,5 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | 내 문의 기록       | §6.6으로 확정·BE 구현·FE 목록과 상세 연결 완료                       | 없음                                                                                      |
 | 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
 | 처리 조회          | §6.5 실제 목록·상세·polling 연결, unknown/null 보존                    | 수동 재처리·장면 목록·썸네일 및 추가 메타데이터 계약 필요                                 |
-| thumbnail          | 검색 응답에 URL을 넣지 않는 것만 확정                                | `scene_id` 기반 endpoint와 응답 cache 정책 확정                                           |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.
