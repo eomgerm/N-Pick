@@ -1,12 +1,5 @@
 package com.npick.common.logging;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +10,13 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.support.NpickPostgres;
+
+import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // request ID 가 필터→MDC→오류 응답(헤더·envelope)까지 실제로 흐르는지 전 구간 확인 (S15P21A501-136).
 // 인증 없이 보호 엔드포인트를 치면 401 오류 envelope 가 온다.
@@ -63,8 +63,7 @@ class RequestIdTracingHttpTest {
                         .header("Access-Control-Request-Headers", "X-Request-Id"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
-                .andExpect(header().string(
-                        "Access-Control-Allow-Headers", containsString("X-Request-Id")));
+                .andExpect(header().string("Access-Control-Allow-Headers", containsString("X-Request-Id")));
     }
 
     @Test
@@ -75,8 +74,7 @@ class RequestIdTracingHttpTest {
                         .header("X-Request-Id", "trace-cors-42"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
-                .andExpect(header().string(
-                        "Access-Control-Expose-Headers", containsString("X-Request-Id")))
+                .andExpect(header().string("Access-Control-Expose-Headers", containsString("X-Request-Id")))
                 .andExpect(header().string("X-Request-Id", "trace-cors-42"))
                 .andExpect(jsonPath("$.requestId").value("trace-cors-42"));
     }

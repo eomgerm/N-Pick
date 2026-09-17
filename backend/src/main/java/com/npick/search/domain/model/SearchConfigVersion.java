@@ -155,7 +155,6 @@ public final class SearchConfigVersion {
      * <p>CPython 은 소수점 위치 {@code decpt} 로 가른다 — {@code decpt <= -4} 또는 {@code decpt > 16} 이면 지수 표기다
      * ({@code Python/pystrtod.c} 의 {@code format_float_short}). 지수는 부호를 항상 붙이고 최소 두 자리다. 고정 표기에서 소수부가 없으면 {@code .0} 을
      * 붙인다.
-     *
      */
     static String pythonRepr(double value) {
         if (value == 0) return (Double.doubleToRawLongBits(value) < 0 ? "-0.0" : "0.0");
@@ -181,9 +180,9 @@ public final class SearchConfigVersion {
      * <p>{@code new BigDecimal(double)} 이 이진값의 정확한 십진 전개를 준다. 거기서 유효 자릿수를 1 부터 늘려 가며 처음으로 왕복하는 것을 고른다 — Python 의
      * {@code repr} 과 같은 선택이다.
      *
-     * <p><b>각 자릿수에서 후보를 하나만 보면 안 된다.</b> 2 의 거듭제곱에서는 아래쪽 ulp 가 위쪽의 절반이라, 정확값이 십진 동점에 놓여도 한쪽만 왕복한다. {@code 2^-24} 가
-     * 그렇다 — 16 자리에서 {@code ...062} 는 왕복하지 않고 {@code ...063} 만 왕복한다. 반올림 후보 하나가 실패했다고 다음 자릿수로 넘어가면 더 긴 표현을 고르게 된다. 그래서
-     * 위·아래 두 후보를 모두 검사한다.
+     * <p><b>각 자릿수에서 후보를 하나만 보면 안 된다.</b> 2 의 거듭제곱에서는 아래쪽 ulp 가 위쪽의 절반이라, 정확값이 십진 동점에 놓여도 한쪽만 왕복한다. {@code 2^-24} 가 그렇다
+     * — 16 자리에서 {@code ...062} 는 왕복하지 않고 {@code ...063} 만 왕복한다. 반올림 후보 하나가 실패했다고 다음 자릿수로 넘어가면 더 긴 표현을 고르게 된다. 그래서 위·아래
+     * 두 후보를 모두 검사한다.
      *
      * <p>둘 다 왕복하면 정확값에 가까운 쪽을, 거리까지 같으면 끝자리가 짝수인 쪽을 고른다 (Python 과 같은 동점 규칙).
      *

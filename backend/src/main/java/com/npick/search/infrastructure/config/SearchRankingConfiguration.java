@@ -56,8 +56,8 @@ public class SearchRankingConfiguration {
     @ConditionalOnProperty(prefix = "npick.search.dense", name = "model-version")
     DenseSearchSettings denseSearchSettings(DenseSearchProperties properties) {
         if (!properties.hasModelVersion()) {
-            throw new IllegalStateException("npick.search.dense.model-version 이 비어 있다. "
-                    + "실제 질의 임베딩 모델 버전을 채우거나 키 자체를 제거한다");
+            throw new IllegalStateException(
+                    "npick.search.dense.model-version 이 비어 있다. " + "실제 질의 임베딩 모델 버전을 채우거나 키 자체를 제거한다");
         }
         return properties.settings();
     }

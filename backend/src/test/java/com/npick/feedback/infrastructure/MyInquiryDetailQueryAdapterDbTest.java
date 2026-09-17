@@ -1,7 +1,6 @@
 package com.npick.feedback.infrastructure;
 
 import java.util.Optional;
-
 import jakarta.persistence.EntityManager;
 
 import org.junit.jupiter.api.DisplayName;

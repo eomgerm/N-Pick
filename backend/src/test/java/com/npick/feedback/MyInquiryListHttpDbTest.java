@@ -24,12 +24,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class MyInquiryListHttpDbTest {
 
-    private static final AuthenticatedMember EDITOR =
-            new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
+    private static final AuthenticatedMember EDITOR = new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
 
     // 9001 이 실행한 검색 결과에만 문의를 단 계정. 본인이 실행한 검색은 없다.
-    private static final AuthenticatedMember CROSS_SEARCHER =
-            new AuthenticatedMember(9003L, "editor03", "h", "EDITOR");
+    private static final AuthenticatedMember CROSS_SEARCHER = new AuthenticatedMember(9003L, "editor03", "h", "EDITOR");
 
     @Autowired
     private MockMvc mockMvc;
@@ -55,7 +53,8 @@ class MyInquiryListHttpDbTest {
                 .andExpect(jsonPath("$.data.total_pages").value(1))
                 .andExpect(jsonPath("$.data.has_next").value(false))
                 .andExpect(jsonPath("$.data.items.length()").value(2))
-                .andExpect(jsonPath("$.data.items[*].feedback_id").value(org.hamcrest.Matchers.containsInAnyOrder("9901", "9902")));
+                .andExpect(jsonPath("$.data.items[*].feedback_id")
+                        .value(org.hamcrest.Matchers.containsInAnyOrder("9901", "9902")));
     }
 
     @Test

@@ -90,16 +90,15 @@ final class StructuredScoreCalculator {
     /**
      * 날짜는 기존 후보 비교에만 쓴다. 계절·날씨·shot_type 은 이 후보 경로에 없다.
      *
-     * <p><b>{@code expanded_terms} 도 여기 없다.</b> 확장어는 구조화 축 점수에 반영하지 않는다 (S15P21A501-48 계약). 확장어에
-     * 개체 점수를 주면 검증된 태그가 맞은 것과 AI 가 낸 동의어가 같은 무게를 갖는데, F-05 는 「사용자가 직접 명시한 내용과 AI가 추정한 내용을
-     * 구분한다」 를 요구한다. 확장어는 출처조차 없다 ({@code ResolutionAxis.carriesOrigin()}). 이 상태는 #52 의
-     * {@code normalizesAndDeduplicatesSameTypedConditionsWithoutScoringExpandedTerms} 가 고정한다. <b>점수 경로에서 확장어를
-     * 쓰는 곳은 없고</b> 단어 검색의 후보 조회에서만 쓰며, 그 계약은
+     * <p><b>{@code expanded_terms} 도 여기 없다.</b> 확장어는 구조화 축 점수에 반영하지 않는다 (S15P21A501-48 계약). 확장어에 개체 점수를 주면 검증된 태그가 맞은
+     * 것과 AI 가 낸 동의어가 같은 무게를 갖는데, F-05 는 「사용자가 직접 명시한 내용과 AI가 추정한 내용을 구분한다」 를 요구한다. 확장어는 출처조차 없다
+     * ({@code ResolutionAxis.carriesOrigin()}). 이 상태는 #52 의
+     * {@code normalizesAndDeduplicatesSameTypedConditionsWithoutScoringExpandedTerms} 가 고정한다. <b>점수 경로에서 확장어를 쓰는 곳은
+     * 없고</b> 단어 검색의 후보 조회에서만 쓰며, 그 계약은
      * {@link com.npick.search.application.query.candidate.FindSceneCandidatesQueryPort} 에 있다.
      *
-     * <p><b>점수 밖에는 소비처가 있다.</b> {@link com.npick.search.domain.model.ResolutionAxis#EXPANDED_TERMS} 가 교정 규칙의 축으로
-     * 이 값을 읽고 쓴다 (S15P21A501-49·-81, 검수 화면 「관련 검색어」). 확장어 목록을 후보 조회 전용으로 가공하거나 비우면 검수자가 저장한 해석
-     * 교정이 조용히 무력화된다.
+     * <p><b>점수 밖에는 소비처가 있다.</b> {@link com.npick.search.domain.model.ResolutionAxis#EXPANDED_TERMS} 가 교정 규칙의 축으로 이 값을
+     * 읽고 쓴다 (S15P21A501-49·-81, 검수 화면 「관련 검색어」). 확장어 목록을 후보 조회 전용으로 가공하거나 비우면 검수자가 저장한 해석 교정이 조용히 무력화된다.
      */
     List<TagCondition> candidateConditions(
             Map<StructuredAxis, List<TagCondition>> axes, StructuredScoreSettings settings) {

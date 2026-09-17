@@ -21,8 +21,8 @@ import com.npick.feedback.presentation.response.MyInquiryListResponse;
 /**
  * 검색 화면 사이드바용 「내 문의 기록」 조회 API (S15P21A501-185).
  *
- * <p>검수 API(<code>/api/v1/review/inquiries</code>)와 달리 <b>세션 사용자 본인</b> 소유 문의만 읽는다. 사용자 ID 를 파라미터로 받지
- * 않고 세션에서 결정하므로 다른 사용자 기록으로 우회할 수 없다.
+ * <p>검수 API(<code>/api/v1/review/inquiries</code>)와 달리 <b>세션 사용자 본인</b> 소유 문의만 읽는다. 사용자 ID 를 파라미터로 받지 않고 세션에서 결정하므로 다른
+ * 사용자 기록으로 우회할 수 없다.
  */
 @RestController
 @RequestMapping("/api/v1/inquiries")

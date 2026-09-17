@@ -90,8 +90,8 @@ public class SoftRankingService implements AdjustSoftRankingUseCase {
     /**
      * 관련성이 먼저다. 보조 점수는 {@link SoftRankingPolicy#compareBase} 가 동점으로 본 구간 안에서만 순서를 가른다.
      *
-     * <p>마지막 {@code sceneId} 비교가 결정성을 준다 — -52 가 장면당 한 행을 주므로 같은 실행을 두 번 돌려도 순서가 달라지지 않는다. 같은 {@code sceneId} 가 두 번 들어오면
-     * 그 둘 사이에만 0 이 되고, 정렬이 stable 이라 입력 순서가 유지된다.
+     * <p>마지막 {@code sceneId} 비교가 결정성을 준다 — -52 가 장면당 한 행을 주므로 같은 실행을 두 번 돌려도 순서가 달라지지 않는다. 같은 {@code sceneId} 가 두 번
+     * 들어오면 그 둘 사이에만 0 이 되고, 정렬이 stable 이라 입력 순서가 유지된다.
      */
     private Comparator<SoftRankingResult.OrderedCandidate> byRelevanceThenSoftSignals() {
         return (left, right) -> {
@@ -106,10 +106,9 @@ public class SoftRankingService implements AdjustSoftRankingUseCase {
      * 이 질의에서 실제로 켜지는 신호.
      *
      * <p><b>{@code broadcast_date} 윈도가 함께 와도 최신성을 끄지 않는다.</b> 그 태그는 구조화 축에도 쓰이지만 두 곳이 세는 것이 다르다 — 축은
-     * {@code matched/requested} 로 <b>윈도 안이냐 밖이냐</b>만 가르는 이진값이고, 최신성은 후보 집합 안에서의 <b>상대 순서</b>다. 끄면
-     * 「9월 방송분 중 최근 것」처럼 둘이 함께 오는 가장 전형적인 질의에서 윈도 안 후보가 전원 축 만점이라 서로 구분되지 않는데 최신성마저 사라져 정렬이 {@code sceneId} 로
-     * 떨어진다. F-05 「같은 개체를 중복 계산하지 않는다」가 막는 것은 한 점수 안에서 같은 값을 두 번 더하는 것이고, 여기는 항이 다르며 보조 점수는 {@code baseScore} 를
-     * 뒤집지도 못한다.
+     * {@code matched/requested} 로 <b>윈도 안이냐 밖이냐</b>만 가르는 이진값이고, 최신성은 후보 집합 안에서의 <b>상대 순서</b>다. 끄면 「9월 방송분 중 최근 것」처럼 둘이
+     * 함께 오는 가장 전형적인 질의에서 윈도 안 후보가 전원 축 만점이라 서로 구분되지 않는데 최신성마저 사라져 정렬이 {@code sceneId} 로 떨어진다. F-05 「같은 개체를 중복 계산하지
+     * 않는다」가 막는 것은 한 점수 안에서 같은 값을 두 번 더하는 것이고, 여기는 항이 다르며 보조 점수는 {@code baseScore} 를 뒤집지도 못한다.
      *
      * <p>가중치가 0 이면 꺼진 것이고, 질의가 그 조건을 묻지 않았어도 꺼진 것이다. 후자가 없으면 최신성·계절·날씨가 모든 질의에 상시로 깔린다. {@link SoftSignal#B_ROLL} 만 조건
      * 없이 켜지는데, 그 근거는 {@code SoftSignal} 의 주석에 있다.

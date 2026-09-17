@@ -24,12 +24,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class MyInquiryDetailHttpDbTest {
 
-    private static final AuthenticatedMember OWNER =
-            new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
+    private static final AuthenticatedMember OWNER = new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
 
     // 검색은 9001 이 했는데 9003 이 그 검색 결과에 자기 명의로 문의를 만든 계정.
-    private static final AuthenticatedMember CROSS_SEARCHER =
-            new AuthenticatedMember(9003L, "editor03", "h", "EDITOR");
+    private static final AuthenticatedMember CROSS_SEARCHER = new AuthenticatedMember(9003L, "editor03", "h", "EDITOR");
 
     @Autowired
     private MockMvc mockMvc;
@@ -91,8 +89,7 @@ class MyInquiryDetailHttpDbTest {
     void returns404ForOtherOwner() throws Exception {
         seed();
 
-        mockMvc.perform(get("/api/v1/inquiries/9903").with(user(OWNER)))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/inquiries/9903").with(user(OWNER))).andExpect(status().isNotFound());
     }
 
     @Test
@@ -111,16 +108,14 @@ class MyInquiryDetailHttpDbTest {
     @Transactional
     @DisplayName("존재하지 않는 문의도 타인 소유와 동일하게 404 다")
     void returns404ForNonexistent() throws Exception {
-        mockMvc.perform(get("/api/v1/inquiries/88888").with(user(OWNER)))
-                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/inquiries/88888").with(user(OWNER))).andExpect(status().isNotFound());
     }
 
     @Test
     @Transactional
     @DisplayName("경로 ID 가 음수면 400 으로 거부한다")
     void rejectsInvalidPathId() throws Exception {
-        mockMvc.perform(get("/api/v1/inquiries/-1").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/inquiries/-1").with(user(OWNER))).andExpect(status().isBadRequest());
     }
 
     private void seed() {

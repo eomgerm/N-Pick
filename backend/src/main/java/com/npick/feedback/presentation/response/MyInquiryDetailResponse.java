@@ -2,20 +2,19 @@ package com.npick.feedback.presentation.response;
 
 import java.time.Instant;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-
-import com.fasterxml.jackson.annotation.JsonProperty;
 
 import com.npick.feedback.application.query.MyInquiryDetail;
 
 /**
  * 「내 문의 기록」 상세 응답 (S15P21A501-185). 목록 응답과 같은 snake_case/문자열 ID 규칙을 따른다({@link MyInquiryListResponse}).
  *
- * <p>{@code snapshot_status}/{@code result_snapshot} 판정: 계약상 당시 검색결과 스냅샷(display_name·scene_description 등)을
- * 담아야 하지만, {@code search_result} 테이블에 이를 복원할 저장 컬럼이 아직 없다(선행 S15P21A501-60 이 저장 계약을 소유, 미착수).
- * 이 메서드가 그 판정을 모으는 유일한 지점이다 — -60 이 서면 여기서 available 경로를 채운다. 지금은 항상 unavailable/null 이다.
+ * <p>{@code snapshot_status}/{@code result_snapshot} 판정: 계약상 당시 검색결과 스냅샷(display_name·scene_description 등)을 담아야 하지만,
+ * {@code search_result} 테이블에 이를 복원할 저장 컬럼이 아직 없다(선행 S15P21A501-60 이 저장 계약을 소유, 미착수). 이 메서드가 그 판정을 모으는 유일한 지점이다 — -60 이
+ * 서면 여기서 available 경로를 채운다. 지금은 항상 unavailable/null 이다.
  */
 public record MyInquiryDetailResponse(
         @JsonProperty("feedback_id") String feedbackId,

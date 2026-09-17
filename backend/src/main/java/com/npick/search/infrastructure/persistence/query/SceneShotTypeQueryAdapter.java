@@ -42,7 +42,8 @@ class SceneShotTypeQueryAdapter implements FindSceneShotTypesQueryPort {
             long sceneId = row.getLong("scene_id");
             String stored = row.getString("shot_type");
             // 던지면 이상값 하나가 질의 전체를 500 으로 만든다. 가점만 포기하고 이상은 로그로 드러낸다.
-            ShotType.parse(stored).ifPresentOrElse(shotType -> byScene.put(sceneId, shotType), () -> unknown.add(stored));
+            ShotType.parse(stored)
+                    .ifPresentOrElse(shotType -> byScene.put(sceneId, shotType), () -> unknown.add(stored));
         });
         // 조회당 한 줄이다. 장면마다 찍으면 원인은 데이터 하나인데 로그가 검색 QPS × pool-size 로 증폭된다.
         if (!unknown.isEmpty()) {

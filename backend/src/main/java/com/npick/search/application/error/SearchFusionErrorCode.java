@@ -31,8 +31,8 @@ public enum SearchFusionErrorCode implements ErrorCode {
      *
      * <p>설정상 켜진 채널은 조립이 반드시 실행해 결과를 넘겨야 한다. 결과가 없으면 「실행하지 않음」과 「실행했는데 실패」를 구분할 수 없고, 둘은 사용자 안내가 다르다 (degraded 판정).
      *
-     * <p><b>이 검사는 dense 에만 적용된다.</b> dense 는 {@code DenseCandidatesResult} 라는 결과 객체를 돌려주므로, 그 자리가 {@code null} 이면 정상적인 조회 결과가
-     * 전달되지 않은 것으로 판단한다 — 조회를 하지 않았는지 조회는 했는데 조립이 전달을 빠뜨렸는지까지는 여기서 알 수 없다. 반면 단어 검색은 목록만 돌려주고 빈 목록은 「일치가 없었다」는 정상
+     * <p><b>이 검사는 dense 에만 적용된다.</b> dense 는 {@code DenseCandidatesResult} 라는 결과 객체를 돌려주므로, 그 자리가 {@code null} 이면 정상적인
+     * 조회 결과가 전달되지 않은 것으로 판단한다 — 조회를 하지 않았는지 조회는 했는데 조립이 전달을 빠뜨렸는지까지는 여기서 알 수 없다. 반면 단어 검색은 목록만 돌려주고 빈 목록은 「일치가 없었다」는 정상
      * 결과다 — 전달 누락과 구분할 방법이 없으므로 여기서 잡을 수 없다.
      */
     ACTIVE_CHANNEL_RESULT_MISSING(ErrorType.INTERNAL_SERVER_ERROR, "SRCH_500_003", "활성 검색 채널의 결과가 없다"),
