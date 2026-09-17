@@ -8,9 +8,6 @@
   color: #ffffff;
   /* 인트로는 완전한 검은 화면에서 시작한다. */
   background: #000000;
-  font-family:
-    'Pretendard', 'Inter', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
-    Arial, sans-serif;
 }
 
 /* ── 비디오 배경과 어두운 그레이 오버레이 ───────────────────────────── */
@@ -167,7 +164,7 @@
   margin: 0;
   padding-left: calc(1.24em + 1cap);
   /* 히어로 헤드라인 전용 디스플레이 서체. 400 한 종뿐이라 굵기 합성을 끈다. */
-  font-family: 'Black Han Sans', 'Apple SD Gothic Neo', 'Malgun Gothic', Arial, sans-serif;
+  font-family: 'Black Han Sans', var(--font-ui);
   font-synthesis-weight: none;
   font-size: clamp(42px, 8.4vw, 150px);
   font-weight: 800;

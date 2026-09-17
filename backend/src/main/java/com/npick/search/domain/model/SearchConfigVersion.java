@@ -14,7 +14,7 @@ import java.util.TreeMap;
  * {@code search_execution.config_version} 을 만든다 — 공용 규약 「값 해시」의 Java 구현 ({@code docs/contracts/README.md} 공용 규약 1).
  *
  * <pre>
- * &lt;schema&gt;:&lt;정규화 JSON 의 sha256 앞 8자&gt;      예: search-fusion/v1:20dfc0a6
+ * &lt;schema&gt;:&lt;정규화 JSON 의 sha256 앞 8자&gt;      예: search-config/v1:20dfc0a6
  * 정규화 = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
  * </pre>
  *

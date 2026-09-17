@@ -11,15 +11,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class ConfirmExcludeSceneUseCaseTest {
+class ConfirmExcludeSceneServiceTest {
 
     private SearchRuleConfirmationRepository repository;
-    private ConfirmExcludeSceneUseCase useCase;
+    private ConfirmExcludeSceneService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(SearchRuleConfirmationRepository.class);
-        useCase = new ConfirmExcludeSceneUseCase(repository);
+        service = new ConfirmExcludeSceneService(repository);
     }
 
     @Test
@@ -27,7 +27,7 @@ class ConfirmExcludeSceneUseCaseTest {
     void activatesExcludeRule() {
         when(repository.activate(9901L, 6601L)).thenReturn(1);
 
-        assertThat(useCase.confirm(9901L, 6601L)).isEqualTo(1);
+        assertThat(service.confirm(9901L, 6601L)).isEqualTo(1);
         verify(repository).activate(9901L, 6601L);
     }
 
@@ -36,6 +36,6 @@ class ConfirmExcludeSceneUseCaseTest {
     void returnsZeroWhenNothingActivated() {
         when(repository.activate(9901L, 6601L)).thenReturn(0);
 
-        assertThat(useCase.confirm(9901L, 6601L)).isEqualTo(0);
+        assertThat(service.confirm(9901L, 6601L)).isEqualTo(0);
     }
 }

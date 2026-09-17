@@ -93,10 +93,29 @@ test('저장에 실패한 검색 결과 Preview는 문의 요청을 보내지 �
   await openAsEditor(page, '/search/results?q=장면');
   await page.getByRole('button', { name: '1위 실제 응답 장면 Preview 열기' }).click();
   const preview = page.getByRole('dialog');
-  await expect(preview.getByRole('button', { name: '문의 불가' })).toBeDisabled();
-  await expect(
-    preview.getByText('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'),
-  ).toBeVisible();
+  const unavailableButton = preview.getByRole('button', { name: '문의 불가' });
+  const reason = preview.getByRole('tooltip');
+  await expect(unavailableButton).toBeDisabled();
+  await expect(reason).toBeHidden();
+  await unavailableButton.hover();
+  await expect(reason).toHaveText('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.');
+  await expect(reason).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('preview-tooltip-desktop.png') });
+  await page.mouse.move(0, 0);
+  await expect(reason).toBeHidden();
+  await unavailableButton.focus();
+  await expect(reason).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(preview).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(reason).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await unavailableButton.hover();
+  await expect(reason).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('preview-tooltip-mobile.png') });
+  await page.mouse.move(0, 0);
+  await preview.getByRole('complementary', { name: '송출 전 확인 안내' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: test.info().outputPath('preview-evidence-mobile.png') });
   expect(inquiryRequests).toEqual([]);
 });
 

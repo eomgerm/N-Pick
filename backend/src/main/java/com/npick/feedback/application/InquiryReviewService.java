@@ -20,7 +20,8 @@ import com.npick.feedback.domain.model.FeedbackStatus;
 import com.npick.feedback.domain.repository.FeedbackRepository;
 
 @Service
-public class InquiryReviewService {
+public class InquiryReviewService
+        implements ListInquiriesUseCase, GetInquiryDetailUseCase, ClaimInquiryUseCase, ResolveInquiryUseCase {
 
     private final InquiryListQuery listQuery;
     private final InquiryDetailQuery detailQuery;
@@ -33,6 +34,7 @@ public class InquiryReviewService {
         this.repository = repository;
     }
 
+    @Override
     @Transactional(readOnly = true)
     public InquiryListPage list(String statusFilter, int page, int size) {
         String status = (statusFilter == null || statusFilter.isBlank()) ? null : statusFilter.toUpperCase(Locale.ROOT);
@@ -41,12 +43,14 @@ public class InquiryReviewService {
         return new InquiryListPage(items, totalElements, listQuery.countGroupedByStatus());
     }
 
+    @Override
     public InquiryDetail detail(long feedbackId) {
         return detailQuery
                 .findById(feedbackId)
                 .orElseThrow(() -> new FeedbackException(FeedbackErrorCode.FEEDBACK_NOT_FOUND));
     }
 
+    @Override
     @Transactional
     public void claim(long feedbackId, long reviewerId) {
         if (repository.claim(feedbackId, reviewerId, Instant.now()) == 0) {
@@ -68,6 +72,7 @@ public class InquiryReviewService {
      * 검수 처리 결과를 기록한다(F-09). 교정 3종은 reviewing 유지, no_action·deferred 는 사유를 필수로 받아 이 자리에서 closed 로 종료한다. reviewing 동안은
      * 판정을 몇 번이든 덮어쓸 수 있고, closed 후엔 CAS 가드로 잠긴다. 교정 후보 생성·검증은 이 API 범위가 아니다.
      */
+    @Override
     @Transactional
     public void resolve(long feedbackId, long reviewerId, String rawResolution, String note) {
         FeedbackResolution resolution = FeedbackResolution.parse(rawResolution);

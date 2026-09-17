@@ -202,10 +202,12 @@ class CreateTagCorrectionCandidateServiceTest {
         assertThatThrownBy(() -> service.create(command(
                         true,
                         9L,
-                        new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", whitespaceOnly, "x"))))
+                        new TagOperation(
+                                TagCorrectionAction.APPROVE, TagScope.SCENE, "location", whitespaceOnly, "x"))))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
-                        ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.INVALID_MATCH_VALUE));
+                        ex -> assertThat(ex.errorCode())
+                                .isEqualTo(TagCorrectionCandidateErrorCode.INVALID_MATCH_VALUE));
     }
 
     @Test

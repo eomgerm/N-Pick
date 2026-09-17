@@ -18,8 +18,8 @@ import com.npick.tag.domain.policy.TagResolutionPolicy;
  *
  * <p>판정 규칙은 상태 없는 순수 Policy 라 필드로 직접 생성해 보유한다 (정본 §7).
  *
- * <p>여기에 {@code @Transactional} 을 붙이지 않는다. 단건 Projection 조회에는 붙이지 않는다는 정본 §5 의 규칙이고, 후보 검증 검색(F-12)은 <b>호출자</b> 가 후보 적용과
- * 검색을 한 트랜잭션으로 묶어야 하는 쪽이다. 여기서 새 트랜잭션을 열면 그 묶음을 방해한다. (후보는 S15P21A501-160 이후 {@code confirmed=false} 로 저장되고 조회 어댑터가
+ * <p>여기에 {@code @Transactional} 을 붙이지 않는다. 단건 Projection 조회에는 붙이지 않는다는 정본 §5 의 규칙이고, 후보 검증 검색(F-12)은 <b>호출자</b> 가 후보
+ * 적용과 검색을 한 트랜잭션으로 묶어야 하는 쪽이다. 여기서 새 트랜잭션을 열면 그 묶음을 방해한다. (후보는 S15P21A501-160 이후 {@code confirmed=false} 로 저장되고 조회 어댑터가
  * {@code e.confirmed} 로 일반 검색에서 제외한다 — F-12 검증 검색이 후보를 보려면 그 필터를 여는 경로가 필요하다.)
  */
 @Service

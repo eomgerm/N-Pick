@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.ObjectMapper;
 
+import com.npick.pipeline.application.port.TagVocabularyPort;
 import com.npick.pipeline.infrastructure.artifact.LocalWorkerArtifactAdapter;
 import com.npick.pipeline.infrastructure.persistence.JdbcWorkerStageOutputAdapter;
 
@@ -16,8 +17,11 @@ import com.npick.pipeline.infrastructure.persistence.JdbcWorkerStageOutputAdapte
 public class WorkerStorageConfiguration {
     @Bean
     JdbcWorkerStageOutputAdapter workerStageOutput(
-            JdbcTemplate jdbc, ObjectMapper mapper, LocalWorkerArtifactAdapter artifacts) {
-        return new JdbcWorkerStageOutputAdapter(jdbc, mapper, artifacts);
+            JdbcTemplate jdbc,
+            ObjectMapper mapper,
+            LocalWorkerArtifactAdapter artifacts,
+            TagVocabularyPort vocabulary) {
+        return new JdbcWorkerStageOutputAdapter(jdbc, mapper, artifacts, vocabulary);
     }
 
     @Bean

@@ -23,7 +23,6 @@
       transparent 58%
     ),
     rgb(255 255 255 / 20%);
-  font-family: Arial, Helvetica, sans-serif;
 }
 .shell[data-theme='shinhan'] {
   --accent: #1473e6;
@@ -38,7 +37,6 @@
   --radius: 20px;
   --input-radius: 10px;
   --button-radius: 10px;
-  font-family: 'DM Sans', 'Segoe UI', Arial, sans-serif;
 }
 .loginShell {
   background: transparent;

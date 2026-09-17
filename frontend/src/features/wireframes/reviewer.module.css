@@ -25,13 +25,6 @@
   overflow-x: clip;
   background: var(--page);
   color: var(--text);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    'Apple SD Gothic Neo',
-    'Noto Sans KR',
-    sans-serif;
 }
 
 .shell *,
@@ -168,9 +161,9 @@
 }
 
 .page {
-  width: min(1540px, 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: 38px clamp(18px, 4vw, 56px) 64px;
+  padding: 24px 32px 64px 124px;
 }
 
 .hero {
@@ -1546,6 +1539,12 @@
   --radius-lg: 26px;
 }
 
+.shell.processingShell {
+  --accent: #123b70;
+  --accent-strong: #123b70;
+  --accent-soft: #e8eff8;
+}
+
 .shell[data-theme='shinhan'] .appHeader {
   border: 0;
   background: var(--secondary);
@@ -1569,19 +1568,9 @@
   justify-content: flex-start;
 }
 
-/* Soft glass tone — 따뜻한 뉴트럴 배경 + 반투명 유리 패널 + 차콜 대비 + 핑크 포인트 */
+/* 검색 결과와 같은 어두운 사진 배경 위에 유리 패널을 표시합니다. */
 .shell {
-  /* 사진 배경이 비치도록 반투명하게 덮습니다. */
-  background:
-    radial-gradient(1100px 620px at 82% -14%, rgb(255 250 243 / 46%), transparent 62%),
-    radial-gradient(900px 540px at 2% 0%, rgb(246 239 230 / 42%), transparent 58%),
-    rgb(239 234 227 / 40%);
-}
-
-.shell > header {
-  background: color-mix(in srgb, var(--secondary) 93%, transparent);
-  box-shadow: 0 12px 34px rgb(46 38 30 / 12%);
-  backdrop-filter: blur(18px) saturate(1.1);
+  background: transparent;
 }
 
 .hero h1 {
@@ -1790,6 +1779,12 @@
   }
 }
 
+@media (max-width: 760px) {
+  .page {
+    padding: 16px 14px 42px 80px;
+  }
+}
+
 @media (max-width: 560px) {
   .reviewSteps {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1820,10 +1815,6 @@
   .roleBadge {
     padding: 8px;
     font-size: 11px;
-  }
-
-  .page {
-    padding: 24px 12px 42px;
   }
 
   .hero {

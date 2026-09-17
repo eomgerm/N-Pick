@@ -81,5 +81,6 @@ export function getReviewTabUrl(
     tab: null,
     clip: null,
     inquiry: null,
+    progressPage: null,
   });
 }

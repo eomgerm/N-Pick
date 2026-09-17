@@ -140,8 +140,8 @@ java -jar build/libs/npick-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 | `LOCAL_DB_USERNAME` | `npick` | `.env` 의 `POSTGRES_USER` 와 같아야 한다 |
 | `LOCAL_DB_PASSWORD` | **없음** | `.env` 의 `POSTGRES_PASSWORD` 를 넘긴다 |
 | `LOCAL_CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 허용 origin |
-| `NPICK_MEDIA_ROOT` | **없음** | 영상 원본 저장 위치. 등록·재생이 같은 값을 읽는다 |
-| `CLIP_MEDIA_ROOT` | `NPICK_MEDIA_ROOT` | 재생 전용 오버라이드. 보통 쓰지 않는다 |
+| `NPICK_MEDIA_ROOT` | **없음** | 영상 원본과 keyframe 저장 위치. 등록·재생·썸네일이 같은 값을 읽는다 |
+| `CLIP_MEDIA_ROOT` | `NPICK_MEDIA_ROOT` | 재생·썸네일 오버라이드. 보통 쓰지 않는다 |
 | `CLIP_MEDIA_NGINX_ACCEL` | `false` | `true` 면 재생 바이트 전송을 nginx 에 위임한다 |
 | `CLIP_MEDIA_INTERNAL_LOCATION` | `/internal-media/` | 위임 대상 location. nginx 설정과 같아야 한다 |
 
@@ -175,6 +175,17 @@ nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본�
 첫 프레임 예산의 서버 몫(NFR-PERF-002)은 `com.npick` DEBUG 로그의
 `preview first-byte ... elapsedMs=` 로 측정한다. 요청 진입부터 본문 첫 바이트 직전까지, 즉 clip
 조회·경로 해석·Range 검증까지이며 전송 시간과 클라이언트 디코딩은 포함하지 않는다.
+
+## 장면 대표 이미지
+
+`GET /api/v1/scenes/{sceneId}/thumbnail` — 로그인한 `EDITOR`·`REVIEWER` 가 장면의 대표 keyframe 이미지를 받는다.
+요청·응답 계약은 [웹 API 계약](../docs/contracts/web-api.md) §6.7 이 정본이다.
+
+keyframe 파일은 워커가 영상 원본과 같은 media root 아래에 남기므로 `CLIP_MEDIA_ROOT` 를 그대로 읽는다.
+**썸네일 전용 환경 변수는 없다.** 경로 이탈 차단은 재생과 한 벌(`MediaRootResolver`)을 공유하고 실패 어휘만 다르다.
+
+응답은 `Cache-Control: private, no-cache` 와 `ETag` 를 함께 보낸다. 브라우저는 바이트를 보관하되 쓰기 전에 매번
+재검증하므로, 권한과 클립 논리 삭제 판정이 조회마다 다시 내려진다.
 
 ## 패키지 구조
 

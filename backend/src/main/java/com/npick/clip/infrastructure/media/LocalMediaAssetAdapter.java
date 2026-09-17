@@ -8,9 +8,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Optional;
@@ -32,64 +30,32 @@ public final class LocalMediaAssetAdapter implements MediaAssetPort {
     private static final String QUICKTIME_CONTENT_TYPE = "video/quicktime";
     private static final int FTYP_HEADER_BYTES = 12;
 
-    private final Path mediaRoot;
+    /** 경로 이탈 차단은 공유 규칙이고, 어휘만 재생의 것이다. */
+    private static final MediaRootResolver.Failures FAILURES = new MediaRootResolver.Failures(
+            ClipMediaErrorCode.MEDIA_ROOT_UNAVAILABLE,
+            ClipMediaErrorCode.MEDIA_LOCATION_REJECTED,
+            ClipMediaErrorCode.MEDIA_FILE_MISSING,
+            ClipMediaErrorCode.MEDIA_READ_FAILED);
+
+    private final MediaRootResolver paths;
     private final String internalLocationPrefix;
 
     /** @param internalLocationPrefix 프록시 위임에 쓰는 내부 location 접두. {@code null} 이면 직접 전송만 한다 */
     public LocalMediaAssetAdapter(Path mediaRoot, String internalLocationPrefix) {
-        this.mediaRoot = mediaRoot;
+        this.paths = new MediaRootResolver(mediaRoot, FAILURES);
         this.internalLocationPrefix = internalLocationPrefix;
     }
 
     @Override
     public MediaAsset resolve(String storageKey) {
-        Path root = realMediaRoot();
-        Path candidate = insideRoot(root, storageKey);
-        Path real = realPathOf(candidate);
-        // 링크를 펼친 뒤에도 root 안이어야 한다. 여기서 걸리면 파일 존재 여부를 알려주지 않는다.
-        if (!real.startsWith(root)) {
-            throw new BusinessException(ClipMediaErrorCode.MEDIA_LOCATION_REJECTED);
-        }
+        MediaRootResolver.Resolved resolved = paths.resolve(storageKey);
+        Path real = resolved.real();
         if (!Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) {
             throw new BusinessException(ClipMediaErrorCode.MEDIA_FILE_MISSING);
         }
         long size = sizeOf(real);
-        return new LocalMediaAsset(real, contentType(real, size), size, internalLocation(root, candidate));
-    }
-
-    private Path realMediaRoot() {
-        try {
-            return mediaRoot.toRealPath();
-        } catch (IOException unavailable) {
-            throw new BusinessException(ClipMediaErrorCode.MEDIA_ROOT_UNAVAILABLE, unavailable);
-        }
-    }
-
-    /** {@code resolve} 는 절대 경로 key 를 그대로 채택하므로 정규화 후 root 포함 여부를 반드시 확인한다. */
-    private static Path insideRoot(Path root, String storageKey) {
-        if (storageKey == null || storageKey.isBlank()) {
-            throw new BusinessException(ClipMediaErrorCode.MEDIA_LOCATION_REJECTED);
-        }
-        Path candidate;
-        try {
-            candidate = root.resolve(storageKey).normalize();
-        } catch (InvalidPathException rejected) {
-            throw new BusinessException(ClipMediaErrorCode.MEDIA_LOCATION_REJECTED, rejected);
-        }
-        if (candidate.equals(root) || !candidate.startsWith(root)) {
-            throw new BusinessException(ClipMediaErrorCode.MEDIA_LOCATION_REJECTED);
-        }
-        return candidate;
-    }
-
-    private static Path realPathOf(Path candidate) {
-        try {
-            return candidate.toRealPath();
-        } catch (NoSuchFileException missing) {
-            throw new BusinessException(ClipMediaErrorCode.MEDIA_FILE_MISSING, missing);
-        } catch (IOException failure) {
-            throw new BusinessException(ClipMediaErrorCode.MEDIA_READ_FAILED, failure);
-        }
+        return new LocalMediaAsset(
+                real, contentType(real, size), size, internalLocation(resolved.root(), resolved.candidate()));
     }
 
     private static long sizeOf(Path file) {

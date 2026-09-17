@@ -26,10 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class SearchRuleDeactivationLifecycleDbTest {
 
-    private static final AuthenticatedMember REVIEWER =
-            new AuthenticatedMember(9002L, "reviewer01", "h", "REVIEWER");
-    private static final AuthenticatedMember EDITOR =
-            new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
+    private static final AuthenticatedMember REVIEWER = new AuthenticatedMember(9002L, "reviewer01", "h", "REVIEWER");
+    private static final AuthenticatedMember EDITOR = new AuthenticatedMember(9001L, "editor01", "h", "EDITOR");
 
     @Autowired
     private MockMvc mockMvc;
@@ -51,8 +49,8 @@ class SearchRuleDeactivationLifecycleDbTest {
         patchActive(REVIEWER, "{\"active\":false,\"reason\":\"장소로만 해석돼 사건 검색을 놓침\"}")
                 .andExpect(status().isOk());
 
-        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6601",
-                        Boolean.class))
+        assertThat(jdbc.queryForObject(
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = 6601", Boolean.class))
                 .isFalse();
     }
 
@@ -63,11 +61,10 @@ class SearchRuleDeactivationLifecycleDbTest {
         seedActiveRule();
         jdbc.update("UPDATE npick.search_rule SET active = false WHERE search_rule_id = 6601");
 
-        patchActive(REVIEWER, "{\"active\":true,\"reason\":\"다시 켜고 싶다\"}")
-                .andExpect(status().isConflict());
+        patchActive(REVIEWER, "{\"active\":true,\"reason\":\"다시 켜고 싶다\"}").andExpect(status().isConflict());
 
-        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6601",
-                        Boolean.class))
+        assertThat(jdbc.queryForObject(
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = 6601", Boolean.class))
                 .isFalse();
     }
 

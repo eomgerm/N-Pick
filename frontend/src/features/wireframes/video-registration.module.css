@@ -1,48 +1,48 @@
 .page {
-  width: min(900px, 100%);
-  margin: 0 auto 40px;
+  width: 100%;
+  margin: 0;
 }
-.backButton {
+.heading .backButton {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
   border: 0;
-  padding: 0;
+  padding: 8px 0;
   background: transparent;
-  color: var(--muted);
+  color: #d4e4dd;
   font-size: 12px;
+  white-space: nowrap;
 }
 .backButton svg {
   width: 15px;
   height: 15px;
 }
 .heading {
-  margin: 28px 0;
-}
-.heading p {
-  margin: 0 0 10px;
-  color: var(--accent-strong);
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: 1.8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  margin: 0;
 }
 .heading h1 {
-  margin: 0 0 10px;
+  color: #f0fbf7;
+  margin: 0;
   font-size: 32px;
   font-weight: 750;
   letter-spacing: -1px;
-}
-.heading > span {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 .form {
   padding: 32px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: 0 18px 44px rgb(74 56 40 / 7%);
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
+  box-shadow: 0 20px 52px rgb(10 32 40 / 18%);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
 }
 .section + .section {
   margin-top: 30px;
@@ -425,17 +425,10 @@
 .footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 20px;
   padding-top: 24px;
   border-top: 1px solid var(--line);
-}
-.footer > p {
-  margin: 0;
-  max-width: 310px;
-  color: var(--muted);
-  font-size: 10px;
-  line-height: 1.7;
 }
 .footer > div {
   display: flex;
@@ -475,7 +468,7 @@
 }
 @media (max-width: 760px) {
   .heading {
-    margin-top: 24px;
+    gap: 12px;
   }
   .heading h1 {
     font-size: 28px;
@@ -501,14 +494,17 @@
     flex-direction: column;
     gap: 16px;
   }
-  .footer > p {
-    max-width: none;
-  }
   .footer > div > button {
     flex: 1;
   }
   .retryAction {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 360px) {
+  .heading h1 {
+    font-size: 22px;
   }
 }

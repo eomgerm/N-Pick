@@ -16,9 +16,11 @@
 
 import logging
 from functools import lru_cache
+from typing import Annotated
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from npick_worker.korean_tokens import index_tokens, tokenizer_version
 from npick_worker.query_embedding import QueryEmbedding, embed_query
 from npick_worker.query_normalization import normalize
 from npick_worker.query_resolver import (
@@ -302,4 +304,60 @@ def resolve(request: QueryResolveRequest) -> QueryResolveResponse:
             "prompt_version": result.prompt_version,
             "model_version": result.model_version,
         }
+    )
+
+
+#: `texts` 의 상한. **실측 근거가 없는 보수값이다.**
+#:
+#: 이 라우트는 사용자 검색의 동기 예산(p95 10초) 안에서 돌고 Kiwi 분석 비용은 총
+#: 글자 수에 비례한다. `expanded_terms` 에는 개수 상한이 없고(`schema.py`) 교정으로
+#: 검수자가 직접 넣을 수도 있어 입력이 무제한이다.
+#:
+#: ponytail: 고정 상한. 실측에서 상한에 닿으면 설정으로 뺀다.
+MAX_TOKENIZE_ITEMS = 64
+
+#: 항목 하나의 글자 수 상한. 확장어는 낱말이라 이 길이에 닿을 일이 없다.
+MAX_TOKENIZE_TEXT_LENGTH = 200
+
+
+class TokenizeRequest(BaseModel):
+    """토큰화할 문자열 목록. 보통은 규칙 적용 뒤의 확장어다.
+
+    상한을 넘으면 pydantic 이 422 로 막는다. 호출부는 그때 확장어 없이 검색을
+    이어간다 — 토큰화 실패는 degraded 가 아니다 (S15P21A501-48 계약 9).
+    """
+
+    texts: tuple[Annotated[str, Field(max_length=MAX_TOKENIZE_TEXT_LENGTH)], ...] = Field(
+        max_length=MAX_TOKENIZE_ITEMS
+    )
+
+
+class TokenizeResponse(BaseModel):
+    """`texts` 와 **같은 길이·같은 순서** 의 토큰 목록.
+
+    입력을 되돌려 주지 않는다. 호출부가 보낸 것을 그대로 갖고 있으므로 위치로 맞추면
+    되고, 항목마다 원문을 실으면 응답만 커진다.
+    """
+
+    tokens: tuple[tuple[str, ...], ...]
+    #: `/query/resolve` 응답의 같은 이름 필드와 같은 값이다. 다르면 이 토큰과 그 검색은
+    #: 서로 다른 규칙으로 만들어진 것이다.
+    normalization_version: str
+
+
+def tokenize(request: TokenizeRequest) -> TokenizeResponse:
+    """색인 측과 같은 규칙으로 토큰을 만든다 (S15P21A501-48 계약 7).
+
+    **`normalize()` 를 쓰지 않는다.** 그 함수는 지문용 `normalized_query` 까지 만들면서
+    별칭·불용어·정렬을 걸고 내용어가 하나도 없으면 `ValueError` 를 던진다. 별칭은 색인
+    측이 하지 않는 변형이라 질의에만 걸면 오류 없이 0 건이 되고(확장어는 이미 별칭
+    확장의 결과다), 예외는 확장어 한 건 때문에 검색 전체를 끊는다.
+
+    `korean_tokens.index_tokens` 가 `prepare` → `analyze` 까지만 하는 바로 그 경로이고
+    ocr 단계가 같은 것을 쓴다. 토큰이 0 개인 항목은 빈 튜플이며 오류가 아니다 — 그쪽
+    docstring 이 "빈 튜플이 정상적인 결과다" 로 이미 정해 두었다.
+    """
+    return TokenizeResponse(
+        tokens=tuple(index_tokens(text) for text in request.texts),
+        normalization_version=tokenizer_version(),
     )

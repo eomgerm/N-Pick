@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { CircleAlert, Film, LoaderCircle, RotateCcw } from 'lucide-react';
 
 import {
   formatMediaTime,
@@ -17,7 +18,17 @@ export function ScenePreviewPlayer(props: ScenePreviewPlayerProps) {
   const [attempt, setAttempt] = useState(0);
   const src = getSceneMediaUrl(props);
   if (!src) {
-    return <p role="status">영상 ID 또는 장면 구간을 확인할 수 없어 재생할 수 없습니다.</p>;
+    return (
+      <div
+        className="grid aspect-video min-h-52 w-full place-content-center justify-items-center gap-4 rounded-2xl bg-[#142330] p-6 text-center text-[#dbe7f0]"
+        role="status"
+      >
+        <Film aria-hidden="true" className="size-9 text-[#9fb7ca]" />
+        <p className="max-w-sm text-sm leading-relaxed [word-break:keep-all]">
+          영상 ID 또는 장면 구간을 확인할 수 없어 재생할 수 없습니다.
+        </p>
+      </div>
+    );
   }
   return (
     <MediaPlayer
@@ -175,13 +186,13 @@ function MediaPlayer({
 
   return (
     <div
-      className="space-y-3"
+      className="space-y-4"
       data-preview-state={error ? 'error' : !isReady ? 'loading' : isPlaying ? 'playing' : 'paused'}
     >
-      <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
+      <div className="relative aspect-video max-h-[min(50dvh,480px)] w-full overflow-hidden rounded-2xl bg-[#142330]">
         <video
           aria-label={`${title} 원본 영상`}
-          className={`h-full w-full ${!isReady || error ? 'invisible' : ''}`}
+          className={`h-full w-full object-contain ${!isReady || error ? 'invisible' : ''}`}
           controls={isReady && !error}
           crossOrigin="use-credentials"
           playsInline
@@ -189,72 +200,95 @@ function MediaPlayer({
           ref={videoRef}
         />
         {!isReady && !error ? (
-          <p role="status" className="absolute inset-0 grid place-content-center text-white">
-            장면을 불러오고 있어요
-          </p>
+          <div className="absolute inset-0 grid place-content-center justify-items-center gap-4 p-5 text-[#dbe7f0]">
+            <LoaderCircle
+              aria-hidden="true"
+              className="size-7 animate-spin motion-reduce:animate-none"
+            />
+            <p role="status" className="text-sm">
+              장면을 불러오고 있어요
+            </p>
+          </div>
         ) : null}
         {error ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center text-white">
-            <p role="alert">{error}</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center text-[#dbe7f0]">
+            <CircleAlert aria-hidden="true" className="size-8 shrink-0 text-[#f3d4a5]" />
+            <p role="alert" className="max-w-md text-sm leading-relaxed [word-break:keep-all]">
+              {error}
+            </p>
             <button
-              className="rounded-lg border px-4 py-2 focus-visible:outline-2"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#0756c6] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#06459d] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white active:bg-[#05377e] motion-reduce:transition-none"
               onClick={onRetry}
               type="button"
             >
+              <RotateCcw aria-hidden="true" className="size-4" />
               다시 시도
             </button>
           </div>
         ) : null}
       </div>
-      <div className="flex flex-wrap justify-between gap-2 text-sm">
-        <span>
-          현재 위치 {formatMediaTime(currentTime)} /{' '}
-          {duration === null ? '길이 확인 중' : formatMediaTime(duration)}
-        </span>
-        <span>
-          IN {formatMediaTime(sceneStart)} · OUT {formatMediaTime(sceneEnd)}
-        </span>
-      </div>
-      {duration !== null ? (
-        <div
-          aria-label="전체 영상 안의 선택 구간과 현재 위치"
-          className="relative h-3 overflow-hidden rounded-full bg-(--line)"
-          role="img"
-        >
-          <span
-            className="absolute top-0 h-full bg-blue-500/50"
-            style={{
-              left: `${(sceneStart / duration) * 100}%`,
-              width: `${((sceneEnd - sceneStart) / duration) * 100}%`,
-            }}
-          />
-          <span
-            className="absolute top-0 h-full w-0.5 bg-blue-700"
-            style={{ left: `${Math.min(99.8, (currentTime / duration) * 100)}%` }}
-          />
+      <div className="rounded-2xl bg-white/40 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-[#516477]">
+          <span>
+            현재 위치{' '}
+            <strong className="ml-1 font-mono text-sm font-semibold text-[#17243b]">
+              {formatMediaTime(currentTime)}
+            </strong>{' '}
+            /{' '}
+            <span className="font-mono tabular-nums">
+              {duration === null ? '길이 확인 중' : formatMediaTime(duration)}
+            </span>
+          </span>
+          <span className="rounded-md bg-white/50 px-2 py-1 font-mono text-[#344c64] tabular-nums">
+            IN {formatMediaTime(sceneStart)} · OUT {formatMediaTime(sceneEnd)}
+          </span>
         </div>
-      ) : null}
-      <p className="text-sm text-(--muted)">선택 구간이 끝나도 원본 영상은 계속 재생됩니다.</p>
-      <button
-        className="rounded-lg border border-(--line) px-4 py-2 text-sm focus-visible:outline-2 disabled:opacity-50"
-        disabled={!isReady || Boolean(error)}
-        onClick={() => replayRef.current()}
-        type="button"
-      >
-        구간 다시 재생
-      </button>
-      <p role="status" className="text-sm">
-        {error
-          ? ''
-          : (notice ??
-            (isBuffering
-              ? '영상 위치를 준비하고 있어요.'
-              : isReady
-                ? isPlaying
-                  ? '재생 중'
-                  : '일시 정지'
-                : ''))}
-      </p>
+        {duration !== null ? (
+          <div
+            aria-label="전체 영상 안의 선택 구간과 현재 위치"
+            className="relative mt-3 h-2.5 overflow-hidden rounded-full bg-[#17243b]/10"
+            role="img"
+          >
+            <span
+              className="absolute top-0 h-full bg-[#1473e6]/40"
+              style={{
+                left: `${(sceneStart / duration) * 100}%`,
+                width: `${((sceneEnd - sceneStart) / duration) * 100}%`,
+              }}
+            />
+            <span
+              className="absolute top-0 h-full w-0.5 bg-[#0756c6]"
+              style={{ left: `${Math.min(99.8, (currentTime / duration) * 100)}%` }}
+            />
+          </div>
+        ) : null}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <button
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#0756c6] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#06459d] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0756c6] active:bg-[#05377e] disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none"
+            disabled={!isReady || Boolean(error)}
+            onClick={() => replayRef.current()}
+            type="button"
+          >
+            <RotateCcw aria-hidden="true" className="size-4" />
+            구간 다시 재생
+          </button>
+          <p role="status" className="text-xs leading-relaxed text-[#516477]">
+            {error
+              ? ''
+              : (notice ??
+                (isBuffering
+                  ? '영상 위치를 준비하고 있어요.'
+                  : isReady
+                    ? isPlaying
+                      ? '재생 중'
+                      : '일시 정지'
+                    : ''))}
+          </p>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed [word-break:keep-all] text-[#516477]">
+          선택 구간이 끝나도 원본 영상은 계속 재생됩니다.
+        </p>
+      </div>
     </div>
   );
 }
