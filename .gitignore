@@ -5,6 +5,13 @@ node_modules/
 /.agents/
 /docs/plans/
 
+# 로컬 작업 임시 파일과 디버그 로그
+/%SystemDrive%/
+/.codex-tmp/
+/Claude outputs/
+/debug.log
+/frontend/debug.log
+
 # 비밀값 — 실수로 레포에 들어와도 커밋되지 않도록 막는다.
 # (S15P21A501-22 제약 조건: Jenkins 관리자 계정/토큰 등 비밀값은 저장소에 커밋하지 않는다)
 *.pem
