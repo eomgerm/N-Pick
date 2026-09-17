@@ -182,6 +182,20 @@ class FalseHitGuardPolicyTest {
                 .satisfies(field -> assertThat(field.judgment()).isEqualTo(GuardJudgment.UNKNOWN_OR_UNVERIFIED));
     }
 
+    @Test
+    @DisplayName("같은 태그가 두 번 와도 근거 id 는 한 번만 실린다")
+    void duplicateTagsAreCountedOnce() {
+        // ResolveSceneTagsUseCase 의 결과에 같은 태그가 중복해 들어올 수 있다.
+        var duplicated = verified(7L, "2026-08-20");
+
+        var verdict = policy.judge(
+                withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of(duplicated, duplicated));
+
+        assertThat(verdict.fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.groundingTagIds()).containsExactly(7L));
+    }
+
     private static QueryResolution withWindow(DateField field, Origin origin) {
         return resolution(
                 List.of(new QueryResolution.DateWindow(field, FROM, TO_EXCLUSIVE, origin, null, 1.0)),

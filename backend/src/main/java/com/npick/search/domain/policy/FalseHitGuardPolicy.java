@@ -3,6 +3,7 @@ package com.npick.search.domain.policy;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -61,7 +62,10 @@ public final class FalseHitGuardPolicy {
      * S15P21A501-56 범위 밖으로 확정됐다 (-57 병합 시 결정).
      *
      * <p>상수를 그냥 쓰지 않고 이 메서드를 두는 이유는 §8.3 때문이다 — 「사건 충돌 판정 규칙이 승인되지 않았다면 해당 자동 제외를 끄고 그 지표를 <b>측정 불가</b> 로 구분한다」.
-     * 품질 리포트(S15P21A501-108)가 이 값을 읽어 0 건과 측정 불가를 가른다. 켜는 날에는 여기 한 곳만 바뀐다.
+     * 품질 리포트(S15P21A501-108)가 이 값을 읽어 0 건과 측정 불가를 가른다.
+     *
+     * <p><b>켜려면 여기만 바꿔서는 안 된다.</b> 지금 판정 단위인 {@link FieldJudgment} 는 {@link DateField} 에 묶여 있어 사건명 판정을 담을
+     * 자리가 없다. 사건명 자동 제외를 켜는 작업은 판정 타입을 넓히고 그 판정이 자기 사유를 들고 오게 하는 것부터 시작한다.
      */
     public boolean incidentGuardActive() {
         return false;
@@ -100,8 +104,11 @@ public final class FalseHitGuardPolicy {
         if (windows.isEmpty()) return Optional.empty();
 
         var tagType = tagTypeOf(field);
-        var matched = new ArrayList<Long>();
-        var conflicting = new ArrayList<Long>();
+        // 같은 태그가 입력 목록에 두 번 올 수 있다 — ResolveSceneTagsUseCase 의 결과가 그렇고,
+        // StructuredScoreCalculator 도 같은 이유로 distinct() 를 건다. 근거 id 가 중복되면 -60 의
+        // explain_json 에 같은 근거가 두 번 실려 충돌 태그가 실제보다 많아 보인다.
+        var matched = new LinkedHashSet<Long>();
+        var conflicting = new LinkedHashSet<Long>();
         for (EffectiveTag tag : sceneTags) {
             if (tag.tagType() != tagType) continue;
             // 미검증은 판정 근거가 될 수 없다. ASR·VLM·추론 규칙이 여기 온다 (F-04·F-06).
@@ -174,6 +181,11 @@ public final class FalseHitGuardPolicy {
         public FieldJudgment {
             groundingTagIds = List.copyOf(groundingTagIds);
         }
+
+        /** 이 판정이 충돌일 때의 제외 사유. 판정 단위가 날짜뿐이므로 날짜 충돌 하나다. */
+        public GuardExclusionReason conflictReason() {
+            return GuardExclusionReason.EXPLICIT_DATE_CONFLICT;
+        }
     }
 
     /**
@@ -189,11 +201,18 @@ public final class FalseHitGuardPolicy {
             fields = List.copyOf(fields);
         }
 
-        /** 제외 사유. 충돌한 anchor 가 없으면 {@code null} 이다. */
+        /**
+         * 제외 사유. 충돌한 anchor 가 없으면 {@code null} 이다.
+         *
+         * <p>사유를 여기서 정하지 않고 <b>충돌한 판정에게 묻는다.</b> 사유를 이 자리에 상수로 박으면, 나중에 사건명 판정이 생겼을 때 그 충돌까지
+         * 날짜 사유로 기록된다 — 검수자가 없는 날짜 충돌을 찾게 되고 사건명 지표는 0 으로 남는다.
+         */
         public GuardExclusionReason exclusionReason() {
-            return fields.stream().anyMatch(field -> field.judgment().excludes())
-                    ? GuardExclusionReason.EXPLICIT_DATE_CONFLICT
-                    : null;
+            return fields.stream()
+                    .filter(field -> field.judgment().excludes())
+                    .map(FieldJudgment::conflictReason)
+                    .findFirst()
+                    .orElse(null);
         }
 
         public boolean excluded() {
