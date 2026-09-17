@@ -797,12 +797,15 @@ OCR은 병합 그룹의 대표 관측 **원문**에서 추출하고 그 관측�
 snapshot을 가리킬 수 있고, 그것을 받아 오면 매핑이 말하는 문서를 찾지 못한다.
 `vlm_metadata`·`text_embedding`과 같은 규약이다.
 
-상류는 `sceneDetection`만 필수다. 나머지 셋(`ocr`·`scene_transcript_mapping`·
-`vlmMetadata`)은 전부 비치명 상류라 없을 수 있고, 없으면 그 입력 없이 돈다 — 여기서
+상류는 `scene_detection`만 필수다. 나머지 셋(`ocr`·`scene_transcript_mapping`·
+`vlm_metadata`)은 전부 비치명 상류라 없을 수 있고, 없으면 그 입력 없이 돈다 — 여기서
 필수로 걸면 비치명 실패 하나가 둘이 된다. 장면 목록만은 필수다. 모든 후보가 장면 범위라
 그것 없이는 후보가 어느 장면 것인지 말할 수 없다. `metrics`의 `ocrTexts`·`transcriptTexts`·
 `vlmCandidates`가 어느 상류가 실제로 텍스트를 줬는지 남긴다 — 텍스트 0건에서 후보 0건인
-것과 300건에서 0건인 것은 다른 사실이다.
+것과 300건에서 0건인 것은 다른 사실이다. **`inputs.upstream`의 키는 단계 이름 그대로다**
+— `PipelineRun.upstream()`이 `PipelineStages.NAMES`를 키로 쓰므로 snake_case이고, 워커
+모델은 `populate_by_name`이라 camelCase 별칭도 함께 받는다. 다른 절이 `sceneDetection`처럼
+적은 것은 그 별칭이다.
 
 비치명 단계(`fatal=False`)이므로 실패 후 run은 계속될 수 있으며 오류는
 `stage_states_json`에 기록해야 한다. §9.2 `ENTITY_SCHEMA_INVALID`는 영구 실패이고

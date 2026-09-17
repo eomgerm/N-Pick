@@ -632,13 +632,8 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
     /**
      * 유형을 확인하고 {@code tag.match_value} 를 만든다. 쓰기는 하지 않는다 — 뒤 장면의 위반이 앞 장면의 태그를 남기지 않도록 검증을 저장 앞에서 끝낸다.
      *
-     * <p>정규화는 백엔드에 하나뿐인 {@link TagMatchValue} 를 지난다. 구현이 둘이 되면 같은 값이 두 표기로 {@code UNIQUE} 를 통과하고 정확 일치 조회가 조용히 0건이 된다.
-     */
-    /**
-     * 유형을 확인하고 {@code tag.match_value} 를 만든다. 쓰기는 하지 않는다 — 뒤 장면의 위반이 앞 장면의 태그를 남기지 않도록 검증을 저장 앞에서 끝낸다.
-     *
-     * <p>판정 자체는 {@link TagVocabularyPort} 가 한다({@code tag} 모듈). 여기서 직접 부르면 모듈 고리가 닫히기 때문이고, 그 포트가 {@code null} 을 주면
-     * 이쪽에서 잘못된 단계 출력으로 번역한다 — 어휘 밖 유형은 태그 오류가 아니라 워커가 계약을 어긴 것이다.
+     * <p>판정 자체는 {@link TagVocabularyPort} 가 한다({@code tag} 모듈). 정규화 규칙은 백엔드에 하나뿐인 {@code TagMatchValue} 하나이고, 여기서 그것을
+     * 직접 부르면 모듈 고리가 닫힌다. 그 포트가 {@code null} 을 주면 이쪽에서 잘못된 단계 출력으로 번역한다 — 어휘 밖 유형은 태그 오류가 아니라 워커가 계약을 어긴 것이다.
      */
     private String matchValue(String type, String value) {
         String match = vocabulary.matchValue(type, value);

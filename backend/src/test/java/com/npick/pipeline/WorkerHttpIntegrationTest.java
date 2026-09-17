@@ -224,18 +224,16 @@ class WorkerHttpIntegrationTest {
                         "waitSeconds",
                         0,
                         "capabilities",
-                        java.util.List.of(Map.of(
-                                "stage",
-                                "entity_extraction",
-                                "stageVersion",
-                                "npick.stage.entity_extraction/v1:aaaaaaaa")),
+                        java.util.List.of(
+                                Map.of("stage", "montage", "stageVersion", "npick.stage.montage/v1:aaaaaaaa")),
                         "device",
                         Map.of())),
                 Map.of());
         assertThat(claim.statusCode()).isEqualTo(200);
         assertThat(mapper.readTree(claim.body()).path("data").path("assigned").asBoolean())
                 .isFalse();
-        // Unsupported stages remain unassigned. Use a separate supported assignment for fencing tests.
+        // 단계 표 밖의 이름은 배정되지 않는다. `entity_extraction` 은 S15P21A501-192 에서
+        // 지원으로 넘어가 이 성질을 더는 검사하지 못한다. fencing 검사는 아래에서 지원 단계로 따로 한다.
         Map<String, Object> freshStates = new LinkedHashMap<>();
         for (String stage : PipelineStages.NAMES)
             freshStates.put(

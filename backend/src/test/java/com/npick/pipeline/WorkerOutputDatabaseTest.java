@@ -2257,6 +2257,23 @@ class WorkerOutputDatabaseTest {
     }
 
     @Test
+    void foldsTwoTranscriptSegmentsOfOneSceneIntoOneEvidenceRow() throws Exception {
+        storeKeyframes();
+
+        // 워커가 실제로 가장 자주 만드는 합집합이다 — 같은 인물이 한 장면의 두 구간에서
+        // 언급되면 `segmentId` 가 다른 대사 근거 둘이 온다(`extractor.py` 가 텍스트별 근거를
+        // 합친다). BE 는 둘 다 `('scene', scene_id)` 로 푸는데 그 표에 구간을 담을 칸이
+        // 없으므로 한 행이 된다 — 구간은 `stage_states_json` 의 `output` 에 남는다(계약 §4.3.3).
+        storeEntities(entityResult(
+                entityScene(
+                        0, entity("person", "홍길동", "rule", 0.66, spoken(0, "s1", 0, 400), spoken(0, "s2", 400, 900))),
+                entityScene(1)));
+
+        assertThat(jdbc.queryForList("SELECT source_ref_type, count(*) AS rows FROM npick.tag_evidence GROUP BY 1"))
+                .containsExactly(Map.of("source_ref_type", "scene", "rows", 1L));
+    }
+
+    @Test
     void keepsTheHighestConfidenceWhenTwoCandidatesNormaliseToOneTag() throws Exception {
         storeKeyframes();
 
