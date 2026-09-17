@@ -1,5 +1,6 @@
 package com.npick.search.application.query.search;
 
+import java.time.LocalDate;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -7,12 +8,16 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
+import com.npick.common.error.BusinessException;
+import com.npick.search.application.error.QueryResolverErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.QueryResolverPort;
 import com.npick.search.application.port.SearchExecutionRecordPort;
+import com.npick.search.application.port.SearchRecordingException;
 import com.npick.search.application.port.StartSearchExecution;
 import com.npick.search.application.query.card.SceneCard;
 import com.npick.search.application.query.fusion.FuseSearchRankingQuery;
@@ -23,9 +28,11 @@ import com.npick.search.application.query.soft.SoftRankingResult;
 import com.npick.search.application.query.structured.StructuredScoresResult;
 import com.npick.search.domain.model.ExplicitDateFilters;
 import com.npick.search.domain.model.FusionChannel;
+import com.npick.search.domain.model.GuardExclusionReason;
 import com.npick.search.domain.model.FusionSettings;
 import com.npick.search.domain.model.LexicalSearchSettings;
 import com.npick.search.domain.model.QueryResolution;
+import com.npick.search.domain.model.ShortageReason;
 import com.npick.search.domain.model.SoftRankingSettings;
 import com.npick.search.domain.model.SoftSignal;
 import com.npick.search.domain.model.StructuredAxis;
@@ -33,8 +40,11 @@ import com.npick.search.domain.model.StructuredScoreSettings;
 import com.npick.search.domain.repository.ParseRuleRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** 조립이 소유한 것은 순서와 경계다. 각 단계의 계산은 이미 자기 테스트가 있다 (S15P21A501-59). */
@@ -104,6 +114,252 @@ class SearchAssemblyServiceTest {
         assertThat(result.status()).isEqualTo("succeeded");
         assertThat(result.degradedReasons()).isEmpty();
         assertThat(result.resolved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("리졸버 장애면 원 검색어 토큰으로 이어가고 fallback 으로 안내한다")
+    void fallsBackToWordSearchWhenResolverIsDown() {
+        // §6.2: AI 해석 실패·시간 초과 → 원 검색어의 단어 검색으로 전환하고 일부 기능 누락 안내.
+        // 검색 자체는 실패가 아니다.
+        givenResolverUnavailable();
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.resolved()).isFalse();
+        assertThat(result.degradedReasons()).containsExactly("resolver_fallback");
+        assertThat(result.status()).isEqualTo("degraded");
+        assertThat(pipelineQuery().normalization().searchTokens()).containsExactly("설", "연휴", "서울역", "귀성", "인파");
+    }
+
+    @Test
+    @DisplayName("해석이 없어도 사용자가 직접 건 명시 필터는 살아 있다")
+    void keepsExplicitFiltersWhenResolutionIsMissing() {
+        // 명시 필터는 AI 와 무관한 사용자 조건이고 F-06 이 그 값을 hard 제외 근거로 쓴다.
+        // 해석이 없다고 함께 버리면 사용자가 건 조건을 조용히 무시하게 된다.
+        givenResolverUnavailable();
+        when(pipeline.rank(any())).thenReturn(candidates());
+        when(record.complete(any())).thenReturn(List.of());
+
+        service.execute(new ExecuteSearchQuery(RAW_QUERY, broadcastFilter(), 9001L));
+
+        assertThat(pipelineQuery().finalResolution().dateWindows()).singleElement().satisfies(window -> {
+            assertThat(window.field()).isEqualTo(QueryResolution.DateField.BROADCAST_DATE);
+            assertThat(window.origin()).isEqualTo(QueryResolution.Origin.EXPLICIT_FILTER);
+            assertThat(window.start()).isEqualTo(LocalDate.of(2026, 2, 14));
+        });
+    }
+
+    @Test
+    @DisplayName("명시 필터가 다르면 지문도 다르다")
+    void explicitFiltersChangeTheFingerprint() {
+        // F-05: 지문값에는 정규화한 검색어·명시 필터·정규화 버전이 포함된다. 필터를 빼면 날짜만
+        // 다른 두 검색이 같은 지문이 되어, 한쪽에 승인된 장면 제외가 다른 쪽에도 걸린다.
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidates());
+        when(record.complete(any())).thenReturn(List.of());
+
+        service.execute(query());
+        String withoutFilter = pipelineQuery().normalizedSearch().fingerprint();
+
+        service.execute(new ExecuteSearchQuery(RAW_QUERY, broadcastFilter(), 9001L));
+        String withFilter = pipelineQuery().normalizedSearch().fingerprint();
+
+        assertThat(withFilter).isNotEqualTo(withoutFilter);
+    }
+
+    @Test
+    @DisplayName("리졸버가 장애가 아닌 이유로 실패하면 검색도 실패한다")
+    void failsWhenResolverFailureIsNotAnOutage() {
+        // 해석할 수 없는 질의를 빈 결과의 성공 응답으로 위장하지 않는다 (F-06 완료 기준).
+        when(resolver.resolve(RAW_QUERY))
+                .thenReturn(new QueryResolutionResult(
+                        normalization(),
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        QueryResolverErrorCode.QUERY_NOT_NORMALIZABLE));
+
+        assertThatThrownBy(() -> service.execute(query())).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    @DisplayName("활성 규칙 조회가 실패하면 검색도 실패한다")
+    void failsWhenActiveRuleLookupFails() {
+        // §6.2: 활성 규칙 조회 실패는 사람의 결정을 조용히 건너뛰지 않고 검색 실패로 안내한다.
+        givenResolved();
+        when(parseRules.findActivePatchParseRules()).thenThrow(new IllegalStateException("조회 실패"));
+
+        assertThatThrownBy(() -> service.execute(query())).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("기록 저장이 실패하면 결과는 주되 저장된 ID 를 만들었다고 표시하지 않는다")
+    void servesUnsavedResultsWhenRecordingFails() {
+        // §6.2: 계산된 결과는 미저장 상태로 제공하고 신고·교정은 비활성화한다.
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+        when(record.complete(any())).thenThrow(new SearchRecordingException("저장 실패"));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.results()).hasSize(1);
+        assertThat(result.executionId()).isNull();
+        assertThat(result.results()).allSatisfy(card -> assertThat(card.searchResultId()).isNull());
+        assertThat(result.degradedReasons()).contains("snapshot_save_failed");
+    }
+
+    @Test
+    @DisplayName("리졸버가 고친 내역을 기록에 넘긴다")
+    void handsAnchorFindingsToTheRecord() {
+        // findings 는 사람이 읽는 기록이다. 강등 사실 자체는 anchor 의 origin 에 있고,
+        // 판정 입력으로는 넘기지 않는다.
+        givenResolvedWithUngroundedEntity();
+        when(pipeline.rank(any())).thenReturn(candidates());
+        when(record.complete(any())).thenReturn(List.of());
+
+        service.execute(query());
+
+        ArgumentCaptor<StartSearchExecution> started = ArgumentCaptor.forClass(StartSearchExecution.class);
+        verify(record).start(started.capture());
+        assertThat(started.getValue().findings())
+                .anyMatch(finding -> finding.action().equals("demoted_to_inferred"));
+    }
+
+    @Test
+    @DisplayName("강등된 anchor 는 추정으로 바뀌어 hard 제외 근거가 되지 않는다")
+    void demotedAnchorIsNoLongerExplicit() {
+        // hard 제외는 되돌릴 수 없고 그 권한의 유일한 근거가 explicit_query 출처다.
+        // 리졸버가 근거 없이 explicit 을 주장해도 검색이 사용자 조건을 위조하면 안 된다.
+        givenResolvedWithUngroundedEntity();
+        when(pipeline.rank(any())).thenReturn(candidates());
+        when(record.complete(any())).thenReturn(List.of());
+
+        service.execute(query());
+
+        assertThat(pipelineQuery().finalResolution().entities())
+                .singleElement()
+                .satisfies(entity -> assertThat(entity.origin()).isEqualTo(QueryResolution.Origin.INFERRED));
+    }
+
+    @Test
+    @DisplayName("guard 가 걷어낸 건수와 사유만 요약에 싣는다")
+    void summarizesOnlyExcludedGuardVerdicts() {
+        // 통과한 장면의 판정까지 실으면 화면이 존재하지 않는 충돌을 띄운다 (§5.1).
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidatesWithGuard(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.guardSummary().excludedResultCount()).isEqualTo(1);
+        assertThat(result.guardSummary().reasons()).containsExactly("explicit_date_conflict");
+    }
+
+    @Test
+    @DisplayName("걷어낸 것이 없으면 guard 요약도 비어 있다")
+    void guardSummaryIsEmptyWhenNothingExcluded() {
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.guardSummary().excludedResultCount()).isZero();
+        assertThat(result.guardSummary().reasons()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("10개를 못 채우면 그 이유를 싣는다")
+    void reportsShortageReasons() {
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidatesWithShortage(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        assertThat(service.execute(query()).shortageReasons()).containsExactly("candidate_pool_exhausted");
+    }
+
+    private RankSearchCandidatesUseCase.Query pipelineQuery() {
+        ArgumentCaptor<RankSearchCandidatesUseCase.Query> captor =
+                ArgumentCaptor.forClass(RankSearchCandidatesUseCase.Query.class);
+        verify(pipeline, atLeastOnce()).rank(captor.capture());
+        return captor.getValue();
+    }
+
+    private static ExplicitDateFilters broadcastFilter() {
+        return new ExplicitDateFilters(Map.of(
+                QueryResolution.DateField.BROADCAST_DATE,
+                new ExplicitDateFilters.ClosedRange(LocalDate.of(2026, 2, 14), LocalDate.of(2026, 2, 16))));
+    }
+
+    private void givenResolverUnavailable() {
+        when(resolver.resolve(RAW_QUERY))
+                .thenReturn(new QueryResolutionResult(
+                        normalization(),
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        QueryResolverErrorCode.RESOLVER_TIMEOUT));
+    }
+
+    private void givenResolvedWithUngroundedEntity() {
+        QueryResolution claimed = new QueryResolution(
+                "query-resolver/v2",
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(),
+                List.of(new QueryResolution.Entity(
+                        QueryResolution.EntityType.PERSON,
+                        "원문에없는사람",
+                        QueryResolution.Origin.EXPLICIT_QUERY,
+                        new QueryResolution.QuerySpan(0, 3),
+                        0.8)),
+                List.of(),
+                List.of(),
+                List.of(),
+                0.9);
+        when(resolver.resolve(RAW_QUERY))
+                .thenReturn(new QueryResolutionResult(
+                        normalization(), claimed, List.of(), null, "query-resolver/v2", "prompt/v1", "model/v1", null));
+    }
+
+    private static QueryNormalization normalization() {
+        return new QueryNormalization(RAW_QUERY, List.of("설", "연휴", "서울역", "귀성", "인파"), "norm/v1");
+    }
+
+    private SearchCandidates candidatesWithGuard(SearchCandidates.ScoredScene... scenes) {
+        SearchCandidates base = candidates(scenes);
+        return new SearchCandidates(
+                base.scenes(),
+                base.candidates(),
+                new FalseHitGuardResult(
+                        List.of(),
+                        List.of(new FalseHitGuardResult.SceneVerdict(
+                                9999L, GuardExclusionReason.EXPLICIT_DATE_CONFLICT, List.of())),
+                        false),
+                base.appliedExcludes(),
+                base.config(),
+                base.degradedReasons(),
+                base.shortageReasons());
+    }
+
+    private SearchCandidates candidatesWithShortage(SearchCandidates.ScoredScene... scenes) {
+        SearchCandidates base = candidates(scenes);
+        return new SearchCandidates(
+                base.scenes(),
+                base.candidates(),
+                base.guard(),
+                base.appliedExcludes(),
+                base.config(),
+                base.degradedReasons(),
+                List.of(ShortageReason.CANDIDATE_POOL_EXHAUSTED));
     }
 
     private void givenResolved() {
