@@ -496,7 +496,7 @@ body는 생략하거나 다음처럼 보낸다.
 - Header: `Idempotency-Key` 필수, 공백 불가.
 - Body: `{ "targetSceneId": "9301" }` — 정수 또는 양의 정수 문자열. 신고 컨텍스트의 장면과 같아야 한다.
 - 멱등은 `(feedbackId, targetSceneId)` 단위다. 내용이 전부 신고 컨텍스트에서 파생돼 장면당 후보는 하나뿐이므로, `Idempotency-Key`가 달라진 재시도도 같은 장면이면 기존 후보를 돌려준다.
-- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`.
+- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`. `searchRuleId`·`feedbackId`는 정밀도 보존을 위해 문자열(TSID)이다 — §8의 신규 응답 string 규칙을 따른다(S15P21A501-202).
 
 | 오류            | HTTP | 의미                                    |
 | --------------- | ---- | --------------------------------------- |
@@ -515,7 +515,7 @@ body는 생략하거나 다음처럼 보낸다.
 - Header: `Idempotency-Key` 필수, 공백 불가, 최대 64자.
 - Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
 - 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
-- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }` (현재 `searchRuleId`·`feedbackId`는 숫자로 나간다 — §8의 신규 응답 string 규칙 적용은 별건).
+- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`. `searchRuleId`·`feedbackId`는 정밀도 보존을 위해 문자열(TSID)이다 — §8의 신규 응답 string 규칙을 따른다(S15P21A501-202).
 
 | 오류            | HTTP | 의미                              |
 | --------------- | ---- | --------------------------------- |
