@@ -52,6 +52,16 @@ const detail = {
   snapshot_status: 'unavailable',
   result_snapshot: null,
 };
+const availableDetail = {
+  ...detail,
+  snapshot_status: 'available',
+  result_snapshot: {
+    search_result_id: '9802',
+    scene_id: '9302',
+    rank: 2,
+    explain: { display: { display_name: 'KBC 뉴스9', scene_description: '서울역 인파' }, score: 2 },
+  },
+};
 
 test('내 문의의 큰 문자열 ID와 null은 보존하고 서버 상태를 변환한다', () => {
   const result = parseMyInquiryPage(page);
@@ -83,6 +93,31 @@ test('기록 없음과 빈 목록을 성공으로 읽되 예시 값으로 채우
     parseMyInquiryPage({ ...page, items: [], total_elements: 0, total_pages: 0 }).items,
     [],
   );
+});
+
+test('available 스냅샷은 result_snapshot의 ID·순위·explain을 보존한다', () => {
+  const result = parseMyInquiryDetail(availableDetail);
+  assert.equal(result.snapshotStatus, 'available');
+  assert.equal(result.resultSnapshot.searchResultId, '9802');
+  assert.equal(result.resultSnapshot.sceneId, '9302');
+  assert.equal(result.resultSnapshot.rank, 2);
+  assert.equal(result.resultSnapshot.explain.display.display_name, 'KBC 뉴스9');
+});
+
+test('알 수 없는 snapshot_status와 available의 잘못된 result_snapshot은 응답 오류로 처리한다', () => {
+  assert.throws(() => parseMyInquiryDetail({ ...detail, snapshot_status: 'partial' }), ApiClientError);
+  assert.throws(() => parseMyInquiryDetail({ ...availableDetail, result_snapshot: null }), ApiClientError);
+  for (const badSnap of [
+    { ...availableDetail.result_snapshot, explain: undefined },
+    { ...availableDetail.result_snapshot, search_result_id: 42 },
+    { ...availableDetail.result_snapshot, scene_id: '0' },
+    { ...availableDetail.result_snapshot, rank: 0 },
+    { ...availableDetail.result_snapshot, explain: null },
+  ])
+    assert.throws(
+      () => parseMyInquiryDetail({ ...availableDetail, result_snapshot: badSnap }),
+      ApiClientError,
+    );
 });
 
 test('숫자 ID, 잘못된 상태·구간·페이지·누락 필드는 응답 오류로 처리한다', () => {
