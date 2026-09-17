@@ -27,7 +27,7 @@ import com.npick.tag.application.ConfirmTagCorrectionUseCase;
  * UseCase 가 같은 Spring 트랜잭션을 공유해 원자성을 지킨다.
  */
 @Service
-public class ConfirmCorrectionService {
+public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
 
     private final ConfirmationTargetPort targetPort;
     private final VerificationRunPort verificationRunPort;
@@ -60,6 +60,7 @@ public class ConfirmCorrectionService {
         this.feedbackRepository = feedbackRepository;
     }
 
+    @Override
     @Transactional
     public void confirm(ConfirmCorrectionCommand command) {
         if (!command.reviewerRole()) {

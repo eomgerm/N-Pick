@@ -21,7 +21,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.search.application.CreateParsePatchCandidateCommand;
-import com.npick.search.application.CreateParsePatchCandidateService;
+import com.npick.search.application.CreateParsePatchCandidateUseCase;
 import com.npick.search.application.ParseCandidateOutcome;
 import com.npick.search.application.error.ParseRuleCandidateErrorCode;
 import com.npick.search.presentation.response.ParsePatchCandidateResponse;
@@ -42,9 +42,9 @@ public class ParsePatchCandidateController {
     private static final String REVIEWER_ROLE = "reviewer";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private final CreateParsePatchCandidateService service;
+    private final CreateParsePatchCandidateUseCase service;
 
-    public ParsePatchCandidateController(CreateParsePatchCandidateService service) {
+    public ParsePatchCandidateController(CreateParsePatchCandidateUseCase service) {
         this.service = service;
     }
 

@@ -21,7 +21,7 @@ class ConfirmParseRuleUseCaseTest {
     @BeforeEach
     void setUp() {
         repository = mock(SearchRuleConfirmationRepository.class);
-        useCase = new ConfirmParseRuleUseCase(repository);
+        useCase = new ConfirmParseRuleService(repository);
     }
 
     @Test

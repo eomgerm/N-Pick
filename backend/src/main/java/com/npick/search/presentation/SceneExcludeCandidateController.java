@@ -21,7 +21,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.search.application.CreateSceneExcludeCandidateCommand;
-import com.npick.search.application.CreateSceneExcludeCandidateService;
+import com.npick.search.application.CreateSceneExcludeCandidateUseCase;
 import com.npick.search.application.ParseCandidateOutcome;
 import com.npick.search.application.error.SceneExcludeCandidateErrorCode;
 import com.npick.search.presentation.response.SceneExcludeCandidateResponse;
@@ -39,9 +39,9 @@ public class SceneExcludeCandidateController {
     private static final String REVIEWER_ROLE = "reviewer";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private final CreateSceneExcludeCandidateService service;
+    private final CreateSceneExcludeCandidateUseCase service;
 
-    public SceneExcludeCandidateController(CreateSceneExcludeCandidateService service) {
+    public SceneExcludeCandidateController(CreateSceneExcludeCandidateUseCase service) {
         this.service = service;
     }
 
