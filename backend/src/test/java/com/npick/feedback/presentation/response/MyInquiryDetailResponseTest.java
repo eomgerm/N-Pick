@@ -4,6 +4,8 @@ import java.time.Instant;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.npick.feedback.application.query.InquiryScene;
 import com.npick.feedback.application.query.MyInquiryDetail;
@@ -77,5 +79,20 @@ class MyInquiryDetailResponseTest {
     void unavailableWhenExplainNullOrBlank() {
         assertThat(MyInquiryDetailResponse.from(detailWithExplain(null)).snapshotStatus()).isEqualTo("unavailable");
         assertThat(MyInquiryDetailResponse.from(detailWithExplain("   ")).snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @ParameterizedTest(name = "display.display_name={0} 이면 온전한 표시명이 아니라 unavailable")
+    @DisplayName("display.display_name 이 표시명(비어있지 않은 문자열)이 아니면 — 빈문자열·공백·null·숫자·객체 — unavailable 이다")
+    @ValueSource(strings = {
+            "{\"display\":{\"display_name\":\"\"}}",
+            "{\"display\":{\"display_name\":\"   \"}}",
+            "{\"display\":{\"display_name\":null}}",
+            "{\"display\":{\"display_name\":123}}",
+            "{\"display\":{\"display_name\":{\"nested\":\"x\"}}}"})
+    void unavailableWhenDisplayNameNotTextualOrBlank(String explainJson) {
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain(explainJson));
+
+        assertThat(res.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(res.resultSnapshot()).isNull();
     }
 }
