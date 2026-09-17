@@ -3,8 +3,9 @@
 JSON·필드·enum 검증 실패는 예외로 반환한다. 원문에 있는 값의 span은 직접 찾아
 보정하고, 없는 값이나 resolver가 주장한 explicit_filter는 inferred로 강등한다.
 이는 F-05의 명시 조건·추론 구분과 사용자 필터 보호를 충족하기 위한 구현 선택이다.
-날짜 구간 삭제와 locations 우선 중복 제거 역시 구현 선택이며 F-05의 중복 계산을
-방지한다. inferred만으로 강제 제외하지 않는 것은 검색 호출부 책임이다(F-06).
+뒤집힌 날짜 구간 삭제 역시 구현 선택이다. **entities 와 locations 의 교차 중복은
+거르지 않는다** — 종류가 다르면 이름이 같아도 다른 조건이기 때문이다(F-05 구조화 축
+점수, S15P21A501-205). inferred만으로 강제 제외하지 않는 것은 검색 호출부 책임이다(F-06).
 변경 내역은 AnchorFinding으로 반환하여 §7.2 기록을 지원한다. 특정 DB 구조를 전제하지 않는다.
 """
 
@@ -18,8 +19,6 @@ from pydantic import ValidationError
 from npick_worker.query_resolver.schema import (
     RESOLVER_ORIGINS,
     DateWindow,
-    Entity,
-    Location,
     QuerySpan,
     RawResolution,
     ValidatedResolution,
@@ -111,13 +110,9 @@ def validate(raw: RawResolution, query: str) -> ValidationOutcome:
         _check_value_anchor(item, f"locations[{i}]", query, findings)
         for i, item in enumerate(raw.locations)
     )
-    entities = _drop_entities_shadowed_by_locations(
-        tuple(
-            _check_value_anchor(item, f"entities[{i}]", query, findings)
-            for i, item in enumerate(raw.entities)
-        ),
-        locations,
-        findings,
+    entities = tuple(
+        _check_value_anchor(item, f"entities[{i}]", query, findings)
+        for i, item in enumerate(raw.entities)
     )
     classifications = tuple(
         _check_value_anchor(item, f"classifications[{i}]", query, findings)
@@ -253,32 +248,3 @@ def _explicit_claim_problem(origin: str, span: QuerySpan | None, query: str) -> 
     if span.end > len(query):
         return f"query_span 이 원문 길이를 넘는다: end={span.end}, len={len(query)}"
     return None
-
-
-def _drop_entities_shadowed_by_locations(
-    entities: tuple[Entity, ...], locations: tuple[Location, ...], findings: list[AnchorFinding]
-) -> tuple[Entity, ...]:
-    """`F-05 중복 계산 방지` — 같은 값이 entities 와 locations 에 동시에 오면 한 건만 남긴다.
-
-    F-05의 중복 계산 방지를 지원하기 위해 locations를 우선하는 구현 선택이다.
-    FRD가 특정 배열의 우선순위를 요구하는 것은 아니다.
-    """
-    taken = {_fold(item.value) for item in locations}
-    kept: list[Entity] = []
-    for i, entity in enumerate(entities):
-        if _fold(entity.value) in taken:
-            findings.append(
-                AnchorFinding(
-                    f"entities[{i}]",
-                    "dropped",
-                    f"locations 에 같은 값이 있다: {entity.value!r} (F-05 중복 계산 방지)",
-                )
-            )
-            continue
-        kept.append(entity)
-    return tuple(kept)
-
-
-def _fold(value: str) -> str:
-    """중복 판정용 비교 키. `match_value` 정규화가 아니다 — 그건 Search 쪽 몫이다."""
-    return " ".join(value.split()).casefold()

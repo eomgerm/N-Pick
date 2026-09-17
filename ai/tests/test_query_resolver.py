@@ -282,53 +282,25 @@ def test_both_date_fields_are_accepted() -> None:
         assert validate(parse_raw(payload), "2022년").resolution.date_windows[0].field == field
 
 
-# ── entities / locations 중복 (FRD F-04~05, F-05 중복 계산 방지) ────────────────
+# ── entities / locations 교차 (FRD F-05 구조화 축 점수) ────────────────────────
 
 
-def test_duplicate_value_keeps_locations_only() -> None:
+def test_same_name_across_entities_and_locations_is_kept() -> None:
+    """이름이 같아도 종류가 다르면 다른 조건이다 (FRD F-05 구조화 축 점수).
+
+    워커는 교차 중복을 판단하지 않는다. 기관 「서울시청」 과 시설 「서울시청」 은 서로
+    다른 태그 종류라 백엔드에서 각각 하나의 고유 조건이 되며, 축 안의 중복만
+    `TagCondition` 집합이 접는다 (S15P21A501-48 계약 1·2).
+    """
     query = "서울시청 앞 인파"
     payload = _payload(
         entities=[_anchor("서울시청", 0, 4, type="organization")],
         locations=[_anchor("서울시청", 0, 4, type="facility")],
     )
     outcome = validate(parse_raw(payload), query)
-    assert outcome.resolution.entities == ()
-    assert len(outcome.resolution.locations) == 1
-    assert "F-05 중복 계산 방지" in outcome.findings[0].reason
-
-
-def test_duplicate_check_ignores_case_and_spacing() -> None:
-    payload = _payload(
-        entities=[
-            {
-                "type": "organization",
-                "value": "KBS  뉴스",
-                "origin": "inferred",
-                "query_span": None,
-                "confidence": 0.5,
-            }
-        ],
-        locations=[
-            {
-                "type": "facility",
-                "value": "kbs 뉴스",
-                "origin": "inferred",
-                "query_span": None,
-                "confidence": 0.5,
-            }
-        ],
-    )
-    assert validate(parse_raw(payload), "kbs 뉴스").resolution.entities == ()
-
-
-def test_different_values_both_survive() -> None:
-    payload = _payload(
-        entities=[_anchor("홍길동", 0, 3, type="person")],
-        locations=[_anchor("서울역", 4, 7, type="facility")],
-    )
-    outcome = validate(parse_raw(payload), "홍길동 서울역")
     assert len(outcome.resolution.entities) == 1
     assert len(outcome.resolution.locations) == 1
+    assert outcome.findings == ()
 
 
 # ── 버전 (FRD F-14, 모듈 메타데이터) ────────────────────────────────────────

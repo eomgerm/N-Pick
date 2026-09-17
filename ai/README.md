@@ -275,7 +275,7 @@ v1의 `filming_date`는 거부하며 호환 별칭은 없다. BE 코드는 이�
 | --- | --- |
 | `span_corrected` | 값은 원문에 있고 인덱스만 고쳤다. `explicit_query` 유지 |
 | `demoted_to_inferred` | 원문에 없는 값이거나 resolver 가 `explicit_filter` 를 주장했다 |
-| `dropped` | 뒤집힌 날짜 구간, 또는 `locations` 와 겹친 `entities`; locations 우선은 F-05의 중복 계산 방지를 위한 구현 선택 |
+| `dropped` | 뒤집힌 날짜 구간. 강등해도 쓸 수 없어 버린다 |
 
 ### backend 2개
 
