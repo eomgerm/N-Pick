@@ -13,12 +13,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.common.security.AuthenticatedMember;
+import com.npick.search.application.error.SearchExecutionErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.RecordSearchExecutionResolution;
 import com.npick.search.application.port.SearchExecutionRecordPort;
@@ -197,7 +199,7 @@ class SearchExecutionRecordingDbTest {
         mockMvc.perform(get("/api/v1/search/executions/{id}", executionId)
                         .with(user(new AuthenticatedMember(OTHER_MEMBER_ID, "s60-other", "h", "EDITOR"))))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("SEARCH_404_001"));
+                .andExpect(jsonPath("$.code").value("SRCH_404_001"));
         mockMvc.perform(get("/api/v1/search/executions/{id}", executionId)
                         .with(user(new AuthenticatedMember(OTHER_MEMBER_ID, "s60-reviewer", "h", "REVIEWER"))))
                 .andExpect(status().isOk());
@@ -225,6 +227,39 @@ class SearchExecutionRecordingDbTest {
                 .satisfies(result -> assertThat(
                                 result.explain().at("/display/display_name").asString())
                         .isEqualTo("당시 제목"));
+    }
+
+    @Test
+    @DisplayName("순위 계산 전에 끊긴 실행을 failed로 닫고 기록 실패는 호출부로 던지지 않는다")
+    void closesFailedExecutionWithoutThrowing() {
+        long executionId = records.start(
+                new StartSearchExecution(MEMBER_ID, StartSearchExecution.ExecutionType.NORMAL, null, "명절 교통"));
+
+        // 해석이 오기 전이라 정규화 질의도 설정 snapshot도 없다. 이 상태로는 결과를 낸 실행이 될 수 없다는 것을
+        // 스키마가 직접 막는다 (ck_execution_completed_snapshot). 코드 검증만으로는 다른 경로가 생기면 뚫린다.
+        assertThatThrownBy(() -> jdbc.update(
+                        "UPDATE npick.search_execution SET status='succeeded' WHERE search_execution_id=?",
+                        executionId))
+                .isInstanceOf(DataAccessException.class);
+
+        records.fail(executionId, SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED.code(), 21);
+
+        var detail = details.findVisible(executionId, MEMBER_ID, false).orElseThrow();
+        assertThat(detail.status()).isEqualTo("failed");
+        assertThat(detail.errorCode()).isEqualTo("SRCH_503_011");
+        assertThat(detail.executionMs()).isEqualTo(21);
+        assertThat(detail.results()).isEmpty();
+
+        // 이미 닫힌 실행, 없는 실행, 잘못된 입력 어느 것도 예외가 되지 않는다. 기록 실패가 사용자에게 갈
+        // 검색 실패 사유를 가리면 안 된다 (FRD §6.2).
+        records.fail(executionId, SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED.code(), 5);
+        records.fail(Long.MAX_VALUE, SearchExecutionErrorCode.EXECUTION_NOT_RECORDED.code(), 5);
+        records.fail(executionId, " ", 5);
+        records.fail(executionId, SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED.code(), -1);
+
+        var unchanged = details.findVisible(executionId, MEMBER_ID, false).orElseThrow();
+        assertThat(unchanged.errorCode()).isEqualTo("SRCH_503_011");
+        assertThat(unchanged.executionMs()).isEqualTo(21);
     }
 
     private static QueryResolution resolution(QueryResolution.Intent intent) {

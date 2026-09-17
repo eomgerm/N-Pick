@@ -9,11 +9,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
 import com.npick.common.persistence.TsidGenerator;
@@ -30,12 +35,18 @@ import com.npick.search.domain.model.QueryResolution;
 /** 검색 자체의 성공/롤백과 실행 기록의 성공/실패를 분리하는 JDBC 어댑터. */
 @Repository
 public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPort {
+    private static final Logger log = LoggerFactory.getLogger(JdbcSearchExecutionRecordAdapter.class);
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final TransactionTemplate failureTransactions;
 
-    public JdbcSearchExecutionRecordAdapter(JdbcTemplate jdbc, ObjectMapper mapper) {
+    public JdbcSearchExecutionRecordAdapter(
+            JdbcTemplate jdbc, ObjectMapper mapper, PlatformTransactionManager transactions) {
         this.jdbc = jdbc;
         this.mapper = mapper;
+        this.failureTransactions = new TransactionTemplate(transactions);
+        this.failureTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Override
@@ -183,6 +194,42 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
             throw failure;
         } catch (RuntimeException failure) {
             throw recordingFailure("검색 실행 완료 기록을 저장하지 못했다", failure);
+        }
+    }
+
+    /**
+     * 다른 세 메서드와 달리 {@code @Transactional} 을 붙이지 않는다.
+     *
+     * <p>선언적 트랜잭션은 커넥션 획득과 커밋을 프록시가 <b>메서드 밖에서</b> 한다. 그래서 메서드 안에서 {@code catch} 해도 커넥션을 못 얻는 실패는 호출부로 그대로 빠져나간다 — DB 가
+     * 응답하지 않는 상황이 정확히 이 계약이 막으려는 경우인데(§6.2) 그때만 못 막는 셈이다. 이 호출은 무슨 일이 있어도 던지지 않아야 하므로 트랜잭션 경계를 코드 안으로 들여온다.
+     */
+    @Override
+    public void fail(long searchExecutionId, String errorCode, int executionMs) {
+        if (searchExecutionId <= 0 || errorCode == null || errorCode.isBlank() || executionMs < 0) {
+            log.warn(
+                    "Skipped a malformed search execution failure record: id={}, errorCode={}, executionMs={}",
+                    searchExecutionId,
+                    errorCode,
+                    executionMs);
+            return;
+        }
+        try {
+            Integer updated = failureTransactions.execute(status -> jdbc.update(
+                    """
+                    UPDATE npick.search_execution
+                       SET status='failed', error_code=?, execution_ms=?, updated_at=now()
+                     WHERE search_execution_id=? AND status='running'
+                    """,
+                    errorCode,
+                    executionMs,
+                    searchExecutionId));
+            if (updated == null || updated != 1) {
+                // 이미 닫힌 실행을 다시 닫지 않는다. complete 로 남은 결과를 실패로 덮으면 그 실행이 무엇을
+                // 돌려줬는지 알 수 없게 된다. 호출 규약 위반이므로 조용히 넘기지 않고 로그로 드러낸다.
+                log.warn("No running search execution {} to close as failed ({})", searchExecutionId, errorCode);
+            }
+        } catch (RuntimeException failure) {
+            log.warn("Could not record the failure of search execution {}", searchExecutionId, failure);
         }
     }
 

@@ -312,18 +312,22 @@ FE URL 상태와 wire 요청의 대응:
 
 `GET /search/executions/{executionId}`
 
-검색을 실행한 본인 또는 `reviewer`가 당시 실행 snapshot을 조회한다. 타인 소유 실행과 없는 실행은 존재 여부를 구분하지 않고 `SEARCH_404_001`로 응답한다. 응답은 snake_case이며 모든 `*_id`는 십진 문자열이다.
+검색을 실행한 본인 또는 `reviewer`가 당시 실행 snapshot을 조회한다. 타인 소유 실행과 없는 실행은 존재 여부를 구분하지 않고 `SRCH_404_001`로 응답한다. 응답은 snake_case이며 모든 `*_id`는 십진 문자열이다.
 
 - `resolver_output.raw`는 규칙·anchor 교정 전 AI 해석, `resolver_output.verified`는 anchor 검증 후 해석이다.
 - `parsed_query`는 실제 검색 계산에 사용한 최종 해석이다.
 - `applied_rules`는 규칙 본문 snapshot, 적용 순서, 상태와 미적용·실패 사유를 보존한다.
 - `filtered.returned_count`와 `filtered.shortage_reasons`는 실제 반환 수와 부족 사유다.
-- `results[].explain`은 검색 당시 표시값과 점수 snapshot이다. 조회 시 현재 장면 정보로 다시 계산하지 않는다.
+- `results[].explain`의 최상위 key는 `score`·`match`·`guard`·`display` 넷이다. `display`는 검색 당시 화면에 나간 표시값(제목·장면 설명·구간·방송/촬영일·`shot_type`·`scene_type`)이며, 조회 시 현재 장면 정보로 다시 계산하지 않는다. 내 문의 기록(S15P21A501-207)·신고 상세(S15P21A501-198)가 이 값을 그대로 쓴다.
 - `search_config`를 포함한 중첩 JSON key도 모두 snake_case다. 설정 snapshot의 내부 키(`rrf_k`, `channel_weights`, `config_version`, `weight_status` 등)는 저장 당시 값 그대로 반환한다.
 - 일반 검색의 `verification_context`는 null이다. 검수 replay에서만 값이 존재할 수 있다.
 - `running` 실행은 아직 완결되지 않았으므로 후보·필터·결과 등 완료 시점 필드가 null 또는 빈 목록일 수 있다. 이를 성공으로 해석하지 않는다.
+- `failed` 실행은 결과를 내지 못하고 끝난 것이라 `error_code`만 채워지고 해석·설정·결과 field는 null일 수 있다. 결과 0건의 성공과 구분한다.
+- `succeeded`·`degraded` 실행은 `normalized_query`·`query_fingerprint`·`normalization_version`·`search_config`·`config_version`이 항상 채워져 있다. DB 제약 `ck_execution_completed_snapshot`이 이를 보장한다.
 
 저장 lifecycle은 검색 orchestration이 호출하는 내부 계약이다. 원문·실행자만으로 `running` 행을 독립 트랜잭션에서 먼저 시작한 뒤에 리졸버를 호출하고, 리졸버 산출물은 별도 독립 트랜잭션에서 running 행에 기록한다. 계산 종료 후 실행 갱신과 `search_result` 삽입은 또 다른 독립 트랜잭션 하나로 완결한다. 시작 저장 실패 시 AI 호출과 검색 계산을 진행하지 않는다. 완료 저장 실패 시 계산 결과는 `snapshot_save_failed` degraded 응답으로 반환하며 실행·결과 ID는 모두 null이고 문의를 비활성화한다. 완료 기록은 재시도하지 않는다.
+
+순위 계산 전에 끊긴 실행(리졸버 장애·활성 규칙 조회 실패·후보 조회 실패)은 `running`으로 두지 않고 `failed`로 닫으며 `error_code`를 남긴다. 이 닫기 호출은 실패해도 예외를 밖으로 내보내지 않는다 — 사용자에게 돌아갈 검색 실패 사유가 기록 실패에 가려지면 안 된다 (FRD §6.2). 실패 코드는 `SRCH_503_011`(활성 규칙 조회 실패)·`SRCH_503_012`(기본 단어 검색 불가)·`SRCH_503_013`(최초 저장 실패)와 그 실행을 끊은 다른 검색 코드를 쓴다.
 
 ## 6. BE 구현 완료, FE 연결 대기 API
 

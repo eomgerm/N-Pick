@@ -9,7 +9,17 @@ import com.npick.search.application.resolution.SearchDegradedReason;
 import com.npick.search.domain.model.ParseRuleOutcome;
 import com.npick.search.domain.model.QueryResolution;
 
-/** 검색 계산이 끝난 뒤 실행과 결과 목록을 한 트랜잭션으로 완결하는 스냅샷. */
+/**
+ * 검색 계산이 끝난 뒤 실행과 결과 목록을 한 트랜잭션으로 완결하는 스냅샷.
+ *
+ * <p><b>순위 계산까지 갔다 온 실행만 여기로 온다.</b> 그 전에 끊긴 실행은 {@link SearchExecutionRecordPort#fail} 이 닫는다 — {@link #config} 와
+ * {@link #candidates} 는 계산이 끝나야 나오므로 그 전의 실패는 여기 계약을 만족시킬 수 없다. {@link ExecutionStatus#FAILED} 를 여기 남겨 둔 것은 <b>계산을 마친
+ * 뒤</b> 결과를 낼 수 없게 된 경우를 위해서다.
+ *
+ * <p><b>기록용 타입({@link CandidateRecord} · {@link AppliedSceneExclusion})을 순위 계산 입력 타입과 따로 둔다.</b> 저장되는 JSON 은 영구 기록이라
+ * 스키마가 안정적이어야 하는데, {@code FuseSearchRankingQuery} 나 {@code ActiveSceneExclusionResult} 를 그대로 실으면 순위 파이프라인 내부가 바뀔 때마다 과거
+ * 실행의 해석 방식이 따라 흔들린다. 대신 <b>변환 책임은 조립(S15P21A501-59)에 둔다</b> — 순위 계산에 넘기는 값과 여기 싣는 값을 같은 자리에서 만들어, 둘이 갈리지 않게 한다.
+ */
 public record CompleteSearchExecution(
         long searchExecutionId,
         ExecutionStatus status,
@@ -137,6 +147,13 @@ public record CompleteSearchExecution(
         }
     }
 
+    /**
+     * 결과 한 줄. {@code explain} 은 {@code search_result.explain_json} 그대로다.
+     *
+     * <p>최상위 키는 넷이다 — {@code score} · {@code match} · {@code guard} · {@code display}. {@code display} 는 검색 당시 화면에 나간
+     * 표시값이며, 내 문의 기록(S15P21A501-207)·신고 상세(S15P21A501-198)가 조회 시점에 장면을 다시 읽지 않고 이 값을 그대로 쓴다 (FRD §7.2). 키 목록의 정본은
+     * {@code search_result.explain_json} 의 COLUMN COMMENT 다.
+     */
     public record RankedScene(long sceneId, int rank, Map<String, Object> explain) {
         public RankedScene {
             if (sceneId <= 0 || rank <= 0 || explain == null) {
