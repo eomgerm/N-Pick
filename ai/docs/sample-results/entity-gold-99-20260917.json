@@ -1,0 +1,256 @@
+{
+  "schema": "npick.entity-extraction.gold-evaluation/v1",
+  "reviewedOn": "2026-09-17",
+  "labeledBy": "Claude(Opus 5) 1차 판정 / young010514 사람 검수 완료 (2026-09-17)",
+  "corpusSha256": "15cdbae8a7ba2805b45d38b5118c158466018a1343320c04764415d62b9bdc26",
+  "sourceTextPolicy": "no source text included; the filled review sheets stay under ai/samples/ per the rights gate",
+  "howToReproduce": [
+    "python ai/tools/entity_gold_review.py build --run <run dir> --out ai/samples/out/entity-gold-99/sheet.json",
+    "python ai/tools/entity_gold_review.py score --sheet ai/samples/out/entity-gold-99/sheet.json --out ai/samples/out/entity-gold-99/metrics.json",
+    "python ai/tools/entity_gold_compare.py build --result ai/samples/out/entity-compare-20260916/result-llm-Qwen--Qwen3-1.7B.json --gold ai/samples/out/entity-gold-99/sheet.json --out ai/samples/out/entity-gold-99/compare-llm.json",
+    "python ai/tools/entity_gold_compare.py score --sheet ai/samples/out/entity-gold-99/compare-llm.json --gold ai/samples/out/entity-gold-99/sheet.json --out ai/samples/out/entity-gold-99/compare-llm-metrics.json"
+  ],
+  "shipped": {
+    "schema": "npick.entity-extraction.gold-metrics/v1",
+    "run": "ai/samples/out/entity-extraction-99-20260916",
+    "identity": {
+      "algorithmVersion": "entity-extraction/v1",
+      "configVersion": "entity-extraction-config/v1:b533d483",
+      "modelVersion": "KPF/KPF-bert-ner@efff871f686098933bf76d699c437c3f53abc19e",
+      "engineVersion": "transformers5.17.0+torch2.13.0+cu130"
+    },
+    "stageVersion": "npick.stage.entity_extraction/v1:7c6b99ce",
+    "corpusSha256": "15cdbae8a7ba2805b45d38b5118c158466018a1343320c04764415d62b9bdc26",
+    "labeledBy": "Claude(Opus 5) 1차 판정 / young010514 사람 검수 완료 (2026-09-17)",
+    "coverage": {
+      "scenes": 83,
+      "recallScenes": 83,
+      "candidates": 706,
+      "reviewed": 706,
+      "unreviewed": 0
+    },
+    "verdicts": {
+      "correct": 289,
+      "unreadable_source": 281,
+      "fragment": 89,
+      "not_entity": 20,
+      "type_wrong": 22,
+      "overspan": 5
+    },
+    "screenTruth": {
+      "faithful": 283,
+      "misread": 62,
+      "unknown": 361
+    },
+    "precision": {
+      "strict": 0.4093,
+      "attributable": 0.68,
+      "attributableDenominator": 425,
+      "endToEnd": 0.3606,
+      "endToEndDenominator": 696
+    },
+    "recall": {
+      "stage": 0.7896,
+      "stageGold": 366,
+      "endToEnd": 0.7896,
+      "endToEndGold": 366,
+      "found": 289,
+      "upstreamMissed": 0,
+      "missedByType": {
+        "organization": 23,
+        "person": 4,
+        "event": 16,
+        "keyword": 11,
+        "location": 1,
+        "facility": 2
+      }
+    },
+    "byType": {
+      "event": {
+        "unreadable_source": 110,
+        "fragment": 34,
+        "not_entity": 10,
+        "type_wrong": 19,
+        "correct": 20,
+        "overspan": 1
+      },
+      "facility": {
+        "fragment": 1,
+        "correct": 6
+      },
+      "keyword": {
+        "correct": 81,
+        "unreadable_source": 11,
+        "fragment": 6,
+        "overspan": 3,
+        "not_entity": 2
+      },
+      "location": {
+        "fragment": 8,
+        "unreadable_source": 8,
+        "correct": 24
+      },
+      "organization": {
+        "unreadable_source": 114,
+        "correct": 102,
+        "fragment": 30,
+        "not_entity": 3,
+        "overspan": 1,
+        "type_wrong": 1
+      },
+      "person": {
+        "unreadable_source": 38,
+        "fragment": 10,
+        "correct": 56,
+        "not_entity": 5,
+        "type_wrong": 2
+      }
+    },
+    "bySourceKind": {
+      "mixed": {
+        "correct": 9,
+        "fragment": 2
+      },
+      "ocr": {
+        "unreadable_source": 281,
+        "correct": 96,
+        "fragment": 76,
+        "not_entity": 13,
+        "type_wrong": 22,
+        "overspan": 4
+      },
+      "transcript": {
+        "correct": 184,
+        "overspan": 1,
+        "fragment": 11,
+        "not_entity": 7
+      }
+    },
+    "byConfidenceBand": {
+      "[0.0, 0.5)": {
+        "unreadable_source": 45,
+        "correct": 3,
+        "fragment": 20,
+        "type_wrong": 1
+      },
+      "[0.5, 0.7)": {
+        "unreadable_source": 62,
+        "fragment": 22,
+        "correct": 6,
+        "type_wrong": 1
+      },
+      "[0.7, 0.9)": {
+        "unreadable_source": 54,
+        "fragment": 15,
+        "correct": 32,
+        "not_entity": 11,
+        "type_wrong": 3,
+        "overspan": 2
+      },
+      "[0.9, 1.0]": {
+        "correct": 248,
+        "unreadable_source": 120,
+        "fragment": 32,
+        "not_entity": 9,
+        "type_wrong": 17,
+        "overspan": 3
+      }
+    }
+  },
+  "comparedMethod": {
+    "schema": "npick.entity-extraction.method-compare-metrics/v1",
+    "method": "llm:Qwen/Qwen3-1.7B",
+    "engine": "transformers5.17.0",
+    "device": "cuda:0",
+    "seconds": 311.56,
+    "goldLabeledBy": "Claude(Opus 5) 1차 판정 / young010514 사람 검수 완료 (2026-09-17)",
+    "labeledBy": "Claude(Opus 5) 1차 판정 / young010514 사람 검수 완료 (2026-09-17)",
+    "coverage": {
+      "goldScenes": 83,
+      "scenesAnswered": 52,
+      "scenesFailed": 3,
+      "candidates": 146,
+      "reviewed": 146,
+      "unreviewed": 0,
+      "candidatesOutsideGold": 0
+    },
+    "verdicts": {
+      "type_wrong": 26,
+      "correct": 69,
+      "unreadable_source": 22,
+      "not_entity": 12,
+      "fragment": 7,
+      "overspan": 10
+    },
+    "precision": {
+      "strict": 0.4726,
+      "attributable": 0.5565,
+      "attributableDenominator": 124
+    },
+    "recall": {
+      "stage": 0.1885,
+      "stageGold": 366,
+      "answeredScenes": 0.2556,
+      "answeredScenesGold": 270,
+      "found": 69
+    },
+    "byType": {
+      "event": {
+        "correct": 1,
+        "fragment": 1,
+        "not_entity": 2,
+        "unreadable_source": 1,
+        "overspan": 1
+      },
+      "facility": {
+        "correct": 2,
+        "overspan": 1
+      },
+      "keyword": {
+        "unreadable_source": 1,
+        "type_wrong": 1
+      },
+      "location": {
+        "correct": 2,
+        "not_entity": 1,
+        "fragment": 2,
+        "type_wrong": 3,
+        "overspan": 3,
+        "unreadable_source": 1
+      },
+      "organization": {
+        "correct": 27,
+        "unreadable_source": 16,
+        "fragment": 4,
+        "overspan": 5,
+        "type_wrong": 2
+      },
+      "person": {
+        "type_wrong": 20,
+        "correct": 37,
+        "not_entity": 9,
+        "unreadable_source": 3
+      }
+    },
+    "bySourceKind": {
+      "ocr": {
+        "type_wrong": 22,
+        "correct": 37,
+        "unreadable_source": 22,
+        "fragment": 7,
+        "overspan": 9,
+        "not_entity": 1
+      },
+      "transcript": {
+        "correct": 32,
+        "not_entity": 11,
+        "type_wrong": 4,
+        "overspan": 1
+      }
+    }
+  },
+  "notCompared": {
+    "kiwi-nnp": "유형을 내지 않아 같은 정답표로 채점할 수 없다. 시간과 후보 수만 비교된다",
+    "KoELECTRA-small-v3-modu-ner": "같은 corpus 실행 기록은 있으나 이 정답표로 채점하지 않았다"
+  }
+}
