@@ -147,7 +147,7 @@ test('데모와 유효하지 않은 결과 ID로는 문의를 접수할 수 없�
     const html = renderPreview({ result: { ...results[0], searchResultId } });
     assert.match(html, /data-state="unavailable"/);
     assert.match(html, /저장된 검색 결과가 아니므로 문의할 수 없습니다/);
-    assert.match(html, /disabled=""/);
+    assert.match(html, /aria-disabled="true"/);
   }
 });
 
@@ -162,8 +162,8 @@ test('접수 완료와 snapshot 문의 불가를 다른 상태로 표시한다',
   assert.ok(
     unavailableHtml.includes('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'),
   );
-  assert.match(unavailableHtml, /<dialog aria-describedby="[^"]+"/);
-  assert.match(unavailableHtml, /disabled=""/);
+  assert.match(unavailableHtml, /<button[^>]+aria-describedby="[^"]+"[^>]+aria-disabled="true"/);
+  assert.match(unavailableHtml, /role="tooltip"/);
   assert.ok(unavailableHtml.includes('검색 기록 저장 실패'));
 });
 

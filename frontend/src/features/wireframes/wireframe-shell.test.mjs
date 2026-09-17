@@ -102,7 +102,7 @@ test('snapshot 실패 Preview는 통합 경로에서도 문의를 비활성화�
   assert.equal((html.match(/data-state="unavailable"/g) ?? []).length, 1);
   assert.ok(html.includes('문의 불가'));
   assert.ok(!html.includes('id="inquiry-unavailable-'));
-  assert.match(html, /<dialog aria-describedby="[^"]+"/);
+  assert.match(html, /<button[^>]+aria-describedby="[^"]+"[^>]+aria-disabled="true"/);
 });
 
 test('정상 빈 결과는 임의 degraded 경고를 만들지 않는다', () => {

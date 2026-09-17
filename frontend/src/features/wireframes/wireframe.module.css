@@ -1266,6 +1266,28 @@
   text-wrap: pretty;
 }
 
+.previewTitleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px 16px;
+  min-width: 0;
+}
+
+.previewTitleRow h2 {
+  min-width: 0;
+}
+
+.previewClipName {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .previewModalHeader > div > p {
   margin: 6px 0 0;
   color: var(--muted);
@@ -1300,13 +1322,39 @@
   white-space: nowrap;
 }
 
-.previewModalHeader > .previewNotice {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--radius-small);
-  background: var(--surface-subtle);
+.previewInquiryAction {
+  position: relative;
+  z-index: 2;
+}
+
+.previewInquiryTooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  max-width: calc(100vw - 56px);
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--text);
+  box-shadow: 0 8px 24px rgb(6 22 35 / 18%);
+  color: var(--surface);
   font-size: 12px;
+  line-height: 1.6;
+  visibility: hidden;
+}
+
+.previewInquiryTooltip::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: 8px;
+  content: '';
+}
+
+.previewInquiryAction:hover .previewInquiryTooltip,
+.previewInquiryAction:focus-within .previewInquiryTooltip {
+  visibility: visible;
 }
 
 .previewDetailsHeading {
@@ -1660,12 +1708,13 @@
   transition: background-color 160ms ease;
 }
 
-.previewReportButton:hover:not(:disabled) {
+.previewReportButton:hover:not(:disabled):not([aria-disabled='true']) {
   background: rgb(255 255 255 / 80%);
   color: var(--accent);
 }
 
-.previewReportButton:disabled {
+.previewReportButton:disabled,
+.previewReportButton[aria-disabled='true'] {
   cursor: not-allowed;
 }
 
@@ -1675,7 +1724,7 @@
   color: var(--success);
 }
 
-.previewReportButton[data-state='unavailable']:disabled {
+.previewReportButton[data-state='unavailable'] {
   border-color: color-mix(in srgb, var(--warning) 30%, var(--line));
   background: var(--warning-soft);
   color: var(--warning);
@@ -1797,7 +1846,7 @@
   margin: 16px 0 0;
 }
 
-.searchResultNotices[data-variant='preview'] .resultSafetyNotice {
+.resultSafetyNotice[data-variant='preview'] {
   padding: 12px 16px;
   border: 0;
   border-radius: 12px;
@@ -1805,22 +1854,22 @@
   color: var(--muted);
 }
 
-.searchResultNotices[data-variant='preview'] .resultSafetyNotice > svg {
+.resultSafetyNotice[data-variant='preview'] > svg {
   color: var(--warning);
 }
 
-.searchResultNotices[data-variant='preview'] .resultSafetyNotice p {
+.resultSafetyNotice[data-variant='preview'] p {
   font-size: 12px;
   line-height: 1.6;
 }
 
-.searchResultNotices[data-variant='preview'] .resultSafetyNotice strong {
+.resultSafetyNotice[data-variant='preview'] strong {
   margin-bottom: 2px;
   font-size: inherit;
   font-weight: 600;
 }
 
-.searchResultNotices[data-variant='results'] .resultSafetyNotice {
+.resultSafetyNotice[data-variant='results'] {
   align-items: center;
   padding: 12px 16px;
   border: 0;
@@ -1830,11 +1879,11 @@
   backdrop-filter: blur(16px);
 }
 
-.searchResultNotices[data-variant='results'] .resultSafetyNotice > svg {
+.resultSafetyNotice[data-variant='results'] > svg {
   color: #f3d4a5;
 }
 
-.searchResultNotices[data-variant='results'] .resultSafetyNotice p {
+.resultSafetyNotice[data-variant='results'] p {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 12px;
@@ -1842,7 +1891,7 @@
   line-height: 1.6;
 }
 
-.searchResultNotices[data-variant='results'] .resultSafetyNotice strong {
+.resultSafetyNotice[data-variant='results'] strong {
   color: #f2f7fd;
   font-size: inherit;
   font-weight: 600;
@@ -1983,6 +2032,222 @@
 .dialog :focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 3px;
+}
+
+.dialog.inquiryDetailModal {
+  --text: #17243b;
+  --muted: #4d5e70;
+  --accent-strong: #0756c6;
+  --line: rgb(23 36 59 / 12%);
+  width: 40rem;
+  max-width: calc(100% - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 68%);
+  border-radius: 1.75rem;
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 94%);
+  box-shadow: 0 32px 96px rgb(6 22 35 / 32%);
+  backdrop-filter: blur(32px);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.inquiryDetailModal[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog.inquiryDetailModal::backdrop {
+  background: rgb(8 23 35 / 62%);
+  backdrop-filter: blur(8px);
+}
+
+.inquiryDetailHeader {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.75rem 2rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.inquiryDetailHeader h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 650;
+  line-height: 1.4;
+  letter-spacing: -0.04em;
+}
+
+.inquiryDetailHeader p {
+  margin: 0.625rem 0 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.inquiryDetailStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3125rem 0.625rem;
+  border-radius: 0.5rem;
+  background: rgb(23 36 59 / 7%);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.inquiryDetailStatus[data-status='reviewing'] {
+  background: rgb(7 86 198 / 9%);
+  color: var(--accent-strong);
+}
+
+.inquiryDetailStatus > span {
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.inquiryDetailClose {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 0.875rem;
+  background: rgb(255 255 255 / 54%);
+  color: var(--muted);
+  transition: background-color 180ms ease;
+}
+
+.inquiryDetailClose:hover {
+  background: #ffffff;
+}
+
+.inquiryDetailBody {
+  display: grid;
+  gap: 1.75rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.75rem 2rem 2rem;
+}
+
+.inquiryDetailLabel {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.inquiryDetailQuery {
+  margin: 0.5rem 0 1.125rem;
+  font-size: 1.1875rem;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: -0.03em;
+  word-break: keep-all;
+}
+
+.inquiryDetailScene {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  background: rgb(23 36 59 / 4%);
+}
+
+.inquiryDetailSceneIcon {
+  display: grid;
+  width: 2.75rem;
+  height: 3.25rem;
+  flex: none;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 54%);
+  color: var(--muted);
+}
+
+.inquiryDetailSceneLabel {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+
+.inquiryDetailSceneTitle {
+  margin: 0.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.inquiryDetailSceneMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.inquiryDetailComment {
+  margin: 0.625rem 0 0;
+  padding: 1rem 1.125rem;
+  border-radius: 0.875rem;
+  background: rgb(255 255 255 / 66%);
+  font-size: 0.9375rem;
+  line-height: 1.85;
+  white-space: pre-wrap;
+}
+
+.inquiryDetailComment[data-empty='true'] {
+  color: var(--muted);
+}
+
+.inquiryDetailResolution {
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.inquiryDetailResolutionTitle {
+  margin: 0.625rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.inquiryDetailResolutionSummary {
+  margin: 0.375rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.inquiryDetailClose:active {
+  background: #d5e0ed;
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .dialog.inquiryDetailModal {
+    border-radius: 1.25rem;
+  }
+
+  .inquiryDetailHeader,
+  .inquiryDetailBody {
+    padding: 1.25rem;
+  }
 }
 
 .modal {
@@ -2715,6 +2980,15 @@
 
   .previewModalHeader h2 {
     font-size: 20px;
+  }
+
+  .previewTitleRow {
+    flex-wrap: wrap;
+  }
+
+  .previewInquiryTooltip {
+    right: auto;
+    left: 0;
   }
 
   .previewHeaderActions .iconButton {
