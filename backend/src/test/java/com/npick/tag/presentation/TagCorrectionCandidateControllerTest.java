@@ -21,7 +21,7 @@ import com.npick.common.security.config.SecurityWebMvcConfig;
 import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
-import com.npick.tag.application.CreateTagCorrectionCandidateUseCase;
+import com.npick.tag.application.CreateTagCorrectionCandidateService;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -57,7 +57,7 @@ class TagCorrectionCandidateControllerTest {
     MockMvc mockMvc;
 
     @MockitoBean
-    CreateTagCorrectionCandidateUseCase service;
+    CreateTagCorrectionCandidateService service;
 
     @Test
     @DisplayName("검수자가 교정 후보를 만들면 201 과 생성된 근거 수·id 를 준다")
