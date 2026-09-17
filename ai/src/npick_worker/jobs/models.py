@@ -517,10 +517,11 @@ class OcrTextGroupOut(WireModel):
 class OcrObservations(WireModel):
     """관측 배열만. `ocr` 이 내는 payload 와 `vlm_metadata` 가 상류로 받는 것이 공유한다.
 
-    **둘이 같은 모양이 아니라서 부모를 따로 둔다.** BE 는 관측을 `ocr_observation` 행으로
-    저장하는데 그 표에 그룹 컬럼이 없고 계약이 별도 그룹 테이블을 금지하므로, BE 가
-    `inputs.upstream.ocr` 로 되돌려 주는 것에는 `textGroups` 가 없다. 그룹을 이 부모에
-    두면 vlm 이 BE 가 줄 수 없는 필드를 요구하게 된다.
+    **둘이 같은 모양이 아니라서 부모를 따로 둔다.** BE 의 `inputs.upstream` 은 저장된 상류
+    `output` 을 그대로 돌려주므로 `textGroups` 도 함께 실려 오지만, 그것을 상류 입력의
+    계약으로 삼지는 않는다 — 그룹의 정본은 `ocr_result` 산출물이고 `ocr_observation` 표에는
+    그룹 컬럼이 없어 다시 만들어 낼 수 없다. 그룹을 이 부모에 두면 vlm 이 되살릴 수 없는
+    필드를 필수로 요구하게 된다.
     """
 
     observations: Sequence[OcrObservationOut]
@@ -617,9 +618,10 @@ class UpstreamOcrObservation(OcrObservationOut):
 class UpstreamOcrOutput(OcrObservations):
     """BE 가 `vlm_metadata` 에 되돌려 주는 `ocr` 산출물.
 
-    `OcrOutput` 이 아니라 그 부모를 상속한다 — BE 는 `ocr_observation` 행에서 이것을
-    조립하고 그 표에 그룹 컬럼이 없으므로 `textGroups` 를 되살릴 수 없다. vlm 의 근거
-    연결도 개별 관측만 쓴다. 그룹이 필요한 소비자는 `ocr_result` 산출물을 읽는다.
+    `OcrOutput` 이 아니라 그 부모를 상속한다 — `extra="ignore"` 와 함께, 실려 오는
+    `textGroups` 를 읽지 않겠다는 선언이다. 그 표에 그룹 컬럼이 없어 `ocr_observation` 에서
+    다시 만들어 낼 수 없는 값이므로 여기에 기대지 않는다. vlm 의 근거 연결도 개별 관측만
+    쓴다. 그룹이 필요한 소비자는 `ocr_result` 산출물을 읽는다.
     """
 
     model_config = ConfigDict(extra="ignore")

@@ -47,6 +47,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                         "asr",
                         "scene_transcript_mapping",
                         "vlm_metadata",
+                        "entity_extraction",
                         "text_embedding",
                         "indexing")
                 .contains(stage);
@@ -100,6 +101,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             }
             case "scene_transcript_mapping" -> transcripts(runId, output, body.path("versions"), refs);
             case "vlm_metadata" -> captions(runId, clipId, output);
+            case "entity_extraction" -> entities(runId, clipId, output);
             case "text_embedding" -> embeddings(runId, output, body.path("versions"), refs);
             case "indexing" -> {
                 summarised(runId, output);
@@ -369,7 +371,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             // 보고 그렇게 말했는지가 결과 화면의 근거가 된다. `shotType` 은 그중에서도
             // 이미지 라벨만 쓴다 — 화면 글자나 대사로 앵커·자료화면을 가르지 않는다.
             // 워커가 말한 종류를 본다. 저장값은 OCR 근거도 `keyframe` 이라 여기서는 구분이 안 된다.
-            for (Object[] evidence : evidences(shot, keyframes, scenes, shotType.equals("unknown")))
+            for (Object[] evidence : evidences(shot, index, keyframes, scenes, shotType.equals("unknown")))
                 if (!"keyframe".equals(evidence[2])) invalid();
             JsonNode caption = scene.path("caption");
             // `null` 과 없음만 "설명이 없는 장면" 이다. 문자열·숫자를 조용히 무시하면
@@ -379,7 +381,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             // BE 에 Kiwi 가 없어 없는 토큰을 여기서 만들어 줄 수도 없다.
             if (caption.isObject()) {
                 confidence(caption);
-                evidences(caption, keyframes, scenes, false);
+                evidences(caption, index, keyframes, scenes, false);
                 if (!caption.path("tokens").isTextual()) invalid();
             }
             described.add(new Object[] {
@@ -398,7 +400,7 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                     matchValue(type, text(candidate, "value")),
                     text(candidate, "value"),
                     confidence(candidate),
-                    evidences(candidate, keyframes, scenes, false)
+                    evidences(candidate, index, keyframes, scenes, false)
                 });
             }
         }
@@ -406,7 +408,18 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
             jdbc.update(
                     "UPDATE npick.scene SET caption=?, caption_tokens=?, shot_type=?, updated_at=now() WHERE scene_id=?",
                     values0);
-        for (Object[] candidate : candidates) {
+        storeCandidates(clip, "vlm", candidates);
+        return Map.of();
+    }
+
+    /**
+     * 검증을 마친 장면 태그 후보를 세 표로 옮긴다.
+     *
+     * <p>한 행은 {@code {scene_id, tag_type, match_value, name, confidence, 근거 행 목록}} 이다. <b>자동 후보는 늘 장면 범위이고 검증되지 않은 상태로
+     * 고정한다</b>(FR-PRC-052·055) — 높은 신뢰도는 verified 의 근거가 아니고, 사람의 승인은 {@code reviewer_feedback} 으로 따로 남는다.
+     */
+    private void storeCandidates(long clip, String source, List<Object[]> candidates) {
+        for (Object[] candidate : folded(candidates)) {
             long tagId = tagId((String) candidate[1], (String) candidate[2], (String) candidate[3]);
             long taggingId = TsidGenerator.generate();
             // 같은 장면에 같은 태그가 두 번 오면 근거만 늘린다. UNIQUE 가 NULLS NOT DISTINCT 라
@@ -416,7 +429,11 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                     VALUES (?, ?, ?, ?, now()) ON CONFLICT (clip_id, scene_id, tag_id) DO NOTHING
                     """, taggingId, clip, candidate[0], tagId);
             // 근거 하나가 한 행이다. 워커가 근거를 여러 개 주는 이유는 한 판단이 여러 곳을
-            // 보고 나왔기 때문이고, 그것을 하나로 접으면 나머지가 흔적 없이 사라진다.
+            // 보고 나왔기 때문이고, 서로 다른 곳을 가리키는 근거를 하나로 접으면 나머지가
+            // 흔적 없이 사라진다. **같은 곳을 가리키게 되는 근거만 접는다** — 같은 프레임의
+            // 이미지 근거와 OCR 근거는 저장하면 `evidence_id` 빼고 모든 칸이 같아, 두 행이
+            // 서로 다른 무엇을 가리키는지 조회로 답할 수 없다(관측 단위는 `ocr_result` 가
+            // 정본이다). 같은 이유로 이 단계의 결과가 두 번 들어와도 근거가 두 배가 되지 않는다.
             @SuppressWarnings("unchecked")
             var evidences = (List<Object[]>) candidate[5];
             for (Object[] evidence : evidences)
@@ -424,19 +441,123 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
                         """
                         INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, confidence,
                             verification_status, source_ref_type, source_ref_id, created_at)
-                        SELECT ?, tagging_id, 'vlm', ?, 'unverified', ?, ?, now() FROM npick.tagging
-                        WHERE clip_id=? AND scene_id=? AND tag_id=?
+                        SELECT ?, t.tagging_id, ?, ?, 'unverified', ?, ?, now() FROM npick.tagging t
+                        WHERE t.clip_id=? AND t.scene_id=? AND t.tag_id=?
+                          AND NOT EXISTS (SELECT 1 FROM npick.tag_evidence e WHERE e.tagging_id=t.tagging_id
+                                            AND e.source=? AND e.source_ref_type=? AND e.source_ref_id=?)
                         """,
                         TsidGenerator.generate(),
+                        source,
                         candidate[4],
                         evidence[0],
                         evidence[1],
                         clip,
                         candidate[0],
-                        tagId);
+                        tagId,
+                        source,
+                        evidence[0],
+                        evidence[1]);
         }
+    }
+
+    /**
+     * 같은 {@code (장면, 유형, match_value)} 가 된 후보를 하나로 합친다 — 최초 표시값, 최대 신뢰도, 근거를 이은 것.
+     *
+     * <p>워커가 자기 안에서 쓰는 규칙과 같다(계약 §4.3.6). <b>표기 정규화가 워커와 BE 에서 다르기 때문에 필요하다.</b> 7단계는 정규화 <i>전</i> 표기로만 후보를 합치고
+     * ({@code vlm_metadata/validator.py} 의 {@code _deduplicate}) 8단계 워커는 공백과 세 글자만 지우는 자체 키를 쓰는데({@code extractor.py} 의
+     * {@code match_key}), {@code TagMatchValue} 는 {@code \p{Cf}} 전체와 CGJ 까지 지운다. 그래서 워커에서 갈라져 온 두 후보가 BE 에서 같은 태그가 된다.
+     * 그때 뒤 후보를 그냥 버리면 신뢰도가 조용히 낮은 쪽으로 굳는다.
+     *
+     * <p>이은 근거에 같은 참조가 섞여 있어도 여기서 걸러내지 않는다 — 같은 곳을 가리키게 되는 근거를 한 행으로 접는 일은 INSERT 가 이미 한다 ({@code storeCandidates()}).
+     * 같은 규칙을 두 군데 두면 둘이 어긋나는 날이 온다.
+     *
+     * <p>입력 배열은 고치지 않는다. 제자리에서 고치면 호출자가 그 목록을 다시 쓰는 날 신뢰도가 이미 덮여 있다.
+     */
+    private static List<Object[]> folded(List<Object[]> candidates) {
+        var merged = new LinkedHashMap<List<Object>, Object[]>();
+        for (Object[] candidate : candidates) {
+            Object[] previous = merged.get(List.of(candidate[0], candidate[1], candidate[2]));
+            if (previous == null) {
+                var evidences = new ArrayList<Object[]>();
+                evidences.addAll(cast(candidate[5]));
+                merged.put(
+                        List.of(candidate[0], candidate[1], candidate[2]),
+                        new Object[] {candidate[0], candidate[1], candidate[2], candidate[3], candidate[4], evidences});
+                continue;
+            }
+            previous[4] = Math.max((Double) previous[4], (Double) candidate[4]);
+            cast(previous[5]).addAll(cast(candidate[5]));
+        }
+        return List.copyOf(merged.values());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object[]> cast(Object evidences) {
+        return (List<Object[]>) evidences;
+    }
+
+    /**
+     * 8단계 장면 태그 후보를 저장한다 (계약 §4.3.6).
+     *
+     * <p><b>{@code source} 가 {@code vlm} 인 후보는 쓰지 않는다.</b> 그것은 이 단계가 만든 판단이 아니라 BE 가 {@code inputs.upstream} 으로 돌려준 7단계
+     * 후보를 그대로 되실은 것이고, 같은 값이 {@code captions()} 에서 이미 저장됐다. 다시 넣으면 {@code tagging} 은 UNIQUE 로 접히지만 {@code tag_evidence}
+     * 는 그대로 쌓여 같은 태그가 같은 근거를 두 번 갖는다. 검증은 그대로 한다 — 되싣는 길에 망가진 후보를 조용히 버리면 7단계와 8단계가 무엇을 주고받았는지 어긋난 채로 성공한다.
+     */
+    private Map<String, Object> entities(long run, long clip, JsonNode output) {
+        var scenes = sceneIds(run);
+        var keyframes = keyframeIds(run, scenes);
+        var values = array(output, "scenes");
+        // 장면 하나가 빠지면 그 장면은 "후보가 없는 장면" 으로 굳는다. 빈 후보 배열은 정상이라
+        // 저장된 결과만 봐서는 둘을 가를 수 없다.
+        //
+        // 이미 이 단계가 쓴 run 에 다시 쓰지도 않는다. **이 가드는 `rule` 행이 남았을 때만
+        // 운다** — 후보가 0건이면 남길 흔적이 없고, `captions()` 의 `shot_type <> 'unknown'`
+        // 같은 모양 기반 marker 가 이 단계에는 없다. 그 사각이 데이터를 망가뜨리지 않는 이유는
+        // 근거 INSERT 가 같은 참조를 두 번 쓰지 않기 때문이고(`storeCandidates()`), 서로 다른
+        // 결과가 두 번 들어오는 것은 `complete` 의 상태 전이가 먼저 막는다
+        // (`PipelineRun.complete()` 는 `running` 인 단계만 받는다).
+        if (scenes.isEmpty() || values.size() != scenes.size() || jdbc.queryForObject("""
+                                SELECT count(*) FROM npick.tag_evidence e JOIN npick.tagging t USING (tagging_id)
+                                JOIN npick.scene s ON s.scene_id = t.scene_id
+                                WHERE s.pipeline_run_id=? AND e.source='rule'
+                                """, Long.class, run) != 0)
+            invalid();
+        var indexes = new HashSet<Long>();
+        var rows = new ArrayList<Object[]>();
+        for (JsonNode scene : values) {
+            long index = integer(scene, "sceneIndex", 0);
+            if (index >= scenes.size() || !indexes.add(index)) invalid();
+            Object sceneId = scenes.get((int) index).get("scene_id");
+            for (JsonNode candidate : array(scene, "tagCandidates")) {
+                String source = text(candidate, "source");
+                // 어휘는 둘뿐이다. 입력이 OCR·CC 여도 출처는 바뀌지 않는다 — 그 값은 대사 원본의
+                // 종류일 뿐이고, 여기서 넓히면 사람 입력·검수 판단과 같은 칸을 쓰게 된다.
+                if (!"rule".equals(source) && !"vlm".equals(source)) invalid();
+                String type = text(candidate, "type");
+                String value = text(candidate, "value");
+                // 분류 유형은 화면을 본 판단이라 VLM 입력 후보만 전달한다(계약 §4.3.6). 워커의
+                // `Candidate.scope` 가 막는 것을 이쪽도 막는다 — 한쪽만 알면 그 차이가 곧 구멍이다.
+                if ("rule".equals(source) && CLASSIFICATION_TYPES.contains(type)) invalid();
+                // 유형·표기 검증을 쓰기 앞에서 끝낸다. 뒤 장면의 위반이 앞 장면의 태그를
+                // 정상 데이터로 남기지 않는다. 날짜 유형은 포트가 거절한다.
+                Object[] row = new Object[] {
+                    sceneId,
+                    type,
+                    matchValue(type, value),
+                    value,
+                    confidence(candidate),
+                    evidences(candidate, index, keyframes, scenes, false)
+                };
+                if ("rule".equals(source)) rows.add(row);
+            }
+        }
+        storeCandidates(clip, "rule", rows);
         return Map.of();
     }
+
+    /** 화면을 보고 내리는 분류 유형. 자체 NER 이 낼 수 있는 값이 아니라 VLM 후보로만 온다(계약 §4.3.6). */
+    private static final java.util.Set<String> CLASSIFICATION_TYPES =
+            java.util.Set.of("season", "weather", "scene_type");
 
     /** {@code scene.shot_type} 의 어휘. 랭킹이 매 검색마다 읽는 값이라 모르는 값이 들어가면 조용히 가산점만 빠진다. */
     private static final java.util.Set<String> SHOT_TYPES =
@@ -470,27 +591,37 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
      * {@code tag_evidence} 에 없어, 근거를 조회하면 "이 장면의 대사를 보고 나왔다" 까지만 답할 수 있다. 값이 사라지지는 않는다 — 단계 응답의 {@code output} 은
      * {@code stage_states_json} 에 통째로 보존되므로({@code PipelineRun}) 그 run 을 열면 꺼낼 수 있고, 조인·검색에 쓸 자리가 없을 뿐이다. 칸을 늘리는 것은 표
      * 변경이라 이 티켓의 범위가 아니며, §4.3.3 에 같은 사실을 적어 두었다.
+     *
+     * <p><b>근거는 판단이 달린 장면만 가리킨다</b>({@code scene} 인자). 워커는 장면마다 그 장면의 라벨만 주고 남의 장면 참조를 거절하지만
+     * ({@code vlm_metadata/validator.py}, {@code entity_extraction/schema.py} 의 {@code same_scene}), 여기서 막지 않으면 장면 A 의
+     * 태그가 장면 B 의 참조를 달고 굳는다. 저장되는 것은 참조 ID 뿐이라 나중에 가려낼 방법이 없고, 그 출력이 {@code inputs.upstream} 으로 8단계에 돌아가면 그 클립의 8단계가 매
+     * 시도 영구 실패한다.
      */
     private List<Object[]> evidences(
-            JsonNode judgement, Map<String, Long> keyframes, List<Map<String, Object>> scenes, boolean mayBeEmpty) {
+            JsonNode judgement,
+            long scene,
+            Map<String, Long> keyframes,
+            List<Map<String, Object>> scenes,
+            boolean mayBeEmpty) {
         var values = array(judgement, "evidence");
-        if (values.isEmpty() && !mayBeEmpty) invalid();
+        // 호출자 넷이 모두 먼저 보는 값이라 지금은 참이 되지 않는다. 다섯 번째 호출자가 그것을
+        // 잊었을 때 `scenes.get()` 의 500(워커는 재시도 가능으로 읽는다) 대신 400 이 나가게 남긴다.
+        if (scene >= scenes.size() || (values.isEmpty() && !mayBeEmpty)) invalid();
         var rows = new ArrayList<Object[]>();
         for (JsonNode evidence : values) {
+            if (integer(evidence, "sceneIndex", 0) != scene) invalid();
             // 이미지 근거에는 이 키가 없다. 기존 객체 모양을 유지하기 위해서다(§4.3.3).
             String kind = evidence.has("sourceRefType") ? text(evidence, "sourceRefType") : "keyframe";
             switch (kind) {
                 case "keyframe", "ocr_observation" -> {
-                    Long keyframe = keyframes.get(integer(evidence, "sceneIndex", 0) + ":"
-                            + integer(evidence, "timestampMs", 0) + ":" + text(evidence, "storageKey"));
+                    Long keyframe = keyframes.get(
+                            scene + ":" + integer(evidence, "timestampMs", 0) + ":" + text(evidence, "storageKey"));
                     if (keyframe == null) invalid();
                     rows.add(new Object[] {"keyframe", keyframe, kind});
                 }
                 case "scene" -> {
-                    long index = integer(evidence, "sceneIndex", 0);
                     text(evidence, "segmentId");
-                    if (index >= scenes.size()) invalid();
-                    rows.add(new Object[] {"scene", scenes.get((int) index).get("scene_id"), kind});
+                    rows.add(new Object[] {"scene", scenes.get((int) scene).get("scene_id"), kind});
                 }
                 default -> invalid();
             }
@@ -501,13 +632,8 @@ public class JdbcWorkerStageOutputAdapter implements com.npick.pipeline.applicat
     /**
      * 유형을 확인하고 {@code tag.match_value} 를 만든다. 쓰기는 하지 않는다 — 뒤 장면의 위반이 앞 장면의 태그를 남기지 않도록 검증을 저장 앞에서 끝낸다.
      *
-     * <p>정규화는 백엔드에 하나뿐인 {@link TagMatchValue} 를 지난다. 구현이 둘이 되면 같은 값이 두 표기로 {@code UNIQUE} 를 통과하고 정확 일치 조회가 조용히 0건이 된다.
-     */
-    /**
-     * 유형을 확인하고 {@code tag.match_value} 를 만든다. 쓰기는 하지 않는다 — 뒤 장면의 위반이 앞 장면의 태그를 남기지 않도록 검증을 저장 앞에서 끝낸다.
-     *
-     * <p>판정 자체는 {@link TagVocabularyPort} 가 한다({@code tag} 모듈). 여기서 직접 부르면 모듈 고리가 닫히기 때문이고, 그 포트가 {@code null} 을 주면
-     * 이쪽에서 잘못된 단계 출력으로 번역한다 — 어휘 밖 유형은 태그 오류가 아니라 워커가 계약을 어긴 것이다.
+     * <p>판정 자체는 {@link TagVocabularyPort} 가 한다({@code tag} 모듈). 정규화 규칙은 백엔드에 하나뿐인 {@code TagMatchValue} 하나이고, 여기서 그것을
+     * 직접 부르면 모듈 고리가 닫힌다. 그 포트가 {@code null} 을 주면 이쪽에서 잘못된 단계 출력으로 번역한다 — 어휘 밖 유형은 태그 오류가 아니라 워커가 계약을 어긴 것이다.
      */
     private String matchValue(String type, String value) {
         String match = vocabulary.matchValue(type, value);

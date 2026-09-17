@@ -4,12 +4,14 @@ The pure module (`npick_worker.entity_extraction`) knows nothing about the job A
 everything that turns `inputs.upstream` into its dataclasses lives here — the boundary
 `ai/AGENTS.md` draws and `jobs/scene_transcript_mapping.py` already follows.
 
-**The OCR merge runs here, not upstream.** BE rebuilds `inputs.upstream.ocr` from
-`ocr_observation` rows and that table has no group column (`jobs/models.py`
-`UpstreamOcrOutput`), so `textGroups` cannot come back. This stage regroups the array it
-was handed with the same default merge config the OCR stage used, which is why
-`mergeVersion` is one of this stage's reproducibility axes — regroup differently and the
-same observations produce different text with nothing else in the tuple moving.
+**The OCR merge runs here, not upstream.** BE hands back the stored upstream `output`
+verbatim, but `UpstreamOcrOutput` declares `extra="ignore"` and does not read the
+`textGroups` riding along (`jobs/models.py`): that table has no group column, so the
+value cannot be rebuilt from `ocr_observation` and this stage does not lean on it. It
+regroups the array it was handed with the same default merge config the OCR stage used,
+which is why `mergeVersion` is one of this stage's reproducibility axes — regroup
+differently and the same observations produce different text with nothing else in the
+tuple moving.
 """
 
 from collections.abc import Mapping, Sequence

@@ -13,6 +13,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import com.npick.pipeline.application.port.StageOutputPort;
 import com.npick.pipeline.application.port.TagVocabularyPort;
+import com.npick.pipeline.domain.model.PipelineStages;
 import com.npick.pipeline.infrastructure.config.WorkerJobSecurityConfiguration;
 import com.npick.pipeline.infrastructure.config.WorkerStorageConfiguration;
 import com.npick.tag.infrastructure.WorkerTagVocabularyAdapter;
@@ -34,9 +35,17 @@ class WorkerConfigurationTest {
             assertThat(context).hasNotFailed().hasSingleBean(StageOutputPort.class);
             assertThat(context.getBean(StageOutputPort.class).supports("transcript_selection"))
                     .isTrue();
-            // 워커도 BE 도 아직 없는 마지막 단계다. `ocr` 은 S15P21A501-184,
-            // `scene_transcript_mapping` 은 S15P21A501-191 에서 지원으로 넘어갔다.
+            // 단계 표의 열 단계가 모두 저장 분기를 가졌다. `ocr` 은 S15P21A501-184,
+            // `scene_transcript_mapping` 은 -191, `entity_extraction` 은 -192 에서 넘어갔다.
             assertThat(context.getBean(StageOutputPort.class).supports("entity_extraction"))
+                    .isTrue();
+            // 단계 표와 지원 집합이 같아야 한다. 하나가 빠지면 그 단계가 claim capabilities 에서
+            // 지워져 run 이 그 자리에서 멈춘다.
+            assertThat(PipelineStages.NAMES.stream()
+                            .filter(context.getBean(StageOutputPort.class)::supports)
+                            .toList())
+                    .isEqualTo(PipelineStages.NAMES);
+            assertThat(context.getBean(StageOutputPort.class).supports("montage"))
                     .isFalse();
         });
     }
