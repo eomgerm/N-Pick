@@ -26,8 +26,15 @@ final class StructuredScoreCalculator {
         for (var incident : resolution.incidentNames()) {
             add(axes, StructuredAxis.EVENT, TagType.EVENT, incident.value());
         }
-        // (타입, 정규화 값)이 같은 조건만 제거한다. 이름이 같아도 기관과 시설은 다른 조건이다.
-        // 같은 개체의 entities/locations 경로 정리는 #48 소유이며 여기서 재분류하지 않는다.
+        // 고유 조건은 (타입, 정규화 값) 이다. 이름이 같아도 기관과 시설은 다른 조건이다 (F-05).
+        //
+        // 리졸버가 낸 항목을 여기서 재분류하지 않는다 — S15P21A501-48 이 확정한 계약이다. 값이 같은
+        // entities/locations 교차 중복은 워커 validator 가 locations 를 남기고 걷어내고, 그것이 놓친
+        // 표기 차이는 add() 의 TagMatchValue.normalize 가 축 안에서 접는다. 두 단계를 지나고도 남은
+        // 것은 종류가 다른 조건이므로, 합치면 F-05 의 「기관과 시설은 다른 조건」 을 어긴다.
+        //
+        // 판정 기준은 백엔드의 normalize 하나다. 워커의 비교 키를 고치거나 이 규칙을 Python 에
+        // 복제하지 않는다 — 구현이 둘이 되는 순간이 「조용히 0건」 의 원천이다 (S15P21A501-169).
         for (var entity : resolution.entities()) {
             switch (entity.type()) {
                 case PERSON -> add(axes, StructuredAxis.PERSON, TagType.PERSON, entity.value());
@@ -69,7 +76,13 @@ final class StructuredScoreCalculator {
         }
     }
 
-    /** 날짜는 기존 후보 비교에만 쓴다. expanded_terms·계절·날씨·shot_type은 이 후보 경로에 없다. */
+    /**
+     * 날짜는 기존 후보 비교에만 쓴다. 계절·날씨·shot_type 은 이 후보 경로에 없다.
+     *
+     * <p><b>{@code expanded_terms} 도 여기 없다.</b> 확장어는 구조화 축 점수에 반영하지 않는다 (S15P21A501-48 계약). 확장어에
+     * 개체 점수를 주면 정확 일치가 밀려나는데, 그것은 F-05 의 「확장어는 정확 일치를 대체할 수 없다」 를 어기는 것이다. 확장어가 쓰이는 곳은 단어
+     * 검색의 후보 조회 하나이며 그 계약은 {@link com.npick.search.application.query.candidate.FindSceneCandidatesQueryPort} 에 있다.
+     */
     List<TagCondition> candidateConditions(
             Map<StructuredAxis, List<TagCondition>> axes, StructuredScoreSettings settings) {
         return axes.entrySet().stream()
