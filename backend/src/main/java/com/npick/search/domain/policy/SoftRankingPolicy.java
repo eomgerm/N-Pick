@@ -34,6 +34,16 @@ public final class SoftRankingPolicy {
      *     것과 같아진다 (F-05). 활성 신호가 없으면 빈 맵이다
      */
     public double softScore(Map<SoftSignal, Double> signalValues, SoftRankingSettings settings) {
+        // 가중치를 활성 최댓값으로 먼저 접는다. 바로 더하면 Double.MAX_VALUE 급 가중치 둘에서 분자·분모가 모두
+        // Infinity 가 되어 몫이 NaN 이고, NaN 은 Double.compare 가 최댓값으로 다뤄 그 후보가 목록 맨 앞으로 간다.
+        // 나눈 뒤에는 각 항이 [0,1] 이라 활성 신호 수만큼만 쌓여 넘칠 수 없다. 공통 배율이 상쇄된다는 계약도
+        // 이렇게 해야 실제로 성립한다 — 접기 전에는 극단값에서만 깨졌다.
+        double scale = 0;
+        for (SoftSignal signal : signalValues.keySet()) {
+            scale = Math.max(scale, settings.weightOf(signal));
+        }
+        if (scale == 0) return 0;
+
         double weighted = 0;
         double denominator = 0;
         for (var entry : signalValues.entrySet()) {
@@ -41,7 +51,7 @@ public final class SoftRankingPolicy {
             if (!(value >= 0) || !(value <= 1)) {
                 throw new IllegalArgumentException("Soft signal value must be within [0,1]: " + entry.getKey());
             }
-            double weight = settings.weightOf(entry.getKey());
+            double weight = settings.weightOf(entry.getKey()) / scale;
             weighted += weight * value;
             denominator += weight;
         }
@@ -51,7 +61,8 @@ public final class SoftRankingPolicy {
     /**
      * 두 {@code baseScore} 의 순위 비교. 결과가 {@code 0} 인 구간에서만 보조 점수가 순서를 가른다.
      *
-     * <p>{@code epsilon} 이 0 보다 크면 {@code floor(base/epsilon)} 버킷으로 비교한다. {@code |a-b| <= epsilon} 식 관용 비교를 쓰지 않는 이유는
+     * <p>{@code epsilon} 이 0 보다 크면 {@code floor(base/epsilon)} 버킷으로 비교한다. 몫이 {@code Infinity} 가 될 만큼 작은 {@code epsilon} 은 정확
+     * 비교로 접는다 — 버킷 폭이 0 에 수렴하는 구간의 의도된 동작이고, 접지 않으면 서로 다른 점수가 동점으로 보여 보조 점수가 관련성을 이긴다. {@code |a-b| <= epsilon} 식 관용 비교를 쓰지 않는 이유는
      * 그것이 <b>추이적이지 않기</b> 때문이다 — {@code a~b}, {@code b~c} 인데 {@code a≁c} 가 성립하면 {@code Comparator} 계약이 깨져
      * {@code List.sort} 가 던진다. 버킷 경계 바로 양쪽은 차이가 작아도 갈리는데, 그 대신 정렬이 늘 성립한다.
      */
@@ -59,6 +70,13 @@ public final class SoftRankingPolicy {
         if (epsilon <= 0) {
             return Double.compare(left, right);
         }
-        return Double.compare(Math.floor(left / epsilon), Math.floor(right / epsilon));
+        double leftBucket = Math.floor(left / epsilon);
+        double rightBucket = Math.floor(right / epsilon);
+        // epsilon 이 아주 작으면 두 몫이 모두 Infinity 가 되어 서로 다른 점수가 동점으로 보인다. 그 구간에서 의도한 동작은
+        // 「버킷 폭이 0 에 수렴」, 즉 정확 비교다. 여기서 접지 않으면 보조 점수가 관련성을 이기는 경로가 열린다.
+        if (!Double.isFinite(leftBucket) || !Double.isFinite(rightBucket)) {
+            return Double.compare(left, right);
+        }
+        return Double.compare(leftBucket, rightBucket);
     }
 }

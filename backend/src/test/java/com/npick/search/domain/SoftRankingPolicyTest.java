@@ -89,6 +89,39 @@ class SoftRankingPolicyTest {
         assertThat(policy.compareBase(low, high, epsilon)).isNegative();
     }
 
+    /**
+     * 아주 작은 {@code epsilon} 에서 관련성 순서가 뒤집히지 않는다 (MR !103 P1).
+     *
+     * <p>{@code 0.9 / Double.MIN_VALUE} 와 {@code 0.5 / Double.MIN_VALUE} 는 둘 다 {@code Infinity} 라 나눗셈 결과로만 비교하면
+     * 동점이 된다. 그러면 보조 점수가 높은 0.5 후보가 0.9 후보를 추월해 이 정책의 유일한 보장이 깨진다. 버킷 폭이 0 에 수렴하는 구간의 의도된 동작은 「정확 비교」다.
+     */
+    @Test
+    void anEpsilonTooSmallToBucketFallsBackToExactComparison() {
+        assertThat(policy.compareBase(0.9, 0.5, Double.MIN_VALUE)).isPositive();
+        assertThat(policy.compareBase(0.5, 0.9, Double.MIN_VALUE)).isNegative();
+        assertThat(policy.compareBase(0.5, 0.5, Double.MIN_VALUE)).isZero();
+    }
+
+    /**
+     * 극단적인 가중치에서도 보조 점수가 유한하고, 공통 배율이 상쇄된다 (MR !103 P2).
+     *
+     * <p>{@code Double.MAX_VALUE} 급 가중치 둘을 더하면 분자·분모가 모두 {@code Infinity} 가 되어 몫이 {@code NaN} 이다. {@code NaN} 은
+     * {@code Double.compare} 가 최댓값으로 다루므로 그 후보가 목록 맨 앞으로 간다 — 보조 신호가 관련성을 이기는 가장 직접적인 경로다.
+     */
+    @Test
+    void extremeWeightsStayFiniteAndKeepTheCommonScaleCancelling() {
+        var values = new EnumMap<SoftSignal, Double>(SoftSignal.class);
+        values.put(SoftSignal.B_ROLL, 1.0);
+        values.put(SoftSignal.SEASON, 0.0);
+
+        double huge = policy.softScore(values, settings(1, Double.MAX_VALUE, Double.MAX_VALUE, 1));
+        double tiny = policy.softScore(values, settings(1, Double.MIN_NORMAL, Double.MIN_NORMAL, 1));
+
+        // 「의미를 갖는 것은 신호 사이의 비율뿐」이라는 계약대로 {1,1} 과 같은 값이어야 한다.
+        assertThat(huge).isCloseTo(0.5, within(1e-12));
+        assertThat(tiny).isCloseTo(0.5, within(1e-12));
+    }
+
     private static SoftRankingSettings settings(double recency, double bRoll, double season, double weather) {
         Map<SoftSignal, Double> weights = new EnumMap<>(SoftSignal.class);
         weights.put(SoftSignal.RECENCY, recency);
