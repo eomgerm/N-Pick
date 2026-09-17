@@ -24,8 +24,10 @@ import com.npick.tag.domain.model.TagType;
  *
  * <h2>F-06 판정표</h2>
  *
+ * <p>FRD 의 표는 일곱 줄이고 그중 마지막 「승인된 특정 장면 제외 규칙」 은 S15P21A501-58 소관이라 여기 없다. 나머지 여섯 줄이 이 클래스의 전부다.
+ *
  * <table border="1">
- *   <caption>여섯 분기</caption>
+ *   <caption>F-06 의 여섯 줄</caption>
  *   <tr><th>상황</th><th>동작</th></tr>
  *   <tr><td>명시 날짜와 같은 종류의 검증된 날짜가 일치</td><td>제외하지 않는다. 점수는 구조화 축(-52)이 센다</td></tr>
  *   <tr><td>날짜·사건명 정보가 없거나 미검증</td><td>제외하지 않는다</td></tr>
