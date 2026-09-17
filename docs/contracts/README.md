@@ -38,7 +38,7 @@ AI 컨테이너는 둘이다 — 질의 리졸버와 파이프라인 워커([02-
 ```
 scene-detect/v1
 npick.stage.scene_detection.output/v1
-query-resolver/v1
+query-resolver/v2
 ```
 
 **값 해시**는 `<schema>:<정규화 JSON의 sha256 앞 N자>` 다.
@@ -63,13 +63,14 @@ BE의 오류 코드는 `<PREFIX>_<HTTPSTATUS>[_<NNN>]` 형식이다(`backend/src
 
 | 접두        | 소유                     |
 | ----------- | ------------------------ |
-| `COMM_`     | 공통 (`CommonErrorCode`) |
-| `MEMBER_`   | 계정·로그인 API          |
-| `CLIP_`     | 영상 등록·재생 API       |
-| `SRCH_`     | 검색 API                 |
-| `FEEDBACK_` | 문의·검수 API            |
-| `JOB_`      | 잡 API                   |
-| _(미정)_    | 리졸버 API               |
+| `COMM_`     | 공통 (`CommonErrorCode`)          |
+| `MEMBER_`   | 계정·로그인 API                   |
+| `CLIP_`     | 영상 등록·재생 API                |
+| `SRCH_`     | 검색·리졸버 API (`QueryResolverErrorCode` 포함) |
+| `FEEDBACK_` | 문의·검수 API                     |
+| `TAG_`      | 태그 교정 API                     |
+| `CONFIRM_`  | 교정 확정 API                     |
+| `JOB_`      | 잡 API                            |
 
 HTTP 계층의 코드와 별개로, 단계 산출물에 실리는 도메인 오류 어휘(`stage_states_json`의 `errorCode` 등)는 접두 없이 대문자 스네이크로 쓴다. 계약마다 목록을 자기 문서에 둔다.
 

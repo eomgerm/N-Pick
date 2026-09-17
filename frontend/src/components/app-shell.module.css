@@ -1,0 +1,70 @@
+.floatingLayout {
+  --layout-top-inset: 32px;
+  --nav-collapsed-width: 72px;
+  --nav-width: var(--nav-collapsed-width);
+  --nav-top-gap: 30px;
+}
+
+.searchHeader {
+  position: fixed;
+  z-index: 40;
+  inset: 0 0 auto;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: var(--nav-width) minmax(0, 1fr);
+  align-items: center;
+  gap: 28px;
+  min-height: calc(var(--layout-top-inset) + var(--nav-collapsed-width) + 14px);
+  padding: var(--layout-top-inset) 32px 14px 24px;
+  color: var(--text);
+}
+
+/* 흐림 표면을 별도 레이어로 두어 계정 메뉴의 위치와 클릭을 방해하지 않습니다. */
+.searchHeader[data-has-content='true']::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 -48px;
+  background:
+    url('/textures/frosted-grain.svg'),
+    linear-gradient(180deg, rgb(224 241 233 / 16%), rgb(12 35 29 / 12%));
+  -webkit-backdrop-filter: blur(28px) saturate(120%);
+  backdrop-filter: blur(28px) saturate(120%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 48%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 48%, transparent 100%);
+  pointer-events: none;
+}
+
+.searchAccount {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  width: 100%;
+  justify-self: start;
+}
+
+.searchHeaderContent {
+  min-width: 0;
+}
+
+.searchHeaderSpace {
+  height: calc(var(--layout-top-inset) + var(--nav-collapsed-width) + 14px);
+  flex: 0 0 auto;
+}
+
+.searchHeaderSpace[data-has-search='true'] {
+  height: calc(var(--layout-top-inset) + var(--nav-collapsed-width) + var(--nav-top-gap));
+}
+
+@media (max-width: 760px) {
+  .floatingLayout {
+    --nav-collapsed-width: 60px;
+    --nav-top-gap: 24px;
+  }
+
+  .searchHeader {
+    gap: 16px;
+    padding-right: 14px;
+    padding-left: 8px;
+  }
+}

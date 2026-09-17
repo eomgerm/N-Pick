@@ -20,6 +20,7 @@ from npick_worker.jobs.registry import (
     StageOutcome,
     WarmupReport,
     capability_versions,
+    declared_stages,
     resolve,
     warm_up,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "WorkerError",
     "capability_versions",
     "classify",
+    "declared_stages",
     "pipeline_version",
     "resolve",
     "stage_version",

@@ -16,7 +16,6 @@ interface SearchResultStateProps {
   details?: SearchResultDetails;
   onReset: () => void;
   onRetry: () => void;
-  onEditQuery: () => void;
 }
 
 export function SearchResultState({
@@ -27,7 +26,6 @@ export function SearchResultState({
   details,
   onReset,
   onRetry,
-  onEditQuery,
 }: SearchResultStateProps) {
   const isFailed = state === 'failed';
   const isLoading = state === 'loading';
@@ -39,31 +37,40 @@ export function SearchResultState({
       data-state={state}
       role={isFailed ? 'alert' : 'status'}
     >
-      <div className={styles.stateIcon}>
-        <Icon aria-hidden="true" className={isLoading ? styles.spinner : undefined} />
-      </div>
-      <h3>
-        {isLoading
-          ? '필요한 장면을 찾고 있어요'
-          : isFailed
-            ? '검색 결과를 불러오지 못했어요'
-            : '조건에 맞는 장면이 없어요'}
-      </h3>
-      <p>
-        {isLoading
-          ? '검색어와 선택한 기간을 확인하고 있어요. 잠시만 기다려 주세요.'
-          : isFailed
-            ? '일시적인 연결 문제로 검색을 완료하지 못했어요. 입력한 검색어와 기간은 그대로 유지돼요.'
-            : '이번 검색에서 반환된 장면은 0개예요. 적용 조건과 검색 상태를 확인해 주세요.'}
-      </p>
-      {isLoading ? (
-        <div aria-hidden="true" className={styles.loadingBars}>
-          <span />
-          <span />
-          <span />
+      <div className={styles.stateSummary}>
+        <div className={styles.stateIcon}>
+          <Icon aria-hidden="true" className={isLoading ? styles.spinner : undefined} />
         </div>
-      ) : (
-        <>
+        <h3>
+          {isLoading
+            ? '필요한 장면을 찾고 있어요'
+            : isFailed
+              ? '검색 결과를 불러오지 못했어요'
+              : '조건에 맞는 장면이 없어요'}
+        </h3>
+        <p>
+          {isLoading ? (
+            '검색어와 선택한 기간을 확인하고 있어요. 잠시만 기다려 주세요.'
+          ) : isFailed ? (
+            <>
+              일시적인 연결 문제로 검색을 완료하지 못했어요.
+              <br />
+              입력한 검색어와 기간은 유지돼요.
+            </>
+          ) : (
+            '이번 검색에서 반환된 장면은 0개예요. 적용 조건과 검색 상태를 확인해 주세요.'
+          )}
+        </p>
+        {isLoading ? (
+          <div aria-hidden="true" className={styles.loadingBars}>
+            <span />
+            <span />
+            <span />
+          </div>
+        ) : null}
+      </div>
+      {!isLoading ? (
+        <div className={styles.stateDetails}>
           <dl className={styles.searchConditions}>
             <div>
               <dt>검색어</dt>
@@ -91,12 +98,9 @@ export function SearchResultState({
             >
               {isFailed ? '같은 조건으로 다시 시도' : '기간 초기화하고 다시 검색'}
             </button>
-            <button onClick={onEditQuery} type="button">
-              검색어 수정
-            </button>
           </div>
-        </>
-      )}
+        </div>
+      ) : null}
     </div>
   );
 }

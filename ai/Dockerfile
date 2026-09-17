@@ -23,7 +23,10 @@ WORKDIR /app
 # compose healthcheck 용
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid 10002 npick && useradd --uid 10002 --gid npick --create-home npick
+# uid 는 backend/Dockerfile 과 같아야 한다. 두 컨테이너가 media 볼륨을 공유하는데
+# BE 가 만드는 원본이 0600 이라, uid 가 다르면 워커가 원본을 열지 못한다
+# (NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME=true 에서 PermissionError). S15P21A501-189.
+RUN groupadd --gid 10001 npick && useradd --uid 10001 --gid npick --create-home npick
 
 COPY --from=build --chown=npick:npick /app/.venv /app/.venv
 COPY --from=build --chown=npick:npick /app/src /app/src

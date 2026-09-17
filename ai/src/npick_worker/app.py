@@ -20,7 +20,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, status
 
 from npick_worker.device import detect_device
 from npick_worker.jobs.client import JobApiClient
-from npick_worker.jobs.registry import WarmupReport, warm_up
+from npick_worker.jobs.registry import WarmupReport, declared_stages, warm_up
 from npick_worker.jobs.runner import JobRunner, generate_worker_id
 from npick_worker.query_api import (
     QueryNotNormalizableError,
@@ -74,6 +74,7 @@ def health() -> HealthResponse:
         pipeline=PipelineRegistry(
             stage_count=len(STAGES),
             stages=[StageSummary(order=s.order, name=s.name, fatal=s.fatal) for s in STAGES],
+            declared=list(declared_stages()),
         ),
         warmup=_warmup,
         polling=_polling_status(),

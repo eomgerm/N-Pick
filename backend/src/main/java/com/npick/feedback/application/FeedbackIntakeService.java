@@ -19,7 +19,9 @@ public class FeedbackIntakeService {
 
     @Transactional
     public Feedback submit(long searchResultId, long createdById, String comment) {
-        if (!repository.existsSearchResult(searchResultId)) {
+        // 검색 결과 존재 + 그 검색을 본인이 실행했을 때만 접수한다. 타인 검색에 문의를 달면 조회 시 그 검색어·필터가
+        // 노출되므로(S15P21A501-185 리뷰) 생성 단계에서 막는다. 타인 검색·미존재는 구분 없이 동일 404.
+        if (!repository.existsSearchResultSearchedBy(searchResultId, createdById)) {
             throw new FeedbackException(FeedbackErrorCode.RESULT_NOT_FOUND);
         }
         return repository.findByResultAndCreator(searchResultId, createdById).orElseGet(() -> {

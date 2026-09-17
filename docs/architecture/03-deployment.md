@@ -4,7 +4,7 @@
 > **범위**: P0 운영 환경 한 벌. [Level 2](./02-container.md)의 각 컨테이너가 실제로 어느 노드에서 도는가
 > **청중**: 인프라 담당자, CI/CD 담당자
 > **문서 상태**: **아키텍처 SSOT** · P0 설계 확정본 · 최종 수정 2026-09-02
-> **기준 문서**: Notion `N-Pick-FRD-v2.2` — 본문의 모든 `§` 참조는 이 문서 기준이다
+> **기준 문서**: Notion `N-Pick-FRD-v3.2` — 본문의 모든 `§` 참조는 이 문서 기준이다
 > **제품명**: 산출물과 기준 문서의 표기는 **N-Pick**으로 통일한다
 > **기술 스택 정본**: [02 Container](./02-container.md)의 *요소* 표. 다른 문서의 기술 표기가 어긋나면 그 표를 따른다
 > **세트 구성**: [01 Context](./01-context.md) · [02 Container](./02-container.md) · [03 Deployment](./03-deployment.md)
@@ -66,7 +66,7 @@ C4Deployment
 
     Deployment_Node(gpu, "RunPod GPU 파드 — 실시간 구동", "NVIDIA CUDA · 네트워크 볼륨에 모델 가중치 상주") {
         Deployment_Node(n_wrk, "컨테이너: worker", "Python 3.12 · PyTorch") {
-            Container(worker, "파이프라인 워커", "FastAPI · Python 3.12 · PyTorch", "장면 분할부터 임베딩까지 9단계를 GPU에서 실행한다.")
+            Container(worker, "파이프라인 워커", "FastAPI · Python 3.12 · PyTorch", "장면 분할부터 색인까지 10단계를 GPU에서 실행한다.")
         }
     }
 

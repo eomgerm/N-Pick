@@ -3,12 +3,12 @@
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 
-import styles from '@/features/wireframes/login-mountain-backdrop.module.css';
+import styles from '@/components/mountain-backdrop.module.css';
 
 const layers = ['sky', 'mountains', 'foreground'] as const;
 
-/** Login-only decoration. Motion never participates in form or auth state. */
-export function LoginMountainBackdrop() {
+/** Shared login/search decoration, independent of form and auth state. */
+export function MountainBackdrop() {
   const sceneRef = useRef<HTMLDivElement>(null);
   const loadedLayers = useRef(new Set<string>());
   const [isReady, setIsReady] = useState(false);
