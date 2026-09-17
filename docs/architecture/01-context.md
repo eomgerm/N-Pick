@@ -4,7 +4,7 @@
 > **범위**: N-Pick 시스템 전체, 그 사용자, 그리고 경계 밖 시스템
 > **청중**: 팀 전원과 발표 청중. 기술 배경이 없어도 읽을 수 있어야 한다.
 > **문서 상태**: **아키텍처 SSOT** · P0 설계 확정본 · 최종 수정 2026-09-02
-> **기준 문서**: Notion `N-Pick-FRD-v2.2` — 본문의 모든 `§` 참조는 이 문서 기준이다
+> **기준 문서**: Notion `N-Pick-FRD-v3.2` — 본문의 모든 `§` 참조는 이 문서 기준이다
 > **제품명**: 산출물과 기준 문서의 표기는 **N-Pick**으로 통일한다
 > **기술 스택 정본**: [02 Container](./02-container.md)의 *요소* 표. 다른 문서의 기술 표기가 어긋나면 그 표를 따른다
 > **세트 구성**: [01 Context](./01-context.md) · [02 Container](./02-container.md) · [03 Deployment](./03-deployment.md)
@@ -24,14 +24,14 @@ C4Context
     title System Context diagram for N-Pick
 
     Person(editor, "편집기자", "방송에 쓸 장면을 한국어로 검색하고, 근거와 타임코드를 확인해 송출 전 최종 확인을 한다.")
-    Person(reviewer, "검수자 / 아카이빙 담당자", "영상을 등록하고 처리 상태를 확인하며, 접수된 문의를 진단해 exact override를 등록한다.")
+    Person(reviewer, "검수자 / 아카이빙 담당자", "영상을 등록하고 처리 상태를 확인하며, 접수된 문의를 진단해 교정을 등록한다.")
 
     System(npick, "N-Pick", "기방영 뉴스 영상을 장면 단위로 색인하고, 검색 시점에 질의를 임시 구조화해 관련 장면을 찾아준다. 장면 추출 모델은 전량 자체 GPU에서 구동한다.")
 
     System_Ext(gms, "GMS — Query Resolver 프로파일", "질의 해석만 위탁할 수 있는 외부 LLM. 질의 텍스트와 명시 필터만 수신하며, search history 전체와 result media 전송은 금지된다.")
 
     Rel(editor, npick, "장면을 검색하고 Preview로 확인하며, 잘못된 결과를 '이상해요'로 문의한다", "HTTPS")
-    Rel(reviewer, npick, "영상을 등록하고, 문의를 진단해 exact override를 등록한다", "HTTPS")
+    Rel(reviewer, npick, "영상을 등록하고, 문의를 진단해 교정을 등록한다", "HTTPS")
     Rel(npick, gms, "deployment 정책과 provider allowlist를 모두 통과할 때만 질의 해석을 위탁한다", "HTTPS/JSON")
 
     UpdateLayoutConfig($c4ShapeInRow="2", $c4BoundaryInRow="1")
@@ -49,16 +49,16 @@ C4Context
 | 약어 | 뜻 |
 | --- | --- |
 | GMS | 외부 LLM 제공 서비스. component별 payload 범위를 versioned provider profile로 관리한다 |
-| override | 검수자가 특정 질의에 대해 등록하는 exact 보정. `resolution_patch`와 `exclude_scene` 두 종류 |
+| 교정 (correction) | 검수자가 문의를 진단해 등록하는 보정. `tag_correction`·`patch_parse`·`exclude_scene` 세 종류 (`feedback.resolution`) |
 | Preview | 검색 결과 장면의 타임코드 구간 재생 |
 
 ## 요소
 
 | 요소 | 유형 | 기술 | 책임 |
 | --- | --- | --- | --- |
-| 편집기자 (`editor`) | Person | — | 한국어 검색, 근거·타임코드 확인, Preview, `이상해요` 문의, 송출 전 최종 확인. override 생성·해제와 원천·피처 직접 수정은 불가 |
-| 검수자 / 아카이빙 담당자 (`reviewer`) | Person | — | 영상 등록·처리 상태 확인, 접수 문의 진단, exact override 등록·버전 갱신·해제, replay 확인. 문의 없는 전수 사전검수는 하지 않음 |
-| N-Pick | System (범위 안) | — | 장면 색인, 검색 시점 질의 해석, 명백한 오사용의 보수적 차단, reactive override |
+| 편집기자 (`editor`) | Person | — | 한국어 검색, 근거·타임코드 확인, Preview, `이상해요` 문의, 송출 전 최종 확인. 교정 생성·해제와 원천·피처 직접 수정은 불가 |
+| 검수자 / 아카이빙 담당자 (`reviewer`) | Person | — | 영상 등록·처리 상태 확인, 접수 문의 진단, 교정 후보 작성·검증·확정, replay 확인. 문의 없는 전수 사전검수는 하지 않음 |
+| N-Pick | System (범위 안) | — | 장면 색인, 검색 시점 질의 해석, 명백한 오사용의 보수적 차단, reactive 교정 |
 | GMS — Query Resolver 프로파일 | External system | 외부 LLM | 질의 텍스트와 명시 필터를 받아 구조화 결과를 반환. 조건부 |
 
 ## 주요 관계
@@ -66,7 +66,7 @@ C4Context
 | From | To | 의도 | 프로토콜 |
 | --- | --- | --- | --- |
 | 편집기자 | N-Pick | 장면 검색, Preview 확인, 잘못된 결과 문의 | HTTPS |
-| 검수자 | N-Pick | 영상 등록, 문의 진단, exact override 등록 | HTTPS |
+| 검수자 | N-Pick | 영상 등록, 문의 진단, 교정 등록 | HTTPS |
 | N-Pick | GMS | 정책 통과 시 질의 해석 위탁 | HTTPS/JSON |
 
 ## 주목할 아키텍처 결정
