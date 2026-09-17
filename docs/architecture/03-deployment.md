@@ -160,7 +160,7 @@ C4Deployment
 - **swap이 0이다.** 15GB RAM에 컨테이너 7개(nginx · web · api · resolver · db · mlflow · jenkins)가 올라가므로 여유는 있으나, 색인 재구축이나 PostgreSQL `maintenance_work_mem` 상향 시 OOM 여지가 있다. 필요해지면 swapfile을 추가한다.
 - **에셋 스토어는 named volume `npick-media`다.** `/srv/npick/media`로 backend와 AI 워커가 공유 마운트한다. 오브젝트 스토리지는 검토하지 않았다.
 - **질의 리졸버가 사용할 LLM이 미정이다.** GMS 또는 EC2에서 도는 소형 모델. 어느 쪽이든 이 배포도는 바뀌지 않는다.
-- **환경은 사용자 대면 경로가 P0 한 벌뿐이다.** EC2 스택에는 dev/staging 분리가 없어 이 문서가 유일한 배포도다. GPU만 실시간 구동(RunPod)과 개발 검증(SSAFY GPU)으로 갈린다.
+- **환경은 사용자 대면 경로가 P0 한 벌뿐이다.** EC2 스택에는 dev/staging 분리가 없어 이 문서가 유일한 배포도다. GPU만 실시간 구동(RunPod)과 개발 검증·데모 시드 적재(SSAFY GPU)로 갈리고, 뒤쪽은 상주하지 않고 배치 실행(`npick-worker-drain`)으로 돈다.
 - **개발 검증 워커가 어느 서비스 서버에서 잡을 받는지는 미정이다.** 운영 EC2를 그대로 쓸지 개발자 로컬 스택을 붙일지 정해야 한다. 격리 수단 자체는 정해져 있다 — 워커가 선언하는 무리(`NPICK_AI_JOB_FLEET`)마다 BE가 다른 토큰을 발급해 검증 산출물이 운영 정본에 섞이지 않게 한다. **데모 시드 적재는 그 격리의 대상이 아니다** — 운영 정본에 들어가는 것이 목적이므로 운영 무리의 토큰으로 돈다. 남은 미결은 검증용 잡의 수신처다.
 
 ## 다른 레벨로의 링크
