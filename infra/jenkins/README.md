@@ -671,8 +671,10 @@ push는 잡을 실행하지 않고, dev push와 dev 대상 MR 이벤트만 실�
 | 그 외 브랜치 push | - | - | 필터에서 제외 |
 
 MR 모드에서는 `/deploy` 동기화, Docker 이미지 빌드, 서비스 재기동, 롤백을 전부 건너뛴다.
-실패해도 운영 컨테이너에는 영향을 주지 않는다. `PreBuildMerge` 가 실패하면 dev와의 병합 충돌도
-같은 Checkout 단계에서 드러난다.
+실패해도 운영 컨테이너에는 영향을 주지 않는다. Checkout 단계는 최신 `origin/dev`를 먼저 받은 뒤
+워크스페이스 저장소에 Jenkins 전용 `user.name`과 `user.email`을 설정하고 MR 소스 ref를
+`git merge --no-edit`로 명시적으로 합친다. Pipeline 잡에서 deprecated 된 `PreBuildMerge`는 쓰지
+않는다. 실제 병합 충돌이 있으면 명시적 merge가 실패하므로 같은 Checkout 단계에서 드러난다.
 
 ---
 
@@ -759,6 +761,20 @@ sudo sed -n '/<triggers>/,/<\/triggers>/p' /home/ubuntu/jenkins-data/jobs/npick-
 3. 웹훅 URL이 `/project/<잡이름>` 형태인가
 4. GitLab 웹훅에서 **Merge request events** 가 체크되어 있는가
 5. 이벤트가 dev push 또는 dev 대상 MR인가 (`Jenkinsfile` 필터가 그 외 이벤트는 제외한다)
+
+**(3-1) MR Checkout이 `Committer identity unknown`으로 실패한다**
+
+비 fast-forward MR을 임시 병합할 때 merge commit 작성자 정보가 없는 경우다. Git 플러그인의
+`PreBuildMerge`를 사용하면 실제 충돌이 없어도 다음 오류와 함께 Checkout이 중단될 수 있다.
+
+```text
+Committer identity unknown
+fatal: unable to auto-detect email address
+```
+
+현재 `Jenkinsfile`은 대상 브랜치를 먼저 체크아웃한 다음 `infra/jenkins/merge-mr.sh`에서 저장소
+로컬 identity를 설정하고 명시적으로 병합한다. 같은 오류가 다시 보이면 잡의 Branch Specifier가
+`*/dev`인지, 실행 로그의 Jenkinsfile이 최신 `dev`에서 로드됐는지 확인한다.
 
 **(4) 빌드는 도는데 GitLab에 결과가 안 보인다**
 
