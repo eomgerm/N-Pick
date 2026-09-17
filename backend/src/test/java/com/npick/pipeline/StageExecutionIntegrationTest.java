@@ -96,7 +96,7 @@ class StageExecutionIntegrationTest {
                 outputs,
                 HASH,
                 clock,
-                publication,
+                new com.npick.clip.infrastructure.worker.WorkerClipActivationAdapter(publication),
                 retries));
     }
 
@@ -905,7 +905,7 @@ class StageExecutionIntegrationTest {
                 executor,
                 attach,
                 executor,
-                preparation,
+                new com.npick.clip.infrastructure.worker.WorkerTranscriptInputAdapter(preparation),
                 (run, stage, worker, lease) -> new com.npick.pipeline.application.port.PreparationLeasePort.Guard() {
                     public void verify() {}
 

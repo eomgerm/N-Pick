@@ -12,7 +12,6 @@ import java.util.function.Function;
 
 import org.springframework.transaction.support.TransactionTemplate;
 
-import com.npick.clip.application.query.media.GetWorkerMediaInputUseCase;
 import com.npick.common.error.BusinessException;
 import com.npick.pipeline.application.command.claim.ClaimStageCommand;
 import com.npick.pipeline.application.command.claim.ClaimStageUseCase;
@@ -20,6 +19,7 @@ import com.npick.pipeline.application.command.complete.CompleteStageCommand;
 import com.npick.pipeline.application.command.complete.CompleteStageUseCase;
 import com.npick.pipeline.application.command.heartbeat.HeartbeatStageUseCase;
 import com.npick.pipeline.application.error.JobErrorCode;
+import com.npick.pipeline.application.port.ClipMediaInputPort;
 import com.npick.pipeline.application.port.WorkerExecutionPort;
 import com.npick.pipeline.domain.error.PipelineErrorCode;
 import com.npick.pipeline.domain.model.JsonValues;
@@ -32,7 +32,7 @@ public class WorkerExecutionBinding implements WorkerExecutionPort {
     private final HeartbeatStageUseCase heartbeats;
     private final CompleteStageUseCase completions;
     private final PipelineRunRepository runs;
-    private final GetWorkerMediaInputUseCase media;
+    private final ClipMediaInputPort media;
     private final TransactionTemplate transaction;
     private final com.npick.pipeline.application.port.StageOutputPort outputs;
 
@@ -41,7 +41,7 @@ public class WorkerExecutionBinding implements WorkerExecutionPort {
             HeartbeatStageUseCase heartbeats,
             CompleteStageUseCase completions,
             PipelineRunRepository runs,
-            GetWorkerMediaInputUseCase media,
+            ClipMediaInputPort media,
             TransactionTemplate transaction,
             com.npick.pipeline.application.port.StageOutputPort outputs) {
         this.claims = claims;
