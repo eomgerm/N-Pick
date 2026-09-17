@@ -30,6 +30,7 @@ class FeedbackIntakeIdorGuardDbTest {
     private static final long OWNER = 9001;
     private static final long OTHER = 9003;
     private static final long RESULT_OF_OWNER = 9801; // 9001 이 실행한 검색(9701)의 결과
+    private static final long RESULT_OF_OTHER = 9802; // 9003 이 실행한 검색(9702)의 결과
 
     @Autowired
     private FeedbackJpaRepository repository;
@@ -69,6 +70,18 @@ class FeedbackIntakeIdorGuardDbTest {
         assertThat(repository.existsSearchResultSearchedBy(99999, OWNER)).isFalse();
     }
 
+    @Test
+    @Transactional
+    @DisplayName("본인은 자기 검색 결과를 쓰지만 타인 결과는 못 쓴다 — result↔search_execution 연결이 사용자별로 정합해야 한다")
+    void bindsResultToItsOwnSearchPerUser() {
+        seed();
+
+        // OTHER 도 자기 검색(9702)·결과(9802)를 가진다. 사용자 조건만 보고 result↔execution 연결을 틀리게 조인한 SQL 은
+        // OTHER 가 자기 결과를 쓰는 것과 남의 결과를 쓰는 것을 구분하지 못해 여기서 걸린다.
+        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OTHER, OTHER)).isTrue();
+        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OTHER, OWNER)).isFalse();
+    }
+
     private void seed() {
         exec("INSERT INTO npick.member (member_id, login_id, password_hash, name, role, created_at, updated_at)"
                 + " VALUES (9001, 'editor-9001', 'hash', '편집기자9001', 'editor', now(), now())");
@@ -91,6 +104,15 @@ class FeedbackIntakeIdorGuardDbTest {
                 + " 'original', 'succeeded', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'cfg-v1', now(), now())");
         exec("INSERT INTO npick.search_result (search_result_id, search_execution_id, scene_id, result_rank,"
                 + " explain_json) VALUES (9801, 9701, 9301, 1, '{\"score\":1}'::jsonb)");
+        // 9003 이 실행한 자기 검색과 그 결과 — result↔search_execution 연결이 사용자별로 정합한지 확인용
+        exec("INSERT INTO npick.search_execution (search_execution_id, searched_by_id, query_text, normalized_query,"
+                + " explicit_filters_json, normalized_filters_json, query_fingerprint, normalization_version,"
+                + " execution_type, status, degraded_reasons_json, applied_excludes_json, search_config_json,"
+                + " config_version, created_at, updated_at)"
+                + " VALUES (9702, 9003, '타인 질의', '타인 질의', '{}'::jsonb, '{}'::jsonb, 'fp-9702', 'v1',"
+                + " 'original', 'succeeded', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'cfg-v1', now(), now())");
+        exec("INSERT INTO npick.search_result (search_result_id, search_execution_id, scene_id, result_rank,"
+                + " explain_json) VALUES (9802, 9702, 9301, 1, '{\"score\":1}'::jsonb)");
     }
 
     private void exec(String sql) {
