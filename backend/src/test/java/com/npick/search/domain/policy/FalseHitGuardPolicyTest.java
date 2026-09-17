@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.npick.search.domain.model.GuardExclusionReason;
+import com.npick.search.domain.model.GuardJudgment;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.QueryResolution.DateField;
 import com.npick.search.domain.model.QueryResolution.Origin;
@@ -16,9 +17,9 @@ import com.npick.tag.domain.model.TagType;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * F-06 완료 기준을 항목별로 확인한다.
+ * F-06 완료 기준과 PRD 7.9 의 3 값 판정을 항목별로 확인한다.
  *
- * <p>제외는 되돌릴 수 없으므로 <b>제외되지 않아야 하는 경우</b> 가 시험의 대부분이다. 「명시 조건과 검증된 값이 같은 필드에서 충돌」 하나만 제외이고 나머지는 전부 통과다.
+ * <p>제외는 되돌릴 수 없으므로 제외되지 않아야 하는 경우가 시험의 대부분이다. 통과한 경우에도 판정 값을 함께 본다 — explain_json 의 guard 자리가 그 값으로 채워진다.
  */
 class FalseHitGuardPolicyTest {
 
@@ -27,162 +28,185 @@ class FalseHitGuardPolicyTest {
 
     private final FalseHitGuardPolicy policy = new FalseHitGuardPolicy();
 
-    // ── 제외하는 유일한 경우 ──────────────────────────────────────────────
-
     @Test
     @DisplayName("명시한 날짜와 같은 종류의 검증된 날짜가 충돌하면 제외한다")
     void excludesWhenStatedDateConflictsWithVerifiedSameField() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER);
-        var tag = tag(7L, TagType.BROADCAST_DATE, "2026-08-20", EffectiveTag.Verification.VERIFIED);
+        var verdict = policy.judge(
+                withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of(verified(7L, "2026-08-20")));
 
-        var verdict = policy.judge(resolution, List.of(tag));
-
-        assertThat(verdict).hasValueSatisfying(exclusion -> {
-            assertThat(exclusion.reason()).isEqualTo(GuardExclusionReason.EXPLICIT_DATE_CONFLICT);
-            assertThat(exclusion.field()).isEqualTo(DateField.BROADCAST_DATE);
-            assertThat(exclusion.conflictingTagIds()).containsExactly(7L);
+        assertThat(verdict.excluded()).isTrue();
+        assertThat(verdict.exclusionReason()).isEqualTo(GuardExclusionReason.EXPLICIT_DATE_CONFLICT);
+        assertThat(verdict.fields()).singleElement().satisfies(field -> {
+            assertThat(field.field()).isEqualTo(DateField.BROADCAST_DATE);
+            assertThat(field.judgment()).isEqualTo(GuardJudgment.VERIFIED_CONFLICT);
+            assertThat(field.groundingTagIds()).containsExactly(7L);
         });
     }
 
     @Test
     @DisplayName("사용자가 원문에 친 조건도 제외 근거가 된다")
     void explicitQueryOriginAlsoGrounds() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_QUERY);
+        var verdict = policy.judge(
+                withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_QUERY), List.of(verified(7L, "2026-08-20")));
 
-        assertThat(policy.judge(resolution, List.of(verifiedBroadcast("2026-08-20"))))
-                .isPresent();
-    }
-
-    // ── 제외하지 않는 경우 ────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("AI 가 추정한 조건만 충돌하면 제외하지 않는다")
-    void inferredAnchorNeverExcludes() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.INFERRED);
-
-        assertThat(policy.judge(resolution, List.of(verifiedBroadcast("2026-08-20"))))
-                .isEmpty();
+        assertThat(verdict.excluded()).isTrue();
     }
 
     @Test
-    @DisplayName("검증되지 않은 날짜는 충돌 근거가 되지 않는다")
-    void unverifiedDateNeverExcludes() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER);
+    @DisplayName("일치하면 통과하고 근거 태그를 남긴다")
+    void verifiedMatchKeepsAndRecordsGrounds() {
+        var verdict = policy.judge(
+                withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of(verified(7L, "2026-09-02")));
+
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields()).singleElement().satisfies(field -> {
+            assertThat(field.judgment()).isEqualTo(GuardJudgment.VERIFIED_MATCH);
+            assertThat(field.groundingTagIds()).containsExactly(7L);
+        });
+    }
+
+    @Test
+    @DisplayName("날짜 정보가 아예 없으면 미상으로 판정하고 통과시킨다")
+    void missingDateIsJudgedUnknown() {
+        var verdict = policy.judge(withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of());
+
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.judgment()).isEqualTo(GuardJudgment.UNKNOWN_OR_UNVERIFIED));
+    }
+
+    @Test
+    @DisplayName("검증되지 않은 날짜는 충돌 근거가 되지 않고 미검증으로 판정된다")
+    void unverifiedDateIsJudgedUnverified() {
         var tag = tag(7L, TagType.BROADCAST_DATE, "2026-08-20", EffectiveTag.Verification.UNVERIFIED);
 
-        assertThat(policy.judge(resolution, List.of(tag))).isEmpty();
+        var verdict = policy.judge(withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of(tag));
+
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.judgment()).isEqualTo(GuardJudgment.UNKNOWN_OR_UNVERIFIED));
     }
 
     @Test
-    @DisplayName("날짜 정보가 아예 없으면 제외하지 않는다 — 자료 영상의 방송일 부재가 여기다")
-    void missingDateNeverExcludes() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER);
-        var onlyPerson = tag(9L, TagType.PERSON, "홍길동", EffectiveTag.Verification.VERIFIED);
+    @DisplayName("AI 가 추정한 조건만 있으면 anchor 가 아니므로 판정하지 않는다")
+    void inferredAnchorProducesNoJudgment() {
+        var verdict = policy.judge(
+                withWindow(DateField.BROADCAST_DATE, Origin.INFERRED), List.of(verified(7L, "2026-08-20")));
 
-        assertThat(policy.judge(resolution, List.of(onlyPerson))).isEmpty();
-        assertThat(policy.judge(resolution, List.of())).isEmpty();
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields()).isEmpty();
     }
 
     @Test
     @DisplayName("방송일 조건에 촬영일을 맞대지 않는다")
     void doesNotCompareAcrossDateKinds() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER);
-        // 2022 년에 찍어 2023 년에 방송한 장면. 촬영일만 조건 밖이라고 빼면 사용자가 찾던 결과가 사라진다.
         var filmed = tag(7L, TagType.FILMED_DATE, "2022-05-01", EffectiveTag.Verification.VERIFIED);
 
-        assertThat(policy.judge(resolution, List.of(filmed))).isEmpty();
+        var verdict = policy.judge(withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of(filmed));
+
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.judgment()).isEqualTo(GuardJudgment.UNKNOWN_OR_UNVERIFIED));
     }
 
     @Test
-    @DisplayName("검증된 날짜가 여럿이고 하나라도 조건에 맞으면 제외하지 않는다")
-    void anyMatchingVerifiedDateKeepsTheScene() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER);
-        // 클립에서 상속한 날짜와 장면 자신의 날짜가 함께 올 수 있다.
-        var inherited = tag(7L, TagType.BROADCAST_DATE, "2026-08-20", EffectiveTag.Verification.VERIFIED);
-        var own = tag(8L, TagType.BROADCAST_DATE, "2026-09-02", EffectiveTag.Verification.REVIEWER_VERIFIED);
-
-        assertThat(policy.judge(resolution, List.of(inherited, own))).isEmpty();
-    }
-
-    @Test
-    @DisplayName("인물·기관 불일치는 제외 근거가 아니다")
-    void entityMismatchNeverExcludes() {
-        var resolution = new QueryResolution(
-                "query-resolver/v2",
-                QueryResolution.Intent.SCENE_SEARCH,
+    @DisplayName("인물·기관 불일치는 판정 대상이 아니다")
+    void entityMismatchIsNotJudged() {
+        var resolution = resolution(
                 List.of(),
                 List.of(),
                 List.of(new QueryResolution.Entity(
-                        QueryResolution.EntityType.PERSON, "홍길동", Origin.EXPLICIT_QUERY, null, 1.0)),
-                List.of(),
-                List.of(),
-                List.of(),
-                1.0);
+                        QueryResolution.EntityType.PERSON, "홍길동", Origin.EXPLICIT_QUERY, null, 1.0)));
         var other = tag(9L, TagType.PERSON, "임꺽정", EffectiveTag.Verification.REVIEWER_VERIFIED);
 
-        assertThat(policy.judge(resolution, List.of(other))).isEmpty();
+        var verdict = policy.judge(resolution, List.of(other));
+
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields()).isEmpty();
     }
 
     @Test
     @DisplayName("승인된 규칙이 없으므로 사건명 충돌 자동 제외는 일어나지 않는다")
     void incidentGuardIsInactive() {
-        var resolution = new QueryResolution(
-                "query-resolver/v2",
-                QueryResolution.Intent.SCENE_SEARCH,
+        var resolution = resolution(
                 List.of(),
                 List.of(new QueryResolution.IncidentName("이태원 참사", Origin.EXPLICIT_QUERY, null, 1.0)),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                1.0);
+                List.of());
         var otherIncident = tag(9L, TagType.EVENT, "포항 지진", EffectiveTag.Verification.REVIEWER_VERIFIED);
 
         assertThat(policy.incidentGuardActive()).isFalse();
-        assertThat(policy.judge(resolution, List.of(otherIncident))).isEmpty();
+        assertThat(policy.judge(resolution, List.of(otherIncident)).excluded()).isFalse();
     }
 
-    // ── 경계 ────────────────────────────────────────────────────────────
+    @Test
+    @DisplayName("검증된 날짜가 여럿이고 하나라도 맞으면 일치로 판정한다")
+    void anyMatchingVerifiedDateWins() {
+        var inherited = verified(7L, "2026-08-20");
+        var own = tag(8L, TagType.BROADCAST_DATE, "2026-09-02", EffectiveTag.Verification.REVIEWER_VERIFIED);
+
+        var verdict =
+                policy.judge(withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of(inherited, own));
+
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.groundingTagIds()).containsExactly(8L));
+    }
 
     @Test
     @DisplayName("창은 반열린 구간이다 — 끝 날짜 당일은 조건 밖이다")
     void windowIsHalfOpen() {
         var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER);
 
-        assertThat(policy.judge(resolution, List.of(verifiedBroadcast("2026-09-03"))))
+        assertThat(policy.judge(resolution, List.of(verified(7L, "2026-09-03"))).excluded())
                 .as("endExclusive 하루 전은 조건 안")
-                .isEmpty();
-        assertThat(policy.judge(resolution, List.of(verifiedBroadcast("2026-09-04"))))
+                .isFalse();
+        assertThat(policy.judge(resolution, List.of(verified(7L, "2026-09-04"))).excluded())
                 .as("endExclusive 당일은 조건 밖")
-                .isPresent();
+                .isTrue();
     }
 
     @Test
-    @DisplayName("읽을 수 없는 날짜 값은 충돌 근거로 쓰지 않는다")
+    @DisplayName("읽을 수 없는 날짜 값은 판정 근거로 쓰지 않는다")
     void unparsableDateIsNotGrounds() {
-        var resolution = withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER);
         var broken = tag(7L, TagType.BROADCAST_DATE, "이천이십육년", EffectiveTag.Verification.VERIFIED);
 
-        assertThat(policy.judge(resolution, List.of(broken))).isEmpty();
+        var verdict = policy.judge(withWindow(DateField.BROADCAST_DATE, Origin.EXPLICIT_FILTER), List.of(broken));
+
+        assertThat(verdict.excluded()).isFalse();
+        assertThat(verdict.fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.judgment()).isEqualTo(GuardJudgment.UNKNOWN_OR_UNVERIFIED));
     }
 
-    // ── 헬퍼 ────────────────────────────────────────────────────────────
-
     private static QueryResolution withWindow(DateField field, Origin origin) {
+        return resolution(
+                List.of(new QueryResolution.DateWindow(field, FROM, TO_EXCLUSIVE, origin, null, 1.0)),
+                List.of(),
+                List.of());
+    }
+
+    private static QueryResolution resolution(
+            List<QueryResolution.DateWindow> windows,
+            List<QueryResolution.IncidentName> incidents,
+            List<QueryResolution.Entity> entities) {
         return new QueryResolution(
                 "query-resolver/v2",
                 QueryResolution.Intent.SCENE_SEARCH,
-                List.of(new QueryResolution.DateWindow(field, FROM, TO_EXCLUSIVE, origin, null, 1.0)),
-                List.of(),
-                List.of(),
+                windows,
+                incidents,
+                entities,
                 List.of(),
                 List.of(),
                 List.of(),
                 1.0);
     }
 
-    private static EffectiveTag verifiedBroadcast(String value) {
-        return tag(7L, TagType.BROADCAST_DATE, value, EffectiveTag.Verification.VERIFIED);
+    private static EffectiveTag verified(long tagId, String value) {
+        return tag(tagId, TagType.BROADCAST_DATE, value, EffectiveTag.Verification.VERIFIED);
     }
 
     private static EffectiveTag tag(long tagId, TagType type, String matchValue, EffectiveTag.Verification v) {

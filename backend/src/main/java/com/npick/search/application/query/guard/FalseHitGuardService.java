@@ -23,18 +23,12 @@ public class FalseHitGuardService implements ApplyFalseHitGuardUseCase {
     public FalseHitGuardResult apply(ApplyFalseHitGuardQuery query) {
         Objects.requireNonNull(query, "query");
         var kept = new ArrayList<Long>();
-        var excluded = new ArrayList<FalseHitGuardResult.ExcludedScene>();
+        var verdicts = new ArrayList<FalseHitGuardResult.SceneVerdict>();
         for (Long sceneId : query.rankedSceneIds()) {
-            var tags = query.sceneTags().get(sceneId);
-            var verdict = policy.judge(query.finalResolution(), tags);
-            if (verdict.isEmpty()) {
-                kept.add(sceneId);
-                continue;
-            }
-            var exclusion = verdict.get();
-            excluded.add(new FalseHitGuardResult.ExcludedScene(
-                    sceneId, exclusion.reason(), exclusion.field(), exclusion.conflictingTagIds()));
+            var verdict = policy.judge(query.finalResolution(), query.sceneTags().get(sceneId));
+            verdicts.add(new FalseHitGuardResult.SceneVerdict(sceneId, verdict.exclusionReason(), verdict.fields()));
+            if (!verdict.excluded()) kept.add(sceneId);
         }
-        return new FalseHitGuardResult(kept, excluded, policy.incidentGuardActive());
+        return new FalseHitGuardResult(kept, verdicts, policy.incidentGuardActive());
     }
 }

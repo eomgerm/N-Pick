@@ -8,6 +8,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.npick.search.domain.model.GuardExclusionReason;
+import com.npick.search.domain.model.GuardJudgment;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.QueryResolution.DateField;
 import com.npick.search.domain.model.QueryResolution.Origin;
@@ -17,7 +18,7 @@ import com.npick.tag.domain.model.TagType;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** 판정을 순위에 적용하는 부분만 본다. 분기별 판정은 {@code FalseHitGuardPolicyTest} 가 덮는다. */
+/** 판정을 순위에 적용하는 부분만 본다. 분기별 판정은 FalseHitGuardPolicyTest 가 덮는다. */
 class FalseHitGuardServiceTest {
 
     private final FalseHitGuardService service = new FalseHitGuardService();
@@ -39,12 +40,31 @@ class FalseHitGuardServiceTest {
         assertThat(result.incidentGuardActive())
                 .as("승인된 사건 충돌 규칙이 없으므로 이 실행의 지표는 측정 불가다")
                 .isFalse();
-        assertThat(result.excludedScenes()).singleElement().satisfies(excluded -> {
-            assertThat(excluded.sceneId()).isEqualTo(20L);
-            assertThat(excluded.reason()).isEqualTo(GuardExclusionReason.EXPLICIT_DATE_CONFLICT);
-            assertThat(excluded.field()).isEqualTo(DateField.BROADCAST_DATE);
-            assertThat(excluded.conflictingTagIds()).containsExactly(2L);
+        assertThat(result.excluded()).singleElement().satisfies(verdict -> {
+            assertThat(verdict.sceneId()).isEqualTo(20L);
+            assertThat(verdict.exclusionReason()).isEqualTo(GuardExclusionReason.EXPLICIT_DATE_CONFLICT);
+            assertThat(verdict.fields()).singleElement().satisfies(field -> {
+                assertThat(field.field()).isEqualTo(DateField.BROADCAST_DATE);
+                assertThat(field.judgment()).isEqualTo(GuardJudgment.VERIFIED_CONFLICT);
+                assertThat(field.groundingTagIds()).containsExactly(2L);
+            });
         });
+    }
+
+    @Test
+    @DisplayName("통과한 장면도 판정을 남긴다 — explain_json 의 guard 자리가 비면 안 된다")
+    void keptScenesAlsoCarryAVerdict() {
+        var query = new ApplyFalseHitGuardQuery(
+                resolution(),
+                List.of(10L, 20L),
+                Map.of(10L, List.of(broadcast(1L, "2026-09-02")), 20L, List.of(broadcast(2L, "2026-08-20"))));
+
+        var result = service.apply(query);
+
+        assertThat(result.verdicts()).hasSize(2).extracting("sceneId").containsExactly(10L, 20L);
+        assertThat(result.verdicts().getFirst().fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.judgment()).isEqualTo(GuardJudgment.VERIFIED_MATCH));
     }
 
     @Test
@@ -52,7 +72,12 @@ class FalseHitGuardServiceTest {
     void sceneWithoutTagsSurvives() {
         var query = new ApplyFalseHitGuardQuery(resolution(), List.of(10L), Map.of(10L, List.of()));
 
-        assertThat(service.apply(query).sceneIds()).containsExactly(10L);
+        var result = service.apply(query);
+
+        assertThat(result.sceneIds()).containsExactly(10L);
+        assertThat(result.verdicts().getFirst().fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.judgment()).isEqualTo(GuardJudgment.UNKNOWN_OR_UNVERIFIED));
     }
 
     @Test

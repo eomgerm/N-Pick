@@ -4,9 +4,11 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import com.npick.search.domain.model.GuardExclusionReason;
+import com.npick.search.domain.model.GuardJudgment;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.QueryResolution.DateField;
 import com.npick.search.domain.model.QueryResolution.DateWindow;
@@ -70,49 +72,59 @@ public final class FalseHitGuardPolicy {
      * @param sceneTags 이 장면의 유효 태그 전부. 일치하지 않는 태그도 있어야 충돌을 볼 수 있다 ({@code AxisScore.observedTags})
      * @return 제외 사유. 비어 있으면 남긴다
      */
-    public Optional<GuardExclusion> judge(QueryResolution resolution, List<EffectiveTag> sceneTags) {
-        if (resolution == null || sceneTags == null || sceneTags.isEmpty()) return Optional.empty();
+    public Verdict judge(QueryResolution resolution, List<EffectiveTag> sceneTags) {
+        Objects.requireNonNull(resolution, "resolution");
+        var tags = sceneTags == null ? List.<EffectiveTag>of() : sceneTags;
+        var fields = new ArrayList<FieldJudgment>();
         for (DateField field : DateField.values()) {
-            var conflict = dateConflict(resolution, sceneTags, field);
-            if (conflict.isPresent()) return conflict;
+            judgeDate(resolution, tags, field).ifPresent(fields::add);
         }
-        // 사건명 충돌 분기는 여기다. incidentGuardActive() 가 거짓인 동안 판정을 만들지 않는다 — 승인된 규칙이 없으면
-        // 사건명 태그가 있다는 사실만으로 서로 다른 사건이라고 볼 수 없다 (F-06).
-        return Optional.empty();
+        // 사건명 판정 분기는 여기다. incidentGuardActive() 가 거짓인 동안 판정을 만들지 않는다 — 승인된 규칙이 없으면
+        // 사건명 태그가 있다는 사실만으로 서로 다른 사건이라고 볼 수 없고, PRD §7.9 도 그 경우를 soft 처리로 둔다.
+        return new Verdict(fields);
     }
 
-    private Optional<GuardExclusion> dateConflict(
+    /**
+     * 날짜 종류 하나의 판정. 명시한 조건이 없으면 판정할 anchor 자체가 없으므로 비어 있다.
+     *
+     * <p>AI 가 추정한 창만 있는 경우가 그 「없음」 에 포함된다 — 추정은 anchor 가 아니므로 통과 근거로도 제외 근거로도 적지 않는다 (F-06).
+     */
+    private Optional<FieldJudgment> judgeDate(
             QueryResolution resolution, List<EffectiveTag> sceneTags, DateField field) {
         var windows = resolution.dateWindows().stream()
                 .filter(window -> window.field() == field)
                 .filter(window -> stated(window.origin()))
                 .toList();
-        // 명시한 조건이 없으면 충돌할 대상이 없다. AI 가 추정한 창만 있는 경우가 여기서 걸러진다 (F-06).
         if (windows.isEmpty()) return Optional.empty();
 
         var tagType = tagTypeOf(field);
+        var matched = new ArrayList<Long>();
         var conflicting = new ArrayList<Long>();
-        boolean anyTrusted = false;
         for (EffectiveTag tag : sceneTags) {
             if (tag.tagType() != tagType) continue;
-            // 미검증은 충돌 근거가 될 수 없다. ASR·VLM·추론 규칙이 여기 온다 (F-04·F-06).
+            // 미검증은 판정 근거가 될 수 없다. ASR·VLM·추론 규칙이 여기 온다 (F-04·F-06).
             if (!tag.verification().trustedForConflict()) continue;
             var date = parse(tag.matchValue());
             if (date.isEmpty()) continue;
-            anyTrusted = true;
             if (windows.stream().anyMatch(window -> contains(window, date.get()))) {
-                // 하나라도 맞으면 이 종류는 충돌이 아니다. 장면이 클립에서 상속한 날짜와 자기 날짜를 함께 가질 수 있고,
-                // 그중 하나가 조건에 맞으면 사용자가 찾던 장면이다.
-                return Optional.empty();
+                matched.add(tag.tagId());
+            } else {
+                conflicting.add(tag.tagId());
             }
-            conflicting.add(tag.tagId());
         }
-        // 검증된 날짜가 하나도 없으면 「정보가 없거나 미검증」 이다. 자료 영상의 방송일 부재가 여기 해당하며 충돌로 보지 않는다 (F-06).
-        if (!anyTrusted) return Optional.empty();
-        return Optional.of(new GuardExclusion(GuardExclusionReason.EXPLICIT_DATE_CONFLICT, field, List.copyOf(conflicting)));
+        // 하나라도 맞으면 일치다. 장면이 클립에서 상속한 날짜와 자기 날짜를 함께 가질 수 있고, 그중 하나가 조건에 맞으면
+        // 사용자가 찾던 장면이다. 나머지를 충돌로 세어 빼면 맞는 결과가 사라진다.
+        if (!matched.isEmpty()) {
+            return Optional.of(new FieldJudgment(field, GuardJudgment.VERIFIED_MATCH, List.copyOf(matched)));
+        }
+        // 검증된 날짜가 하나도 없으면 「정보가 없거나 미검증」 이다. 자료 영상의 방송일 부재가 여기 해당한다 (F-06).
+        if (conflicting.isEmpty()) {
+            return Optional.of(new FieldJudgment(field, GuardJudgment.UNKNOWN_OR_UNVERIFIED, List.of()));
+        }
+        return Optional.of(new FieldJudgment(field, GuardJudgment.VERIFIED_CONFLICT, List.copyOf(conflicting)));
     }
 
-    /** 사용자가 직접 말한 조건인가. 추정({@link Origin#INFERRED})은 hard 제외 근거가 될 수 없다 (F-06). */
+    /** 사용자가 직접 말한 조건인가. 추정({@link Origin#INFERRED})은 판정 근거가 될 수 없다 (F-06). */
     private static boolean stated(Origin origin) {
         return origin == Origin.EXPLICIT_FILTER || origin == Origin.EXPLICIT_QUERY;
     }
@@ -129,9 +141,9 @@ public final class FalseHitGuardPolicy {
     /**
      * 날짜 태그의 값. 파싱할 수 없으면 비어 있다.
      *
-     * <p>{@code ck_tag_date} 가 {@code YYYY-MM-DD} 와 실재하는 날짜를 강제하므로 정상 데이터에서는 실패하지 않는다. 그래도 던지지 않는 이유는 <b>제외가 되돌릴 수
-     * 없기 때문</b> 이다 — 손상된 행 하나로 검색 전체를 실패시키는 것도, 읽지 못한 값을 충돌로 단정해 맞는 결과를 빼는 것도 F-06 이 막으려는 것보다 나쁘다. 읽지 못한 값은 근거로 쓰지
-     * 않고 넘긴다.
+     * <p>{@code ck_tag_date} 가 {@code YYYY-MM-DD} 와 실재하는 날짜를 강제하므로 정상 데이터에서는 실패하지 않는다. 그래도 던지지 않는 이유는 <b>제외가 되돌릴
+     * 수 없기 때문</b> 이다 — 손상된 행 하나로 검색 전체를 실패시키는 것도, 읽지 못한 값을 충돌로 단정해 맞는 결과를 빼는 것도 F-06 이 막으려는 것보다 나쁘다. 읽지 못한 값은
+     * 근거로 쓰지 않고 넘긴다.
      */
     private static Optional<LocalDate> parse(String matchValue) {
         try {
@@ -150,14 +162,40 @@ public final class FalseHitGuardPolicy {
     }
 
     /**
-     * 제외 판정 하나.
+     * 명시 anchor 하나의 판정.
      *
-     * @param field 어느 종류의 날짜가 충돌했는가. 방송일 조건인데 촬영일이 빠졌다는 오해를 막으려면 사유만으로는 부족하다
-     * @param conflictingTagIds 충돌한 검증된 태그. -60 의 {@code explain_json} 이 근거로 쓴다
+     * @param field 어느 종류의 날짜인가. 사유만 남기면 방송일 조건에 촬영일을 맞댔는지 알 수 없다
+     * @param groundingTagIds 판정의 근거가 된 검증된 태그. 일치면 맞은 태그, 충돌이면 어긋난 태그다. -60 의
+     *     {@code explain_json} 이 「무엇을 보고 그렇게 판정했는가」 를 다시 조회하지 않게 한다
      */
-    public record GuardExclusion(GuardExclusionReason reason, DateField field, List<Long> conflictingTagIds) {
-        public GuardExclusion {
-            conflictingTagIds = List.copyOf(conflictingTagIds);
+    public record FieldJudgment(DateField field, GuardJudgment judgment, List<Long> groundingTagIds) {
+        public FieldJudgment {
+            groundingTagIds = List.copyOf(groundingTagIds);
+        }
+    }
+
+    /**
+     * 한 장면의 guard 판정 전부.
+     *
+     * <p><b>통과한 장면도 판정을 갖는다.</b> {@code search_result.explain_json} 은 남은 장면에만 생기면서 {@code guard} 자리를 두므로,
+     * 제외만 기록하면 그 자리가 늘 비어 결과 카드가 F-07 의 「미검증 표시」 를 그릴 재료를 잃는다 (PRD §7.9).
+     *
+     * @param fields 명시한 anchor 별 판정. 명시 조건이 없으면 비어 있고, 그것은 판정할 것이 없었다는 뜻이다
+     */
+    public record Verdict(List<FieldJudgment> fields) {
+        public Verdict {
+            fields = List.copyOf(fields);
+        }
+
+        /** 제외 사유. 충돌한 anchor 가 없으면 {@code null} 이다. */
+        public GuardExclusionReason exclusionReason() {
+            return fields.stream().anyMatch(field -> field.judgment().excludes())
+                    ? GuardExclusionReason.EXPLICIT_DATE_CONFLICT
+                    : null;
+        }
+
+        public boolean excluded() {
+            return exclusionReason() != null;
         }
     }
 }
