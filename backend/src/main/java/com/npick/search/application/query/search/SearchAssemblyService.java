@@ -30,8 +30,8 @@ import com.npick.search.domain.repository.ParseRuleRepository;
 /**
  * 검색 한 번의 순서와 트랜잭션 경계를 소유한다.
  *
- * <p>트랜잭션을 메서드에 걸지 않는다. 후보 조회 구간만 {@link RankSearchCandidatesUseCase} 가 자기 읽기 트랜잭션에서 돌고, 실행 기록은 그 밖에서 따로 커밋된다
- * (baseline 주석 「실행 기록은 롤백 밖에 저장한다」).
+ * <p>트랜잭션을 메서드에 걸지 않는다. 후보 조회 구간만 {@link RankSearchCandidatesUseCase} 가 자기 읽기 트랜잭션에서 돌고, 실행 기록은 그 밖에서 따로 커밋된다 (baseline
+ * 주석 「실행 기록은 롤백 밖에 저장한다」).
  */
 @Service
 public class SearchAssemblyService implements ExecuteSearchUseCase {
@@ -66,8 +66,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         int parseMs = elapsedMs(resolveStartedAt);
         // 리졸버 장애가 아닌 실패는 여기서 예외로 올라간다. 해석 못 한 질의를 빈 결과의 성공
         // 응답으로 위장하지 않는다 (§6.2 「검색 실패를 결과 0건으로 위장하지 않는다」).
-        List<SearchDegradedReason> degradedReasons =
-                new ArrayList<>(SearchDegradedReason.reasonsFor(resolved));
+        List<SearchDegradedReason> degradedReasons = new ArrayList<>(SearchDegradedReason.reasonsFor(resolved));
 
         NormalizedSearch normalizedSearch = normalize(query, resolved);
         long executionId = record.start(new StartSearchExecution(
@@ -95,8 +94,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
                 resolved.normalization(), finalResolution, resolved.queryEmbedding(), normalizedSearch));
         degradedReasons.addAll(candidates.degradedReasons());
 
-        boolean appliedRule = rules.outcomes().stream()
-                .anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
+        boolean appliedRule =
+                rules.outcomes().stream().anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
         // parse_source 와 applied_rules_json 을 같은 판정에서 만든다. 둘이 갈리면 기록을 읽는
         // 쪽이 규칙 적용 여부를 어느 값으로 보느냐에 따라 다른 답을 얻는다.
         ParseSource parseSource = !resolved.isResolved()
@@ -230,8 +229,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
     }
 
     /**
-     * 같은 검색을 구분하는 지문. <b>명시 필터가 반드시 들어간다</b> — F-05 가 「정규화한 검색어·명시 필터·정규화 버전」을 지문의 재료로 못박았다. 필터를 빼면 날짜만 다른
-     * 두 검색이 같은 지문이 되어, 한쪽에 승인된 장면 제외가 다른 쪽에도 걸린다.
+     * 같은 검색을 구분하는 지문. <b>명시 필터가 반드시 들어간다</b> — F-05 가 「정규화한 검색어·명시 필터·정규화 버전」을 지문의 재료로 못박았다. 필터를 빼면 날짜만 다른 두 검색이 같은 지문이
+     * 되어, 한쪽에 승인된 장면 제외가 다른 쪽에도 걸린다.
      */
     private NormalizedSearch normalize(ExecuteSearchQuery query, QueryResolutionResult resolved) {
         var filters = new LinkedHashMap<String, List<String>>();

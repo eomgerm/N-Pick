@@ -18,8 +18,8 @@ import com.npick.tag.domain.model.TagType;
  *
  * <p><b>두 산출물을 한 곳에서 만드는 것이 핵심이다.</b> 응답과 기록이 갈리면 나중에 「그때 화면에 뭐가 떴나」를 기록으로 확인할 수 없다. 같은 값에서 모양만 달리 뽑는다.
  *
- * <p>여기서 태그를 다시 읽지 않는다. 검색 당시의 {@code EffectiveTag} 를 그대로 받아 쓴다 — 나중에 다시 읽으면 그 사이 교정이 반영돼 과거 근거가 바뀐다 (FRD §7.2
- * 「지금의 교정 상태로 다시 계산해 덮어쓰지 않는다」).
+ * <p>여기서 태그를 다시 읽지 않는다. 검색 당시의 {@code EffectiveTag} 를 그대로 받아 쓴다 — 나중에 다시 읽으면 그 사이 교정이 반영돼 과거 근거가 바뀐다 (FRD §7.2 「지금의 교정
+ * 상태로 다시 계산해 덮어쓰지 않는다」).
  */
 final class SearchExplain {
 
@@ -137,14 +137,16 @@ final class SearchExplain {
     /**
      * 날짜 태그 하나를 값과 검증 상태로 옮긴다.
      *
-     * <p>값이 없으면 상태는 {@code unknown} 이다 (§5.1 불변식). 태그가 여럿이면 검증된 것을 앞세운다 — 미검증 값을 대표로 내보내면 F-06 의 「검증된 날짜 충돌」
-     * 판정과 화면이 서로 다른 날짜를 말하게 된다.
+     * <p>값이 없으면 상태는 {@code unknown} 이다 (§5.1 불변식). 태그가 여럿이면 검증된 것을 앞세운다 — 미검증 값을 대표로 내보내면 F-06 의 「검증된 날짜 충돌」 판정과 화면이 서로
+     * 다른 날짜를 말하게 된다.
      */
     private static SearchExecutionResult.DateValue date(List<EffectiveTag> tags, TagType type) {
         EffectiveTag chosen = null;
         for (EffectiveTag tag : tags) {
             if (tag.tagType() != type) continue;
-            if (chosen == null || (!chosen.verification().trustedForConflict() && tag.verification().trustedForConflict())) {
+            if (chosen == null
+                    || (!chosen.verification().trustedForConflict()
+                            && tag.verification().trustedForConflict())) {
                 chosen = tag;
             }
         }
@@ -160,8 +162,8 @@ final class SearchExplain {
     }
 
     /**
-     * 날짜 태그의 {@code match_value} 는 DB 제약이 {@code YYYY-MM-DD} 로 막고 있다. 그래도 파싱 실패를 예외로 올리지 않는다 — 태그 하나 때문에 검색 전체가
-     * 500 이 되는 것보다 그 날짜를 미상으로 두는 편이 낫다.
+     * 날짜 태그의 {@code match_value} 는 DB 제약이 {@code YYYY-MM-DD} 로 막고 있다. 그래도 파싱 실패를 예외로 올리지 않는다 — 태그 하나 때문에 검색 전체가 500 이
+     * 되는 것보다 그 날짜를 미상으로 두는 편이 낫다.
      */
     private static LocalDate parseDate(String matchValue) {
         try {
@@ -194,8 +196,8 @@ final class SearchExplain {
     /**
      * 무엇이 어디서 걸렸는가. 계약이 {@code match_evidence} 를 1개 이상으로 요구한다 (§5.1).
      *
-     * <p>텍스트 셋은 검증 개념이 없어 {@code unverified} 다. 태그만 {@code tag_evidence.verification_status} 를 그대로 싣는다 — 날짜·사건명
-     * 충돌 판정이 그 값을 근거로 쓰기 때문에 화면도 같은 값을 보여야 한다.
+     * <p>텍스트 셋은 검증 개념이 없어 {@code unverified} 다. 태그만 {@code tag_evidence.verification_status} 를 그대로 싣는다 — 날짜·사건명 충돌 판정이
+     * 그 값을 근거로 쓰기 때문에 화면도 같은 값을 보여야 한다.
      */
     private static List<SearchExecutionResult.MatchEvidence> evidence(
             SearchCandidates.ScoredScene scene, List<String> queryTokens) {

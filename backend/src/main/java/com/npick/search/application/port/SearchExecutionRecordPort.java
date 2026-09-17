@@ -14,8 +14,8 @@ import lombok.experimental.Accessors;
  * <p>호출 규약: 한 검색당 {@link #start} 1회, 그 뒤 {@link #complete} 최대 1회. {@code start} 가 던지면 {@code complete} 는 부르지 않는다.
  * 재시도·재호출은 없다 — 같은 검색을 두 실행으로 남기지 않기 위해서다 (§7.2 「매번 새 실행을 만든다」의 반대쪽).
  *
- * <p>두 호출은 검색 조회 트랜잭션 <b>밖</b>에서 각각 커밋되어야 한다. 후보 검증(F-12)은 임시 반영→검색→ROLLBACK 으로 도는데, 기록이 같은 트랜잭션에 묶이면 롤백과 함께
- * 사라진다 (baseline 주석).
+ * <p>두 호출은 검색 조회 트랜잭션 <b>밖</b>에서 각각 커밋되어야 한다. 후보 검증(F-12)은 임시 반영→검색→ROLLBACK 으로 도는데, 기록이 같은 트랜잭션에 묶이면 롤백과 함께 사라진다
+ * (baseline 주석).
  */
 public interface SearchExecutionRecordPort {
 
@@ -51,8 +51,8 @@ public interface SearchExecutionRecordPort {
     /**
      * {@code search_execution.parse_source}.
      *
-     * <p>{@link #RESOLVER_RULE} 은 <b>규칙을 1개 이상 성공 적용</b>했을 때만이다. 조건 일치나 건너뜀만으로는 아니다 (baseline COLUMN COMMENT).
-     * 이 값과 {@code applied_rules_json} 에 {@code applied} 가 있는지는 항상 일치한다 — 조립이 둘을 같은 판정에서 만든다.
+     * <p>{@link #RESOLVER_RULE} 은 <b>규칙을 1개 이상 성공 적용</b>했을 때만이다. 조건 일치나 건너뜀만으로는 아니다 (baseline COLUMN COMMENT). 이 값과
+     * {@code applied_rules_json} 에 {@code applied} 가 있는지는 항상 일치한다 — 조립이 둘을 같은 판정에서 만든다.
      *
      * <p>응답의 {@code query_resolution_status} 로 접을 때 {@link #RESOLVER} 와 {@link #RESOLVER_RULE} 은 <b>둘 다</b>
      * {@code resolved} 다. {@link #FALLBACK} 만 {@code fallback} 이다.
@@ -75,8 +75,8 @@ public interface SearchExecutionRecordPort {
     /**
      * {@code search_execution.status}.
      *
-     * <p>{@link #RUNNING} 으로 열리고 {@link #complete} 가 나머지 셋 중 하나로 닫는다. {@code complete} 가 영영 오지 않은 실행은
-     * {@code RUNNING} 으로 남는다 — 성공 기록으로 읽지 않는다 (§6.2).
+     * <p>{@link #RUNNING} 으로 열리고 {@link #complete} 가 나머지 셋 중 하나로 닫는다. {@code complete} 가 영영 오지 않은 실행은 {@code RUNNING}
+     * 으로 남는다 — 성공 기록으로 읽지 않는다 (§6.2).
      */
     @Getter
     @Accessors(fluent = true)

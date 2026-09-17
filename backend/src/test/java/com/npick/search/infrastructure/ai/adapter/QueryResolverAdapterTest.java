@@ -345,9 +345,7 @@ class QueryResolverAdapterTest {
         // 벡터를 백엔드가 만들지 않는다. 리졸버가 /query/resolve 응답에 실어 주고
         // (S15P21A501-164) 조립이 그대로 dense 채널에 넘긴다. 이 배선이 없으면 dense 는
         // 질의 벡터가 없어 항상 UNAVAILABLE 이다.
-        respondWith(VALID_RESPONSE.replace(
-                "\"error\": null",
-                """
+        respondWith(VALID_RESPONSE.replace("\"error\": null", """
                 "error": null,
                   "embedding": [0.1, -0.2, 0.3],
                   "embedding_model_version": "bge-m3:1024"\

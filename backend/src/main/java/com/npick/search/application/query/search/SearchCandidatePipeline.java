@@ -46,8 +46,8 @@ import com.npick.tag.domain.model.EffectiveTag;
  *
  * <p>순서는 F-05 3항이 정한 그대로다 — 단어·dense 후보 → 구조화 점수 → RRF 결합 → soft 조정 → F-06 guard → 승인된 장면 제외 → 최대 10개.
  *
- * <p>{@code readOnly} 트랜잭션을 여기에만 거는 이유는 채널 셋과 태그·제외 규칙이 <b>같은 시점</b>을 봐야 하기 때문이다. 실행 기록은 이 밖에서 커밋된다 — 후보 검증(F-12)이
- * 임시 반영→검색→ROLLBACK 으로 돌기 때문에 같이 묶이면 기록이 롤백과 함께 사라진다.
+ * <p>{@code readOnly} 트랜잭션을 여기에만 거는 이유는 채널 셋과 태그·제외 규칙이 <b>같은 시점</b>을 봐야 하기 때문이다. 실행 기록은 이 밖에서 커밋된다 — 후보 검증(F-12)이 임시
+ * 반영→검색→ROLLBACK 으로 돌기 때문에 같이 묶이면 기록이 롤백과 함께 사라진다.
  */
 @Service
 public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
@@ -94,7 +94,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     public SearchCandidates rank(Query query) {
         List<SearchDegradedReason> degraded = new ArrayList<>();
 
-        List<SceneCandidateResult> lexical = lexicalCandidates.findByWords(query.normalization().searchTokens());
+        List<SceneCandidateResult> lexical =
+                lexicalCandidates.findByWords(query.normalization().searchTokens());
         DenseCandidatesResult dense = dense(query, degraded);
 
         StructuredScoresResult structured = structuredScores.score(
@@ -102,10 +103,11 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         FuseSearchRankingQuery fuseQuery = new FuseSearchRankingQuery(lexical, dense, structured);
         FusionResult fused = fusion.fuse(fuseQuery);
 
-        SoftRankingResult ordered = softRanking.adjust(
-                new AdjustSoftRankingQuery(fused.candidates(), query.finalResolution()));
-        List<Long> rankedSceneIds =
-                ordered.candidates().stream().map(SoftRankingResult.OrderedCandidate::sceneId).toList();
+        SoftRankingResult ordered =
+                softRanking.adjust(new AdjustSoftRankingQuery(fused.candidates(), query.finalResolution()));
+        List<Long> rankedSceneIds = ordered.candidates().stream()
+                .map(SoftRankingResult.OrderedCandidate::sceneId)
+                .toList();
 
         Map<Long, List<EffectiveTag>> tags = sceneTags.resolve(rankedSceneIds);
         FalseHitGuardResult guarded =

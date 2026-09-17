@@ -6,8 +6,8 @@ import java.util.List;
 /**
  * 검색 한 번의 결과 — {@code docs/contracts/web-api.md} §5 의 {@code data} 와 1:1 이다.
  *
- * <p><b>닫힌 어휘를 문자열로 들고 있다.</b> presentation 이 domain enum 을 알지 못하게 하면서 (설계 정본 §4) 같은 어휘를 표현 계층에 다시 정의하지 않기 위해서다.
- * 변환은 이 타입을 만드는 한 곳에서 일어나고, 그래서 응답과 {@code explain_json} 에 같은 문자열이 들어간다 — 둘이 갈리면 과거 기록과 당시 응답을 대조할 수 없다.
+ * <p><b>닫힌 어휘를 문자열로 들고 있다.</b> presentation 이 domain enum 을 알지 못하게 하면서 (설계 정본 §4) 같은 어휘를 표현 계층에 다시 정의하지 않기 위해서다. 변환은 이
+ * 타입을 만드는 한 곳에서 일어나고, 그래서 응답과 {@code explain_json} 에 같은 문자열이 들어간다 — 둘이 갈리면 과거 기록과 당시 응답을 대조할 수 없다.
  *
  * @param executionId 기록이 저장됐을 때만. {@code null} 이면 이 결과로 신고할 수 없다 (§6.2)
  * @param degradedReasons 비어 있으면 {@code status} 는 {@code succeeded} 다 (§5.1 불변식)

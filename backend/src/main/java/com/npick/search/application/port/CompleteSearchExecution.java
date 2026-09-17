@@ -21,8 +21,7 @@ import com.npick.search.domain.model.ShortageReason;
  * @param parseSource {@code start} 값을 덮어쓴다. 규칙이 하나라도 적용됐으면 {@link ParseSource#RESOLVER_RULE} 로 올라오고, 그 판정은
  *     {@link #appliedRules} 에 {@code applied} 가 있는지와 항상 일치한다
  * @param finalResolution 규칙·명시 필터까지 적용한 실제 사용 해석 ({@code parsed_query_json})
- * @param candidates 거르기 전 후보. 순위 결합에 넘긴 것과 <b>같은 세 결과</b>라 별도 타입을 만들지 않는다 — 기록과 계산이 갈리면 「그때 무엇을 보고 이 순위가 나왔나」에
- *     답할 수 없다
+ * @param candidates 거르기 전 후보. 순위 결합에 넘긴 것과 <b>같은 세 결과</b>라 별도 타입을 만들지 않는다 — 기록과 계산이 갈리면 「그때 무엇을 보고 이 순위가 나왔나」에 답할 수 없다
  * @param filtered 무엇이 왜 빠졌는가. {@code filtered_json} 은 「내가 아는 그 영상이 왜 안 나왔는지에 답하는 유일한 기록」이다 (baseline 주석)
  * @param rankedScenes 살아남은 장면만, rank 오름차순. 순서가 그대로 {@code search_result.result_rank} 다
  * @param verificationContext 검증 실행에만. 일반 검색은 반드시 {@code null} 이다 (§7.2, ck 제약)

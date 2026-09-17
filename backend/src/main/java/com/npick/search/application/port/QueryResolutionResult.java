@@ -16,8 +16,8 @@ import com.npick.search.domain.model.QueryResolution;
  *
  * @param resolution 해석 결과. 실패했으면 {@code null}
  * @param queryEmbedding dense 채널이 쓸 질의 벡터. <b>백엔드가 만들지 않는다</b> — 리졸버가 같은 응답에 실어 준다 (S15P21A501-164). 임베딩은 해석과 독립된 축이라
- *     해석이 성공해도 {@code null} 일 수 있고, 그때 빠지는 것은 dense 채널 하나다. 값 자체의 유효성은 {@code DenseQueryValidation} 이 본다 — 여기서는
- *     리졸버가 준 것을 그대로 옮기기만 한다
+ *     해석이 성공해도 {@code null} 일 수 있고, 그때 빠지는 것은 dense 채널 하나다. 값 자체의 유효성은 {@code DenseQueryValidation} 이 본다 — 여기서는 리졸버가 준
+ *     것을 그대로 옮기기만 한다
  * @param failure 실패 사유. 성공했으면 {@code null}
  */
 public record QueryResolutionResult(

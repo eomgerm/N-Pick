@@ -70,7 +70,8 @@ class SceneCardQueryAdapterDbTest {
         SceneCard card = port.find(List.of(9301L)).get(9301L);
 
         assertThat(card.ocrTexts()).hasSize(2);
-        assertThat(card.ocrTexts()).extracting(SceneCard.OcrText::rawText)
+        assertThat(card.ocrTexts())
+                .extracting(SceneCard.OcrText::rawText)
                 .containsExactlyInAnyOrder("서울역 · 설 연휴 귀성객", "귀성길 정체");
         assertThat(card.ocrTexts()).flatExtracting(SceneCard.OcrText::tokens).contains("서울역", "정체");
     }

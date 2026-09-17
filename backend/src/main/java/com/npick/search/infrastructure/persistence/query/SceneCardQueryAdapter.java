@@ -18,11 +18,10 @@ import com.npick.search.application.query.card.SceneCard;
 class SceneCardQueryAdapter implements FindSceneCardsQueryPort {
 
     /**
-     * 클립 조인에 활성 처리·삭제 조건을 걸지 않는다. 적격 판정은 후보 단계({@code EligibleScenesQueryAdapter})가 이미 했고, 여기 오는 것은 순위·제외를 모두
-     * 통과한 장면뿐이다. 여기서 한 번 더 거르면 같은 판정을 두 곳에서 하게 되고, 검색 도중 재처리가 끝나 활성 처리가 바뀌면 순위에는 있는데 카드가 없는 장면이 생긴다.
+     * 클립 조인에 활성 처리·삭제 조건을 걸지 않는다. 적격 판정은 후보 단계({@code EligibleScenesQueryAdapter})가 이미 했고, 여기 오는 것은 순위·제외를 모두 통과한
+     * 장면뿐이다. 여기서 한 번 더 거르면 같은 판정을 두 곳에서 하게 되고, 검색 도중 재처리가 끝나 활성 처리가 바뀌면 순위에는 있는데 카드가 없는 장면이 생긴다.
      */
-    private static final String FIND_CARDS_SQL =
-            """
+    private static final String FIND_CARDS_SQL = """
             SELECT s.scene_id, s.clip_id, c.title, s.caption, s.caption_tokens,
                    s.start_time_ms, s.end_time_ms, s.shot_type,
                    s.transcript_text, s.transcript_tokens
@@ -32,8 +31,7 @@ class SceneCardQueryAdapter implements FindSceneCardsQueryPort {
             """;
 
     /** 관측 순서를 keyframe 시각으로 고정한다. 정렬이 없으면 같은 검색을 다시 해도 근거 나열 순서가 달라져 기록 비교가 흔들린다. */
-    private static final String FIND_OCR_SQL =
-            """
+    private static final String FIND_OCR_SQL = """
             SELECT k.scene_id, o.raw_text, o.tokens
             FROM npick.ocr_observation o
             JOIN npick.keyframe k ON k.keyframe_id = o.keyframe_id
@@ -81,7 +79,9 @@ class SceneCardQueryAdapter implements FindSceneCardsQueryPort {
         return cards;
     }
 
-    /** 색인 토큰은 공백으로 이어 붙인 한 덩어리다 ({@code WordSceneCandidateAdapter} 가 {@code string_to_array(:tokens, ' ')} 로 같은 규약을 쓴다). */
+    /**
+     * 색인 토큰은 공백으로 이어 붙인 한 덩어리다 ({@code WordSceneCandidateAdapter} 가 {@code string_to_array(:tokens, ' ')} 로 같은 규약을 쓴다).
+     */
     private List<String> tokens(String joined) {
         if (joined == null || joined.isBlank()) return List.of();
         return List.of(joined.trim().split("\\s+"));

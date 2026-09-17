@@ -12,7 +12,6 @@ import org.mockito.ArgumentCaptor;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.QueryResolverErrorCode;
-import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.QueryResolverPort;
@@ -28,8 +27,8 @@ import com.npick.search.application.query.soft.SoftRankingResult;
 import com.npick.search.application.query.structured.StructuredScoresResult;
 import com.npick.search.domain.model.ExplicitDateFilters;
 import com.npick.search.domain.model.FusionChannel;
-import com.npick.search.domain.model.GuardExclusionReason;
 import com.npick.search.domain.model.FusionSettings;
+import com.npick.search.domain.model.GuardExclusionReason;
 import com.npick.search.domain.model.LexicalSearchSettings;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.ShortageReason;
@@ -83,8 +82,12 @@ class SearchAssemblyServiceTest {
 
         SearchExecutionResult result = service.execute(query());
 
-        assertThat(result.results()).extracting(SearchExecutionResult.ResultCard::rank).containsExactly(1, 2);
-        assertThat(result.results()).extracting(SearchExecutionResult.ResultCard::sceneId).containsExactly(9301L, 9302L);
+        assertThat(result.results())
+                .extracting(SearchExecutionResult.ResultCard::rank)
+                .containsExactly(1, 2);
+        assertThat(result.results())
+                .extracting(SearchExecutionResult.ResultCard::sceneId)
+                .containsExactly(9301L, 9302L);
     }
 
     @Test
@@ -144,11 +147,13 @@ class SearchAssemblyServiceTest {
 
         service.execute(new ExecuteSearchQuery(RAW_QUERY, broadcastFilter(), 9001L));
 
-        assertThat(pipelineQuery().finalResolution().dateWindows()).singleElement().satisfies(window -> {
-            assertThat(window.field()).isEqualTo(QueryResolution.DateField.BROADCAST_DATE);
-            assertThat(window.origin()).isEqualTo(QueryResolution.Origin.EXPLICIT_FILTER);
-            assertThat(window.start()).isEqualTo(LocalDate.of(2026, 2, 14));
-        });
+        assertThat(pipelineQuery().finalResolution().dateWindows())
+                .singleElement()
+                .satisfies(window -> {
+                    assertThat(window.field()).isEqualTo(QueryResolution.DateField.BROADCAST_DATE);
+                    assertThat(window.origin()).isEqualTo(QueryResolution.Origin.EXPLICIT_FILTER);
+                    assertThat(window.start()).isEqualTo(LocalDate.of(2026, 2, 14));
+                });
     }
 
     @Test
@@ -209,7 +214,8 @@ class SearchAssemblyServiceTest {
 
         assertThat(result.results()).hasSize(1);
         assertThat(result.executionId()).isNull();
-        assertThat(result.results()).allSatisfy(card -> assertThat(card.searchResultId()).isNull());
+        assertThat(result.results())
+                .allSatisfy(card -> assertThat(card.searchResultId()).isNull());
         assertThat(result.degradedReasons()).contains("snapshot_save_failed");
     }
 
@@ -363,15 +369,16 @@ class SearchAssemblyServiceTest {
     }
 
     private void givenResolved() {
-        when(resolver.resolve(RAW_QUERY)).thenReturn(new QueryResolutionResult(
-                new QueryNormalization("설 연휴 서울역 귀성 인파", List.of("설", "연휴", "서울역", "귀성", "인파"), "norm/v1"),
-                resolution(),
-                List.of(),
-                null,
-                "query-resolver/v2",
-                "prompt/v1",
-                "model/v1",
-                null));
+        when(resolver.resolve(RAW_QUERY))
+                .thenReturn(new QueryResolutionResult(
+                        new QueryNormalization("설 연휴 서울역 귀성 인파", List.of("설", "연휴", "서울역", "귀성", "인파"), "norm/v1"),
+                        resolution(),
+                        List.of(),
+                        null,
+                        "query-resolver/v2",
+                        "prompt/v1",
+                        "model/v1",
+                        null));
     }
 
     private ExecuteSearchQuery query() {
