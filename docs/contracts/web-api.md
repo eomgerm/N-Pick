@@ -308,6 +308,22 @@ FE URL 상태와 wire 요청의 대응:
 
 리졸버·dense 검색 실패 뒤 기본 검색이 가능하면 HTTP 실패 대신 `degraded` 성공 응답을 사용한다. 기본 검색도 불가능하거나 활성 규칙을 안전하게 읽을 수 없으면 검색 실패로 처리하며, 공개 오류 코드는 BE endpoint 구현 전에 이 문서에 추가한다.
 
+### 5.3 검색 실행 상세 기록 (S15P21A501-60)
+
+`GET /search/executions/{executionId}`
+
+검색을 실행한 본인 또는 `reviewer`가 당시 실행 snapshot을 조회한다. 타인 소유 실행과 없는 실행은 존재 여부를 구분하지 않고 `SEARCH_404_001`로 응답한다. 응답은 snake_case이며 모든 `*_id`는 십진 문자열이다.
+
+- `resolver_output.raw`는 규칙·anchor 교정 전 AI 해석, `resolver_output.verified`는 anchor 검증 후 해석이다.
+- `parsed_query`는 실제 검색 계산에 사용한 최종 해석이다.
+- `applied_rules`는 규칙 본문 snapshot, 적용 순서, 상태와 미적용·실패 사유를 보존한다.
+- `filtered.returned_count`와 `filtered.shortage_reasons`는 실제 반환 수와 부족 사유다.
+- `results[].explain`은 검색 당시 표시값과 점수 snapshot이다. 조회 시 현재 장면 정보로 다시 계산하지 않는다.
+- 일반 검색의 `verification_context`는 null이다. 검수 replay에서만 값이 존재할 수 있다.
+- `running` 실행은 아직 완결되지 않았으므로 후보·필터·결과 등 완료 시점 필드가 null 또는 빈 목록일 수 있다. 이를 성공으로 해석하지 않는다.
+
+저장 lifecycle은 검색 orchestration이 호출하는 내부 계약이다. 리졸버가 정규화 결과를 만든 직후 `running` 행을 독립 트랜잭션으로 시작하고, 계산 종료 후 실행 갱신과 `search_result` 삽입을 다른 독립 트랜잭션 하나로 완결한다. 시작 저장 실패 시 검색 계산을 진행하지 않는다. 완료 저장 실패 시 계산 결과는 `snapshot_save_failed` degraded 응답으로 반환하며 실행·결과 ID는 모두 null이고 문의를 비활성화한다. 완료 기록은 재시도하지 않는다.
+
 ## 6. BE 구현 완료, FE 연결 대기 API
 
 이 절의 모양은 현재 BE controller 기준이다. FE 바인딩 전에 ID 표현과 화면 상태 mapping을 §8에 따라 정리해야 한다.
@@ -683,7 +699,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `FEEDBACK_404_002` | 404  | 본인 소유 아님·타인 검색 참조·존재하지 않음(동일 취급) |
 | `COMM_500`         | 500  | 서버 오류                                     |
 
-**내 검색 기록**(`GET /search/history` 목록·상세)은 미구현이다 — `search_execution`/`search_result` snapshot 저장 계약(S15P21A501-60, 미착수) 선행이라 이 문서에 상세 계약을 넣지 않는다.
+**내 검색 기록**(`GET /search/history` 목록·상세)은 별도 작업이다. S15P21A501-60은 실행 snapshot 저장과 소유자/검수자용 단건 상세 조회(`/search/executions/{executionId}`)를 제공한다.
 
 ### 6.7 장면 대표 이미지(thumbnail) — 원본 반환
 

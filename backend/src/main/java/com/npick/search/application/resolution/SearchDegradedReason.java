@@ -29,7 +29,11 @@ import com.npick.search.application.port.QueryResolutionResult;
 @RequiredArgsConstructor
 public enum SearchDegradedReason {
     /** AI 해석 없이 원 검색어 토큰의 단어 검색만으로 결과를 냈다. */
-    RESOLVER_FALLBACK("resolver_fallback");
+    RESOLVER_FALLBACK("resolver_fallback"),
+    /** 벡터 검색 채널을 사용할 수 없어 나머지 채널로 결과를 냈다. */
+    DENSE_UNAVAILABLE("dense_unavailable"),
+    /** 결과 계산은 끝났지만 실행 스냅샷 완결 저장에 실패했다. */
+    SNAPSHOT_SAVE_FAILED("snapshot_save_failed");
 
     private final String jsonName;
 
