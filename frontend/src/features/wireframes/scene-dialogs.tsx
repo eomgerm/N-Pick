@@ -48,7 +48,7 @@ interface SceneDialogProps {
   onClose: () => void;
 }
 
-function SceneDialog({
+export function SceneDialog({
   children,
   className,
   describedBy,
@@ -423,22 +423,24 @@ export function ScenePreviewDialog({
 
 export type InquiryDetails = {
   comment: string;
+  snapshotUnavailable?: boolean;
 } & (
   | { status: 'open' | 'reviewing' }
-  | { status: 'closed'; resolution: InquiryResolution; resolutionSummary: string }
+  | { status: 'closed'; resolution: InquiryResolution | null; resolutionSummary: string | null }
 );
 
-interface InquiryDialogProps {
-  result: SearchResult;
+type InquiryDialogProps = {
+  result: Pick<SearchResult, 'title' | 'time'> & { id: string | number; evidenceType?: string };
   theme: WireframeTheme;
   query: string;
-  history?: InquiryDetails;
   error?: unknown;
   isSubmitting?: boolean;
   onCommentChange?: () => void;
-  onSubmit: (comment: string) => void | Promise<void>;
   onClose: () => void;
-}
+} & (
+  | { history: InquiryDetails; onSubmit?: never }
+  | { history?: never; onSubmit: (comment: string) => void | Promise<void> }
+);
 
 export function InquiryDialog({
   result,
@@ -506,10 +508,15 @@ export function InquiryDialog({
                 <p className={styles.inquiryDetailSceneTitle}>{result.title}</p>
                 <p className={styles.inquiryDetailSceneMeta}>
                   <span>{result.time}</span>
-                  <span>{result.evidenceType} 일치</span>
+                  {result.evidenceType ? <span>{result.evidenceType} 일치</span> : null}
                 </p>
               </div>
             </div>
+            {history.snapshotUnavailable ? (
+              <p className="mt-3 text-sm text-(--muted)">
+                당시 검색 결과의 상세 근거 기록은 제공되지 않습니다.
+              </p>
+            ) : null}
           </section>
 
           <section aria-labelledby="inquiry-comment-title">
@@ -530,9 +537,13 @@ export function InquiryDialog({
                 처리 결과
               </h3>
               <p className={styles.inquiryDetailResolutionTitle}>
-                {inquiryResolutionLabels[history.resolution]}
+                {history.resolution
+                  ? inquiryResolutionLabels[history.resolution]
+                  : '처리 결과 기록 없음'}
               </p>
-              <p className={styles.inquiryDetailResolutionSummary}>{history.resolutionSummary}</p>
+              <p className={styles.inquiryDetailResolutionSummary}>
+                {history.resolutionSummary || '처리 사유가 기록되지 않았습니다.'}
+              </p>
             </section>
           ) : null}
         </div>

@@ -20,6 +20,19 @@ export const stageStatusLabels: Record<ProcessingStageStatus, string> = {
   skipped: '생략',
   unknown: '미확인',
 };
+// docs/contracts/job-api.md §4.3.3의 파이프라인 실행 순서.
+export const processingStageOrder = [
+  'scene_detection',
+  'frame_extraction',
+  'ocr',
+  'transcript_selection',
+  'asr',
+  'scene_transcript_mapping',
+  'vlm_metadata',
+  'entity_extraction',
+  'text_embedding',
+  'indexing',
+] as const;
 const stageLabels: Record<string, string> = {
   scene_detection: '장면 나누기',
   frame_extraction: '대표 화면 추출',
@@ -73,4 +86,24 @@ export function clipDetailPollInterval(
     return age >= 0 && age < 60_000 ? 5_000 : false;
   }
   return isProcessingRun(status) ? 5_000 : false;
+}
+
+const transcriptLabels: Record<string, string> = {
+  uploaded: '첨부 자막',
+  embedded: '내장 자막',
+  asr: '음성 인식',
+  provided: '제공 자막',
+  none: '없음',
+  PREFERRED_SUBTITLE: '제공 자막 우선 사용',
+  ASR_SUPPLEMENT: '음성 인식으로 보완',
+  NO_SPEECH_DETECTED: '발화가 감지되지 않음',
+  EXTRACTED: '추출됨',
+  NO_TRACK: '자막 트랙 없음',
+  UNSUPPORTED: '지원하지 않는 형식',
+  NO_VALID_SEGMENTS: '유효한 자막 구간 없음',
+  EXTRACTION_FAILED: '추출 실패',
+  ...stageStatusLabels,
+};
+export function processingTranscriptLabel(value: string | null) {
+  return value === null ? '미확인' : (transcriptLabels[value] ?? value);
 }

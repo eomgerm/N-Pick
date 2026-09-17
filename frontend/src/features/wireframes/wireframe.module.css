@@ -25,13 +25,6 @@
   --shadow: 0 18px 44px rgb(74 56 40 / 10%);
   background: var(--background);
   color: var(--text);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    'Apple SD Gothic Neo',
-    'Noto Sans KR',
-    sans-serif;
   letter-spacing: 0;
 }
 
@@ -61,13 +54,6 @@
   --radius-control: 16px;
   --radius-small: 12px;
   --shadow: 0 20px 50px rgb(74 56 40 / 11%);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    'Apple SD Gothic Neo',
-    'Noto Sans KR',
-    sans-serif;
 }
 
 .appHeader {
@@ -355,7 +341,7 @@
 
 .resolution {
   display: grid;
-  grid-template-columns: auto minmax(200px, 1fr) auto auto;
+  grid-template-columns: auto minmax(200px, 1fr) auto;
   align-items: center;
   gap: 16px;
   padding: 18px 20px;
@@ -402,20 +388,12 @@
   white-space: nowrap;
 }
 
-.resolutionTokens {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.resolutionTokens span {
-  padding: 6px 9px;
-  border-radius: 6px;
-  background: rgb(255 255 255 / 8%);
+.resolutionStatus {
+  margin: 0;
   color: #dbe7f0;
   font-size: 11px;
   font-weight: 500;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -2860,10 +2838,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .resolutionTokens {
-    display: none;
-  }
-
   .resolution {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
@@ -2912,11 +2886,6 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: 12px;
     padding: 16px;
-  }
-
-  .resolutionTokens {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
   }
 
   .searchHealth {

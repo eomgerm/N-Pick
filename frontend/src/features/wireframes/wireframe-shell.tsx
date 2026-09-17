@@ -1,5 +1,6 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
@@ -21,6 +22,7 @@ import {
   type InquirySubmission,
 } from '@/features/wireframes/inquiry-api';
 import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
+import { myInquiryKeys } from '@/features/wireframes/my-inquiry-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
@@ -33,7 +35,10 @@ import {
   type SearchExecutionPresentation,
 } from '@/features/wireframes/search-execution-status';
 import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
-import type { SearchResultDetails } from '@/features/wireframes/search-result-details';
+import {
+  getResolverLabel,
+  type SearchResultDetails,
+} from '@/features/wireframes/search-result-details';
 
 export interface SearchScreenParams {
   q?: string;
@@ -73,6 +78,7 @@ export function WireframeShell({
 }: WireframeShellProps) {
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { searchFieldRef, workspaceRef } = useSearchArrival();
   const [isNavigating, startNavigation] = useTransition();
   const navigationLockRef = useRef(false);
@@ -135,10 +141,12 @@ export function WireframeShell({
         ? 'fallback'
         : effectiveResultDetails?.resolverStatus,
   };
-  const resolutionTokens = useMemo(
-    () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
-    [submittedQuery],
-  );
+  const resolutionStatusLabel =
+    resultState === 'loading'
+      ? '확인 중'
+      : resultState === 'failed'
+        ? '확인하지 못함'
+        : getResolverLabel(details.resolverStatus);
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -203,6 +211,7 @@ export function WireframeShell({
 
     try {
       const response = await submitInquiry(submission);
+      void queryClient.invalidateQueries({ queryKey: myInquiryKeys.all });
       setSubmittedInquiryIds((current) =>
         current.includes(submission.snapshot.resultId)
           ? current
@@ -291,18 +300,16 @@ export function WireframeShell({
       <div className={styles.workspace} data-state={resultState} ref={workspaceRef}>
         <main className={styles.mainContent}>
           <h1 className={styles.visuallyHidden}>뉴스 장면 검색 결과</h1>
-          <section className={styles.resolution} aria-label="검색 해석">
+          <section className={styles.resolution} aria-label="검색 요약">
             <div className={styles.resolutionIcon}>
               <Sparkles aria-hidden="true" />
             </div>
             <div>
-              <span>검색 해석</span>
+              <span>검색어</span>
               <strong>{submittedQuery}</strong>
-            </div>
-            <div className={styles.resolutionTokens}>
-              {resolutionTokens.map((token, index) => (
-                <span key={`${token}-${index}`}>{token}</span>
-              ))}
+              <p className={styles.resolutionStatus} role="status">
+                검색 해석: {resolutionStatusLabel}
+              </p>
             </div>
             <span
               className={styles.searchHealth}

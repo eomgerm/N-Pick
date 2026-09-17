@@ -93,14 +93,17 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
             onBack={() => handleTabChange('inquiries')}
           />
         ) : isProcessing && clipId ? (
-          <button
-            type="button"
-            className={progressStyles.backButton}
-            disabled={isInteractionLocked}
-            onClick={() => handleLocationChange({ clip: null })}
-          >
-            <ArrowLeft aria-hidden="true" /> 처리 현황으로
-          </button>
+          <div className={progressStyles.detailHeader}>
+            <p>영상 등록 처리 상세</p>
+            <button
+              type="button"
+              className={progressStyles.backButton}
+              disabled={isInteractionLocked}
+              onClick={() => handleLocationChange({ clip: null })}
+            >
+              <ArrowLeft aria-hidden="true" /> 처리 현황으로
+            </button>
+          </div>
         ) : isProcessing && !feedbackId ? (
           <ReviewerProgressHeading
             isNavigating={isInteractionLocked}

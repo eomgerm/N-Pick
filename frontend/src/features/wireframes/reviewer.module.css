@@ -25,13 +25,6 @@
   overflow-x: clip;
   background: var(--page);
   color: var(--text);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    'Apple SD Gothic Neo',
-    'Noto Sans KR',
-    sans-serif;
 }
 
 .shell *,

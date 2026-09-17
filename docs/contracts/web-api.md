@@ -28,8 +28,8 @@
 | 검수 문의 상세             | GET    | `/review/inquiries/{feedbackId}`            | BE 구현   | 검수 상세 바인딩                    |
 | 검수 시작                  | POST   | `/review/inquiries/{feedbackId}/claim`      | BE 구현   | 검수 흐름 바인딩                    |
 | 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
-| 내 문의 기록 목록          | GET    | `/inquiries`                                | BE 구현   | 편집자 하단 기록 시트 바인딩        |
-| 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 하단 기록 시트 바인딩        |
+| 내 문의 기록 목록          | GET    | `/inquiries`                                | 연결됨    | 없음                               |
+| 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | 연결됨    | 없음                               |
 | 내 검색 기록 목록·상세     | 미정   | 미정                                        | 명세 필요 | -60 선행, 편집자 하단 기록 시트 바인딩 |
 | 영상 처리 목록             | GET    | `/clips`                                    | 연결됨    | 없음                               |
 | 영상 처리 상세             | GET    | `/clips/{id}`                               | 연결됨    | 없음                               |
@@ -271,6 +271,8 @@ FE URL 상태와 wire 요청의 대응:
 ```
 
 검색 결과 배열의 정확한 위치는 `data.results`다.
+
+`query_resolution_status`는 해석의 완료·대체 검색 상태이며 해석 내용 자체가 아니다. 현재 계약에는 인물·장소·날짜 등 실제 해석 내용을 FE에 전달하는 필드가 없다. FE 상단은 원문을 `검색어`로 표시하고 해석 상태만 서버 응답으로 안내한다. 검색어 토큰이나 결과의 `matched_keywords`로 해석 내용을 합성하지 않는다. 실제 해석 칩 연결(S15P21A501-118/167)의 선행 작업은 S15P21A501-59에서 공개 응답 필드·예시와 규칙 적용 후 최종 해석 여부, fallback·내용 없음 규칙을 확정하는 것이다. 이는 과거 기록 복원용 저장 계약(S15P21A501-60)과 구분하며, 신규 필드 이름·형식은 아직 확정하지 않는다.
 
 ### 5.1 응답 불변식
 
@@ -560,6 +562,8 @@ FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문�
 
 검색 화면 사이드바에서 로그인 사용자가 **본인이 작성했고 본인이 실행한 검색에 대한 문의**만 조회한다. §6.3~6.4 검수 문의 API(`/review/inquiries`)와 달리 세션 사용자 ID로만 범위를 좁히며 파라미터로 다른 사용자 ID를 받지 않는다. 남의 검색 결과에 자기 명의로 만든 문의는 목록·카운트에서 제외해 그 검색어가 새어나가지 않게 한다. 신규 계약이라 응답은 snake_case, 모든 `*_id`는 십진 문자열이다.
 
+FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 있다. 패널을 열 때 10건 단위로 조회하고 항목 선택 시 상세를 다시 읽는다. 문의 접수 성공 후 캐시를 갱신하며 loading·empty·error·재시도를 구분한다. 상세의 미제공 snapshot·nullable 처리 결과는 예시 근거로 채우지 않는다. 문의 설명 수정 UI는 이번 조회 연결에 포함하지 않는다.
+
 `GET /inquiries?page=0&size=10`
 
 - `page`: 0 이상 정수, 기본값 0.
@@ -665,7 +669,7 @@ FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문�
 | -------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------- |
 | 1        | 검색 실행                            | §5 계약 그대로 구현하고 실제 결과·loading·empty·degraded·failed를 연결                         | 고정 장면과 URL demo          |
 | 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination(S15P21A501-60 저장 계약 선행, 미착수) | `search-history.tsx` 고정 5건 |
-| 3        | 편집자 문의 기록 목록·상세           | §6.6으로 승격·BE 구현 완료. 남은 작업은 FE 화면 바인딩뿐                                       | 고정 문의와 memory 추가       |
+| 3        | 편집자 문의 기록 목록·상세           | §6.6 목록·상세 FE 연결 완료. 본인 조회·페이지 이동·접수 후 갱신                                | 실제 API 연결                 |
 | 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
 | 5        | 영상 재생                            | §6.1 공통 Preview·문의 상세·검색 결과 clipId 바인딩 완료                               | 배포 BE endpoint 확인 필요      |
 | 6        | 검수 문의 목록·상세·claim·resolution | §6.3~6.4 응답을 검수 화면 모델로 mapping                                                       | 23건 고정 문의                |
@@ -688,7 +692,7 @@ FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문�
 | 문의 상태          | BE는 `OPEN/REVIEWING/CLOSED`, FE demo는 `pending/reviewing/resolved` | BE 상태를 정본으로 하고 FE adapter에서 사용자 문구로 변환                                 |
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
-| 내 문의 기록       | §6.6으로 확정·구현 완료                                              | 없음(FE 바인딩만 남음)                                                                     |
+| 내 문의 기록       | §6.6으로 확정·BE 구현·FE 목록과 상세 연결 완료                       | 없음                                                                                      |
 | 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
 | 처리 조회          | §6.5 실제 목록·상세·polling 연결, unknown/null 보존                    | 수동 재처리·장면 목록·썸네일 및 추가 메타데이터 계약 필요                                 |
 | thumbnail          | 검색 응답에 URL을 넣지 않는 것만 확정                                | `scene_id` 기반 endpoint와 응답 cache 정책 확정                                           |

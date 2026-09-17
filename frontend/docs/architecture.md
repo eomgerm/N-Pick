@@ -14,6 +14,8 @@
 
 검색 결과의 0건 안내는 `wireframes/search-result-details.tsx`의 UI 입력 모델을 사용합니다. `WireframeShell`은 실제 검색 adapter가 전달한 실행·제외 정보를 받아 빈 결과에서도 degraded 상태를 유지합니다. `SearchResultState`는 실제 해석 상태와 제외 정보를 표시합니다. 사용자 결정에 따라 1~9건에는 별도 부족 안내 없이 기존 결과 개수와 카드만 표시합니다. 기록이 없는 수치는 0으로 바꾸지 않습니다. `search-results-api.ts`가 서버의 해석 상태·제외 건수·사유 코드를 화면 모델로 변환합니다.
 
+검색 결과 상단은 입력 검색어와 서버의 해석 상태를 구분합니다. `query_resolution_status`를 기존 adapter와 `getResolverLabel`로 표시하며 검색 중·실패에는 이전 응답의 완료 상태를 표시하지 않습니다. 검색어를 분할한 단어를 해석 결과로 표시하지 않습니다. 실제 인물·장소·날짜 등의 해석 내용은 공개 검색 응답에 아직 없으므로, S15P21A501-59에서 FE용 필드·예시·fallback/null 규칙을 확정한 뒤 S15P21A501-167에서 연결해야 합니다. 과거 해석 복원은 S15P21A501-60의 저장 계약에 별도로 의존합니다.
+
 ```text
 src/
 ├─ app/                    Next.js route와 화면 조합
@@ -52,7 +54,9 @@ src/
 │     ├─ date-range.ts            날짜 범위 검증과 URL 복원
 │     ├─ date-range-picker.tsx    방송일·촬영일 기간 선택 dialog
 │     ├─ date-range-calendar.tsx  시작일·종료일 달력과 월·연도 탐색
-│     ├─ search-history.tsx       검색·문의 예시 기록 사이드바
+│     ├─ search-history.tsx       검색 예시 기록·실제 내 문의 기록 사이드바
+│     ├─ my-inquiry-api.ts        내 문의 목록·상세 API와 응답 검증
+│     ├─ my-inquiry-history.tsx   내 문의 조회·페이지 이동·상세·오류 복구
 │     ├─ search-history.module.css 기록 목록·상태 칩·펼침 레이아웃
 │     ├─ demo-scenes.ts          결과·기록이 공유하는 10개 예시 장면과 표시 모델
 │     ├─ scene-dialogs.tsx        구간 영상·문의 공통 팝업과 상태별 조회
@@ -71,7 +75,8 @@ src/
 │     ├─ reviewer-progress.tsx 실제 API 기반 처리 요약·상태별 목록·페이지 이동
 │     ├─ clip-processing-api.ts 영상 목록·상세 조회와 공개 응답 검증
 │     ├─ clip-processing-view.ts 처리 상태 표시와 polling 조건
-│     ├─ processing-clip-detail.tsx 실제 처리 기록·자동 재시도 이력·원본 영상
+│     ├─ processing-clip-detail.tsx 영상 요약·원본 영상·처리 기록·대사 정보
+│     ├─ processing-pipeline.tsx 계약 순서의 10단계와 hover·키보드·터치 상세 조회
 │     ├─ reviewer-progress-state.ts 탭 타입과 구 화면 단위 테스트용 집계
 │     ├─ reviewer-progress.module.css 진행 목록의 테마·반응형 레이아웃
 │     ├─ reviewer-board.tsx    검수자 문의 게시판·검색·필터·페이지네이션
@@ -107,7 +112,7 @@ src/
 
 랜딩은 `landing-shell.tsx`에서 검은 배경의 `NEED? PICK!` 인트로 뒤에 앱 아이콘·두 줄 `N / PICK` 워드마크와 반복 재생 영상을 보여 줍니다. 헤드라인에만 Black Han Sans를 적용하며, 배경 영상과 포스터는 `public/media/landing-hero*`, 앱 아이콘은 `public/images/landing-app-icon.png`, 역할 카드 이미지는 `public/images/role-*.jpg`에서 제공합니다. 스크롤 진행도에 따라 같은 로고가 좌하단에서 역할 선택 영역의 자리로 이동하며 크기를 맞추고, 주변 문구와 역할 카드는 교차 페이드합니다. 역스크롤 시 로고는 원위치로 돌아오며 화면 크기가 바뀌면 도착 위치를 다시 계산합니다. 카드는 기존 `/login?role=editor|reviewer`로 연결됩니다. `prefers-reduced-motion`에서는 인트로·영상 재생·CSS 애니메이션을 멈추고 로고 위치도 이동 애니메이션 없이 전환합니다. 영상 자동 재생이 허용되지 않으면 포스터를 유지합니다.
 
-편집자 검색 입력 화면의 왼쪽 사이드바에는 `이전 검색 기록`과 `문의 사항`을 표시합니다. 각 아이콘 버튼으로 펼치고 같은 버튼·닫기·배경·Escape로 접습니다. 사이드바 너비와 모서리, 라벨, 기록 패널은 양방향으로 전환하며 모션 감소 설정에서는 즉시 전환합니다. 닫힌 패널은 `inert`로 포커스와 클릭을 차단합니다. 기록 패널과 사이드바는 같은 높이·계정 버튼과 같은 밝은 frosted glass 표면을 사용하며 목록만 내부 스크롤합니다. 검색바도 미세 노이즈와 backdrop blur를 사용합니다. 검색 헤더는 좌측 로고 없이 좌상단에 기본 프로필 이미지를 표시하는 72×72 원형 버튼을 둡니다. 버튼의 오른쪽에는 전체 계정명·역할명·역할별 메뉴·빨간 로그아웃 버튼이 펼쳐지고 바깥 클릭·포커스 이탈·Escape로 닫힙니다. 기존 검색 결과의 뉴스 썸네일을 재사용하고 구간·내용·경과일을 표시합니다. 검색 기록 항목은 검색 결과와 동일한 `ScenePreviewDialog`를 열고, 문의 기록 항목은 `InquiryDialog`에서 당시 검색어·구간·문의 내용을 읽기 전용으로 보여 줍니다. 문의 생명주기는 `open/reviewing/closed`, 종료 결과는 `exclude_scene/no_action/deferred/tag_correction/patch_parse`를 사용합니다. native dialog로 배경 조작을 막고 키보드 포커스를 가두며 Escape·닫기로 복귀합니다. 새로 접수한 문의는 `SearchHistory` 메모리에서 유지하며 새로고침·페이지 이동 시 초기화됩니다. 실제 검색·문의 이력 API는 연결하지 않은 디자인 시안입니다.
+편집자 검색 화면의 왼쪽 사이드바에는 `이전 검색 기록`과 `문의 사항`을 표시합니다. 각 아이콘 버튼으로 펼치고 같은 버튼·닫기·배경·Escape로 접습니다. 사이드바 너비와 모서리, 라벨, 기록 패널은 양방향으로 전환하며 모션 감소 설정에서는 즉시 전환합니다. 닫힌 패널은 `inert`로 포커스와 클릭을 차단합니다. 기록 패널과 사이드바는 같은 높이·계정 버튼과 같은 밝은 frosted glass 표면을 사용하며 목록만 내부 스크롤합니다. 검색바도 미세 노이즈와 backdrop blur를 사용합니다. 검색 헤더는 좌측 로고 없이 좌상단에 기본 프로필 이미지를 표시하는 72×72 원형 버튼을 둡니다. 버튼의 오른쪽에는 전체 계정명·역할명·역할별 메뉴·빨간 로그아웃 버튼이 펼쳐지고 바깥 클릭·포커스 이탈·Escape로 닫힙니다. 검색 기록은 조회 API가 없어 기존 예시 5건을 유지하고 `ScenePreviewDialog`에서 읽기 전용으로 엽니다. 문의 사항은 패널을 열 때 `GET /inquiries?page=0&size=10`으로 본인의 실제 기록을 조회하며 패널 안에서 페이지를 이동합니다. 고정 문의·메모리 접수는 사용하지 않습니다. 항목을 선택하면 `GET /inquiries/{feedbackId}`로 최신 상세를 읽고 `InquiryDialog`에서 검색어·영상 제목·구간·설명·상태·처리 결과와 사유를 표시합니다. ID는 문자열을 유지하고 계정별 query key로 캐시를 구분합니다. 서버가 제공하지 않는 썸네일은 영상 아이콘으로, `snapshot_status=unavailable`은 상세 근거 미제공 안내로 표시하며 근거를 합성하지 않습니다. 목록·상세의 loading·empty·error와 수동 재시도를 구분하고 native dialog로 배경 조작을 막으며 Escape·닫기 후 선택한 항목으로 포커스를 돌립니다. 검색 결과에서 문의 접수에 성공하면 내 문의 캐시를 무효화하며, 패널과 상세를 다시 열 때도 서버에서 재조회합니다. 문의 설명 수정·교정 후보 편집 UI는 별도 작업입니다.
 
 제품 화면 `/search`, `/search/results`, `/review`는 `AppShell`이 상단에 고정된 공통 계정 헤더와 화면 이동 메뉴를 제공합니다. `headerContent`로 검색 결과의 검색바 또는 검수 목록·처리 현황의 제목과 영상 등록 버튼을 계정 버튼과 같은 행에 배치합니다. 공통 헤더의 상단 여백은 32px이며 본문 spacer와 사이드바도 같은 기준으로 배치합니다. 검수 목록은 제목 오른쪽에 전체 문의 건수를 표시하고, 영상 처리 상세의 복귀 버튼과 영상 등록 화면의 제목도 계정 버튼과 같은 헤더 행에 둡니다. 검수 본문은 바깥 패딩 `24px 32px 64px 124px`을 유지하며, 문의 목록·처리 현황과 공통 제목은 최대 1440px 안에서 반응형으로 표시합니다. 760px 이하에서는 기존 모바일 패딩과 단일 열 배치를 유지합니다. `SessionBoundary`의 현재 계정으로 역할을 읽고 `SessionControls`가 계정·역할·로그아웃을 표시합니다. 편집기자에게는 장면 검색, 검수자에게는 장면 검색과 검수 메뉴를 제공합니다. 검수의 `ReviewerLayout`은 검색과 같은 유리 표면의 왼쪽 사이드바로 문의·처리·영상 등록을 연결하고, 검색 결과와 같은 어두운 배경 레이어를 사용합니다. 공개 랜딩·로그인과 각 page의 서버 접근 검사는 별도로 유지합니다.
 

@@ -211,6 +211,20 @@ test('영상 API 오류를 데모로 대체하지 않고 문의 요약과 재조
 });
 
 test('기록 없는 영상은 대기 또는 0단계 완료로 만들지 않는다', async ({ page }) => {
+  await page.route('**/api/v1/clips/21', (route) =>
+    success(route, {
+      ...detail(),
+      clip: {
+        ...clip(),
+        title: null,
+        search_available: false,
+        active_pipeline_run_id: null,
+        latest_run: null,
+        progress: null,
+      },
+      processing_details: null,
+    }),
+  );
   await page.route('**/api/v1/clips?*', (route) =>
     success(route, {
       items: [
@@ -238,6 +252,13 @@ test('기록 없는 영상은 대기 또는 0단계 완료로 만들지 않는�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
+  await page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '제목 없는 영상', exact: true })).toBeVisible();
+  const pipeline = page.getByRole('tablist', { name: '영상 처리 파이프라인 10단계' });
+  await expect(pipeline.getByRole('tab')).toHaveCount(10);
+  await expect(pipeline.getByRole('tab', { name: /기록 없음$/ })).toHaveCount(10);
+  await expect(page.getByRole('tabpanel')).toContainText('처리 상태를 확인할 수 없습니다.');
+  await expect(page.getByRole('progressbar')).toHaveCount(0);
 });
 
 test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침해도 유지한다', async ({ page }) => {
@@ -345,3 +366,143 @@ test('최근 등록의 기록 없음 재조회는 1분 뒤 멈추고 수동 조�
   await expect(overview.getByText(/아직 처리 기록이 없습니다/)).toHaveCount(0);
   expect(reads).toBe(4);
 });
+
+for (const width of [1440, 390, 320]) {
+  test(`처리 상세 ${width}px에서 10단계 파이프라인을 hover·키보드·클릭으로 조회한다`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const response = detail();
+    await page.route('**/api/v1/clips/21', (route) =>
+      success(route, {
+        ...response,
+        clip: {
+          ...response.clip,
+          title: '추석 귀성길, 서울역과 고속도로 현장',
+          progress: {
+            record_status: 'available',
+            current_stage: null,
+            total_steps: 10,
+            succeeded_steps: 1,
+            skipped_steps: 1,
+            failed_steps: 1,
+          },
+        },
+        processing_details: {
+          ...response.processing_details,
+          stages: [
+            ...[
+              ['scene_detection', 'succeeded'],
+              ['asr', 'skipped'],
+            ].map(([name, status]) => ({
+              ...response.processing_details.stages[0],
+              name,
+              status,
+              attempts: 1,
+              started_at: '2026-09-16T01:00:00Z',
+              finished_at: '2026-09-16T01:02:00Z',
+              error_code: null,
+              failed_attempts: [],
+            })),
+            ...response.processing_details.stages,
+            ...[
+              ['vlm_metadata', 'pending'],
+              ['indexing', 'unknown'],
+            ].map(([name, status]) => ({
+              ...response.processing_details.stages[0],
+              name,
+              status,
+              attempts: null,
+              error_code: null,
+              failed_attempts: [],
+            })),
+          ],
+        },
+      }),
+    );
+    await page.goto('/review?view=processing&tab=uploads&clip=21');
+    const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
+    const stages = page.getByRole('region', { name: '최신 처리 단계', exact: true });
+    const header = page.getByRole('banner');
+    await expect(header.getByText('영상 등록 처리 상세', { exact: true })).toBeVisible();
+    await expect(overview.getByText('영상 등록 처리 상세', { exact: true })).toHaveCount(0);
+    await expect(overview.getByRole('status')).toContainText('확인 필요');
+    await expect(overview.getByRole('status')).toContainText('STAGE_TIMEOUT');
+    await expect(overview.getByText('검색 가능', { exact: true })).toBeVisible();
+    await expect(stages.getByText(/WORKER_BUSY/)).toBeVisible();
+    const stageBox = await stages.boundingBox();
+    const media = page.getByRole('region', { name: '원본 영상', exact: true });
+    if (width > 760) {
+      const overviewBox = await overview.boundingBox();
+      const mediaBox = await media.boundingBox();
+      expect(mediaBox!.x).toBeGreaterThan(overviewBox!.x + overviewBox!.width);
+      expect(Math.abs(mediaBox!.y - overviewBox!.y)).toBeLessThan(2);
+      expect(stageBox!.y).toBeGreaterThan(overviewBox!.y + overviewBox!.height);
+      const headerTitle = await header
+        .getByText('영상 등록 처리 상세', { exact: true })
+        .boundingBox();
+      const back = await header
+        .getByRole('button', { name: '처리 현황으로', exact: true })
+        .boundingBox();
+      expect(back!.x).toBeGreaterThan(headerTitle!.x + headerTitle!.width);
+      expect(Math.abs(back!.x + back!.width - mediaBox!.x - mediaBox!.width)).toBeLessThan(2);
+    }
+    const tabs = stages.getByRole('tab');
+    await expect(tabs).toHaveCount(10);
+    await expect(tabs).toHaveText([
+      '장면 나누기성공',
+      '02대표 화면 추출기록 없음',
+      '03영상 속 글자 읽기실패',
+      '04대사 출처 선택기록 없음',
+      '05음성 인식생략',
+      '06장면별 대사 연결기록 없음',
+      '07영상 설명 생성대기',
+      '08개체 추출기록 없음',
+      '09검색 임베딩 생성기록 없음',
+      '10검색 반영미확인',
+    ]);
+    const rows = await tabs.evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().y),
+    );
+    expect(new Set(rows).size).toBe(1);
+    await expect
+      .poll(() =>
+        page.locator('video').evaluate((element) => (element as HTMLVideoElement).readyState),
+      )
+      .toBeGreaterThanOrEqual(2);
+    await page.screenshot({
+      path: testInfo.outputPath(`processing-detail-${width}.png`),
+      fullPage: true,
+    });
+    await page.screenshot({ path: testInfo.outputPath(`processing-viewport-${width}.png`) });
+    const firstStage = tabs.first();
+    const record = stages.getByRole('tabpanel');
+    await firstStage.hover();
+    await expect(firstStage).toHaveAttribute('aria-selected', 'true');
+    await expect(record.getByRole('heading', { name: '장면 나누기', exact: true })).toBeVisible();
+    await expect(record).not.toContainText('WORKER_BUSY');
+    await tabs.nth(2).hover();
+    await expect(record).toContainText('WORKER_BUSY');
+    await firstStage.focus();
+    await firstStage.press('ArrowRight');
+    await expect(tabs.nth(1)).toBeFocused();
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(record).toContainText('저장된 단계 기록이 없습니다.');
+    await tabs.nth(1).press('End');
+    await expect(tabs.last()).toBeFocused();
+    await expect(record.getByRole('heading', { name: '검색 반영', exact: true })).toBeVisible();
+    await tabs.nth(4).click();
+    await expect(tabs.nth(4)).toHaveAttribute('aria-selected', 'true');
+    await expect(record).toContainText('생략');
+    const transcript = page.getByRole('region', { name: '대사 처리 기록', exact: true });
+    await transcript.locator('summary').focus();
+    await transcript.locator('summary').press('Enter');
+    await expect(transcript.getByText('저장된 대사 선택 기록이 없습니다.')).toBeVisible();
+    await transcript.locator('summary').press('Enter');
+    for (const region of [overview, stages, media, transcript]) {
+      expect(await region.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+    }
+  });
+}
