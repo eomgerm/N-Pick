@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from npick_worker.app import create_app
 from npick_worker.jobs.client import JobApiClient
 from npick_worker.jobs.models import StageResult
+from npick_worker.jobs.registry import declared_stages
 from npick_worker.jobs.versions import StageVersion
 from npick_worker.settings import get_settings
 
@@ -30,10 +31,15 @@ SCENE_EMBEDDING_DIMENSION = 1024
 @pytest.fixture(autouse=True)
 def reset_settings() -> Iterator[None]:
     """Settings 는 프로세스 수명 동안 캐시된다. 환경 변수를 건드리는 테스트가
-    다음 테스트로 새지 않게 매번 비운다."""
+    다음 테스트로 새지 않게 매번 비운다.
+
+    `declared_stages` 도 같이 비운다 — 그쪽 캐시는 설정에서 파생된 값이라 설정만
+    되돌리면 다음 테스트가 앞 테스트의 목록을 본다."""
     get_settings.cache_clear()
+    declared_stages.cache_clear()
     yield
     get_settings.cache_clear()
+    declared_stages.cache_clear()
 
 
 @pytest.fixture(autouse=True)

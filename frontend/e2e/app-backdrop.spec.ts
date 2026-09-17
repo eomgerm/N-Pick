@@ -7,7 +7,6 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const [name, route] of [
-  ['search', '/search'],
   ['results', '/search/results?q=비%20내리는%20출근길'],
   ['processing', '/review?view=processing'],
 ]) {
@@ -53,7 +52,9 @@ for (const [name, route] of [
   });
 }
 
-test('정지 배경에서 검색을 제출하면 결과 화면도 같은 배경을 유지한다', async ({ page }) => {
+test('파라랙스 검색 화면에서 제출하면 결과 화면은 같은 산의 정지 배경을 표시한다', async ({
+  page,
+}) => {
   await page.goto('/search');
   await page.getByRole('searchbox', { name: '뉴스 장면 검색어' }).fill('비 내리는 출근길');
   await page.getByRole('button', { name: '장면 찾기', exact: true }).click();

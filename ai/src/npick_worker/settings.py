@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     job_max_backoff_seconds: float = Field(default=60.0, gt=0)
     #: GPU 한 장을 전제한다.
     job_concurrency: int = Field(default=1, ge=1)
+    #: **이 배포가 맡을 단계.** 쉼표로 구분한 단계 이름이고, 비우면 구현된 전부를
+    #: 선언한다(지금까지의 동작). 설치 구성이 정하는 것은 *할 수 있는 것*이고 이 값이
+    #: 정하는 것은 *맡을 것*이다 — CPU 단계 구현은 기본 의존성이라 GPU 이미지에도
+    #: 들어가므로, 이것이 없으면 CPU 워커와 GPU 파드의 선언이 겹친다.
+    #: **좁히기만 한다**: 목록에 있어도 모델 미지정·워밍업 실패인 단계는 여전히 빠진다.
+    #: 쉼표 목록이라 `list[str]` 이 아니라 `str` 이다 — pydantic-settings 는 복합 타입
+    #: 환경변수를 JSON 으로 읽으므로 `a,b` 가 기동 실패가 된다.
+    job_stages: str = ""
 
     #: backend 와 공유하는 미디어 마운트. 없으면 입력을 HTTP 로 받는다.
     #: compose 는 /srv/npick/media 를 준다. RunPod 파드에는 공유 볼륨이 없다.

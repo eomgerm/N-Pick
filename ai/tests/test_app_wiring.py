@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from npick_worker.app import build_worker, create_app
+from npick_worker.jobs.registry import declared_stages
 from npick_worker.settings import Settings, get_settings
 
 #: 느린 워밍업을 흉내내는 시간. 상한(0.1초)보다 충분히 커서 둘을 구분할 수 있어야 하고,
@@ -130,3 +131,59 @@ def test_slow_warm_up_does_not_block_the_boot(monkeypatch: pytest.MonkeyPatch) -
         f"워밍업이 끝날 때까지 기동이 막혔다 ({boot_seconds:.1f}초). "
         "상한이 없으면 콜드 스타트가 startup probe 를 넘긴다"
     )
+
+
+# ── 선언 단계 제한 노브 (S15P21A501-186) ────────────────────────────
+
+
+def test_health_reports_the_stages_this_deployment_declares(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """단계를 좁혔는지 밖에서 확인할 수 있어야 한다.
+
+    `pipeline.stages` 는 FRD §5.1 표의 전사라 배포와 무관한 상수다. 그것만으로는 CPU
+    워커와 GPU 파드가 무엇을 맡기로 했는지 구분되지 않는다.
+    """
+    monkeypatch.setenv("NPICK_AI_JOB_STAGES", "scene_detection,indexing")
+    get_settings.cache_clear()
+
+    with TestClient(create_app()) as client:
+        pipeline = client.get("/health").json()["pipeline"]
+
+    assert pipeline["declared"] == ["scene_detection", "indexing"]
+    # 단계 표 자체는 노브가 건드리지 않는다.
+    assert pipeline["stage_count"] == 10
+
+
+def test_the_knob_narrows_what_the_claim_actually_carries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """선언이 좁아지는 지점은 `capability_versions()` 가 아니라 claim 본문이다.
+
+    BE 가 보는 것은 이 목록뿐이고(계약 §4.1), 배정을 거르는 것도 이것이다.
+    """
+    monkeypatch.setenv("NPICK_AI_JOB_STAGES", "frame_extraction")
+    get_settings.cache_clear()
+    declared_stages.cache_clear()
+
+    _, runner = build_worker(_settings())
+
+    assert [c.stage for c in runner._claim_request().capabilities] == ["frame_extraction"]
+
+
+def test_declared_stages_are_reported_in_pipeline_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """적은 순서가 아니라 단계 순서로 내놓는다.
+
+    운영에서 두 워커의 `/health` 를 눈으로 맞대 보는 값이라 순서가 입력을 따라가면
+    같은 목록이 배포마다 다르게 보인다.
+    """
+    monkeypatch.setenv("NPICK_AI_JOB_STAGES", "indexing,scene_detection")
+    get_settings.cache_clear()
+    declared_stages.cache_clear()
+
+    with TestClient(create_app()) as client:
+        declared = client.get("/health").json()["pipeline"]["declared"]
+
+    assert declared == ["scene_detection", "indexing"]

@@ -113,6 +113,51 @@ npick:
       ocr-weight: ${SEARCH_CANDIDATE_OCR_WEIGHT:1.0}
       # 재순위·제외 전의 후보 상한. 최종 반환 10개(F-05)와 다른 값이며 실측으로 조정한다.
       pool-size: ${SEARCH_CANDIDATE_POOL_SIZE:200}
+    # 순위 결합(RRF) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
+    # 실제 사용 값은 search_execution.search_config_json 에 남고 config_version 이 그 값들에서 나온다.
+    fusion:
+      weight-status: ${SEARCH_FUSION_WEIGHT_STATUS:experimental}
+      # RRF 원 논문의 관례값이다. 클수록 상위 순위의 우위가 완만해진다. Gate B 에서 실측으로 조정한다.
+      rrf-k: ${SEARCH_FUSION_RRF_K:60.0}
+      # 구조화 축 점수의 가산 계수. 1.0 은 구조화 만점 후보가 전 채널 1등과 동점이 된다는 뜻이다.
+      # 「구조화만으로 전 채널 1등을 이기지 않게 한다」는 제품 정책이지 FRD 가 요구하는 불변식이 아니므로
+      # 상한을 코드로 막지 않는다. 실제 세기는 Gate B 실측으로 정한다.
+      lambda: ${SEARCH_FUSION_LAMBDA:1.0}
+      # 가중치 0 이 곧 채널 off 다. 공통 배율은 R/M 에서 상쇄되므로 의미를 갖는 것은 채널 사이의 비율뿐이다.
+      # DENSE 기본값이 0 인 이유: 질의 임베딩 생성(S15P21A501-164)은 병합됐지만 BE 가 그 벡터를
+      # 받아올 경로가 아직 없다. 리졸버 응답 DTO 에 embedding 필드가 없고 조회하는 어댑터도 없다.
+      # 배선은 조립(S15P21A501-59) 범위이며, 그때 이 값을 켜고 model-version 을 함께 설정한다.
+      # 켜려면 npick.search.dense.model-version 을 함께 설정해야 하며, 없으면 부팅이 막힌다.
+      channel-weights:
+        lexical: ${SEARCH_FUSION_LEXICAL_WEIGHT:1.0}
+        dense: ${SEARCH_FUSION_DENSE_WEIGHT:0.0}
+    # 보조 랭킹(soft) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
+    # 이 신호들은 baseScore 를 바꾸지 않고 동점 구간의 순서만 가른다 — 가중치를 어떻게 잡아도
+    # 관련성이 높은 장면을 추월할 수 없다(F-05 「무조건 앞서지 않게 한다」).
+    # 예외는 tie-epsilon 하나다. 보조 점수가 순서를 가르는 폭을 그 값이 직접 정하므로 상한을 코드로 막는다.
+    soft:
+      weight-status: ${SEARCH_SOFT_WEIGHT_STATUS:experimental}
+      # 동점으로 묶는 버킷의 폭. 0 이면 정확히 같을 때만 보조 신호가 순서를 가른다.
+      # 보장은 「baseScore 차이가 이 값 이상이면 보조 점수가 순서를 뒤집지 못한다」다.
+      # 「차이가 이 값 이하면 동점」이 아니다 — 버킷 경계 양쪽은 차이가 작아도 갈린다.
+      # SoftRankingSettings.MAX_TIE_EPSILON(0.1) 이상은 부팅이 막힌다. 그 상한은 계산으로
+      # 나온 값이 아니라 보수적으로 잡은 가드레일이며 Gate B 실측에서 조정한다.
+      tie-epsilon: ${SEARCH_SOFT_TIE_EPSILON:0.0}
+      # 가중치 0 이 곧 신호 off 다. 보조 점수는 활성 신호의 가중평균이라 공통 배율은 상쇄된다 —
+      # 의미를 갖는 것은 신호 사이의 비율뿐이다.
+      weights:
+        # 검색 의도가 recent_scene 일 때만 켜진다. 상시 적용하면 최신 편향이 모든 질의에 깔린다.
+        recency: ${SEARCH_SOFT_RECENCY_WEIGHT:1.0}
+        # 의도로 게이트할 수단이 없어 상시 활성이다 (리졸버 intent 에 b-roll 값이 없다).
+        # scene.shot_type 컬럼 주석이 적은 「b_roll 에 보조 가산점」과 같은 동작이다.
+        b-roll: ${SEARCH_SOFT_B_ROLL_WEIGHT:1.0}
+        # 질의 해석의 classifications 에 그 조건이 있을 때만 켜진다.
+        season: ${SEARCH_SOFT_SEASON_WEIGHT:1.0}
+        weather: ${SEARCH_SOFT_WEATHER_WEIGHT:1.0}
+    # 텍스트 의미 검색 실행 설정. model-version 은 질의 임베딩이 쓰는 인코더와 같아야 하므로
+    # 기본값을 두지 않는다 — 임의값을 넣으면 저장 벡터와 어긋난 채로 검색이 돈다.
+    dense:
+      pool-size: ${SEARCH_DENSE_POOL_SIZE:200}
 
 # PostgreSQL error details may include the failing row (script, paths, secrets).
 # API failures are reported through safe application error codes instead.

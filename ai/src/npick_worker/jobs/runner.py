@@ -649,6 +649,13 @@ class JobRunner:
         성공은 v2 가 되어 같은 잡의 두 결과가 다른 스키마를 주장한다. 워커가 무엇을
         낼 수 있는지는 워커가 아는 사실이므로 배정이 그것을 덮어쓰게 두지 않는다.
         배정과 어긋나는 것은 BE 가 판정할 문제이고 §11 항목 12 가 그 자리다.
+
+        **`NPICK_AI_JOB_STAGES` 로 좁힌 워커에는 셋째 갈래가 생겼다** — 구현이 있는데
+        선언하지 않은 단계다. 그런 단계가 여기 오면 "unknown" 이 된다. 지금은 도달할 수
+        없다(BE 가 capabilities 로 거르고 `complete` 의 `next` 는 항상 null 이다). 하지만
+        `_process` 의 체이닝이 켜지면 좁힌 워커가 선언하지 않은 단계를 실행하게 되고,
+        그때는 실행한 버전을 알면서 "unknown" 을 보내는 셈이다. 체이닝을 켜는 쪽이
+        배정 필터를 여기까지 이어야 한다.
         """
         declared = registry.capability_versions().get(job.stage)
         return StageVersion(

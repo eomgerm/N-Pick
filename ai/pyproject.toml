@@ -103,8 +103,13 @@ gpu = [
 #
 # **버전이 다른 것은 의도가 아니라 제약이다.** cu128 인덱스가 제공하는 최신이 2.11 이고
 # 2.13 빌드가 없다. 드라이버가 올라가면 cu128 쪽 상한도 함께 올린다.
-cu128 = ["torch>=2.11,<2.12"]
-cu130 = ["torch>=2.13,<3"]
+#
+# **torchvision 도 여기 있어야 한다.** Transformers 5 의 `AutoProcessor` 는 Qwen3-VL 계열
+# processor 를 조립할 때 `Qwen3VLVideoProcessor` 를 함께 불러오고, 그것이 torchvision 을
+# 요구한다. 우리가 영상을 넣지 않아도 조립 단계에서 걸리므로 선정 모델(§2)이 아예 로드되지
+# 않는다. torch 와 같은 인덱스·같은 릴리스에서 와야 해서 그룹을 함께 쓴다.
+cu128 = ["torch>=2.11,<2.12", "torchvision>=0.26,<0.27"]
+cu130 = ["torch>=2.13,<3", "torchvision>=0.28,<1"]
 
 [tool.uv]
 required-version = ">=0.12"
@@ -144,6 +149,12 @@ explicit = true
 # 함께 들어간다.
 [tool.uv.sources]
 torch = [
+    { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu130", group = "cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+# torch 와 같은 인덱스에서 와야 한다. PyPI 쪽 torchvision 은 PyPI torch 를 끌어오므로
+# 여기서 갈라두지 않으면 CUDA 휠 옆에 CPU torch 가 따라 들어온다.
+torchvision = [
     { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { index = "pytorch-cu130", group = "cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
