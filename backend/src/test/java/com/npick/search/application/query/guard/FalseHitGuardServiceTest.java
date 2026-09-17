@@ -1,6 +1,7 @@
 package com.npick.search.application.query.guard;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -86,6 +87,33 @@ class FalseHitGuardServiceTest {
         assertThatThrownBy(() -> new ApplyFalseHitGuardQuery(resolution(), List.of(10L, 20L), Map.of(10L, List.of())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("20");
+    }
+
+    @Test
+    @DisplayName("통과한 판정은 제외 사유를 내지 않는다")
+    void nonExcludingJudgmentHasNoReason() {
+        var query = new ApplyFalseHitGuardQuery(
+                resolution(), List.of(10L), Map.of(10L, List.of(broadcast(1L, "2026-09-02"))));
+
+        var verdict = service.apply(query).verdicts().getFirst();
+
+        assertThat(verdict.exclusionReason()).isNull();
+        assertThat(verdict.fields())
+                .singleElement()
+                .satisfies(field -> assertThat(field.conflictReason())
+                        .as("통과한 판정에서 사유를 꺼내도 제외 사유가 나오면 안 된다")
+                        .isNull());
+    }
+
+    @Test
+    @DisplayName("태그 값이 null 이어도 누락과 같은 메시지로 거부한다")
+    void rejectsNullTagValueWithTheSameMessage() {
+        var withNull = new HashMap<Long, List<EffectiveTag>>();
+        withNull.put(10L, null);
+
+        assertThatThrownBy(() -> new ApplyFalseHitGuardQuery(resolution(), List.of(10L), withNull))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("10");
     }
 
     private static QueryResolution resolution() {

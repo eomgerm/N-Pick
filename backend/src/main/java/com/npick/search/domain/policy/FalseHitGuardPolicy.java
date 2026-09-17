@@ -182,9 +182,17 @@ public final class FalseHitGuardPolicy {
             groundingTagIds = List.copyOf(groundingTagIds);
         }
 
-        /** 이 판정이 충돌일 때의 제외 사유. 판정 단위가 날짜뿐이므로 날짜 충돌 하나다. */
+        /**
+         * 이 판정이 충돌일 때의 제외 사유. <b>충돌이 아니면 {@code null} 이다.</b>
+         *
+         * <p>판정과 무관하게 사유를 내면 통과한 판정({@link GuardJudgment#VERIFIED_MATCH}·{@link GuardJudgment#UNKNOWN_OR_UNVERIFIED})에서
+         * 사유를 꺼내 쓴 호출부가 제외되지 않은 장면에 {@code explicit_date_conflict} 를 싣는다. {@code guard_summary.reasons} 는 제외
+         * 건에만 나와야 하므로, 그렇게 되면 검수자가 존재하지 않는 날짜 충돌을 쫓는다.
+         *
+         * <p>사유가 날짜 충돌 하나인 것은 판정 단위가 날짜뿐이기 때문이다. 사건명 판정이 생기면 그 판정이 자기 사유를 들고 와야 한다.
+         */
         public GuardExclusionReason conflictReason() {
-            return GuardExclusionReason.EXPLICIT_DATE_CONFLICT;
+            return judgment.excludes() ? GuardExclusionReason.EXPLICIT_DATE_CONFLICT : null;
         }
     }
 
