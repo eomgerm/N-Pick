@@ -13,7 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
-import com.npick.feedback.application.MyInquiryQueryService;
+import com.npick.feedback.application.GetMyInquiryDetailUseCase;
+import com.npick.feedback.application.ListMyInquiriesUseCase;
 import com.npick.feedback.presentation.response.MyInquiryDetailResponse;
 import com.npick.feedback.presentation.response.MyInquiryListResponse;
 
@@ -28,10 +29,13 @@ import com.npick.feedback.presentation.response.MyInquiryListResponse;
 @Validated
 public class MyInquiryController {
 
-    private final MyInquiryQueryService queryService;
+    private final ListMyInquiriesUseCase listMyInquiriesUseCase;
+    private final GetMyInquiryDetailUseCase getMyInquiryDetailUseCase;
 
-    public MyInquiryController(MyInquiryQueryService queryService) {
-        this.queryService = queryService;
+    public MyInquiryController(
+            ListMyInquiriesUseCase listMyInquiriesUseCase, GetMyInquiryDetailUseCase getMyInquiryDetailUseCase) {
+        this.listMyInquiriesUseCase = listMyInquiriesUseCase;
+        this.getMyInquiryDetailUseCase = getMyInquiryDetailUseCase;
     }
 
     @GetMapping
@@ -40,13 +44,13 @@ public class MyInquiryController {
             @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size,
             @LoginMember CurrentMember member) {
         return ApiResponse.success(
-                MyInquiryListResponse.of(queryService.listMine(member.memberId(), page, size), page, size));
+                MyInquiryListResponse.of(listMyInquiriesUseCase.listMine(member.memberId(), page, size), page, size));
     }
 
     @GetMapping("/{feedbackId}")
     public ApiResponse<MyInquiryDetailResponse> detail(
             @PathVariable @Min(1) long feedbackId, @LoginMember CurrentMember member) {
         return ApiResponse.success(
-                MyInquiryDetailResponse.from(queryService.detailMine(feedbackId, member.memberId())));
+                MyInquiryDetailResponse.from(getMyInquiryDetailUseCase.detailMine(feedbackId, member.memberId())));
     }
 }

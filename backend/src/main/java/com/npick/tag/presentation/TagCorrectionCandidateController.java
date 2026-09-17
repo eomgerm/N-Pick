@@ -15,7 +15,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.tag.application.CreateTagCorrectionCandidateCommand;
-import com.npick.tag.application.CreateTagCorrectionCandidateService;
+import com.npick.tag.application.CreateTagCorrectionCandidateUseCase;
 import com.npick.tag.presentation.request.TagCorrectionRequest;
 import com.npick.tag.presentation.response.TagCorrectionCandidateResponse;
 
@@ -31,9 +31,9 @@ public class TagCorrectionCandidateController {
 
     private static final String REVIEWER_ROLE = "reviewer";
 
-    private final CreateTagCorrectionCandidateService service;
+    private final CreateTagCorrectionCandidateUseCase service;
 
-    public TagCorrectionCandidateController(CreateTagCorrectionCandidateService service) {
+    public TagCorrectionCandidateController(CreateTagCorrectionCandidateUseCase service) {
         this.service = service;
     }
 

@@ -12,7 +12,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.search.application.DeactivateSearchRuleCommand;
-import com.npick.search.application.DeactivateSearchRuleService;
+import com.npick.search.application.DeactivateSearchRuleUseCase;
 import com.npick.search.presentation.request.UpdateSearchRuleActiveRequest;
 
 /**
@@ -27,9 +27,9 @@ public class SearchRuleDeactivationController {
 
     private static final String REVIEWER_ROLE = "reviewer";
 
-    private final DeactivateSearchRuleService service;
+    private final DeactivateSearchRuleUseCase service;
 
-    public SearchRuleDeactivationController(DeactivateSearchRuleService service) {
+    public SearchRuleDeactivationController(DeactivateSearchRuleUseCase service) {
         this.service = service;
     }
 

@@ -15,7 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
-import com.npick.feedback.application.InquiryReviewService;
+import com.npick.feedback.application.ClaimInquiryUseCase;
+import com.npick.feedback.application.GetInquiryDetailUseCase;
+import com.npick.feedback.application.ListInquiriesUseCase;
+import com.npick.feedback.application.ResolveInquiryUseCase;
 import com.npick.feedback.presentation.request.ResolveInquiryRequest;
 import com.npick.feedback.presentation.response.InquiryDetailResponse;
 import com.npick.feedback.presentation.response.InquiryListResponse;
@@ -24,10 +27,20 @@ import com.npick.feedback.presentation.response.InquiryListResponse;
 @RequestMapping("/api/v1/review")
 public class ReviewInquiryController {
 
-    private final InquiryReviewService reviewService;
+    private final ListInquiriesUseCase listInquiriesUseCase;
+    private final GetInquiryDetailUseCase getInquiryDetailUseCase;
+    private final ClaimInquiryUseCase claimInquiryUseCase;
+    private final ResolveInquiryUseCase resolveInquiryUseCase;
 
-    public ReviewInquiryController(InquiryReviewService reviewService) {
-        this.reviewService = reviewService;
+    public ReviewInquiryController(
+            ListInquiriesUseCase listInquiriesUseCase,
+            GetInquiryDetailUseCase getInquiryDetailUseCase,
+            ClaimInquiryUseCase claimInquiryUseCase,
+            ResolveInquiryUseCase resolveInquiryUseCase) {
+        this.listInquiriesUseCase = listInquiriesUseCase;
+        this.getInquiryDetailUseCase = getInquiryDetailUseCase;
+        this.claimInquiryUseCase = claimInquiryUseCase;
+        this.resolveInquiryUseCase = resolveInquiryUseCase;
     }
 
     @GetMapping("/inquiries")
@@ -38,13 +51,13 @@ public class ReviewInquiryController {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 100);
         InquiryListResponse response =
-                InquiryListResponse.of(reviewService.list(status, safePage, safeSize), safePage, safeSize);
+                InquiryListResponse.of(listInquiriesUseCase.list(status, safePage, safeSize), safePage, safeSize);
         return ApiResponse.success(response);
     }
 
     @GetMapping("/inquiries/{feedbackId}")
     public ApiResponse<InquiryDetailResponse> detail(@PathVariable long feedbackId) {
-        return ApiResponse.success(InquiryDetailResponse.from(reviewService.detail(feedbackId)));
+        return ApiResponse.success(InquiryDetailResponse.from(getInquiryDetailUseCase.detail(feedbackId)));
     }
 
     @PostMapping("/inquiries/{feedbackId}/claim")
@@ -53,7 +66,7 @@ public class ReviewInquiryController {
             // FE가 재시도 안전용으로 보낼 수 있어 헤더는 받되 저장/dedup하지 않는다. 재시도 안전성은 서비스의 소유자 멱등이 보장한다.
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @LoginMember CurrentMember member) {
-        reviewService.claim(feedbackId, member.memberId());
+        claimInquiryUseCase.claim(feedbackId, member.memberId());
         return ApiResponse.success();
     }
 
@@ -63,7 +76,7 @@ public class ReviewInquiryController {
             @PathVariable long feedbackId,
             @Valid @RequestBody ResolveInquiryRequest request,
             @LoginMember CurrentMember member) {
-        reviewService.resolve(feedbackId, member.memberId(), request.resolution(), request.note());
+        resolveInquiryUseCase.resolve(feedbackId, member.memberId(), request.resolution(), request.note());
         return ApiResponse.success();
     }
 }

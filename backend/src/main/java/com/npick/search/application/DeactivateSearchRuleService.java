@@ -15,7 +15,7 @@ import com.npick.search.domain.repository.SearchRuleDeactivationRepository;
  * 검증하되 저장하지 않는다 — FRD 가 켜기·끄기의 수행자·사유·시각 전체 복원을 명시적으로 de-scope 한다.
  */
 @Service
-public class DeactivateSearchRuleService {
+public class DeactivateSearchRuleService implements DeactivateSearchRuleUseCase {
 
     private final SearchRuleDeactivationRepository repository;
     private final CorrectionStateLock correctionStateLock;
@@ -26,6 +26,7 @@ public class DeactivateSearchRuleService {
         this.correctionStateLock = correctionStateLock;
     }
 
+    @Override
     @Transactional
     public void deactivate(DeactivateSearchRuleCommand command) {
         if (!command.reviewerRole()) {

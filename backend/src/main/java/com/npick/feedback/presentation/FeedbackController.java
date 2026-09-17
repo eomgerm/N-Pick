@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
-import com.npick.feedback.application.FeedbackIntakeService;
+import com.npick.feedback.application.EditInquiryCommentUseCase;
+import com.npick.feedback.application.SubmitInquiryUseCase;
 import com.npick.feedback.domain.model.Feedback;
 import com.npick.feedback.presentation.request.CreateInquiryRequest;
 import com.npick.feedback.presentation.request.UpdateInquiryRequest;
@@ -20,10 +21,13 @@ import com.npick.feedback.presentation.response.InquiryResponse;
 @RequestMapping("/api/v1")
 public class FeedbackController {
 
-    private final FeedbackIntakeService intakeService;
+    private final SubmitInquiryUseCase submitInquiryUseCase;
+    private final EditInquiryCommentUseCase editInquiryCommentUseCase;
 
-    public FeedbackController(FeedbackIntakeService intakeService) {
-        this.intakeService = intakeService;
+    public FeedbackController(
+            SubmitInquiryUseCase submitInquiryUseCase, EditInquiryCommentUseCase editInquiryCommentUseCase) {
+        this.submitInquiryUseCase = submitInquiryUseCase;
+        this.editInquiryCommentUseCase = editInquiryCommentUseCase;
     }
 
     @PostMapping("/search/results/{resultId}/inquiries")
@@ -32,7 +36,7 @@ public class FeedbackController {
             @RequestBody(required = false) CreateInquiryRequest request,
             @LoginMember CurrentMember member) {
         String comment = request == null ? null : request.comment();
-        Feedback fb = intakeService.submit(resultId, member.memberId(), comment);
+        Feedback fb = submitInquiryUseCase.submit(resultId, member.memberId(), comment);
         return ApiResponse.success(InquiryResponse.from(fb));
     }
 
@@ -41,7 +45,7 @@ public class FeedbackController {
             @PathVariable long feedbackId,
             @RequestBody UpdateInquiryRequest request,
             @LoginMember CurrentMember member) {
-        intakeService.editComment(feedbackId, member.memberId(), request.comment());
+        editInquiryCommentUseCase.editComment(feedbackId, member.memberId(), request.comment());
         return ApiResponse.success();
     }
 }

@@ -9,7 +9,7 @@ import com.npick.feedback.domain.model.Feedback;
 import com.npick.feedback.domain.repository.FeedbackRepository;
 
 @Service
-public class FeedbackIntakeService {
+public class FeedbackIntakeService implements SubmitInquiryUseCase, EditInquiryCommentUseCase {
 
     private final FeedbackRepository repository;
 
@@ -17,6 +17,7 @@ public class FeedbackIntakeService {
         this.repository = repository;
     }
 
+    @Override
     @Transactional
     public Feedback submit(long searchResultId, long createdById, String comment) {
         // 검색 결과 존재 + 그 검색을 본인이 실행했을 때만 접수한다. 타인 검색에 문의를 달면 조회 시 그 검색어·필터가
@@ -35,6 +36,7 @@ public class FeedbackIntakeService {
         });
     }
 
+    @Override
     @Transactional
     public void editComment(long feedbackId, long ownerId, String comment) {
         Feedback fb = repository
