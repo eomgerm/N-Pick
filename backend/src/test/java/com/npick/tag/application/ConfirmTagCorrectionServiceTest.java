@@ -13,15 +13,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class ConfirmTagCorrectionUseCaseTest {
+class ConfirmTagCorrectionServiceTest {
 
     private TagCorrectionConfirmationRepository repository;
-    private ConfirmTagCorrectionUseCase useCase;
+    private ConfirmTagCorrectionService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(TagCorrectionConfirmationRepository.class);
-        useCase = new ConfirmTagCorrectionService(repository);
+        service = new ConfirmTagCorrectionService(repository);
     }
 
     @Test
@@ -29,7 +29,7 @@ class ConfirmTagCorrectionUseCaseTest {
     void confirmsScopedToFeedback() {
         when(repository.confirm(9901L, List.of(7901L, 7902L))).thenReturn(2);
 
-        int confirmed = useCase.confirm(9901L, List.of(7901L, 7902L));
+        int confirmed = service.confirm(9901L, List.of(7901L, 7902L));
 
         assertThat(confirmed).isEqualTo(2);
         verify(repository).confirm(9901L, List.of(7901L, 7902L));
