@@ -23,7 +23,7 @@ public class PipelineConfiguration {
             GetPipelineDefinitionUseCase definitions,
             ObjectProvider<StageOutputPort> outputs,
             JobJsonPort json,
-            com.npick.clip.application.command.activate.ActivateProcessedClipUseCase publication,
+            com.npick.pipeline.application.port.ProcessedClipActivationPort publication,
             com.npick.pipeline.domain.model.StageRetrySettings retries) {
         // 실제 schema·정본 쓰기 어댑터는 #70이 연결한다. 미구현 성공 결과를 정상 저장으로 위장하지 않는다.
         StageOutputPort output = new StageOutputPort() {

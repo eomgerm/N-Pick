@@ -3,14 +3,14 @@ package com.npick.pipeline.application.command;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import com.npick.clip.application.query.media.GetWorkerMediaInputUseCase;
+import com.npick.pipeline.application.port.ClipMediaInputPort;
 
 /** Attach transport input after #36 commits an assignment; preserve its prepared upstream data. */
 public final class WorkerInputAssembler {
-    private final GetWorkerMediaInputUseCase media;
+    private final ClipMediaInputPort media;
     private final boolean sharedVolume;
 
-    public WorkerInputAssembler(GetWorkerMediaInputUseCase media, boolean sharedVolume) {
+    public WorkerInputAssembler(ClipMediaInputPort media, boolean sharedVolume) {
         this.media = media;
         this.sharedVolume = sharedVolume;
     }

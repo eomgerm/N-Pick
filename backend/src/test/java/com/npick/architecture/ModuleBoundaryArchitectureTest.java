@@ -22,8 +22,8 @@ import com.tngtech.archunit.library.freeze.FreezingArchRule;
  * 모듈 경계와 계층 방향을 코드로 못 박는 문지기 (S15P21A501-196).
  *
  * <p>정본 {@code backend/docs/ddd-package-architecture.md}. 기존 위반이 있어 지금은 red 인 규칙은
- * {@link FreezingArchRule} 로 현재 상태를 베이스라인해 신규 위반만 실패시킨다. 기존 위반의 실제 해소는
- * S15P21A501-201(clip↔pipeline 순환·tag_evidence 소유권).
+ * {@link FreezingArchRule} 로 현재 상태를 베이스라인해 신규 위반만 실패시킨다. 위반이 0 이 된 규칙은
+ * freeze 를 벗겨 하드 규칙으로 올린다 — 모듈 순환과 module-private 두 건을 S15P21A501-201 에서 올렸다.
  */
 @AnalyzeClasses(packages = "com.npick", importOptions = ImportOption.DoNotIncludeTests.class)
 class ModuleBoundaryArchitectureTest {
@@ -141,17 +141,16 @@ class ModuleBoundaryArchitectureTest {
                     .as("Controller 가 주입하는 application 의존은 UseCase 인터페이스여야 한다 (§19)");
 
     /**
-     * 모듈 간 순환 의존 금지 (§14). 현재 clip↔pipeline 순환 존재 → freeze 로 베이스라인, 신규 순환만 실패.
-     * 실제 해소는 S15P21A501-201.
+     * 모듈 간 순환 의존 금지 (§14). clip↔pipeline 순환을 S15P21A501-201 에서 끊어
+     * 하드 규칙으로 올렸다 — 이제 순환이 하나라도 생기면 실패한다.
      */
     @ArchTest
     static final ArchRule modules_are_free_of_cycles =
-            FreezingArchRule.freeze(
-                    slices()
-                            .matching("com.npick.(*)..")
-                            .should()
-                            .beFreeOfCycles()
-                            .as("no cyclic dependency between com.npick modules"));
+            slices()
+                    .matching("com.npick.(*)..")
+                    .should()
+                    .beFreeOfCycles()
+                    .as("no cyclic dependency between com.npick modules");
 
     /** 다른 모듈의 infrastructure(Entity 등)에 의존하지 않는다 — infrastructure 는 모듈 사적이다. common 은 공용이라 예외. */
     private static final ArchCondition<JavaClass> not_depend_on_other_module_infrastructure =
@@ -182,14 +181,13 @@ class ModuleBoundaryArchitectureTest {
     /**
      * 어떤 모듈도 다른 모듈의 infrastructure 를 직접 참조하지 않는다 — infrastructure 는 모듈 사적이다 (§14/§17, §19 체크리스트).
      * 최상위 모듈 소유자를 비교하는 일반 규칙이라 tag→clip 한 쌍만이 아니라 모든 모듈 쌍을 덮는다. common(공용 계약)은 예외.
-     * 현재 위반(tag→clip.infrastructure 등) 존재 → freeze 로 베이스라인. 실제 해소는 S15P21A501-201.
+     * tag→clip Entity 참조를 S15P21A501-201 에서 끊어 하드 규칙으로 올렸다.
      */
     @ArchTest
     static final ArchRule modules_do_not_touch_other_module_infrastructure =
-            FreezingArchRule.freeze(
-                    classes()
-                            .that()
-                            .resideInAPackage("com.npick..")
-                            .should(not_depend_on_other_module_infrastructure)
-                            .as("모듈은 다른 모듈의 infrastructure 에 의존하지 않는다 (module-private)"));
+            classes()
+                    .that()
+                    .resideInAPackage("com.npick..")
+                    .should(not_depend_on_other_module_infrastructure)
+                    .as("모듈은 다른 모듈의 infrastructure 에 의존하지 않는다 (module-private)");
 }

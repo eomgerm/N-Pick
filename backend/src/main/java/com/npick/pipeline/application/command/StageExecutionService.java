@@ -10,7 +10,6 @@ import java.util.UUID;
 
 import org.springframework.transaction.annotation.Transactional;
 
-import com.npick.clip.application.command.activate.ActivateProcessedClipUseCase;
 import com.npick.common.error.BusinessException;
 import com.npick.pipeline.application.command.claim.AttachStageInputUseCase;
 import com.npick.pipeline.application.command.claim.ClaimStageCommand;
@@ -21,6 +20,7 @@ import com.npick.pipeline.application.command.heartbeat.HeartbeatStageUseCase;
 import com.npick.pipeline.application.command.reclaim.ReclaimStagesUseCase;
 import com.npick.pipeline.application.error.JobErrorCode;
 import com.npick.pipeline.application.port.JobJsonPort;
+import com.npick.pipeline.application.port.ProcessedClipActivationPort;
 import com.npick.pipeline.application.port.StageOutputPort;
 import com.npick.pipeline.application.query.definition.GetPipelineDefinitionUseCase;
 import com.npick.pipeline.domain.error.PipelineErrorCode;
@@ -42,7 +42,7 @@ public class StageExecutionService
     private final StageOutputPort outputs;
     private final JobJsonPort json;
     private final Clock clock;
-    private final ActivateProcessedClipUseCase publication;
+    private final ProcessedClipActivationPort publication;
     private final StageRetrySettings retries;
 
     public StageExecutionService(
@@ -51,7 +51,7 @@ public class StageExecutionService
             StageOutputPort outputs,
             JobJsonPort json,
             Clock clock,
-            ActivateProcessedClipUseCase publication) {
+            ProcessedClipActivationPort publication) {
         this(runs, definitions, outputs, json, clock, publication, StageRetrySettings.disabled());
     }
 
@@ -61,7 +61,7 @@ public class StageExecutionService
             StageOutputPort outputs,
             JobJsonPort json,
             Clock clock,
-            ActivateProcessedClipUseCase publication,
+            ProcessedClipActivationPort publication,
             StageRetrySettings retries) {
         this.runs = runs;
         this.definitions = definitions;

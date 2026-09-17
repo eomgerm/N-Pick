@@ -8,8 +8,6 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 
-import com.npick.clip.application.command.prepare.PrepareStoredTranscriptInputUseCase;
-import com.npick.clip.application.command.prepare.PrepareTranscriptInputUseCase;
 import com.npick.common.error.BusinessException;
 import com.npick.pipeline.application.command.claim.AttachStageInputUseCase;
 import com.npick.pipeline.application.command.claim.ClaimStageCommand;
@@ -18,6 +16,7 @@ import com.npick.pipeline.application.command.claim.ReserveStageUseCase;
 import com.npick.pipeline.application.command.complete.CompleteStageCommand;
 import com.npick.pipeline.application.command.complete.CompleteStageUseCase;
 import com.npick.pipeline.application.port.PreparationLeasePort;
+import com.npick.pipeline.application.port.StageTranscriptInputPort;
 import com.npick.pipeline.domain.model.JsonValues;
 import com.npick.pipeline.domain.model.PipelineStages;
 
@@ -26,14 +25,14 @@ public class PreparedStageClaimService implements ClaimStageUseCase {
     private final ReserveStageUseCase reservations;
     private final AttachStageInputUseCase inputs;
     private final CompleteStageUseCase completion;
-    private final PrepareStoredTranscriptInputUseCase transcripts;
+    private final StageTranscriptInputPort transcripts;
     private final PreparationLeasePort leases;
 
     public PreparedStageClaimService(
             ReserveStageUseCase reservations,
             AttachStageInputUseCase inputs,
             CompleteStageUseCase completion,
-            PrepareStoredTranscriptInputUseCase transcripts,
+            StageTranscriptInputPort transcripts,
             PreparationLeasePort leases) {
         this.reservations = reservations;
         this.inputs = inputs;
@@ -55,7 +54,7 @@ public class PreparedStageClaimService implements ClaimStageUseCase {
         try (var guard = leases.maintain(run, "transcript_selection", command.workerId(), lease)) {
             String startedAt = Clock.systemUTC().instant().toString();
             long startedNanos = System.nanoTime();
-            PrepareTranscriptInputUseCase.Prepared prepared;
+            StageTranscriptInputPort.Prepared prepared;
             try {
                 prepared = transcripts.prepare(clip, run, (String) job.get("outputKeyPrefix"));
             } catch (RuntimeException failure) {
@@ -71,10 +70,9 @@ public class PreparedStageClaimService implements ClaimStageUseCase {
             }
             try (prepared) {
                 guard.verify();
-                Map<String, Object> transcript = transcript(prepared.transcript());
-                var artifacts = prepared.artifacts().stream()
-                        .map(PreparedStageClaimService::artifact)
-                        .toList();
+                // 직렬화는 쓰기 전이다. 여기서 터지면 보존하지 않고 정리해야 하므로 attach 의 try 밖에서 끝낸다.
+                Map<String, Object> transcript = prepared.transcript();
+                var artifacts = prepared.artifacts();
                 try {
                     var ready = inputs.attach(run, command.workerId(), lease, transcript, artifacts);
                     prepared.retain();
@@ -167,31 +165,5 @@ public class PreparedStageClaimService implements ClaimStageUseCase {
         detail.put("phase", "input_preparation");
         if (source != null) detail.put("sourceErrorCode", source);
         return Map.of("code", code, "retryable", retryable, "message", "자막 입력 준비를 완료하지 못했습니다.", "detail", detail);
-    }
-
-    private static Map<String, Object> transcript(PrepareTranscriptInputUseCase.TranscriptInput input) {
-        Map<String, Object> inspection = new LinkedHashMap<>();
-        inspection.put("status", input.embeddedInspection().status().name());
-        inspection.put("selectedStreamIndex", input.embeddedInspection().selectedStreamIndex());
-        inspection.put(
-                "attempts",
-                input.embeddedInspection().attempts().stream()
-                        .map(a -> Map.of("streamIndex", a.streamIndex(), "reasonCode", a.reasonCode()))
-                        .toList());
-        inspection.put("broadcastCcInspected", input.embeddedInspection().broadcastCcInspected());
-        return JsonValues.copy(
-                Map.of("segmentsArtifact", artifact(input.segmentsArtifact()), "embeddedInspection", inspection));
-    }
-
-    private static Map<String, Object> artifact(PrepareTranscriptInputUseCase.ArtifactRef ref) {
-        return Map.of(
-                "kind",
-                ref.kind(),
-                "storageKey",
-                ref.storageKey(),
-                "byteSize",
-                ref.byteSize(),
-                "contentHash",
-                ref.contentHash());
     }
 }
