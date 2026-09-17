@@ -12,6 +12,8 @@ import org.mockito.ArgumentCaptor;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.QueryResolverErrorCode;
+import com.npick.search.application.error.SearchExecutionErrorCode;
+import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.QueryResolverPort;
@@ -30,7 +32,10 @@ import com.npick.search.domain.model.FusionChannel;
 import com.npick.search.domain.model.FusionSettings;
 import com.npick.search.domain.model.GuardExclusionReason;
 import com.npick.search.domain.model.LexicalSearchSettings;
+import com.npick.search.domain.model.ParseRule;
+import com.npick.search.domain.model.ParseRuleOutcome;
 import com.npick.search.domain.model.QueryResolution;
+import com.npick.search.domain.model.ResolutionAxis;
 import com.npick.search.domain.model.ShortageReason;
 import com.npick.search.domain.model.SoftRankingSettings;
 import com.npick.search.domain.model.SoftSignal;
@@ -57,6 +62,7 @@ class SearchAssemblyServiceTest {
     private ParseRuleRepository parseRules;
     private RankSearchCandidatesUseCase pipeline;
     private SearchExecutionRecordPort record;
+    private RecordingTimer searchTimer;
     private SearchAssemblyService service;
 
     @BeforeEach
@@ -65,7 +71,8 @@ class SearchAssemblyServiceTest {
         parseRules = mock(ParseRuleRepository.class);
         pipeline = mock(RankSearchCandidatesUseCase.class);
         record = mock(SearchExecutionRecordPort.class);
-        service = new SearchAssemblyService(resolver, parseRules, pipeline, record);
+        searchTimer = new RecordingTimer();
+        service = new SearchAssemblyService(resolver, parseRules, pipeline, record, searchTimer);
 
         when(parseRules.findActivePatchParseRules()).thenReturn(List.of());
         when(record.start(any())).thenReturn(700L);
@@ -117,6 +124,59 @@ class SearchAssemblyServiceTest {
         assertThat(result.status()).isEqualTo("succeeded");
         assertThat(result.degradedReasons()).isEmpty();
         assertThat(result.resolved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("규칙을 적용하면 parse_source 와 적용 기록이 같은 판정을 말한다")
+    void appliedRuleIsReportedConsistently() {
+        // 기록을 읽는 쪽이 parse_source 를 보든 applied_rules_json 을 보든 같은 답을 얻어야 한다.
+        // S15P21A501-198 은 후자만 읽으므로 둘이 갈려도 그쪽에서는 검출되지 않는다.
+        givenResolved();
+        when(parseRules.findActivePatchParseRules()).thenReturn(List.of(intentRule()));
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.hasAppliedReviewRule()).isTrue();
+        CompleteSearchExecution completed = completedRecord();
+        assertThat(completed.parseSource()).isEqualTo(SearchExecutionRecordPort.ParseSource.RESOLVER_RULE);
+        assertThat(completed.appliedRules()).anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
+    }
+
+    @Test
+    @DisplayName("규칙이 없으면 parse_source 는 resolver 이고 적용 기록도 비어 있다")
+    void noAppliedRuleIsReportedConsistently() {
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.hasAppliedReviewRule()).isFalse();
+        CompleteSearchExecution completed = completedRecord();
+        assertThat(completed.parseSource()).isEqualTo(SearchExecutionRecordPort.ParseSource.RESOLVER);
+        assertThat(completed.appliedRules()).noneMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
+    }
+
+    @Test
+    @DisplayName("해석·규칙·대체 검색을 각각 다른 경로로 잰다")
+    void measuresEachPathSeparately() {
+        // §8.2 는 네 경로를 구분 측정하라고 요구한다. 합쳐 재면 95% 10초 목표가 어느 경로 때문에
+        // 깨지는지 알 수 없다.
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+        service.execute(query());
+        assertThat(searchTimer.lastPath).isEqualTo(SearchPath.NORMAL);
+
+        when(parseRules.findActivePatchParseRules()).thenReturn(List.of(intentRule()));
+        service.execute(query());
+        assertThat(searchTimer.lastPath).isEqualTo(SearchPath.PATCHED);
+
+        givenResolverUnavailable();
+        service.execute(query());
+        assertThat(searchTimer.lastPath).isEqualTo(SearchPath.FALLBACK);
     }
 
     @Test
@@ -199,7 +259,36 @@ class SearchAssemblyServiceTest {
         givenResolved();
         when(parseRules.findActivePatchParseRules()).thenThrow(new IllegalStateException("조회 실패"));
 
-        assertThatThrownBy(() -> service.execute(query())).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.execute(query()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED);
+    }
+
+    @Test
+    @DisplayName("실행을 열지 못하면 검색을 중단한다")
+    void failsWhenTheExecutionCannotBeOpened() {
+        // §6.2: 최초 저장 실패는 중단하고 재시도를 안내한다. 계속 진행하면 결과를 돌려주고도 그
+        // 실행이 어디에도 없어, 신고·검증이 가리킬 대상이 사라진다.
+        givenResolved();
+        when(record.start(any())).thenThrow(new SearchRecordingException("열지 못했다"));
+
+        assertThatThrownBy(() -> service.execute(query()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(SearchExecutionErrorCode.EXECUTION_NOT_RECORDED);
+    }
+
+    @Test
+    @DisplayName("후보 조회가 터지면 0건의 성공이 아니라 검색 실패다")
+    void failsWhenCandidateLookupBlowsUp() {
+        givenResolved();
+        when(pipeline.rank(any())).thenThrow(new IllegalStateException("색인 접근 실패"));
+
+        assertThatThrownBy(() -> service.execute(query()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED);
     }
 
     @Test
@@ -366,6 +455,39 @@ class SearchAssemblyServiceTest {
                 base.config(),
                 base.degradedReasons(),
                 List.of(ShortageReason.CANDIDATE_POOL_EXHAUSTED));
+    }
+
+    /** 마지막으로 잰 경로만 기억한다. mock 으로 하면 태그 확인에 verify 가 필요해 테스트가 길어진다. */
+    private static final class RecordingTimer implements SearchDurationTimer {
+        private SearchPath lastPath;
+
+        @Override
+        public void record(long duration, java.util.concurrent.TimeUnit unit, SearchPath path) {
+            this.lastPath = path;
+        }
+    }
+
+    /** 조건이 늘 맞는 규칙. intent 를 바꾸므로 적용되면 최종 해석에서 보인다. */
+    private static ParseRule intentRule() {
+        return new ParseRule(
+                301L,
+                ParseRule.SYNTAX_VERSION,
+                "query-resolver/v2",
+                new ParseRule.Condition(List.of(new ParseRule.Condition.Predicate(
+                        ResolutionAxis.INTENT, ParseRule.Condition.Op.EQUALS, null, "scene_search"))),
+                new ParseRule.Patch(List.of(new ParseRule.Patch.Operation(
+                        ParseRule.Patch.Op.SET,
+                        ResolutionAxis.INTENT,
+                        new ParseRule.Patch.Target(null, "recent_scene", null, null),
+                        null))),
+                "{\"rule\":301}",
+                null);
+    }
+
+    private CompleteSearchExecution completedRecord() {
+        ArgumentCaptor<CompleteSearchExecution> captor = ArgumentCaptor.forClass(CompleteSearchExecution.class);
+        verify(record, atLeastOnce()).complete(captor.capture());
+        return captor.getValue();
     }
 
     private void givenResolved() {

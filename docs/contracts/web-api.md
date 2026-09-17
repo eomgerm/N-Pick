@@ -20,7 +20,7 @@
 | 현재 계정                  | GET    | `/auth/me`                                  | 연결됨    | 없음                                |
 | 로그아웃                   | POST   | `/auth/logout`                              | 연결됨    | 없음                                |
 | 영상 등록                  | POST   | `/clips`                                    | 연결됨    | 없음                                |
-| 장면 검색                  | POST   | `/search`                                   | 계약 확정 | 실제 호출·화면 바인딩               |
+| 장면 검색                  | POST   | `/search`                                   | BE 구현   | 실제 호출·화면 바인딩               |
 | 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | 공통 플레이어·문의 상세·검색 카드 연결 |
 | 문의 접수                  | POST   | `/search/results/{resultId}/inquiries`      | BE 구현   | 문의 생성 바인딩                    |
 | 문의 설명 수정             | PATCH  | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 문의 기록 바인딩과 함께 연결 |
@@ -194,7 +194,7 @@ FE가 직접 처리하는 주요 오류:
 | `CLIP_409_001`~`CLIP_409_003`                 | 멱등 요청 상태             |
 | `CLIP_503_001`~`CLIP_503_010`                 | 검사·저장·등록 연계 실패   |
 
-## 5. 장면 검색 API — 계약 확정, 연결 대기
+## 5. 장면 검색 API
 
 `POST /search`
 
@@ -283,7 +283,8 @@ FE URL 상태와 wire 요청의 대응:
 - 각 `rank`는 배열 위치와 같은 1부터 시작하는 연속 정수다.
 - 한 응답 안의 `scene_id`와 null이 아닌 `search_result_id`는 중복되지 않는다.
 - `match_evidence`는 1개 이상이다. `field`는 `caption`, `ocr`, `transcript`, `tag` 중 하나다.
-- `shot_type`은 `anchor`, `interview`, `b_roll`, `unknown` 중 하나다.
+- `shot_type`은 `anchor`, `interview`, `b_roll`, `unknown` 중 하나다. 저장값이 이 넷 밖이면 응답에서만 `unknown`으로 좁히고 기록에는 원문이 남는다.
+- **`display_name`은 null일 수 있다.** 출처인 `clip.title`이 nullable이라 제목 없이 등록된 영상이 있다. 서버가 임의 문자열로 메우지 않는다 — 메우면 기록에서 「제목이 없었다」와 「제목이 이랬다」를 구분할 수 없다(FRD §7.2). 대체 표기는 FE가 정한다. `scene_description`도 같은 이유로 null일 수 있다.
 - 날짜 `value`가 null이면 `verification_status`는 `unknown`이다. 값이 있으면 `verified` 또는 `unverified`다.
 - `status=succeeded`면 `degraded_reasons`는 비어 있다.
 - `status=degraded`면 `resolver_fallback`, `dense_unavailable`, `snapshot_save_failed` 중 하나 이상이다.
@@ -295,7 +296,23 @@ FE URL 상태와 wire 요청의 대응:
 
 ### 5.2 오류 경계
 
-현재 공개 검색 endpoint의 전체 오류 코드 매핑은 아직 구현되지 않았다. 이미 존재하는 `SRCH_` 오류 어휘는 다음과 같다.
+검색이 **실패**했을 때만 오류로 나간다. 일부 기능만 빠진 경우는 200에 `status=degraded`다. 가르는 기준은 「결과를 줄 수 있는가」 하나이며, 실패를 결과 0건의 성공 응답으로 위장하지 않는다(FRD F-06 완료 기준).
+
+`POST /search`가 내는 오류는 다음과 같다.
+
+| 오류           | 의미                                        | 사용자 안내       |
+| -------------- | ------------------------------------------- | ----------------- |
+| `SRCH_400_101` | 검색어에서 검색할 수 있는 단어를 찾지 못함  | 검색어 수정       |
+| `SRCH_400_004` | 명시 필터의 시작일이 종료일보다 늦음        | 날짜 수정         |
+| `SRCH_503_011` | 승인된 해석 규칙을 읽지 못함                | 재시도            |
+| `SRCH_503_012` | 기본 단어 검색을 수행하지 못함              | 재시도            |
+| `SRCH_503_013` | 검색 실행을 기록하지 못해 중단              | 재시도            |
+
+`SRCH_503_011`은 사람의 결정을 조용히 건너뛰지 않기 위한 실패다. 규칙 없이 검색하면 검수자가 승인한 교정이 빠진 결과가 정상인 것처럼 나간다(§6.2).
+
+`SRCH_503_013`은 실행을 **열지** 못한 경우다. 결과 계산 뒤의 저장 실패는 오류가 아니라 `snapshot_save_failed` degraded다 — 그때는 계산이 이미 끝나 미저장 상태로 줄 수 있다.
+
+이미 존재하는 `SRCH_` 오류 어휘는 다음과 같다.
 
 | 오류           | 의미                                  |
 | -------------- | ------------------------------------- |
