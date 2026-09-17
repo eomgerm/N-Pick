@@ -143,6 +143,10 @@ logging:
     org.hibernate.orm.jdbc.error: OFF
     org.hibernate.orm.jdbc.bind: OFF
     org.hibernate.orm.jdbc.extract: OFF
+  # 모든 로그 라인에 request ID 를 붙여 한 요청을 역추적할 수 있게 한다 (S15P21A501-136).
+  # RequestIdFilter 가 MDC 에 넣는 값이며, 없으면 빈 값이다.
+  pattern:
+    level: "%5p [%X{requestId:-}]"
 
 management:
   endpoints:
