@@ -30,7 +30,7 @@ C4Container
         Container(web, "웹 애플리케이션", "Next.js 16.3.4, Node 24", "/review 처리·문의 화면과 /search 화면을 제공한다.")
         Container(api, "서비스 서버", "Spring Boot 4.1.1, Java 21 LTS", "정본 쓰기를 소유하고 검색을 오케스트레이션한다. 잡 디스패치와 외부 전송 게이트를 담당한다.")
         Container(resolver, "질의 리졸버", "FastAPI, Python 3.12", "질의를 JSON schema로 구조화하고, 임베딩과 Kiwi 형태소 토큰을 반환한다. 동기 호출 전용.")
-        Container(worker, "파이프라인 워커", "FastAPI, Python 3.12, PyTorch", "장면 분할·keyframe 추출·OCR·ASR·scene-transcript 매핑·VLM·entity·임베딩·색인 10단계를 자체 GPU에서 실행한다. 서비스 서버로 잡을 받으러 오는 발신자 역할.")
+        Container(worker, "파이프라인 워커", "FastAPI, Python 3.12, PyTorch", "장면 분할·keyframe 추출·OCR·transcript 선택·ASR·scene-transcript 매핑·VLM·entity·임베딩·색인 10단계를 자체 GPU에서 실행한다. 서비스 서버로 잡을 받으러 오는 발신자 역할.")
         ContainerDb(db, "정본 및 검색 인덱스", "PostgreSQL 18.6 (pg_search, pgvector)", "clip·scene·evidence·상태·snapshot·교정·inquiry의 정본. BM25와 dense 인덱스를 같은 인스턴스에서 제공한다.")
         ContainerDb(assets, "에셋 스토어", "로컬 파일시스템", "원본 영상, keyframe, thumbnail을 보관한다. 인덱스 재구축의 manifest 원천.")
         Container(mlflow, "평가 추적", "MLflow 3.15.2", "search_version별 Gold Set 실행 결과와 지표를 불변 run으로 기록한다. backend store는 정본과 같은 PostgreSQL 인스턴스 안의 별도 mlflow DB를 쓴다.")

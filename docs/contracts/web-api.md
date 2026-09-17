@@ -515,7 +515,7 @@ body는 생략하거나 다음처럼 보낸다.
 - Header: `Idempotency-Key` 필수, 공백 불가, 최대 64자.
 - Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
 - 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
-- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`. id는 정밀도 보존을 위해 문자열(TSID)이다.
+- 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }` (현재 `searchRuleId`·`feedbackId`는 숫자로 나간다 — §8의 신규 응답 string 규칙 적용은 별건).
 
 | 오류            | HTTP | 의미                              |
 | --------------- | ---- | --------------------------------- |
