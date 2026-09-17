@@ -178,12 +178,16 @@ PUT  /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 응답 (200):
 
 ```json
-{ "command": "continue", "leaseUntil": "2026-09-07T09:22:19Z", "abortReason": null }
+{ "command": "continue", "leaseUntil": "2026-09-07T09:22:19Z" }
 ```
 
 `command` ∈ `continue | abort`. `abortReason` ∈ `RUN_CANCELLED | SUPERSEDED | STAGE_ALREADY_COMPLETED | OPERATOR_REVOKED`.
 
 **lease가 이미 회수돼 재배정된 경우는 200이 아니라 409 `JOB_409_002`다.** `leaseId`가 fencing token이므로 같은 lease로 오는 이후의 `complete`와 `artifacts`도 전부 같은 코드로 거절된다. 좀비 워커가 뒤늦게 결과를 던져 두 번째 `scene` 뭉치를 만드는 경로가 여기서 막힌다.
+
+**현재 BE는 `abort`를 반환하지 않는다.** 200 응답은 위 예시의 두 필드뿐이며 `abortReason` 키는 실리지 않는다(`WorkerExecutionBinding.heartbeat`). 단계를 회수하는 경로는 바로 위의 409 하나다 — `PipelineRun.heartbeat`가 fencing을 먼저 거쳐 lease 해제·다른 leaseId·다른 단계·다른 워커·만료를 전부 `JOB_409_002`로 떨군다. fencing을 통과했다는 것은 lease가 유효하다는 뜻이므로, 200 안에서 중단을 지시할 상태가 남지 않는다.
+
+`abort`와 `abortReason`은 **예약 어휘**다. 지우지 않는 이유는 워커가 이미 소비하고 있기 때문이다 — 받으면 결과를 버리고 `complete`를 보내지 않으며(`ai/src/npick_worker/jobs/runner.py`), 단계 오류 어휘의 `WORKER_ABORTED`(§9.2)도 그 수신을 전제한다. 어휘가 켜지는 시점은 BE에 그 사유를 만들 기능이 생길 때다 — `RUN_CANCELLED`·`OPERATOR_REVOKED`는 run 취소·운영자 회수 기능을 전제하는데 FRD v3.2에 그 인수 조건이 없고, `SUPERSEDED`·`STAGE_ALREADY_COMPLETED`는 그 순간 lease가 이미 풀려 위의 409로 나간다. 그때까지 이 어휘로 오는 응답은 없다.
 
 **협조적 취소의 한계 (알려진 제약).** `abort`를 받아도 워커는 실행 중인 단계를 중단시키지 못한다. 단계는 취소 콜백이 없는 순수 함수이고([ai/AGENTS.md](../../ai/AGENTS.md)), 콜백을 넣는 순간 단계 패키지 안에 pipeline 배선이 생긴다.
 
