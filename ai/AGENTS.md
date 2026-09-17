@@ -24,7 +24,7 @@
 - 단계 구현은 단계 이름과 같은 패키지에 둔다: `src/npick_worker/<stage_name>/`. 순수 함수로 두고 pipeline run 배선은 하지 않는다.
 - `query_resolver/`는 검색 시점 모듈이다(FRD F-05). 배포 경계는 `docs/architecture/02-container.md` 요소 표를 따른다. 여기에는 프롬프트·모델 호출 어댑터·검증을 두며 정규화·규칙 적용·fallback 전환·검색 기록은 호출부 책임이다.
 - **실행 설정은 FRD §11에 따라 실측 후 확정한다.** 임계값·timeout은 `src/npick_worker/config/*.toml`에 두고 설정 해시를 버전으로 노출해 §7.2 기록을 지원한다. §8.2 품질 목표는 유지한다.
-- **HTTP 표면은 헬스·운영용과 검색 시점 질의 해석뿐이다.** 잡 수신은 반대 방향이다 — 워커가 BE 의 claim/heartbeat/complete/artifacts 를 호출한다. 계약 정본은 [../docs/contracts/job-api.md](../docs/contracts/job-api.md) 다. **인바운드 잡 엔드포인트를 추가하지 않는다.** 질의 해석(`POST /query/resolve`, S15P21A501-45)은 잡 수신이 아니라 검색의 동기 호출이므로 이 금지에 걸리지 않는다.
+- **HTTP 표면은 헬스·운영용과 검색 시점 질의 해석뿐이다.** 잡 수신은 반대 방향이다 — 워커가 BE 의 claim/heartbeat/complete/artifacts 를 호출한다. 계약 정본은 [../docs/contracts/job-api.md](../docs/contracts/job-api.md) 다. **인바운드 잡 엔드포인트를 추가하지 않는다.** 질의 해석(`POST /query/resolve`, S15P21A501-45)과 확장어 토큰화(`POST /query/tokenize`, S15P21A501-205)는 잡 수신이 아니라 검색의 동기 호출이므로 이 금지에 걸리지 않는다. 계약 정본은 [../docs/contracts/resolver-api.md](../docs/contracts/resolver-api.md) 다.
 - **`ai/` 는 배포 단위 둘을 담는다.** 질의 리졸버(동기 호출 전용·재시도 없음)와 파이프라인 워커(long-poll). `stages.py`·`<stage_name>/`·`jobs/` 는 워커의 것이고 리졸버 코드는 자기 패키지에 둔다. 둘이 공유하는 것은 아래 셋뿐이고, **뒤 둘은 공유가 요구다** — 색인과 질의가 같은 규칙을 쓰지 않으면 검색이 조용히 깨진다.
 
   | 공유하는 것 | 어긋나면 |
