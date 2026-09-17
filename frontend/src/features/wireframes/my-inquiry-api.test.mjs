@@ -113,6 +113,12 @@ test('알 수 없는 snapshot_status와 available의 잘못된 result_snapshot�
     { ...availableDetail.result_snapshot, scene_id: '0' },
     { ...availableDetail.result_snapshot, rank: 0 },
     { ...availableDetail.result_snapshot, explain: null },
+    // BE 불변식 대칭: available인데 explain.display.display_name이 온전한 표시명이 아니면 계약 이탈
+    { ...availableDetail.result_snapshot, explain: { display: { display_name: '' } } },
+    { ...availableDetail.result_snapshot, explain: { display: { display_name: '   ' } } },
+    { ...availableDetail.result_snapshot, explain: { display: { display_name: 42 } } },
+    { ...availableDetail.result_snapshot, explain: { display: {} } },
+    { ...availableDetail.result_snapshot, explain: { score: 2 } },
   ])
     assert.throws(
       () => parseMyInquiryDetail({ ...availableDetail, result_snapshot: badSnap }),

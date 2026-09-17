@@ -156,13 +156,17 @@ function parseSnapshot(
   }
   if (status === 'available') {
     const snap = record(raw);
+    const explain = record(snap.explain);
+    // BE 불변식과 대칭: available 스냅샷은 온전한 표시명을 동반한다. explain.display.display_name 이
+    // 비어있지 않은 문자열이 아니면 계약 이탈로 거른다 — 근거를 지어내지 않는다.
+    if (text(record(explain.display).display_name).trim() === '') fail();
     return {
       status: 'available',
       resultSnapshot: {
         searchResultId: id(snap.search_result_id),
         sceneId: id(snap.scene_id),
         rank: integer(snap.rank, 1),
-        explain: record(snap.explain),
+        explain,
       },
     };
   }
