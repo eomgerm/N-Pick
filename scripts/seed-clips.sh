@@ -12,6 +12,10 @@
 # 권리 확인을 스크립트가 일괄로 찍지 않는 이유는 PRD §12.4 다 — clip 별 확인을
 # 배포 수준 허용으로 대신할 수 없다. subtitle 경로는 영상 폴더 기준이다.
 #
+# 계약(web-api.md §4)의 선택 필드 `script_text` 는 **지원하지 않는다.** 자막은 파일로
+# 올리면 되고, 원고 본문을 사이드카에 통째로 넣는 것은 시드 용도를 넘는다. 필요해지면
+# 사이드카에 키를 하나 더 두고 --form-string 으로 실으면 된다.
+#
 # **한 영상의 실패가 나머지를 죽이지 않는다.** 등록되지 않은 영상은 세어서 마지막에
 # 종료 코드로 알린다. `set -e` 아래에서 이걸 지키려면 실패할 수 있는 명령을 할당문에
 # 그냥 두면 안 된다 — 할당문의 명령 치환 실패는 스크립트를 즉사시킨다.
@@ -28,10 +32,14 @@ field() { jq -r --arg k "$1" '.[$k] // empty' "$2"; }
 # 세션은 JSESSIONID cookie 다. 검수자 계정으로 한 번 로그인해 jar 를 재사용한다.
 # 비밀번호는 **표준 입력으로만** 넘긴다. jq 의 --arg 도, curl 의 -d "$(...)" 도
 # 결국 argv 에 실려 팀 공용 서버의 `ps` 에 그대로 보인다. pipefail 이 jq 실패도 잡는다.
-curl -fsS -c "$JAR" "$BASE/auth/csrf" >/dev/null
+# 실패에 말을 붙인다. -fsS 만 두면 set -e 가 메시지 없이 죽어서 운영자에게는 curl
+# 종료 코드만 남고, 원인이 주소인지 자격증명인지 구분되지 않는다.
+curl -fsS -c "$JAR" "$BASE/auth/csrf" >/dev/null ||
+  { echo "CSRF 준비에 실패했다. NPICK_API_BASE 를 확인한다: $BASE" >&2; exit 1; }
 jq -n '{loginId: env.NPICK_LOGIN_ID, password: env.NPICK_PASSWORD}' |
   curl -fsS -b "$JAR" -c "$JAR" -H "X-XSRF-TOKEN: $(xsrf)" \
-    -H 'Content-Type: application/json' --data-binary @- "$BASE/auth/login" >/dev/null
+    -H 'Content-Type: application/json' --data-binary @- "$BASE/auth/login" >/dev/null ||
+  { echo "로그인에 실패했다. 검수자 계정과 비밀번호를 확인한다 (REVIEWER 권한 필요)" >&2; exit 1; }
 
 # nocaseglob 으로 대소문자를 한 번에 받는다. 확장자를 둘로 나열하면 대소문자를
 # 구분하지 않는 파일시스템에서 같은 영상이 두 번 매칭된다.
@@ -87,7 +95,21 @@ for video in "$DIR"/*.{mp4,mov,mkv}; do
   fi
 
   case "$code" in
-    2*) echo "  ok $code";;
+    2*)
+      # 계약 §2.2 — HTTP 실패와 `isSuccess: false` 중 하나라도 실패면 실패다. BE 의
+      # GlobalExceptionHandler 가 오류를 전부 비2xx 로 매핑하므로 지금은 겹치지만,
+      # 앞단 프록시가 2xx HTML 을 내면 이 확인이 없을 때 ok 로 찍힌다. 그래서 봉투가
+      # 성공을 말할 때만 ok 로 친다 — `isSuccess` 가 없는 2xx 도 통과시키지 않는다.
+      #
+      # `.isSuccess // empty` 를 쓰면 안 된다. jq 의 `//` 는 `false` 도 빈 값으로
+      # 취급해서 정확히 잡아야 할 경우를 놓친다.
+      if [ "$(jq -r 'if .isSuccess == true then "y" else "n" end' "$BODY" 2>/dev/null ||
+              echo n)" = "y" ]; then
+        echo "  ok $code"
+      else
+        fail "$code 인데 성공 봉투가 아니다: $(head -c 200 "$BODY")"
+      fi
+      ;;
     409)
       # 셋을 묶으면 안 된다. 002 만 "같은 요청이 처리 중" 이라 재실행의 정상 경로이고,
       # 001(키 충돌)·003(등록 삭제됨)은 **등록되지 않은** 상태라 새 키가 필요하다.
