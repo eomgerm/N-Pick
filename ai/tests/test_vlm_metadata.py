@@ -1117,3 +1117,57 @@ def test_loaded_client_reports_the_resolved_revision(monkeypatch: pytest.MonkeyP
     client._ensure_loaded()
 
     assert client.model_version == f"example/vlm@{sha}"
+
+
+# ── thinking (S15P21A501-214) ────────────────────────────────────────
+
+
+def test_default_config_disables_thinking() -> None:
+    """Qwen3.5 계열은 thinking 이 **기본으로 켜져** 있다.
+
+    켜진 채로 나가면 모델이 JSON 앞에 사고 과정을 쓰고, 그 출력은 첫 글자에서
+    `VLM_SCHEMA_INVALID` 가 된다. 이 단계는 fatal 이 아니라 run 은 성공으로 끝나므로,
+    캡션과 임베딩이 통째로 비는 것을 아무도 보지 못한다 — 실제로 6클립 전부 그랬다.
+    """
+    assert get_default_config().call.enable_thinking is False
+
+
+def test_thinking_belongs_to_config_version() -> None:
+    """이 값은 `config_version` 안에 있어야 한다.
+
+    밖에 두면 같은 `stage_version` 이 서로 다른 출력을 가리킨다. 그 상태는
+    "재현 튜플이 같으면 결과가 같다"(계약 §8)를 거짓으로 만든다.
+    """
+    config = get_default_config()
+    thinking = config.model_copy(
+        update={"call": config.call.model_copy(update={"enable_thinking": True})}
+    )
+    assert thinking.version_id != config.version_id
+
+
+def test_describe_takes_thinking_from_call_params(monkeypatch: pytest.MonkeyPatch) -> None:
+    """**배관이 아니라 배선을 건다.**
+
+    `_generate` 에 직접 `enable_thinking=False` 를 넘기는 테스트는 이미 있었고, 그런데도
+    운영 경로는 thinking 이 켜진 채로 돌았다. `shared_client()` 가 그 값을 넘기지 않아
+    항상 템플릿 기본값이었기 때문이다. 배관만 검사하면 그 사실이 보이지 않는다.
+    """
+    from npick_worker.vlm_metadata import transformers_backend
+
+    seen: dict[str, object] = {}
+
+    def fake_generate(*args: object, **kwargs: object) -> str:
+        seen.update(kwargs)
+        return "{}"
+
+    client = transformers_backend.TransformersVlmClient("example/vlm")
+    monkeypatch.setattr(client, "_ensure_loaded", lambda: (object(), object()))
+    monkeypatch.setattr(transformers_backend, "_generate", fake_generate)
+
+    params = get_default_config().call
+    images = (LabeledImage(label="kf_1", path=Path("a.jpg")),)
+    client.describe(images, "sys", "usr", params)
+    assert seen["enable_thinking"] is False
+
+    client.describe(images, "sys", "usr", params.model_copy(update={"enable_thinking": True}))
+    assert seen["enable_thinking"] is True

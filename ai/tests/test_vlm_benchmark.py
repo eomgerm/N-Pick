@@ -10,7 +10,7 @@ import pytest
 
 from npick_worker import korean_tokens
 from npick_worker.vlm_metadata import benchmark, transformers_backend
-from npick_worker.vlm_metadata.config import get_default_config
+from npick_worker.vlm_metadata.config import DEFAULT_CONFIG_PATH, get_default_config
 
 
 def test_summary_does_not_pass_an_incomplete_run() -> None:
@@ -192,7 +192,9 @@ def test_benchmark_preserves_run_identity_and_load_failures(
     assert options["revision"] == sha
     assert options["model_dir"] == cache_dir
     assert options["dtype"] == "bfloat16"
-    assert options["enable_thinking"] is False
+    # thinking 은 생성자가 아니라 **실행에 쓰는 설정**에 있다 (S15P21A501-214). 기록한
+    # config.toml 을 본다 — report.main 이 다시 읽는 것이 이 파일이다.
+    assert "enable_thinking = false" in (out / "config.toml").read_text(encoding="utf-8")
     assert options["fraction"] == pytest.approx(20 / 48)
     inputs = json.loads((out / "inputs.json").read_text(encoding="utf-8"))
     assert len(inputs) == 20
@@ -202,7 +204,14 @@ def test_benchmark_preserves_run_identity_and_load_failures(
         benchmark.main(args)
 
 
-def test_adapter_forwards_non_thinking_to_chat_template(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_adapter_forwards_thinking_to_chat_template(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_generate` 는 받은 값을 그대로 템플릿에 싣는다.
+
+    **이것만으로는 부족하다.** 이 배관은 처음부터 맞았고, 그런데도 운영 경로는 thinking 이
+    켜진 채로 돌았다 — 값을 넘기는 쪽이 넘기지 않았기 때문이다. 배선은
+    `test_vlm_metadata.py` 의 `test_describe_takes_thinking_from_call_params` 가 건다.
+    """
+
     class StopTemplateError(Exception):
         pass
 
@@ -224,3 +233,18 @@ def test_adapter_forwards_non_thinking_to_chat_template(monkeypatch: pytest.Monk
             enable_thinking=False,
         )
     assert options["enable_thinking"] is False
+
+
+def test_benchmark_writes_thinking_into_the_config_it_runs() -> None:
+    """기록한 config 와 실제로 돌린 config 가 같아야 한다.
+
+    `report.main` 은 out 디렉터리의 `config.toml` 을 다시 읽어 돌린다. 원본을 그대로
+    베끼면 `--thinking` 이 조용히 무시되고, 기록만 바뀐 실행이 남는다.
+    """
+    source = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
+    assert "enable_thinking = true" in benchmark._with_thinking(source, True)
+    assert "enable_thinking = false" in benchmark._with_thinking(source, False)
+    # 키가 없는 설정에도 넣는다. 없으면 갈아끼울 곳이 없어 조용히 원본대로 돈다.
+    v1 = DEFAULT_CONFIG_PATH.with_name("vlm_metadata.v1.toml").read_text(encoding="utf-8")
+    assert "enable_thinking" not in v1
+    assert "enable_thinking = true" in benchmark._with_thinking(v1, True)

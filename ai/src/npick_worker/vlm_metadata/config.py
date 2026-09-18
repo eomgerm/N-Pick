@@ -55,6 +55,14 @@ class CallParams(_Frozen):
     temperature: float = Field(ge=0.0, le=2.0)
     max_output_tokens: int = Field(gt=0)
     timeout_seconds: float = Field(gt=0)
+    #: 사고 과정을 쓰게 둘지. **기본은 끔이다** (S15P21A501-214).
+    #:
+    #: 이 축이 여기 있는 이유는 `config_version` 이다. 채팅 템플릿의 기본값은 모델마다
+    #: 다르고 Qwen3.5 계열은 켜져 있다. 켜진 채로 나가면 JSON 앞에 사고 과정이 붙어
+    #: 첫 글자에서 `VLM_SCHEMA_INVALID` 가 되는데, 이 단계는 fatal 이 아니라 run 은
+    #: 성공으로 끝난다 — 캡션과 임베딩만 통째로 빈다. 값을 식별자 밖에 두면 같은
+    #: `stage_version` 이 서로 다른 출력을 가리키게 된다.
+    enable_thinking: bool = False
 
 
 class PromptTemplates(_Frozen):
@@ -106,6 +114,9 @@ class VlmMetadataConfig(_Frozen):
                 payload.pop("max_ocr_chars")
             if self.max_transcript_chars == 0:
                 payload.pop("max_transcript_chars")
+            # v1 은 이전 모델 비교의 재현용이라 해시가 바뀌면 그 목적이 사라진다.
+            # 뒤에 더한 키는 v1 의 payload 에서 뺀다 — 위 두 줄과 같은 처리다.
+            payload["call"].pop("enable_thinking", None)
         return version_id(self.schema_, payload)
 
     @property
