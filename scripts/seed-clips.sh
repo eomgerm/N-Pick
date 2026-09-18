@@ -25,6 +25,13 @@ set -euo pipefail
 BASE="${NPICK_API_BASE:?NPICK_API_BASE 를 준다 (예: https://호스트/api/v1)}"
 : "${NPICK_LOGIN_ID:?검수자 계정 아이디를 준다}" "${NPICK_PASSWORD:?검수자 계정 비밀번호를 준다}"
 DIR="${1:?영상 폴더를 인자로 준다}"
+# 인자 검증은 전부 여기서 끝낸다. 대기 값 오타를 마지막에 잡으면 배치를 다 보낸 뒤에
+# 실패하고, 그건 검증이 아니라 사후 통보다.
+WAIT="${NPICK_SEED_WAIT_SECONDS:-0}"
+case "$WAIT" in
+  ''|*[!0-9]*) echo "NPICK_SEED_WAIT_SECONDS 는 0 이상의 정수다: $WAIT" >&2; exit 2 ;;
+esac
+[ -d "$DIR" ] || { echo "영상 폴더가 없다: $DIR" >&2; exit 2; }
 JAR="$(mktemp)"; BODY="$(mktemp)"; trap 'rm -f "$JAR" "$BODY"' EXIT
 xsrf() { awk '$6=="XSRF-TOKEN"{print $7}' "$JAR" | tail -1; }  # Netscape jar: $6 이름, $7 값
 field() { jq -r --arg k "$1" '.[$k] // empty' "$2"; }
@@ -45,6 +52,7 @@ jq -n '{loginId: env.NPICK_LOGIN_ID, password: env.NPICK_PASSWORD}' |
 # 구분하지 않는 파일시스템에서 같은 영상이 두 번 매칭된다.
 shopt -s nullglob nocaseglob
 failed=0
+registered=0
 fail() { echo "  $1" >&2; failed=$((failed + 1)); }
 
 for video in "$DIR"/*.{mp4,mov,mkv}; do
@@ -106,6 +114,7 @@ for video in "$DIR"/*.{mp4,mov,mkv}; do
       if [ "$(jq -r 'if .isSuccess == true then "y" else "n" end' "$BODY" 2>/dev/null ||
               echo n)" = "y" ]; then
         echo "  ok $code"
+        registered=$((registered + 1))
       else
         fail "$code 인데 성공 봉투가 아니다: $(head -c 200 "$BODY")"
       fi
@@ -117,6 +126,7 @@ for video in "$DIR"/*.{mp4,mov,mkv}; do
       clip_code=$(jq -r '.code // empty' "$BODY" 2>/dev/null || echo "")
       if [ "$clip_code" = "CLIP_409_002" ]; then
         echo "  이미 처리 중이다. 재실행 경로이므로 건너뛴다"
+        registered=$((registered + 1))
       else
         fail "등록되지 않았다 (${clip_code:-409}). 새 요청 키가 필요하다: $video"
       fi
@@ -126,3 +136,56 @@ for video in "$DIR"/*.{mp4,mov,mkv}; do
 done
 
 [ "$failed" -eq 0 ] || { echo "$failed 건이 등록되지 않았다" >&2; exit 1; }
+
+# **0 건은 성공이 아니다.** 경로를 잘못 주면 nullglob 이 루프를 통째로 건너뛰어 failed 도
+# 0 이 되고, 뒤의 대기 블록마저 "이미 큐가 비었다" 로 읽어 초록으로 끝난다. 시연 준비
+# 잡이 아무것도 안 하고 성공했다고 보고하는 경로다 (S15P21A501-187 리뷰 지적).
+# Jenkins 컨테이너에서 도는 경우 특히 쉽다 — 마운트되지 않은 호스트 경로는 그냥 빈 폴더다.
+if [ "$registered" -eq 0 ]; then
+  echo "등록된 영상이 0 건이다. 경로에 *.mp4/mov/mkv 가 있는지 확인한다: $DIR" >&2
+  exit 1
+fi
+echo "$registered 건 등록됨"
+
+# ── 처리 완료까지 대기 (선택) ────────────────────────────────────────
+# NPICK_SEED_WAIT_SECONDS 가 0(기본)이면 여기서 끝나고 동작은 종전과 같다.
+# 0 보다 크면 GET /clips 의 run_counts 를 10초 간격으로 보며 큐가 빌 때까지 기다린다.
+# Jenkins 의 SEED 잡이 "등록됐다"가 아니라 "시연에 쓸 수 있다"로 끝나게 하려는 것이다
+# (S15P21A501-187). 위에서 만든 jar 를 그대로 재사용하므로 다시 로그인하지 않는다.
+#
+# **run_counts 는 이 실행이 등록한 것만 세지 않는다.** 논리 삭제를 뺀 전체 집계다
+# (web-api.md §6.5). 그래서 예전에 실패한 클립이 DB 에 남아 있으면 이 대기는 그것 때문에
+# 실패로 끝난다. clip_id 별로 좁히려면 상세를 건건이 조회해야 하는데, 시드는 빈 환경에
+# 한 번 붓는 용도라 전체 집계로 충분하다고 보고 단순한 쪽을 택했다.
+[ "$WAIT" -gt 0 ] || exit 0
+
+echo "처리 완료를 기다린다 (최대 ${WAIT}초, 10초 간격)"
+deadline=$(( $(date +%s) + WAIT ))
+while :; do
+  # size=1 로 받는다. 세는 값은 페이지와 무관한 전체 집계라 항목이 필요 없다.
+  code=$(curl -sS -o "$BODY" -w '%{http_code}' -b "$JAR" -c "$JAR" \
+    -H "X-XSRF-TOKEN: $(xsrf)" "$BASE/clips?page=0&size=1") && rc=0 || rc=$?
+  if [ "$rc" -ne 0 ] || [ "${code#2}" = "$code" ]; then
+    echo "  처리 현황을 읽지 못했다 (curl $rc / HTTP $code). 다시 시도한다" >&2
+  else
+    # jq 실패를 그대로 흘리면 set -e 가 대기 도중에 스크립트를 죽인다.
+    counts=$(jq -r '.data.run_counts | "\(.queued) \(.running) \(.failed) \(.succeeded)"' \
+      "$BODY" 2>/dev/null) || counts=""
+    if [ -z "$counts" ]; then
+      echo "  run_counts 를 읽지 못했다: $(head -c 200 "$BODY")" >&2
+    else
+      # shellcheck disable=SC2086
+      set -- $counts
+      echo "  queued=$1 running=$2 failed=$3 succeeded=$4"
+      if [ "$1" -eq 0 ] && [ "$2" -eq 0 ]; then
+        # 더 움직일 것이 없다. 남은 것은 실패가 있느냐뿐이라 여기서 판정한다 —
+        # failed 가 0 이 되기를 기다리면 영영 끝나지 않는다.
+        [ "$3" -eq 0 ] && { echo "처리 완료 (succeeded=$4)"; exit 0; }
+        echo "$3 건이 실패로 끝났다" >&2; exit 1
+      fi
+    fi
+  fi
+  [ "$(date +%s)" -lt "$deadline" ] || {
+    echo "${WAIT}초 안에 처리가 끝나지 않았다" >&2; exit 1; }
+  sleep 10
+done
