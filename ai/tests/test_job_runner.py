@@ -255,11 +255,24 @@ async def test_failed_stage_is_not_reported_as_success(
 
 
 @pytest.mark.asyncio
-async def test_unimplemented_stage_is_skipped_not_failed(
-    job_client: JobApiClient, fake_backend: FakeBackend, media_root: Path
+async def test_stage_without_an_adapter_is_skipped_not_failed(
+    job_client: JobApiClient,
+    fake_backend: FakeBackend,
+    media_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """FRD 표에는 있으나 구현이 없는 단계. 비치명 단계의 생략은 run 을 멈추지 않는다."""
-    fake_backend.enqueue_claim(make_job(stage="transcript_selection"))
+    """어댑터가 없는 단계. 비치명 단계의 생략은 run 을 멈추지 않는다.
+
+    **실물 단계 이름으로는 재현할 수 없다** — FRD 표의 10단계가 모두 구현돼 있다.
+    그래도 이 경로는 살아 있어야 한다: 계약 §11 이 "배정 후 어댑터가 없으면
+    `NO_ADAPTER` 로 보고한다" 를 요구하고, BE 가 구버전 이미지에 새 단계를 배정하는
+    배포 스큐와 `NPICK_AI_JOB_STAGES` 로 좁힌 파드가 그 자리다. 핸들러를 하나 지워
+    그 상황을 만든다.
+    """
+    monkeypatch.setattr(
+        registry, "HANDLERS", {k: v for k, v in registry.HANDLERS.items() if k != "ocr"}
+    )
+    fake_backend.enqueue_claim(make_job(stage="ocr"))
 
     await _runner(job_client, media_root).run_once()
 

@@ -1172,6 +1172,15 @@ def _run_text_embedding(ctx: StageContext) -> StageOutcome:
     )
 
 
+# ── transcript_selection (4단계) ─────────────────────────────────────
+
+
+def _run_transcript_selection(ctx: StageContext) -> StageOutcome:
+    from npick_worker.jobs.transcript_selection import run
+
+    return run(ctx)
+
+
 # ── indexing (10단계) ────────────────────────────────────────────────
 
 
@@ -1246,6 +1255,12 @@ HANDLERS: Final[Mapping[str, StageHandler]] = MappingProxyType(
             # (`asrRequired`·`candidateRanges`)만 보기 때문이다 — 그 값은 `upstream` 에
             # 인라인으로 오고, 무엇을 채택할지 정하는 일은 하류의 몫이다(계약 §4.5).
             # `needs_video` 는 기본값 True 다. 오디오가 원본 파일 안에 있다.
+            # 워밍업이 없다. 모델도 토크나이저도 쓰지 않는 순수 계산이다.
+            # `required_inputs` 도 없다 — BE 가 준비한 자막 snapshot 은 러너가 모든
+            # 단계에 주는 `artifact_documents` 로 온다(계약 §4.5). `needs_video` 는
+            # False 다: 자막은 BE 가 파싱해 주고 클립 길이는 1단계의
+            # `mediaDurationMs` 로 오므로 원본을 열 이유가 없다.
+            StageHandler("transcript_selection", _run_transcript_selection, needs_video=False),
             StageHandler("asr", _run_asr, _warm_asr),
             StageHandler(
                 "scene_transcript_mapping",
@@ -1365,6 +1380,10 @@ def capability_versions() -> dict[str, str]:
 
 def _declared_version(stage: str) -> str:
     """실행 없이 계산할 수 있는 단계 버전. `_run_*` 이 만드는 값과 같아야 한다."""
+    if stage == "transcript_selection":
+        from npick_worker.jobs.transcript_selection import identity as selection_identity
+
+        return stage_version(stage, selection_identity())
     if stage == "scene_transcript_mapping":
         from npick_worker.jobs.scene_transcript_mapping import identity
 

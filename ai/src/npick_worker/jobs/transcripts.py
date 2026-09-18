@@ -1,6 +1,8 @@
 """Approved transcript artifact boundary; selection and ASR remain stage implementations."""
 
+import hashlib
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Final, Literal
 
 from pydantic import Field, StrictBool, StrictInt, model_validator
@@ -8,6 +10,7 @@ from pydantic import Field, StrictBool, StrictInt, model_validator
 from npick_worker.jobs.errors import UpstreamOutputInvalidError
 from npick_worker.jobs.models import ArtifactRef, WireResponse
 from npick_worker.jobs.versions import WireModel
+from npick_worker.versioning import canonical_json
 
 
 class TranscriptSegment(WireModel):
@@ -62,6 +65,50 @@ class TranscriptSnapshot(WireModel):
             raise ValueError("invalid decisions artifact kind")
         if self.segments_artifact.storage_key == self.decisions_artifact.storage_key:
             raise ValueError("snapshot artifacts must have distinct storage keys")
+        return self
+
+
+class TranscriptCandidateRange(WireModel):
+    """`candidateRanges` 원소. 반열구간 `[s, e)` 이고 ms 는 정수다.
+
+    `jobs/models.py` 의 `CandidateRange` 를 재사용하지 않는다 — 그것은 **수신용**이고
+    `float | None` 이며 제약이 일부러 없다(하류가 쓰지 않는 필드로 단계를 죽이지
+    않으려고). BE 는 이 자리에 `isIntegralNumber()` 를 요구하므로 보내는 쪽은
+    `StrictInt` 여야 한다.
+    """
+
+    s: StrictInt = Field(ge=0)
+    e: StrictInt = Field(gt=0)
+
+    @model_validator(mode="after")
+    def interval(self) -> "TranscriptCandidateRange":
+        if self.e <= self.s:
+            raise ValueError("invalid candidate range")
+        return self
+
+
+class TranscriptSelectionOutput(WireModel):
+    """4단계 출력 계약(계약 §4.5).
+
+    이 단계의 `decisions` 는 **예비 판정**이다. 그 run 의 최종 채택 정본은 6단계
+    snapshot 이고, 저장·검색·VLM 은 언제나 그쪽을 쓴다. 두 단계는 같은 채택 규칙을
+    쓰는데(`npick_worker.transcript_selection`), 그 사실을 `versions.detail.selection`
+    이 같은 키로 드러낸다.
+    """
+
+    transcript: TranscriptSnapshot
+    asr_required: StrictBool
+    candidate_ranges: list[TranscriptCandidateRange]
+    reason_code: Literal["SUBTITLE_COVERED", "UNCOVERED_RANGES", "NO_VALID_SUBTITLE"]
+
+    @model_validator(mode="after")
+    def judgement(self) -> "TranscriptSelectionOutput":
+        # BE 가 강제하는 두 등가식을 보내는 쪽에서 먼저 막는다. 어기면 단계가
+        # succeeded 로 올라간 뒤 저장 어댑터에서 거절돼 원인이 멀어진다.
+        if self.asr_required != bool(self.candidate_ranges):
+            raise ValueError("asrRequired must match whether candidate ranges exist")
+        if (self.reason_code == "SUBTITLE_COVERED") != (not self.candidate_ranges):
+            raise ValueError("SUBTITLE_COVERED must mean no candidate ranges")
         return self
 
 
@@ -262,3 +309,27 @@ def resolve_mapping(
         return mapping, linked
     except (ValueError, KeyError, TypeError) as exc:
         raise UpstreamOutputInvalidError("invalid scene transcript mapping or snapshot") from exc
+
+
+def json_artifact(
+    work_dir: Path, output_key_prefix: str, kind: str, payload: Mapping[str, Any]
+) -> tuple[ArtifactRef, Path]:
+    """JSON 산출물 한 장을 쓰고 그 참조를 만든다.
+
+    **`registry` 타입을 쓰지 않는다.** `PendingUpload`·`StageContext` 는 `registry` 에
+    있고 `registry` 는 단계 어댑터를 지연 import 로 끌어와 순환을 피한다. 여기서
+    그것을 import 하면 그 순환이 되살아나므로, 감싸는 일은 호출부에 남긴다.
+    """
+    data = canonical_json(payload).encode("utf-8")
+    name = f"{kind}.json"
+    path = work_dir / name
+    path.write_bytes(data)
+    return (
+        ArtifactRef(
+            kind=kind,
+            storage_key=f"{output_key_prefix.rstrip('/')}/{name}",
+            byte_size=len(data),
+            content_hash=hashlib.sha256(data).hexdigest(),
+        ),
+        path,
+    )

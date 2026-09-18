@@ -1208,7 +1208,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 10. **artifacts 저장소 어댑터** — 미디어 루트 정규화·경로 이탈 차단·sha256 검증.
 11. **`pipeline.yml`에 `stage_versions:` 키 신설**, 기동 시 롤업 계산·로그.
 12. **stage output 저장 어댑터가 지원하는 단계를 늘린다.** BE는 `StageOutputPort.supports(stage)`가 거짓인 단계를 워커 `capabilities`에서 **제거한다**(`WorkerExecutionBinding`). 그래서 워커가 구현하고 버전을 선언해도 그 단계는 배정되지 않고, 강제로 결과를 보내도 `validateAndStore`의 `default` 분기에서 거절된다.
-    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`ocr`·`transcript_selection`·`asr`·`scene_transcript_mapping`·`vlm_metadata`·`entity_extraction`·`text_embedding`·`indexing` 열이다(`text_embedding`·`indexing`은 `S15P21A501-183`, `scene_transcript_mapping`은 `S15P21A501-98`·`-191`, `ocr`·`vlm_metadata`는 `S15P21A501-184`, `entity_extraction`은 워커가 `S15P21A501-99`·BE가 `S15P21A501-192`). **단계 표의 열 단계가 모두 저장 분기를 가졌다.** 남은 구멍은 `transcript_selection`의 워커 구현 하나다.
+    현재 어댑터가 지원하는 단계는 `scene_detection`·`frame_extraction`·`ocr`·`transcript_selection`·`asr`·`scene_transcript_mapping`·`vlm_metadata`·`entity_extraction`·`text_embedding`·`indexing` 열이다(`text_embedding`·`indexing`은 `S15P21A501-183`, `scene_transcript_mapping`은 `S15P21A501-98`·`-191`, `ocr`·`vlm_metadata`는 `S15P21A501-184`, `entity_extraction`은 워커가 `S15P21A501-99`·BE가 `S15P21A501-192`). **단계 표의 열 단계가 모두 저장 분기를 가졌고, 워커 구현도 열 단계가 모두 있다** — 마지막 구멍이던 `transcript_selection`의 워커 구현은 `S15P21A501-213`에서 뚫렸다(그 단계의 BE 쪽 자막 접수·입력 준비는 `S15P21A501-35`다). 남은 관문은 `infra/compose/profiles/pipeline.yml`의 `stage_versions`이다: 거기 없는 단계는 `"unknown"`이 되어 구현·어댑터가 다 있어도 배정되지 않는다(`StageExecutionService`의 `matches`).
     **출력 스키마가 v2인 단계가 둘이다** — `ocr`(`npick.stage.ocr.output/v2`, §4.3.2, S15P21A501-95)과 `vlm_metadata`(`npick.stage.vlm_metadata.output/v2`, S15P21A501-92). `PipelineStages.outputSchema`가 그 예외 목록을 들고 있고 배정 payload·`complete` 검사·저장 어댑터가 모두 그 표 하나를 읽는다. 문자열을 따로 조립하는 자리를 다시 만들면 배정과 검사가 갈려 성공 결과가 저장 분기에 닿기도 전에 거절된다.
     `ocr` 저장 어댑터는 관측 행을 저장하고 `kind: "ocr_result"` 산출물 참조를 보존한다. `textGroups`·`mergeConfigVersion`은 `ocr_observation`에 담을 칸이 없고 별도 그룹 테이블도 만들지 않으므로, 그 둘의 영구 보관처는 산출물 파일이다 — 그룹은 원본 관측 배열의 인덱스라 배열을 재정렬하거나 일부만 저장하면 참조가 끊긴다. 그래서 어댑터는 파일의 `output`이 `complete`의 `output`과 **같은지**까지 확인한다. `inputs.upstream`은 이 저장된 `output`을 그대로 되돌려 주므로 `textGroups`도 함께 실려 가지만, 워커의 `UpstreamOcrOutput`이 `extra="ignore"`라 하류 단계는 그것을 읽지 않는다(§4.3.3·§4.3.6).
 
@@ -1230,7 +1230,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 | --- | --- |
 | 토큰 발급·회전 절차 | 인프라 티켓 |
 | 단계 재시도 횟수·타임아웃 | 실측 후 `infra/compose/profiles/pipeline.yml` |
-| 미구현 1단계 — `transcript_selection`은 워커 구현만 없다 | 각 단계 티켓. capabilities에 없는 단계는 미배정이며, 배정 후 어댑터가 없으면 `NO_ADAPTER`로 보고한다. `text_embedding`·`indexing`은 `S15P21A501-183`에서, `scene_transcript_mapping`은 워커가 `S15P21A501-98`·BE가 `S15P21A501-191`에서, `ocr`·`vlm_metadata`는 `S15P21A501-184`에서, `entity_extraction`은 워커가 `S15P21A501-99`·BE가 `S15P21A501-192`에서 배선됐다 |
+| `stage_versions` 실측 — 열 단계가 모두 구현·배선됐으나 프로필에 아홉 단계만 박혀 있다 | 실측 후 `infra/compose/profiles/pipeline.yml`. 거기 없는 단계는 `"unknown"`이라 미배정이다. 단계별 배선 티켓: `text_embedding`·`indexing`은 `S15P21A501-183`, `scene_transcript_mapping`은 워커가 `S15P21A501-98`·BE가 `S15P21A501-191`, `ocr`·`vlm_metadata`는 `S15P21A501-184`, `entity_extraction`은 워커가 `S15P21A501-99`·BE가 `S15P21A501-192`, `transcript_selection`은 워커가 `S15P21A501-213`·BE가 `S15P21A501-35`. `transcript_selection`을 넣을 때 `scene_transcript_mapping`도 함께 재측정한다 — 두 단계가 채택 규칙을 공유하면서 6단계 `identity`에 `selection` 축이 생겼다 |
 | 협조적 취소 | 별도 티켓 (§4.2의 한계) |
 | 리졸버/워커 컨테이너 분리 | `docs/architecture/04-implementation-gap.md` (G-3, 아직 없는 파일) |
 

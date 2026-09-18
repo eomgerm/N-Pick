@@ -22,11 +22,12 @@ defaults:
 #
 # 이것만으로는 부족하다. 앞에 관문이 더 있다 — WorkerExecutionBinding 이
 # StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다.
-# JdbcWorkerStageOutputAdapter 의 집합은 **10 단계**다. 아래는 9 개뿐이다 —
-# `transcript_selection` 이 빠져 있고, 그건 워커에 구현이 없어서다(HANDLERS 에 없다).
-# **구현이 생기는 순간 이 파일이 병목이 된다** — 여기 없는 단계는 BE 가 unknown 으로
-# 접고 실측 해시와 절대 같아지지 않아, 오류 없이 영원히 배정되지 않는다. 그 단계를
-# 구현하는 티켓이 여기 한 줄을 함께 넣어야 한다 (S15P21A501-187 리뷰 지적).
+# JdbcWorkerStageOutputAdapter 의 집합은 **10 단계**고, 이제 워커 구현도 10 단계가 모두
+# 있다 — 마지막이던 `transcript_selection` 은 S15P21A501-213 에서 뚫렸다.
+# 그래서 남은 관문은 이 파일 하나다. **여기 없는 단계는 BE 가 unknown 으로 접고 실측
+# 해시와 절대 같아지지 않아, 오류 없이 영원히 배정되지 않는다** (S15P21A501-187 리뷰 지적).
+# nextStage 는 NAMES 순서로 첫 pending 을 고르므로, 앞 단계를 비워 두면 뒤 단계를 여기
+# 적어도 순서상 닿지 않는다.
 # 배포별로 선언 범위를 좁히는 노브는 ai/.env 의 NPICK_AI_JOB_STAGES 다(S15P21A501-186).
 #
 # 아래 값은 전부 실측이다. 손으로 짓지 않는다 — 워커의 선언값과 한 글자라도 다르면

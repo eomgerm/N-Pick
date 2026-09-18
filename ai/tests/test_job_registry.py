@@ -99,13 +99,14 @@ def _context(
 # ── 등록 ─────────────────────────────────────────────────────────────
 
 
-def test_implemented_stages_are_exactly_the_nine_present() -> None:
-    """FRD 단계 표 10개 중 지금 구현된 것만. 나머지 하나는 resolve() 가 None 이다."""
+def test_implemented_stages_are_exactly_the_ten_present() -> None:
+    """FRD 단계 표 10개가 전부 구현됐다. resolve() 가 None 을 주는 것은 표에 없는 이름뿐이다."""
     assert set(HANDLERS) == {
         "scene_detection",
         "frame_extraction",
         "vlm_metadata",
         "ocr",
+        "transcript_selection",
         "asr",
         "scene_transcript_mapping",
         "entity_extraction",
@@ -119,8 +120,8 @@ def test_every_handler_is_an_frd_stage() -> None:
     assert set(HANDLERS) <= set(FRD_STAGE_NAMES)
 
 
-def test_resolve_returns_none_for_unimplemented_stages() -> None:
-    assert resolve("transcript_selection") is None
+def test_resolve_returns_none_for_unknown_stage_names() -> None:
+    # FRD 표의 10단계는 모두 구현됐다. 남는 것은 표에 없는 이름이다.
     assert resolve("nope") is None
 
 
@@ -175,8 +176,19 @@ def test_warm_up_reports_the_scene_detection_identity() -> None:
     assert "pyscenedetect" in outcome.detail
 
 
-def test_warm_up_marks_unimplemented_stages_as_not_warmed() -> None:
+def test_warm_up_marks_unknown_stage_names_as_not_warmed() -> None:
     # 없는 것을 있는 척하지 않는다.
+    report = warm_up(["nope"])
+    assert report.stages[0].warmed is False
+    assert report.ready is False
+
+
+def test_warm_up_marks_stages_without_warmup_as_not_warmed() -> None:
+    """구현은 있지만 미리 치를 비용이 없는 단계. 위와 사실이 다르다.
+
+    `warm_up` 은 둘을 같은 분기로 처리하므로(핸들러가 없는 것과 `warm` 이 없는 것),
+    한쪽만 테스트하면 다른 한쪽이 언제 깨졌는지 알 수 없다.
+    """
     report = warm_up(["transcript_selection"])
     assert report.stages[0].warmed is False
     assert report.ready is False
@@ -541,12 +553,15 @@ def test_keyframe_reading_stages_skip_the_source_video() -> None:
     이유는 앞의 둘과 다르다 — 보는 것이 화면이 아니라 **원본 파일 안의 오디오**다.
     `entity_extraction`·`text_embedding`·`indexing` 은 이미지조차 열지 않는다. 상류가
     만든 텍스트와 숫자만 본다 — 화면 글자도 상류가 이미 읽어 둔 것을 받는다.
+    `transcript_selection` 도 False 다: 자막은 BE 가 파싱해 artifact 로 주고(계약 §4.5)
+    클립 길이는 1단계의 `mediaDurationMs` 로 오므로 원본을 열 이유가 없다.
     """
     assert {name: handler.needs_video for name, handler in HANDLERS.items()} == {
         "scene_detection": True,
         "frame_extraction": True,
         "vlm_metadata": False,
         "ocr": False,
+        "transcript_selection": False,
         "asr": True,
         "scene_transcript_mapping": False,
         "entity_extraction": False,
