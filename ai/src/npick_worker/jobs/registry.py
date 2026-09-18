@@ -1479,8 +1479,18 @@ def _declared_version(stage: str) -> str:
         # 워밍업이 한 번 실패한 워커가 폴링마다 내려받기를 재시도하는 자리도 여기다.
         # 워밍업 실패 복구는 재워밍업 또는 워커 재시작으로 한다.
         asr_engine = _asr_engine()
-        from npick_worker.asr.faster_whisper_backend import FasterWhisperEngine
+        from npick_worker.asr.faster_whisper_backend import (
+            FasterWhisperEngine,
+            is_pinned_revision,
+        )
 
+        # **움직이는 ref 로는 선언하지 않는다**(`text_embedding` 과 같은 가드).
+        # 크기 이름은 HF 저장소로 풀리고 그 저장소는 갱신된다 — 이름만 기록하면 다른
+        # 가중치로 만든 전사가 같은 stageVersion 을 달고 정본에 들어간다.
+        revision = get_settings().asr_model_revision
+        if not is_pinned_revision(revision):
+            msg = f"ASR 가중치 리비전이 SHA 로 고정되지 않았다: {revision or '(없음)'}"
+            raise ModelUnavailableError(msg)
         if isinstance(asr_engine, FasterWhisperEngine) and not asr_engine.is_loaded:
             raise ModelUnavailableError("ASR 워밍업이 완료되지 않아 버전을 선언할 수 없다")
         return stage_version(

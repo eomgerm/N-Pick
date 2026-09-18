@@ -14,6 +14,7 @@ torch 와 같은 규칙).
 """
 
 import logging
+import re
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -41,6 +42,22 @@ SAMPLING_RATE: Final[int] = 16000
 #: 도는 값**이다 — CUDA 가 아닌 곳에서 float16 은 아예 실행되지 않는다. 실측으로 정할
 #: 것은 "어느 쪽이 더 나은가" 이고 그 결정은 `NPICK_AI_ASR_COMPUTE_TYPE` 으로 들어온다.
 _DEFAULT_COMPUTE_TYPE: Final[dict[str, str]] = {"cuda": "float16", "cpu": "int8"}
+
+#: 가중치 리비전이 고정됐는가. `text_embedding` 의 `_PINNED_REVISION` 과 같은 판정이다.
+_PINNED_REVISION: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}")
+
+
+def is_pinned_revision(revision: str) -> bool:
+    """40자리 커밋 SHA 인가.
+
+    `large-v3-turbo` 같은 크기 이름은 faster-whisper 가 HF 저장소로 풀어 준다
+    (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`). 그 저장소가 갱신되면 같은 이름이
+    다른 가중치를 가리키는데 `modelVersion` 은 그대로라, 다른 가중치로 만든 전사가 같은
+    `stageVersion` 을 달고 정본에 들어간다. 그래서 움직이는 ref 로는 능력을 선언하지
+    않는다 (S15P21A501-187).
+    """
+    return bool(_PINNED_REVISION.fullmatch(revision))
+
 
 _CUDA_OOM_MARKER: Final[str] = "out of memory"
 
@@ -71,7 +88,7 @@ def _library_version() -> str:
     return " ".join(parts)
 
 
-def model_identifier(model_name: str, compute_type: str) -> str:
+def model_identifier(model_name: str, revision: str, compute_type: str) -> str:
     """봉투의 `versions.modelVersion` 에 실리는 값.
 
     **엔진 이름이 앞에 붙는다.** 이 필드는 결과마다 한 번 실려 정본에 남는데
@@ -81,8 +98,11 @@ def model_identifier(model_name: str, compute_type: str) -> str:
 
     compute type 이 함께 들어가는 이유는 `float16` 과 `int8` 이 같은 모델의 다른 수치라
     같은 오디오에서 다른 문장이 나오기 때문이다.
+
+    **리비전이 함께 들어간다.** 크기 이름은 저장소로 풀리고 그 저장소는 갱신되므로,
+    이름만으로는 어느 가중치였는지 나중에 알 수 없다 (S15P21A501-187).
     """
-    return f"{ENGINE_NAME}/{model_name}@{compute_type}"
+    return f"{ENGINE_NAME}/{model_name}@{revision}+{compute_type}"
 
 
 def speech_judgment(info: Any, config: AsrConfig) -> tuple[bool | None, float | None]:
@@ -129,7 +149,12 @@ class FasterWhisperEngine:
     """
 
     def __init__(
-        self, model_name: str, compute_type: str, device: str, model_dir: Path | None
+        self,
+        model_name: str,
+        revision: str,
+        compute_type: str,
+        device: str,
+        model_dir: Path | None,
     ) -> None:
         # **라이브러리 확인이 먼저다.** 둘 다 없는 워커에서 모델 미설정(일시)을 먼저
         # 신고하면, 재시도로는 절대 고쳐지지 않는 상태를 재시도 가능으로 적게 된다.
@@ -148,6 +173,7 @@ class FasterWhisperEngine:
             msg = "ASR 모델이 설정되지 않았다: NPICK_AI_ASR_MODEL"
             raise AsrModelUnavailableError(msg)
         self._model_name = model_name
+        self._revision = revision
         self._compute_type = compute_type
         self._device = device
         self._model_dir = model_dir
@@ -169,7 +195,7 @@ class FasterWhisperEngine:
         값이다(`VlmClient.model_version` 이 로딩 후 commit SHA 로 바뀌는 것과 다르다).
         이 속성을 읽는 것만으로 로딩이 일어나지 않는다.
         """
-        return model_identifier(self._model_name, self._compute_type)
+        return model_identifier(self._model_name, self._revision, self._compute_type)
 
     @property
     def is_loaded(self) -> bool:
@@ -203,6 +229,9 @@ class FasterWhisperEngine:
                 device=self._device,
                 compute_type=self._compute_type,
                 download_root=str(self._model_dir) if self._model_dir is not None else None,
+                # 기록만 하고 로딩에 넘기지 않으면 그 기록이 거짓이 된다.
+                # 로컬 디렉터리를 가리키는 경우 라이브러리가 이 값을 무시한다.
+                revision=self._revision or None,
             )
         except MemoryError:
             # **OOM 은 그대로 올려보낸다.** `transcribe()` 가 같은 예외를 같은 이유로
@@ -329,6 +358,7 @@ def shared_engine() -> FasterWhisperEngine:
     settings = get_settings()
     return _cached_engine(
         settings.asr_model,
+        settings.asr_model_revision,
         resolve_compute_type(settings),
         detect_device(settings.device).resolved,
         settings.asr_model_dir,
@@ -347,6 +377,9 @@ def build_engine(model_name: str, *, settings: Settings | None = None) -> Faster
     config = settings if settings is not None else get_settings()
     return FasterWhisperEngine(
         model_name,
+        # 비교 도구는 리비전을 고정하지 않아도 돈다 — 능력 선언을 하지 않으므로
+        # `registry` 의 가드에 걸릴 일이 없다. 설정에 있으면 그대로 쓴다.
+        config.asr_model_revision,
         resolve_compute_type(config),
         detect_device(config.device).resolved,
         config.asr_model_dir,
@@ -355,10 +388,17 @@ def build_engine(model_name: str, *, settings: Settings | None = None) -> Faster
 
 @lru_cache(maxsize=1)
 def _cached_engine(
-    model_name: str, compute_type: str, device: str, model_dir: Path | None
+    model_name: str, revision: str, compute_type: str, device: str, model_dir: Path | None
 ) -> FasterWhisperEngine:
-    """`maxsize=1` 인 이유는 VRAM 이다. 설정이 바뀌면 옛 인스턴스를 버린다."""
+    """`maxsize=1` 인 이유는 VRAM 이다. 설정이 바뀌면 옛 인스턴스를 버린다.
+
+    리비전도 캐시 키다. 빼면 같은 이름의 다른 가중치를 요청해도 옛 인스턴스가 나온다.
+    """
     logger.info(
-        "ASR 엔진을 만든다: model=%s compute_type=%s device=%s", model_name, compute_type, device
+        "ASR 엔진을 만든다: model=%s@%s compute_type=%s device=%s",
+        model_name,
+        revision or "(미고정)",
+        compute_type,
+        device,
     )
-    return FasterWhisperEngine(model_name, compute_type, device, model_dir)
+    return FasterWhisperEngine(model_name, revision, compute_type, device, model_dir)

@@ -828,3 +828,67 @@ def test_vlm_default_v2_vectors() -> None:
         )
         == "npick.stage.vlm_metadata/v1:2f0d224e"
     )
+
+
+# ── engineVersion 은 torch 빌드에 흔들리지 않는다 (S15P21A501-187) ──────────────
+#
+# 2026-09-18 실측: 같은 소스·같은 가중치인데 SSAFY GPU 서버(cu128)와 RunPod 파드(cu130)의
+# `vlm_metadata` stageVersion 이 cecfede9 / 31512987 로 갈렸다. 두 어댑터가 engineVersion 에
+# torch 빌드를 접어 넣어서다. `pipeline.yml` 은 단계당 값을 하나만 담으므로, 그 상태에서는
+# 어느 한 노드가 **오류 없이 조용히** 그 단계를 배정받지 못한다.
+#
+# torch 를 기록에서 지우는 것이 아니다 — `StageRuntime.torch`·`.cuda` 가 결과마다 이미
+# 싣고 있고(registry.py 의 `_runtime`), 그 값은 재현 식별자 밖이라 배정을 가르지 않는다.
+# 여기서 빼는 것은 **배정을 가르는 쪽**뿐이다.
+
+
+def _with_fake_versions(monkeypatch: "pytest.MonkeyPatch", torch_version: str) -> None:
+    """설치된 torch 를 바꾸지 않고 메타데이터만 갈아 끼운다."""
+    import importlib.metadata as md
+
+    real = md.version
+
+    def fake(name: str) -> str:
+        if name == "torch":
+            return torch_version
+        if name == "transformers":
+            return "5.17.0"
+        return real(name)
+
+    monkeypatch.setattr(md, "version", fake)
+    # 두 모듈 모두 `from importlib.metadata import version` 으로 이름을 당겨 왔다.
+    for module in ("npick_worker.entity_extraction.local_ner",):
+        monkeypatch.setattr(module + ".version", fake, raising=False)
+
+
+def test_entity_identity_does_not_move_with_the_torch_build(
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    from npick_worker.entity_extraction.config import get_default_config
+    from npick_worker.entity_extraction.local_ner import identity
+
+    config = get_default_config()
+
+    _with_fake_versions(monkeypatch, "2.11.0+cu128")
+    on_cu128 = identity(config)
+    _with_fake_versions(monkeypatch, "2.13.0+cu130")
+    on_cu130 = identity(config)
+
+    assert on_cu128 == on_cu130
+    assert "torch" not in on_cu128["engineVersion"]
+
+
+def test_vlm_engine_version_does_not_move_with_the_torch_build(
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    from npick_worker.vlm_metadata.transformers_backend import TransformersVlmClient
+
+    client = TransformersVlmClient.__new__(TransformersVlmClient)
+
+    _with_fake_versions(monkeypatch, "2.11.0+cu128")
+    on_cu128 = client.version
+    _with_fake_versions(monkeypatch, "2.13.0+cu130")
+    on_cu130 = client.version
+
+    assert on_cu128 == on_cu130
+    assert "torch" not in on_cu128
