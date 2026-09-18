@@ -1,4 +1,5 @@
 import { env } from '@/lib/env';
+import { logApiResponse } from '@/lib/api/log';
 import { ApiClientError, readRequestId } from '@/lib/api/error';
 
 export { ApiClientError } from '@/lib/api/error';
@@ -144,68 +145,94 @@ export async function fetchJson<ResponseData>(
     cache,
     headers: requestHeaders,
   };
-  let response: Response;
+  const startedAt = performance.now();
+  let response: Response | undefined;
+  let loggedResponse: unknown;
+  let loggedRequestId: string | undefined;
+  let loggedError: ApiClientError | undefined;
   try {
-    response = await fetch(url, options);
-  } catch (cause) {
-    throw new ApiClientError(requestInit.signal?.aborted ? 'aborted' : 'network', 0, {
-      diagnostics: { cause },
+    try {
+      response = await fetch(url, options);
+    } catch (cause) {
+      throw new ApiClientError(requestInit.signal?.aborted ? 'aborted' : 'network', 0, {
+        diagnostics: { cause },
+      });
+    }
+
+    // The backend currently uses the same 403 for CSRF and role denial. Prepare
+    // a fresh token on the NEXT manual attempt; never replay a mutation here.
+    if (response.status === 403) csrfReady = false;
+
+    const headerRequestId = readRequestId(response.headers.get('x-request-id'));
+    loggedRequestId = headerRequestId;
+    if (response.status === 204 || response.status === 205) return undefined as ResponseData;
+
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (cause) {
+      throw new ApiClientError(
+        requestInit.signal?.aborted ? 'aborted' : 'network',
+        response.status,
+        {
+          requestId: headerRequestId,
+          diagnostics: { cause },
+        },
+      );
+    }
+    let data: unknown;
+
+    try {
+      data = parseApiJson(text);
+      loggedResponse = data;
+    } catch (cause) {
+      throw new ApiClientError('invalid-response', response.status, {
+        requestId: headerRequestId,
+        diagnostics: { response: text, cause },
+      });
+    }
+
+    const payload =
+      data !== null && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : undefined;
+    const requestId = readRequestId(payload?.requestId) ?? headerRequestId;
+    loggedRequestId = requestId;
+    const diagnostics = { response: data };
+
+    if (!response.ok || payload?.isSuccess === false) {
+      const isFailure = payload?.isSuccess === false;
+      throw new ApiClientError(response.ok ? 'api' : 'http', response.status, {
+        // Arbitrary JSON errors are not a trusted user-message envelope.
+        message: isFailure ? payload.message : undefined,
+        code: isFailure ? payload.code : undefined,
+        requestId,
+        diagnostics,
+      });
+    }
+
+    if (
+      payload?.isSuccess !== true ||
+      typeof payload.code !== 'string' ||
+      !payload.code.trim() ||
+      typeof payload.message !== 'string'
+    ) {
+      throw new ApiClientError('invalid-response', response.status, { requestId, diagnostics });
+    }
+
+    return payload.data as ResponseData;
+  } catch (error) {
+    if (error instanceof ApiClientError) loggedError = error;
+    throw error;
+  } finally {
+    logApiResponse({
+      url,
+      method: (requestInit.method ?? 'GET').toUpperCase(),
+      startedAt,
+      status: response?.status,
+      requestId: loggedRequestId,
+      response: loggedResponse,
+      error: loggedError,
     });
   }
-
-  // The backend currently uses the same 403 for CSRF and role denial. Prepare
-  // a fresh token on the NEXT manual attempt; never replay a mutation here.
-  if (response.status === 403) csrfReady = false;
-
-  const headerRequestId = readRequestId(response.headers.get('x-request-id'));
-  if (response.status === 204 || response.status === 205) return undefined as ResponseData;
-
-  let text: string;
-  try {
-    text = await response.text();
-  } catch (cause) {
-    throw new ApiClientError(requestInit.signal?.aborted ? 'aborted' : 'network', response.status, {
-      requestId: headerRequestId,
-      diagnostics: { cause },
-    });
-  }
-  let data: unknown;
-
-  try {
-    data = parseApiJson(text);
-  } catch (cause) {
-    throw new ApiClientError('invalid-response', response.status, {
-      requestId: headerRequestId,
-      diagnostics: { response: text, cause },
-    });
-  }
-
-  const payload =
-    data !== null && typeof data === 'object' && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : undefined;
-  const requestId = readRequestId(payload?.requestId) ?? headerRequestId;
-  const diagnostics = { response: data };
-
-  if (!response.ok || payload?.isSuccess === false) {
-    const isFailure = payload?.isSuccess === false;
-    throw new ApiClientError(response.ok ? 'api' : 'http', response.status, {
-      // Arbitrary JSON errors are not a trusted user-message envelope.
-      message: isFailure ? payload.message : undefined,
-      code: isFailure ? payload.code : undefined,
-      requestId,
-      diagnostics,
-    });
-  }
-
-  if (
-    payload?.isSuccess !== true ||
-    typeof payload.code !== 'string' ||
-    !payload.code.trim() ||
-    typeof payload.message !== 'string'
-  ) {
-    throw new ApiClientError('invalid-response', response.status, { requestId, diagnostics });
-  }
-
-  return payload.data as ResponseData;
 }

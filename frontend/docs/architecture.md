@@ -107,6 +107,8 @@ src/
    ├─ auth/               앱 전역 보안 계약·API·서버 guard·캐시/초안 정리
    └─ api/
       ├─ client.ts         공통 응답 envelope 해석과 HTTP client
+      ├─ log.ts            모든 API 응답·실패의 콘솔 기록과 민감 필드 마스킹
+      ├─ log-receiver.ts   브라우저 로그 검증·마스킹 후 서버 stdout/stderr 기록
       ├─ idempotency.ts    새 제출용 불투명한 UUID 멱등성 키 생성
       └─ error.ts          안전한 ApiClientError와 개발용 진단 정보 분리
 ```
@@ -248,6 +250,16 @@ Backend API
 - UI는 HTTP 세부사항보다 `loading`, `empty`, `degraded`, `error` 같은 사용자 상태를 다룹니다.
 
 공통 API client는 백엔드 `ApiResponse.java`의 `isSuccess/code/message/data` envelope를 해석합니다. `fetchJson<T>`의 `T`는 envelope 안의 `data` 타입입니다. 성공 시 `data`만 반환하며 `null`, 빈 배열, degraded 상태를 바꾸지 않습니다. `data` 생략 및 HTTP 204·205는 `undefined`를 반환하므로 데이터 없는 호출은 `fetchJson<void>`를 사용합니다. 다른 2xx 빈 본문·비정상 JSON·envelope 누락은 성공으로 처리하지 않습니다.
+
+`fetchJson`은 실제 전송한 호출마다 `[API]` 로그를 남깁니다. 브라우저는 Console에 표시하고 같은 오리진의 `POST /client-logs`에도 비동기 전달합니다. 이 Route Handler는 `lib/api/log-receiver.ts`에 처리를 위임하며, nginx의 `/api/` 백엔드 경로와 겹치지 않아 기존 프론트 upstream으로 연결됩니다. 수신부는 요청 오리진·JSON 형식·최대 24 KiB 크기·필드 형식을 검사하고 응답을 다시 마스킹합니다. 로그인 실패도 기록해야 하므로 세션 쿠키를 보내거나 요구하지 않습니다. 외부 텔레메트리 서비스는 사용하지 않습니다.
+
+서버는 브라우저 수신 로그와 서버 측 API 호출을 `[API]` 접두사의 한 줄 JSON으로 stdout/stderr에 기록합니다. `source=browser|server`와 서버 기록 시각 `loggedAt`으로 출처를 구분하며, 브라우저 보고는 백엔드의 감사 기록이 아닙니다. 성공·취소는 info, 나머지 실패는 error이며 메서드·query를 제외한 경로·HTTP 상태·소요 시간(ms)·요청 ID·결과와 마스킹한 JSON 응답 snapshot을 기록합니다. 비밀번호·토큰·쿠키·경로·URL·검색어·대사·설명 등 민감 필드는 가리고, 문자열은 200자 및 중첩은 12단계로 제한합니다. 요청 본문·헤더, 비정상 JSON/HTML 원문, 원래 예외는 기록하지 않습니다. 전송 상한을 넘는 응답은 본문을 생략하고 메타데이터만 전달합니다. 로그 전달은 5초 제한의 keepalive 요청이며 실패 시 재시도하거나 원래 API 요청을 실패시키지 않습니다. 네트워크 단절이나 브라우저 종료 시 로그 전달은 보장하지 않습니다.
+
+프론트 이미지를 재빌드·배포한 뒤 SSH로 접속한 서버에서 다음 명령으로 확인합니다. 브라우저 Console에서도 `[API]` 필터와 Info·Error 수준을 사용할 수 있습니다.
+
+```bash
+docker logs --follow --tail 100 npick-frontend 2>&1 | grep --line-buffered '\[API\]'
+```
 
 HTTP·업무 실패·네트워크·본문 수신 실패·비정상 응답·취소는 `ApiClientError`로 정규화합니다. `kind`, HTTP `status`(응답 전 실패는 0), 사용자용 `message`, stable `code`, 선택적 `requestId`를 제공합니다. 원래 응답의 `path/data`와 예외는 직렬화되지 않는 `diagnostics` 접근자로 분리하며 UI에 전달하거나 출력하지 않습니다. signal은 호출자가 전달하고 자동 재시도는 하지 않습니다. 공통 client는 `credentials: include`와 `redirect: error`를 강제하고 브라우저 변경 요청에 CSRF 헤더를 추가합니다.
 
