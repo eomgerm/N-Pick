@@ -22,6 +22,8 @@ class VerificationRollbackDbTest extends AbstractVerificationSearchDbTest {
     void seed() {
         TestGraph.insertSearchableReportedScene(jdbc, MEMBER_ID, CLIP_ID, RUN_ID, SCENE_ID, EXEC_ID, RESULT_ID, FEEDBACK_ID);
         TestGraph.insertReviewerTagCandidate(jdbc, SCENE_ID, CLIP_ID, FEEDBACK_ID, EVIDENCE_ID); // confirmed=false
+        // Fix round 1(authz): verify()가 이제 담당 검수자·대기 후보 존재를 검사하므로 함께 심는다.
+        TestGraph.claimFeedback(jdbc, FEEDBACK_ID, MEMBER_ID);
     }
 
     @Test

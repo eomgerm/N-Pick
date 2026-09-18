@@ -22,7 +22,12 @@ public enum VerificationErrorCode implements ErrorCode {
     /** 검수 중이 아니다. */
     NOT_REVIEWING(ErrorType.CONFLICT, "SRCH_409_231", "검수 중인 신고에서만 검증 재검색을 할 수 있다"),
     /** 대기 중인 교정 후보(태그·해석 patch·장면 제외)가 없다 — 빈 후보로 원 질의만 조용히 재검색하지 않는다. */
-    NO_PENDING_CANDIDATES(ErrorType.CONFLICT, "SRCH_409_232", "대기 중인 교정 후보가 없다");
+    NO_PENDING_CANDIDATES(ErrorType.CONFLICT, "SRCH_409_232", "대기 중인 교정 후보가 없다"),
+    /**
+     * 검증 재검색이 실패했다 — {@code BusinessException} 이 아닌 원인(랭커 내부 오류·기록 커밋 실패 등)의 기본값이다(§8).
+     * {@code SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED} 는 단어 검색 전용이라 검증 실패 전반에 쓰면 사유가 틀리게 남는다.
+     */
+    VERIFICATION_FAILED(ErrorType.SERVICE_UNAVAILABLE, "SRCH_503_231", "후보 검증 재검색이 실패했다");
 
     private final ErrorType type;
     private final String code;

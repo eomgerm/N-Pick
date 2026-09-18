@@ -17,7 +17,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>{@code rules} 축은 {@code action} 을 가리지 않는다 — patch_parse 뿐 아니라 exclude_scene 등 활성 규칙 전부가 검색 결과를
  * 바꾸므로, 검증 이후 어느 규칙이 활성/비활성으로 바뀌어도 재검증 대상이다(F-13 4). -84 {@code CurrentCorrectionStateQueryAdapter}
- * 의 현행 SQL 과 글자 그대로 같다(대칭 필수).
+ * 는 독자적인 SQL 없이 이 컴포넌트에 위임한다 — 대칭이 코드로 강제되는 단일 진실 공급원이다.
  */
 @Component
 public class CorrectionStateFingerprint {

@@ -1,5 +1,6 @@
 package com.npick.search;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,17 @@ class VerificationInputLoadDbTest {
     @BeforeEach
     void seed() {
         TestGraph.insertReportedScene(jdbc, MEMBER_ID, CLIP_ID, RUN_ID, SCENE_ID, EXEC_ID, RESULT_ID, FEEDBACK_ID);
+    }
+
+    /**
+     * loadsPendingRuleCandidate() 가 {@code TestGraph.insertActivePatchRule} 로 jdbc 에 직접 커밋한 활성 규칙(8302080)은
+     * 이 테스트가 {@code verify()} 를 부르지 않아 롤백 대상이 아니다. 공유 DB 에 {@code active=true} 로 남으면
+     * {@code ParseRuleRepositoryAdapter.findActivePatchParseRules()} 가 전역(질의 무관) 조회라 다음에 실행되는 다른 검증
+     * DbTest 의 실 {@code interpret()} 까지 오염시킨다.
+     */
+    @AfterEach
+    void deactivateLeakedActiveRule() {
+        jdbc.update("UPDATE npick.search_rule SET active = false WHERE search_rule_id = ?", 8302080L);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.npick.search;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +15,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 하나로 검증되는지(F-12) 확인한다.
  */
 class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
+
+    /**
+     * R1·OTHER_ACTIVE 는 {@code TestGraph.insertActivePatchRule} 로 jdbc 에 직접 커밋한 행이다 — {@code verify()} 내부
+     * 트랜잭션(교체 후보 flip → 검색 → 롤백)이 손대는 대상이 아니므로 그 롤백으로 되돌아가지 않는다. 공유 DB(NpickPostgres)에
+     * {@code active=true} 로 남으면 {@code ParseRuleRepositoryAdapter.findActivePatchParseRules()} 가 전역(질의 무관) 조회라
+     * 다음에 실행되는 다른 검증 DbTest 의 실 {@code interpret()} 까지 오염시킨다 — {@code condition_json='{}'} 는 파싱 실패로
+     * {@code SKIPPED_INCOMPATIBLE}(degraded 사유)이 되어 그 실행의 status 가 succeeded 대신 degraded 로 뒤바뀐다.
+     */
+    @AfterEach
+    void deactivateLeakedActiveRules() {
+        jdbc.update("UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (?, ?)", R1, OTHER_ACTIVE);
+    }
 
     private static final long MEMBER_ID = 8305001L, CLIP_ID = 8305010L, RUN_ID = 8305020L,
             SCENE_ID = 8305030L, EXEC_ID = 8305040L, RESULT_ID = 8305050L, FEEDBACK_ID = 8305060L,
@@ -31,6 +44,8 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
         TestGraph.insertActivePatchRule(jdbc, FEEDBACK_ID, OTHER_ACTIVE); // 관련 없는 활성 규칙
         TestGraph.insertActivePatchRule(jdbc, FEEDBACK_ID, R1);           // 교체 대상
         TestGraph.insertPendingPatchRuleReplacing(jdbc, FEEDBACK_ID, R2, R1); // R2 -> R1
+        // Fix round 1(authz): verify()가 이제 담당 검수자·대기 후보 존재를 검사하므로 함께 심는다.
+        TestGraph.claimFeedback(jdbc, FEEDBACK_ID, MEMBER_ID);
 
         long execId = useCase.verify(FEEDBACK_ID, MEMBER_ID).executionId();
 
@@ -58,6 +73,8 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
         jdbc.update("UPDATE npick.feedback SET resolution = 'patch_parse' WHERE feedback_id = ?", FEEDBACK_ID + 1);
         TestGraph.insertReviewerTagCandidate(jdbc, SCENE_ID + 1, CLIP_ID + 1, FEEDBACK_ID + 1, 8305090L);
         TestGraph.insertPendingPatchRule(jdbc, FEEDBACK_ID + 1, 8305091L);
+        // Fix round 1(authz): verify()가 이제 담당 검수자·대기 후보 존재를 검사하므로 함께 심는다.
+        TestGraph.claimFeedback(jdbc, FEEDBACK_ID + 1, MEMBER_ID + 1);
 
         // 한 번의 verify 로 두 후보가 모두 flip 되어 검색된다(예외 없이 실행 1행)
         long execId = useCase.verify(FEEDBACK_ID + 1, MEMBER_ID + 1).executionId();

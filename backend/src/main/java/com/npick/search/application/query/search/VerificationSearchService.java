@@ -14,7 +14,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.npick.common.error.BusinessException;
 import com.npick.common.persistence.CorrectionStateFingerprint;
-import com.npick.search.application.error.SearchExecutionErrorCode;
 import com.npick.search.application.error.VerificationErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.ExcludeContext;
@@ -31,6 +30,11 @@ import com.npick.search.domain.model.ParseRuleOutcome;
  *
  * <p>같은 패키지에 두는 이유: {@link SearchRecordPayload}·{@link SearchExplain} 이 package-private 이고, 검증 검색은
  * 일반 검색과 <b>같은 기록 형태</b>를 남겨야 하므로(FRD §11) 그 변환을 재사용해야 한다.
+ *
+ * <p><b>요청당 커넥션 최대 2개, 순차 사용(§8, -176)</b>: 외부 롤백 트랜잭션(1, {@link #rollbackTemplate})이 끝난 뒤에야
+ * {@code REQUIRES_NEW} 기록(1, {@link SearchExecutionRecordPort})이 시작된다 — 둘은 겹치지 않으므로 한 {@code verify()}
+ * 호출 안에서 동시에 열리는 커넥션은 최대 1개다. 그래도 검증 동시성 상한 또는 커넥션 풀 크기는 <b>동시 요청 수 × 2</b> 이상을
+ * 보수적으로 잡아 둔다. 테스트 환경({@code NpickPostgres})은 풀 크기 3 에 테스트가 직렬 실행이라 이 권장치에 걸리지 않는다.
  */
 @Service
 public class VerificationSearchService implements VerifyCorrectionCandidatesUseCase {
@@ -186,11 +190,15 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                 resolved.modelVersion());
     }
 
-    /** {@link SearchAssemblyService#abandon} 과 같은 분류 — BusinessException 은 자기 코드를, 그 외는 기본 검색 실패 코드를 남긴다. */
+    /**
+     * {@link SearchAssemblyService#abandon} 과 같은 분류 — BusinessException 은 자기 코드를, 그 외는 기본값을 남긴다.
+     * 기본값은 {@code SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED} 가 아니라 {@link VerificationErrorCode#VERIFICATION_FAILED}
+     * 다 — 그쪽은 단어 검색 전용이라 랭커 내부 오류·기록 커밋 실패 같은 검증 전반의 실패에 붙이면 사유가 틀리게 남는다(Task 4 리뷰 지적).
+     */
     private String verificationErrorCode(RuntimeException failed) {
         return failed instanceof BusinessException business
                 ? business.errorCode().code()
-                : SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED.code();
+                : VerificationErrorCode.VERIFICATION_FAILED.code();
     }
 
     private int elapsedMs(long startedAtNanos) {

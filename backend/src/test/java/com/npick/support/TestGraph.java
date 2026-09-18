@@ -88,6 +88,15 @@ public final class TestGraph {
         return taggingId;
     }
 
+    /**
+     * 검증 인가 가드(Task 6, S15P21A501-83)를 통과시키기 위한 담당 검수자 클레임: {@code reviewed_by_id} 지정 +
+     * {@code REVIEWING} 상태 보장. {@code verify()} 는 이 둘을 먼저 검사한 뒤에야 대기 후보 존재를 본다.
+     */
+    public static void claimFeedback(JdbcTemplate jdbc, long feedbackId, long reviewerId) {
+        jdbc.update("UPDATE npick.feedback SET reviewed_by_id = ?, status = 'REVIEWING' WHERE feedback_id = ?",
+                reviewerId, feedbackId);
+    }
+
     /** 이미 활성인 patch_parse 규칙(R1). 검증 후보의 교체 대상이 된다. */
     public static void insertActivePatchRule(JdbcTemplate jdbc, long feedbackId, long ruleId) {
         insertPatchRule(jdbc, feedbackId, ruleId, true, null);
