@@ -13,9 +13,14 @@
 # uv 캐시는 named volume 으로 재사용한다.
 set -eu
 cd "$(dirname "$0")/../.."
+# 소유권(이다인 P1 후속, test-backend.sh 와 동일): 컨테이너가 root 로 돌아 uv 산출물(.venv)·
+# pytest 캐시를 bind-mount 된 호스트 ai/ 에 root 소유로 남기면 호스트 개발자가 덮어쓰지 못한다.
+# uv 캐시 named volume 은 유지하고, 실행 뒤 ai/ 를 워크스페이스 소유자로 되돌린다(소스는 멱등).
+HOST_UID="$(stat -c %u "$PWD")"
+HOST_GID="$(stat -c %g "$PWD")"
 docker run --rm \
   -v "$PWD/ai:/app" \
   -v npick-ci-uv:/root/.cache/uv \
   -w /app \
   ghcr.io/astral-sh/uv:0.12.9-python3.12-trixie-slim \
-  sh -c "uv sync --frozen && uv run pytest"
+  sh -c "uv sync --frozen && uv run pytest; rc=\$?; chown -R $HOST_UID:$HOST_GID /app 2>/dev/null || true; exit \$rc"

@@ -7,9 +7,14 @@
 # $WORKSPACE 를 같은 경로로 노출한다. npm 캐시는 named volume 으로 재사용한다.
 set -eu
 : "${WORKSPACE:?WORKSPACE 가 설정돼야 한다(Jenkins 워크스페이스 경로)}"
+# 소유권(이다인 P1 후속, test-backend.sh 와 동일): 게이트 컨테이너가 root 로 돌아 npm 산출물
+# (node_modules)을 공유 워크스페이스에 root 소유로 남기면 호스트 개발자가 덮어쓰지 못한다.
+# npm 캐시 named volume 은 유지하고, 실행 뒤 node_modules 만 워크스페이스 소유자로 되돌린다.
+HOST_UID="$(stat -c %u "$WORKSPACE")"
+HOST_GID="$(stat -c %g "$WORKSPACE")"
 docker run --rm \
   --volumes-from "${JENKINS_CONTAINER:-$(hostname)}" \
   -v npick-ci-npm:/root/.npm \
   -w "$WORKSPACE/frontend" \
   node:24-alpine \
-  sh -c "npm ci && npm test"
+  sh -c "npm ci && npm test; rc=\$?; chown -R $HOST_UID:$HOST_GID \"$WORKSPACE/frontend/node_modules\" 2>/dev/null || true; exit \$rc"
