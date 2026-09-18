@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.SearchExecutionErrorCode;
+import com.npick.search.application.error.SearchRuleErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.QueryResolverPort;
@@ -241,8 +242,14 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         }
         try {
             return parseRulePolicy.apply(resolved.resolution(), parseRules.findActivePatchParseRules());
-        } catch (BusinessException alreadyClassified) {
-            throw alreadyClassified;
+        } catch (BusinessException failed) {
+            // 어댑터는 해석 규칙과 장면 제외 규칙에 같은 SRCH_503_201 을 쓴다. 그대로 올리면 계약이
+            // 장면 제외 전용으로 적어 둔 코드가 해석 규칙 실패에도 나가 FE 안내가 엉뚱해진다.
+            // 여기서는 무엇을 조회했는지 알고 있으므로 더 좁은 코드로 좁힌다.
+            if (failed.errorCode() == SearchRuleErrorCode.RULE_LOOKUP_FAILED) {
+                throw new BusinessException(SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED, failed);
+            }
+            throw failed;
         } catch (RuntimeException failed) {
             throw new BusinessException(SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED, failed);
         }

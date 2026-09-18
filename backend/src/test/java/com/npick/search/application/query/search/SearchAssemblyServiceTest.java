@@ -13,6 +13,7 @@ import org.mockito.ArgumentCaptor;
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.QueryResolverErrorCode;
 import com.npick.search.application.error.SearchExecutionErrorCode;
+import com.npick.search.application.error.SearchRuleErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolutionResult;
@@ -29,7 +30,6 @@ import com.npick.search.application.query.fusion.SearchConfigSnapshot;
 import com.npick.search.application.query.guard.FalseHitGuardResult;
 import com.npick.search.application.query.soft.SoftRankingResult;
 import com.npick.search.application.query.structured.StructuredScoresResult;
-import com.npick.search.domain.model.ExplicitDateFilters;
 import com.npick.search.domain.model.FusionChannel;
 import com.npick.search.domain.model.FusionSettings;
 import com.npick.search.domain.model.GuardExclusionReason;
@@ -394,10 +394,8 @@ class SearchAssemblyServiceTest {
         return captor.getValue();
     }
 
-    private static ExplicitDateFilters broadcastFilter() {
-        return new ExplicitDateFilters(Map.of(
-                QueryResolution.DateField.BROADCAST_DATE,
-                new ExplicitDateFilters.ClosedRange(LocalDate.of(2026, 2, 14), LocalDate.of(2026, 2, 16))));
+    private static ExecuteSearchQuery.DateFilters broadcastFilter() {
+        return new ExecuteSearchQuery.DateFilters(LocalDate.of(2026, 2, 14), LocalDate.of(2026, 2, 16), null, null);
     }
 
     private void givenResolverUnavailable() {
@@ -666,6 +664,21 @@ class SearchAssemblyServiceTest {
                         normalization(), withTerms, List.of(), null, "query-resolver/v2", "p", "m", null));
     }
 
+    @Test
+    @DisplayName("규칙 조회 DB 실패를 해석 규칙 전용 코드로 올린다")
+    void translatesRuleLookupFailureToItsOwnCode() {
+        // 어댑터는 해석 규칙과 장면 제외 규칙에 같은 SRCH_503_201 을 쓴다. 그대로 올리면 계약표가
+        // 장면 제외 전용으로 적어 둔 코드가 해석 규칙 실패에도 나가, FE 안내가 엉뚱해진다.
+        givenResolved();
+        when(parseRules.findActivePatchParseRules())
+                .thenThrow(new BusinessException(SearchRuleErrorCode.RULE_LOOKUP_FAILED));
+
+        assertThatThrownBy(() -> service.execute(query()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).errorCode())
+                .isEqualTo(SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED);
+    }
+
     private void givenResolved() {
         when(resolver.resolve(RAW_QUERY))
                 .thenReturn(new QueryResolutionResult(
@@ -680,7 +693,7 @@ class SearchAssemblyServiceTest {
     }
 
     private ExecuteSearchQuery query() {
-        return new ExecuteSearchQuery(RAW_QUERY, ExplicitDateFilters.none(), 9001L);
+        return new ExecuteSearchQuery(RAW_QUERY, ExecuteSearchQuery.DateFilters.none(), 9001L);
     }
 
     private static QueryResolution resolution() {

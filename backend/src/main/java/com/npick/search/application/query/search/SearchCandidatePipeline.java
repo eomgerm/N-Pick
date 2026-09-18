@@ -118,7 +118,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                 .map(SoftRankingResult.OrderedCandidate::sceneId)
                 .toList();
 
-        Map<Long, List<EffectiveTag>> tags = sceneTags.resolve(rankedSceneIds);
+        Map<Long, List<EffectiveTag>> tags = sceneTagsOf(rankedSceneIds);
         FalseHitGuardResult guarded =
                 guard.apply(new ApplyFalseHitGuardQuery(query.finalResolution(), rankedSceneIds, tags));
         ActiveSceneExclusionResult excluded = sceneExclusions.apply(
@@ -150,6 +150,24 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
             return List.of();
         }
         return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedTokens(query));
+    }
+
+    /**
+     * 순위에 든 장면의 태그. <b>태그가 없는 장면은 빈 목록으로 채워 넘긴다.</b>
+     *
+     * <p>{@code TagResolutionPolicy} 는 「유효 태그가 하나도 없는 장면은 키 자체가 없다 — 호출부는 빈 목록이 아니라 부재를 다뤄야 한다」로 계약을 못박아 두었고, guard 는
+     * 순위에 있는 장면의 키가 없으면 던진다. 그 둘을 그대로 이으면 <b>무태그 장면 하나가 검색 전체를 500 으로 만든다.</b>
+     *
+     * <p>부재를 빈 목록으로 바꾸는 것이 의미를 흐리지 않는 이유는 guard 가 태그를 <b>충돌 근거</b>로만 보기 때문이다. 근거가 없으면 판정은 「확인 불가」이고, 그것은 태그가 0 개인 것과 같은
+     * 결론이다 (F-06 「정보가 없거나 미검증이면 그 이유만으로 제외하지 않는다」).
+     */
+    private Map<Long, List<EffectiveTag>> sceneTagsOf(List<Long> rankedSceneIds) {
+        Map<Long, List<EffectiveTag>> resolved = sceneTags.resolve(rankedSceneIds);
+        Map<Long, List<EffectiveTag>> complete = new LinkedHashMap<>();
+        for (Long sceneId : rankedSceneIds) {
+            complete.put(sceneId, resolved.getOrDefault(sceneId, List.of()));
+        }
+        return complete;
     }
 
     /**

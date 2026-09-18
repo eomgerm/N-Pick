@@ -163,6 +163,27 @@ class SearchCandidatePipelineTest {
                 NormalizedSearch.of("질의", Map.of(), "norm/v1"));
     }
 
+    @Test
+    @DisplayName("태그가 하나도 없는 장면이 순위에 들어도 검색이 죽지 않는다")
+    void survivesScenesWithNoTags() {
+        // TagResolutionPolicy 는 "유효 태그가 하나도 없는 장면은 키 자체가 없다" 고 못박아 두었고,
+        // ApplyFalseHitGuardQuery 는 순위에 있는 장면의 키가 없으면 던진다. 태그 배선이 성긴 지금은
+        // 대부분 장면이 무태그라, 그런 장면이 상위에 드는 순간 그 질의가 항상 500 이 된다.
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(lexical.findByWords(anyList(), anyList()))
+                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 0)));
+        givenRankingOf(9301L);
+        // resolve 가 그 장면을 아예 담지 않는다 — 실제 정책이 하는 그대로다.
+        when(tags.resolve(any())).thenReturn(Map.of());
+
+        SearchCandidates result = pipeline.rank(query());
+
+        assertThat(result.scenes())
+                .extracting(SearchCandidates.ScoredScene::sceneId)
+                .containsExactly(9301L);
+        assertThat(result.scenes().getFirst().tags()).isEmpty();
+    }
+
     private SearchCandidatePipeline pipeline(FusionSettings settings) {
         return new SearchCandidatePipeline(
                 lexical,

@@ -76,21 +76,10 @@ public record SearchResponse(
                     card.endTimeMs(),
                     DateValue.of(card.broadcastDate()),
                     DateValue.of(card.filmedDate()),
-                    shotType(card.shotType()),
+                    card.shotType(),
                     card.sceneType(),
                     card.matchedKeywords(),
                     card.matchEvidence().stream().map(MatchEvidence::of).toList());
-        }
-
-        /**
-         * 계약이 닫아 둔 4값 밖이면 {@code unknown} 으로 떨어뜨린다 (§5.1).
-         *
-         * <p>저장값을 바꾸는 것이 아니다. 기록에는 원문이 그대로 남고, 여기서만 화면이 그릴 수 있는 값으로 좁힌다.
-         */
-        private static String shotType(String stored) {
-            return com.npick.search.domain.model.ShotType.parse(stored)
-                    .map(com.npick.search.domain.model.ShotType::storedValue)
-                    .orElse("unknown");
         }
     }
 

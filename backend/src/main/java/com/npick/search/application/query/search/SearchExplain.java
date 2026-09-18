@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.npick.search.application.query.card.SceneCard;
+import com.npick.search.domain.model.ShotType;
 import com.npick.tag.domain.model.EffectiveTag;
 import com.npick.tag.domain.model.TagType;
 
@@ -46,7 +47,7 @@ final class SearchExplain {
                 card.endTimeMs(),
                 date(scene.tags(), TagType.BROADCAST_DATE),
                 date(scene.tags(), TagType.FILMED_DATE),
-                card.shotType(),
+                shotType(card.shotType()),
                 firstTagName(scene.tags(), TagType.SCENE_TYPE),
                 matchedKeywords(scene, queryTokens),
                 evidence(scene, queryTokens));
@@ -106,7 +107,11 @@ final class SearchExplain {
             var field = new LinkedHashMap<String, Object>();
             field.put("field", judgment.field().name());
             field.put("judgment", judgment.judgment().name());
-            field.put("grounding_tag_ids", judgment.groundingTagIds());
+            // 기록의 ID 는 전부 문자열이다. explain_json 은 FE 까지 그대로 나가므로, 여기만 숫자로
+            // 두면 TSID 가 2^53 을 넘는 순간 JavaScript 에서 값이 뭉개진다.
+            field.put(
+                    "grounding_tag_ids",
+                    judgment.groundingTagIds().stream().map(String::valueOf).toList());
             fields.add(field);
         }
         guard.put("fields", fields);
@@ -171,6 +176,16 @@ final class SearchExplain {
         } catch (DateTimeParseException malformed) {
             return null;
         }
+    }
+
+    /**
+     * 계약이 닫아 둔 4값 밖이면 {@code unknown} 으로 좁힌다 (§5.1).
+     *
+     * <p>이 접기를 표현 계층이 아니라 여기서 하는 이유는 presentation 이 domain 의 {@code ShotType} 을 알지 못하게 하기 위해서다 (설계 정본 §4). 기록에는
+     * {@code display.shot_type} 으로 저장값 원문이 그대로 남으므로 당시 값을 잃지 않는다.
+     */
+    private static String shotType(String stored) {
+        return ShotType.parse(stored).map(ShotType::storedValue).orElse("unknown");
     }
 
     private static String firstTagName(List<EffectiveTag> tags, TagType type) {
