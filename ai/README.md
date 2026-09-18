@@ -470,6 +470,33 @@ AP-JP-1, H100 80GB, 드라이버 CUDA 13. **60GB 네트워크 볼륨이 `/worksp
 venv 와 모델 가중치가 거기 함께 상주한다** — 파드를 내렸다 올려도 다시 받지 않는다.
 컨테이너 디스크는 휘발이므로 `/workspace` 밖에 아무것도 두지 않는다.
 
+#### 1회 — 소스를 볼륨에 clone 한다
+
+**파드는 이미지를 쓰지 않는다.** 그래서 앱 CD 가 여기까지 오지 않고, 코드 갱신은
+파드가 스스로 `git fetch` 하는 것으로 한다. 그러려면 읽기 전용 자격증명이 필요하다.
+
+GitLab `Settings → Repository → Deploy tokens` 에서 **`read_repository` 스코프만**
+가진 토큰을 발급한다. 이 값은 제3자 호스트(RunPod)에 평문으로 놓이므로 범위를 그
+하나로 묶는다 — `write_repository`·`read_registry` 를 주지 않는다. 개인 PAT 도 쓰지
+않는다. **프로젝트가 끝나면 폐기한다.**
+
+```bash
+# 토큰은 볼륨의 env.sh 에 둔다. RunPod 콘솔의 환경변수는 파드를 다시 만들면
+# 날아가지만 볼륨은 남는다.
+cat >> /workspace/npick/env.sh <<'EOF'
+export GIT_USER=<deploy token username>
+export GIT_TOKEN=<deploy token>
+EOF
+chmod 600 /workspace/npick/env.sh
+
+. /workspace/npick/env.sh
+cd /workspace/npick
+git clone --depth 1 --branch dev "https://${GIT_USER}:${GIT_TOKEN}@lab.ssafy.com/s15-ai-image-sub1/S15P21A501.git" repo
+```
+
+`--depth 1` 로 받는다. 저장소가 57MB 인데 파드에 이력이 필요 없다.
+아래 명령은 전부 `/workspace/npick/repo/ai` 에서 돈다.
+
 ```bash
 # /workspace/npick/env.sh — 캐시를 전부 볼륨으로 돌린다
 export PATH=/workspace/bin:$PATH
@@ -483,7 +510,7 @@ export NPICK_AI_OCR_MODEL_DIR=/workspace/models/rapidocr
 ```
 
 ```bash
-cd /workspace/npick/ai && . /workspace/npick/env.sh
+cd /workspace/npick/repo/ai && . /workspace/npick/env.sh
 UV_LINK_MODE=copy UV_HTTP_TIMEOUT=600 uv sync --locked --group gpu --group cu130
 ```
 
@@ -527,8 +554,21 @@ export NPICK_AI_ASR_MODEL_REVISION=0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf
 
 ```bash
 # 파드 start command (RunPod 콘솔의 Container Start Command)
-bash -lc 'cd /workspace/npick/ai && git pull --ff-only 2>/dev/null; . /workspace/npick/env.sh && uv sync --locked --group gpu --group cu130 && exec uv run --locked --group gpu --group cu130 npick-worker'
+bash -lc '. /workspace/npick/env.sh &&
+  cd /workspace/npick/repo &&
+  git fetch --depth 1 origin dev && git reset --hard origin/dev &&
+  cd ai &&
+  UV_LINK_MODE=copy uv sync --locked --group gpu --group cu130 &&
+  exec uv run --locked --group gpu --group cu130 npick-worker'
 ```
+
+**`fetch` + `reset --hard` 를 쓴다.** `git pull --ff-only` 는 shallow clone 에서
+자주 실패하고, force push 나 로컬 변경이 있으면 멈춘다. 파드에 보존할 로컬 변경이
+없으므로 `dev` 상태로 확정하는 쪽이 맞다.
+
+> **파드를 재기동하면 그 시점의 `dev` 로 간다.** 시연 중 누가 `dev` 에 머지하면 다음
+> 재기동에서 그 코드가 올라온다. 고정하려면 `origin/dev` 를 태그나 커밋 해시로 바꾼다.
+> 즉 **파드를 내렸다 올리는 것이 곧 배포**이며, Jenkins 는 전원만 쥔다.
 
 `npick-worker` 는 상주형이다(`/health` 를 연다). 배치로 큐만 비우고 끝내려면
 `npick-worker-drain` 을 쓴다 — SSAFY GPU 서버 쪽과 같다.
