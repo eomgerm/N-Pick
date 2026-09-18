@@ -17,6 +17,7 @@ import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.QueryResolverPort;
+import com.npick.search.application.port.RecordSearchExecutionResolution;
 import com.npick.search.application.port.SearchExecutionRecordPort;
 import com.npick.search.application.port.SearchRecordingException;
 import com.npick.search.application.port.StartSearchExecution;
@@ -143,9 +144,11 @@ class SearchAssemblyServiceTest {
         SearchExecutionResult result = service.execute(query());
 
         assertThat(result.hasAppliedReviewRule()).isTrue();
-        CompleteSearchExecution completed = completedRecord();
-        assertThat(completed.parseSource()).isEqualTo(SearchExecutionRecordPort.ParseSource.RESOLVER_RULE);
-        assertThat(completed.appliedRules()).anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
+        // ParseSource 에 resolver_rule 값이 없어 출처는 resolver 로 남는다. 규칙 적용 사실을
+        // 기록에서 읽을 수 있는 유일한 곳이 applied_rules_json 이므로 거기 반드시 있어야 한다.
+        assertThat(recordedResolution().parseSource()).isEqualTo(StartSearchExecution.ParseSource.RESOLVER);
+        assertThat(completedRecord().appliedRules())
+                .anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
     }
 
     @Test
@@ -158,9 +161,9 @@ class SearchAssemblyServiceTest {
         SearchExecutionResult result = service.execute(query());
 
         assertThat(result.hasAppliedReviewRule()).isFalse();
-        CompleteSearchExecution completed = completedRecord();
-        assertThat(completed.parseSource()).isEqualTo(SearchExecutionRecordPort.ParseSource.RESOLVER);
-        assertThat(completed.appliedRules()).noneMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
+        assertThat(recordedResolution().parseSource()).isEqualTo(StartSearchExecution.ParseSource.RESOLVER);
+        assertThat(completedRecord().appliedRules())
+                .noneMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
     }
 
     @Test
@@ -230,10 +233,10 @@ class SearchAssemblyServiceTest {
         when(record.complete(any())).thenReturn(List.of());
 
         service.execute(query());
-        String withoutFilter = pipelineQuery().normalizedSearch().fingerprint();
+        String withoutFilter = recordedResolution().normalizedSearch().fingerprint();
 
         service.execute(new ExecuteSearchQuery(RAW_QUERY, broadcastFilter(), 9001L));
-        String withFilter = pipelineQuery().normalizedSearch().fingerprint();
+        String withFilter = recordedResolution().normalizedSearch().fingerprint();
 
         assertThat(withFilter).isNotEqualTo(withoutFilter);
     }
@@ -323,9 +326,7 @@ class SearchAssemblyServiceTest {
 
         service.execute(query());
 
-        ArgumentCaptor<StartSearchExecution> started = ArgumentCaptor.forClass(StartSearchExecution.class);
-        verify(record).start(started.capture());
-        assertThat(started.getValue().findings())
+        assertThat(recordedResolution().findings())
                 .anyMatch(finding -> finding.action().equals("demoted_to_inferred"));
     }
 
@@ -486,6 +487,13 @@ class SearchAssemblyServiceTest {
                         null))),
                 "{\"rule\":301}",
                 null);
+    }
+
+    private RecordSearchExecutionResolution recordedResolution() {
+        ArgumentCaptor<RecordSearchExecutionResolution> captor =
+                ArgumentCaptor.forClass(RecordSearchExecutionResolution.class);
+        verify(record, atLeastOnce()).recordResolution(captor.capture());
+        return captor.getValue();
     }
 
     private CompleteSearchExecution completedRecord() {

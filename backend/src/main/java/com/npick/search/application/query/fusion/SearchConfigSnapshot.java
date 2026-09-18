@@ -80,20 +80,20 @@ public record SearchConfigSnapshot(
         }
         var value = new LinkedHashMap<String, Object>();
         value.put("schema", FusionSettings.SCHEMA);
-        value.put("rrfK", fusion.rrfK());
+        value.put("rrf_k", fusion.rrfK());
         value.put("lambda", fusion.lambda());
-        value.put("weightStatus", fusion.weightStatus().name());
-        value.put("channelWeights", channels);
+        value.put("weight_status", fusion.weightStatus().name());
+        value.put("channel_weights", channels);
         return value;
     }
 
     private Map<String, Object> lexicalPayload() {
         var value = new LinkedHashMap<String, Object>();
-        value.put("configVersion", lexical.configVersion());
-        value.put("captionWeight", lexical.captionWeight());
-        value.put("transcriptWeight", lexical.transcriptWeight());
-        value.put("ocrWeight", lexical.ocrWeight());
-        value.put("poolSize", lexical.poolSize());
+        value.put("config_version", lexical.configVersion());
+        value.put("caption_weight", lexical.captionWeight());
+        value.put("transcript_weight", lexical.transcriptWeight());
+        value.put("ocr_weight", lexical.ocrWeight());
+        value.put("pool_size", lexical.poolSize());
         return value;
     }
 
@@ -101,13 +101,13 @@ public record SearchConfigSnapshot(
         if (dense == null) return null;
         var value = new LinkedHashMap<String, Object>();
         value.put("schema", dense.schema());
-        value.put("modelVersion", dense.modelVersion());
-        value.put("poolSize", dense.poolSize());
+        value.put("model_version", dense.modelVersion());
+        value.put("pool_size", dense.poolSize());
         value.put("dimension", dense.dimension());
         value.put("metric", dense.metric());
         value.put("order", dense.order());
         value.put("algorithm", dense.algorithm());
-        value.put("queryPreprocessing", dense.queryPreprocessing());
+        value.put("query_preprocessing", dense.queryPreprocessing());
         return value;
     }
 
@@ -118,8 +118,8 @@ public record SearchConfigSnapshot(
         }
         var value = new LinkedHashMap<String, Object>();
         value.put("schema", SoftRankingSettings.SCHEMA);
-        value.put("tieEpsilon", soft.tieEpsilon());
-        value.put("weightStatus", soft.weightStatus().name());
+        value.put("tie_epsilon", soft.tieEpsilon());
+        value.put("weight_status", soft.weightStatus().name());
         value.put("weights", weights);
         return value;
     }
@@ -128,7 +128,7 @@ public record SearchConfigSnapshot(
         var weights = new TreeMap<String, Object>();
         structured.weights().forEach((axis, weight) -> weights.put(axis.name(), weight));
         var value = new LinkedHashMap<String, Object>();
-        value.put("weightStatus", structured.weightStatus().name());
+        value.put("weight_status", structured.weightStatus().name());
         value.put("weights", weights);
         return value;
     }

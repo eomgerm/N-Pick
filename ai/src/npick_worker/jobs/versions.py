@@ -100,11 +100,10 @@ def output_schema_version(stage: str) -> str:
 
     `ocr`·`vlm_metadata` 만 v2 다. 나머지는 단계 이름에서 균일하게 유도한다.
 
-    **BE 가 아직 이 예외를 읽지 못한다.** `PipelineStages.outputSchema` 가 10개 단계
-    전부에 v1 을 돌려주고 `StageExecutionService` 가 배정과 `complete` 양쪽에서 그 값을
-    동등 비교하므로, 두 단계는 저장 어댑터가 붙어도 성공 결과가 거부된다. BE 가 단계별
-    스키마를 표에서 읽게 하는 것이 두 단계 공통의 선행 조건이다
-    (`docs/contracts/job-api.md` §11 항목 12).
+    BE 도 같은 예외 표를 든다 — `PipelineStages.outputSchema` 가 `ocr`·`vlm_metadata` 에만
+    v2 를 돌려주고 배정 payload·`complete` 검사·저장 어댑터가 모두 그 표 하나를 읽는다
+    (S15P21A501-184). 문자열을 어느 한쪽에서 따로 조립하면 배정과 검사가 갈려 성공 결과가
+    저장 분기에 닿기도 전에 거부된다 (`docs/contracts/job-api.md` §11 항목 12).
     """
     if stage == "ocr":
         return "npick.stage.ocr.output/v2"

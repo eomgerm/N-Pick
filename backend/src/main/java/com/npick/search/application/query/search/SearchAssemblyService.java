@@ -14,12 +14,12 @@ import com.npick.search.application.error.SearchExecutionErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.QueryResolverPort;
+import com.npick.search.application.port.RecordSearchExecutionResolution;
 import com.npick.search.application.port.SearchExecutionRecordPort;
-import com.npick.search.application.port.SearchExecutionRecordPort.ExecutionStatus;
-import com.npick.search.application.port.SearchExecutionRecordPort.ExecutionType;
-import com.npick.search.application.port.SearchExecutionRecordPort.ParseSource;
 import com.npick.search.application.port.SearchRecordingException;
 import com.npick.search.application.port.StartSearchExecution;
+import com.npick.search.application.port.StartSearchExecution.ExecutionType;
+import com.npick.search.application.port.StartSearchExecution.ParseSource;
 import com.npick.search.application.resolution.AnchorVerifier;
 import com.npick.search.application.resolution.SearchDegradedReason;
 import com.npick.search.domain.model.NormalizedSearch;
@@ -33,8 +33,11 @@ import com.npick.search.domain.repository.ParseRuleRepository;
 /**
  * 검색 한 번의 순서와 트랜잭션 경계를 소유한다.
  *
- * <p>트랜잭션을 메서드에 걸지 않는다. 후보 조회 구간만 {@link RankSearchCandidatesUseCase} 가 자기 읽기 트랜잭션에서 돌고, 실행 기록은 그 밖에서 따로 커밋된다 (baseline
- * 주석 「실행 기록은 롤백 밖에 저장한다」).
+ * <p>기록은 세 단계다 (S15P21A501-60 의 포트). 실행을 <b>리졸버 호출 전에</b> 열고({@code start}), 해석과 규칙 판정이 끝나면 채우고
+ * ({@code recordResolution}), 결과가 나오면 닫는다({@code complete}). §6.2 의 「검색 실행의 최초 저장 실패 → AI 호출 전에 중단」이 이 순서를 요구한다.
+ *
+ * <p>트랜잭션을 메서드에 걸지 않는다. 후보 조회 구간만 {@link RankSearchCandidatesUseCase} 가 자기 읽기 트랜잭션에서 돌고, 기록 세 호출은 그 밖에서 각각 커밋된다
+ * (baseline 주석 「실행 기록은 롤백 밖에 저장한다」).
  */
 @Service
 public class SearchAssemblyService implements ExecuteSearchUseCase {
@@ -69,7 +72,18 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
     @Override
     public SearchExecutionResult execute(ExecuteSearchQuery query) {
         long startedAt = System.nanoTime();
+        long executionId = openExecution(query);
+        try {
+            return run(query, executionId, startedAt);
+        } catch (BusinessException failed) {
+            // 열어 둔 실행을 닫는다. 안 닫으면 running 행이 영구히 남아 성공 기록과 구분되지 않는다
+            // (§6.2 「성공 기록이 남았다고 주장하지 않는다」).
+            abandon(executionId, failed, elapsedMs(startedAt));
+            throw failed;
+        }
+    }
 
+    private SearchExecutionResult run(ExecuteSearchQuery query, long executionId, long startedAt) {
         long resolveStartedAt = System.nanoTime();
         QueryResolutionResult resolved = anchorVerifier.verify(query.rawQuery(), resolver.resolve(query.rawQuery()));
         int parseMs = elapsedMs(resolveStartedAt);
@@ -77,63 +91,35 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         // 응답으로 위장하지 않는다 (§6.2 「검색 실패를 결과 0건으로 위장하지 않는다」).
         List<SearchDegradedReason> degradedReasons = new ArrayList<>(SearchDegradedReason.reasonsFor(resolved));
 
-        NormalizedSearch normalizedSearch = normalize(query, resolved);
-        long executionId = openExecution(query, resolved, normalizedSearch, parseMs, degradedReasons);
-
-        try {
-            return rank(query, resolved, normalizedSearch, executionId, degradedReasons, startedAt);
-        } catch (BusinessException failed) {
-            // 열어 둔 실행을 닫는다. 안 닫으면 running 상태의 행이 영구히 남아 성공 기록과
-            // 구분되지 않는다 (§6.2 「성공 기록이 남았다고 주장하지 않는다」).
-            abandon(executionId, failed, elapsedMs(startedAt));
-            throw failed;
-        }
-    }
-
-    private SearchExecutionResult rank(
-            ExecuteSearchQuery query,
-            QueryResolutionResult resolved,
-            NormalizedSearch normalizedSearch,
-            long executionId,
-            List<SearchDegradedReason> degradedReasons,
-            long startedAt) {
         ParseRulePolicy.Result rules = applyRules(resolved);
+        boolean appliedRule =
+                rules.outcomes().stream().anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
+        // ParseSource 에 resolver_rule 값이 없어 규칙 적용 여부는 여기 담기지 않는다. 기록에서
+        // 그 사실을 읽으려면 applied_rules_json 의 applied 항목을 봐야 한다 (S15P21A501-60 에 보고).
+        ParseSource parseSource = resolved.isResolved() ? ParseSource.RESOLVER : ParseSource.FALLBACK;
+
         // fallback 에서도 명시 필터는 살아 있어야 한다. 사용자가 직접 건 날짜는 AI 해석과 무관한
         // 조건이고, F-06 의 「명시한 날짜와 검증된 날짜가 충돌하면 제외」가 그 값을 근거로 쓴다.
-        // 해석이 없다고 필터까지 버리면 사용자가 건 조건을 조용히 무시하게 된다.
         QueryResolution finalResolution = explicitFilterPolicy.apply(
                 rules.resolution() == null ? QueryResolution.withoutAiInterpretation() : rules.resolution(),
                 query.explicitFilters());
+        NormalizedSearch normalizedSearch = normalize(query, resolved);
+
+        recordResolution(executionId, query, resolved, normalizedSearch, parseSource, parseMs, degradedReasons);
 
         SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch);
         degradedReasons.addAll(candidates.degradedReasons());
 
-        boolean appliedRule =
-                rules.outcomes().stream().anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
-        // parse_source 와 applied_rules_json 을 같은 판정에서 만든다. 둘이 갈리면 기록을 읽는
-        // 쪽이 규칙 적용 여부를 어느 값으로 보느냐에 따라 다른 답을 얻는다.
-        ParseSource parseSource = !resolved.isResolved()
-                ? ParseSource.FALLBACK
-                : appliedRule ? ParseSource.RESOLVER_RULE : ParseSource.RESOLVER;
-
         List<String> queryTokens = resolved.normalization().searchTokens();
         List<Long> resultIds = completeRecord(
-                executionId,
-                candidates,
-                rules,
-                finalResolution,
-                parseSource,
-                degradedReasons,
-                queryTokens,
-                elapsedMs(startedAt));
+                executionId, candidates, rules, finalResolution, degradedReasons, queryTokens, startedAt);
 
         // 기록 저장까지 포함해 찍는다. 앞에서 끊으면 같은 실행의 execution_ms 와 값이 갈리고,
         // 저장이 느릴 때 그 시간이 어느 지표에도 안 잡힌다 (§8.2).
-        // 태그 값은 기록의 execution_type·parse_source 와 같은 판정에서 나온다.
         searchTimer.record(
                 System.nanoTime() - startedAt,
                 TimeUnit.NANOSECONDS,
-                SearchPath.of(ExecutionType.ORIGINAL, parseSource));
+                SearchPath.of(ExecutionType.NORMAL, parseSource, appliedRule));
 
         return new SearchExecutionResult(
                 resultIds == null ? null : executionId,
@@ -148,6 +134,103 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
     }
 
     /**
+     * 실행을 연다. 리졸버 호출 <b>전</b>이고, 실패하면 검색을 중단한다 (§6.2 「검색 실행의 최초 저장 실패」).
+     *
+     * <p>여기서 계속 진행하면 결과를 돌려주고도 그 실행이 어디에도 없다. 신고·검증이 가리킬 대상이 없어 사용자가 이상하다고 말할 방법이 사라진다.
+     */
+    private long openExecution(ExecuteSearchQuery query) {
+        try {
+            return record.start(
+                    new StartSearchExecution(query.memberId(), ExecutionType.NORMAL, null, query.rawQuery()));
+        } catch (SearchRecordingException notOpened) {
+            throw new BusinessException(SearchExecutionErrorCode.EXECUTION_NOT_RECORDED, notOpened);
+        }
+    }
+
+    /**
+     * 해석과 규칙 판정 결과를 실행에 채운다.
+     *
+     * <p>규칙 적용 <b>뒤</b>에 부른다. baseline 이 정의한 {@code parse_source=resolver_rule} 을 언젠가 기록하려면 규칙 판정이 끝나 있어야 하고, 리졸버 직후에
+     * 부르면 그 값을 넣을 자리가 영영 없어진다. 현재 enum 에 그 값이 없어 지금은 {@code resolver} 로 나간다.
+     *
+     * <p>저장 실패는 검색을 죽이지 않는다. 해석은 이미 끝났고 결과를 낼 수 있다 — 대신 사유를 남겨 응답이 미저장 상태임을 알린다 (§6.2 「결과 계산 후 기록 저장 실패」와 같은 취급이다. 둘을
+     * 갈라 다루면 같은 「기록이 불완전하다」가 두 얼굴을 갖는다).
+     */
+    private void recordResolution(
+            long executionId,
+            ExecuteSearchQuery query,
+            QueryResolutionResult resolved,
+            NormalizedSearch normalizedSearch,
+            ParseSource parseSource,
+            int parseMs,
+            List<SearchDegradedReason> degradedReasons) {
+        try {
+            record.recordResolution(new RecordSearchExecutionResolution(
+                    executionId,
+                    query.explicitFilters(),
+                    normalizedSearch,
+                    resolverOutput(resolved),
+                    resolved.findings(),
+                    parseSource,
+                    parseMs,
+                    degradedReasons));
+        } catch (SearchRecordingException notRecorded) {
+            degradedReasons.add(SearchDegradedReason.SNAPSHOT_SAVE_FAILED);
+        }
+    }
+
+    /**
+     * 실패로 끝난 실행을 닫는다.
+     *
+     * <p>여기서 난 예외는 삼킨다. 사용자에게 돌아가야 하는 것은 검색이 왜 실패했는가이지, 그 실패를 기록하다 또 실패했다는 사실이 아니다. 삼키지 않으면 원래 사유가
+     * {@code SearchRecordingException} 에 가려진다.
+     */
+    private void abandon(long executionId, BusinessException failed, int executionMs) {
+        try {
+            record.fail(executionId, failed.errorCode().code(), executionMs);
+        } catch (RuntimeException notRecorded) {
+            // 실행은 running 으로 남는다. 그 행을 성공으로 읽지 않는 것은 기록을 읽는 쪽의 규약이다.
+        }
+    }
+
+    /**
+     * 후보 구간을 돌린다.
+     *
+     * <p>{@link BusinessException} 은 그대로 올린다 — 채널·후보 계층이 이미 자기 사유로 분류한 실패다. 그 밖의 예외만 「기본 단어 검색도 불가」로 본다 (§6.2). 여기서 삼키면
+     * 검색 실패가 0건의 성공 응답으로 나간다.
+     */
+    private SearchCandidates runPipeline(
+            QueryResolutionResult resolved, QueryResolution finalResolution, NormalizedSearch normalizedSearch) {
+        try {
+            return pipeline.rank(new RankSearchCandidatesUseCase.Query(
+                    resolved.normalization(), finalResolution, resolved.queryEmbedding(), normalizedSearch));
+        } catch (BusinessException alreadyClassified) {
+            throw alreadyClassified;
+        } catch (RuntimeException failed) {
+            throw new BusinessException(SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED, failed);
+        }
+    }
+
+    /**
+     * 승인된 해석 규칙을 읽는다. 실패는 검색 실패다 (§6.2 「활성 규칙 조회 실패」).
+     *
+     * <p>빈 목록으로 넘기면 검수자가 승인한 교정이 빠진 결과가 정상인 것처럼 나간다 — 사람의 결정을 조용히 건너뛰는 경로다.
+     */
+    private ParseRulePolicy.Result applyRules(QueryResolutionResult resolved) {
+        if (!resolved.isResolved()) {
+            // 해석이 없으면 규칙의 조건을 판정할 대상이 없다. 조회 자체를 건너뛴다 — 물어볼 것이 없다.
+            return new ParseRulePolicy.Result(null, List.of());
+        }
+        try {
+            return parseRulePolicy.apply(resolved.resolution(), parseRules.findActivePatchParseRules());
+        } catch (BusinessException alreadyClassified) {
+            throw alreadyClassified;
+        } catch (RuntimeException failed) {
+            throw new BusinessException(SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED, failed);
+        }
+    }
+
+    /**
      * 실행 기록을 닫고 결과 ID 를 받는다.
      *
      * @return 저장 실패면 {@code null}. 계산된 결과는 그대로 주되 저장된 ID 를 만들었다고 표시하지 않는다 (§6.2)
@@ -157,28 +240,26 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
             SearchCandidates candidates,
             ParseRulePolicy.Result rules,
             QueryResolution finalResolution,
-            ParseSource parseSource,
             List<SearchDegradedReason> degradedReasons,
             List<String> queryTokens,
-            int executionMs) {
+            long startedAt) {
         try {
-            List<Long> resultIds = record.complete(new CompleteSearchExecution(
+            return record.complete(new CompleteSearchExecution(
                     executionId,
-                    degradedReasons.isEmpty() ? ExecutionStatus.SUCCEEDED : ExecutionStatus.DEGRADED,
+                    degradedReasons.isEmpty()
+                            ? CompleteSearchExecution.ExecutionStatus.SUCCEEDED
+                            : CompleteSearchExecution.ExecutionStatus.DEGRADED,
                     degradedReasons,
                     null,
-                    parseSource,
                     finalResolution,
                     rules.outcomes(),
-                    candidates.candidates(),
-                    new CompleteSearchExecution.FilterRecord(
-                            candidates.scenes().size(), candidates.shortageReasons(), candidates.guard()),
-                    candidates.appliedExcludes(),
+                    SearchRecordPayload.candidates(candidates),
+                    SearchRecordPayload.filtered(candidates),
+                    SearchRecordPayload.appliedExcludes(candidates),
                     rankedScenes(candidates, queryTokens),
                     candidates.config(),
-                    executionMs,
+                    elapsedMs(startedAt),
                     null));
-            return resultIds;
         } catch (SearchRecordingException notSaved) {
             degradedReasons.add(SearchDegradedReason.SNAPSHOT_SAVE_FAILED);
             return null;
@@ -230,100 +311,23 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
                 .map(verdict -> verdict.exclusionReason().wireValue())
                 .distinct()
                 .toList());
-        int excluded = candidates.guard().excluded().size();
+        // 장면 기준으로 센다. 「제외된 결과 수」이지 「제외 판정 수」가 아니다. 현재 순서에서는
+        // guard 를 통과한 장면만 장면 제외로 넘어가 겹칠 수 없지만, 단순 합산으로 두면 순서가
+        // 바뀌는 순간 같은 장면이 두 번 세어진다.
+        var excludedScenes = new java.util.LinkedHashSet<Long>();
+        candidates.guard().excluded().forEach(verdict -> excludedScenes.add(verdict.sceneId()));
         if (!candidates.appliedExcludes().isEmpty()) {
             reasons.add(APPROVED_SCENE_EXCLUSION);
-            excluded += candidates.appliedExcludes().size();
+            candidates.appliedExcludes().forEach(excluded -> excludedScenes.add(excluded.sceneId()));
         }
-        return new SearchExecutionResult.GuardSummary(excluded, reasons);
+        return new SearchExecutionResult.GuardSummary(excludedScenes.size(), reasons);
     }
 
-    /**
-     * 실패로 끝난 실행을 닫는다.
-     *
-     * <p>여기서 난 예외는 삼킨다. 사용자에게 돌아가야 하는 것은 검색이 왜 실패했는가이지, 그 실패를 기록하다 또 실패했다는 사실이 아니다. 삼키지 않으면 원래 사유가
-     * {@code SearchRecordingException} 에 가려진다.
-     */
-    private void abandon(long executionId, BusinessException failed, int executionMs) {
-        try {
-            record.fail(executionId, failed.errorCode().code(), executionMs);
-        } catch (RuntimeException notRecorded) {
-            // 실행은 running 으로 남는다. 그 행을 성공으로 읽지 않는 것은 기록을 읽는 쪽의 규약이다.
-        }
-    }
-
-    /**
-     * 실행을 연다. 실패하면 검색을 중단한다 (§6.2 「검색 실행의 최초 저장 실패」).
-     *
-     * <p>여기서 계속 진행하면 결과를 돌려주고도 그 실행이 어디에도 없다. 신고·검증이 가리킬 대상이 없어 사용자가 이상하다고 말할 방법이 사라진다.
-     */
-    private long openExecution(
-            ExecuteSearchQuery query,
-            QueryResolutionResult resolved,
-            NormalizedSearch normalizedSearch,
-            int parseMs,
-            List<SearchDegradedReason> degradedReasons) {
-        try {
-            return record.start(new StartSearchExecution(
-                    query.memberId(),
-                    ExecutionType.ORIGINAL,
-                    null,
-                    query.rawQuery(),
-                    query.explicitFilters(),
-                    normalizedSearch,
-                    resolverOutput(resolved),
-                    resolved.findings(),
-                    resolved.isResolved() ? ParseSource.RESOLVER : ParseSource.FALLBACK,
-                    parseMs,
-                    degradedReasons));
-        } catch (SearchRecordingException notOpened) {
-            throw new BusinessException(SearchExecutionErrorCode.EXECUTION_NOT_RECORDED, notOpened);
-        }
-    }
-
-    /**
-     * 후보 구간을 돌린다.
-     *
-     * <p>{@link BusinessException} 은 그대로 올린다 — 채널·후보 계층이 이미 자기 사유로 분류한 실패다. 그 밖의 예외만 「기본 단어 검색도 불가」로 본다 (§6.2). 여기서 삼키면
-     * 검색 실패가 0건의 성공 응답으로 나간다.
-     */
-    private SearchCandidates runPipeline(
-            QueryResolutionResult resolved, QueryResolution finalResolution, NormalizedSearch normalizedSearch) {
-        try {
-            return pipeline.rank(new RankSearchCandidatesUseCase.Query(
-                    resolved.normalization(), finalResolution, resolved.queryEmbedding(), normalizedSearch));
-        } catch (BusinessException alreadyClassified) {
-            throw alreadyClassified;
-        } catch (RuntimeException failed) {
-            throw new BusinessException(SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED, failed);
-        }
-    }
-
-    /**
-     * 승인된 해석 규칙을 읽는다. 실패는 검색 실패다 (§6.2 「활성 규칙 조회 실패」).
-     *
-     * <p>빈 목록으로 넘기면 검수자가 승인한 교정이 빠진 결과가 정상인 것처럼 나간다 — 사람의 결정을 조용히 건너뛰는 경로다.
-     */
-    private ParseRulePolicy.Result applyRules(QueryResolutionResult resolved) {
-        if (!resolved.isResolved()) {
-            // 해석이 없으면 규칙의 조건을 판정할 대상이 없다. 조회 자체를 건너뛴다 — 규칙 조회
-            // 실패를 검색 실패로 다루는 §6.2 와 어긋나지 않는다. 여기서는 물어볼 것이 없다.
-            return new ParseRulePolicy.Result(null, List.of());
-        }
-        try {
-            return parseRulePolicy.apply(resolved.resolution(), parseRules.findActivePatchParseRules());
-        } catch (BusinessException alreadyClassified) {
-            throw alreadyClassified;
-        } catch (RuntimeException failed) {
-            throw new BusinessException(SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED, failed);
-        }
-    }
-
-    private StartSearchExecution.ResolverOutput resolverOutput(QueryResolutionResult resolved) {
+    private RecordSearchExecutionResolution.ResolverOutput resolverOutput(QueryResolutionResult resolved) {
         if (!resolved.isResolved()) {
             return null;
         }
-        return new StartSearchExecution.ResolverOutput(
+        return new RecordSearchExecutionResolution.ResolverOutput(
                 resolved.resolution(),
                 resolved.resolution(),
                 resolved.resolutionSchemaVersion(),

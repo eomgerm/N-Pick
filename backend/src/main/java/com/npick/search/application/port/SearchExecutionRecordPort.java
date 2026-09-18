@@ -2,101 +2,52 @@ package com.npick.search.application.port;
 
 import java.util.List;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.experimental.Accessors;
-
 /**
- * 검색 한 번을 {@code search_execution} 과 {@code search_result} 에 남긴다 (FRD §7.2, F-05 7항).
+ * 검색 본 트랜잭션과 독립적으로 실행 스냅샷을 시작하고 완결한다.
  *
- * <p><b>구현은 S15P21A501-60 이다.</b> 조립(-59)은 부르는 쪽만 소유한다 — 언제·무엇을 넘기는지는 여기, 어느 컬럼에 어떻게 쓰는지는 저쪽이다.
+ * <p>호출 규약: 한 검색당 {@link #start} 1회, 그 뒤 {@link #recordResolution} 최대 1회, 마지막으로 {@link #complete} 또는 {@link #fail} 중
+ * <b>정확히 하나</b>를 1회. {@code start} 가 던지면 나머지는 부르지 않는다. 열어 놓고 닫지 않으면 그 행은 영구히 {@code running} 으로 남아 성공 기록과 구분되지 않는다.
  *
- * <p>호출 규약: 한 검색당 {@link #start} 1회, 그 뒤 {@link #complete} 최대 1회. {@code start} 가 던지면 {@code complete} 는 부르지 않는다.
- * 재시도·재호출은 없다 — 같은 검색을 두 실행으로 남기지 않기 위해서다 (§7.2 「매번 새 실행을 만든다」의 반대쪽).
- *
- * <p>두 호출은 검색 조회 트랜잭션 <b>밖</b>에서 각각 커밋되어야 한다. 후보 검증(F-12)은 임시 반영→검색→ROLLBACK 으로 도는데, 기록이 같은 트랜잭션에 묶이면 롤백과 함께 사라진다
+ * <p>모든 호출은 검색 조회 트랜잭션 <b>밖</b>에서 각각 커밋되어야 한다. 후보 검증(F-12)은 임시 반영→검색→ROLLBACK 으로 도는데, 기록이 같은 트랜잭션에 묶이면 롤백과 함께 사라진다
  * (baseline 주석).
  */
 public interface SearchExecutionRecordPort {
-
     /**
-     * 실행을 열고 식별자를 받는다.
+     * 원문과 실행자만으로 {@code running} 실행을 연다.
      *
      * @return {@code search_execution_id}
-     * @throws SearchRecordingException 저장 실패. 조립은 §6.2 「검색 실행의 최초 저장 실패」로 검색을 중단한다
+     * @throws SearchRecordingException 저장 실패. 조립은 §6.2 「검색 실행의 최초 저장 실패」로 AI 호출 전에 검색을 중단한다
      */
     long start(StartSearchExecution command);
 
     /**
+     * 리졸버 응답을 받은 직후 {@code running} 실행에 해석 스냅샷을 덧붙인다.
+     *
+     * @throws SearchRecordingException 저장 실패
+     */
+    void recordResolution(RecordSearchExecutionResolution command);
+
+    /**
      * 결과를 확정해 닫는다.
      *
-     * @return {@code rankedScenes} 와 <b>같은 순서·같은 길이</b>의 {@code search_result_id}
-     * @throws SearchRecordingException 저장 실패. 조립은 계산된 결과를 미저장 상태로 내보낸다 (§6.2·web-api §5.1 {@code snapshot_save_failed})
+     * @return {@code rankedScenes} 와 같은 순서·같은 길이의 {@code search_result_id}
+     * @throws SearchRecordingException 저장 실패. 조립은 계산된 결과를 미저장 상태로 내보낸다 (§6.2 · web-api §5.1
+     *     {@code snapshot_save_failed})
      */
     List<Long> complete(CompleteSearchExecution command);
 
     /**
-     * 결과를 내지 못하고 끝난 실행을 닫는다.
+     * 결과를 내지 못하고 끝난 실행을 {@code failed} 로 닫는다.
      *
-     * <p>{@link #complete} 와 따로 둔 이유는 실패 시점에 넘길 것이 없기 때문이다. 설정 스냅샷과 후보는 순위 계산이 끝나야 나오는데, 그 전에 끊긴 실행도 {@code running} 으로
-     * 남겨 두면 안 된다 — 성공 기록과 구분되지 않는 행이 영구히 쌓인다.
+     * <p>{@link #complete} 와 따로 둔 이유는 실패 시점에 넘길 것이 없기 때문이다. 설정 스냅샷과 후보는 순위 계산이 끝나야 나오는데, 리졸버 타임아웃·활성 규칙 조회 실패·후보 조회 실패는
+     * 그 전에 끊긴다. {@code complete} 의 계약이 요구하는 값을 만들어 낼 수 없으므로 빈 값으로 지어내는 대신 별도 경로로 닫는다.
      *
-     * <p>이 호출이 실패해도 예외를 밖으로 내보내지 않는다. 사용자에게 돌아가야 하는 것은 검색이 왜 실패했는가이지 그 실패를 기록하다 또 실패했다는 사실이 아니다. 조립이 삼키고 원래 예외를 올린다.
+     * <p><b>이 호출은 예외를 밖으로 내보내지 않는다.</b> 사용자에게 돌아가야 하는 것은 검색이 왜 실패했는가이지, 그 실패를 기록하다 또 실패했다는 사실이 아니다. 기록 실패는 비밀정보 없는 운영
+     * 로그로만 남긴다 (§6.2 「성공 기록이 남았다고 주장하지 않고 사용자 안내와 비밀정보 없는 운영 로그로 구분한다」). 조립은 원래 검색 실패 사유를 그대로 올리면 된다.
+     *
+     * @param errorCode {@code search_execution.error_code} 에 남길 공개 오류 코드. {@code SearchExecutionErrorCode} 의
+     *     {@code SRCH_503_0xx} 또는 그 실행을 끊은 다른 검색 코드의 값이다. 비어 있으면 기록하지 않고 로그만 남긴다
+     * @param executionMs 실패로 끝나기까지 앱이 실제로 잰 시간. 음수면 기록하지 않고 로그만 남긴다
      */
     void fail(long searchExecutionId, String errorCode, int executionMs);
-
-    /** {@code search_execution.execution_type}. baseline COLUMN COMMENT 가 어휘를 닫아 두었다. */
-    @Getter
-    @Accessors(fluent = true)
-    @RequiredArgsConstructor
-    enum ExecutionType {
-        /** 사용자가 직접 한 검색. */
-        ORIGINAL("original"),
-        /** 원 검색의 조건을 재사용한 자동 재검색. {@code replay_of_feedback_id} 와 짝이 맞아야 한다 (ck 제약). */
-        REPLAY("replay");
-
-        private final String storedValue;
-    }
-
-    /**
-     * {@code search_execution.parse_source}.
-     *
-     * <p>{@link #RESOLVER_RULE} 은 <b>규칙을 1개 이상 성공 적용</b>했을 때만이다. 조건 일치나 건너뜀만으로는 아니다 (baseline COLUMN COMMENT). 이 값과
-     * {@code applied_rules_json} 에 {@code applied} 가 있는지는 항상 일치한다 — 조립이 둘을 같은 판정에서 만든다.
-     *
-     * <p>응답의 {@code query_resolution_status} 로 접을 때 {@link #RESOLVER} 와 {@link #RESOLVER_RULE} 은 <b>둘 다</b>
-     * {@code resolved} 다. {@link #FALLBACK} 만 {@code fallback} 이다.
-     */
-    @Getter
-    @Accessors(fluent = true)
-    @RequiredArgsConstructor
-    enum ParseSource {
-        RESOLVER("resolver"),
-        RESOLVER_RULE("resolver_rule"),
-        FALLBACK("fallback");
-
-        private final String storedValue;
-
-        public boolean resolved() {
-            return this != FALLBACK;
-        }
-    }
-
-    /**
-     * {@code search_execution.status}.
-     *
-     * <p>{@link #RUNNING} 으로 열리고 {@link #complete} 가 나머지 셋 중 하나로 닫는다. {@code complete} 가 영영 오지 않은 실행은 {@code RUNNING}
-     * 으로 남는다 — 성공 기록으로 읽지 않는다 (§6.2).
-     */
-    @Getter
-    @Accessors(fluent = true)
-    @RequiredArgsConstructor
-    enum ExecutionStatus {
-        RUNNING("running"),
-        SUCCEEDED("succeeded"),
-        DEGRADED("degraded"),
-        FAILED("failed");
-
-        private final String storedValue;
-    }
 }
