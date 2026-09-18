@@ -52,4 +52,52 @@ public final class TestGraph {
                 + "WHERE clip_id = ?), 'v1', 'succeeded', '{}'::jsonb, ?, ?) ON CONFLICT DO NOTHING",
                 runId, clipId, clipId, now, now);
     }
+
+    /**
+     * 검수자 교정 대기 태그 후보(S15P21A501-83·-160): {@code tag_evidence(source='reviewer_feedback', confirmed=false,
+     * source_feedback_id, verification_status='verified')}. tag/tagging 은 tag_evidence 와 별도 PK 공간이므로 evidenceId 를
+     * 그대로 재사용해 셋 다 만든다. 확정(-84) 전까지 검색에 반영되지 않는 대기 상태를 심는다.
+     *
+     * @return 생성한 tagging_id (evidenceId 와 같은 값)
+     */
+    public static long insertReviewerTagCandidate(
+            JdbcTemplate jdbc, long sceneId, long clipId, long feedbackId, long evidenceId) {
+        OffsetDateTime now = OffsetDateTime.now();
+        long tagId = evidenceId;
+        long taggingId = evidenceId;
+        jdbc.update("INSERT INTO npick.tag(tag_id, tag_type, match_value, name) VALUES (?, 'person', ?, 'tester') "
+                + "ON CONFLICT DO NOTHING", tagId, "person-" + tagId);
+        jdbc.update("INSERT INTO npick.tagging(tagging_id, clip_id, scene_id, tag_id, created_at) "
+                + "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING", taggingId, clipId, sceneId, tagId, now);
+        jdbc.update("INSERT INTO npick.tag_evidence(evidence_id, tagging_id, source, confidence, "
+                + "verification_status, source_feedback_id, confirmed, created_at) "
+                + "VALUES (?, ?, 'reviewer_feedback', NULL, 'verified', ?, false, ?) ON CONFLICT DO NOTHING",
+                evidenceId, taggingId, feedbackId, now);
+        return taggingId;
+    }
+
+    /** 이미 활성인 patch_parse 규칙(R1). 검증 후보의 교체 대상이 된다. */
+    public static void insertActivePatchRule(JdbcTemplate jdbc, long feedbackId, long ruleId) {
+        insertPatchRule(jdbc, feedbackId, ruleId, true, null);
+    }
+
+    /**
+     * 대기 중인 patch_parse 교체 후보(R2 -> R1): {@code active=false, replaces_rule_id=replacesRuleId}
+     * ({@code ck_search_rule_replaces_shape}, S15P21A501-81).
+     */
+    public static void insertPendingPatchRuleReplacing(
+            JdbcTemplate jdbc, long feedbackId, long ruleId, long replacesRuleId) {
+        insertPatchRule(jdbc, feedbackId, ruleId, false, replacesRuleId);
+    }
+
+    private static void insertPatchRule(
+            JdbcTemplate jdbc, long feedbackId, long ruleId, boolean active, Long replacesRuleId) {
+        OffsetDateTime now = OffsetDateTime.now();
+        jdbc.update("INSERT INTO npick.search_rule(search_rule_id, query_fingerprint, normalized_query, "
+                + "normalized_filters_json, normalization_version, action, source_feedback_id, active, "
+                + "replaces_rule_id, condition_json, patch_json, created_at, updated_at) "
+                + "VALUES (?, ?, '원본질의', '{}'::jsonb, 'norm/v1', 'patch_parse', ?, ?, ?, '{}'::jsonb, "
+                + "'{}'::jsonb, ?, ?) ON CONFLICT DO NOTHING",
+                ruleId, "fp-" + ruleId, feedbackId, active, replacesRuleId, now, now);
+    }
 }
