@@ -17,6 +17,8 @@ public record MyInquiryDetail(
         String status,
         String resolution,
         InquiryScene scene,
+        int resultRank,
+        String resultExplainJson,
         String explicitFiltersJson,
         String resolutionNote,
         Instant reviewStartedAt,
