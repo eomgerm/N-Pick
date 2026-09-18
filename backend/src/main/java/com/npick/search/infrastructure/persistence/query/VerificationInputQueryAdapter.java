@@ -1,6 +1,7 @@
 package com.npick.search.infrastructure.persistence.query;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import jakarta.persistence.EntityManager;
 
@@ -54,6 +55,19 @@ class VerificationInputQueryAdapter implements VerificationInputPort {
         } catch (Exception malformed) {
             throw new BusinessException(SearchExecutionErrorCode.EXECUTION_NOT_RECORDED, malformed);
         }
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<Long> loadOriginalResultSceneIds(long feedbackId) {
+        List<Number> rows = em.createNativeQuery(
+                        "SELECT sr2.scene_id FROM npick.feedback f "
+                                + "JOIN npick.search_result sr ON sr.search_result_id = f.search_result_id "
+                                + "JOIN npick.search_result sr2 ON sr2.search_execution_id = sr.search_execution_id "
+                                + "WHERE f.feedback_id = :fid ORDER BY sr2.result_rank")
+                .setParameter("fid", feedbackId)
+                .getResultList();
+        return rows.stream().map(Number::longValue).toList();
     }
 
     private LocalDate date(JsonNode node, String field, String key) {

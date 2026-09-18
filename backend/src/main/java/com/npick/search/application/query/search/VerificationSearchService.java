@@ -15,7 +15,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.npick.common.error.BusinessException;
 import com.npick.common.persistence.CorrectionStateFingerprint;
 import com.npick.search.application.error.SearchExecutionErrorCode;
+import com.npick.search.application.error.VerificationErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
+import com.npick.search.application.port.ExcludeContext;
+import com.npick.search.application.port.ExcludeContextPort;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.RecordSearchExecutionResolution;
 import com.npick.search.application.port.SearchExecutionRecordPort;
@@ -32,6 +35,7 @@ import com.npick.search.domain.model.ParseRuleOutcome;
 @Service
 public class VerificationSearchService implements VerifyCorrectionCandidatesUseCase {
 
+    private final ExcludeContextPort excludeContextPort;
     private final VerificationInputPort inputPort;
     private final PendingCandidatesPort candidatesPort;
     private final InterpretSearchQueryUseCase interpreter;
@@ -42,6 +46,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
     private final EntityManager em;
 
     public VerificationSearchService(
+            ExcludeContextPort excludeContextPort,
             VerificationInputPort inputPort,
             PendingCandidatesPort candidatesPort,
             InterpretSearchQueryUseCase interpreter,
@@ -50,6 +55,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             CorrectionStateFingerprint fingerprint,
             PlatformTransactionManager txManager,
             EntityManager em) {
+        this.excludeContextPort = excludeContextPort;
         this.inputPort = inputPort;
         this.candidatesPort = candidatesPort;
         this.interpreter = interpreter;
@@ -61,10 +67,31 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         this.rollbackTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
     }
 
+    /**
+     * 담당 검수자·신고 상태·대기 후보 존재를 확인한다 — {@code CreateSceneExcludeCandidateService}(§6.4 장면 제외 후보)와
+     * 같은 전제·같은 포트({@link ExcludeContextPort}, feedback→search_result→search_execution 조인)를 그대로 재사용한다.
+     * 검증은 resolution 종류(tag_correction/patch_parse/exclude_scene)를 가리지 않으므로 그 형제의
+     * {@code NOT_EXCLUDE_SCENE} 같은 처리결과별 체크 대신 「대기 후보가 하나라도 있는가」를 마지막에 본다.
+     * 이 존재 확인이 끝난 뒤에야 {@link VerificationInputPort#load}를 호출하므로, 신고가 없을 때 그 어댑터의
+     * {@code getSingleResult}가 {@code NoResultException}으로 500을 내는 경로를 막는다.
+     */
     @Override
     public VerificationResult verify(long feedbackId, long reviewerId) {
-        VerificationInput input = inputPort.load(feedbackId);
+        ExcludeContext context = excludeContextPort
+                .find(feedbackId)
+                .orElseThrow(() -> new BusinessException(VerificationErrorCode.FEEDBACK_NOT_FOUND));
+        if (!"REVIEWING".equals(context.status())) {
+            throw new BusinessException(VerificationErrorCode.NOT_REVIEWING);
+        }
+        if (context.reviewedById() == null || context.reviewedById() != reviewerId) {
+            throw new BusinessException(VerificationErrorCode.NOT_REVIEWER);
+        }
         PendingCandidates candidates = candidatesPort.load(feedbackId);
+        if (candidates.tagEvidenceIds().isEmpty() && candidates.approvedRuleId() == null) {
+            throw new BusinessException(VerificationErrorCode.NO_PENDING_CANDIDATES);
+        }
+
+        VerificationInput input = inputPort.load(feedbackId);
         ExecuteSearchQuery query = new ExecuteSearchQuery(input.rawQuery(), input.dateFilters(), reviewerId);
 
         String baselineFingerprint = fingerprint.compute(feedbackId); // flip 전 기준 상태
@@ -78,7 +105,9 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             // 롤백 전에 캡처해 둔 InterpretedQuery 그대로다.
             record.recordResolution(recordResolutionCommand(executionId, query, outcome.interpreted()));
             record.complete(completeCommand(executionId, outcome, candidates, baselineFingerprint, startedAt));
-            return new VerificationResult(executionId);
+            List<Long> originalSceneIds = inputPort.loadOriginalResultSceneIds(feedbackId);
+            SceneDiff.Result diff = SceneDiff.of(originalSceneIds, outcome.candidates());
+            return new VerificationResult(executionId, diff.entered(), diff.dropped(), outcome.activeRuleSet());
         } catch (RuntimeException failed) {
             // running 누수 금지 (§8, -59 H5 패턴): 넓은 catch 로 실행 행을 fail 로 닫는다.
             record.fail(executionId, verificationErrorCode(failed), elapsedMs(startedAt));
