@@ -51,7 +51,7 @@ export interface SearchSceneResponse {
   sceneId: string;
   clipId: string;
   rank: number;
-  displayName: string;
+  displayName: string | null;
   sceneDescription: string | null;
   startTimeMs: number;
   endTimeMs: number;
@@ -206,7 +206,7 @@ function parseScene(value: unknown, status: number): SearchSceneResponse {
     sceneId: readId(payload.scene_id, status) as string,
     clipId: readId(payload.clip_id, status) as string,
     rank: readPositiveInteger(payload.rank, status),
-    displayName: readNonEmptyString(payload.display_name, status),
+    displayName: readNullableString(payload.display_name, status),
     sceneDescription: readNullableString(payload.scene_description, status),
     startTimeMs,
     endTimeMs,

@@ -45,6 +45,7 @@ export function presentSearchResponse(response: SearchResponse): {
     approved_scene_exclusion: '승인된 장면 제외 규칙에 해당',
   } as const;
   const results = response.results.map((scene): SearchResult => {
+    const displayName = scene.displayName ?? '제목 없는 영상';
     const evidence: SearchEvidenceMatch[] = scene.matchEvidence.map((item) => ({
       field: fields[item.field],
       value: item.value,
@@ -64,9 +65,9 @@ export function presentSearchResponse(response: SearchResponse): {
       sceneId: scene.sceneId,
       searchResultId: scene.searchResultId,
       rank: scene.rank,
-      displayName: scene.displayName,
-      title: scene.sceneDescription ?? scene.displayName,
-      clip: scene.displayName,
+      displayName,
+      title: scene.sceneDescription ?? displayName,
+      clip: displayName,
       time: `${formatMediaTime(media.sceneStart)} – ${formatMediaTime(media.sceneEnd)}`,
       duration: `${(scene.endTimeMs - scene.startTimeMs) / 1000}초`,
       totalDuration: '',
