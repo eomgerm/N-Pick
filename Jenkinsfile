@@ -5,6 +5,14 @@
 // CD 는 그 이미지를 그대로 띄운다. Container Registry 가 없지만 Jenkins 가 배포 대상
 // EC2 위에서 돌아 호스트 Docker 데몬이 저장소 역할을 대신한다.
 
+// **environment 블록에 두지 않는다.** declarative 는 그 블록의 값을 스테이지 스텝마다
+// withEnv 로 다시 주입해서, script 안에서 env.PIPELINE_MODE 를 덮어써도 그 래퍼가 도로
+// 가린다. 2026-09-16 (S15P21A501-180) 에 이 변수가 environment 로 들어간 뒤 모든 빌드가
+// PIPELINE_MODE=UNKNOWN 이 되어 Detect/Build/Deploy/Verify 가 통째로 건너뛰어졌고,
+// 빌드는 계속 SUCCESS 라 아무도 알아채지 못했다. 그 사이 dev 머지 47건이 미배포로
+// 쌓였다. 스크립트 전역 변수는 그 래퍼를 타지 않는다 (Jenkinsfile.ops 와 같은 방식).
+PIPELINE_MODE = 'UNKNOWN'
+
 pipeline {
   agent any
 
@@ -47,7 +55,6 @@ pipeline {
     // 호스트 경로와 같게 맞춰야 한다. 값은 환경마다 다르므로 Jenkins 전역 환경변수
     // NPICK_DEPLOY_DIR 에서 읽는다 (Manage Jenkins → System → Global properties).
     DEPLOY_DIR = "${env.NPICK_DEPLOY_DIR ?: '/deploy'}"
-    PIPELINE_MODE = 'UNKNOWN'
   }
 
   stages {
@@ -55,7 +62,7 @@ pipeline {
       steps {
         script {
           def isMergeRequest = env.gitlabActionType == 'MERGE' && env.gitlabTargetBranch == 'dev'
-          env.PIPELINE_MODE = isMergeRequest ? 'MR' : 'DEPLOY'
+          PIPELINE_MODE = isMergeRequest ? 'MR' : 'DEPLOY'
 
           if (isMergeRequest) {
             // 잡 자체는 */dev 의 Jenkinsfile 을 신뢰해 시작한다. 실제 검증 대상만 MR 소스와
@@ -90,9 +97,9 @@ pipeline {
           env.GIT_SUBJECT = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
         }
         echo "커밋 ${env.IMAGE_TAG} — ${env.GIT_SUBJECT} (${env.GIT_AUTHOR})"
-        echo "파이프라인 모드: ${env.PIPELINE_MODE}"
+        echo "파이프라인 모드: ${PIPELINE_MODE}"
         script {
-          if (env.PIPELINE_MODE == 'MR') {
+          if (PIPELINE_MODE == 'MR') {
             echo "MR 검증: ${env.gitlabSourceBranch} -> ${env.gitlabTargetBranch}"
           } else {
             echo "배포 ref: ${env.DEPLOY_REF} @ ${env.DEPLOY_SHA}"
@@ -105,7 +112,7 @@ pipeline {
       // 운영 DB 나 /deploy 를 건드리지 않는다. 최신 dev 에 이미 존재하는 최대 버전보다
       // 작거나 같은 migration 이 MR 에 새로 추가되면 머지 전에 실패시킨다.
       when {
-        expression { env.PIPELINE_MODE == 'MR' }
+        expression { PIPELINE_MODE == 'MR' }
       }
       steps {
         sh 'infra/jenkins/check-new-migration-versions.sh origin/dev'
@@ -120,7 +127,7 @@ pipeline {
       // dev 푸시 빌드에서만 배포 디렉터리를 동기화한다. MR 빌드는 워크스페이스에서
       // 검증만 수행하며 /deploy 와 실행 중인 서비스에는 접근하지 않는다.
       when {
-        expression { env.PIPELINE_MODE == 'DEPLOY' }
+        expression { PIPELINE_MODE == 'DEPLOY' }
       }
       steps {
         withCredentials([usernamePassword(
@@ -137,7 +144,7 @@ pipeline {
       // 모노레포이므로 바뀐 앱만 빌드한다. 인프라 파일이 바뀌면 전체를 다시 만든다.
       // 비교 기준은 직전 커밋이 아니라 마지막 성공 배포 커밋이다(changed-paths.sh).
       when {
-        expression { env.PIPELINE_MODE == 'DEPLOY' }
+        expression { PIPELINE_MODE == 'DEPLOY' }
       }
       steps {
         script {
@@ -159,7 +166,7 @@ pipeline {
       // 빈 DB 테스트로는 운영 DB 에 더 높은 버전이 적용된 뒤 들어온 역전을 잡을 수 없다.
       // 실제 flyway_schema_history 와 비교해 이미지 빌드와 배포 전에 차단한다.
       when {
-        expression { env.PIPELINE_MODE == 'DEPLOY' && env.BUILD_BACKEND == 'yes' }
+        expression { PIPELINE_MODE == 'DEPLOY' && env.BUILD_BACKEND == 'yes' }
       }
       steps {
         sh 'infra/jenkins/check-migration-versions.sh'
@@ -171,7 +178,7 @@ pipeline {
       // JDK·Node·uv 를 설치하지 않는다. 태그는 compose 의 ${IMAGE_TAG} 로 붙는다.
       when {
         expression {
-          env.PIPELINE_MODE == 'DEPLOY' &&
+          PIPELINE_MODE == 'DEPLOY' &&
             (env.BUILD_BACKEND == 'yes' || env.BUILD_FRONTEND == 'yes' || env.BUILD_AI == 'yes')
         }
       }
@@ -195,7 +202,7 @@ pipeline {
       // 안 바뀐 앱은 실행 중 이미지에 새 태그를 붙여 compose 가 찾을 수 있게 한다.
       // backend 가 기동하면서 Flyway 가 마이그레이션을 실행한다.
       when {
-        expression { env.PIPELINE_MODE == 'DEPLOY' }
+        expression { PIPELINE_MODE == 'DEPLOY' }
       }
       steps {
         sh 'infra/jenkins/deploy.sh'
@@ -204,7 +211,7 @@ pipeline {
 
     stage('Verify') {
       when {
-        expression { env.PIPELINE_MODE == 'DEPLOY' }
+        expression { PIPELINE_MODE == 'DEPLOY' }
       }
       steps {
         sh 'infra/jenkins/verify.sh'
@@ -217,7 +224,7 @@ pipeline {
       // 성공한 배포 커밋을 남긴다. 다음 빌드의 변경 비교 기준이 되고,
       // 이번 실행의 롤백 표시를 지워 이후 실패가 이 배포를 되돌리지 않게 한다.
       script {
-        if (env.PIPELINE_MODE == 'DEPLOY') {
+        if (PIPELINE_MODE == 'DEPLOY') {
           sh 'infra/jenkins/deploy-done.sh'
         }
       }
@@ -230,7 +237,7 @@ pipeline {
       // rollback 이 실패한 컨테이너를 재생성하기 전에 원인 로그를 Jenkins 콘솔에 보존한다.
       // 로그 수집 자체가 실패해도 뒤의 rollback 은 반드시 실행한다.
       script {
-        if (env.PIPELINE_MODE == 'DEPLOY') {
+        if (PIPELINE_MODE == 'DEPLOY') {
           sh 'cd "$DEPLOY_DIR" && docker compose logs --tail=200 || true'
           sh 'infra/jenkins/rollback.sh || true'
         }
