@@ -9,6 +9,7 @@ import {
 import styles from '@/features/wireframes/wireframe.module.css';
 
 interface SearchResultCardProps {
+  idPrefix?: string;
   result: SearchResult;
   position: number;
   isSelected: boolean;
@@ -24,13 +25,14 @@ function getEvidenceValueLabel(value: string) {
 }
 
 export function SearchResultCard({
+  idPrefix = '',
   result,
   position,
   isSelected,
   onSelect,
 }: SearchResultCardProps) {
   const keyframeTimes = getKeyframeTimes(result);
-  const evidenceTooltipId = `match-evidence-${result.id}`;
+  const evidenceTooltipId = `${idPrefix}match-evidence-${result.id}`;
 
   return (
     <article className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}>
