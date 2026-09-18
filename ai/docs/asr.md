@@ -293,6 +293,7 @@ A1 무음·잡음에서 생성된 구간 수는 `true` 와 `false` 가 **완전�
 | 값 | 어디에 | 결정 | 근거 |
 | --- | --- | --- | --- |
 | 모델 | `NPICK_AI_ASR_MODEL` | **`large-v3-turbo`** | A3 경계를 맞히는 유일한 모델(§5.3), RTF 0.32 로 medium 보다 빠름(§5.5). A2 는 순위를 정하지 못한다 — -26 dB 에서 이탈한 것은 small 뿐이지만 -32 dB 에서는 turbo 도 무관한 문장을 냈다(§5.4) |
+| 가중치 리비전 | `NPICK_AI_ASR_MODEL_REVISION` | **`0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf`** | 크기 이름은 `mobiuslabsgmbh/faster-whisper-large-v3-turbo` 로 풀리고 그 저장소는 갱신된다 — 고정하지 않으면 같은 `modelVersion` 이 다른 가중치를 가리킨다. 임베딩과 같은 판단이고, SHA 가 아니면 워커가 이 단계를 선언하지 않는다 (S15P21A501-187, 2026-09-18 기준 SHA) |
 | `vad.enabled` | `asr.v1.toml` | `true` **확정** | 끄면 무음에서 문장이 나온다(§5.2) |
 | `vad.threshold` | `asr.v1.toml` | `0.5` **확정** | 0.3/0.7 이 결과를 바꾸지 않는다(§5.4) |
 | `min_silence_duration_ms` | `asr.v1.toml` | `2000` **확정** | 500 이 차이를 만들지 않는다(§5.3·§5.5) |

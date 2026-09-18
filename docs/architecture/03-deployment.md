@@ -13,7 +13,18 @@
 
 N-Pick은 EC2 한 대와 GPU 환경 두 개로 운영된다. SSAFY EC2(`j15a501.p.ssafy.io`)가 사용자 대면 경로 전부와 정본을 담고, 장면 처리는 GPU 쪽이 맡는다.
 
-GPU는 용도로 갈린다. **RunPod 파드는 실시간 전체 플로우를 구동할 때** 쓰고 — 실시간 분석이 필요한 시점에 띄운다 — **SSAFY GPU 서버는 개발 검증과 데모 시드 적재용**이다 — 상주 서버를 띄울 수 없어 배치 실행(`npick-worker-drain`)으로만 돌린다. 워커 이미지는 양쪽이 같고 바뀌는 것은 잡을 받아오는 대상과 GPU 사양, 그리고 상주냐 배치냐뿐이다.
+GPU는 용도로 갈린다. **RunPod 파드는 실시간 전체 플로우를 구동할 때** 쓰고 — 실시간 분석이 필요한 시점에 띄운다 — **SSAFY GPU 서버는 개발 검증과 데모 시드 적재용**이다 — 상주 서버를 띄울 수 없어 배치 실행(`npick-worker-drain`)으로만 돌린다.
+
+**워커 배포 단위는 넷이고 설치 구성이 넷 다 다르다** (`S15P21A501-187`). 코드는 한 벌이지만 단위마다 필요한 torch가 배타라 한 이미지로 덮을 수 없다 — PyTorch 휠은 빌드된 CUDA 이상의 드라이버를 요구하고, GPU가 없는 EC2 컨테이너에 CUDA torch를 깔면 쓰지도 않을 4.2GB를 이고 간다.
+
+| 배포 단위 | torch | 담당 단계 | 실행 형태 |
+| --- | --- | --- | --- |
+| EC2 질의 리졸버 (`ai-worker`) | CPU 전용 휠 | 없음 (잡 폴링 끔) | compose 상주 |
+| EC2 CPU 워커 (`ai-cpu-worker`) | 없음 | `ocr` | compose 상주 |
+| SSAFY GPU 서버 | `cu128` | `ocr` 제외 전부 | **컨테이너가 아니다.** 소스 체크아웃 + 배치 실행(`npick-worker-drain`) |
+| RunPod 파드 | `cu130` | `ocr` 제외 전부 | 네트워크 볼륨에 venv 상주, 필요 시 resume |
+
+리졸버와 CPU 워커는 같은 `ai/` 소스에서 나오되 `UV_GROUPS` 빌드 인자 하나로 갈린 **서로 다른 이미지**다. GPU 노드 둘은 이미지를 쓰지 않고 소스에서 직접 `uv sync` 한다.
 
 이 다이어그램의 핵심은 **EC2와 GPU 사이에 화살표가 단 하나이고 방향이 GPU → EC2**라는 점이다. 워커가 항상 발신자이므로 GPU 파드에 인바운드 포트를 열 필요가 없고, EC2의 보안 그룹에도 GPU 쪽을 위한 규칙이 없다. 파드가 죽거나 요금 절약을 위해 내려가도 lease 만료로 회수되므로 잡이 유실되지 않는다.
 
@@ -39,8 +50,12 @@ C4Deployment
             Container(api, "서비스 서버", "Spring Boot 4.1.1", "정본 쓰기와 검색 오케스트레이션, 잡 디스패치를 담당한다.")
         }
 
-        Deployment_Node(n_res, "컨테이너: resolver", "Python 3.12 · 호스트 포트 8001 (loopback)") {
-            Container(resolver, "질의 리졸버", "FastAPI · Python 3.12", "질의 구조화·임베딩·Kiwi 토큰화를 동기로 처리한다.")
+        Deployment_Node(n_res, "컨테이너: ai-worker (질의 리졸버)", "Python 3.12 · CPU torch · 호스트 포트 8000 (loopback)") {
+            Container(resolver, "질의 리졸버", "FastAPI · Python 3.12 · CPU torch", "질의 구조화·임베딩·Kiwi 토큰화를 동기로 처리한다. 잡 폴링을 켜지 않는다.")
+        }
+
+        Deployment_Node(n_cpu, "컨테이너: ai-cpu-worker", "Python 3.12 · torch 없음 · 퍼블리시 포트 없음") {
+            Container(cpuworker, "파이프라인 워커 (CPU)", "FastAPI · Python 3.12", "ocr 한 단계만 맡는다. 실행기가 onnxruntime(CPU)이라 GPU가 필요 없다.")
         }
 
         Deployment_Node(n_db, "컨테이너: db", "PostgreSQL 18.6 · 호스트 포트 5432 (loopback)") {
@@ -64,15 +79,15 @@ C4Deployment
         }
     }
 
-    Deployment_Node(gpu, "RunPod GPU 파드 — 실시간 구동", "NVIDIA CUDA · 네트워크 볼륨에 모델 가중치 상주") {
-        Deployment_Node(n_wrk, "컨테이너: worker", "Python 3.12 · PyTorch") {
-            Container(worker, "파이프라인 워커", "FastAPI · Python 3.12 · PyTorch", "장면 분할부터 색인까지 10단계를 GPU에서 실행한다.")
+    Deployment_Node(gpu, "RunPod GPU 파드 — 실시간 구동", "NVIDIA H100 80GB · 드라이버 CUDA 13 · 네트워크 볼륨에 venv와 가중치 상주") {
+        Deployment_Node(n_wrk, "네트워크 볼륨 위의 uv venv (cu130)", "runpod/base 이미지 + /workspace 볼륨") {
+            Container(worker, "파이프라인 워커", "Python 3.12 · torch cu130", "ocr 을 뺀 모든 단계를 GPU에서 실행한다.")
         }
     }
 
-    Deployment_Node(gpudev, "SSAFY GPU 서버 — 개발 검증·데모 시드", "NVIDIA CUDA · 팀 공용 · 상시 가동") {
-        Deployment_Node(n_wrkdev, "컨테이너: worker", "Python 3.12 · PyTorch") {
-            Container(workerdev, "파이프라인 워커 (검증·데모 시드)", "FastAPI · Python 3.12 · PyTorch", "운영과 같은 이미지로 단계 구현과 모델 후보를 검증하고, 데모 시드를 적재한다. 상주하지 않고 큐를 비우면 종료한다.")
+    Deployment_Node(gpudev, "SSAFY GPU 서버 — 개발 검증·데모 시드", "NVIDIA L40S · 드라이버 CUDA 12.8 · 팀 공용 · 상시 가동") {
+        Deployment_Node(n_wrkdev, "소스 체크아웃 + uv venv (cu128)", "컨테이너가 아니다 · Docker를 쓰지 않는다") {
+            Container(workerdev, "파이프라인 워커 (검증·데모 시드)", "Python 3.12 · torch cu128", "npick-worker-drain 으로 큐를 비우고 스스로 끝난다. 상주하지 않는다.")
         }
     }
 
@@ -85,6 +100,8 @@ C4Deployment
     Rel(api, assets, "원본을 저장하고 Preview 구간을 스트리밍한다", "호스트 볼륨 마운트")
     Rel(mlflow, db, "평가 run과 지표를 별도 mlflow DB에 기록한다", "JDBC · 컨테이너 네트워크")
     Rel(mlflow, mlflow_art, "Gold Set 결과와 ablation artifact를 기록한다", "호스트 볼륨 마운트")
+    Rel(cpuworker, api, "ocr 잡을 claim하고 산출물을 반납한다", "JSON/HTTP · 컨테이너 네트워크")
+    Rel(cpuworker, assets, "상류 keyframe을 마운트에서 직접 읽는다", "호스트 볼륨 마운트")
     Rel(worker, api, "잡을 claim하고 산출물을 반납한다", "JSON/HTTPS long-poll · 아웃바운드 443")
 ```
 
@@ -105,14 +122,15 @@ C4Deployment
 | 호스트 진입점 | Deployment_Node | 리버스 프록시 (nginx 1.28) | 포트 80/443. **TLS 종단**이며 80 은 443 으로 리다이렉트한다. 인증서는 Let's Encrypt(certbot, webroot 갱신) |
 | 컨테이너: web | Deployment_Node | 웹 애플리케이션 | Node 24 (`.nvmrc` 24.18.0, `node:24-alpine`). 호스트 포트 3000 |
 | 컨테이너: api | Deployment_Node | 서비스 서버 | JRE 21 LTS. **호스트 포트 8080**. 8080을 쓰던 Jenkins를 18080으로 옮겼다 (`S15P21A501-151`) |
-| 컨테이너: resolver | Deployment_Node | 질의 리졸버 | FastAPI, Python 3.12. 호스트 포트 8001. **아직 분리되지 않았다** — 현재 `ai-worker` 한 컨테이너(포트 8000)에 통합 |
+| 컨테이너: ai-worker | Deployment_Node | 질의 리졸버 | FastAPI, Python 3.12 + **CPU torch + sentence-transformers**. 호스트 포트 8000. 잡 폴링을 켜지 않는다 — 켜면 같은 프로세스가 파이프라인 잡도 받아 검색 해석이 영상 처리에 밀린다. `mem_limit 3g`(임베딩 CPU 적재 peak RSS 2,306 MiB 실측) |
+| 컨테이너: ai-cpu-worker | Deployment_Node | 파이프라인 워커 (CPU) | `NPICK_AI_JOB_STAGES=ocr` 하나만 맡는다. torch 없음. 포트를 퍼블리시하지 않는다 — 잡 수신이 발신 방향이라 필요 없다. `mem_limit 1g`(OCR 워밍업 peak RSS 167 MiB 실측) |
 | 컨테이너: db | Deployment_Node | 정본 및 검색 인덱스 | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4 (`paradedb/paradedb:0.25.6-pg18`). 반영 완료 (`S15P21A501-151`) |
 | 호스트 볼륨: assets | Deployment_Node | 에셋 스토어 | named volume `npick-media` → `/srv/npick/media`. backend와 ai-worker가 **공유 마운트** |
 | 컨테이너: mlflow | Deployment_Node | 평가 추적 | backend store는 `db` 노드 안의 별도 `mlflow` DB. 호스트 포트 5000은 **`127.0.0.1`에만** 퍼블리시한다. 브라우저 접근은 nginx `/mlflow/` + basic auth |
 | 호스트 볼륨: mlflow-artifacts | Deployment_Node | MLflow artifact 스토어 | named volume `npick-mlflow-artifacts` → `/mlartifacts`. run 메타데이터는 `db`에 있음 |
 | 컨테이너: jenkins | Deployment_Node | Jenkins (인프라) | 호스트 포트 **18080을 `127.0.0.1`에만** 퍼블리시한다. 컨테이너 내부 포트는 8080 그대로다. 브라우저와 GitLab 웹훅은 nginx `/jenkins/` 경유. 이미지는 docker CLI 를 넣은 `infra/jenkins/Dockerfile` 로 만든다 (`S15P21A501-132`) |
-| RunPod GPU 파드 | Deployment_Node | 파이프라인 워커 | NVIDIA CUDA. **실시간 전체 플로우 구동용** — 필요한 시점에 띄우고 끝나면 내린다. 모델 가중치는 네트워크 볼륨 |
-| SSAFY GPU 서버 | Deployment_Node | 파이프라인 워커 (검증·데모 시드) | NVIDIA CUDA, 팀 공용 상시 가동. 단계 구현과 모델 후보 확인, 그리고 **데모 시드 적재를 배치 실행(`npick-worker-drain`)으로 허용한다** — 상주 서버를 띄울 수 없어 큐를 비우고 스스로 끝나는 모드만 쓴다. 상주 워커와 실시간 구동은 RunPod 이다 |
+| RunPod GPU 파드 | Deployment_Node | 파이프라인 워커 | **실시간 전체 플로우 구동용** — 필요한 시점에 띄우고 끝나면 내린다. AP-JP-1, H100 80GB, 드라이버 CUDA 13 → `cu130`. 60GB 네트워크 볼륨에 venv와 가중치가 **함께** 상주해 파드를 내렸다 올려도 다시 받지 않는다. 전원은 `infra/jenkins/runpod.sh` 와 `Jenkinsfile.ops` 가 쥔다 |
+| SSAFY GPU 서버 | Deployment_Node | 파이프라인 워커 (검증·데모 시드) | L40S × 4, 드라이버 570.x = CUDA 12.8 → `cu128`. 팀 공용 상시 가동이라 **다른 팀과 VRAM을 나눠 쓴다**. **컨테이너가 아니다** — Docker를 쓰지 않고 소스 체크아웃 + uv venv 로 돌린다. 단계 구현과 모델 후보 확인, 그리고 **데모 시드 적재를 배치 실행(`npick-worker-drain`)으로 허용한다**. 상주 워커와 실시간 구동은 RunPod 이다 |
 
 ## 주요 관계
 
@@ -139,7 +157,15 @@ C4Deployment
 
 - **성능 수치에 GPU 모델을 반드시 기록한다.** RunPod은 실행할 때마다 GPU 종류가 달라질 수 있다. 333클립 배치 목표 시간을 측정할 때 GPU 모델을 benchmark profile에 남기지 않으면 그 수치는 재현 불가능하고 합격 근거로 쓸 수 없다.
 
-- **GPU 환경을 용도로 둘로 나눈다.** RunPod은 실시간 전체 플로우를 구동할 때만 띄우는 종량 자원이고, SSAFY GPU 서버는 상시 가동되는 개발 검증 자원이다. 워커 이미지와 잡 API 계약이 같으므로 코드는 한 벌이고 환경변수로 대상 서비스 서버만 갈아 끼운다. 검증을 RunPod에서 하면 개발 중 파드를 계속 띄워야 해 비용이 새고, 실시간 구동을 SSAFY GPU에서 하면 팀 공용 자원을 장시간 점유한다. **SSAFY GPU에서는 상주 워커를 띄우지 않는다** — 그 서버에 상주 서버를 올릴 수 없어서다. 워커는 pull 방식이라 인바운드가 없으므로 배치 실행(`npick-worker-drain`)이 큐를 비우고 종료하는 것으로 충분하고, 데모 시드 적재가 그 용도다.
+- **GPU 환경을 용도로 둘로 나눈다.** RunPod은 실시간 전체 플로우를 구동할 때만 띄우는 종량 자원이고, SSAFY GPU 서버는 상시 가동되는 개발 검증 자원이다. 잡 API 계약이 같으므로 코드는 한 벌이고 환경변수로 대상 서비스 서버만 갈아 끼운다 — **다만 이미지는 한 벌이 아니다**(아래 결정 참고). 검증을 RunPod에서 하면 개발 중 파드를 계속 띄워야 해 비용이 새고, 실시간 구동을 SSAFY GPU에서 하면 팀 공용 자원을 장시간 점유한다. **SSAFY GPU에서는 상주 워커를 띄우지 않는다** — 그 서버에 상주 서버를 올릴 수 없어서다. 워커는 pull 방식이라 인바운드가 없으므로 배치 실행(`npick-worker-drain`)이 큐를 비우고 종료하는 것으로 충분하고, 데모 시드 적재가 그 용도다.
+
+- **코드는 한 벌이지만 설치 구성은 넷이다** (`S15P21A501-187`). 배포 단위마다 필요한 torch가 배타라서다 — cu128 휠은 드라이버 CUDA 12.8 이상, cu130은 13 이상을 요구하고, GPU가 없는 EC2 컨테이너 둘에는 CUDA torch 자체가 낭비다(torch 하나가 4.2GB). 런타임에 CUDA를 덮어쓰는 안은 파드를 띄울 때마다 수 GB를 내려받게 되어 서버리스를 버린 이유와 같은 문제로 돌아간다. 그래서 `ai/Dockerfile`이 `UV_GROUPS` 인자 하나로 EC2용 이미지 둘을 내고, GPU 노드 둘은 이미지를 쓰지 않고 소스에서 `uv sync --group gpu --group cu128|cu130` 한다. `docs/contracts/job-api.md`의 "코드는 한 벌이고 바뀌는 것은 환경뿐이다"는 여전히 맞다 — 갈리는 것은 코드가 아니라 설치 변형이다.
+
+- **재현 식별자에 torch를 넣지 않는다** (`S15P21A501-187`). `vlm_metadata`와 `entity_extraction`이 `engineVersion`에 torch 빌드를 접어 넣고 있었는데, 그러면 cu128 노드와 cu130 노드가 같은 가중치로 **다른 `stageVersion`**을 선언한다(2026-09-18 실측: `cecfede9` vs `31512987`). `pipeline.yml`은 단계당 값을 하나만 담으므로 그 상태에서는 두 노드 중 하나가 **아무 오류 없이** 그 단계를 배정받지 못하고, 드라이버가 노드마다 달라 torch 빌드를 맞출 수도 없다. 무엇으로 돌았는지는 결과마다 `StageRuntime.torch`·`.cuda`가 여전히 싣고, 그 값은 식별자 밖이라 배정을 가르지 않는다 — 기록해야 할 사실과 배정을 갈라야 할 사실을 나눈 것이다.
+
+- **RunPod 서버리스를 쓰지 않고 파드를 쓴다.** 서버리스는 요청 단위로 컨테이너를 띄우므로 수 GB 가중치를 콜드 스타트마다 다시 적재해야 하고, 그걸 피하려면 결국 이미지에 굽거나 네트워크 볼륨을 붙여야 해서 파드와 같은 구성이 된다. 게다가 워커는 요청을 **받는** 쪽이 아니라 잡을 **가지러 가는** 쪽이라(long-poll claim) 요청 단위 과금 모델과 모양이 맞지 않는다. 대신 파드를 필요할 때만 켜서 같은 절약을 얻는다 — `Jenkinsfile.ops`의 `cron('0 4 * * *')`이 끄는 것을 잊어도 새벽에 내린다.
+
+- **SSAFY GPU 서버와 RunPod 파드를 동시에 켜지 않는다.** 둘이 같은 단계를 선언하므로 잡을 서로 뺏는다. 코드로 막을 수단이 없다 — BE에 배정 목록이 없고 워커의 선언이 정한다. 운영 규칙으로만 지키며 `infra/jenkins/README.md`에 적어 둔다.
 
 - **검색 경로가 GPU 서버에 의존하지 않는다.** 질의 리졸버를 EC2에 남겨, GPU 파드가 내려가 있어도 검색은 계속 동작하고 색인만 멈춘다. 검색 p95 목표가 대여 GPU의 가용성과 네트워크에 묶이지 않는다.
 
@@ -157,7 +183,7 @@ C4Deployment
 
 ## 가정
 
-- **swap이 0이다.** 15GB RAM에 컨테이너 7개(nginx · web · api · resolver · db · mlflow · jenkins)가 올라가므로 여유는 있으나, 색인 재구축이나 PostgreSQL `maintenance_work_mem` 상향 시 OOM 여지가 있다. 필요해지면 swapfile을 추가한다.
+- **swap이 0이다.** 15GB RAM에 컨테이너 8개(nginx · web · api · ai-worker · ai-cpu-worker · db · mlflow · jenkins)가 올라간다. 2026-09-18 실측 합계가 idle 3.6GB이고 `compose.yaml`이 **compose가 띄우는 7개**에 `mem_limit`를 걸어 상한 합계를 11.1GB로 묶었다(`S15P21A501-187`). **jenkins는 여기 포함되지 않는다** — compose 밖에서 `docker run`으로 뜨므로(infra/jenkins/README.md 3장) 상한이 없고, 실측 1.16GB인 그 JVM이 지금도 OOM killer를 부를 수 있는 유일한 컨테이너다 — 한 컨테이너의 폭주가 커널 OOM killer를 불러 **postgres를 끌어내리는** 경로를 막는 것이 목적이다. 숫자는 전부 실측 기반이며 올릴 때는 실사용량을 먼저 잰다.
 - **에셋 스토어는 named volume `npick-media`다.** `/srv/npick/media`로 backend와 AI 워커가 공유 마운트한다. 오브젝트 스토리지는 검토하지 않았다.
 - **질의 리졸버가 사용할 LLM이 미정이다.** GMS 또는 EC2에서 도는 소형 모델. 어느 쪽이든 이 배포도는 바뀌지 않는다.
 - **환경은 사용자 대면 경로가 P0 한 벌뿐이다.** EC2 스택에는 dev/staging 분리가 없어 이 문서가 유일한 배포도다. GPU만 실시간 구동(RunPod)과 개발 검증·데모 시드 적재(SSAFY GPU)로 갈리고, 뒤쪽은 상주하지 않고 배치 실행(`npick-worker-drain`)으로 돈다.

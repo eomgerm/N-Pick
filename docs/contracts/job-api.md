@@ -523,7 +523,7 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
     "promptVersion": "vlm-metadata-prompt/v2:2c686602",
     "detail": {
       "engine": "transformers",
-      "engineVersion": "transformers5.0.0+torch2.13.0",
+      "engineVersion": "transformers5.0.0",
       "modelVersion": "example/vlm@main",
       "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0"
     },
@@ -1029,6 +1029,8 @@ BE는 run 생성 시 계산해 컬럼을 채우고 `claim`으로 워커에 내�
 
 BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **값이 바뀌면 `ai/tests/test_job_contract.py`의 벡터도 함께 고쳐야 한다.**
 
+> **`engineVersion`에 torch 빌드를 넣지 않는다** (`S15P21A501-187`). 넣으면 cu128 노드와 cu130 노드가 같은 가중치로 다른 `stageVersion`을 선언하고, `pipeline.yml`은 단계당 값을 하나만 담으므로 둘 중 하나가 **오류 없이** 그 단계를 배정받지 못한다. 드라이버가 노드마다 달라 빌드를 맞출 수도 없다. 무엇으로 돌았는지는 같은 봉투의 `runtime.torch`·`runtime.cuda`가 싣고, 그쪽은 재현 식별자 밖이라 배정을 가르지 않는다.
+
 | 입력 | 결과 |
 | --- | --- |
 | `scene_detection.v1.toml` 기본 설정 | `configVersion` = `scene-detect/v1:20dfc0a6` |
@@ -1037,7 +1039,7 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | `{configVersion: frame-extract/v2:a0684794, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:5fa70a50` |
 | 보존된 `vlm_metadata.v1.toml` 이미지 전용 설정 | `configVersion` = `vlm-metadata-config/v1:13d50f07` |
 | 보존된 v1 설정의 **렌더링된** 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v1:78a02dbd` |
-| `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0+torch2.13.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:325198af` |
+| `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:29d30840` |
 | `vlm_metadata.v2.toml` 기본 설정 | `configVersion` = `vlm-metadata-config/v2:c3b7d840` |
 | v2 기본 설정의 렌더링된 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v2:2c686602` |
 | 위 v2 configVersion과 기존 예시 engine·engineVersion·modelVersion·tokenizer | `stageVersion` = `npick.stage.vlm_metadata/v1:2f0d224e` |

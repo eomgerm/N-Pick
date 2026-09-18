@@ -365,11 +365,13 @@ Spring profile 에 대응하는 개념이 없으므로 의존성 그룹으로 �
 | `gpu` | `uv sync --group gpu --group cu130` | faster-whisper·transformers·pillow·sentence-transformers | 약 1.8GB, 최초 1회. **가중치는 별도** |
 | `cu130` | 위와 함께 | torch(cu130) | 드라이버 **CUDA 13+** 노드용 (RunPod 파드) |
 | `cu128` | `uv sync --group gpu --group cu128` | torch(cu128) | 드라이버 **CUDA 12.8** 노드용 (SSAFY GPU 서버) |
+| `embedding` | `uv sync --group embedding --group cpu` | sentence-transformers | **색인과 질의가 함께 쓴다.** `gpu` 가 이 그룹을 include 하므로 GPU 노드에는 따로 주지 않는다 |
+| `cpu` | 위와 함께 | torch(CPU 전용 휠) | GPU 가 없는 노드용(EC2 질의 리졸버). torchvision 은 넣지 않는다 — VLM processor 조립에만 필요하다 |
 
 **CUDA 빌드는 반드시 하나를 함께 고른다.** PyTorch 휠은 빌드된 CUDA 이상의 드라이버를
 요구한다 — cu130 휠은 CUDA 13+ 가 있어야 하고, 드라이버가 12.8 인 SSAFY GPU 서버에서는
 GPU 를 못 잡는다. 그래서 `torch` 는 `gpu` 그룹에 없고 `cu128`/`cu130` 으로 갈려 있으며,
-둘은 `[tool.uv] conflicts` 로 배타 선언돼 한 환경에 같이 깔리지 않는다.
+셋(`cu128`·`cu130`·`cpu`)은 `[tool.uv] conflicts` 로 배타 선언돼 한 환경에 같이 깔리지 않는다.
 
 `--group gpu` 만 주면 `transformers`·`sentence-transformers` 가 **PyPI 의 torch** 를
 끌어온다 — Windows 는 CPU 전용, **Linux 는 CUDA 13 번들**이라 드라이버 12.8 노드에서
@@ -378,7 +380,9 @@ GPU 를 못 잡는다. 반드시 짝지어 쓴다.
 | 노드 | 드라이버 | 명령 |
 | --- | --- | --- |
 | RunPod GPU 파드 (실시간 구동) | CUDA 13+ | `uv sync --group gpu --group cu130` |
-| SSAFY GPU 서버 (개발 검증) | CUDA 12.8 | `uv sync --group gpu --group cu128` |
+| SSAFY GPU 서버 (개발 검증·데모 시드) | CUDA 12.8 | `uv sync --group gpu --group cu128` |
+| EC2 질의 리졸버 | 없음 | `uv sync --group embedding --group cpu` |
+| EC2 CPU 워커 (`ocr`) | 없음 | `uv sync` |
 
 cu128 쪽 torch 상한이 낮은 것(`>=2.11,<2.12`)은 의도가 아니라 제약이다 — cu128 인덱스가
 제공하는 최신이 2.11 이고 2.13 빌드가 없다. 드라이버가 올라가면 함께 올린다.
@@ -389,7 +393,9 @@ cu128 쪽 torch 상한이 낮은 것(`>=2.11,<2.12`)은 의도가 아니라 제�
 
 `rapidocr`(OCR 단계)가 `opencv-python` 을 요구하는데 그건 위와 같은 이유로 들이면 안 되는 배포판이다. **둘은 같은 `cv2` 를 설치하므로 함께 깔면 나중에 깔린 쪽이 이긴다.** `pyproject.toml` 의 `[tool.uv] override-dependencies` 가 항상 거짓인 marker 로 그 요구를 지워 headless 하나만 남긴다 — rapidocr 이 쓰는 것은 `import cv2` 뿐이라 구현체가 headless 여도 된다.
 
-OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/profiles/pipeline.yml` 이 "CPU 워커와 GPU 파드가 같은 이미지를 쓴다" 로 적었기 때문이다. 그룹으로 빼면 배포 이미지가 OCR 을 못 한다. 실행기가 onnxruntime(CPU)이라 GPU 없이 돌아간다 — 샘플 클립에서 장당 약 430ms 다([docs/ocr.md](docs/ocr.md) §9).
+OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 **EC2 CPU 워커가 이 단계만 맡기 때문이다** (S15P21A501-187). 그 이미지에는 torch 도 `gpu` 그룹도 없으므로 OCR 을 그룹으로 빼면 그 워커가 아무 일도 못 한다. 실행기가 onnxruntime(CPU)이라 GPU 없이 돌아간다 — 샘플 클립에서 장당 약 430ms 다([docs/ocr.md](docs/ocr.md) §9).
+
+> 여기 예전에는 `infra/compose/profiles/pipeline.yml` 의 "CPU 워커와 GPU 파드가 같은 이미지를 쓴다" 를 근거로 적어 두었다. 그 서술은 더 이상 사실이 아니다 — 배포 단위마다 필요한 torch 가 배타라 이미지가 갈린다. 결론은 같고 이유가 바뀌었다.
 
 `transformers`(VLM 단계)를 `gpu` 그룹에 둔 이유는 OCR 과 반대다. 이 단계는 GPU 파드의
 것이고 CPU 워커는 배정받지 않는다 — 모델 이름이 설정되지 않은 워커는 `capabilities` 에
@@ -406,6 +412,124 @@ OCR 을 `gpu` 처럼 opt-in 그룹에 두지 않은 이유는 `infra/compose/pro
 $env:UV_HTTP_TIMEOUT = "600"
 uv sync --directory ai --group gpu --group cu130
 ```
+
+## GPU 노드 설치·실행 (S15P21A501-187)
+
+GPU 노드 둘은 **컨테이너를 쓰지 않는다.** `ai/Dockerfile` 이 내는 이미지는 EC2 의 두
+컨테이너(질의 리졸버·CPU 워커)용이고, CUDA torch 가 4.2GB 라 GPU 를 안 쓰는 쪽이 그것을
+이고 갈 이유가 없다. GPU 노드는 소스를 놓고 `uv sync` 로 직접 환경을 만든다.
+
+배치는 [03-deployment.md](../docs/architecture/03-deployment.md) 가 정본이다.
+
+### SSAFY GPU 서버 — 개발 검증·데모 시드 (`cu128`)
+
+L40S × 4, 드라이버 570.x = CUDA 12.8. **팀 공용이라 다른 팀과 VRAM 을 나눠 쓴다** —
+`nvidia-smi` 로 빈 GPU 를 고르고 `CUDA_VISIBLE_DEVICES` 로 고정한다.
+
+```bash
+# 1회: 소스와 venv
+mkdir -p ~/npick-worker && cd ~/npick-worker
+# 저장소를 클론하거나, 로컬에서 ai/ 만 보낸다:
+#   tar czf - ai/pyproject.toml ai/uv.lock ai/.python-version ai/src ai/README.md \
+#     | ssh <서버> 'tar xzf - --no-same-owner -C ~/npick-worker'
+cd ai
+curl -LsSf https://astral.sh/uv/install.sh | sh   # uv 가 없을 때만
+export PATH="$HOME/.local/bin:$PATH"
+uv sync --locked --group gpu --group cu128
+
+# 확인 — 여기서 False 면 그 다음은 전부 헛수고다
+CUDA_VISIBLE_DEVICES=2 uv run --locked --group gpu --group cu128 python -c \
+  'import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))'
+```
+
+배치 실행(데모 시드 적재):
+
+```bash
+cd ~/npick-worker/ai
+export PATH="$HOME/.local/bin:$PATH"
+export CUDA_VISIBLE_DEVICES=2                 # 비어 있는 GPU
+export NPICK_AI_JOB_POLL_ENABLED=true
+export NPICK_AI_JOB_API_BASE_URL=https://j15a501.p.ssafy.io
+export NPICK_AI_JOB_API_TOKEN=...             # fleet 과 짝이 맞아야 한다
+export NPICK_AI_JOB_FLEET=prod
+export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
+export NPICK_AI_VLM_MODEL=Qwen/Qwen3.5-9B
+export NPICK_AI_ASR_MODEL=large-v3-turbo      # ai/docs/asr.md §5.6 확정값
+export NPICK_AI_ASR_MODEL_REVISION=0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf  # 고정 필수
+uv run --locked --group gpu --group cu128 npick-worker-drain
+```
+
+`NPICK_AI_JOB_STAGES` 에서 **`ocr` 을 뺀다.** 그 단계는 EC2 CPU 워커 몫이고, 여기서
+함께 선언하면 둘이 같은 잡을 두고 다툰다. 종료 코드의 뜻은 위 [배치 실행](#배치-실행--npick-worker-drain) 절에 있다.
+
+> **SSH 를 끊을 예정이면 `tmux` 안에서 돌린다.** drain 은 큐가 빌 때까지 돈다.
+
+### RunPod 파드 — 실시간 구동 (`cu130`)
+
+AP-JP-1, H100 80GB, 드라이버 CUDA 13. **60GB 네트워크 볼륨이 `/workspace` 에 붙어 있고
+venv 와 모델 가중치가 거기 함께 상주한다** — 파드를 내렸다 올려도 다시 받지 않는다.
+컨테이너 디스크는 휘발이므로 `/workspace` 밖에 아무것도 두지 않는다.
+
+```bash
+# /workspace/npick/env.sh — 캐시를 전부 볼륨으로 돌린다
+export PATH=/workspace/bin:$PATH
+export UV_CACHE_DIR=/workspace/.uv-cache
+export HF_HOME=/workspace/models
+export TORCH_HOME=/workspace/models
+export NPICK_AI_VLM_MODEL_DIR=/workspace/models/vlm
+export NPICK_AI_ASR_MODEL_DIR=/workspace/models/asr
+export NPICK_AI_EMBEDDING_MODEL_DIR=/workspace/models/embedding
+export NPICK_AI_OCR_MODEL_DIR=/workspace/models/rapidocr
+```
+
+```bash
+cd /workspace/npick/ai && . /workspace/npick/env.sh
+UV_LINK_MODE=copy UV_HTTP_TIMEOUT=600 uv sync --locked --group gpu --group cu130
+```
+
+**`UV_LINK_MODE=copy` 를 반드시 준다.** 볼륨이 MooseFS 라 하드링크 경로에서
+`Stale file handle (errno 116)` 이 난다. 그리고 **한 번 실패했으면 다시 `uv sync` 해도
+안 고쳐진다** — uv 는 dist-info 만 보고 "설치됨" 으로 판단한다. 실제로 transformers 가
+파일 4개만 남은 채 설치됨으로 잡혀 `sentence-transformers` 임포트가 깨진 적이 있다
+(`No module named 'transformers.configuration_utils'`). 그럴 때는:
+
+```bash
+uv sync --locked --group gpu --group cu130 --reinstall-package <망가진패키지>
+```
+
+**entity NER 가중치는 손으로 먼저 받는다.** 어댑터가 `local_files_only=True` 라
+스스로 내려받지 않는다(`entity_extraction/local_ner.py`) — 설계가 그렇다.
+
+```bash
+uv run --locked --group gpu --group cu130 python -c \
+  'from huggingface_hub import snapshot_download; snapshot_download("KPF/KPF-bert-ner", revision="efff871f686098933bf76d699c437c3f53abc19e")'
+```
+
+전원은 Jenkins 가 쥔다 — `Jenkinsfile.ops` 의 `RUNPOD_UP`/`RUNPOD_DOWN`, 또는
+`infra/jenkins/runpod.sh resume|stop`. 매일 새벽 4시에 cron 이 내린다.
+
+> **파드를 stop → start 하면 공인 IP 와 매핑 포트가 바뀐다.** SSH 로 붙을 일이 있으면
+> `GET /v1/pods/<id>` 의 `publicIp`·`portMappings` 를 다시 읽어 `~/.ssh/config` 를 고친다.
+
+> **모델 이름을 주지 않으면 그 단계가 조용히 빠진다.** `NPICK_AI_VLM_MODEL`·
+> `NPICK_AI_ASR_MODEL` 은 코드에 기본값이 없다(실측 후 확정 대상이라 코드가 고르면 근거
+> 없는 동결이 된다 — FRD §11). 값이 없는 단계는 `capabilities` 에 실리지 않으므로 배정도
+> 오지 않고 오류도 나지 않는다. 선언 결과는 `/health` 의 `pipeline.declared` 로 확인한다.
+
+### 단계 버전을 다시 재야 할 때
+
+`infra/compose/profiles/pipeline.yml` 의 `stage_versions` 는 **손으로 짓지 않는다.**
+워커의 선언값과 한 글자라도 다르면 그 단계는 오류 없이 배정만 멈춘다.
+
+```bash
+uv run --locked --group gpu --group cu128 python -c '
+from npick_worker.jobs import registry
+registry.warm_up(["vlm_metadata", "asr", "entity_extraction"])   # 가중치를 쓰는 단계는 먼저 워밍업
+for k, v in registry.capability_versions().items(): print(k, v)'
+```
+
+`uv.lock` 을 갱신했거나 설정 TOML 을 고쳤으면 다시 잰다.
+
 
 ## 환경 변수
 
@@ -437,6 +561,7 @@ uv sync --directory ai --group gpu --group cu130
 | `NPICK_AI_VLM_BACKEND` | `transformers` | `transformers`(자체 GPU) / `external`. 기본이 자체 호스팅인 이유는 [02-container.md](../docs/architecture/02-container.md) 요소 표 |
 | `NPICK_AI_VLM_EXTERNAL_*` | 전부 닫힘 | 외부 제공자 조건(PRD §12.4). **전부 채워도 clip 별 권리 확인 없이는 전송하지 않는다** — `.env.example` 과 [docs/vlm-metadata.md](docs/vlm-metadata.md) §8 |
 | `NPICK_AI_ASR_MODEL` | (없음) | ASR 가중치 식별자(예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기가 결과와 처리 시간을 바꾸고 실측 후 확정이라(FRD §11) 코드가 고르면 근거 없는 동결이다. 비어 있으면 이 단계가 `capabilities` 에서 빠진다. **기동 워밍업이 실패한 워커도 빠진다** — 폴링 중에 수 GB 를 다시 내려받지 않기 위해서이고, 복구는 재워밍업 또는 워커 재시작이다 |
+| `NPICK_AI_ASR_MODEL_REVISION` | (없음) | ASR 가중치 리비전. **40자리 SHA 로 고정해야 한다** — 크기 이름(`large-v3-turbo`)은 HF 저장소로 풀리고 그 저장소가 갱신되면 같은 `modelVersion` 이 다른 가중치를 가리킨다. `NPICK_AI_EMBEDDING_MODEL_REVISION` 과 같은 판단이며, 고정되지 않으면 이 단계가 `capabilities` 에서 빠진다. 확정 조합은 [docs/asr.md](docs/asr.md) §5.6 (`0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf`) |
 | `NPICK_AI_ASR_COMPUTE_TYPE` | 장치 기본값 | `float16`(CUDA) / `int8`(CPU) 등. 결과를 바꾸므로 재현 식별자의 `modelVersion` 에 함께 들어간다 |
 | `NPICK_AI_ASR_MODEL_DIR` | 없음 | ASR 가중치를 둘 곳. **컨테이너에서는 반드시 준다** — VLM 과 같은 이유다 |
 | `NPICK_AI_RESOLVER_BACKEND` | `ollama` | `ollama` / `gms`. 기본이 local 인 이유는 FRD §6.4 |
