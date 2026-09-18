@@ -51,6 +51,9 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
             WITH query_tokens AS (
                 SELECT string_to_array(:tokens, ' ') AS tokens
             ),
+            expanded_tokens AS (
+                SELECT string_to_array(:expandedTokens, ' ') AS tokens
+            ),
             text_hits AS (
                 SELECT s.scene_id, s.clip_id, paradedb.score(s) AS score
                 FROM npick.scene s
@@ -61,7 +64,11 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                     paradedb.boost(CAST(:captionWeight AS real),
                         paradedb.term_set('caption_tokens', (SELECT tokens FROM query_tokens))),
                     paradedb.boost(CAST(:transcriptWeight AS real),
-                        paradedb.term_set('transcript_tokens', (SELECT tokens FROM query_tokens)))])
+                        paradedb.term_set('transcript_tokens', (SELECT tokens FROM query_tokens))),
+                    paradedb.boost(CAST(:expandedWeight AS real),
+                        paradedb.term_set('caption_tokens', (SELECT tokens FROM expanded_tokens))),
+                    paradedb.boost(CAST(:expandedWeight AS real),
+                        paradedb.term_set('transcript_tokens', (SELECT tokens FROM expanded_tokens)))])
             ),
             ocr_hits AS (
                 SELECT k.scene_id, s.clip_id, max(paradedb.score(o)) AS score
@@ -99,8 +106,9 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
     }
 
     @Override
-    public List<SceneCandidateResult> findByWords(List<String> searchTokens) {
+    public List<SceneCandidateResult> findByWords(List<String> searchTokens, List<String> expandedTokens) {
         String tokens = joinTokens(searchTokens);
+        String expanded = joinTokens(expandedTokens);
         // 토큰이 없으면 DB 를 부르지 않는다. 빈 배열로 질의하면 pg_search 는 오류 없이 0건을 주는데,
         // 그것은 "검색어에 내용어가 없었다" 와 "색인에 없었다" 를 구분할 수 없게 만든다.
         if (tokens.isEmpty()) return List.of();
@@ -109,6 +117,8 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                 .addValue("tokens", tokens)
                 .addValue("captionWeight", properties.captionWeight())
                 .addValue("transcriptWeight", properties.transcriptWeight())
+                .addValue("expandedTokens", expanded)
+                .addValue("expandedWeight", properties.expandedWeight())
                 .addValue("ocrWeight", properties.ocrWeight())
                 .addValue("poolSize", properties.poolSize());
 

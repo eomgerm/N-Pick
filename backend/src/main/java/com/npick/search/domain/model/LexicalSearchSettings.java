@@ -12,7 +12,12 @@ import java.util.Objects;
  * ({@link SearchConfigVersion}).
  */
 public record LexicalSearchSettings(
-        String configVersion, double captionWeight, double transcriptWeight, double ocrWeight, int poolSize) {
+        String configVersion,
+        double captionWeight,
+        double transcriptWeight,
+        double ocrWeight,
+        double expandedWeight,
+        int poolSize) {
 
     public LexicalSearchSettings {
         Objects.requireNonNull(configVersion, "configVersion");

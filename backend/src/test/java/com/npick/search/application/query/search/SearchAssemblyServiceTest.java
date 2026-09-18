@@ -53,6 +53,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,7 +62,8 @@ class SearchAssemblyServiceTest {
 
     private static final String RAW_QUERY = "설 연휴 서울역 귀성 인파";
 
-    private static final LexicalSearchSettings LEXICAL = new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 200);
+    private static final LexicalSearchSettings LEXICAL =
+            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200);
 
     private QueryResolverPort resolver;
     private ParseRuleRepository parseRules;
@@ -557,6 +559,111 @@ class SearchAssemblyServiceTest {
                 base.config(),
                 base.degradedReasons(),
                 base.shortageReasons());
+    }
+
+    @Test
+    @DisplayName("규칙이 충돌해 건너뛰면 검색이 죽지 않고 degraded 로 닫힌다")
+    void ruleConflictClosesTheExecutionAsDegraded() {
+        // CompleteSearchExecution 은 applied_rules 의 skipped_conflict·skipped_incompatible·failed
+        // 도 degraded 로 본다. 조립이 SearchDegradedReason 만 보고 SUCCEEDED 로 닫으면 생성자가
+        // 불변식 위반으로 던지고, 그 예외는 BusinessException 이 아니라 실행도 안 닫힌다.
+        givenResolved();
+        when(parseRules.findActivePatchParseRules()).thenReturn(List.of(intentRule(), conflictingIntentRule()));
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(completedRecord().status()).isEqualTo(CompleteSearchExecution.ExecutionStatus.DEGRADED);
+        // 규칙 충돌은 기록의 상태를 바꾸지만 공개 어휘에는 없다 (§5.1 이 세 값으로 닫아 두었다).
+        assertThat(result.degradedReasons()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("확장어를 단어 검색에 넘긴다")
+    void handsExpandedTermsToTheLexicalChannel() {
+        // expanded_terms 는 동의어 검색의 유일한 경로다 (F-04 가 F-05 로 위임). 넘기지 않으면
+        // 확장어를 바꾸는 승인 규칙이 기록상 적용돼도 결과에 영향이 없다.
+        givenResolvedWithExpandedTerms();
+        when(pipeline.rank(any())).thenReturn(candidates());
+        when(record.complete(any())).thenReturn(List.of());
+
+        service.execute(query());
+
+        assertThat(pipelineQuery().finalResolution().expandedTerms()).containsExactly("집중호우");
+    }
+
+    @Test
+    @DisplayName("교정 전 AI 해석을 검증본과 따로 남긴다")
+    void keepsTheRawResolutionSeparateFromTheVerifiedOne() {
+        // §7.2: resolver_output_json 은 교정 전 AI 해석이다. 검증본만 남기면 리졸버가 실제로
+        // 무엇을 주장했는지 사라져 리졸버 품질을 나중에 따져볼 수 없다.
+        givenResolvedWithUngroundedEntity();
+        when(pipeline.rank(any())).thenReturn(candidates());
+        when(record.complete(any())).thenReturn(List.of());
+
+        service.execute(query());
+
+        var output = recordedResolution().resolverOutput();
+        assertThat(output.rawResolution().entities())
+                .singleElement()
+                .satisfies(entity -> assertThat(entity.origin()).isEqualTo(QueryResolution.Origin.EXPLICIT_QUERY));
+        assertThat(output.verifiedResolution().entities())
+                .singleElement()
+                .satisfies(entity -> assertThat(entity.origin()).isEqualTo(QueryResolution.Origin.INFERRED));
+    }
+
+    @Test
+    @DisplayName("해석 기록이 실패하면 complete 를 부르지 않고 실행을 닫는다")
+    void closesTheExecutionWhenTheResolutionSnapshotFails() {
+        // 어댑터는 resolution_recorded=false 인 실행의 완료를 거부한다. 그래도 complete 를 부르면
+        // 두 번째 실패가 또 삼켜지고 행이 영영 running 으로 남는다.
+        givenResolved();
+        org.mockito.Mockito.doThrow(new SearchRecordingException("해석 저장 실패"))
+                .when(record)
+                .recordResolution(any());
+        when(pipeline.rank(any())).thenReturn(candidates(scene(9301, 9101)));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.results()).hasSize(1);
+        assertThat(result.executionId()).isNull();
+        assertThat(result.degradedReasons()).containsExactly("snapshot_save_failed");
+        verify(record, never()).complete(any());
+        verify(record).fail(eq(700L), any(), anyInt());
+    }
+
+    /** 같은 축을 다르게 바꾸는 규칙. intentRule 과 함께 두면 충돌 그룹이 생겨 둘 다 건너뛴다. */
+    private static ParseRule conflictingIntentRule() {
+        return new ParseRule(
+                302L,
+                ParseRule.SYNTAX_VERSION,
+                "query-resolver/v2",
+                new ParseRule.Condition(List.of(new ParseRule.Condition.Predicate(
+                        ResolutionAxis.INTENT, ParseRule.Condition.Op.EQUALS, null, "scene_search"))),
+                new ParseRule.Patch(List.of(new ParseRule.Patch.Operation(
+                        ParseRule.Patch.Op.SET,
+                        ResolutionAxis.INTENT,
+                        new ParseRule.Patch.Target(null, "unknown", null, null),
+                        null))),
+                "{\"rule\":302}",
+                null);
+    }
+
+    private void givenResolvedWithExpandedTerms() {
+        QueryResolution withTerms = new QueryResolution(
+                "query-resolver/v2",
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("집중호우"),
+                0.9);
+        when(resolver.resolve(RAW_QUERY))
+                .thenReturn(new QueryResolutionResult(
+                        normalization(), withTerms, List.of(), null, "query-resolver/v2", "p", "m", null));
     }
 
     private void givenResolved() {

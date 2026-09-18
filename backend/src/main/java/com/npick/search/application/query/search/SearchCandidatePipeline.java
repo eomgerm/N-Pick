@@ -9,6 +9,7 @@ import java.util.Set;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.search.application.query.candidate.FindSceneCandidatesQueryPort;
@@ -22,6 +23,7 @@ import com.npick.search.application.query.dense.FindDenseCandidatesQueryPort;
 import com.npick.search.application.query.exclusion.ActiveSceneExclusionResult;
 import com.npick.search.application.query.exclusion.ApplyActiveSceneExclusionsQuery;
 import com.npick.search.application.query.exclusion.ApplyActiveSceneExclusionsUseCase;
+import com.npick.search.application.query.expansion.TokenizeExpandedTermsPort;
 import com.npick.search.application.query.fusion.FuseSearchRankingQuery;
 import com.npick.search.application.query.fusion.FuseSearchRankingUseCase;
 import com.npick.search.application.query.fusion.FusionResult;
@@ -64,6 +66,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     private final ApplyFalseHitGuardUseCase guard;
     private final ApplyActiveSceneExclusionsUseCase sceneExclusions;
     private final FindSceneCardsQueryPort sceneCards;
+    private final TokenizeExpandedTermsPort expandedTerms;
 
     public SearchCandidatePipeline(
             FindSceneCandidatesQueryPort lexicalCandidates,
@@ -76,7 +79,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
             ResolveSceneTagsUseCase sceneTags,
             ApplyFalseHitGuardUseCase guard,
             ApplyActiveSceneExclusionsUseCase sceneExclusions,
-            FindSceneCardsQueryPort sceneCards) {
+            FindSceneCardsQueryPort sceneCards,
+            TokenizeExpandedTermsPort expandedTerms) {
         this.lexicalCandidates = lexicalCandidates;
         this.denseCandidates = denseCandidates;
         this.denseSettings = denseSettings;
@@ -88,10 +92,15 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         this.guard = guard;
         this.sceneExclusions = sceneExclusions;
         this.sceneCards = sceneCards;
+        this.expandedTerms = expandedTerms;
     }
 
     @Override
-    @Transactional(readOnly = true)
+    // REPEATABLE_READ 를 여기서 지정해야 한다. 안쪽 유스케이스들이 각자 선언해 두었지만
+    // 기존 트랜잭션에 참여할 때는 그 선언이 무시되고 바깥 격리수준이 적용된다. 기본
+    // READ_COMMITTED 로 두면 동시 태그 교정 시 구조화 점수·soft·guard·응답 근거가 서로
+    // 다른 상태를 읽어, 주석이 약속한 「같은 시점」이 성립하지 않는다.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public SearchCandidates rank(Query query) {
         List<SearchDegradedReason> degraded = new ArrayList<>();
 
@@ -140,7 +149,26 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         if (!fusionSettings.isActive(FusionChannel.LEXICAL)) {
             return List.of();
         }
-        return lexicalCandidates.findByWords(query.normalization().searchTokens());
+        return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedTokens(query));
+    }
+
+    /**
+     * 확장어를 토큰으로 바꾸고 원 질의와 겹치는 것을 뺀다.
+     *
+     * <p>겹친 토큰을 그대로 넘기면 원 질의 절과 확장어 절에서 각각 가산돼 F-05 의 「같은 개체를 중복 계산하지 않는다」를 깬다. 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지르는 것도 같은 이유로
+     * 막는다 — 그래서 한 목록으로 합치지 않고 낮은 가중의 별도 절로 건다.
+     *
+     * <p>규칙 적용 <b>뒤</b>의 확장어를 토큰화한다. 교정으로 검수자가 넣은 값은 리졸버가 모르고, 백엔드에는 Kiwi 가 없다 (S15P21A501-205 의 창구).
+     */
+    private List<String> expandedTokens(Query query) {
+        if (query.finalResolution() == null
+                || query.finalResolution().expandedTerms().isEmpty()) {
+            return List.of();
+        }
+        Set<String> queryTokens = Set.copyOf(query.normalization().searchTokens());
+        return expandedTerms.tokenize(query.finalResolution().expandedTerms()).stream()
+                .filter(token -> !queryTokens.contains(token))
+                .toList();
     }
 
     /**

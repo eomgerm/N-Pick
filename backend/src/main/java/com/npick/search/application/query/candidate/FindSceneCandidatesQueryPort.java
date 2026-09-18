@@ -50,5 +50,10 @@ public interface FindSceneCandidatesQueryPort {
      * @param searchTokens Kiwi 토큰. 비어 있으면 질의하지 않고 빈 목록을 돌려준다
      * @return 점수 내림차순, 동점이면 {@code sceneId} 오름차순. 매칭이 없으면 빈 목록
      */
-    List<SceneCandidateResult> findByWords(List<String> searchTokens);
+    /**
+     * @param searchTokens 원 질의 토큰
+     * @param expandedTokens 규칙 적용 후 확장어의 토큰. <b>원 질의 토큰과 겹치는 것은 호출부가 이미 뺐다</b> — 겹친 토큰은 두 절에서 각각 가산되어 F-05 의 「같은 개체를 중복
+     *     계산하지 않는다」를 깬다. 확장어가 없거나 토큰화에 실패했으면 빈 목록이다
+     */
+    List<SceneCandidateResult> findByWords(List<String> searchTokens, List<String> expandedTokens);
 }

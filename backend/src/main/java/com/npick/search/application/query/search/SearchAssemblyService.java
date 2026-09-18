@@ -75,9 +75,12 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         long executionId = openExecution(query);
         try {
             return run(query, executionId, startedAt);
-        } catch (BusinessException failed) {
+        } catch (RuntimeException failed) {
             // 열어 둔 실행을 닫는다. 안 닫으면 running 행이 영구히 남아 성공 기록과 구분되지 않는다
             // (§6.2 「성공 기록이 남았다고 주장하지 않는다」).
+            //
+            // BusinessException 만 잡으면 분류되지 않은 결함(불변식 위반 등)이 행을 열어 둔 채
+            // 빠져나간다. 사유를 모르는 실패일수록 기록이 더 필요하다.
             abandon(executionId, failed, elapsedMs(startedAt));
             throw failed;
         }
@@ -85,7 +88,11 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
 
     private SearchExecutionResult run(ExecuteSearchQuery query, long executionId, long startedAt) {
         long resolveStartedAt = System.nanoTime();
-        QueryResolutionResult resolved = anchorVerifier.verify(query.rawQuery(), resolver.resolve(query.rawQuery()));
+        // 검증 전 값을 따로 들고 있는다. §7.2 가 resolver_output_json 을 「교정 전 AI 해석」으로
+        // 못박았는데, 검증본만 남기면 리졸버가 실제로 무엇을 주장했는지 사라진다 — 출처 강등과
+        // 날짜 필드 교정이 무엇을 바꿨는지 되짚을 수 없다.
+        QueryResolutionResult raw = resolver.resolve(query.rawQuery());
+        QueryResolutionResult resolved = anchorVerifier.verify(query.rawQuery(), raw);
         int parseMs = elapsedMs(resolveStartedAt);
         // 리졸버 장애가 아닌 실패는 여기서 예외로 올라간다. 해석 못 한 질의를 빈 결과의 성공
         // 응답으로 위장하지 않는다 (§6.2 「검색 실패를 결과 0건으로 위장하지 않는다」).
@@ -105,14 +112,19 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
                 query.explicitFilters());
         NormalizedSearch normalizedSearch = normalize(query, resolved);
 
-        recordResolution(executionId, query, resolved, normalizedSearch, parseSource, parseMs, degradedReasons);
+        boolean snapshotRecorded = recordResolution(
+                executionId, query, raw, resolved, normalizedSearch, parseSource, parseMs, degradedReasons);
 
         SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch);
         degradedReasons.addAll(candidates.degradedReasons());
 
         List<String> queryTokens = resolved.normalization().searchTokens();
-        List<Long> resultIds = completeRecord(
-                executionId, candidates, rules, finalResolution, degradedReasons, queryTokens, startedAt);
+        List<Long> resultIds = snapshotRecorded
+                ? completeRecord(
+                        executionId, candidates, rules, finalResolution, degradedReasons, queryTokens, startedAt)
+                // 해석 스냅샷이 없으면 어댑터가 완료를 거부한다. 그래도 complete 를 부르면 두 번째
+                // 실패가 또 삼켜지고 행이 영영 running 으로 남는다. 바로 닫는다.
+                : abandonUnrecorded(executionId, startedAt);
 
         // 기록 저장까지 포함해 찍는다. 앞에서 끊으면 같은 실행의 execution_ms 와 값이 갈리고,
         // 저장이 느릴 때 그 시간이 어느 지표에도 안 잡힌다 (§8.2).
@@ -156,9 +168,10 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
      * <p>저장 실패는 검색을 죽이지 않는다. 해석은 이미 끝났고 결과를 낼 수 있다 — 대신 사유를 남겨 응답이 미저장 상태임을 알린다 (§6.2 「결과 계산 후 기록 저장 실패」와 같은 취급이다. 둘을
      * 갈라 다루면 같은 「기록이 불완전하다」가 두 얼굴을 갖는다).
      */
-    private void recordResolution(
+    private boolean recordResolution(
             long executionId,
             ExecuteSearchQuery query,
+            QueryResolutionResult raw,
             QueryResolutionResult resolved,
             NormalizedSearch normalizedSearch,
             ParseSource parseSource,
@@ -169,13 +182,15 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
                     executionId,
                     query.explicitFilters(),
                     normalizedSearch,
-                    resolverOutput(resolved),
+                    resolverOutput(raw, resolved),
                     resolved.findings(),
                     parseSource,
                     parseMs,
                     degradedReasons));
+            return true;
         } catch (SearchRecordingException notRecorded) {
             degradedReasons.add(SearchDegradedReason.SNAPSHOT_SAVE_FAILED);
+            return false;
         }
     }
 
@@ -185,9 +200,12 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
      * <p>여기서 난 예외는 삼킨다. 사용자에게 돌아가야 하는 것은 검색이 왜 실패했는가이지, 그 실패를 기록하다 또 실패했다는 사실이 아니다. 삼키지 않으면 원래 사유가
      * {@code SearchRecordingException} 에 가려진다.
      */
-    private void abandon(long executionId, BusinessException failed, int executionMs) {
+    private void abandon(long executionId, RuntimeException failed, int executionMs) {
         try {
-            record.fail(executionId, failed.errorCode().code(), executionMs);
+            String code = failed instanceof BusinessException business
+                    ? business.errorCode().code()
+                    : SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED.code();
+            record.fail(executionId, code, executionMs);
         } catch (RuntimeException notRecorded) {
             // 실행은 running 으로 남는다. 그 행을 성공으로 읽지 않는 것은 기록을 읽는 쪽의 규약이다.
         }
@@ -244,9 +262,14 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
             List<String> queryTokens,
             long startedAt) {
         try {
+            // 규칙이 충돌·비호환·실패로 건너뛰어졌으면 그것도 기능 저하다. 공개 어휘(§5.1)에는
+            // 그 사유가 없지만 CompleteSearchExecution 은 applied_rules 로 같은 판정을 하므로,
+            // SearchDegradedReason 만 보고 SUCCEEDED 로 닫으면 불변식 위반으로 던진다.
+            boolean ruleDegraded = rules.outcomes().stream()
+                    .anyMatch(outcome -> outcome.status().degraded());
             return record.complete(new CompleteSearchExecution(
                     executionId,
-                    degradedReasons.isEmpty()
+                    degradedReasons.isEmpty() && !ruleDegraded
                             ? CompleteSearchExecution.ExecutionStatus.SUCCEEDED
                             : CompleteSearchExecution.ExecutionStatus.DEGRADED,
                     degradedReasons,
@@ -264,6 +287,23 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
             degradedReasons.add(SearchDegradedReason.SNAPSHOT_SAVE_FAILED);
             return null;
         }
+    }
+
+    /**
+     * 해석 스냅샷을 남기지 못한 실행을 닫는다.
+     *
+     * <p>결과는 이미 계산됐으므로 사용자에게 준다 (§6.2 「계산된 결과는 미저장 상태로 제공」). 다만 그 실행의 <b>기록</b>은 실패했고, 어댑터가 불완전한 스냅샷의 완료를 거부하므로
+     * {@code failed} 로 닫는 것이 이 행에 줄 수 있는 유일한 종료 상태다.
+     *
+     * @return 항상 {@code null} — 저장된 결과 ID 가 없다
+     */
+    private List<Long> abandonUnrecorded(long executionId, long startedAt) {
+        try {
+            record.fail(executionId, SearchExecutionErrorCode.EXECUTION_NOT_RECORDED.code(), elapsedMs(startedAt));
+        } catch (RuntimeException notRecorded) {
+            // 닫지도 못했다. running 으로 남고, 그 행을 성공으로 읽지 않는 것은 읽는 쪽의 규약이다.
+        }
+        return null;
     }
 
     private List<CompleteSearchExecution.RankedScene> rankedScenes(
@@ -323,12 +363,13 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         return new SearchExecutionResult.GuardSummary(excludedScenes.size(), reasons);
     }
 
-    private RecordSearchExecutionResolution.ResolverOutput resolverOutput(QueryResolutionResult resolved) {
+    private RecordSearchExecutionResolution.ResolverOutput resolverOutput(
+            QueryResolutionResult raw, QueryResolutionResult resolved) {
         if (!resolved.isResolved()) {
             return null;
         }
         return new RecordSearchExecutionResolution.ResolverOutput(
-                resolved.resolution(),
+                raw.resolution(),
                 resolved.resolution(),
                 resolved.resolutionSchemaVersion(),
                 resolved.promptVersion(),

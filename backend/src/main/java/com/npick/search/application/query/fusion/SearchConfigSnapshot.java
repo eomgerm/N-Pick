@@ -93,6 +93,7 @@ public record SearchConfigSnapshot(
         value.put("caption_weight", lexical.captionWeight());
         value.put("transcript_weight", lexical.transcriptWeight());
         value.put("ocr_weight", lexical.ocrWeight());
+        value.put("expanded_weight", lexical.expandedWeight());
         value.put("pool_size", lexical.poolSize());
         return value;
     }

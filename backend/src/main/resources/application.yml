@@ -111,6 +111,9 @@ npick:
       caption-weight: ${SEARCH_CANDIDATE_CAPTION_WEIGHT:1.0}
       transcript-weight: ${SEARCH_CANDIDATE_TRANSCRIPT_WEIGHT:1.0}
       ocr-weight: ${SEARCH_CANDIDATE_OCR_WEIGHT:1.0}
+      # 확장어는 보조 신호다. 원 질의어와 같은 가중이면 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지른다.
+      # 값은 실측 전까지 확정하지 않는다 (FRD 11.1) — 낮게 두어 순서를 뒤집지 못하게만 한다.
+      expanded-weight: ${SEARCH_CANDIDATE_EXPANDED_WEIGHT:0.3}
       # 재순위·제외 전의 후보 상한. 최종 반환 10개(F-05)와 다른 값이며 실측으로 조정한다.
       pool-size: ${SEARCH_CANDIDATE_POOL_SIZE:200}
     # 순위 결합(RRF) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).

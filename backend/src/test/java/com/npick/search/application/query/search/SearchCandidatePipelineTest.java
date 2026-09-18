@@ -18,6 +18,7 @@ import com.npick.search.application.query.dense.DenseSearchSettings;
 import com.npick.search.application.query.dense.FindDenseCandidatesQueryPort;
 import com.npick.search.application.query.exclusion.ActiveSceneExclusionResult;
 import com.npick.search.application.query.exclusion.ApplyActiveSceneExclusionsUseCase;
+import com.npick.search.application.query.expansion.TokenizeExpandedTermsPort;
 import com.npick.search.application.query.fusion.FuseSearchRankingUseCase;
 import com.npick.search.application.query.fusion.FusionResult;
 import com.npick.search.application.query.fusion.SearchConfigSnapshot;
@@ -58,6 +59,7 @@ class SearchCandidatePipelineTest {
     private final ApplyFalseHitGuardUseCase guard = mock(ApplyFalseHitGuardUseCase.class);
     private final ApplyActiveSceneExclusionsUseCase exclusions = mock(ApplyActiveSceneExclusionsUseCase.class);
     private final FindSceneCardsQueryPort cards = mock(FindSceneCardsQueryPort.class);
+    private final TokenizeExpandedTermsPort expandedTerms = mock(TokenizeExpandedTermsPort.class);
 
     @Test
     @DisplayName("단어 채널이 꺼져 있으면 조회하지 않는다")
@@ -69,14 +71,14 @@ class SearchCandidatePipelineTest {
 
         pipeline.rank(query());
 
-        verify(lexical, never()).findByWords(anyList());
+        verify(lexical, never()).findByWords(anyList(), anyList());
     }
 
     @Test
     @DisplayName("의미 검색 채널이 꺼져 있으면 조회하지 않는다")
     void doesNotQueryTheDenseChannelWhenItIsOff() {
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
-        when(lexical.findByWords(anyList())).thenReturn(List.of());
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
         givenRankingOf();
 
         pipeline.rank(query());
@@ -91,7 +93,8 @@ class SearchCandidatePipelineTest {
         // 세면 카드가 없어 빠진 장면이 누락돼 "9개인데 사유 없음" 이 나간다.
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
         Long[] ten = {9301L, 9302L, 9303L, 9304L, 9305L, 9306L, 9307L, 9308L, 9309L, 9310L};
-        when(lexical.findByWords(anyList())).thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 0)));
+        when(lexical.findByWords(anyList(), anyList()))
+                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 0)));
         givenRankingOf(ten);
         // 열 중 하나만 카드가 없다. 제외 뒤 개수는 10 이지만 실제로 내보내는 것은 9 다.
         when(cards.find(any())).thenReturn(cardsFor(9302L, 9303L, 9304L, 9305L, 9306L, 9307L, 9308L, 9309L, 9310L));
@@ -110,9 +113,70 @@ class SearchCandidatePipelineTest {
                                 id, 9101, "제목", "설명", 0, 1000, "b_roll", List.of(), null, List.of(), List.of())));
     }
 
+    @Test
+    @DisplayName("확장어를 토큰화해 원 질의와 겹치지 않는 것만 넘긴다")
+    void passesExpandedTokensWithoutOverlap() {
+        // expanded_terms 는 동의어 검색의 유일한 경로다. 겹친 토큰을 그대로 넘기면 원 질의 절과
+        // 확장어 절에서 각각 가산돼 F-05 의 "같은 개체를 중복 계산하지 않는다" 를 깬다.
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(expandedTerms.tokenize(List.of("집중호우"))).thenReturn(List.of("집중호우", "질의"));
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        pipeline.rank(queryWithExpandedTerms());
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(lexical).findByWords(anyList(), captor.capture());
+        assertThat(captor.getValue()).containsExactly("집중호우");
+    }
+
+    @Test
+    @DisplayName("토큰화가 실패해도 원 질의로 검색을 이어간다")
+    void continuesWithoutExpandedTermsWhenTokenizationFails() {
+        // S15P21A501-48 계약 9: 확장어 부재·토큰화 실패는 degraded 가 아니다.
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(expandedTerms.tokenize(any())).thenReturn(List.of());
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        SearchCandidates result = pipeline.rank(queryWithExpandedTerms());
+
+        assertThat(result.degradedReasons()).isEmpty();
+        verify(lexical).findByWords(anyList(), anyList());
+    }
+
+    private RankSearchCandidatesUseCase.Query queryWithExpandedTerms() {
+        QueryResolution withTerms = new QueryResolution(
+                "query-resolver/v2",
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("집중호우"),
+                0.9);
+        return new RankSearchCandidatesUseCase.Query(
+                new QueryNormalization("질의", List.of("질의"), "norm/v1"),
+                withTerms,
+                null,
+                NormalizedSearch.of("질의", Map.of(), "norm/v1"));
+    }
+
     private SearchCandidatePipeline pipeline(FusionSettings settings) {
         return new SearchCandidatePipeline(
-                lexical, dense, provider(), settings, structured, fusion, soft, tags, guard, exclusions, cards);
+                lexical,
+                dense,
+                provider(),
+                settings,
+                structured,
+                fusion,
+                soft,
+                tags,
+                guard,
+                exclusions,
+                cards,
+                expandedTerms);
     }
 
     private void givenRankingOf(Long... sceneIds) {
@@ -184,7 +248,7 @@ class SearchCandidatePipelineTest {
     private static SearchConfigSnapshot config() {
         return new SearchConfigSnapshot(
                 lexicalOnly(),
-                new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 200),
+                new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200),
                 null,
                 structuredSettings(),
                 softSettings());

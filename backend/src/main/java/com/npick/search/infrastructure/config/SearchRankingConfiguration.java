@@ -43,6 +43,7 @@ public class SearchRankingConfiguration {
                 properties.captionWeight(),
                 properties.transcriptWeight(),
                 properties.ocrWeight(),
+                properties.expandedWeight(),
                 properties.poolSize());
     }
 
