@@ -81,15 +81,34 @@ class MyInquiryDetailResponseTest {
         assertThat(MyInquiryDetailResponse.from(detailWithExplain("   ")).snapshotStatus()).isEqualTo("unavailable");
     }
 
-    @ParameterizedTest(name = "display.display_name={0} 이면 온전한 표시명이 아니라 unavailable")
-    @DisplayName("display.display_name 이 표시명(비어있지 않은 문자열)이 아니면 — 빈문자열·공백·null·숫자·객체 — unavailable 이다")
+    @Test
+    @DisplayName("display.display_name 이 null(제목 없는 영상)이면 available 이며 null 을 보존한다 — 생산자는 nullable clip.title 을 그대로 기록한다")
+    void availableWhenDisplayNameNull() {
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(
+                detailWithExplain("{\"display\":{\"display_name\":null,\"scene_description\":\"서울역 인파\"},\"score\":2}"));
+
+        assertThat(res.snapshotStatus()).isEqualTo("available");
+        MyInquiryDetailResponse.ResultSnapshot snap = (MyInquiryDetailResponse.ResultSnapshot) res.resultSnapshot();
+        assertThat(snap.explain().at("/display/display_name").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("display.display_name 이 빈 문자열이어도 available 이며 원값을 보존한다 — 대체 문구는 표현 계층이 정한다")
+    void availableWhenDisplayNameBlank() {
+        MyInquiryDetailResponse res =
+                MyInquiryDetailResponse.from(detailWithExplain("{\"display\":{\"display_name\":\"\"}}"));
+
+        assertThat(res.snapshotStatus()).isEqualTo("available");
+        MyInquiryDetailResponse.ResultSnapshot snap = (MyInquiryDetailResponse.ResultSnapshot) res.resultSnapshot();
+        assertThat(snap.explain().at("/display/display_name").asText()).isEmpty();
+    }
+
+    @ParameterizedTest(name = "display.display_name={0} 이면 생산자 타입(문자열·null) 이탈이라 unavailable")
+    @DisplayName("display.display_name 이 문자열도 null 도 아니면 — 숫자·객체 — 불완전 스냅샷으로 unavailable 이다")
     @ValueSource(strings = {
-            "{\"display\":{\"display_name\":\"\"}}",
-            "{\"display\":{\"display_name\":\"   \"}}",
-            "{\"display\":{\"display_name\":null}}",
             "{\"display\":{\"display_name\":123}}",
             "{\"display\":{\"display_name\":{\"nested\":\"x\"}}}"})
-    void unavailableWhenDisplayNameNotTextualOrBlank(String explainJson) {
+    void unavailableWhenDisplayNameNotStringOrNull(String explainJson) {
         MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain(explainJson));
 
         assertThat(res.snapshotStatus()).isEqualTo("unavailable");

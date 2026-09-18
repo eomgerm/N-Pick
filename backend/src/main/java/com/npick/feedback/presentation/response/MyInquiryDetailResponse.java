@@ -78,11 +78,13 @@ public record MyInquiryDetailResponse(
         }
         JsonNode explain = parseExplain(explainJson);
         // 재생성 금지: display 값은 저장된 explain 블롭에서만 온다. -60 생산자 형식은 표시값을
-        // {"display":{"display_name":...}} 로 중첩 저장하고(SearchExecutionRecordingDbTest, /display/display_name 검증),
-        // display.display_name 이 온전한 표시명(비어있지 않은 문자열)이 아니면 정상 스냅샷 미기록(불완전) → unavailable.
-        // 부재·null·공백·숫자·객체를 모두 거른다(isTextual 이 표시명 아닌 노드를 배제). 현재 태그/장면으로 채우지 않는다.
+        // {"display":{"display_name":...}} 로 중첩 저장한다(SearchExecutionRecordingDbTest, /display/display_name).
+        // 생산자(-59)는 display_name 에 nullable clip.title(SearchExplain#display)을 그대로 기록하므로 null 은
+        // "제목 없는 영상"이라는 유효한 과거 값이다 — available 로 보존하고 대체 문구는 표현 계층(FE)이 정한다.
+        // 정상 스냅샷 판정: display.display_name 이 문자열(빈 문자열 포함)이거나 null. display 블록/키 부재·숫자·객체는
+        // 미기록·불완전 → unavailable. 현재 태그/장면으로 채우지 않는다.
         JsonNode displayName = explain.at("/display/display_name");
-        if (!displayName.isTextual() || displayName.asText().isBlank()) {
+        if (!displayName.isTextual() && !displayName.isNull()) {
             return null;
         }
         return new ResultSnapshot(

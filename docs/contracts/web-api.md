@@ -642,7 +642,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 - `explicit_filters`: 검색 실행 당시 명시 filter(JSON object). 값이 없어도 빈 object `{}`이며 null이 아니다.
 - `resolution_note`, `review_started_at`, `closed_at`: 검수 처리 사유·시작·종료 시각. `OPEN` 상태면 셋 다 null이다.
-- `snapshot_status`: `"available"`(당시 결과 스냅샷 복원됨) | `"unavailable"`(문의는 조회되나 복원 가능한 스냅샷 없음). 후자는 `result_snapshot: null`이다. 판정 기준은 저장된 `explain`의 `display.display_name` 존재 여부다 — 검색 실행 기록(S15P21A501-60)이 표시값을 `explain.display` 하위에 저장하므로, 그 경로가 비면(미기록·불완전) `unavailable`로 응답한다.
+- `snapshot_status`: `"available"`(당시 결과 스냅샷 복원됨) | `"unavailable"`(문의는 조회되나 복원 가능한 스냅샷 없음). 후자는 `result_snapshot: null`이다. 판정 기준은 저장된 `explain`의 `display.display_name`이 **문자열이거나 `null`**인지다 — 검색 실행 기록(S15P21A501-60)이 표시값을 `explain.display` 하위에 저장하고 생산자(S15P21A501-59)는 nullable `clip.title`을 그대로 기록하므로, `null`(제목 없는 영상)도 유효한 과거 값으로 `available`이며 원값을 보존한다(대체 표기는 표현 계층이 정한다). `display` 블록·`display_name` 키가 없거나 문자열·null 이 아니면(미기록·불완전) `unavailable`로 응답한다.
 - `result_snapshot`: available일 때 `{ search_result_id, scene_id, rank, explain }`. `explain`은 검색 당시 표시값·점수 snapshot으로, 표시값은 `explain.display`(`display_name`·`scene_description` 등) 하위에 담긴다. **조회 시 현재 태그·장면으로 재계산하지 않는다**. 조회 오류는 unavailable로 처리하지 않고 `COMM_500`으로 응답한다.
 
 성공 `data` 예시(`CLOSED`·`no_action`):
