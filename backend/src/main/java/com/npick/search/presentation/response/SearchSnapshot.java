@@ -1,5 +1,7 @@
 package com.npick.search.presentation.response;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -18,21 +20,30 @@ import com.npick.search.application.query.SearchHistoryResultRow;
  * 당시 검색 결과 스냅샷의 복원 가능 판정과 조립 (S15P21A501-198).
  *
  * <p><b>목록과 상세가 이 클래스만 쓴다.</b> 계약이 「변하지 않은 기록의 목록/상세가 available 판정을 다르게 하지 않는다」를
- * 요구하므로, 판정을 두 곳에 두면 규칙이 갈라진다. 목록이 결과 전량을 싣고 다니는 이유도 이것이다.
+ * 요구하므로, 판정을 두 곳에 두면 규칙이 갈라진다. 목록이 결과 전량을 싣고 다니는 이유도 이것이다. {@code explicit_filters}
+ * 도 여기서 함께 낸다 — 형태 검증 결과가 판정에 들어가야 하므로 별도 경로로 빼면 다시 갈라진다(MR !126 리뷰 P2).
  *
  * <p>복원은 저장된 JSON 을 <b>그대로 통과</b>시킨다. 필드별로 DTO 를 세워 옮겨 담지 않는다 — 현재 태그·검색으로 재계산하지
- * 않는다는 FRD §7.2 를 구조로 보장하고, {@code display} 블록의 키 구성이 바뀌어도(S15P21A501-60 미결) 이 파일만 따라간다.
+ * 않는다는 FRD §7.2 를 구조로 보장한다.
  *
- * <p>판정 규칙: {@code filtered_json} 이 있어야 결과가 확정된 실행이고, 모든 결과 행이 {@code display}·{@code match} 를
- * 가져야 카드를 그릴 수 있다. 둘 중 하나라도 어긋나면 unavailable 이며 {@code result_count}·{@code representative_result}
- * ·{@code search_snapshot} 을 전부 null 로 낸다. 결과 0건과 저장 불완전을 가르는 유일한 근거가 {@code filtered_json} 이다.
+ * <p>다만 <b>통과와 무검증은 다르다.</b> 값을 고치지는 않되, FE 가 카드를 그릴 수 있는 형태인지는 확인한다. object 인지만
+ * 보고 통과시키면 빈 블록이 {@code available} 로 나가 FE 가 해석할 수 없는 {@code results} 를 받는다(MR !126 리뷰 P1).
+ * 저장 경계(S15P21A501-60)가 내부 구조를 검증하지 않으므로 읽는 쪽이 판정한다.
+ *
+ * <p>검증하지 <b>않는</b> 것: 닫힌 어휘의 소속. {@code shot_type} 이 4값 밖이어도 그대로 낸다 — §5.1 의 어휘 제약은
+ * {@code POST /search} 응답에만 걸리고, 기록을 소급 수정하지 않는다(FRD §7.2). 키의 존재와 FE 가 깨지는 불변식만 본다.
  */
 public record SearchSnapshot(
-        String snapshotStatus, Integer resultCount, JsonNode representativeResult, JsonNode payload) {
+        String snapshotStatus,
+        JsonNode explicitFilters,
+        Integer resultCount,
+        JsonNode representativeResult,
+        JsonNode payload) {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private static final SearchSnapshot UNAVAILABLE = new SearchSnapshot("unavailable", null, null, null);
+    /** 계약이 정한 결과 개수 상한. */
+    private static final int MAX_RESULTS = 10;
 
     /** 대표 결과가 목록에 싣는 필드. 상세의 results 한 항목에서 이 키만 뽑는다. */
     private static final List<String> REPRESENTATIVE_KEYS = List.of(
@@ -45,36 +56,99 @@ public record SearchSnapshot(
             "end_time_ms",
             "rank");
 
-    /**
-     * 실행 당시 명시 필터. {@code explicit_filters_json} 은 NOT NULL 이라 항상 읽히므로 스냅샷이 unavailable 이어도
-     * 실제 object 를 유지한다 — 계약의 「결과 snapshot 만 손상됐고 필터를 읽을 수 있으면 실제 object 를 유지한다」.
-     */
-    public static JsonNode explicitFilters(String json) {
-        return json == null || json.isBlank() ? MAPPER.createObjectNode() : readTree(json);
+    /** {@code display} 블록에 반드시 있어야 하는 키. 값의 null 허용 여부는 따로 본다. */
+    private static final List<String> DISPLAY_KEYS = List.of(
+            "display_name",
+            "scene_description",
+            "start_time_ms",
+            "end_time_ms",
+            "shot_type",
+            "scene_type",
+            "broadcast_date",
+            "filmed_date");
+
+    /** 명시 필터에서 선택 가능한 날짜 종류. 선택했으면 from·to 가 모두 필수다. */
+    private static final List<String> FILTER_DATE_KEYS = List.of("broadcast_date", "filmed_date");
+
+    private static SearchSnapshot unavailable(JsonNode explicitFilters) {
+        return new SearchSnapshot("unavailable", explicitFilters, null, null, null);
     }
 
     public static SearchSnapshot from(SearchHistoryRecord record) {
         SearchHistoryItem item = record.item();
+        // 필터 자체를 읽을 수 없으면 계약이 explicit_filters=null 과 unavailable 을 함께 요구한다.
+        JsonNode explicitFilters = validExplicitFilters(item.explicitFiltersJson());
+        if (explicitFilters == null) {
+            return unavailable(null);
+        }
         JsonNode filtered = parseOrNull(item.filteredJson());
         String queryResolutionStatus = queryResolutionStatus(item.parseSource());
         // jsonb 컬럼은 SQL NULL 뿐 아니라 JSON 리터럴 null 도 담을 수 있다 — CAST 하면 4글자 문자열 "null" 이
         // 되어 빈 값 검사를 통과한다. 둘 다 「결과가 확정되지 않았다」는 같은 뜻이므로 object 인지로 판정한다.
         if (filtered == null || !filtered.isObject() || queryResolutionStatus == null) {
-            return UNAVAILABLE;
+            return unavailable(explicitFilters);
+        }
+        if (record.results().size() > MAX_RESULTS) {
+            return unavailable(explicitFilters);
         }
         ArrayNode results = MAPPER.createArrayNode();
         for (SearchHistoryResultRow row : record.results()) {
             ObjectNode result = toResult(row);
             if (result == null) {
-                return UNAVAILABLE;
+                return unavailable(explicitFilters);
             }
             results.add(result);
         }
+        if (!ranksAreConsecutive(record.results())) {
+            return unavailable(explicitFilters);
+        }
         return new SearchSnapshot(
                 "available",
+                explicitFilters,
                 results.size(),
                 representativeOf(results),
                 payload(item, queryResolutionStatus, filtered, results));
+    }
+
+    /**
+     * 실행 당시 명시 필터. 읽을 수 없거나 형태가 깨졌으면 null 이며 호출자가 unavailable 로 만든다.
+     *
+     * <p>{@code null} 을 빈 object 나 현재 검색 화면의 필터로 보충하지 않는다. 필터 미선택({@code {}})과 「필터를 확인할
+     * 수 없다」는 다른 사실이다. 선택한 날짜 종류는 {@code from}·{@code to} 가 모두 있고 실제 달력 날짜이며
+     * {@code from <= to} 여야 한다 — 한쪽 경계만 있는 과거 미지원 형식을 정상 필터로 내보내지 않는다.
+     */
+    private static JsonNode validExplicitFilters(String json) {
+        JsonNode filters = parseOrNull(json);
+        if (filters == null || !filters.isObject()) {
+            return null;
+        }
+        for (String dateKey : FILTER_DATE_KEYS) {
+            JsonNode range = filters.get(dateKey);
+            if (range == null) {
+                continue;
+            }
+            if (!range.isObject() || !isValidDateRange(range)) {
+                return null;
+            }
+        }
+        return filters;
+    }
+
+    private static boolean isValidDateRange(JsonNode range) {
+        LocalDate from = parseDate(range.path("from").asString(null));
+        LocalDate to = parseDate(range.path("to").asString(null));
+        return from != null && to != null && !from.isAfter(to);
+    }
+
+    private static LocalDate parseDate(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     /**
@@ -95,15 +169,41 @@ public record SearchSnapshot(
         };
     }
 
-    /** 결과 한 행 = 컬럼 4개 + {@code display}·{@code match} 병합. 둘 중 하나라도 없으면 복원 불가라 null 이다. */
+    /**
+     * 저장된 rank 가 1 부터 연속인가. DB 제약은 양수와 실행 내 중복 없음만 보장한다.
+     *
+     * <p>rank 2 부터 저장된 기록을 available 로 내면 {@code result_count > 0} 인데 {@code representative_result} 가
+     * null 인 응답이 나간다. 계약이 그 조합을 0건에만 쓰므로 FE 가 대표 결과의 존재를 건수로 판단할 수 없게 된다.
+     */
+    private static boolean ranksAreConsecutive(List<SearchHistoryResultRow> rows) {
+        Set<Integer> ranks = new LinkedHashSet<>();
+        rows.forEach(row -> ranks.add(row.rank()));
+        if (ranks.size() != rows.size()) {
+            return false;
+        }
+        for (int rank = 1; rank <= rows.size(); rank++) {
+            if (!ranks.contains(rank)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 결과 한 행 = {@code display}·{@code match} 병합 + 컬럼 4개. 복원할 수 없는 형태면 null 이다. */
     private static ObjectNode toResult(SearchHistoryResultRow row) {
         if (row.explainJson() == null || row.explainJson().isBlank()) {
             return null;
         }
-        JsonNode explain = readTree(row.explainJson());
+        JsonNode explain = parseOrNull(row.explainJson());
+        if (explain == null || !explain.isObject()) {
+            return null;
+        }
         JsonNode display = explain.get("display");
         JsonNode match = explain.get("match");
         if (!(display instanceof ObjectNode displayObject) || !(match instanceof ObjectNode matchObject)) {
+            return null;
+        }
+        if (!isRenderableDisplay(displayObject) || !isRenderableMatch(matchObject)) {
             return null;
         }
         ObjectNode result = MAPPER.createObjectNode();
@@ -116,6 +216,59 @@ public record SearchSnapshot(
         result.put("clip_id", String.valueOf(row.clipId()));
         result.put("rank", row.rank());
         return result;
+    }
+
+    /**
+     * 카드를 그릴 수 있는 표시 블록인가. 키가 전부 있어야 하고 구간이 {@code 0 <= start < end} 여야 한다.
+     *
+     * <p>{@code display_name}·{@code scene_description}·{@code scene_type} 의 값은 null 을 허용한다 — 제목 없는 클립이
+     * 실제로 있고, 서버가 대체 문자열로 메우지 않는다. 날짜 블록은 {@code value}·{@code verification_status} 두 키가
+     * 모두 있어야 한다. {@code value} 가 null 이면 「모른다」이고, 키 자체가 없으면 「기록이 깨졌다」다.
+     */
+    private static boolean isRenderableDisplay(ObjectNode display) {
+        for (String key : DISPLAY_KEYS) {
+            if (!display.has(key)) {
+                return false;
+            }
+        }
+        JsonNode start = display.get("start_time_ms");
+        JsonNode end = display.get("end_time_ms");
+        if (!start.isIntegralNumber() || !end.isIntegralNumber()) {
+            return false;
+        }
+        if (start.asLong() < 0 || start.asLong() >= end.asLong()) {
+            return false;
+        }
+        return FILTER_DATE_KEYS.stream().allMatch(key -> hasDateShape(display.get(key)));
+    }
+
+    private static boolean hasDateShape(JsonNode date) {
+        return date != null && date.isObject() && date.has("value") && date.has("verification_status");
+    }
+
+    /**
+     * 근거 블록이 온전한가. {@code match_evidence} 는 1개 이상이고 각 항목에 네 키가 모두 있어야 한다.
+     *
+     * <p>{@code value} 는 null 을 허용한다 — 설명·대사·화면 글자·태그가 모두 없고 의미 검색 유사도만으로 올라온 장면이
+     * 있고, 그때 사람이 읽을 근거가 실제로 존재하지 않는다(S15P21A501-59 와 합의, §5.1). {@code source} 는 항상 있다.
+     */
+    private static boolean isRenderableMatch(ObjectNode match) {
+        if (!(match.get("matched_keywords") instanceof ArrayNode)) {
+            return false;
+        }
+        if (!(match.get("match_evidence") instanceof ArrayNode evidence) || evidence.isEmpty()) {
+            return false;
+        }
+        for (JsonNode item : evidence) {
+            if (!item.isObject()
+                    || !item.has("field")
+                    || !item.has("value")
+                    || !item.has("source")
+                    || !item.has("verification_status")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** 대표 결과는 저장된 rank=1 행이다. 결과가 없으면 null 이며 2위를 대신 올리지 않는다. */
@@ -145,8 +298,8 @@ public record SearchSnapshot(
     }
 
     /**
-     * 적용된 해석 규칙이 하나라도 있는가. {@code parse_source='resolver_rule'} 과 항상 같은 값이지만 계약 문구가 「저장된
-     * 적용 기록의 boolean」이므로 기록 쪽을 읽는다. 둘이 어긋나면 저장(S15P21A501-59) 버그다.
+     * 적용된 해석 규칙이 하나라도 있는가. 저장이 {@code parse_source='resolver_rule'} 을 같은 파생식(적용 기록에
+     * {@code applied} 존재)으로 만들므로 둘은 어긋날 수 없다. 계약 문구가 「저장된 적용 기록의 boolean」이라 기록을 읽는다.
      */
     private static boolean hasAppliedRule(String appliedRulesJson) {
         for (JsonNode rule : arrayOrEmpty(appliedRulesJson)) {

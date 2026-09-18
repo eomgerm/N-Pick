@@ -50,6 +50,227 @@ class SearchSnapshotTest {
             {"returned_count": 1, "shortage_reasons": ["candidate_pool_exhausted"],
              "guard": {"incident_guard_active": false, "verdicts": []}}""";
 
+    // ---- P1: display·match 의 필수 필드 검증 (MR !126 리뷰) ----
+
+    @Test
+    @DisplayName("display 에 필수 표시 필드가 빠지면 unavailable 이다 — object 이기만 하면 통과시키지 않는다")
+    void unavailableWhenDisplayLacksRequiredFields() {
+        String noShotType = DISPLAY.replace("\"shot_type\": \"b_roll\",", "");
+
+        SearchSnapshot snapshot =
+                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(noShotType, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(snapshot.payload()).isNull();
+    }
+
+    @Test
+    @DisplayName("display 가 빈 object 면 unavailable 이다")
+    void unavailableWhenDisplayIsEmptyObject() {
+        SearchSnapshot snapshot =
+                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain("\"display\": {}", MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 블록에 verification_status 가 없으면 unavailable 이다")
+    void unavailableWhenDateLacksVerificationStatus() {
+        String brokenDate = DISPLAY.replace(
+                "\"filmed_date\": {\"value\": null, \"verification_status\": \"unknown\"}",
+                "\"filmed_date\": {\"value\": null}");
+
+        SearchSnapshot snapshot =
+                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(brokenDate, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("구간이 뒤집혀 있으면 unavailable 이다 — FE 가 그릴 수 없다")
+    void unavailableWhenTimeRangeInverted() {
+        String inverted = DISPLAY.replace("\"start_time_ms\": 42000", "\"start_time_ms\": 49000")
+                .replace("\"end_time_ms\": 49000", "\"end_time_ms\": 42000");
+
+        SearchSnapshot snapshot =
+                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(inverted, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("match_evidence 가 비어 있으면 unavailable 이다 — 계약은 1개 이상을 요구한다")
+    void unavailableWhenMatchEvidenceEmpty() {
+        String noEvidence = "\"match\": {\"matched_keywords\": [], \"match_evidence\": []}";
+
+        SearchSnapshot snapshot =
+                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, noEvidence))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("match_evidence 항목에 source 가 없으면 unavailable 이다")
+    void unavailableWhenEvidenceLacksSource() {
+        String noSource = "\"match\": {\"matched_keywords\": [\"서울역\"], \"match_evidence\":"
+                + " [{\"field\": \"ocr\", \"value\": \"서울역\", \"verification_status\": \"verified\"}]}";
+
+        SearchSnapshot snapshot =
+                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, noSource))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("match_evidence 의 value 는 null 이어도 available 이다 — 근거가 실제로 없을 수 있다")
+    void allowsNullEvidenceValue() {
+        String nullValue = "\"match\": {\"matched_keywords\": [], \"match_evidence\":"
+                + " [{\"field\": \"tag\", \"value\": null, \"source\": \"dense_similarity\","
+                + " \"verification_status\": \"unverified\"}]}";
+
+        SearchSnapshot snapshot =
+                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, nullValue))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("available");
+        assertThat(snapshot.payload()
+                        .get("results")
+                        .get(0)
+                        .get("match_evidence")
+                        .get(0)
+                        .get("value")
+                        .isNull())
+                .isTrue();
+    }
+
+    // ---- P2-2: rank 연속성과 개수 상한 ----
+
+    @Test
+    @DisplayName("rank 가 1 부터 시작하지 않으면 unavailable 이다")
+    void unavailableWhenRankDoesNotStartAtOne() {
+        SearchSnapshot snapshot = SearchSnapshot.from(record(
+                FILTERED_OK, resultRow(2, explain(DISPLAY, MATCH)), resultRow(3, explain(DISPLAY, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(snapshot.resultCount()).isNull();
+        assertThat(snapshot.representativeResult()).isNull();
+    }
+
+    @Test
+    @DisplayName("rank 에 빈칸이 있으면 unavailable 이다")
+    void unavailableWhenRankHasGap() {
+        SearchSnapshot snapshot = SearchSnapshot.from(record(
+                FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH)), resultRow(3, explain(DISPLAY, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("결과가 10개를 넘으면 unavailable 이다 — 계약 상한은 10 이다")
+    void unavailableWhenMoreThanTenResults() {
+        SearchHistoryResultRow[] rows = new SearchHistoryResultRow[11];
+        for (int rank = 1; rank <= 11; rank++) {
+            rows[rank - 1] = resultRow(rank, explain(DISPLAY, MATCH));
+        }
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, rows));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("rank 1..N 이 연속이면 available 이고 대표 결과는 1위다")
+    void availableWhenRanksAreConsecutive() {
+        SearchSnapshot snapshot = SearchSnapshot.from(record(
+                FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH)), resultRow(2, explain(DISPLAY, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("available");
+        assertThat(snapshot.resultCount()).isEqualTo(2);
+        assertThat(snapshot.representativeResult().get("rank").asInt()).isEqualTo(1);
+    }
+
+    // ---- P2-1: explicit_filters 형태 검증이 판정에 들어간다 ----
+
+    @Test
+    @DisplayName("명시 필터가 object 가 아니면 explicit_filters 는 null 이고 unavailable 이다")
+    void unavailableWhenExplicitFiltersNotObject() {
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(
+                item(FILTERED_OK, "resolver", "[]", "[]", "[]"), List.of()));
+
+        assertThat(snapshot.explicitFilters()).isNull();
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("명시 필터가 없으면(기록 누락) explicit_filters 는 null 이고 unavailable 이다")
+    void unavailableWhenExplicitFiltersMissing() {
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(FILTERED_OK, "resolver", "[]", "[]", null), List.of()));
+
+        assertThat(snapshot.explicitFilters()).isNull();
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 필터에 to 가 빠지면 손상이므로 unavailable 이다")
+    void unavailableWhenDateFilterHalfOpen() {
+        String halfOpen = "{\"broadcast_date\": {\"from\": \"2026-09-01\"}}";
+
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(FILTERED_OK, "resolver", "[]", "[]", halfOpen), List.of()));
+
+        assertThat(snapshot.explicitFilters()).isNull();
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 필터의 from 이 to 보다 늦으면 unavailable 이다")
+    void unavailableWhenDateFilterInverted() {
+        String inverted = "{\"broadcast_date\": {\"from\": \"2026-09-15\", \"to\": \"2026-09-01\"}}";
+
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(FILTERED_OK, "resolver", "[]", "[]", inverted), List.of()));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜가 달력에 없으면 unavailable 이다")
+    void unavailableWhenDateFilterNotACalendarDate() {
+        String bogus = "{\"filmed_date\": {\"from\": \"2026-02-30\", \"to\": \"2026-03-01\"}}";
+
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(FILTERED_OK, "resolver", "[]", "[]", bogus), List.of()));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("필터 미선택은 빈 object 이며 available 을 막지 않는다")
+    void emptyFilterObjectIsValid() {
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(FILTERED_OK, "resolver", "[]", "[]", "{}"), List.of()));
+
+        assertThat(snapshot.explicitFilters().isObject()).isTrue();
+        assertThat(snapshot.explicitFilters()).isEmpty();
+        assertThat(snapshot.snapshotStatus()).isEqualTo("available");
+    }
+
+    @Test
+    @DisplayName("두 날짜 필터가 모두 온전하면 그대로 통과시킨다")
+    void keepsBothDateFilters() {
+        String both = "{\"broadcast_date\": {\"from\": \"2026-09-01\", \"to\": \"2026-09-15\"},"
+                + " \"filmed_date\": {\"from\": \"2026-08-28\", \"to\": \"2026-08-29\"}}";
+
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(FILTERED_OK, "resolver", "[]", "[]", both), List.of()));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("available");
+        assertThat(snapshot.explicitFilters().get("broadcast_date").get("to").asString())
+                .isEqualTo("2026-09-15");
+        assertThat(snapshot.explicitFilters().get("filmed_date").get("from").asString())
+                .isEqualTo("2026-08-28");
+    }
+
     @Test
     @DisplayName("filtered_json 이 없으면 결과 확정 전이므로 unavailable 이고 세 필드가 null 이다")
     void unavailableWhenFilteredJsonMissing() {
@@ -184,15 +405,18 @@ class SearchSnapshotTest {
     }
 
     @Test
-    @DisplayName("표시 키가 아예 없어도 대표 결과는 key 를 생략하지 않고 null 로 낸다")
-    void representativeKeepsMissingKeysAsNull() {
-        String minimal = "\"display\": {\"display_name\": \"제목\"}";
+    @DisplayName("표시 값이 null 이어도 대표 결과는 key 를 생략하지 않고 null 로 낸다")
+    void representativeKeepsNullValuesAsExplicitNull() {
+        // 키는 전부 있고 값만 null 인 경우다 — 키 자체가 없으면 P1 규칙대로 unavailable 이다.
+        String nullable = DISPLAY.replace("\"대합실 인파\"", "null").replace("\"역사 인파\"", "null");
 
-        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(minimal, MATCH))));
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(nullable, MATCH))));
 
+        assertThat(snapshot.snapshotStatus()).isEqualTo("available");
         assertThat(snapshot.representativeResult().has("scene_description")).isTrue();
         assertThat(snapshot.representativeResult().get("scene_description").isNull()).isTrue();
-        assertThat(snapshot.representativeResult().get("start_time_ms").isNull()).isTrue();
+        assertThat(snapshot.payload().get("results").get(0).get("scene_type").isNull())
+                .isTrue();
     }
 
     @Test
@@ -297,10 +521,19 @@ class SearchSnapshotTest {
 
     private static SearchHistoryItem item(
             String filteredJson, String parseSource, String appliedRulesJson, String appliedExcludesJson) {
+        return item(filteredJson, parseSource, appliedRulesJson, appliedExcludesJson, "{}");
+    }
+
+    private static SearchHistoryItem item(
+            String filteredJson,
+            String parseSource,
+            String appliedRulesJson,
+            String appliedExcludesJson,
+            String explicitFiltersJson) {
         return new SearchHistoryItem(
                 9701L,
                 "서울역 귀성 인파",
-                "{}",
+                explicitFiltersJson,
                 Instant.parse("2026-09-15T03:00:00Z"),
                 "succeeded",
                 "[]",

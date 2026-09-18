@@ -31,7 +31,7 @@ public record SearchHistoryDetailResponse(
         return new SearchHistoryDetailResponse(
                 String.valueOf(record.item().searchExecutionId()),
                 record.item().queryText(),
-                SearchSnapshot.explicitFilters(record.item().explicitFiltersJson()),
+                snapshot.explicitFilters(),
                 record.item().createdAt(),
                 record.item().status(),
                 snapshot.snapshotStatus(),

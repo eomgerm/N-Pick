@@ -664,7 +664,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 - `explicit_filters`: 검색 실행 당시 명시 filter(JSON object). 값이 없어도 빈 object `{}`이며 null이 아니다.
 - `resolution_note`, `review_started_at`, `closed_at`: 검수 처리 사유·시작·종료 시각. `OPEN` 상태면 셋 다 null이다.
-- `snapshot_status`, `result_snapshot`: 문의 당시 검색 결과 snapshot 복원 여부. **현재 구현은 항상 `snapshot_status: "unavailable"`, `result_snapshot: null`이다** — `search_result`에 snapshot을 복원할 저장 컬럼이 아직 없고, 그 저장 계약은 S15P21A501-60(미착수)이 소유한다. -60이 저장 형식을 확정하면 `available` 경로를 채운다.
+- `snapshot_status`, `result_snapshot`: 문의 당시 검색 결과 snapshot 복원 여부. **현재 구현은 항상 `snapshot_status: "unavailable"`, `result_snapshot: null`이다.** S15P21A501-60이 `explain_json`의 `display` 블록으로 저장 형식을 확정·병합했으므로 이제 복원 가능하며, `available` 경로를 채우는 것은 S15P21A501-207 소관이다. 복원 규칙은 §6.7이 같은 저장 형식에 대해 쓰는 것과 같다.
 
 성공 `data` 예시(`CLOSED`·`no_action`):
 
@@ -724,12 +724,20 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `filtered_json`이 object가 아님 (SQL NULL, JSON 리터럴 `null`, 배열 등) | `unavailable` | 전부 `null` |
 | `parse_source`가 NULL이거나 스키마에 없는 값 | `unavailable` | 전부 `null` |
 | 결과 행 하나라도 `display`/`match` 결측 | `unavailable` | 전부 `null` |
+| 결과 행의 `display`에 표시 키가 빠졌거나 구간이 `0 <= start < end`가 아님 | `unavailable` | 전부 `null` |
+| 결과 행의 `match_evidence`가 비었거나 항목에 네 키가 없음 | `unavailable` | 전부 `null` |
+| 저장된 `rank`가 1부터 연속이 아님, 또는 결과가 10개 초과 | `unavailable` | 전부 `null` |
+| `explicit_filters`를 읽을 수 없거나 날짜 필터가 손상됨 | `unavailable` | 전부 `null` + `explicit_filters: null` |
 
 `filtered_json`의 유무가 **정상 0건과 저장 불완전을 가르는 유일한 근거**다. 둘을 섞지 않는다. `jsonb` 컬럼은 SQL NULL뿐 아니라 JSON 리터럴 `null`도 담을 수 있으므로 값이 비었는지가 아니라 **object인지**로 판정한다.
 
 `parse_source`가 없으면 「어떻게 해석했는지 기록이 없다」는 뜻이므로 `resolved`로 접지 않는다. 없던 사실을 만들어 내지 않는다는 원칙은 아래 `display_name`과 같다(FRD §7.2).
 
-`explicit_filters`는 `unavailable`에서도 실제 object를 유지한다 — 결과 snapshot만 손상된 경우와 필터 자체를 못 읽는 경우를 구분한다. S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nullable로 완화했지만, 같은 마이그레이션의 `ck_execution_completed_snapshot`이 **결과를 낸 실행(`succeeded`/`degraded`)에는 NOT NULL을 되돌려** 보장한다. 이 절의 조회 대상이 그 두 상태뿐이므로 필터는 항상 읽힌다.
+`explicit_filters`는 **결과 snapshot만 손상된 경우**에는 실제 object를 유지한다. **필터 자체를 읽을 수 없거나 형태가 깨진 경우**에는 `null`이며 그때는 `snapshot_status`도 `unavailable`이다 — 둘을 구분하는 것이 이 필드의 목적이다. `null`을 `{}`나 현재 검색 화면의 필터로 보충하지 않는다. 필터 미선택(`{}`)과 「필터를 확인할 수 없다」(`null`)는 다른 사실이다.
+
+손상 판정: object가 아니거나(SQL NULL, JSON 리터럴 `null`, 배열), 선택한 날짜 종류에 `from`/`to` 중 하나가 없거나, 값이 실제 달력 날짜가 아니거나, `from > to`인 경우다. SQL `NOT NULL` 제약은 이 중 어느 것도 막지 못하므로 읽는 쪽이 판정한다. 한쪽 경계만 있는 과거 미지원 형식이 정상 필터로 나가지 않는다.
+
+S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nullable로 완화했지만, 같은 마이그레이션의 `ck_execution_completed_snapshot`이 **결과를 낸 실행(`succeeded`/`degraded`)에는 NOT NULL을 되돌려** 보장한다. 이 절의 조회 대상이 그 두 상태뿐이므로 컬럼 자체가 비는 일은 실무상 없고, 위 판정은 그럼에도 형태가 깨진 기록을 위한 것이다.
 
 `GET /search/history?page=0&size=10`
 
@@ -866,7 +874,9 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `SRCH_404_001`  | 404  | 본인 소유 아님·대상 밖 실행·존재하지 않음(동일 취급)         |
 | `COMM_500`      | 500  | 서버 오류                                                    |
 
-**저장 계약과의 관계.** 이 절은 S15P21A501-60이 소유하는 `search_execution`/`search_result` 저장 형식을 **읽기만** 한다. 저장 구현이 아직 없어 현재 검증은 고정 DB fixture로 했다 — 실제 검색 실행(§5, S15P21A501-59) → 기록 조회 왕복 확인은 -59/-60 병합 후 별도로 기록한다.
+**저장 계약과의 관계.** 이 절은 S15P21A501-60이 소유하는 `search_execution`/`search_result` 저장 형식을 **읽기만** 한다. -60은 저장 구현과 `explain_json` 4키 계약(`score`·`match`·`guard`·`display`)까지 병합 완료다. **아직 병합되지 않은 선행은 S15P21A501-59(`POST /search` 조립)뿐이다** — 실행을 만드는 쪽이 없어 현재 검증은 고정 DB fixture로 했고, 실제 검색 실행 → 기록 조회 왕복 확인은 -59 병합 후 별도로 기록한다.
+
+읽는 쪽이 저장 형태를 **검증**하는 이유: -60의 저장 경계는 `explain_json` 내부 구조를 검사하지 않는다. 블록이 object인지만 보고 통과시키면 빈 `display`가 `available`로 나가 FE가 해석할 수 없는 `results`를 받는다. 그래서 값은 고치지 않되 키의 존재와 FE가 깨지는 불변식(`0 <= start_time_ms < end_time_ms`, `match_evidence` 1개 이상, 날짜 블록의 두 키, rank 1..N 연속, 결과 10개 이하)은 확인하고, 하나라도 어긋나면 `unavailable`로 낸다. 닫힌 어휘의 소속은 검증하지 않는다 — `shot_type`이 4값 밖이어도 그대로 낸다(§5.1의 어휘 제약은 `POST /search` 응답에만 걸린다).
 
 ### 6.8 장면 대표 이미지(thumbnail) — 원본 반환
 
@@ -935,7 +945,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
 | 내 문의 기록       | §6.6으로 확정·BE 구현·FE 목록과 상세 연결 완료                       | 없음                                                                                      |
-| 내 검색 기록       | §6.7로 확정·BE 구현(조회만). FE 연결 남음                            | 실제 검색 실행(-59)·기록 저장(-60) 병합 후 왕복 확인 필요. `explain_json.display` 키 구성은 -60 미결 |
+| 내 검색 기록       | §6.7로 확정·BE 구현(조회만). FE 연결 남음                            | 저장(-60)·`explain_json` 4키 계약은 병합 완료. 남은 선행은 -59 `POST /search` 조립이며 그 뒤 실제 왕복 확인 필요 |
 | 처리 조회          | §6.5 실제 목록·상세·polling 연결, unknown/null 보존                    | 수동 재처리·장면 목록·썸네일 및 추가 메타데이터 계약 필요                                 |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.

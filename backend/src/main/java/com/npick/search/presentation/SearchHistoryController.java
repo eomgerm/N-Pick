@@ -1,6 +1,5 @@
 package com.npick.search.presentation;
 
-import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 
 import org.springframework.validation.annotation.Validated;
@@ -10,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.npick.common.error.BusinessException;
+import com.npick.common.error.CommonErrorCode;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
@@ -31,6 +32,11 @@ import com.npick.search.presentation.response.SearchHistoryListResponse;
 @Validated
 public class SearchHistoryController {
 
+    private static final int DEFAULT_PAGE = 0;
+    private static final int DEFAULT_SIZE = 10;
+    private static final int MIN_SIZE = 1;
+    private static final int MAX_SIZE = 100;
+
     private final ListMySearchHistoryUseCase listMySearchHistoryUseCase;
     private final GetMySearchHistoryDetailUseCase getMySearchHistoryDetailUseCase;
 
@@ -43,11 +49,15 @@ public class SearchHistoryController {
 
     @GetMapping
     public ApiResponse<SearchHistoryListResponse> list(
-            @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size,
+            @RequestParam(required = false) String page,
+            @RequestParam(required = false) String size,
             @LoginMember CurrentMember member) {
+        int pageNumber = pagingValue(page, DEFAULT_PAGE, 0, Integer.MAX_VALUE);
+        int pageSize = pagingValue(size, DEFAULT_SIZE, MIN_SIZE, MAX_SIZE);
         return ApiResponse.success(SearchHistoryListResponse.of(
-                listMySearchHistoryUseCase.listMine(member.memberId(), page, size), page, size));
+                listMySearchHistoryUseCase.listMine(member.memberId(), pageNumber, pageSize),
+                pageNumber,
+                pageSize));
     }
 
     @GetMapping("/{searchExecutionId}")
@@ -55,5 +65,34 @@ public class SearchHistoryController {
             @PathVariable @Min(1) long searchExecutionId, @LoginMember CurrentMember member) {
         return ApiResponse.success(SearchHistoryDetailResponse.from(
                 getMySearchHistoryDetailUseCase.detailMine(searchExecutionId, member.memberId())));
+    }
+
+    /**
+     * 생략과 빈 값을 구분해 읽는다.
+     *
+     * <p>{@code @RequestParam(defaultValue = ...)} 은 파라미터가 <b>빈 값일 때도</b> 기본값을 적용한다. 그래서
+     * {@code ?page=&size=} 가 400 이 아니라 {@code page=0, size=10} 으로 성공했다(MR !126 리뷰 P2). 정본은 생략한
+     * 경우에만 기본값을 적용하고 빈 값은 거부하라고 요구하므로 문자열로 받아 직접 판정한다.
+     *
+     * <p>형식 오류(빈 값·정수 아님)는 {@code COMM_400}, 범위 위반은 {@code COMM_400_001} 이다. 범위를 벗어난 값을
+     * clamp 하지 않는다 — 조용히 고쳐 주면 FE 가 잘못된 요청을 모른다.
+     */
+    private static int pagingValue(String raw, int defaultValue, int min, int max) {
+        if (raw == null) {
+            return defaultValue;
+        }
+        if (raw.isBlank()) {
+            throw new BusinessException(CommonErrorCode.BAD_REQUEST);
+        }
+        int value;
+        try {
+            value = Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            throw new BusinessException(CommonErrorCode.BAD_REQUEST);
+        }
+        if (value < min || value > max) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_FAILED);
+        }
+        return value;
     }
 }

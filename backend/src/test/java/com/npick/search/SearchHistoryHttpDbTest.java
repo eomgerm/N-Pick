@@ -150,6 +150,32 @@ class SearchHistoryHttpDbTest {
     }
 
     @Test
+    @Transactional
+    @DisplayName("빈 page·size 는 기본값이 아니라 400 이다 — 생략과 빈 값을 구분한다")
+    void rejectsBlankPaging() throws Exception {
+        // Spring 의 defaultValue 는 파라미터 생략뿐 아니라 빈 값에도 기본값을 적용한다.
+        mockMvc.perform(get("/api/v1/search/history?page=&size=").with(user(OWNER)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("COMM_400"));
+        mockMvc.perform(get("/api/v1/search/history?page=").with(user(OWNER)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?size=").with(user(OWNER)))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?page=%20").with(user(OWNER)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("파라미터를 생략하면 기본값 0·10 을 적용한다")
+    void appliesDefaultsWhenOmitted() throws Exception {
+        mockMvc.perform(get("/api/v1/search/history").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(10));
+    }
+
+    @Test
     @DisplayName("세션이 없으면 401 이다")
     void requiresSession() throws Exception {
         mockMvc.perform(get("/api/v1/search/history")).andExpect(status().isUnauthorized());

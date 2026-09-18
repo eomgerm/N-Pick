@@ -51,7 +51,7 @@ public record SearchHistoryListResponse(
         return new Item(
                 String.valueOf(record.item().searchExecutionId()),
                 record.item().queryText(),
-                SearchSnapshot.explicitFilters(record.item().explicitFiltersJson()),
+                snapshot.explicitFilters(),
                 record.item().createdAt(),
                 record.item().status(),
                 snapshot.snapshotStatus(),
