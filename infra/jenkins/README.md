@@ -851,20 +851,21 @@ docker compose exec postgres sh -c \
 > 순서를 지킨다: **drain 을 돌릴 거면 먼저 `ACTION=RUNPOD_DOWN`**, 파드를 쓸 거면
 > SSH 로 들어가 drain 이 끝난 것을 확인한 뒤 `ACTION=RUNPOD_UP`.
 
-### 14-2. credential 3종 등록
+### 14-2. credential 2종 등록
 
 Manage Jenkins → Credentials → System → Global → Add Credentials.
 
 | ID | 종류 | 값 | 어디서 쓰나 |
 | --- | --- | --- | --- |
 | `runpod-api-key` | Secret text | RunPod 콘솔의 API 키 | `runpod.sh` 의 `RUNPOD_API_KEY` |
-| `runpod-pod-id` | Secret text | 파드 ID (콘솔 또는 `GET /v1/pods` 의 `id`) | `runpod.sh` 의 `RUNPOD_POD_ID` |
 | `npick-reviewer` | Username with password | 검수자 계정 아이디·비밀번호 | `SEED` 의 `scripts/seed-clips.sh` |
 
 **ID 를 그대로 써야 한다.** `Jenkinsfile.ops` 가 이 문자열로 찾는다.
 
-파드 ID 는 값 자체가 비밀은 아니지만 credential 로 둔다 — 파드를 다시 만들면 바뀌는데,
-레포에 박아 두면 그때마다 커밋해야 하고 MR 을 거쳐야 배포된다.
+**파드 ID 는 credential 로 두지 않는다.** `runpod.sh` 가 이름(`RUNPOD_POD_NAME`,
+기본 `npick-worker`)으로 찾는다. 재고가 없어 파드를 다시 만들면 ID 가 바뀌는데
+(14-7), credential 에 박아 두면 그때마다 사람이 웹 UI 로 고쳐야 하고 **잊으면
+없는 파드를 끄고 성공했다고 보고한다.** 이름은 `runpod-create.sh` 가 고정한다.
 
 ### 14-3. 잡 등록
 
