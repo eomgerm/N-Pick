@@ -26,5 +26,22 @@ set -a
 set +a
 echo "롤백 — backend $BACKEND_TAG · frontend $FRONTEND_TAG · ai-worker $AI_TAG"
 
-docker compose up -d
+# **배포 전에 없던 서비스는 되돌릴 대상이 아니라 제거 대상이다.** 과거 태그의 이미지가
+# 존재하지 않으므로 up -d 에 포함하면 롤백 자체가 "이미지 없음" 으로 죽고, 실패한 배포가
+# 만든 서비스만 남는다 (S15P21A501-187 리뷰 지적).
+# NEW_SERVICES 가 없는 옛 형식의 파일도 그대로 동작한다.
+targets=$(docker compose config --services)
+if [ -n "${NEW_SERVICES:-}" ]; then
+  echo "배포 전에 없던 서비스를 제거한다:$NEW_SERVICES"
+  # shellcheck disable=SC2086
+  docker compose rm -sf $NEW_SERVICES || true
+  for service in $NEW_SERVICES; do
+    targets=$(printf '%s
+' "$targets" | grep -vx "$service" || true)
+  done
+fi
+
+# 대상을 명시한다. 인자 없는 up -d 는 방금 제거한 서비스를 다시 만든다.
+# shellcheck disable=SC2086
+docker compose up -d $targets
 rm -f .deploy-rollback

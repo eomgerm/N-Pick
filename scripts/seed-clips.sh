@@ -53,6 +53,7 @@ jq -n '{loginId: env.NPICK_LOGIN_ID, password: env.NPICK_PASSWORD}' |
 shopt -s nullglob nocaseglob
 failed=0
 registered=0
+CLIP_IDS=""
 fail() { echo "  $1" >&2; failed=$((failed + 1)); }
 
 for video in "$DIR"/*.{mp4,mov,mkv}; do
@@ -115,6 +116,10 @@ for video in "$DIR"/*.{mp4,mov,mkv}; do
               echo n)" = "y" ]; then
         echo "  ok $code"
         registered=$((registered + 1))
+        # 대기 블록이 이 목록으로 범위를 좁힌다. 없으면 전체 집계를 봐야 하고,
+        # 그러면 예전에 실패한 클립 하나가 이번 배치를 영원히 실패로 만든다.
+        clip_id=$(jq -r '.data.clip_id // empty' "$BODY" 2>/dev/null || echo "")
+        [ -z "$clip_id" ] || CLIP_IDS="$CLIP_IDS $clip_id"
       else
         fail "$code 인데 성공 봉투가 아니다: $(head -c 200 "$BODY")"
       fi
@@ -153,39 +158,52 @@ echo "$registered 건 등록됨"
 # Jenkins 의 SEED 잡이 "등록됐다"가 아니라 "시연에 쓸 수 있다"로 끝나게 하려는 것이다
 # (S15P21A501-187). 위에서 만든 jar 를 그대로 재사용하므로 다시 로그인하지 않는다.
 #
-# **run_counts 는 이 실행이 등록한 것만 세지 않는다.** 논리 삭제를 뺀 전체 집계다
-# (web-api.md §6.5). 그래서 예전에 실패한 클립이 DB 에 남아 있으면 이 대기는 그것 때문에
-# 실패로 끝난다. clip_id 별로 좁히려면 상세를 건건이 조회해야 하는데, 시드는 빈 환경에
-# 한 번 붓는 용도라 전체 집계로 충분하다고 보고 단순한 쪽을 택했다.
+# **이번 실행이 등록한 클립만 본다.** GET /clips 의 run_counts 는 논리 삭제를 뺀 전체
+# 집계라(web-api.md §6.5) 예전에 실패한 클립 하나가 이번 배치를 영원히 실패로 만든다.
+# 그래서 등록 응답의 clip_id 를 모아 두고 상세를 건건이 조회한다.
+#
+# **완주하려면 모든 단계가 배정 가능해야 한다.** 한 단계라도 pipeline.yml 의
+# stage_versions 에 없거나 그 단계를 선언한 워커가 없으면 run 이 거기서 멈추고 이
+# 대기는 제한 시간까지 돈다. 2026-09-18 현재 transcript_selection 이 그 상태다 —
+# Jenkinsfile.ops 의 SEED 가 WAIT_SECONDS>0 을 아예 거부하는 이유다.
 [ "$WAIT" -gt 0 ] || exit 0
 
 echo "처리 완료를 기다린다 (최대 ${WAIT}초, 10초 간격)"
+if [ -z "$CLIP_IDS" ]; then
+  echo "이번 실행이 등록한 클립이 없어 기다릴 대상이 없다" >&2
+  exit 1
+fi
+
 deadline=$(( $(date +%s) + WAIT ))
 while :; do
-  # size=1 로 받는다. 세는 값은 페이지와 무관한 전체 집계라 항목이 필요 없다.
-  code=$(curl -sS -o "$BODY" -w '%{http_code}' -b "$JAR" -c "$JAR" \
-    -H "X-XSRF-TOKEN: $(xsrf)" "$BASE/clips?page=0&size=1") && rc=0 || rc=$?
-  if [ "$rc" -ne 0 ] || [ "${code#2}" = "$code" ]; then
-    echo "  처리 현황을 읽지 못했다 (curl $rc / HTTP $code). 다시 시도한다" >&2
-  else
-    # jq 실패를 그대로 흘리면 set -e 가 대기 도중에 스크립트를 죽인다.
-    counts=$(jq -r '.data.run_counts | "\(.queued) \(.running) \(.failed) \(.succeeded)"' \
-      "$BODY" 2>/dev/null) || counts=""
-    if [ -z "$counts" ]; then
-      echo "  run_counts 를 읽지 못했다: $(head -c 200 "$BODY")" >&2
-    else
-      # shellcheck disable=SC2086
-      set -- $counts
-      echo "  queued=$1 running=$2 failed=$3 succeeded=$4"
-      if [ "$1" -eq 0 ] && [ "$2" -eq 0 ]; then
-        # 더 움직일 것이 없다. 남은 것은 실패가 있느냐뿐이라 여기서 판정한다 —
-        # failed 가 0 이 되기를 기다리면 영영 끝나지 않는다.
-        [ "$3" -eq 0 ] && { echo "처리 완료 (succeeded=$4)"; exit 0; }
-        echo "$3 건이 실패로 끝났다" >&2; exit 1
-      fi
+  pending=0; failed_runs=0; done_runs=0; unknown=0
+  for clip_id in $CLIP_IDS; do
+    code=$(curl -sS -o "$BODY" -w '%{http_code}' -b "$JAR" -c "$JAR" \
+      -H "X-XSRF-TOKEN: $(xsrf)" "$BASE/clips/$clip_id") && rc=0 || rc=$?
+    if [ "$rc" -ne 0 ] || [ "${code#2}" = "$code" ]; then
+      echo "  $clip_id 조회 실패 (curl $rc / HTTP $code)" >&2
+      unknown=$((unknown + 1)); continue
     fi
+    # run 이 아직 없으면 null 이다. 그건 "대기 중" 이지 완료가 아니다.
+    status=$(jq -r '.data.latest_run.status // "none"' "$BODY" 2>/dev/null || echo "none")
+    case "$status" in
+      succeeded) done_runs=$((done_runs + 1)) ;;
+      failed)    failed_runs=$((failed_runs + 1)) ;;
+      *)         pending=$((pending + 1)) ;;
+    esac
+  done
+  echo "  대기 $pending · 완료 $done_runs · 실패 $failed_runs · 조회불가 $unknown"
+
+  if [ "$pending" -eq 0 ] && [ "$unknown" -eq 0 ]; then
+    [ "$failed_runs" -eq 0 ] && { echo "처리 완료 ($done_runs 건)"; exit 0; }
+    echo "$failed_runs 건이 실패로 끝났다" >&2; exit 1
   fi
+
   [ "$(date +%s)" -lt "$deadline" ] || {
-    echo "${WAIT}초 안에 처리가 끝나지 않았다" >&2; exit 1; }
+    echo "${WAIT}초 안에 처리가 끝나지 않았다 (대기 $pending 건)" >&2
+    echo "배정받지 못하는 단계가 있으면 영원히 끝나지 않는다 —" >&2
+    echo "  infra/compose/profiles/pipeline.yml 의 stage_versions 에 그 단계가 있는지," >&2
+    echo "  워커의 잡 API 토큰·fleet 이 맞는지 확인한다" >&2
+    exit 1; }
   sleep 10
 done

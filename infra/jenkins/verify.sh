@@ -67,15 +67,21 @@ check 200 http://ai-worker:8000/health
 # 실패, 기대 버전 불일치가 전부 그 모양이다. 이 배포의 요점이 "ocr 은 CPU 워커가
 # 맡는다" 이므로 그 선언을 직접 확인한다 (S15P21A501-187).
 #
-# 둘 다 본다. `declared` 는 NPICK_AI_JOB_STAGES 가 제대로 좁혔는지만 말하고, 그 단계가
-# 실제로 claim 에 실리는지는 `warmup.ready` 가 말한다(schemas.py 의 주석이 그 둘을
-# 명시적으로 갈라 둔다). jq 는 Jenkins 이미지에 있다.
+# 셋 다 본다.
+#   declared        NPICK_AI_JOB_STAGES 가 제대로 좁혔는가
+#   warmup.ready    그 단계가 실제로 claim 에 실릴 수 있는가(schemas.py 가 둘을 갈라 둔다)
+#   polling.running **잡 루프가 살아 있는가** — 토큰이나 fleet 이 틀리면 루프가 죽는데
+#                   /health 는 200 이고 warmup 도 true 로 남는다. 이번 배포의 필수
+#                   설정이 바로 그 둘이라 이것을 안 보면 검증이 하는 일이 없다.
+# jq 는 Jenkins 이미지에 있다.
 if docker compose config --services | grep -qx ai-cpu-worker; then
   body=$(curl -s --max-time 10 http://ai-cpu-worker:8000/health || echo "{}")
   got=$(printf '%s' "$body" |
     jq -r '[(.pipeline.declared // [] | index("ocr") | if . then "ocr" else "없음" end),
-            (.warmup.ready | tostring)] | join("/")' 2>/dev/null || echo 'parse-실패')
-  report "ai-cpu-worker declared/warmup" "$got" "ocr/true"
+            (.warmup.ready | tostring),
+            (.polling.enabled | tostring),
+            (.polling.running | tostring)] | join("/")' 2>/dev/null || echo 'parse-실패')
+  report "ai-cpu-worker declared/warm/poll" "$got" "ocr/true/true/true"
 fi
 
 if echo "$services" | grep -qx nginx; then
