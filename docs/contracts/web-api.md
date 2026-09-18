@@ -290,7 +290,7 @@ FE URL 상태와 wire 요청의 대응:
 - **`display_name`은 null일 수 있다.** 출처인 `clip.title`이 nullable이라 제목 없이 등록된 영상이 있다. 서버가 임의 문자열로 메우지 않는다 — 메우면 기록에서 「제목이 없었다」와 「제목이 이랬다」를 구분할 수 없다(FRD §7.2). 대체 표기는 FE가 정한다. `scene_description`도 같은 이유로 null일 수 있다.
 - 날짜 `value`가 null이면 `verification_status`는 `unknown`이다. 값이 있으면 `verified` 또는 `unverified`다.
 - `status=succeeded`면 `degraded_reasons`는 비어 있다.
-- **응답의 `status`와 기록의 `search_execution.status`는 다를 수 있다.** 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 기록은 `degraded`지만 응답은 `succeeded`다. `degraded_reasons` 어휘가 아래 세 값으로 닫혀 있어 그 사유를 실을 자리가 없기 때문이고, 사용자가 받은 결과 자체는 온전하기 때문이다. 규칙별 적용·건너뜀·실패는 `applied_rules_json`이 남긴다. 기록을 읽는 화면은 이 차이를 알고 `search_execution.status`를 응답 `status`로 그대로 보여 주지 않는다.
+- **이 `status`와 `degraded_reasons`는 기록 컬럼의 값이 아니다.** 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 `search_execution.status`는 `degraded`가 되고 `degraded_reasons_json`에는 `skipped_conflict:<rule_id>` 같은 문자열이 함께 들어간다. 여기 세 값은 **사용자에게 보여 줄 수 있는 어휘만** 닫아 둔 것이라 그 사유를 실을 자리가 없고, 사용자가 받은 결과 자체는 온전하므로 응답은 `succeeded`다. 규칙별 판정은 `applied_rules_json`이 남기고 감사 화면(`GET /search/executions/{id}`)이 전량을 보여 준다. 기록을 읽는 화면이 이 두 필드를 만들 때 쓰는 파생 규칙은 §6.7이 정한다.
 - `matched_keywords`는 **확장어로 걸린 단어를 포함한다.** 어느 것이 AI가 넓힌 말인지 응답이 구분하지 않는다 — 그 표기는 아직 계약에 없다. 검색에는 쓰고 근거에는 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 포함 쪽을 택했다.
 - `status=degraded`면 `resolver_fallback`, `dense_unavailable`, `snapshot_save_failed` 중 하나 이상이다.
 - `query_resolution_status=fallback` 여부는 `resolver_fallback` 포함 여부와 일치한다.
@@ -694,7 +694,8 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 - `explicit_filters`: 검색 실행 당시 명시 filter(JSON object). 값이 없어도 빈 object `{}`이며 null이 아니다.
 - `resolution_note`, `review_started_at`, `closed_at`: 검수 처리 사유·시작·종료 시각. `OPEN` 상태면 셋 다 null이다.
-- `snapshot_status`, `result_snapshot`: 문의 당시 검색 결과 snapshot 복원 여부. **현재 구현은 항상 `snapshot_status: "unavailable"`, `result_snapshot: null`이다** — `search_result`에 snapshot을 복원할 저장 컬럼이 아직 없고, 그 저장 계약은 S15P21A501-60(미착수)이 소유한다. -60이 저장 형식을 확정하면 `available` 경로를 채운다.
+- `snapshot_status`: `"available"`(당시 결과 스냅샷 복원됨) | `"unavailable"`(문의는 조회되나 복원 가능한 스냅샷 없음). 후자는 `result_snapshot: null`이다. 판정 기준은 저장된 `explain`의 `display.display_name`이 **문자열이거나 `null`**인지다 — 검색 실행 기록(S15P21A501-60)이 표시값을 `explain.display` 하위에 저장하고 생산자(S15P21A501-59)는 nullable `clip.title`을 그대로 기록하므로, `null`(제목 없는 영상)도 유효한 과거 값으로 `available`이며 원값을 보존한다(대체 표기는 표현 계층이 정한다). `display` 블록·`display_name` 키가 없거나 문자열·null 이 아니면(미기록·불완전) `unavailable`로 응답한다.
+- `result_snapshot`: available일 때 `{ search_result_id, scene_id, rank, explain }`. `explain`은 검색 당시 표시값·점수 snapshot으로, 표시값은 `explain.display`(`display_name`·`scene_description` 등) 하위에 담긴다. **조회 시 현재 태그·장면으로 재계산하지 않는다**. 조회 오류는 unavailable로 처리하지 않고 `COMM_500`으로 응답한다.
 
 성공 `data` 예시(`CLOSED`·`no_action`):
 
@@ -720,10 +721,17 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
   "resolution_note": "사유 없음으로 처리",
   "review_started_at": "2026-09-11T03:05:00Z",
   "closed_at": "2026-09-11T03:10:00Z",
-  "snapshot_status": "unavailable",
-  "result_snapshot": null
+  "snapshot_status": "available",
+  "result_snapshot": {
+    "search_result_id": "9802",
+    "scene_id": "9302",
+    "rank": 2,
+    "explain": { "display": { "display_name": "KBC 뉴스9 · 설 연휴 교통", "scene_description": "서울역 귀성 인파" }, "score": 2 }
+  }
 }
 ```
+
+저장된 검색 결과 snapshot이 없으면 `"snapshot_status": "unavailable", "result_snapshot": null`이다.
 
 본인 소유가 아니거나, 참조하는 검색을 본인이 실행하지 않았거나, 존재하지 않는 `feedbackId`는 **동일하게 404**로 응답한다(존재 여부 비노출). 문의 작성자와 원 검색자가 모두 세션 사용자일 때만 조회된다 — 남의 검색 결과에 자기 명의로 만든 문의로 그 검색어·필터가 새어나가지 않게 한다.
 
