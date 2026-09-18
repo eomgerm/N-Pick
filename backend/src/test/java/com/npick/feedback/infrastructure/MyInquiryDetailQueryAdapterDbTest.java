@@ -84,6 +84,18 @@ class MyInquiryDetailQueryAdapterDbTest {
 
     @Test
     @Transactional
+    @DisplayName("본인 소유 문의는 당시 순위와 explain_json 원문을 함께 반환한다")
+    void returnsRecordedSnapshotFields() {
+        seed();
+
+        MyInquiryDetail detail = adapter.findByOwner(9902, 9001).orElseThrow();
+
+        assertThat(detail.resultRank()).isEqualTo(2);
+        assertThat(detail.resultExplainJson()).contains("\"score\"");
+    }
+
+    @Test
+    @Transactional
     @DisplayName("타인 소유 문의는 존재해도 빈 값을 반환한다")
     void returnsEmptyWhenNotOwner() {
         seed();

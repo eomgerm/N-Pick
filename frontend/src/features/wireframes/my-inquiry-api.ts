@@ -33,13 +33,20 @@ export interface MyInquiryPage {
   hasNext: boolean;
 }
 
+export interface ResultSnapshot {
+  searchResultId: string;
+  sceneId: string;
+  rank: number;
+  explain: Record<string, unknown>;
+}
+
 export interface MyInquiryDetail extends MyInquiry {
   explicitFilters: Record<string, unknown>;
   resolutionNote: string | null;
   reviewStartedAt: string | null;
   closedAt: string | null;
-  snapshotStatus: 'unavailable';
-  resultSnapshot: null;
+  snapshotStatus: 'available' | 'unavailable';
+  resultSnapshot: ResultSnapshot | null;
 }
 
 export const myInquiryKeys = {
@@ -138,18 +145,46 @@ export function parseMyInquiryPage(value: unknown): MyInquiryPage {
   };
 }
 
+function parseSnapshot(
+  status: unknown,
+  raw: unknown,
+): { status: 'available' | 'unavailable'; resultSnapshot: ResultSnapshot | null } {
+  // unavailable은 반드시 null을, available은 반드시 온전한 스냅샷을 동반한다. 그 외는 오류로 거른다 — 근거를 지어내지 않는다.
+  if (status === 'unavailable') {
+    if (raw !== null) fail();
+    return { status: 'unavailable', resultSnapshot: null };
+  }
+  if (status === 'available') {
+    const snap = record(raw);
+    const explain = record(snap.explain);
+    // BE 불변식과 대칭: 생산자(-59)는 display_name 에 nullable clip.title 을 그대로 기록한다. 문자열이거나
+    // null(제목 없는 영상)이면 정상 스냅샷으로 보존하고, display 블록·키 부재나 비문자열은 계약 이탈로 거른다.
+    // 대체 표기는 표현 계층이 정한다 — 여기서 근거를 지어내지 않는다.
+    nullableText(record(explain.display).display_name);
+    return {
+      status: 'available',
+      resultSnapshot: {
+        searchResultId: id(snap.search_result_id),
+        sceneId: id(snap.scene_id),
+        rank: integer(snap.rank, 1),
+        explain,
+      },
+    };
+  }
+  return fail();
+}
+
 export function parseMyInquiryDetail(value: unknown): MyInquiryDetail {
   const data = record(value);
-  // The current public contract only defines unavailable snapshots; never invent evidence.
-  if (data.snapshot_status !== 'unavailable' || data.result_snapshot !== null) fail();
+  const snapshot = parseSnapshot(data.snapshot_status, data.result_snapshot);
   return {
     ...parseItem(data),
     explicitFilters: record(data.explicit_filters),
     resolutionNote: nullableText(data.resolution_note),
     reviewStartedAt: data.review_started_at === null ? null : timestamp(data.review_started_at),
     closedAt: data.closed_at === null ? null : timestamp(data.closed_at),
-    snapshotStatus: 'unavailable',
-    resultSnapshot: null,
+    snapshotStatus: snapshot.status,
+    resultSnapshot: snapshot.resultSnapshot,
   };
 }
 

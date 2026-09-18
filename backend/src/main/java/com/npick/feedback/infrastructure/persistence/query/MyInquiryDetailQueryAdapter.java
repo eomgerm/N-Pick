@@ -30,7 +30,9 @@ public class MyInquiryDetailQueryAdapter implements MyInquiryDetailQuery {
                    f.resolution_note, f.review_started_at, f.closed_at,
                    CAST(se.explicit_filters_json AS text) AS explicit_filters_json,
                    sc.scene_id, sc.clip_id, c.title AS clip_title, sc.start_time_ms, sc.end_time_ms,
-                   sc.pipeline_run_id, pr.processing_no
+                   sc.pipeline_run_id, pr.processing_no,
+                   sr.result_rank,
+                   CAST(sr.explain_json AS text) AS result_explain_json
             FROM feedback f
             JOIN search_result sr ON sr.search_result_id = f.search_result_id
             JOIN search_execution se ON se.search_execution_id = sr.search_execution_id
@@ -78,6 +80,8 @@ public class MyInquiryDetailQueryAdapter implements MyInquiryDetailQuery {
                 (String) row.get("status"),
                 (String) row.get("resolution"),
                 scene,
+                ((Number) row.get("result_rank")).intValue(),
+                (String) row.get("result_explain_json"),
                 (String) row.get("explicit_filters_json"),
                 (String) row.get("resolution_note"),
                 toInstantOrNull(row.get("review_started_at")),

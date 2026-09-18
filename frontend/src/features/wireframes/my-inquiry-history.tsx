@@ -7,7 +7,12 @@ import { useState } from 'react';
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { useMember } from '@/components/session-boundary';
 import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
-import { getMyInquiries, getMyInquiry, myInquiryKeys } from '@/features/wireframes/my-inquiry-api';
+import {
+  getMyInquiries,
+  getMyInquiry,
+  myInquiryKeys,
+} from '@/features/wireframes/my-inquiry-api';
+import { resolveInquiryResultTitle } from '@/features/wireframes/my-inquiry-view';
 import {
   InquiryDialog,
   SceneDialog,
@@ -171,6 +176,9 @@ function MyInquiryDetailDialog({ feedbackId, theme, onClose }: MyInquiryDetailDi
   });
   if (detail.isSuccess) {
     const inquiry = detail.data;
+    // 재생성 금지: 스냅샷이 복원됐으면 당시 표시명을 쓴다. 없으면(unavailable) 현재 장면 제목으로 대체하되
+    // 근거 기록 없음을 dialog가 안내한다.
+    const snapshotUnavailable = inquiry.resultSnapshot === null;
     const history: InquiryDetails =
       inquiry.status === 'closed'
         ? {
@@ -178,9 +186,9 @@ function MyInquiryDetailDialog({ feedbackId, theme, onClose }: MyInquiryDetailDi
             comment: inquiry.comment ?? '',
             resolution: inquiry.resolution,
             resolutionSummary: inquiry.resolutionNote,
-            snapshotUnavailable: true,
+            snapshotUnavailable,
           }
-        : { status: inquiry.status, comment: inquiry.comment ?? '', snapshotUnavailable: true };
+        : { status: inquiry.status, comment: inquiry.comment ?? '', snapshotUnavailable };
     return (
       <InquiryDialog
         theme={theme}
@@ -188,7 +196,7 @@ function MyInquiryDetailDialog({ feedbackId, theme, onClose }: MyInquiryDetailDi
         history={history}
         result={{
           id: inquiry.scene.sceneId,
-          title: inquiry.scene.clipTitle || '제목 없는 영상',
+          title: resolveInquiryResultTitle(inquiry.resultSnapshot, inquiry.scene.clipTitle),
           time: `${formatMediaTime(inquiry.scene.startTimeMs / 1000)} – ${formatMediaTime(inquiry.scene.endTimeMs / 1000)}`,
         }}
         onClose={onClose}
