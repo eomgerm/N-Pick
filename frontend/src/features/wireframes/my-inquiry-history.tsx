@@ -11,8 +11,8 @@ import {
   getMyInquiries,
   getMyInquiry,
   myInquiryKeys,
-  type ResultSnapshot,
 } from '@/features/wireframes/my-inquiry-api';
+import { resolveInquiryResultTitle } from '@/features/wireframes/my-inquiry-view';
 import {
   InquiryDialog,
   SceneDialog,
@@ -161,14 +161,6 @@ export function MyInquiryHistory({ theme, onDetailOpenChange }: MyInquiryHistory
   );
 }
 
-function readSnapshotDisplayName(snapshot: ResultSnapshot | null): string | null {
-  if (snapshot === null) return null;
-  const display = snapshot.explain.display;
-  if (display === null || typeof display !== 'object') return null;
-  const name = (display as Record<string, unknown>).display_name;
-  return typeof name === 'string' && name.length > 0 ? name : null;
-}
-
 interface MyInquiryDetailDialogProps {
   feedbackId: string;
   theme: WireframeTheme;
@@ -187,7 +179,6 @@ function MyInquiryDetailDialog({ feedbackId, theme, onClose }: MyInquiryDetailDi
     // 재생성 금지: 스냅샷이 복원됐으면 당시 표시명을 쓴다. 없으면(unavailable) 현재 장면 제목으로 대체하되
     // 근거 기록 없음을 dialog가 안내한다.
     const snapshotUnavailable = inquiry.resultSnapshot === null;
-    const snapshotTitle = readSnapshotDisplayName(inquiry.resultSnapshot);
     const history: InquiryDetails =
       inquiry.status === 'closed'
         ? {
@@ -205,7 +196,7 @@ function MyInquiryDetailDialog({ feedbackId, theme, onClose }: MyInquiryDetailDi
         history={history}
         result={{
           id: inquiry.scene.sceneId,
-          title: snapshotTitle ?? inquiry.scene.clipTitle ?? '제목 없는 영상',
+          title: resolveInquiryResultTitle(inquiry.resultSnapshot, inquiry.scene.clipTitle),
           time: `${formatMediaTime(inquiry.scene.startTimeMs / 1000)} – ${formatMediaTime(inquiry.scene.endTimeMs / 1000)}`,
         }}
         onClose={onClose}
