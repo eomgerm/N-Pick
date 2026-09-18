@@ -14,9 +14,11 @@ import com.npick.feedback.application.query.MyInquiryDetail;
  * 「내 문의 기록」 상세 응답 (S15P21A501-185). 목록 응답과 같은 snake_case/문자열 ID 규칙을 따른다({@link MyInquiryListResponse}).
  *
  * <p>{@code snapshot_status}/{@code result_snapshot} 판정: 저장된 {@code result_explain_json}의 {@code display.display_name}
- * (-60 생산자 형식 {@code {"display":{"display_name":...}}})이 있으면 available과 당시 순위·explain을 담은 스냅샷을,
- * 없으면(부재·null·공백·display 미기록) unavailable과 null을 반환한다. {@link #from}이 이 판정을 모으는 유일한 지점이다.
- * 표시값은 저장된 explain_json에서만 오며 현재 태그/장면으로 재생성하지 않는다.
+ * (-60 생산자 형식 {@code {"display":{"display_name":...}}})이 문자열(빈 문자열 포함)이거나 {@code null}이면 available과
+ * 당시 순위·explain을 담은 스냅샷을 반환한다. 생산자(-59)는 nullable {@code clip.title}을 그대로 기록하므로 {@code null}은
+ * "제목 없는 영상"이라는 유효한 과거 값이며 그대로 보존한다(대체 표기는 표현 계층이 정한다). {@code display} 블록·키가 없거나
+ * 문자열·null이 아니면(숫자·객체 등 미기록·불완전) unavailable과 null을 반환한다. {@link #from}이 이 판정을 모으는 유일한
+ * 지점이다. 표시값은 저장된 explain_json에서만 오며 현재 태그/장면으로 재생성하지 않는다.
  */
 public record MyInquiryDetailResponse(
         @JsonProperty("feedback_id") String feedbackId,
