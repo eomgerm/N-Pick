@@ -12,6 +12,7 @@
 | [docs/vlm-metadata.md](docs/vlm-metadata.md) | VLM 장면 metadata — 출력 계약·어휘·거부 규칙·외부 처리 게이트. **Qwen3.5-9B 선정, 4B 대체; 실측 비교는 §9.6** |
 | [docs/ocr.md](docs/ocr.md) | OCR 엔진 선정·frame 간 병합과 원본 보존·임계값 실측·설정 키 |
 | [docs/entity-extraction.md](docs/entity-extraction.md) | entity 추출 — NER 선정 근거·유형 범위·근거 연결·실측과 미검증 범위 |
+| [docs/transcript-selection.md](docs/transcript-selection.md) | 자막·CC 선택 — 채택 규칙의 소유자가 4단계인 이유·예비 판정과 최종 정본·클램프가 계약인 이유·설정 키. **`min_uncovered_ms` 는 미측정(§6)** |
 | [docs/asr.md](docs/asr.md) | ASR — 엔진 경계·VAD 가 실행기 안인 이유·빈 결과/실패/미실행 구분·설정 키. **임계값과 모델 크기는 미측정(§5)** |
 | [docs/text-embedding.md](docs/text-embedding.md) | scene dense 벡터 — 입력이 캡션+대사인 이유·모델 교체 층·재현 식별자 네 축. **모델은 `S15P21A501-175` 가 확정** |
 | [docs/query-embedding.md](docs/query-embedding.md) | 질의 dense 벡터 — 원문을 임베딩하는 이유·접두가 색인 측과 다른 이유·기동 워밍업과 그 상한. 벡터 공간은 색인 측 정본을 **읽어 쓴다** |

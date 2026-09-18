@@ -1,17 +1,37 @@
-"""Pure mapping policy; no job API, model calls or storage access."""
+"""Pure mapping policy; no job API, model calls or storage access.
+
+채택 규칙 자체는 여기 없다. 4단계가 소유하고(`npick_worker.transcript_selection`)
+이 단계는 그것을 다시 돌린 뒤 장면에 잇는다 — 계약 §4.5 가 두 단계에 같은 규칙을
+요구하므로 사본을 두지 않는다(`docs/contracts/job-api.md:945`).
+"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
 
-Source = Literal["uploaded", "embedded", "asr"]
-PRIORITY = {"uploaded": 0, "embedded": 1, "asr": 2}
+from npick_worker.transcript_selection.selector import (
+    PRIORITY,
+    Decision,
+    Segment,
+    Source,
+    interval,
+    select,
+)
+
 ALGORITHM_VERSION = "scene-transcript-mapping/v2"
 
-
-def _interval(start: int, end: int) -> None:
-    if type(start) is not int or type(end) is not int or not 0 <= start < end:
-        raise ValueError("expected a nonempty nonnegative integer-ms interval")
+#: 규칙을 옮긴 뒤에도 이 이름들로 import 하던 자리가 그대로 돌게 둔다.
+__all__ = [
+    "ALGORITHM_VERSION",
+    "PRIORITY",
+    "Decision",
+    "MappingResult",
+    "Scene",
+    "SceneLinks",
+    "Segment",
+    "Source",
+    "interval",
+    "map_transcripts",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,30 +41,9 @@ class Scene:
     end: int
 
     def __post_init__(self) -> None:
-        _interval(self.start, self.end)
+        interval(self.start, self.end)
         if type(self.index) is not int or self.index < 0:
             raise ValueError("invalid scene index")
-
-
-@dataclass(frozen=True, slots=True)
-class Segment:
-    id: str
-    start: int
-    end: int
-    text: str
-    source: Source
-
-    def __post_init__(self) -> None:
-        _interval(self.start, self.end)
-        if not self.id or not self.text.strip() or self.source not in PRIORITY:
-            raise ValueError("invalid transcript segment")
-
-
-@dataclass(frozen=True, slots=True)
-class Decision:
-    segment_id: str
-    selected: bool
-    conflicts: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,42 +60,20 @@ class MappingResult:
 
 
 def map_transcripts(scenes: Sequence[Scene], segments: Sequence[Segment]) -> MappingResult:
-    """Exclude whole lower-priority originals, then map selected speech only.
-
-    Only selected higher-priority originals are conflict evidence. An excluded
-    subtitle cannot block ASR from supplementing a gap. Overlapping lower-priority
-    originals are still excluded whole, without fabricating partial utterances.
-    """
+    """Run the shared adoption rule, then map selected speech onto scenes."""
     if not scenes or len({s.index for s in scenes}) != len(scenes):
         raise ValueError("expected nonempty unique scenes")
-    if len({s.id for s in segments}) != len(segments):
-        raise ValueError("duplicate segment ID")
-    originals = tuple(sorted(segments, key=lambda s: (s.start, s.end, PRIORITY[s.source], s.id)))
-    decisions_by_id: dict[str, Decision] = {}
-    selected: set[str] = set()
-    # Resolve higher sources first, even when their timestamps start later.
-    for segment in sorted(originals, key=lambda s: PRIORITY[s.source]):
-        conflicts = tuple(
-            other.id
-            for other in originals
-            if other.id in selected
-            and PRIORITY[other.source] < PRIORITY[segment.source]
-            and max(segment.start, other.start) < min(segment.end, other.end)
-        )
-        decisions_by_id[segment.id] = Decision(segment.id, not conflicts, conflicts)
-        if not conflicts:
-            selected.add(segment.id)
-    decisions = tuple(decisions_by_id[s.id] for s in originals)
+    selection = select(segments)
     links = tuple(
         SceneLinks(
             scene.index,
             tuple(
                 (segment.id, overlap)
-                for segment in originals
-                if segment.id in selected
+                for segment in selection.originals
+                if segment.id in selection.selected
                 and (overlap := min(scene.end, segment.end) - max(scene.start, segment.start)) > 0
             ),
         )
         for scene in sorted(scenes, key=lambda s: s.index)
     )
-    return MappingResult(originals, decisions, links)
+    return MappingResult(selection.originals, selection.decisions, links)

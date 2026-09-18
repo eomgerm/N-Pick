@@ -465,8 +465,10 @@ NPICK_AI_JOB_FLEET=local
 | BE 에 저장 어댑터가 있다 | `WorkerExecutionBinding:68` 이 `StageOutputPort.supports()` 거짓인 단계를 지운다 | `stage_versions` 에 넣어도 배정 안 된다 |
 | 기대 버전이 일치한다 | 아래 `stage_versions` | `unknown` 이면 배정 안 된다 |
 
-세 번째 관문 때문에 `ocr` 과 `scene_transcript_mapping` 은 지금 `stage_versions` 에 넣어도
-소용이 없다 — `JdbcWorkerStageOutputAdapter:38` 의 집합에 둘 다 없다.
+**세 번째 관문은 이제 열 단계 전부 통과한다** — `JdbcWorkerStageOutputAdapter` 의 `supports()`
+집합에 10단계가 모두 있다(#183·#184·#191·#192). 워커 구현도 10단계가 모두 있다 — 마지막이던
+`transcript_selection` 의 워커 구현은 #213 에서 뚫렸다. 그래서 남은 관문은 첫째(모델·라이브러리)와
+넷째(`stage_versions`)뿐이다.
 
 값은 손으로 짓지 않는다. 워커에서 실측해 그대로 옮긴다.
 
@@ -520,7 +522,7 @@ curl -b <쿠키> http://127.0.0.1:8080/api/v1/clips/<clip_id>
 | `scene_detection` | O | O | O | GPU |
 | `frame_extraction` | O | O | O | GPU |
 | `ocr` | O | O | O | **EC2 CPU 워커** |
-| `transcript_selection` | **안 함** | O | **없음** | — 미배정 |
+| `transcript_selection` | O | O | **없음** | — 미배정 |
 | `asr` | 모델 지정 시 | O | O | GPU |
 | `scene_transcript_mapping` | O | O | O | GPU |
 | `vlm_metadata` | 모델 지정 시 | O | O | GPU |
@@ -532,10 +534,14 @@ curl -b <쿠키> http://127.0.0.1:8080/api/v1/clips/<clip_id>
 `NPICK_AI_ASR_MODEL`(+`_REVISION`)이 없거나 워밍업이 끝나지 않은 단계는 `capabilities` 에
 실리지 않는다. 설정으로 강제할 수 없고, 그게 의도다 — 배정받아 매번 죽는 것보다 낫다.
 
-**`transcript_selection` 만 남았다.** 워커에 구현(`HANDLERS`)이 없어서 `stage_versions` 도
-비워 뒀다. `nextStage()` 는 `NAMES` 순서로 첫 `pending` 을 고르므로(`PipelineRun:73`)
-**이 단계에서 run 이 멈춘다** — 지금 파이프라인은 끝까지 가지 못한다. 구현하는 티켓이
-`pipeline.yml` 에 실측 해시 한 줄을 함께 넣어야 한다.
+**`transcript_selection` 만 남았다.** 워커 구현은 S15P21A501-213 에서 들어왔고 저장
+어댑터도 있다 — `stage_versions` 에 실측 한 줄이 없는 것이 유일한 이유다. `nextStage()` 는
+`NAMES` 순서로 첫 `pending` 을 고르므로(`PipelineRun:73`) **이 단계에서 run 이 멈춘다** —
+그 줄을 넣기 전까지 파이프라인은 끝까지 가지 못한다.
+
+그 줄을 넣을 때 **`scene_transcript_mapping` 도 함께 재측정한다.** 두 단계가 채택 규칙
+한 벌을 공유하게 되면서 6단계 `identity` 에 `selection` 축이 생겼고, 위에 박힌
+`e1d97878` 은 그 전에 잰 값이다. 갱신하지 않으면 6단계가 **오류 없이** 배정에서 빠진다.
 
 어느 노드가 무엇을 맡는지는 워커의 `NPICK_AI_JOB_STAGES` 가 정한다. EC2 CPU 워커는
 `ocr` 하나이고 GPU 노드는 `ocr` 을 뺀 나머지다 — 겹치면 같은 잡을 두고 다툰다.

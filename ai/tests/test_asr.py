@@ -502,10 +502,11 @@ def test_unused_candidate_ranges_cannot_kill_the_stage(
 ) -> None:
     """`asr` 은 이 값을 세기만 한다. 세기만 하는 값이 단계를 죽이면 안 된다.
 
-    `transcript_selection` 은 아직 없다. 그것이 붙을 때 모양이 조금 어긋나면 —
-    `e` 가 float 이거나 길이 0 구간이 섞이면 — 쓰지도 않는 필드 때문에
-    `UpstreamOutputInvalidError`(영구 `VALIDATION_ERROR`)로 ASR 전체가 죽는다.
-    구간을 실제로 읽는 쪽이 생기면 그때 그 자리에서 검증한다.
+    `transcript_selection` 이 이제 이 값을 만든다. 그 모양은 **만드는 쪽**에서 검증한다
+    (`jobs/transcripts.py` 의 `TranscriptCandidateRange` — `StrictInt`, `e > s`).
+    그래도 여기의 느슨함을 유지한다: 상류 모양이 조금 어긋났을 때 — `e` 가 float 이거나
+    길이 0 구간이 섞이면 — 쓰지도 않는 필드 때문에 `UpstreamOutputInvalidError`(영구
+    `VALIDATION_ERROR`)로 ASR 전체가 죽으면 안 된다.
     """
     engine = FakeEngine((speech(1.0, 2.0),))
     monkeypatch.setattr(registry, "_asr_engine", lambda: engine)

@@ -1,13 +1,12 @@
 """Adapt final transcript mapping to the existing artifact and VLM contracts."""
 
-import hashlib
 from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import Field
 
 from npick_worker.jobs.errors import UpstreamOutputInvalidError
-from npick_worker.jobs.models import ArtifactRef, UpstreamSceneOut, WireResponse
+from npick_worker.jobs.models import UpstreamSceneOut, WireResponse
 from npick_worker.jobs.registry import PendingUpload, StageContext, StageOutcome, _parse_upstream
 from npick_worker.jobs.transcripts import (
     MappedSegment,
@@ -19,13 +18,14 @@ from npick_worker.jobs.transcripts import (
     TranscriptSegments,
     TranscriptSnapshot,
     UpstreamTranscriptSnapshot,
+    json_artifact,
     validate_snapshot,
 )
 from npick_worker.jobs.versions import StageVersion, output_schema_version, stage_version
 from npick_worker.korean_tokens import index_tokens
 from npick_worker.scene_transcript_mapping import Scene, Segment, map_transcripts
 from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
-from npick_worker.versioning import canonical_json
+from npick_worker.transcript_selection import SELECTION_VERSION
 
 
 class _Scenes(WireResponse):
@@ -51,33 +51,31 @@ class SceneTranscriptMappingUpstream(WireResponse):
 
 
 def identity() -> dict[str, str]:
-    """재현 튜플. 축이 둘이다.
+    """재현 튜플. 축이 셋이다.
 
     `tokenizer` 가 있는 이유는 `ocr`·`vlm_metadata` 와 같다 — 이 단계가 만드는
     `scenes[].tokens` 가 곧 `scene.transcript_tokens` 이고, 그 토큰 경계가 바뀌면
     같은 대사에서 다른 색인이 나온다. `asr` 이 이 축을 두지 않은 것과 짝이다
     (그 docstring: "대사의 토큰화는 채택된 구간을 다루는 하류의 일").
+
+    `selection` 은 이 단계가 소유하지 않는 축이다. 채택 규칙은 4단계 패키지에 있고
+    (계약 §4.5 가 두 단계에 같은 규칙을 요구한다) 그것이 바뀌면 장면 연결 로직이
+    그대로여도 이 단계의 판정이 바뀐다. 축을 두지 않으면 다른 규칙으로 만든 결과가
+    같은 재현 식별자를 갖는다. **4단계와 같은 키 이름을 쓴다** — 두 단계의 `detail`
+    을 눈으로 대조해 규칙 일치를 확인할 수 있어야 한다.
     """
     from npick_worker import korean_tokens
 
-    return {"algorithm": ALGORITHM_VERSION, "tokenizer": korean_tokens.tokenizer_version()}
+    return {
+        "algorithm": ALGORITHM_VERSION,
+        "selection": SELECTION_VERSION,
+        "tokenizer": korean_tokens.tokenizer_version(),
+    }
 
 
 def _upload(ctx: StageContext, kind: str, payload: Mapping[str, Any]) -> PendingUpload:
-    data = canonical_json(payload).encode("utf-8")
-    name = f"{kind}.json"
-    path = ctx.work_dir / name
-    path.write_bytes(data)
-    return PendingUpload(
-        ref=ArtifactRef(
-            kind=kind,
-            storage_key=f"{ctx.output_key_prefix.rstrip('/')}/{name}",
-            byte_size=len(data),
-            content_hash=hashlib.sha256(data).hexdigest(),
-        ),
-        local_path=path,
-        content_type="application/json",
-    )
+    ref, path = json_artifact(ctx.work_dir, ctx.output_key_prefix, kind, payload)
+    return PendingUpload(ref=ref, local_path=path, content_type="application/json")
 
 
 def run(ctx: StageContext) -> StageOutcome:

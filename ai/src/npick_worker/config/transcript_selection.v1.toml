@@ -1,0 +1,12 @@
+# S15P21A501-213. 제공 자막·CC 가 덮지 못한 구간 중 ASR 을 부를 최소 길이(ms).
+# 0: 필터 없음 — 자막 사이의 모든 빈 구간이 후보가 된다.
+#
+# **숫자를 짓지 않았다.** FRD §11·§11.1 이 실행 환경 설정값을 실측 없이 확정하지
+# 말라고 하고, 계약 §4.5 에도 최소 구간 길이 규정이 없다. config/ocr-merge.v1.toml
+# 의 similarity_threshold = 1.0(= 병합 없음)과 같은 형태로 자리만 잡아 둔다.
+#
+# 실측 항목: 자막이 촘촘한 뉴스 클립 하나로 len(candidateRanges) 를 잰다. 0 이면
+# 수십~수백 ms 틈이 전부 후보가 되고, 1ms 틈 하나가 전체 영상 ASR 을 부른다
+# (ASR 은 candidateRanges 를 구간 제한에 쓰지 않는다 — jobs/registry.py 의 _run_asr).
+schema = "transcript-selection/v1"
+min_uncovered_ms = 0

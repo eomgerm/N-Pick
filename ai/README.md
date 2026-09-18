@@ -253,13 +253,43 @@ ASR로 보완할 수 있다. 선택 알고리즘은 `scene-transcript-mapping/v2
 순수 계산, 실제 snapshot 생성 → 기존 VLM 소비, 모의 HTTP 잡 API의 다운로드·업로드·complete를
 검증한다. 실제 BE 왕복 또는 DB 저장 완료를 의미하지 않는다.
 
-**#70·#191 연동 잔여:** 현재 BE 저장 어댑터의 지원 목록에 이 단계가 없으므로 실제 배정·저장은
-아직 불가능하다. 워커는 상류 키 `scene_detection`과 `sceneDetection`을 모두 수용한다.
-워커가 싣는 `scenes[].tokens`를 `scene.transcript_tokens`에 그대로 넣고,
-`scene.transcript_json`의 `s/e/t/overlap_ms` 변환과 `transcript_text` 조립(연결 순서대로
-원문 잇기)을 #191 저장 어댑터에서 연결해야 한다. #35의 초기 `transcript_selection` 워커
-구현도 별도 선행 작업이며, 그 단계의 `decisions`는 예비 판정이고 이 단계의 snapshot이
-그 run의 최종 정본이다(계약 §4.5).
+워커는 상류 키 `scene_detection`과 `sceneDetection`을 모두 수용한다. 채택 규칙은 이 단계가
+소유하지 않는다 — 4단계 패키지의 `select()`를 다시 돌린다(계약 §4.5가 두 단계에 같은 규칙을
+요구한다). 그래서 `versions.detail`에 `selection` 축이 4단계와 같은 키·같은 값으로 들어간다.
+4단계의 `decisions`는 예비 판정이고 이 단계의 snapshot이 그 run의 최종 정본이다.
+
+**연동 잔여:** BE 저장 어댑터는 #191에서 배선됐다. 남은 것은 `stage_versions` 실측이다 —
+`infra/compose/profiles/pipeline.yml`에 이 단계가 없으면 `"unknown"`이라 배정되지 않는다.
+
+## 자막·CC 선택 (S15P21A501-213)
+
+BE가 claim을 가로채 자막을 파싱해 준 원본 구간(`S15P21A501-35`)에서 예비 채택 판정을 내고,
+자막이 덮지 못한 구간을 후보로 내어 ASR 필요 여부를 정한다.
+
+```python
+from npick_worker.transcript_selection import select, uncovered_ranges
+
+selection = select(segments)  # 제공 자막 → CC 우선순위, 겹친 하위 출처 제외
+ranges = uncovered_ranges(duration_ms, adopted)  # [0, duration) 의 여집합
+```
+
+**채택 규칙의 소유자가 여기다.** 6단계가 같은 `select()`를 다시 돌린다 — 계약 §4.5가 두 단계에
+같은 규칙을 요구하고, 사본을 두면 대사가 사라지지 않고 CC 채택 여부만 갈리는 조용한 결함이
+된다. `versions.detail.selection`이 두 단계에 같은 키로 실려 사람이 규칙 일치를 대조할 수 있다.
+
+영상을 열지 않는다. 자막은 BE가 파싱해 artifact로 주고 클립 길이는 1단계의 `mediaDurationMs`로
+온다. `candidateRanges`는 클립 길이로 클램프한다 — 자막 시간축(ffprobe 초)과
+`mediaDurationMs`(프레임 수)는 서로 다른 측정값이라 자막 끝이 클립 길이를 넘을 수 있고,
+클램프 없이 여집합을 구하면 BE가 `e > s`에서 거절한다.
+
+`min_uncovered_ms`는 `config/transcript_selection.v1.toml`에 자리만 잡아 두고 **0**이다.
+FRD §11이 실측 없이 숫자를 확정하지 말라고 하고 계약에도 최소 구간 길이 규정이 없다.
+0이면 자막 사이 수십 ms 틈도 후보가 되고, 후보가 하나라도 있으면 ASR이 영상 전체를 돈다.
+
+검증: `uv run pytest tests/test_transcript_selection.py`.
+순수 계산(커버리지·채택 규칙), 두 snapshot 생성 → 공용 검증기 통과 → 6단계 소비, 모의 HTTP
+잡 API의 다운로드·업로드·complete를 검증한다. 실제 BE 왕복 또는 DB 저장 완료를 의미하지 않고,
+`stage_versions` 실측 전에는 실제 배정도 되지 않는다.
 
 ## Query Resolver (FRD F-04~06)
 
@@ -708,6 +738,7 @@ ai/
 │   │   ├── vlm_metadata.v2.toml      프롬프트·어휘·상한 정본 (실측 후 확정)
 │   │   ├── ocr.v1.toml               임계값 정본 (실측 후 확정)
 │   │   ├── ocr-merge.v1.toml         frame 간 병합 임계값 정본 (기본 1.0 = 정규화 일치)
+│   │   ├── transcript_selection.v1.toml  ASR 호출 최소 구간 (기본 0 = 필터 없음)
 │   │   ├── query_normalization.v1.toml  정규화 규칙 정본
 │   │   ├── query_resolver.v1.toml    프롬프트 v1 (회귀 비교용)
 │   │   └── query_resolver.v2.toml    프롬프트 정본 (S15P21A501-102 실측 반영)
@@ -737,6 +768,10 @@ ai/
 │   │   ├── postprocess.py            관측 변환·textKey
 │   │   ├── merge.py                  frame 간 문구 그룹 (원본 인덱스 참조)
 │   │   └── report.py                 육안 확인 CLI
+│   ├── transcript_selection/ [워커] 예비 채택·ASR 필요 판정. select()
+│   │   ├── selector.py               채택 규칙 정본 (6단계가 같은 것을 다시 돌린다)
+│   │   ├── coverage.py               자막이 덮지 못한 구간 (클램프·병합·여집합)
+│   │   └── config.py                 toml 로딩 + version_id
 │   ├── jobs/            [워커] BE 잡 API 클라이언트와 실행 루프
 │   │   ├── client.py                 claim/heartbeat/complete/artifacts
 │   │   ├── runner.py                 claim→실행→heartbeat→complete
@@ -759,7 +794,8 @@ ai/
 │   ├── scene-detection.md    선정 근거·설정 키·실측 후 확정 항목
 │   ├── frame-extraction.md   대표 이미지 규약·인코딩 실측·설정 키
 │   ├── vlm-metadata.md       출력 계약·어휘의 자리·거부 규칙·외부 게이트
-│   └── ocr.md                엔진 선정 실측·frame 간 병합·임계값 실측·설정 키
+│   ├── ocr.md                엔진 선정 실측·frame 간 병합·임계값 실측·설정 키
+│   └── transcript-selection.md  채택 규칙의 소유자·예비 판정·클램프·설정 키
 ├── samples/                  로컬 샘플 클립 (영상은 커밋 금지)
 └── tests/
     ├── conftest.py           합성 영상 픽스처 + 가짜 BE(httpx2.MockTransport)
@@ -771,6 +807,7 @@ ai/
     ├── test_vlm_metadata.py  출력 계약·거부 규칙·입력 선정·외부 정책 게이트
     ├── test_ocr.py
     ├── test_ocr_merge.py     frame 간 병합·그룹 참조 검증·버전 벡터
+    ├── test_transcript_selection.py  채택 규칙·커버리지·두 snapshot·러너 왕복
     ├── test_query_normalization.py
     ├── test_query_resolver.py
     └── test_smoke_models.py  -m smoke: torch CUDA + faster-whisper tiny

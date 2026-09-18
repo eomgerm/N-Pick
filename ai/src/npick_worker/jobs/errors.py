@@ -110,6 +110,24 @@ class UpstreamOutputInvalidError(PermanentStageError):
     """
 
 
+class InvalidTranscriptError(PermanentStageError):
+    """BE 가 준비한 자막 snapshot 이 4단계가 받을 수 있는 것이 아니다.
+
+    **용도가 하나다.** "snapshot 이 계약과 다르다" 는 판정 대부분은 러너가 핸들러를
+    부르기 **전에** 이미 낸다 — `jobs/artifacts.py` 가 내려받은 문서를
+    `TranscriptSegments`(`extra="forbid"`)로 검증하고 실패를 `VALIDATION_ERROR` 로
+    보고한다. 그 공용 검증기가 통과시키지만 이 단계만 아는 사실은 하나뿐이다:
+    `sourceDetail == "asr"` 가 섞여 온 것. 4단계 시점에 ASR 은 아직 돌지 않았고 BE 의
+    준비 어댑터는 `uploaded`·`embedded` 만 만든다. 그것이 왔다면 배정이나 준비가
+    어긋난 것이고, 그대로 예비 판정을 내면 `ASR_SUPPLEMENT` 채택이 실제 인식 없이
+    최종 정본으로 되살아날 수 있다.
+
+    계약 §9.2 가 이 자리에 준 코드는 `INVALID_TRANSCRIPT`(영구)다.
+    """
+
+    error_code: ClassVar[str] = "INVALID_TRANSCRIPT"
+
+
 class StageUnavailableError(PermanentStageError):
     """FRD 단계 표에는 있으나 이 워커에 구현이 없다."""
 

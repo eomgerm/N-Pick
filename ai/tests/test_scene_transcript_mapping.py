@@ -22,6 +22,7 @@ from npick_worker.jobs.transcripts import transcript_refs
 from npick_worker.jobs.vlm_inputs import attach_mapped_transcripts
 from npick_worker.scene_transcript_mapping import Scene, SceneLinks, Segment, map_transcripts
 from npick_worker.scene_transcript_mapping.mapper import ALGORITHM_VERSION
+from npick_worker.transcript_selection import SELECTION_VERSION
 from npick_worker.vlm_metadata import KeyframeRef, SceneKeyframes
 
 from .conftest import FakeBackend, make_job
@@ -469,7 +470,11 @@ def test_scene_tokens_cover_only_adopted_dialogue_and_declare_the_tokenizer(
     assert [s["tokens"] for s in empty.output["scenes"]] == ["", "", "", ""]
 
     tokenizer = korean_tokens.tokenizer_version()
-    assert outcome.versions.detail == {"algorithm": ALGORITHM_VERSION, "tokenizer": tokenizer}
+    assert outcome.versions.detail == {
+        "algorithm": ALGORITHM_VERSION,
+        "selection": SELECTION_VERSION,
+        "tokenizer": tokenizer,
+    }
     # 토크나이저가 재현 튜플에 있어야 토큰 경계가 바뀐 재처리를 구분할 수 있다.
     assert tokenizer in outcome.versions.stage_version or outcome.versions.stage_version.startswith(
         f"npick.stage.{STAGE}/v1:"
