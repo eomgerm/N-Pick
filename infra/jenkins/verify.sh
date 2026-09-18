@@ -62,6 +62,22 @@ check_final() {
 check 200 http://backend:8080/actuator/health
 check 200 http://ai-worker:8000/health
 
+# **/health 의 200 만으로는 부족하다.** 그 응답은 무조건 status=ok 라(app.py) 잡을
+# 하나도 못 가져가는 워커도 healthy 로 통과한다 — NPICK_AI_JOB_STAGES 오타, 워밍업
+# 실패, 기대 버전 불일치가 전부 그 모양이다. 이 배포의 요점이 "ocr 은 CPU 워커가
+# 맡는다" 이므로 그 선언을 직접 확인한다 (S15P21A501-187).
+#
+# 둘 다 본다. `declared` 는 NPICK_AI_JOB_STAGES 가 제대로 좁혔는지만 말하고, 그 단계가
+# 실제로 claim 에 실리는지는 `warmup.ready` 가 말한다(schemas.py 의 주석이 그 둘을
+# 명시적으로 갈라 둔다). jq 는 Jenkins 이미지에 있다.
+if docker compose config --services | grep -qx ai-cpu-worker; then
+  body=$(curl -s --max-time 10 http://ai-cpu-worker:8000/health || echo "{}")
+  got=$(printf '%s' "$body" |
+    jq -r '[(.pipeline.declared // [] | index("ocr") | if . then "ocr" else "없음" end),
+            (.warmup.ready | tostring)] | join("/")' 2>/dev/null || echo 'parse-실패')
+  report "ai-cpu-worker declared/warmup" "$got" "ocr/true"
+fi
+
 if echo "$services" | grep -qx nginx; then
   check 200 http://nginx/healthz
   check 301 http://nginx/
@@ -72,6 +88,11 @@ if echo "$services" | grep -qx nginx; then
   if [ -n "${domain:-}" ] && [ "$domain" != "localhost" ]; then
     check 200 "https://$domain/healthz"
     check_final 200 "https://$domain/"
+    # **nginx 를 실제로 통과해 backend 까지 닿는지 본다.** 위의 /healthz 는 nginx 가
+    # 직접 답하고 http://nginx/api/v1/ 은 301 만 보므로 둘 다 upstream 을 건드리지
+    # 않는다. 그래서 2026-09-17 배포 뒤 `/api/*` 가 502 로 죽어 있는데도 이 스크립트가
+    # 통과했다. csrf 는 인증 없이 200 을 주는 유일한 경로라 여기 쓴다 (S15P21A501-187).
+    check 200 "https://$domain/api/v1/auth/csrf"
   fi
 fi
 
