@@ -44,7 +44,12 @@ defaults:
 # 축을 더했기 때문이다 — 축을 더하고 이 줄을 그대로 두면 6단계가 **오류 없이** 배정에서
 # 빠진다. 두 단계 모두 가중치도 torch 도 쓰지 않아 로컬 venv 값과도 같았다.
 #
-# `vlm_metadata` 가 `de632da5` 에서 바뀐 것은 `[call].enable_thinking` 이 설정에
+# `vlm_metadata` 가 `45f31d7e` 에서 또 바뀐 것은 `scene_type` 을 VLM 출력에서 뺐기
+# 때문이다 (S15P21A501-217). 닫힌 어휘 밖 값 하나가 클립 전체 단계를 영구 실패시켰고
+# — 실측 영상 11편 중 6편 — 값이 맞을 때는 캡션·`event`·`shot_type` 이 같은 말을 이미
+# 하고 있었다. 프롬프트가 바뀌어 `config_version`·`prompt_version` 이 둘 다 움직였다.
+#
+# 그 앞의 `de632da5` → `45f31d7e` 는 `[call].enable_thinking` 이 설정에
 # 들어왔기 때문이다 (S15P21A501-214). 그 전에는 채팅 템플릿 기본값으로 나가
 # thinking 이 켜진 채 돌았고, 출력이 JSON 으로 시작하지 않아 **모든 클립에서**
 # 이 단계가 실패했다 — 그런데 fatal 이 아니라 run 은 성공으로 끝났다. 축을 더하고
@@ -68,7 +73,7 @@ defaults:
 stage_versions:
   scene_detection: "npick.stage.scene_detection/v1:3ab4bebe"
   frame_extraction: "npick.stage.frame_extraction/v1:5fa70a50"
-  vlm_metadata: "npick.stage.vlm_metadata/v1:45f31d7e"
+  vlm_metadata: "npick.stage.vlm_metadata/v1:f8c32dac"
   ocr: "npick.stage.ocr/v1:bc75979d"
   transcript_selection: "npick.stage.transcript_selection/v1:fdcd0780"
   asr: "npick.stage.asr/v1:9e977661"

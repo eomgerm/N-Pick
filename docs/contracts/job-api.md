@@ -553,7 +553,7 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
                          "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }]
         },
         "tagCandidates": [
-          { "type": "scene_type", "value": "사고 현장", "confidence": 0.61,
+          { "type": "facility", "value": "고속도로", "confidence": 0.61,
             "evidence": [{ "sceneIndex": 8, "timestampMs": 71833,
                            "storageKey": "runs/…/frame_extraction/a1/s0008/kf-000071833.jpg" }] }
         ]
@@ -592,7 +592,9 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
 
 **전부 미검증이다.** 이 payload에 검증 상태 필드가 없는 것은 빠뜨려서가 아니라 값이 하나이기 때문이다. 저장할 때 `tag_evidence.source`는 `vlm`, `verification_status`는 `unverified`다. **BE는 confidence가 높다는 이유로 `verified`로 올리지 않는다**([docs/frd.md](../frd.md) §3 F-04: "ASR·VLM·일반 추론 규칙은 기본 미검증"). 사람의 승인 판단은 `reviewer_feedback`으로 따로 남는다.
 
-**"없음"의 다른 표기는 모으되 고치지 않는다 (S15P21A501-93).** 프롬프트가 "정보가 없으면 caption·scene_type은 null, shot_type은 unknown, tagCandidates는 빈 배열"이라고 말해 두었고, 모델이 같은 답을 `"없음"`·`"미상"`·`"N/A"`로 쓰면 워커가 계약의 '없음'으로 모은 뒤 검증한다(`caption`·`scene_type` → `null`, `shotType` → `unknown`, `null` 배열 → `[]`). **보정이 아니다** — 없는 값을 채우거나 값을 다른 값으로 바꾸지 않는다. 값 자리 자체가 없는 것(`shot_type`이 통째로 `null`, `confidence`가 `null`), 공백뿐인 문자열, 태그 후보 값의 '없음' 표기는 그대로 거부다. 값 자체는 정규화 뒤의 것이 정본이므로 payload에 따로 나가지 않는다. 규칙의 정본은 워커의 `vlm_metadata/normalize.py`이고 근거는 `ai/docs/vlm-metadata.md` §6이다.
+**`vlm_metadata` 는 `scene_type` 을 내지 않는다 (S15P21A501-217).** 닫힌 어휘 밖 값 하나가 클립 전체 단계를 영구 실패시켰고(SSAFY GPU 실측, 영상 11편 중 6편), 값이 맞을 때는 캡션·`event`·`shot_type` 이 같은 말을 이미 하고 있었다. 어휘를 넓히는 대신 필드를 뺐다 — `scene_type` 은 여덟 판의 FRD 어디에서도 의미가 정의된 적이 없고, FRD v2.0 `FR-PRC-016` 이 "`D-AI-001` 이 확정되기 전 임의로 고정하지 않는다" 고 못박은 자리다. **태그 유형 `scene_type` 자체는 남아 있다** — 검수자 교정으로 붙을 수 있고, 유형 제거는 FRD·PRD 범위 축소와 함께 가는 별도 작업이다.
+
+**"없음"의 다른 표기는 모으되 고치지 않는다 (S15P21A501-93).** 프롬프트가 "정보가 없으면 caption은 null, shot_type은 unknown, tagCandidates는 빈 배열"이라고 말해 두었고, 모델이 같은 답을 `"없음"`·`"미상"`·`"N/A"`로 쓰면 워커가 계약의 '없음'으로 모은 뒤 검증한다(`caption` → `null`, `shotType` → `unknown`, `null` 배열 → `[]`). **보정이 아니다** — 없는 값을 채우거나 값을 다른 값으로 바꾸지 않는다. 값 자리 자체가 없는 것(`shot_type`이 통째로 `null`, `confidence`가 `null`), 공백뿐인 문자열, 태그 후보 값의 '없음' 표기는 그대로 거부다. 값 자체는 정규화 뒤의 것이 정본이므로 payload에 따로 나가지 않는다. 규칙의 정본은 워커의 `vlm_metadata/normalize.py`이고 근거는 `ai/docs/vlm-metadata.md` §6이다.
 
 **모은 자리는 두 갈래로 나누어 센다.** 둘을 합쳐 세면 운영자가 읽을 수 없는 숫자가 되기 때문이다(2026-09-16 빈 화면 실측).
 
