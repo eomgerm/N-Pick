@@ -144,8 +144,10 @@ class SearchAssemblyServiceTest {
         SearchExecutionResult result = service.execute(query());
 
         assertThat(result.hasAppliedReviewRule()).isTrue();
-        // ParseSource 에 resolver_rule 값이 없어 출처는 resolver 로 남는다. 규칙 적용 사실을
-        // 기록에서 읽을 수 있는 유일한 곳이 applied_rules_json 이므로 거기 반드시 있어야 한다.
+        // start 시점의 출처는 resolver 다. 저장된 parse_source 가 resolver_rule 로 올라가는 것은
+        // 어댑터가 appliedRules 에서 파생하기 때문이고(JdbcSearchExecutionRecordAdapter), 그 파생의
+        // 입력을 조립이 채운다. 여기서 appliedRules 를 빠뜨리면 규칙이 걸린 검색이 조용히
+        // resolver 로 기록된다 — 기록을 읽는 쪽에는 규칙이 안 걸린 것과 구분되지 않는다.
         assertThat(recordedResolution().parseSource()).isEqualTo(StartSearchExecution.ParseSource.RESOLVER);
         assertThat(completedRecord().appliedRules())
                 .anyMatch(outcome -> outcome.status() == ParseRuleOutcome.Status.APPLIED);
