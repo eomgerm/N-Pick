@@ -99,7 +99,7 @@ PUT  /api/v1/internal/jobs/{runId}/artifacts/{storageKey}
 }
 ```
 
-- `capabilities`는 **워커가 실행할 수 있는 단계와 그 단계의 실제 버전**이다. BE는 이 목록에 없는 단계를 배정하지 않는다. 이것이 `infra/compose/profiles/pipeline.yml`의 `placement.cpu_worker_stages` / `gpu_server_stages`를 채우는 방식이다 — 정적 목록 대신 워커가 선언한다. CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 BE 에는 배정 목록이 없다. **선언 범위는 워커가 배포별로 좁힐 수 있다**(`NPICK_AI_JOB_STAGES`, S15P21A501-186) — CPU 단계 구현은 기본 의존성이라 GPU 이미지에도 들어가므로, 좁히지 않으면 두 워커의 선언이 겹쳐 무엇을 누가 가져갈지 정해지지 않는다. 좁히기만 할 뿐이라 여기 실리는 것은 여전히 워커가 실제로 실행할 수 있는 단계다.
+- `capabilities`는 **워커가 실행할 수 있는 단계와 그 단계의 실제 버전**이다. BE는 이 목록에 없는 단계를 배정하지 않는다. `infra/compose/profiles/pipeline.yml`은 그래서 정적 배치 목록을 두지 않는다 — `placement.declared_by: worker_capabilities` 한 줄뿐이고 배정은 워커의 선언이 정한다. BE 에는 배정 목록이 없다. **선언 범위는 워커가 배포별로 좁힐 수 있다**(`NPICK_AI_JOB_STAGES`, S15P21A501-186) — CPU 단계 구현은 기본 의존성이라 GPU 이미지에도 들어가므로, 좁히지 않으면 두 워커의 선언이 겹쳐 무엇을 누가 가져갈지 정해지지 않는다. 좁히기만 할 뿐이라 여기 실리는 것은 여전히 워커가 실제로 실행할 수 있는 단계다.
 - `device.gpuModel`은 **필수**다. 성능 수치에 GPU 모델을 기록하지 않으면 benchmark profile이 성립하지 않는다([03-deployment.md](../architecture/03-deployment.md)).
 - `heldLeases`는 워커가 아직 살아 있다고 믿는 lease다. BE는 이미 회수한 것을 `revokedLeases`로 알려 준다 — 파드가 네트워크 단절에서 복귀했을 때 좀비 작업을 즉시 끊는다.
 
@@ -523,7 +523,7 @@ VLM은 키프레임과 기존 OCR·최종 채택 대사를 종합해 장면을 �
     "promptVersion": "vlm-metadata-prompt/v2:2c686602",
     "detail": {
       "engine": "transformers",
-      "engineVersion": "transformers5.0.0+torch2.13.0",
+      "engineVersion": "transformers5.0.0",
       "modelVersion": "example/vlm@main",
       "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0"
     },
@@ -1029,6 +1029,8 @@ BE는 run 생성 시 계산해 컬럼을 채우고 `claim`으로 워커에 내�
 
 BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **값이 바뀌면 `ai/tests/test_job_contract.py`의 벡터도 함께 고쳐야 한다.**
 
+> **`engineVersion`에 torch 빌드를 넣지 않는다** (`S15P21A501-187`). 넣으면 cu128 노드와 cu130 노드가 같은 가중치로 다른 `stageVersion`을 선언하고, `pipeline.yml`은 단계당 값을 하나만 담으므로 둘 중 하나가 **오류 없이** 그 단계를 배정받지 못한다. 드라이버가 노드마다 달라 빌드를 맞출 수도 없다. 무엇으로 돌았는지는 같은 봉투의 `runtime.torch`·`runtime.cuda`가 싣고, 그쪽은 재현 식별자 밖이라 배정을 가르지 않는다.
+
 | 입력 | 결과 |
 | --- | --- |
 | `scene_detection.v1.toml` 기본 설정 | `configVersion` = `scene-detect/v1:20dfc0a6` |
@@ -1037,7 +1039,7 @@ BE가 같은 값을 Java로 계산한다. 아래를 그대로 대조한다. **�
 | `{configVersion: frame-extract/v2:a0684794, engine: pyav, engineVersion: 18.1.0+numpy2.5.2}` | `stageVersion` = `npick.stage.frame_extraction/v1:5fa70a50` |
 | 보존된 `vlm_metadata.v1.toml` 이미지 전용 설정 | `configVersion` = `vlm-metadata-config/v1:13d50f07` |
 | 보존된 v1 설정의 **렌더링된** 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v1:78a02dbd` |
-| `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0+torch2.13.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:325198af` |
+| `{configVersion: vlm-metadata-config/v1:fcd15e10, engine: transformers, engineVersion: transformers5.0.0, modelVersion: example/vlm@main, tokenizer: query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0}` | `stageVersion` = `npick.stage.vlm_metadata/v1:29d30840` |
 | `vlm_metadata.v2.toml` 기본 설정 | `configVersion` = `vlm-metadata-config/v2:c3b7d840` |
 | v2 기본 설정의 렌더링된 프롬프트 | `promptVersion` = `vlm-metadata-prompt/v2:2c686602` |
 | 위 v2 configVersion과 기존 예시 engine·engineVersion·modelVersion·tokenizer | `stageVersion` = `npick.stage.vlm_metadata/v1:2f0d224e` |
@@ -1220,7 +1222,7 @@ BE 자막 입력 준비 실패도 같은 오류 계약을 사용한다. 저장 �
 
 잡 루프는 라우트가 아니라 FastAPI lifespan 태스크로 돈다. **워커에 인바운드 잡 엔드포인트가 생기지 않는다.**
 
-`NPICK_AI_JOB_POLL_ENABLED`가 배포 단위 둘을 가른다 — 같은 이미지가 이 값 하나로 "잡을 도는 파이프라인 워커"와 "폴링하지 않는 질의 리졸버"가 된다. 컨테이너를 실제로 쪼갤 때 바뀌는 것은 이 값과 `NPICK_AI_JOB_API_BASE_URL`뿐이다.
+`NPICK_AI_JOB_POLL_ENABLED`가 폴링 여부를 가른다. **컨테이너는 이미 쪼개져 있다**(`S15P21A501-187`) — EC2 는 질의 리졸버(`ai-worker`, `false`)와 CPU 워커(`ai-cpu-worker`, `true`)로 나뉘고 이미지도 서로 다르다. 코드는 한 벌이고 갈리는 것은 설치 구성이다.
 
 ## 13. 미결
 

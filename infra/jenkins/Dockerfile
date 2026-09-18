@@ -9,8 +9,12 @@ ARG DOCKER_GID=988
 
 USER root
 
+# jq: scripts/seed-clips.sh 가 사이드카와 응답 봉투를 읽는다. 베이스 이미지에 없어서
+# npick-ops 의 SEED 가 "로그인에 실패했다" 로 죽는다 — jq 가 없으면 파이프 앞단이
+# 실패하고 그 메시지가 curl 쪽 핸들러에서 나오기 때문이다 (S15P21A501-187).
+
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg jq \
  && install -m 0755 -d /etc/apt/keyrings \
  && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
  && chmod a+r /etc/apt/keyrings/docker.asc \

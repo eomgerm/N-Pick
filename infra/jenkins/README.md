@@ -833,6 +833,137 @@ docker compose exec postgres sh -c \
 
 ---
 
+## 14. 운영 잡 `npick-ops` (S15P21A501-187)
+
+배포 파이프라인(`Jenkinsfile`)과 **별개의 잡**이다. 시연 준비와 RunPod 파드 전원을 사람이
+눌러서 돌리고, 실패해도 배포를 막지 않아야 하므로 섞지 않는다.
+
+정의는 레포 루트의 `Jenkinsfile.ops` 다.
+
+### 14-1. 먼저 읽을 것 — 두 GPU 노드를 동시에 켜지 않는다
+
+> ⚠️ **SSAFY GPU 서버의 `npick-worker-drain` 과 RunPod 파드를 동시에 돌리지 않는다.**
+>
+> 둘이 같은 단계를 `capabilities` 로 선언하므로 **잡을 서로 뺏는다.** 코드로 막을 수단이
+> 없다 — BE 에 배정 목록이 없고 워커의 선언이 정한다(`docs/contracts/job-api.md` §4.1).
+> 한쪽이 가져간 잡은 다른 쪽에 오지 않으므로 오류도 나지 않는다. 그냥 절반씩 처리된다.
+>
+> 순서를 지킨다: **drain 을 돌릴 거면 먼저 `ACTION=RUNPOD_DOWN`**, 파드를 쓸 거면
+> SSH 로 들어가 drain 이 끝난 것을 확인한 뒤 `ACTION=RUNPOD_UP`.
+
+### 14-2. credential 3종 등록
+
+Manage Jenkins → Credentials → System → Global → Add Credentials.
+
+| ID | 종류 | 값 | 어디서 쓰나 |
+| --- | --- | --- | --- |
+| `runpod-api-key` | Secret text | RunPod 콘솔의 API 키 | `runpod.sh` 의 `RUNPOD_API_KEY` |
+| `runpod-pod-id` | Secret text | 파드 ID (콘솔 또는 `GET /v1/pods` 의 `id`) | `runpod.sh` 의 `RUNPOD_POD_ID` |
+| `npick-reviewer` | Username with password | 검수자 계정 아이디·비밀번호 | `SEED` 의 `scripts/seed-clips.sh` |
+
+**ID 를 그대로 써야 한다.** `Jenkinsfile.ops` 가 이 문자열로 찾는다.
+
+파드 ID 는 값 자체가 비밀은 아니지만 credential 로 둔다 — 파드를 다시 만들면 바뀌는데,
+레포에 박아 두면 그때마다 커밋해야 하고 MR 을 거쳐야 배포된다.
+
+### 14-3. 잡 등록
+
+1. New Item → 이름 `npick-ops` → **Pipeline** → OK
+2. Pipeline → Definition: **Pipeline script from SCM**
+3. SCM: Git, Repository URL 과 Credentials 는 9장의 배포 잡과 같은 값
+4. Branch: `*/dev`
+5. **Script Path: `Jenkinsfile.ops`** (기본값 `Jenkinsfile` 이 아니다)
+6. Save → **한 번 실행한다.** declarative 의 `parameters` 와 `triggers` 는 첫 빌드가
+   돌아야 잡에 등록된다. 첫 빌드는 파라미터 없이 기본값으로 돈다 = `RUNPOD_DOWN`.
+
+### 14-4. ACTION 별 동작
+
+| ACTION | 하는 일 | 필요한 파라미터 |
+| --- | --- | --- |
+| `RUNPOD_DOWN` | 파드를 정지한다. **이미 꺼져 있으면 아무것도 하지 않고 성공이다** | 없음 |
+| `RUNPOD_UP` | 파드를 재개한다. 이미 켜져 있으면 no-op | 없음 |
+| `SEED` | `scripts/seed-clips.sh` 로 시드 영상을 등록한다 | `VIDEO_DIR` 필수, `WAIT_SECONDS` 선택 |
+
+> **`VIDEO_DIR` 은 Jenkins 컨테이너 안에서 보이는 경로여야 한다.** 이 컨테이너의 마운트는
+> `/var/jenkins_home`, Docker 소켓, 그리고 배포 디렉터리(`NPICK_DEPLOY_DIR`) 셋뿐이다(3장).
+> 그 밖의 호스트 경로를 주면 컨테이너 안에서는 **빈 폴더**로 보인다. 예전에는 그 경우
+> 아무것도 등록하지 않고 초록으로 끝났는데, 지금은 `seed-clips.sh` 가 0 건을 실패로
+> 처리한다(`등록된 영상이 0 건이다`). 시드 영상은 배포 디렉터리 아래에 두는 것이 가장 쉽다.
+
+> ⚠️ **`WAIT_SECONDS` 는 지금 0 만 쓸 수 있다.** 워커에 `transcript_selection` 구현이
+> 없어 run 이 그 단계에서 멈추므로, 기다리면 제한 시간까지 돌다 실패한다. 잡이
+> `SEED_WAIT_BLOCKED` 가드로 0 이 아닌 값을 거부한다(`Jenkinsfile.ops`). 구현이
+> 들어오고 `pipeline.yml` 에 그 단계의 `stage_versions` 가 채워지면 가드를 지운다.
+
+가드를 지운 뒤의 동작: `WAIT_SECONDS` 가 0 보다 크면 **이번 실행이 등록한 클립만**
+10초 간격으로 조회해 모두 끝날 때까지 기다린다. 전체 집계(`run_counts`)를 보지 않으므로
+예전에 실패한 클립이 남아 있어도 이번 배치 판정에 섞이지 않는다.
+
+### 14-5. cron 이 매일 새벽 4시에 파드를 내린다
+
+```groovy
+triggers {
+  cron('''TZ=Asia/Seoul
+0 4 * * *''')
+}
+```
+
+**`TZ` 를 cron 문자열 안에 적는다.** `environment` 의 `TZ` 는 빌드 실행 환경에만
+걸리고 트리거 시각은 Jenkins controller 의 시간대를 따른다. controller 가 UTC 면
+한국 시간 오후 1시에 파드가 내려간다 — 시연 도중일 수 있는 시각이다.
+
+파드는 시간당 과금이고 끄는 것을 하루 잊으면 하루치가 그대로 나간다. cron 빌드는
+파라미터 **기본값**으로 돌고 declarative 의 `choice` 기본값은 **첫 항목**이므로
+`RUNPOD_DOWN` 이 목록 맨 앞에 있어야 한다. 순서를 바꾸면 새벽마다 파드가 **켜진다.**
+
+시연 중 새벽을 넘겨야 한다면 잡을 Disable 하고, 끝나면 반드시 되돌린다.
+
+### 14-6. `SEED` 전에 Jenkins 이미지를 다시 만든다
+
+`SEED` 는 `scripts/seed-clips.sh` 를 돌리고 그 스크립트는 `jq` 를 쓴다. `jq` 는
+`infra/jenkins/Dockerfile` 에 들어 있는데 **Jenkins 는 compose 밖 컨테이너라 앱 CD 가
+이 이미지를 갱신하지 않는다.** 사람이 한 번 다시 만들어야 한다.
+
+> **진행 중인 빌드가 없는지 먼저 본다.** 재생성은 컨테이너를 내리므로 돌던 배포가
+> 중간에 끊긴다. Jenkins 화면의 실행 중 잡을 확인하고, 급하지 않으면 배포가 없는
+> 시간에 한다.
+
+```bash
+# EC2 에서. 현재 컨테이너의 실행 인자를 먼저 적어 둔다 —
+# 볼륨·포트·네트워크·재시작 정책이 여기 전부 들어 있다.
+sudo docker inspect jenkins \
+  -f '{{range .Mounts}}-v {{.Source}}:{{.Destination}} {{end}}{{println}}{{range $p, $c := .NetworkSettings.Ports}}-p {{(index $c 0).HostIp}}:{{(index $c 0).HostPort}}:{{$p}} {{end}}'
+
+# 호스트 docker 그룹 GID 를 그대로 넘긴다(3장과 같은 값이어야 소켓이 열린다).
+DOCKER_GID=$(getent group docker | cut -d: -f3)
+sudo docker build --build-arg DOCKER_GID="$DOCKER_GID" \
+  -t npick/jenkins:latest infra/jenkins
+
+sudo docker stop jenkins && sudo docker rm jenkins
+# 위에서 적어 둔 -v/-p 를 그대로 다시 준다. 특히 /home/ubuntu/jenkins-data 와
+# /var/run/docker.sock, 그리고 127.0.0.1:18080 바인딩을 빠뜨리지 않는다.
+sudo docker run -d --name jenkins --restart unless-stopped \
+  -v /home/ubuntu/jenkins-data:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /home/ubuntu/S15P21A501:/home/ubuntu/S15P21A501 \
+  -p 127.0.0.1:18080:8080 \
+  npick/jenkins:latest
+
+# 확인 — 잡·설정·플러그인은 볼륨에 있으므로 그대로 남아 있어야 한다.
+sudo docker exec jenkins jq --version
+sudo docker exec jenkins docker version --format '{{.Client.Version}}'
+```
+
+**데이터는 `/home/ubuntu/jenkins-data` 볼륨에 있다.** 컨테이너를 지워도 잡·크리덴셜·
+플러그인은 남는다. 그 볼륨을 지우지 않는 한 되돌릴 수 있다. URL 설정(5장)과 웹훅
+토큰은 그 안에 있으므로 다시 넣을 필요가 없다.
+
+### 14-7. Jenkins 는 SSAFY GPU 서버로 나가지 않는다
+
+`npick-worker-drain` 은 **사람이 SSH 로 돌린다.** Jenkins 에이전트를 GPU 서버에 붙이는
+안은 보류했다 — 아키텍처 SSOT 의 "그 서버에 상주 서버를 올릴 수 없다"와 충돌하므로 팀
+합의가 먼저다. 절차는 [ai/README.md](../../ai/README.md) 의 GPU 노드 설치 절에 있다.
+
 ## 부록. ssh key 주의 (가이드 경고 사항)
 
 배포 연동 등으로 EC2에 SSH 키를 만들고 `~/.ssh/authorized_keys`를 수정할 일이 생기면,

@@ -166,6 +166,13 @@ class Settings(BaseSettings):
     #: 곧 근거 없는 동결이다(`vlm_model`·`ollama_model` 과 같은 판단). 비어 있으면 이
     #: 단계는 capabilities 에서 빠지고 배정되지 않는다.
     asr_model: str = ""
+    #: 가중치 리비전(40자리 커밋 SHA). **크기 이름은 저장소로 풀린다** —
+    #: `large-v3-turbo` 는 `mobiuslabsgmbh/faster-whisper-large-v3-turbo` 이고 그 저장소가
+    #: 갱신되면 같은 이름이 다른 가중치를 가리키는데 `model_version` 은 그대로다. 그러면
+    #: 다른 가중치로 만든 전사가 같은 `stageVersion` 을 달고 정본에 들어간다.
+    #: `embedding_model_revision` 과 같은 판단이고, SHA 가 아니면 이 단계는
+    #: capabilities 에서 빠진다. 확정 조합은 ai/docs/asr.md §5.6 이다.
+    asr_model_revision: str = ""
     #: 연산 정밀도(예: `float16`·`int8_float16`·`int8`). 비우면 장치 기본값을 쓴다 —
     #: CUDA 는 `float16`, CPU 는 `int8` 이다. 이 값도 결과를 바꾸므로 재현 식별자의
     #: `model_version` 에 함께 들어간다.

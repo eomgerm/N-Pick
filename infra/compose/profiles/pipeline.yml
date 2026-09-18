@@ -21,24 +21,54 @@ defaults:
 # BE 가 기대 버전과 대조해 거르기 때문이다(StageExecutionService 의 matches).
 #
 # 이것만으로는 부족하다. 앞에 관문이 더 있다 — WorkerExecutionBinding 이
-# StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다. 그래서 ocr 과
-# scene_transcript_mapping 은 여기에 넣어도 배정되지 않는다(JdbcWorkerStageOutputAdapter 의
-# 집합에 둘 다 없다). 워커는 두 단계 모두 능력으로 선언한다.
-# indexing 은 반대다. 어댑터는 있지만 앞선 ocr 이 pending 이라 nextStage 가 거기서 멈춘다.
+# StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다.
+# JdbcWorkerStageOutputAdapter 의 집합은 **10 단계**다. 아래는 9 개뿐이다 —
+# `transcript_selection` 이 빠져 있고, 그건 워커에 구현이 없어서다(HANDLERS 에 없다).
+# **구현이 생기는 순간 이 파일이 병목이 된다** — 여기 없는 단계는 BE 가 unknown 으로
+# 접고 실측 해시와 절대 같아지지 않아, 오류 없이 영원히 배정되지 않는다. 그 단계를
+# 구현하는 티켓이 여기 한 줄을 함께 넣어야 한다 (S15P21A501-187 리뷰 지적).
 # 배포별로 선언 범위를 좁히는 노브는 ai/.env 의 NPICK_AI_JOB_STAGES 다(S15P21A501-186).
 #
-# 아래 두 값은 CPU 워커에서 실측했다(S15P21A501-189).
-#   docker compose exec ai-worker python -c \
-#     "from npick_worker.jobs import registry; print(registry.capability_versions())"
-# 워커의 선언값과 한 글자라도 다르면 그 단계는 영원히 배정되지 않는다. 손으로 짓지 않는다.
+# 아래 값은 전부 실측이다. 손으로 짓지 않는다 — 워커의 선언값과 한 글자라도 다르면
+# 그 단계는 **아무 오류 없이** 영원히 배정되지 않는다. 뽑는 명령은 노드마다 같다:
+#   EC2    docker compose exec ai-cpu-worker python -c \
+#            "from npick_worker.jobs import registry; print(registry.capability_versions())"
+#   GPU    uv run --group gpu --group cu128 python -c '...같은 것...'
+#          가중치를 쓰는 단계는 registry.warm_up([...]) 을 먼저 불러야 값이 나온다.
 #
-# **재실측이 필요한 시점**: 이 해시는 config 버전뿐 아니라 엔진 버전까지 접는다
-# (registry.py 의 _scene_detection_identity·_frame_extraction_identity 가 engine_version 을
-# importlib.metadata 로 읽는다). ai/uv.lock 이 scenedetect 나 av 를 올리면 워커 선언값이
-# 바뀌고, 두 단계가 **아무 오류 없이** 배정만 멈춘다. 락 갱신 뒤에는 위 명령을 다시 돌린다.
+# **노드가 갈려도 값은 같다 — 확인했다** (2026-09-18 실측, S15P21A501-187).
+# SSAFY GPU 서버(cu128/L40S)와 RunPod 파드(cu130/H100)에서 같은 소스·같은 가중치로
+# 재서 아홉 단계가 전부 같은 값을 냈다.
+#
+# 처음 재봤을 때는 `vlm_metadata` 와 `entity_extraction` 둘이 갈렸다. 두 어댑터가
+# engineVersion 에 torch 빌드를 접어 넣고 있어서다. 이 파일은 단계당 값을 하나만
+# 담으므로 그 상태에서는 두 노드 중 하나가 **아무 오류 없이** 그 단계를 배정받지
+# 못한다 — 드라이버가 노드마다 달라 torch 빌드를 맞출 수도 없다. 그래서 그쪽에서
+# torch 를 뺐다. 무엇으로 돌았는지는 결과마다 StageRuntime.torch·.cuda 가 여전히
+# 싣고, 그 값은 재현 식별자 밖이라 배정을 가르지 않는다.
+#
+# 그래도 **SSAFY GPU 서버와 RunPod 파드를 동시에 켜지 않는다.** 이제는 버전 때문이
+# 아니라 둘이 같은 단계를 선언해 잡을 서로 뺏기 때문이다.
+#
 stage_versions:
   scene_detection: "npick.stage.scene_detection/v1:3ab4bebe"
   frame_extraction: "npick.stage.frame_extraction/v1:5fa70a50"
+  vlm_metadata: "npick.stage.vlm_metadata/v1:de632da5"
+  ocr: "npick.stage.ocr/v1:bc75979d"
+  asr: "npick.stage.asr/v1:9e977661"
+  scene_transcript_mapping: "npick.stage.scene_transcript_mapping/v1:e1d97878"
+  entity_extraction: "npick.stage.entity_extraction/v1:4d278198"
+  text_embedding: "npick.stage.text_embedding/v1:308db445"
+  indexing: "npick.stage.indexing/v1:44136fa3"
+  #
+  # asr 의 modelVersion 은 다음이다 —
+  #   faster-whisper/large-v3-turbo@0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf+float16
+  # 모델은 ai/docs/asr.md §5.6 이 확정했고, **리비전은 SHA 로 고정한다**
+  # (S15P21A501-187). 크기 이름 `large-v3-turbo` 는 HF 저장소로 풀리고 그 저장소는
+  # 갱신되므로, 고정하지 않으면 같은 modelVersion 이 다른 가중치를 가리킨다.
+  # 고정되지 않은 워커는 이 단계를 capabilities 에 싣지 않는다.
+  # compute type 은 asr.md 표에서 **미정**이라 코드의 장치 기본값(CUDA → float16)이
+  # 붙었다. GPU 노드 둘 다 CUDA 라 값이 같다. 명시하는 순간 이 해시가 바뀐다.
 
 # 단계별로 defaults 를 덮어쓸 때만 적는다. 키는 stages.py 의 name 을 쓴다.
 # 예: scene_detection: { retry_count: 3, timeout_seconds: 600 }
@@ -59,11 +89,19 @@ transient_errors:
   - WORKER_ABORTED
   - STAGE_FAILED
 
-# CPU 워커 / GPU 서버 배치.
+# CPU 워커 / GPU 노드 배치.
 # 정적 목록으로 채우지 않는다. 워커가 claim 요청의 capabilities 로 실행 가능한 단계를
 # 선언하고 BE 가 그것으로 배정을 거른다(docs/contracts/job-api.md).
-# CPU 워커와 GPU 파드가 같은 이미지를 쓰므로 BE 쪽에는 배정 목록이 없다.
+# **워커가 capabilities 로 선언하므로** BE 쪽에는 배정 목록이 없다.
 # 어느 단계를 선언할지는 워커 쪽 NPICK_AI_JOB_STAGES 가 배포별로 좁힌다
 # (S15P21A501-186). 그 값도 여기 두지 않는다 — 워커 배포 설정이다.
+#
+# 여기 "CPU 워커와 GPU 파드가 같은 이미지를 쓰므로" 라고 적혀 있던 것을 고쳤다.
+# 사실이 아니다 — 배포 단위마다 필요한 torch 가 배타라 이미지가 갈린다
+# (S15P21A501-187). 네 단위는 이렇다:
+#   EC2 질의 리졸버   CPU torch + 임베딩 런타임. 폴링을 켜지 않는다
+#   EC2 CPU 워커      torch 없음. ocr 만 맡는다
+#   SSAFY GPU 서버    cu128. 소스 배치 실행(npick-worker-drain)
+#   RunPod 파드       cu130. 네트워크 볼륨 상주
 placement:
   declared_by: worker_capabilities

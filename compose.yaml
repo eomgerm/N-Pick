@@ -2,11 +2,18 @@
 
 name: npick
 
+# **mem_limit 은 전부 실측 기반이다** (S15P21A501-187, 2026-09-18 `docker stats` 및
+# 컨테이너 안 peak RSS). EC2 는 15GB 에 swap 이 없어서, 한 컨테이너가 폭주하면 커널
+# OOM killer 가 postgres 를 골라 사이트 전체를 끌어내릴 수 있다. 상한 합계는 11.1g 다.
+# 숫자를 올릴 때는 그 서비스의 실사용량을 먼저 재고 이 주석에 근거를 남긴다.
+
 services:
   postgres:
     # pg_search(BM25) 와 pgvector 가 같은 인스턴스에 있어야 검색 설계가 성립한다.
     image: ${POSTGRES_IMAGE:-paradedb/paradedb:0.25.6-pg18}
     container_name: npick-postgres
+    # 실측 134MB. 색인 재구축 때 work_mem 이 오르는 몫을 얹었다
+    mem_limit: 2g
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-npick}
@@ -45,6 +52,9 @@ services:
     image: npick/backend:${BACKEND_TAG:-local}
     container_name: npick-backend
     restart: unless-stopped
+    # 실측 433MB. Dockerfile 이 힙을 -Xmx1g 로 묶었고 그 밖(메타스페이스·스레드 스택·
+    # direct buffer·ffprobe 자식 프로세스)의 몫으로 1g 를 더 준다.
+    mem_limit: 2g
     # BE 팀이 변수를 추가할 자리. 아래 environment 가 우선한다.
     env_file:
       - path: ./backend/.env
@@ -109,6 +119,8 @@ services:
       API_INTERNAL_BASE_URL: http://backend:8080/api/v1
     image: npick/frontend:${FRONTEND_TAG:-local}
     container_name: npick-frontend
+    # 실측 97MB. Next.js 빌드는 CI 에서 일어나고 이 컨테이너는 런타임 전용이다
+    mem_limit: 512m
     restart: unless-stopped
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
@@ -122,12 +134,24 @@ services:
       retries: 10
       start_period: 30s
 
+  # **질의 리졸버다. 파이프라인 워커가 아니다.** 이름은 역사적인 것이고 바꾸지 않았다 —
+  # backend 의 QUERY_RESOLVER_BASE_URL 과 nginx upstream 이 이 이름을 가리킨다.
+  # 파이프라인 잡은 아래 ai-cpu-worker 가 받는다. 둘을 한 프로세스에 합치지 않는다:
+  # 합치면 검색 해석이 영상 처리에 밀린다 (S15P21A501-187 제약).
   ai-worker:
     build:
       context: ./ai
+      args:
+        # 임베딩 런타임 + CPU torch. 이게 없으면 `/query/resolve` 가 **오류 없이**
+        # 벡터 없는 응답을 내려보낸다 — 워밍업이 ImportError 를 삼킨다 (MR !85).
+        UV_GROUPS: --group embedding --group cpu
     image: npick/ai-worker:${AI_TAG:-local}
     container_name: npick-ai-worker
     restart: unless-stopped
+    # 실측 2,306 MiB — arctic-embed-l-v2.0-ko 를 CPU 에 올렸을 때의 peak RSS
+    # (2026-09-18, SSAFY GPU 서버에서 같은 가중치·같은 리비전으로 측정).
+    # torch 가 없던 시절의 50MB 를 기준으로 삼으면 첫 검색에서 OOM 이다.
+    mem_limit: 3g
     env_file:
       - path: ./ai/.env
         required: true
@@ -136,8 +160,11 @@ services:
       NPICK_AI_HOST: 0.0.0.0
       NPICK_AI_PORT: 8000
       NPICK_AI_LOG_LEVEL: ${AI_LOG_LEVEL:-INFO}
-      # GPU 단계는 이 스택에 포함하지 않는다(SSAFY GPU 서버 배치)
+      # GPU 단계는 이 스택에 포함하지 않는다(SSAFY GPU 서버·RunPod 파드 배치)
       NPICK_AI_DEVICE: cpu
+      # **명시적으로 끈다.** ai/.env 는 두 서비스가 함께 읽는 파일이고 거기서 폴링을
+      # 켜면 이 컨테이너도 파이프라인 잡을 물어 간다. environment 가 env_file 을 이긴다.
+      NPICK_AI_JOB_POLL_ENABLED: "false"
       # backend 와 공유하는 마운트. 이 스택에서는 경로가 고정이라 여기서 준다.
       # 원본 영상을 HTTP 로 복사하지 않고 바로 읽는다(docs/contracts/job-api.md).
       NPICK_AI_MEDIA_ROOT: /srv/npick/media
@@ -158,10 +185,68 @@ services:
       retries: 10
       start_period: 30s
 
+  # EC2 CPU 워커 — `ocr` 하나만 맡는다 (S15P21A501-187).
+  # 같은 ai/ 소스에서 나오지만 **리졸버와 다른 이미지다** — 여기에는 torch 가 없다.
+  # OCR 실행기는 onnxruntime(CPU)이라 GPU 없이 돈다.
+  #
+  # 디코드 두 단계(scene_detection·frame_extraction)는 아직 여기로 옮기지 않는다.
+  # 실측이 22코어 기준 18.8초인데 코어 점유율 기록이 없어 4 vCPU 환산이 안 된다
+  # (ai/docs/frame-extraction.md). 재본 뒤에 옮기며, 옮기는 것은 아래 한 줄이다.
+  ai-cpu-worker:
+    build:
+      context: ./ai
+      # 기본값(빈 문자열) = 기본 의존성만. torch·sentence-transformers 를 받지 않는다.
+      args:
+        UV_GROUPS: ""
+    image: npick/ai-cpu-worker:${AI_TAG:-local}
+    container_name: npick-ai-cpu-worker
+    restart: unless-stopped
+    # 실측 167 MiB — 배포 컨테이너 안에서 `registry.warm_up(["ocr"])` 뒤 peak RSS
+    # (2026-09-18). keyframe JPEG 디코드가 얹히는 몫으로 넉넉히 1g 를 준다.
+    mem_limit: 1g
+    env_file:
+      # 잡 API 토큰과 fleet 은 여기 있다. 커밋되지 않는다.
+      - path: ./ai/.env
+        required: true
+    environment:
+      NPICK_AI_HOST: 0.0.0.0
+      NPICK_AI_PORT: 8000
+      NPICK_AI_LOG_LEVEL: ${AI_LOG_LEVEL:-INFO}
+      NPICK_AI_DEVICE: cpu
+      # backend 와 같은 볼륨을 본다. 워커가 _mount_is_usable 로 탐지해 claim 에
+      # sharedMediaVolume 을 싣고, BE 가 AND 해서 transport 를 shared-volume 으로 준다.
+      # 그래서 이 워커는 원본을 HTTP 로 복사하지 않는다. RunPod 파드는 같은 코드로
+      # http 를 받는다 — 바뀌는 것은 환경뿐이다(docs/contracts/job-api.md §5).
+      NPICK_AI_MEDIA_ROOT: /srv/npick/media
+      # **이 값이 배포 단위를 가른다.** 위 ai-worker 는 false 다.
+      NPICK_AI_JOB_POLL_ENABLED: "true"
+      # 컨테이너 네트워크로 직접 간다. nginx·TLS 를 거칠 이유가 없다.
+      NPICK_AI_JOB_API_BASE_URL: http://backend:8080
+      # **좁히지 않으면 GPU 노드와 선언이 겹쳐 잡을 서로 뺏는다.** 구현은 이 이미지에도
+      # scene_detection·frame_extraction·indexing 이 들어 있다(기본 의존성이라서다).
+      NPICK_AI_JOB_STAGES: ocr
+      NPICK_AI_OCR_MODEL_DIR: /var/cache/npick/models/rapidocr
+    # 포트를 퍼블리시하지 않는다. 잡 수신은 이 워커가 발신하는 방향이고
+    # /health 는 compose 네트워크 안에서만 쓴다.
+    volumes:
+      - media:/srv/npick/media
+      - model-cache:/var/cache/npick/models
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   mlflow:
     # -full 태그는 db extra(psycopg2-binary)를 포함한다. 별도 빌드가 필요 없다.
     image: ${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.15.2-full}
     container_name: npick-mlflow
+    # 실측 1.75GB. 7개 중 두 번째로 크다 — worker 2개가 각자 풀을 잡는다
+    mem_limit: 2560m
     restart: unless-stopped
     environment:
       # 비밀번호가 프로세스 argv 에 남지 않도록 URI 는 환경변수로 넘긴다.
@@ -201,6 +286,8 @@ services:
     profiles: ["proxy"]
     image: nginx:1.28-alpine
     container_name: npick-nginx
+    # 실측 8.7MB
+    mem_limit: 128m
     restart: unless-stopped
     environment:
       NPICK_DOMAIN: ${NPICK_DOMAIN:-localhost}

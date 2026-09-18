@@ -62,6 +62,10 @@ dev = [
 # Windows 는 CPU 전용 휠이고 Linux 는 CUDA 13 번들이라 12.8 드라이버에서 GPU 를 못 잡는다.
 # 언제나 `--group gpu --group cu128` 또는 `--group cu130` 처럼 짝지어 쓴다.
 gpu = [
+    # 임베딩은 GPU 노드와 EC2 리졸버가 **함께** 쓴다. 핀을 두 곳에 두면 두 노드가 서로
+    # 다른 sentence-transformers 로 같은 벡터 공간을 만들게 되므로 embedding 그룹
+    # 하나에 두고 여기서 끌어 쓴다(PEP 735 include-group). S15P21A501-187.
+    { include-group = "embedding" },
     "faster-whisper>=1.2,<2",
     # vlm_metadata 가 장면 설명을 만든다. 모델 이름은 여기서 고르지 않는다 —
     # NPICK_AI_VLM_MODEL 이 정하고 후보 비교는 docs/vlm-metadata.md 다(FRD §11).
@@ -75,6 +79,11 @@ gpu = [
     # 않는다 — NPICK_AI_EMBEDDING_MODEL 이 정하고 후보 비교는 S15P21A501-175 다.
     # gpu 그룹에 두는 이유는 torch 를 끌어오기 때문이다. 이 단계 자체는 CPU 에서도
     # 돌아가지만(실측 p95 110~120ms) torch 없이는 어느 쪽도 못 돈다.
+]
+# 색인(GPU 노드)과 질의(EC2 리졸버)가 같이 쓰는 벡터 공간의 런타임이다. `gpu` 가 이 그룹을
+# include 하므로 GPU 노드는 `--group gpu` 한 번으로 함께 받고, 리졸버는 torch 를 CUDA 가
+# 아닌 `cpu` 그룹에서 받아 이 그룹만 얹는다 — VLM·ASR 런타임을 EC2 에 들이지 않기 위해서다.
+embedding = [
     # 5.7 에서 `get_sentence_embedding_dimension` 이 `get_embedding_dimension` 으로
     # 바뀌었다(옛 이름은 FutureWarning). 어댑터가 새 이름을 쓰므로 하한이 5.7 이다.
     "sentence-transformers>=5.7,<6",
@@ -110,6 +119,10 @@ gpu = [
 # 않는다. torch 와 같은 인덱스·같은 릴리스에서 와야 해서 그룹을 함께 쓴다.
 cu128 = ["torch>=2.11,<2.12", "torchvision>=0.26,<0.27"]
 cu130 = ["torch>=2.13,<3", "torchvision>=0.28,<1"]
+# EC2 질의 리졸버용 세 번째 갈래다. GPU 가 없는 노드에 CUDA torch 를 깔면 torch 하나가
+# 4.2GB 라 쓰지도 않을 커널을 이고 간다. torchvision 은 넣지 않는다 — 그건 Qwen3-VL
+# processor 조립에만 필요하고 리졸버는 VLM 을 돌리지 않는다.
+cpu = ["torch>=2.11,<3"]
 
 [tool.uv]
 required-version = ">=0.12"
@@ -117,7 +130,7 @@ default-groups = ["dev"] # gpu 는 --group gpu 로만 설치된다
 
 # 한 환경에 둘을 같이 깔 수 없다. 선언해 두면 uv 가 lock 에 두 해를 따로 담고
 # `--group` 으로 고른 쪽만 설치한다.
-conflicts = [[{ group = "cu128" }, { group = "cu130" }]]
+conflicts = [[{ group = "cu128" }, { group = "cu130" }, { group = "cpu" }]]
 
 # rapidocr 는 `opencv-python` 을 요구하는데 이 저장소는 scenedetect-headless 를 통해
 # 이미 `opencv-python-headless` 를 받는다. **둘은 같은 `cv2` 패키지를 설치한다** —
@@ -141,6 +154,12 @@ name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
+# GPU 가 없는 노드용. PyPI 의 linux torch 는 CUDA 13 번들이라 4.2GB 를 받는다.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 # macOS 는 CUDA 휠이 존재하지 않으므로 marker 로 제외한다 → PyPI 의 arm64(MPS) 휠로 해석된다.
 # 이 marker 가 없으면 macOS 팀원의 `uv sync` 가 해상도 단계에서 실패한다.
 #
@@ -151,6 +170,7 @@ explicit = true
 torch = [
     { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { index = "pytorch-cu130", group = "cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cpu", group = "cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 # torch 와 같은 인덱스에서 와야 한다. PyPI 쪽 torchvision 은 PyPI torch 를 끌어오므로
 # 여기서 갈라두지 않으면 CUDA 휠 옆에 CPU torch 가 따라 들어온다.

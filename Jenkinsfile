@@ -180,7 +180,9 @@ pipeline {
           def targets = []
           if (env.BUILD_BACKEND  == 'yes') targets << 'backend'
           if (env.BUILD_FRONTEND == 'yes') targets << 'frontend'
-          if (env.BUILD_AI       == 'yes') targets << 'ai-worker'
+          // ai/ 하나가 이미지 둘을 낸다 — 질의 리졸버와 CPU 워커. 같은 소스라
+          // 항상 함께 빌드한다 (S15P21A501-187).
+          if (env.BUILD_AI       == 'yes') targets.addAll(['ai-worker', 'ai-cpu-worker'])
           withEnv(["BUILD_TARGETS=${targets.join(' ')}"]) {
             sh 'infra/jenkins/build-images.sh'
           }

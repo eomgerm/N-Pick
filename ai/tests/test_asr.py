@@ -38,6 +38,7 @@ from npick_worker.jobs.errors import (
 from npick_worker.jobs.models import AsrOutput, AsrUpstream
 from npick_worker.jobs.registry import StageContext
 from npick_worker.media_errors import MediaUnreadableError
+from npick_worker.settings import get_settings
 
 MEDIA = Path("clips/1/source.mp4")
 CONFIG_FILE = Path(__file__).parent.parent / "src" / "npick_worker" / "config" / "asr.v1.toml"
@@ -368,6 +369,9 @@ def test_declared_version_matches_the_produced_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """선언과 실제가 갈리면 BE 의 배정 필터가 하는 일이 없어진다(계약 §7)."""
+    # 리비전이 고정돼야 선언한다 (S15P21A501-187). 없으면 이 단계가 목록에서 빠진다.
+    monkeypatch.setenv("NPICK_AI_ASR_MODEL_REVISION", _PINNED)
+    get_settings.cache_clear()
     monkeypatch.setattr(registry, "_asr_engine", lambda: FakeEngine((speech(1.0, 2.0),)))
 
     declared = registry.capability_versions()["asr"]
@@ -482,7 +486,10 @@ def test_model_version_names_the_engine_that_produced_it() -> None:
     `large-v3-turbo@float16` 만으로는 무엇이 그것을 돌렸는지 알 수 없다 — 같은 가중치를
     여러 런타임이 돌리고 결과가 서로 다르다. `ocr` 도 같은 모양으로 적는다(계약 §4.5).
     """
-    assert model_identifier("large-v3-turbo", "float16") == "faster-whisper/large-v3-turbo@float16"
+    assert (
+        model_identifier("large-v3-turbo", _PINNED, "float16")
+        == f"faster-whisper/large-v3-turbo@{_PINNED}+float16"
+    )
 
 
 def test_unknown_asr_failure_is_reported_as_asr_failed() -> None:
@@ -533,12 +540,21 @@ class _FakeWhisperModel:
 
     built = 0
     error: Exception | None = None
+    #: 마지막 생성에 넘어온 인자. 리비전이 실제로 라이브러리까지 가는지 본다.
+    args: tuple[object, ...] = ()
+    kwargs: dict[str, object] = {}  # noqa: RUF012
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         type(self).built += 1
+        type(self).args = args
+        type(self).kwargs = kwargs
         error = type(self).error
         if error is not None:
             raise error
+
+
+#: 고정 리비전 예시. 실제 값은 ai/docs/asr.md §5.6 이 정한다 (S15P21A501-187).
+_PINNED = "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf"
 
 
 def _engine_with_fake_weights(monkeypatch: pytest.MonkeyPatch) -> FasterWhisperEngine:
@@ -547,7 +563,7 @@ def _engine_with_fake_weights(monkeypatch: pytest.MonkeyPatch) -> FasterWhisperE
     _FakeWhisperModel.built = 0
     _FakeWhisperModel.error = None
     monkeypatch.setattr(faster_whisper, "WhisperModel", _FakeWhisperModel)
-    return FasterWhisperEngine("small", "int8", "cpu", None)
+    return FasterWhisperEngine("small", _PINNED, "int8", "cpu", None)
 
 
 def test_constructing_the_engine_does_not_load_the_weights(
@@ -559,7 +575,7 @@ def test_constructing_the_engine_does_not_load_the_weights(
     assert _FakeWhisperModel.built == 0
     assert engine.is_loaded is False
     # 버전 축 셋 다 설정에서 온다. 읽는 것만으로 로딩이 일어나면 안 된다.
-    assert engine.model_version == "faster-whisper/small@int8"
+    assert engine.model_version == f"faster-whisper/small@{_PINNED}+int8"
     assert _FakeWhisperModel.built == 0
 
 
@@ -581,6 +597,11 @@ def test_asr_is_not_declared_before_the_warm_up_finishes(
     가중치가 아직 없는 엔진을 선언에 쓰면 그 폴링이 내려받기를 트리거하고, 실패 기록
     경로에서는 lease 를 든 채 heartbeat 가 못 뛴다. `vlm_metadata` 와 같은 가드다.
     """
+    # 이 테스트가 보는 것은 **워밍업** 가드다. 리비전 가드(S15P21A501-187)가 그 앞에
+    # 있으므로 고정해 두지 않으면 워밍업 뒤에도 선언되지 않아, 통과해도 무엇을 확인한
+    # 것인지 알 수 없게 된다. 리비전 가드 자체는 아래 별도 테스트가 본다.
+    monkeypatch.setenv("NPICK_AI_ASR_MODEL_REVISION", _PINNED)
+    get_settings.cache_clear()
     engine = _engine_with_fake_weights(monkeypatch)
     monkeypatch.setattr(registry, "_asr_engine", lambda: engine)
 
@@ -626,3 +647,62 @@ def test_other_load_failures_stay_model_unavailable(monkeypatch: pytest.MonkeyPa
 
     with pytest.raises(AsrModelUnavailableError):
         engine.warm_up()
+
+
+# ── 가중치 리비전 고정 (S15P21A501-187) ────────────────────────────────────────
+#
+# `large-v3-turbo` 같은 크기 이름은 faster-whisper 가 HF 저장소로 풀어 주는데
+# (`mobiuslabsgmbh/faster-whisper-large-v3-turbo`) 그 저장소가 갱신되면 **같은
+# `modelVersion` 이 다른 가중치를 가리킨다.** 임베딩 쪽은 이 위험을 알고 리비전을 SHA 로
+# 박고 움직이는 ref 면 선언 자체를 거부한다(`sentence_transformers_backend`). ASR 도 같다 —
+# 대사는 사람이 읽을 수 있지만, 가중치가 조용히 바뀐 것은 전사 품질이 떨어진 뒤에야 안다.
+
+
+def test_model_identifier_carries_the_pinned_revision() -> None:
+    from npick_worker.asr.faster_whisper_backend import model_identifier
+
+    value = model_identifier("large-v3-turbo", _PINNED, "float16")
+    assert _PINNED in value
+    assert "large-v3-turbo" in value
+    assert value.endswith("float16")
+
+
+def test_engine_passes_the_revision_to_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
+    """리비전을 기록만 하고 로딩에 넘기지 않으면 그 기록이 거짓이 된다."""
+    engine = _engine_with_fake_weights(monkeypatch)
+    engine.warm_up()
+
+    assert _FakeWhisperModel.args[0] == "small"
+    assert _FakeWhisperModel.kwargs["revision"] == _PINNED
+
+
+def test_unpinned_revision_keeps_the_stage_out_of_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """가드가 **실제로 배정을 막는지** 본다. `is_pinned_revision` 단위 검사만으로는
+    그것이 `capability_versions()` 에 연결됐다는 보장이 없다."""
+    monkeypatch.delenv("NPICK_AI_ASR_MODEL_REVISION", raising=False)
+    get_settings.cache_clear()
+    engine = _engine_with_fake_weights(monkeypatch)
+    engine.warm_up()
+    monkeypatch.setattr(registry, "_asr_engine", lambda: engine)
+
+    assert "asr" not in registry.capability_versions()
+
+    monkeypatch.setenv("NPICK_AI_ASR_MODEL_REVISION", _PINNED)
+    get_settings.cache_clear()
+    assert "asr" in registry.capability_versions()
+
+
+@pytest.mark.parametrize("revision", ["", "main", "v1", "0a363e91"])
+def test_moving_revision_is_not_declared(revision: str) -> None:
+    """움직이는 ref 로는 능력을 선언하지 않는다. `text_embedding` 과 같은 가드다."""
+    from npick_worker.asr.faster_whisper_backend import is_pinned_revision
+
+    assert not is_pinned_revision(revision)
+
+
+def test_sha_revision_is_declared() -> None:
+    from npick_worker.asr.faster_whisper_backend import is_pinned_revision
+
+    assert is_pinned_revision(_PINNED)

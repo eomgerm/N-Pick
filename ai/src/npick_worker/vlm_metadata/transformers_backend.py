@@ -89,17 +89,20 @@ class TransformersVlmClient:
     def version(self) -> str:
         """어댑터와 런타임의 버전. 가중치는 `model_version` 이 따로 말한다.
 
-        torch 를 함께 적는 이유는 그것이 결과를 바꿀 수 있기 때문이다 — 커널·dtype 구현이
-        바뀌면 같은 가중치에서 다른 토큰이 나올 수 있다(`ocr` 이 onnxruntime 버전을 함께
-        싣는 것과 같은 이유).
+        **torch 는 여기 넣지 않는다.** 예전에는 넣었고 이유도 있었다 — 커널·dtype 구현이
+        바뀌면 같은 가중치에서 다른 토큰이 나올 수 있다. 그런데 그 값이 재현 식별자에
+        들어가면 **배정까지 가른다.** 2026-09-18 실측에서 SSAFY GPU 서버(cu128)와
+        RunPod 파드(cu130)가 같은 가중치로 서로 다른 stageVersion 을 선언했고,
+        `pipeline.yml` 은 단계당 한 값만 담으므로 둘 중 하나가 아무 오류 없이 이 단계를
+        배정받지 못했다. 드라이버가 노드마다 달라 torch 빌드를 맞출 수도 없다.
+
+        무엇으로 돌았는지는 여전히 남는다 — `StageRuntime.torch`·`.cuda` 가 결과마다
+        싣고(registry.py 의 `_runtime`), 그쪽은 식별자 밖이라 배정을 가르지 않는다.
+        기록해야 할 사실과 배정을 갈라야 할 사실을 나눈 것이다 (S15P21A501-187).
         """
         from importlib.metadata import version
 
-        try:
-            torch_version = version("torch")
-        except Exception:  # 버전 조회 실패가 호출을 막을 이유는 없다
-            torch_version = "unknown"
-        return f"transformers{version('transformers')}+torch{torch_version}"
+        return f"transformers{version('transformers')}"
 
     @property
     def model_version(self) -> str:

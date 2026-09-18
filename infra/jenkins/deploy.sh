@@ -34,6 +34,16 @@ resolve() {
   printf '%s' "$tag"
 }
 
+# **배포 전에 없던 서비스를 적어 둔다.** 롤백은 과거 태그로 up -d 하는데, 이번에 처음
+# 생기는 서비스는 과거 태그의 이미지가 존재하지 않는다. 그대로 두면 롤백 자체가
+# "이미지 없음" 으로 죽고 새 서비스는 살아남는다 (S15P21A501-187 리뷰 지적).
+# 컨테이너 이름은 전부 npick-<서비스> 규칙이라 그것으로 판별한다.
+new_services=""
+for service in $(docker compose config --services); do
+  docker inspect "npick-$service" >/dev/null 2>&1 || new_services="$new_services $service"
+done
+[ -z "$new_services" ] || echo "이번 배포에서 처음 생기는 서비스:$new_services"
+
 # 되돌릴 대상은 up -d 이전에 실제로 돌던 태그다.
 prev_backend=$(current_tag backend)
 prev_frontend=$(current_tag frontend)
@@ -51,6 +61,7 @@ if [ -n "$prev_backend" ] && [ -n "$prev_frontend" ] && [ -n "$prev_ai" ]; then
     echo "BACKEND_TAG=$prev_backend"
     echo "FRONTEND_TAG=$prev_frontend"
     echo "AI_TAG=$prev_ai"
+    echo "NEW_SERVICES=\"$new_services\""
   } > .deploy-rollback
   echo "롤백 대상 기록 — backend $prev_backend · frontend $prev_frontend · ai-worker $prev_ai"
 else

@@ -30,12 +30,20 @@ def identity(config: Config) -> dict[str, str]:
     the revision is pinned to a SHA, and the runtime versions come from package metadata.
     Nothing resolves at load time the way a moving `main` ref would, so declaring this
     before the first job reports the same value the job will report (contract §7).
+
+    The torch build is deliberately absent. It used to be folded in here, which made
+    the cu128 node and the cu130 node declare different stage versions for the same
+    weights - measured 2026-09-18 - and `pipeline.yml` holds one value per stage, so
+    one of the two nodes silently stopped being assigned this stage. What torch was
+    running is still recorded per result by `StageRuntime.torch`/`.cuda`, outside the
+    reproducibility identity, which is where a fact that must not gate assignment
+    belongs (S15P21A501-187).
     """
     return {
         "algorithmVersion": "entity-extraction/v1",
         "configVersion": config.version,
         "modelVersion": f"{config.model}@{config.revision}",
-        "engineVersion": f"transformers{version('transformers')}+torch{version('torch')}",
+        "engineVersion": f"transformers{version('transformers')}",
     }
 
 
