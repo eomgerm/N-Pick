@@ -1,7 +1,12 @@
 #!/bin/sh
 # RunPod 파드를 재개하거나 정지한다. Jenkins 의 npick-ops 잡이 부른다.
 #
-#   RUNPOD_API_KEY=... RUNPOD_POD_ID=... infra/jenkins/runpod.sh resume|stop
+#   RUNPOD_API_KEY=... infra/jenkins/runpod.sh resume|stop
+#
+# 대상 파드는 **이름으로 찾는다**(RUNPOD_POD_NAME, 기본 npick-worker). 재고가 없어
+# 파드를 다시 만들면 ID 가 바뀌는데, ID 를 Jenkins credential 에 박아 두면 그때마다
+# 사람이 웹 UI 로 고쳐야 하고, 잊으면 **없는 파드를 끄고 성공했다고 보고한다.**
+# ID 를 직접 주고 싶으면 RUNPOD_POD_ID 를 쓴다 — 그쪽이 우선한다.
 #
 # 종료 코드
 #   0  요청한 상태가 되었다. **이미 그 상태였어도 0 이다** — cron 이 매일 새벽 stop 을
@@ -48,7 +53,7 @@ case "$ACTION" in
   *) fail2 "사용법: $0 resume|stop" ;;
 esac
 [ -n "${RUNPOD_API_KEY:-}" ] || fail2 "RUNPOD_API_KEY 가 없다"
-[ -n "${RUNPOD_POD_ID:-}" ]  || fail2 "RUNPOD_POD_ID 가 없다"
+POD_NAME="${RUNPOD_POD_NAME:-npick-worker}"
 
 # -f 를 쓰지 않는다. 본문을 버리면 401 인지 404 인지 운영자가 알 수 없다.
 api() { # $1=METHOD $2=PATH  →  본문을 $API_BODY, 상태를 $API_CODE
@@ -60,6 +65,26 @@ api() { # $1=METHOD $2=PATH  →  본문을 $API_BODY, 상태를 $API_CODE
   API_BODY=$(printf '%s' "$API_BODY" | sed '$d')
 }
 
+# 이름으로 파드를 찾는다. 목록 응답은 중첩 객체가 있어 문자열 자르기로는 위험하므로
+# jq 를 쓴다 — Jenkins 이미지에는 들어 있다(infra/jenkins/Dockerfile).
+resolve_pod_id() {
+  command -v jq >/dev/null 2>&1 || {
+    echo "이름으로 파드를 찾으려면 jq 가 필요하다. RUNPOD_POD_ID 를 직접 주거나" >&2
+    echo "Jenkins 이미지를 다시 만든다 (README 14-6)" >&2; exit 1; }
+  api GET "/pods"
+  [ "$API_CODE" = "200" ] || {
+    echo "파드 목록을 읽지 못했다 (HTTP $API_CODE): $API_BODY" >&2; exit 1; }
+  printf '%s' "$API_BODY" |
+    jq -r --arg n "$POD_NAME" '[.[] | select(.name == $n)] | .[0].id // empty'
+}
+
+if [ -z "${RUNPOD_POD_ID:-}" ]; then
+  RUNPOD_POD_ID=$(resolve_pod_id)
+  [ -n "$RUNPOD_POD_ID" ] || {
+    echo "이름이 $POD_NAME 인 파드가 없다." >&2
+    echo "runpod-create.sh 로 만들거나 RUNPOD_POD_NAME 을 확인한다" >&2; exit 1; }
+  echo "파드를 이름으로 찾았다: $POD_NAME -> $RUNPOD_POD_ID"
+fi
 # 파드의 desiredStatus 와 runtime 을 한 번에 읽는다.
 #   STATUS    RUNNING | EXITED | TERMINATED | (빈 문자열)
 #   RUNNING_  yes = 컨테이너가 실제로 돌고 있다 / no = 아직이거나 꺼져 있다

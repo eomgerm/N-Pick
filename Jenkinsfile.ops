@@ -69,9 +69,11 @@ pipeline {
     stage('RunPod') {
       when { expression { params.ACTION in ['RUNPOD_DOWN', 'RUNPOD_UP'] } }
       steps {
+        // **파드 ID 를 credential 에 두지 않는다.** 재고가 없어 파드를 다시 만들면 ID 가
+        // 바뀌는데(runpod-create.sh), 그때마다 사람이 웹 UI 로 고쳐야 하고 잊으면
+        // 없는 파드를 끄고 성공했다고 보고한다. runpod.sh 가 이름으로 찾는다.
         withCredentials([
-          string(credentialsId: 'runpod-api-key', variable: 'RUNPOD_API_KEY'),
-          string(credentialsId: 'runpod-pod-id',  variable: 'RUNPOD_POD_ID')
+          string(credentialsId: 'runpod-api-key', variable: 'RUNPOD_API_KEY')
         ]) {
           sh "infra/jenkins/runpod.sh ${params.ACTION == 'RUNPOD_UP' ? 'resume' : 'stop'}"
         }
