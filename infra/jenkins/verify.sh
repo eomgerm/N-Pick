@@ -73,8 +73,14 @@ check 200 http://ai-worker:8000/health
 #   polling.running **잡 루프가 살아 있는가** — 토큰이나 fleet 이 틀리면 루프가 죽는데
 #                   /health 는 200 이고 warmup 도 true 로 남는다. 이번 배포의 필수
 #                   설정이 바로 그 둘이라 이것을 안 보면 검증이 하는 일이 없다.
-# jq 는 Jenkins 이미지에 있다.
+# jq 는 `infra/jenkins/Dockerfile` 이 넣는다. **이미지를 다시 만들지 않은 Jenkins 에서는
+# 없다** — 그 경우 아래 파이프가 조용히 비고 parse-실패 로만 보여서 원인을 찾는 데
+# 시간이 든다(2026-09-18 실측). 먼저 확인하고 무엇이 없는지 말한다.
 if docker compose config --services | grep -qx ai-cpu-worker; then
+  command -v jq >/dev/null 2>&1 || {
+    echo "jq 가 없다. infra/jenkins/Dockerfile 로 Jenkins 이미지를 다시 만든다 (README 14-6)" >&2
+    exit 1
+  }
   body=$(curl -s --max-time 10 http://ai-cpu-worker:8000/health || echo "{}")
   got=$(printf '%s' "$body" |
     jq -r '[(.pipeline.declared // [] | index("ocr") | if . then "ocr" else "없음" end),
