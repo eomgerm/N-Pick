@@ -78,6 +78,15 @@ public record SearchSnapshot(
     private static final List<String> REQUIRED_EVIDENCE_STRINGS =
             List.of("field", "source", "verification_status");
 
+    /** §5.1 이 정한 {@code shot_type} 어휘. */
+    private static final Set<String> SHOT_TYPES = Set.of("anchor", "interview", "b_roll", "unknown");
+
+    /** §5.1 이 정한 {@code match_evidence[].field} 어휘. */
+    private static final Set<String> EVIDENCE_FIELDS = Set.of("caption", "ocr", "transcript", "tag");
+
+    /** {@code match_evidence[].verification_status} 어휘. 날짜의 {@code unknown} 은 여기 없다. */
+    private static final Set<String> EVIDENCE_VERIFICATIONS = Set.of("verified", "unverified");
+
     /** 명시 필터에서 선택 가능한 날짜 종류. 선택했으면 from·to 가 모두 필수다. */
     private static final List<String> FILTER_DATE_KEYS = List.of("broadcast_date", "filmed_date");
 
@@ -282,10 +291,13 @@ public record SearchSnapshot(
      * 제약은 {@code POST /search} 응답에만 걸리고 과거 결과를 소급 수정하지 않는다(FRD §7.2).
      */
     private static boolean isRenderableDisplay(ObjectNode display) {
-        if (!NULLABLE_DISPLAY_STRINGS.stream().allMatch(key -> isNullableString(display.get(key)))) {
+        if (!NULLABLE_DISPLAY_STRINGS.stream().allMatch(key -> isNullableText(display.get(key)))) {
             return false;
         }
-        if (!REQUIRED_DISPLAY_STRINGS.stream().allMatch(key -> isString(display.get(key)))) {
+        if (!REQUIRED_DISPLAY_STRINGS.stream().allMatch(key -> isText(display.get(key)))) {
+            return false;
+        }
+        if (!SHOT_TYPES.contains(display.get("shot_type").asString(null))) {
             return false;
         }
         JsonNode start = display.get("start_time_ms");
@@ -299,11 +311,21 @@ public record SearchSnapshot(
         return FILTER_DATE_KEYS.stream().allMatch(key -> hasDateShape(display.get(key)));
     }
 
+    /**
+     * 날짜 블록의 값 불변식. §5.1 — {@code value} 가 null 이면 {@code verification_status} 는 {@code unknown},
+     * 실제 날짜가 있으면 {@code verified}·{@code unverified} 다. 「모른다」와 「확인했다」를 섞으면 사용자가 없던
+     * 확인을 근거로 판단한다.
+     */
     private static boolean hasDateShape(JsonNode date) {
-        return date != null
-                && date.isObject()
-                && isNullableString(date.get("value"))
-                && isString(date.get("verification_status"));
+        if (date == null || !date.isObject() || !isNullableText(date.get("value"))) {
+            return false;
+        }
+        String status = date.path("verification_status").asString(null);
+        String value = date.path("value").asString(null);
+        if (value == null) {
+            return "unknown".equals(status);
+        }
+        return parseDate(value) != null && EVIDENCE_VERIFICATIONS.contains(status);
     }
 
     /**
@@ -318,7 +340,7 @@ public record SearchSnapshot(
             return false;
         }
         for (JsonNode keyword : keywords) {
-            if (!isString(keyword)) {
+            if (!isText(keyword)) {
                 return false;
             }
         }
@@ -326,24 +348,33 @@ public record SearchSnapshot(
             return false;
         }
         for (JsonNode item : evidence) {
-            if (!item.isObject() || !isNullableString(item.get("value"))) {
+            if (!item.isObject() || !isNullableText(item.get("value"))) {
                 return false;
             }
-            if (!REQUIRED_EVIDENCE_STRINGS.stream().allMatch(key -> isString(item.get(key)))) {
+            if (!REQUIRED_EVIDENCE_STRINGS.stream().allMatch(key -> isText(item.get(key)))) {
+                return false;
+            }
+            if (!EVIDENCE_FIELDS.contains(item.path("field").asString(null))
+                    || !EVIDENCE_VERIFICATIONS.contains(item.path("verification_status").asString(null))) {
                 return false;
             }
         }
         return true;
     }
 
-    /** 키가 있고 값이 문자열인가. 키 부재와 타입 불일치를 같게 다룬다 — 둘 다 「기록이 깨졌다」다. */
-    private static boolean isString(JsonNode node) {
-        return node != null && node.isString();
+    /**
+     * 키가 있고 값이 <b>비어 있지 않은</b> 문자열인가.
+     *
+     * <p>키 부재·타입 불일치·빈 문자열을 같게 다룬다 — 셋 다 「기록이 깨졌다」다. 계약이 표시 문자열을
+     * 「null 또는 비어 있지 않은 string」으로 정했으므로 빈 문자열은 유효한 과거 값이 아니다.
+     */
+    private static boolean isText(JsonNode node) {
+        return node != null && node.isString() && !node.asString("").isBlank();
     }
 
-    /** 키가 있고 값이 문자열이거나 명시적 null 인가. 키 자체의 부재는 허용하지 않는다. */
-    private static boolean isNullableString(JsonNode node) {
-        return node != null && (node.isNull() || node.isString());
+    /** 키가 있고 값이 비어 있지 않은 문자열이거나 명시적 null 인가. 키 자체의 부재는 허용하지 않는다. */
+    private static boolean isNullableText(JsonNode node) {
+        return node != null && (node.isNull() || isText(node));
     }
 
     /** 대표 결과는 저장된 rank=1 행이다. 결과가 없으면 null 이며 2위를 대신 올리지 않는다. */

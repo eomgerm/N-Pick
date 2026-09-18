@@ -664,7 +664,8 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 - `explicit_filters`: 검색 실행 당시 명시 filter(JSON object). 값이 없어도 빈 object `{}`이며 null이 아니다.
 - `resolution_note`, `review_started_at`, `closed_at`: 검수 처리 사유·시작·종료 시각. `OPEN` 상태면 셋 다 null이다.
-- `snapshot_status`, `result_snapshot`: 문의 당시 검색 결과 snapshot 복원 여부. **현재 구현은 항상 `snapshot_status: "unavailable"`, `result_snapshot: null`이다.** S15P21A501-60이 `explain_json`의 `display` 블록으로 저장 형식을 확정·병합했으므로 이제 복원 가능하며, `available` 경로를 채우는 것은 S15P21A501-207 소관이다. 복원 규칙은 §6.7이 같은 저장 형식에 대해 쓰는 것과 같다.
+- `snapshot_status`: `"available"`(당시 결과 스냅샷 복원됨) | `"unavailable"`(문의는 조회되나 복원 가능한 스냅샷 없음). 후자는 `result_snapshot: null`이다. 판정 기준은 저장된 `explain`의 `display.display_name`이 **문자열이거나 `null`**인지다 — 검색 실행 기록(S15P21A501-60)이 표시값을 `explain.display` 하위에 저장하고 생산자(S15P21A501-59)는 nullable `clip.title`을 그대로 기록하므로, `null`(제목 없는 영상)도 유효한 과거 값으로 `available`이며 원값을 보존한다(대체 표기는 표현 계층이 정한다). `display` 블록·`display_name` 키가 없거나 문자열·null 이 아니면(미기록·불완전) `unavailable`로 응답한다.
+- `result_snapshot`: available일 때 `{ search_result_id, scene_id, rank, explain }`. `explain`은 검색 당시 표시값·점수 snapshot으로, 표시값은 `explain.display`(`display_name`·`scene_description` 등) 하위에 담긴다. **조회 시 현재 태그·장면으로 재계산하지 않는다**. 조회 오류는 unavailable로 처리하지 않고 `COMM_500`으로 응답한다.
 
 성공 `data` 예시(`CLOSED`·`no_action`):
 
@@ -690,10 +691,17 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
   "resolution_note": "사유 없음으로 처리",
   "review_started_at": "2026-09-11T03:05:00Z",
   "closed_at": "2026-09-11T03:10:00Z",
-  "snapshot_status": "unavailable",
-  "result_snapshot": null
+  "snapshot_status": "available",
+  "result_snapshot": {
+    "search_result_id": "9802",
+    "scene_id": "9302",
+    "rank": 2,
+    "explain": { "display": { "display_name": "KBC 뉴스9 · 설 연휴 교통", "scene_description": "서울역 귀성 인파" }, "score": 2 }
+  }
 }
 ```
+
+저장된 검색 결과 snapshot이 없으면 `"snapshot_status": "unavailable", "result_snapshot": null`이다.
 
 본인 소유가 아니거나, 참조하는 검색을 본인이 실행하지 않았거나, 존재하지 않는 `feedbackId`는 **동일하게 404**로 응답한다(존재 여부 비노출). 문의 작성자와 원 검색자가 모두 세션 사용자일 때만 조회된다 — 남의 검색 결과에 자기 명의로 만든 문의로 그 검색어·필터가 새어나가지 않게 한다.
 
@@ -887,17 +895,19 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 
 | 대상 | 요구 |
 | --- | --- |
-| `display_name`, `scene_description`, `scene_type` | `null \| string` |
-| `shot_type` | `string` |
+| `display_name`, `scene_description`, `scene_type` | `null` 또는 **비어 있지 않은** string |
+| `shot_type` | `anchor` \| `interview` \| `b_roll` \| `unknown` |
 | `start_time_ms`, `end_time_ms` | 정수이며 `0 <= start < end` |
-| `broadcast_date`, `filmed_date` | object이고 `value`는 `null \| string`, `verification_status`는 `string` |
-| `matched_keywords` | 문자열 배열 (빈 배열 허용) |
-| `match_evidence` | 1개 이상이며 각 항목의 `field`·`source`·`verification_status`는 `string`, `value`는 `null \| string` |
+| `broadcast_date`, `filmed_date` | object. `value`가 `null`이면 `verification_status`는 `unknown`, 실제 달력 날짜(`YYYY-MM-DD`)면 `verified` \| `unverified` |
+| `matched_keywords` | 비어 있지 않은 문자열들의 배열 (빈 배열 자체는 허용) |
+| `match_evidence` | 1개 이상. `field`는 `caption` \| `ocr` \| `transcript` \| `tag`, `verification_status`는 `verified` \| `unverified`, `source`는 비어 있지 않은 string, `value`는 `null` 또는 비어 있지 않은 string |
 | 결과 행 전체 | `rank`가 1..N 연속이고 개수가 10 이하 |
 
-키의 존재만 보면 `shot_type: {}`이나 배열인 날짜 값이 통과하므로 **타입까지** 본다. 키 부재와 타입 불일치는 같게 다룬다 — 둘 다 「기록이 깨졌다」다.
+**키 부재·타입 불일치·빈 문자열·어휘 밖 값을 모두 같게 다룬다** — 넷 다 「기록이 깨졌다」다. 키만 보면 `shot_type: {}`이, 타입만 보면 `shot_type: "legacy"`나 `value: null` + `verification_status: "verified"` 조합이 통과한다.
 
-**닫힌 어휘의 소속은 검증하지 않는다.** `shot_type`이 문자열이면 4값 밖이어도 그대로 낸다(§5.1의 어휘 제약은 `POST /search` 응답에만 걸리고, 과거 결과를 소급 수정하지 않는다).
+`unavailable`로 분류하는 것은 **저장값을 수정하거나 현재 태그로 재계산하는 것이 아니다.** FRD §7.2가 금하는 것은 과거 결과를 소급 수정하는 행위이고, 복원할 수 없다고 말하는 것은 그에 해당하지 않는다. 값은 그대로 두고 판정만 내린다.
+
+**감수해야 할 위험:** 저장된 값이 나중에 어휘 밖이 되면(예: `shot_type` 어휘가 확장되고 과거 기록이 옛 값을 가진 경우) 그 기록은 영구히 `unavailable`이 된다. 어휘를 넓힐 때는 이 절의 허용 집합도 함께 넓혀야 한다. §6.6의 `result_snapshot`(S15P21A501-207)은 `display_name` 타입만 보는 더 느슨한 판정을 쓰므로, 같은 `explain_json`에 대해 두 절의 판정이 다를 수 있다.
 
 ### 6.8 장면 대표 이미지(thumbnail) — 원본 반환
 

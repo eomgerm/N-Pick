@@ -142,6 +142,115 @@ class SearchSnapshotTest {
                 .isTrue();
     }
 
+    // ---- P1 3차: 값 불변식 — 어휘와 빈 문자열 (MR !126 리뷰 3차) ----
+
+    @Test
+    @DisplayName("shot_type 이 계약 어휘 밖이면 unavailable 이다")
+    void unavailableWhenShotTypeOutsideVocabulary() {
+        String broken = DISPLAY.replace("\"b_roll\"", "\"legacy\"");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("계약 어휘 네 값은 모두 통과한다")
+    void acceptsAllShotTypes() {
+        for (String shotType : new String[] {"anchor", "interview", "b_roll", "unknown"}) {
+            String display = DISPLAY.replace("\"b_roll\"", "\"" + shotType + "\"");
+
+            SearchSnapshot snapshot =
+                    SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(display, MATCH))));
+
+            assertThat(snapshot.snapshotStatus()).as(shotType).isEqualTo("available");
+        }
+    }
+
+    @Test
+    @DisplayName("match_evidence 의 field 가 계약 어휘 밖이면 unavailable 이다")
+    void unavailableWhenEvidenceFieldOutsideVocabulary() {
+        String broken = MATCH.replace("\"field\": \"ocr\"", "\"field\": \"anything\"");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 value 가 null 인데 verification_status 가 verified 면 unavailable 이다")
+    void unavailableWhenUnknownDateClaimsVerified() {
+        String broken = DISPLAY.replace(
+                "\"filmed_date\": {\"value\": null, \"verification_status\": \"unknown\"}",
+                "\"filmed_date\": {\"value\": null, \"verification_status\": \"verified\"}");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 값이 있는데 verification_status 가 unknown 이면 unavailable 이다")
+    void unavailableWhenKnownDateClaimsUnknown() {
+        String broken = DISPLAY.replace(
+                "\"broadcast_date\": {\"value\": \"2026-09-14\", \"verification_status\": \"verified\"}",
+                "\"broadcast_date\": {\"value\": \"2026-09-14\", \"verification_status\": \"unknown\"}");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 값이 달력 날짜가 아니면 unavailable 이다")
+    void unavailableWhenDateValueNotCalendarDate() {
+        String broken = DISPLAY.replace("\"2026-09-14\"", "\"2026-02-30\"");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("표시 문자열이 빈 문자열이면 unavailable 이다 — null 과 빈 문자열은 다르다")
+    void unavailableWhenDisplayStringBlank() {
+        String broken = DISPLAY.replace("\"대합실 인파\"", "\"\"");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("match_evidence 의 source 가 빈 문자열이면 unavailable 이다")
+    void unavailableWhenEvidenceSourceBlank() {
+        String broken = MATCH.replace("\"keyframe_ocr\"", "\"\"");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("matched_keywords 에 빈 문자열이 있으면 unavailable 이다")
+    void unavailableWhenKeywordBlank() {
+        String broken = MATCH.replace("[\"서울역\"]", "[\"서울역\", \"\"]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("evidence 의 verification_status 는 verified·unverified 뿐이다")
+    void unavailableWhenEvidenceVerificationOutsideVocabulary() {
+        String broken = MATCH.replace("\"verification_status\": \"verified\"", "\"verification_status\": \"unknown\"");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
     // ---- status·degraded_reasons 를 공개 어휘로 파생한다 (S15P21A501-59 와 합의) ----
 
     @Test
