@@ -211,11 +211,17 @@ def test_call_params_do_not_change_prompt_version(tmp_path: Path) -> None:
     assert prompt_version(changed) == prompt_version(default)
 
 
-def test_vocabulary_change_moves_prompt_version(tmp_path: Path) -> None:
-    """어휘는 템플릿 밖에 있지만 모델에게 한 말의 일부다."""
+def test_vocabulary_no_longer_reaches_the_model(tmp_path: Path) -> None:
+    """`scene_type` 어휘는 더 이상 모델에게 한 말이 아니다 (S15P21A501-217).
+
+    전에는 프롬프트로 나갔으므로 어휘를 바꾸면 `prompt_version` 이 움직였다. 이제
+    나가지 않으므로 움직이지 않는다 — 대신 `config_version` 이 그 변화를 덮는다.
+    둘 다 움직이지 않으면 같은 `stage_version` 이 다른 동작을 가리키게 된다.
+    """
     default = get_default_config()
     changed = _config_with(tmp_path, scene_type_vocabulary=["스튜디오", "거리"])
-    assert prompt_version(changed) != prompt_version(default)
+    assert prompt_version(changed) == prompt_version(default)
+    assert changed.version_id != default.version_id
 
 
 # ── 프롬프트 ─────────────────────────────────────────────────────────
@@ -224,13 +230,10 @@ def test_vocabulary_change_moves_prompt_version(tmp_path: Path) -> None:
 def test_system_prompt_quotes_the_canonical_vocabularies() -> None:
     config = get_default_config()
     rendered = render_system_prompt(config)
-    assert "{scene_types}" not in rendered
     assert "{shot_types}" not in rendered
     assert "{tag_types}" not in rendered
     assert "{caption_max_chars}" not in rendered
     assert "{max_tag_candidates}" not in rendered
-    for value in config.scene_type_vocabulary:
-        assert value in rendered
     for shot_type in ("anchor", "interview", "b_roll", "unknown"):
         assert shot_type in rendered
     assert str(config.caption_max_chars) in rendered
@@ -1171,3 +1174,49 @@ def test_describe_takes_thinking_from_call_params(monkeypatch: pytest.MonkeyPatc
 
     client.describe(images, "sys", "usr", params.model_copy(update={"enable_thinking": True}))
     assert seen["enable_thinking"] is True
+
+
+# ── scene_type 범위 축소 (S15P21A501-217) ────────────────────────────
+
+
+def test_prompt_does_not_ask_for_scene_type() -> None:
+    """프롬프트가 `scene_type` 을 더 이상 묻지 않는다.
+
+    닫힌 어휘 밖 값 하나가 클립 전체 단계를 영구 실패시켰다 — SSAFY GPU 실측에서
+    영상 11편 중 6편이 그렇게 죽었다. 어휘를 넓히는 대신 필드를 뺀다. 이 값이 맞을
+    때는 캡션·`event`·`shot_type` 이 이미 같은 말을 하고, 고유할 때는 틀렸다.
+    """
+    rendered = render_system_prompt(get_default_config())
+    assert "scene_type" not in rendered
+    assert "장면 유형" not in rendered
+    # 어휘를 프롬프트로 내보내던 자리도 함께 사라진다.
+    assert "{scene_types}" not in rendered
+
+
+def test_output_without_scene_type_is_accepted() -> None:
+    """`scene_type` 이 없는 출력이 통과한다. 그 자리는 원래 선택이었다."""
+    raw = json.dumps(
+        {
+            "caption": {"value": "기자들이 모인 실내", "confidence": 0.8, "evidence": ["kf_1"]},
+            "shot_type": {"value": "b_roll", "confidence": 0.7, "evidence": ["kf_1"]},
+            "tag_candidates": [],
+        },
+        ensure_ascii=False,
+    )
+    scene = SceneKeyframes(
+        scene_index=0,
+        keyframes=(KeyframeRef(scene_index=0, timestamp_ms=0, storage_key="s0000/kf-0.jpg"),),
+    )
+    described = describe_scene(scene, {"s0000/kf-0.jpg": Path("kf.jpg")}, _FakeClient([raw]))
+    assert described.metadata.caption is not None
+    assert all(candidate.type != "scene_type" for candidate in described.metadata.tag_candidates)
+
+
+def test_vocabulary_guard_stays_until_step_two() -> None:
+    """어휘 검사는 남겨 둔다.
+
+    프롬프트에서 뺐는데도 모델이 `scene_type` 을 내면 **드러나야** 한다. 지금 지우면
+    그 사실이 조용히 통과하고, 이 접근이 성립하는지 확인할 방법이 사라진다.
+    태그 유형 자체의 제거는 2단계다.
+    """
+    assert get_default_config().scene_type_vocabulary

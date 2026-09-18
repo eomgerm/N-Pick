@@ -813,8 +813,8 @@ def test_vlm_default_v2_vectors() -> None:
     from npick_worker.vlm_metadata import get_default_config, prompt_version
 
     cfg = get_default_config()
-    assert cfg.version_id == "vlm-metadata-config/v2:983c7693"
-    assert prompt_version(cfg) == "vlm-metadata-prompt/v2:2c686602"
+    assert cfg.version_id == "vlm-metadata-config/v2:3b62318b"
+    assert prompt_version(cfg) == "vlm-metadata-prompt/v2:09722622"
     assert (
         stage_version(
             "vlm_metadata",
@@ -826,7 +826,7 @@ def test_vlm_default_v2_vectors() -> None:
                 "tokenizer": "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0",
             },
         )
-        == "npick.stage.vlm_metadata/v1:d31519f7"
+        == "npick.stage.vlm_metadata/v1:c01947f3"
     )
 
 
