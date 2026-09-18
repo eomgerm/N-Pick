@@ -58,7 +58,9 @@ class H(BaseHTTPRequestHandler):
             with open(STATE, "w") as f:
                 json.dump(queue[1:] or queue[-1:], f)
             run = None if status == "none" else {"status": status}
-            return self._send({"isSuccess": True, "data": {"latest_run": run}})
+            # 실제 응답은 요약을 `clip` 으로 감싼다(ClipDetailResponse).
+            # 픽스처가 이걸 틀리면 구현이 틀려도 검사가 통과한다.
+            return self._send({"isSuccess": True, "data": {"clip": {"latest_run": run}}})
         self.send_error(404)
 
     def do_POST(self):

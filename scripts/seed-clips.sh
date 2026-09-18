@@ -185,7 +185,9 @@ while :; do
       unknown=$((unknown + 1)); continue
     fi
     # run 이 아직 없으면 null 이다. 그건 "대기 중" 이지 완료가 아니다.
-    status=$(jq -r '.data.latest_run.status // "none"' "$BODY" 2>/dev/null || echo "none")
+    # **`.data.clip.latest_run`** 이다. ClipDetailResponse 가 요약을 `clip` 으로 한 겹
+    # 감싼다(backend 통합 테스트도 `$.data.clip.latest_run.status` 로 검사한다).
+    status=$(jq -r '.data.clip.latest_run.status // "none"' "$BODY" 2>/dev/null || echo "none")
     case "$status" in
       succeeded) done_runs=$((done_runs + 1)) ;;
       failed)    failed_runs=$((failed_runs + 1)) ;;

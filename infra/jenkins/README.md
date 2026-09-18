@@ -902,8 +902,15 @@ Manage Jenkins → Credentials → System → Global → Add Credentials.
 ### 14-5. cron 이 매일 새벽 4시에 파드를 내린다
 
 ```groovy
-triggers { cron('0 4 * * *') }
+triggers {
+  cron('''TZ=Asia/Seoul
+0 4 * * *''')
+}
 ```
+
+**`TZ` 를 cron 문자열 안에 적는다.** `environment` 의 `TZ` 는 빌드 실행 환경에만
+걸리고 트리거 시각은 Jenkins controller 의 시간대를 따른다. controller 가 UTC 면
+한국 시간 오후 1시에 파드가 내려간다 — 시연 도중일 수 있는 시각이다.
 
 파드는 시간당 과금이고 끄는 것을 하루 잊으면 하루치가 그대로 나간다. cron 빌드는
 파라미터 **기본값**으로 돌고 declarative 의 `choice` 기본값은 **첫 항목**이므로
