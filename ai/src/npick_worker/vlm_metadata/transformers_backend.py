@@ -66,7 +66,6 @@ class TransformersVlmClient:
         model_dir: Path | None = None,
         device: str | None = None,
         dtype: str = "auto",
-        enable_thinking: bool | None = None,
     ) -> None:
         if not model:
             msg = "VLM 모델이 설정되지 않았다 (NPICK_AI_VLM_MODEL)"
@@ -76,7 +75,6 @@ class TransformersVlmClient:
         self._model_dir = model_dir
         self._device = device
         self._dtype = dtype
-        self._enable_thinking = enable_thinking
         self._loaded: tuple[Any, Any] | None = None
         #: 실제로 올라간 가중치의 commit SHA. 로딩 전에는 모른다.
         self._resolved_revision: str | None = None
@@ -144,8 +142,17 @@ class TransformersVlmClient:
         processor, model = self._ensure_loaded()
         messages = _build_messages(images, system_prompt, user_prompt)
         try:
+            # **설정에서 읽는다** (`CallParams.enable_thinking`). 생성자 인자로 두었을
+            # 때는 잡 경로의 `shared_client()` 가 그 값을 넘기지 않아 늘 템플릿
+            # 기본값으로 나갔고, 평가 경로만 끄고 돌아 아무도 보지 못했다
+            # (S15P21A501-214). 출처를 하나로 두면 그 어긋남이 생기지 않는다.
             return _generate(
-                processor, model, messages, images, params, enable_thinking=self._enable_thinking
+                processor,
+                model,
+                messages,
+                images,
+                params,
+                enable_thinking=params.enable_thinking,
             )
         except TimeoutError:
             # `STAGE_TIMEOUT`(일시)으로 분류되도록 그대로 올려보낸다. 잘린 출력을 그대로
@@ -309,7 +316,6 @@ def build_client(
     model_dir: Path | None = None,
     device_choice: str = "auto",
     dtype: str = "auto",
-    enable_thinking: bool | None = None,
 ) -> TransformersVlmClient:
     """장치까지 정해서 클라이언트를 만든다. **이 함수로만 만든다.**
 
@@ -325,7 +331,6 @@ def build_client(
         model_dir=model_dir,
         device=detect_device(device_choice).resolved,
         dtype=dtype,
-        enable_thinking=enable_thinking,
     )
 
 
@@ -360,7 +365,7 @@ def _generate(
     images: Sequence[LabeledImage],
     params: CallParams,
     *,
-    enable_thinking: bool | None = None,
+    enable_thinking: bool,
 ) -> str:
     """한 번 부른다. 재시도는 하지 않는다 — 그 판단은 BE 의 것이다(계약 §9.2).
 
@@ -371,9 +376,13 @@ def _generate(
     import torch
     from PIL import Image
 
-    template_options = {} if enable_thinking is None else {"enable_thinking": enable_thinking}
+    # 늘 실어 보낸다. 이 변수를 쓰지 않는 템플릿은 그냥 무시하므로 모델 교체를 막지
+    # 않고, 빠뜨리면 모델마다 다른 기본값을 타게 된다 (S15P21A501-214).
     text = processor.apply_chat_template(
-        messages, add_generation_prompt=True, tokenize=False, **template_options
+        messages,
+        add_generation_prompt=True,
+        tokenize=False,
+        enable_thinking=enable_thinking,
     )
     # 라벨 순서 그대로 연다. 이 순서가 `{"type": "image"}` 자리 표시자의 순서와 같아야
     # `kf_2` 가 실제로 두 번째 그림을 가리킨다.

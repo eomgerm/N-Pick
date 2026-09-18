@@ -94,6 +94,14 @@ def summarize(result: dict[str, Any], expected: int) -> dict[str, Any]:
     }
 
 
+def _with_thinking(toml_text: str, enabled: bool) -> str:
+    """`[call].enable_thinking` 을 갈아끼운 toml 본문. 없으면 `[call]` 뒤에 넣는다."""
+    line = f"enable_thinking = {str(enabled).lower()}"
+    if re.search(r"^enable_thinking\s*=", toml_text, re.MULTILINE):
+        return re.sub(r"^enable_thinking\s*=.*$", line, toml_text, count=1, flags=re.MULTILINE)
+    return re.sub(r"^\[call\]$", "[call]\n" + line, toml_text, count=1, flags=re.MULTILINE)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("frames_dir", type=Path)
@@ -103,7 +111,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--dtype", choices=("bfloat16", "float16"), default="bfloat16")
-    parser.add_argument("--thinking", choices=("off", "on", "default"), default="off")
+    # `default` 를 뺐다. 템플릿 기본값은 모델이 정하는데 Qwen3.5 에서는 `on` 과 같고,
+    # 이름만 다른 선택지가 있으면 "무엇으로 돌았는가" 가 기록에서 흐려진다.
+    parser.add_argument("--thinking", choices=("off", "on"), default="off")
     parser.add_argument(
         "--memory-budget-gib",
         type=float,
@@ -117,6 +127,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--memory-budget-gib는 양수여야 합니다")
 
     config = load_config(args.config)
+    # **설정 쪽에 얹는다.** 이 축은 이제 `config_version` 안에 있으므로
+    # (`CallParams.enable_thinking`, S15P21A501-214) 여기서 바꾸지 않으면 기록된
+    # configVersion 이 실제로 돌린 것과 달라진다.
+    config = config.model_copy(
+        update={"call": config.call.model_copy(update={"enable_thinking": args.thinking == "on"})}
+    )
     scenes, paths = report.discover_scenes(args.frames_dir)
     scenes = scenes[: args.limit]
     shortfall = report._smoke_shortfall(scenes, config)
@@ -138,7 +154,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
     write_json(args.out / "inputs.json", manifest)
-    (args.out / "config.toml").write_bytes(args.config.read_bytes())
+    # 원본이 아니라 **위에서 덮어쓴 값**을 적는다. report.main 이 이 파일을 다시 읽어
+    # 돌리므로, 원본을 그대로 베끼면 --thinking 이 조용히 무시된다.
+    copied = _with_thinking(args.config.read_text(encoding="utf-8"), config.call.enable_thinking)
+    (args.out / "config.toml").write_text(copied, encoding="utf-8")
+    # 적은 것을 다시 읽어 확인한다. 치환이 빗나가도 파일은 멀쩡해 보이고, 그러면
+    # 실행은 원본 값으로 돌면서 기록만 바뀐다 — 그게 이 축에서 일어났던 일이다.
+    if load_config(args.out / "config.toml").call.enable_thinking != config.call.enable_thinking:
+        parser.error(f"--thinking 을 설정에 반영하지 못했습니다: {args.config}")
     write_json(args.out / "schema.json", RawSceneMetadata.model_json_schema())
     source_root = Path(__file__).resolve().parents[1]
     source_hashes = {
@@ -215,7 +238,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_dir=get_settings().vlm_model_dir,
             device_choice="cuda",
             dtype=args.dtype,
-            enable_thinking={"off": False, "on": True, "default": None}[args.thinking],
         )
         load_started = time.perf_counter()
         client.warm_up()

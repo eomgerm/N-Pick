@@ -44,6 +44,13 @@ defaults:
 # 축을 더했기 때문이다 — 축을 더하고 이 줄을 그대로 두면 6단계가 **오류 없이** 배정에서
 # 빠진다. 두 단계 모두 가중치도 torch 도 쓰지 않아 로컬 venv 값과도 같았다.
 #
+# `vlm_metadata` 가 `de632da5` 에서 바뀐 것은 `[call].enable_thinking` 이 설정에
+# 들어왔기 때문이다 (S15P21A501-214). 그 전에는 채팅 템플릿 기본값으로 나가
+# thinking 이 켜진 채 돌았고, 출력이 JSON 으로 시작하지 않아 **모든 클립에서**
+# 이 단계가 실패했다 — 그런데 fatal 이 아니라 run 은 성공으로 끝났다. 축을 더하고
+# 이 줄을 그대로 두면 이번에는 3단계가 오류 없이 배정에서 빠진다.
+# 값은 SSAFY GPU 서버(L40S)에서 잰 것이다.
+#
 # **노드가 갈려도 값은 같다 — 확인했다** (2026-09-18 실측, S15P21A501-187).
 # SSAFY GPU 서버(cu128/L40S)와 RunPod 파드(cu130/H100)에서 같은 소스·같은 가중치로
 # 재서 아홉 단계가 전부 같은 값을 냈다.
@@ -61,7 +68,7 @@ defaults:
 stage_versions:
   scene_detection: "npick.stage.scene_detection/v1:3ab4bebe"
   frame_extraction: "npick.stage.frame_extraction/v1:5fa70a50"
-  vlm_metadata: "npick.stage.vlm_metadata/v1:de632da5"
+  vlm_metadata: "npick.stage.vlm_metadata/v1:45f31d7e"
   ocr: "npick.stage.ocr/v1:bc75979d"
   transcript_selection: "npick.stage.transcript_selection/v1:fdcd0780"
   asr: "npick.stage.asr/v1:9e977661"
