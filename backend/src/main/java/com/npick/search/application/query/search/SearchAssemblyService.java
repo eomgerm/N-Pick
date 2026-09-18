@@ -327,7 +327,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                     SearchRecordPayload.candidates(candidates),
                     SearchRecordPayload.filtered(candidates),
                     SearchRecordPayload.appliedExcludes(candidates),
-                    rankedScenes(candidates, queryTokens),
+                    SearchRecordPayload.rankedScenes(candidates, queryTokens),
                     candidates.config(),
                     elapsedMs(startedAt),
                     null));
@@ -352,29 +352,6 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
             // 닫지도 못했다. running 으로 남고, 그 행을 성공으로 읽지 않는 것은 읽는 쪽의 규약이다.
         }
         return null;
-    }
-
-    private List<CompleteSearchExecution.RankedScene> rankedScenes(
-            SearchCandidates candidates, List<String> queryTokens) {
-        List<CompleteSearchExecution.RankedScene> ranked = new ArrayList<>();
-        int rank = 1;
-        for (SearchCandidates.ScoredScene scene : candidates.scenes()) {
-            ranked.add(new CompleteSearchExecution.RankedScene(scene.sceneId(), rank++, explain(scene, queryTokens)));
-        }
-        return ranked;
-    }
-
-    /**
-     * {@code search_result.explain_json}. baseline COLUMN COMMENT 가 정한 {@code score}·{@code match}·{@code guard} 에 당시
-     * 표시값 {@code display} 를 더한 네 덩어리다.
-     */
-    private Map<String, Object> explain(SearchCandidates.ScoredScene scene, List<String> queryTokens) {
-        var explain = new LinkedHashMap<String, Object>();
-        explain.put("score", SearchExplain.score(scene));
-        explain.put("match", SearchExplain.match(scene, queryTokens));
-        explain.put("guard", SearchExplain.guard(scene));
-        explain.put("display", SearchExplain.display(scene));
-        return explain;
     }
 
     private List<SearchExecutionResult.ResultCard> cards(
