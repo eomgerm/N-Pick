@@ -112,6 +112,28 @@ pipeline {
       }
     }
 
+    stage('Test') {
+      // MR 게이트: 소스+dev 병합 워크스페이스에서 스택 테스트를 병렬로 돌린다. 하나라도
+      // 실패하면 이 stage 가 실패하고, post.failure 가 GitLab 커밋 상태를 failed 로 올린다.
+      // (실제 머지 차단은 GitLab 프로젝트의 "Pipelines must succeed" 머지 체크가 담당한다.)
+      // agent 에 툴체인이 없으므로 각 스크립트가 배포 이미지와 같은 컨테이너에서 실행한다.
+      //
+      // AI 는 아직 배선하지 않는다: torch/transformers 를 무조건 import 하는 테스트 12개가
+      // gpu 마커 없이 실패한다(uv 기본 그룹엔 torch 없음). AI 팀이 이 테스트에 gpu 마커를 달아
+      // `pytest -m "not smoke and not gpu"` 로 제외 가능해지면 test-ai.sh 를 여기 추가한다.
+      when {
+        expression { env.PIPELINE_MODE == 'MR' }
+      }
+      parallel {
+        stage('Backend') {
+          steps { sh 'infra/jenkins/test-backend.sh' }
+        }
+        stage('Frontend') {
+          steps { sh 'infra/jenkins/test-frontend.sh' }
+        }
+      }
+    }
+
     stage('Sync deploy dir') {
       // /deploy 는 EC2 의 실제 배포 디렉터리다(호스트 마운트). 여기서 compose 를 실행해야
       // .env 4개와 같은 compose 프로젝트를 쓴다. 워크스페이스에서 up 하면 프로젝트 이름이
