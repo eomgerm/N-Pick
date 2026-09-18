@@ -458,3 +458,39 @@ async def test_runner_uploads_both_snapshots_then_completes(
         fake_backend.requests.index(r) < complete_position
         for r in fake_backend.calls("artifact_put")
     )
+
+
+# ── 길이 축 불일치 보정 (S15P21A501-215) ─────────────────────────────
+
+
+def test_default_config_drops_the_duration_axis_artifact() -> None:
+    """꼬리에 남는 1ms 틈이 전체 ASR 을 부르지 않게 한다.
+
+    길이 축이 둘이다. BE 는 자막을 접수할 때 ffprobe `format.duration` 으로 상한을
+    검사하고(`SubtitleParser`), 이 단계는 프레임 수 기반 `mediaDurationMs` 로 여집합을
+    구한다(`scene_detection/pyscenedetect_backend.py` 의 `frames_to_ms`). 두 값이 달라
+    전 구간을 덮는 자막을 써도 꼬리에 정수 ms 틈이 남는다.
+
+    **실측으로 상한이 나온다** — b-roll 60클립에서 두 축의 차이는 최대 0.500ms 였고
+    그건 `frames_to_ms` 의 반올림 오차뿐이다(프레임 한 장 33.4ms 와 무관). 자막 종료
+    시각은 ffprobe 길이 이하의 정수 ms 이므로, 두 축이 만드는 꼬리 틈은 정수로 최대
+    1ms 다. 그래서 2 가 이 인공물을 지우는 **가장 작은** 값이다.
+    """
+    assert get_default_config().min_uncovered_ms == 2
+
+
+def test_one_ms_tail_gap_is_not_a_candidate() -> None:
+    """KNA_02701 에서 실제로 나온 모양이다.
+
+    영상 15181.833ms, 프레임 기반 15182ms. 자막을 15181ms 까지 덮었더니 [15181, 15182)
+    한 칸이 남아 `asrRequired=true` 가 됐고 ASR 이 **영상 전체**에 돌았다 — ASR 은
+    `candidateRanges` 를 구간 제한에 쓰지 않는다.
+    """
+    adopted = [(0, 15181)]
+    assert uncovered_ranges(15182, adopted, min_length_ms=2) == ()
+
+
+def test_a_real_gap_survives_the_floor() -> None:
+    """보정은 인공물만 지운다. 발화가 들어갈 틈은 그대로 후보다."""
+    adopted = [(0, 5000), (5002, 10000)]
+    assert uncovered_ranges(10000, adopted, min_length_ms=2) == (Range(5000, 5002),)

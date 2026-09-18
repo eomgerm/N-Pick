@@ -44,6 +44,15 @@ defaults:
 # 축을 더했기 때문이다 — 축을 더하고 이 줄을 그대로 두면 6단계가 **오류 없이** 배정에서
 # 빠진다. 두 단계 모두 가중치도 torch 도 쓰지 않아 로컬 venv 값과도 같았다.
 #
+# `transcript_selection` 이 `fdcd0780` 에서 바뀐 것은 `min_uncovered_ms` 를 0 에서 2 로
+# 올렸기 때문이다 (S15P21A501-215). 길이 축이 둘이라 전 구간을 덮는 자막을 써도 꼬리에
+# 1ms 틈이 남고, 그것 하나가 영상 전체 ASR 을 불렀다 — BE 는 ffprobe 길이로 자막을
+# 검사하고 이 단계는 프레임 기반 길이로 여집합을 구한다. 60클립 실측에서 두 축의 차이는
+# 최대 0.5ms 였고, 2 는 그 인공물을 지우는 가장 작은 정수다.
+#
+# 6단계 `scene_transcript_mapping` 은 바뀌지 않았다 — 그쪽 identity 의 `selection` 축은
+# 규칙 버전이지 이 설정이 아니다. 실측으로 확인했다.
+#
 # `vlm_metadata` 가 `45f31d7e` 에서 또 바뀐 것은 `scene_type` 을 VLM 출력에서 뺐기
 # 때문이다 (S15P21A501-217). 닫힌 어휘 밖 값 하나가 클립 전체 단계를 영구 실패시켰고
 # — 실측 영상 11편 중 6편 — 값이 맞을 때는 캡션·`event`·`shot_type` 이 같은 말을 이미
@@ -75,7 +84,7 @@ stage_versions:
   frame_extraction: "npick.stage.frame_extraction/v1:5fa70a50"
   vlm_metadata: "npick.stage.vlm_metadata/v1:f8c32dac"
   ocr: "npick.stage.ocr/v1:bc75979d"
-  transcript_selection: "npick.stage.transcript_selection/v1:fdcd0780"
+  transcript_selection: "npick.stage.transcript_selection/v1:d574da00"
   asr: "npick.stage.asr/v1:9e977661"
   scene_transcript_mapping: "npick.stage.scene_transcript_mapping/v1:286181fa"
   entity_extraction: "npick.stage.entity_extraction/v1:4d278198"
