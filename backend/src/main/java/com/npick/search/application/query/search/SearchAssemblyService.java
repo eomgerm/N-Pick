@@ -42,7 +42,7 @@ import com.npick.search.domain.repository.ParseRuleRepository;
  * (baseline 주석 「실행 기록은 롤백 밖에 저장한다」).
  */
 @Service
-public class SearchAssemblyService implements ExecuteSearchUseCase {
+public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSearchQueryUseCase {
 
     /** 계약 §5.1 의 허용 사유. guard 판정이 내는 값이 아니라 승인된 장면 제외(-58)가 내는 값이라 여기 둔다. */
     private static final String APPROVED_SCENE_EXCLUSION = "approved_scene_exclusion";
@@ -88,7 +88,13 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         }
     }
 
-    private SearchExecutionResult run(ExecuteSearchQuery query, long executionId, long startedAt) {
+    /**
+     * 검색어 해석까지만 한다. <b>기록을 하나도 부르지 않는다</b> — 후보 검증 재검색(-83)이 롤백 트랜잭션 안에서 같은 해석을 태우기 위한 자리다.
+     *
+     * <p>{@code execute()} 도 이 메서드를 쓴다. 두 경로가 다른 코드를 타면 FRD §11 의 「일반 검색과 같은 코드로 검증 검색을 한다」가 깨진다.
+     */
+    @Override
+    public InterpretedQuery interpret(ExecuteSearchQuery query) {
         long resolveStartedAt = System.nanoTime();
         // 검증 전 값을 따로 들고 있는다. §7.2 가 resolver_output_json 을 「교정 전 AI 해석」으로
         // 못박았는데, 검증본만 남기면 리졸버가 실제로 무엇을 주장했는지 사라진다 — 출처 강등과
@@ -112,10 +118,38 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         QueryResolution finalResolution = explicitFilterPolicy.apply(
                 rules.resolution() == null ? QueryResolution.withoutAiInterpretation() : rules.resolution(),
                 query.explicitFilters());
-        NormalizedSearch normalizedSearch = normalize(query, resolved);
+
+        return new InterpretedQuery(
+                raw,
+                resolved,
+                parseMs,
+                rules,
+                appliedRule,
+                parseSource,
+                finalResolution,
+                normalize(query, resolved),
+                degradedReasons);
+    }
+
+    private SearchExecutionResult run(ExecuteSearchQuery query, long executionId, long startedAt) {
+        InterpretedQuery interpreted = interpret(query);
+        QueryResolutionResult resolved = interpreted.resolved();
+        ParseRulePolicy.Result rules = interpreted.rules();
+        boolean appliedRule = interpreted.appliedRule();
+        ParseSource parseSource = interpreted.parseSource();
+        QueryResolution finalResolution = interpreted.finalResolution();
+        NormalizedSearch normalizedSearch = interpreted.normalizedSearch();
+        List<SearchDegradedReason> degradedReasons = new ArrayList<>(interpreted.degradedReasons());
 
         boolean snapshotRecorded = recordResolution(
-                executionId, query, raw, resolved, normalizedSearch, parseSource, parseMs, degradedReasons);
+                executionId,
+                query,
+                interpreted.raw(),
+                resolved,
+                normalizedSearch,
+                parseSource,
+                interpreted.parseMs(),
+                degradedReasons);
 
         SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch);
         degradedReasons.addAll(candidates.degradedReasons());

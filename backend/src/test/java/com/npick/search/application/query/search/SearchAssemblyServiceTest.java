@@ -729,6 +729,39 @@ class SearchAssemblyServiceTest {
                 base.verdict());
     }
 
+    @Test
+    @DisplayName("해석 구간은 기록을 하나도 건드리지 않는다")
+    void interpretTouchesNoRecord() {
+        // 후보 검증 재검색(-83)은 롤백 트랜잭션 안에서 이 구간을 태운다. 기록 호출이 하나라도
+        // 섞이면 REQUIRES_NEW 라 롤백 밖에 커밋돼, 롤백돼야 할 검증 검색이 original 실행 행을
+        // 남기고 일반 검색·평가 집계에 섞인다 (F-08 격리).
+        givenResolved();
+
+        InterpretedQuery interpreted = service.interpret(query());
+
+        assertThat(interpreted.finalResolution()).isNotNull();
+        assertThat(interpreted.parseSource()).isEqualTo(StartSearchExecution.ParseSource.RESOLVER);
+        org.mockito.Mockito.verifyNoInteractions(record);
+    }
+
+    @Test
+    @DisplayName("해석 구간이 낸 값을 검색 경로가 그대로 쓴다")
+    void executeReusesTheSameInterpretation() {
+        // 두 경로가 다른 코드를 타면 FRD §11 의 「일반 검색과 같은 코드로 검증 검색을 한다」가
+        // 깨진다. 같은 질의를 해석 단독으로 돌린 값과 검색 경로가 파이프라인에 넘긴 값이 같아야 한다.
+        givenResolved();
+        when(pipeline.rank(any())).thenReturn(candidates());
+        when(record.complete(any())).thenReturn(List.of());
+
+        InterpretedQuery alone = service.interpret(query());
+        service.execute(query());
+
+        assertThat(pipelineQuery().finalResolution().intent())
+                .isEqualTo(alone.finalResolution().intent());
+        assertThat(pipelineQuery().normalizedSearch().fingerprint())
+                .isEqualTo(alone.normalizedSearch().fingerprint());
+    }
+
     private void givenResolved() {
         when(resolver.resolve(RAW_QUERY))
                 .thenReturn(new QueryResolutionResult(
