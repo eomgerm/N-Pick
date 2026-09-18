@@ -290,7 +290,7 @@ FE URL 상태와 wire 요청의 대응:
 - **`display_name`은 null일 수 있다.** 출처인 `clip.title`이 nullable이라 제목 없이 등록된 영상이 있다. 서버가 임의 문자열로 메우지 않는다 — 메우면 기록에서 「제목이 없었다」와 「제목이 이랬다」를 구분할 수 없다(FRD §7.2). 대체 표기는 FE가 정한다. `scene_description`도 같은 이유로 null일 수 있다.
 - 날짜 `value`가 null이면 `verification_status`는 `unknown`이다. 값이 있으면 `verified` 또는 `unverified`다.
 - `status=succeeded`면 `degraded_reasons`는 비어 있다.
-- **이 `status`와 `degraded_reasons`는 기록 컬럼의 값이 아니다.** 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 `search_execution.status`는 `degraded`가 되고 `degraded_reasons_json`에는 `skipped_conflict:<rule_id>` 같은 문자열이 함께 들어간다. 여기 세 값은 **사용자에게 보여 줄 수 있는 어휘만** 닫아 둔 것이라 그 사유를 실을 자리가 없고, 사용자가 받은 결과 자체는 온전하므로 응답은 `succeeded`다. 규칙별 판정은 `applied_rules_json`이 남기고 감사 화면(`GET /search/executions/{id}`)이 전량을 보여 준다. 기록을 읽는 화면이 이 두 필드를 만들 때 쓰는 파생 규칙은 §6.7이 정한다.
+- **이 `status`와 `degraded_reasons`는 기록 컬럼의 값이 아니다.** 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 `search_execution.status`는 `degraded`가 되고 `degraded_reasons_json`에는 `skipped_conflict:<rule_id>` 같은 문자열이 함께 들어간다. 여기 세 값은 **사용자에게 보여 줄 수 있는 어휘만** 닫아 둔 것이라 그 사유를 실을 자리가 없고, 사용자가 받은 결과 자체는 온전하므로 응답은 `succeeded`다. 규칙별 판정은 `applied_rules_json`이 남기고 감사 화면(`GET /search/executions/{id}`)이 전량을 보여 준다. 기록을 읽는 화면이 이 두 필드를 만들 때 쓰는 파생 규칙은 「내 검색 기록」 절(S15P21A501-198)이 정한다.
 - `matched_keywords`는 **확장어로 걸린 단어를 포함한다.** 어느 것이 AI가 넓힌 말인지 응답이 구분하지 않는다 — 그 표기는 아직 계약에 없다. 검색에는 쓰고 근거에는 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 포함 쪽을 택했다.
 - `status=degraded`면 `resolver_fallback`, `dense_unavailable`, `snapshot_save_failed` 중 하나 이상이다.
 - `query_resolution_status=fallback` 여부는 `resolver_fallback` 포함 여부와 일치한다.
