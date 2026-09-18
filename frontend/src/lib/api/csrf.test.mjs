@@ -16,6 +16,7 @@ const { fetchJson } = await import('./client.ts');
 const success = () => Response.json({ isSuccess: true, code: 'COMM_200', message: 'OK' });
 
 test('브라우저 변경 요청은 CSRF를 준비하고 현재 쿠키를 전송하되 GET에는 붙이지 않는다', async (context) => {
+  const info = context.mock.method(console, 'info', () => {});
   globalThis.document = { cookie: '' };
   context.after(() => {
     delete globalThis.document;
@@ -41,6 +42,14 @@ test('브라우저 변경 요청은 CSRF를 준비하고 현재 쿠키를 전송
   assert.equal(mock.mock.calls.at(-1).arguments[1].headers.get('x-xsrf-token'), 'rotated-token');
   await fetchJson('/auth/me');
   assert.equal(mock.mock.calls.at(-1).arguments[1].headers.has('x-xsrf-token'), false);
+  assert.equal(info.mock.callCount(), mock.mock.callCount());
+  assert.equal(
+    info.mock.calls.filter((call) =>
+      JSON.parse(call.arguments[0].slice('[API] '.length)).endpoint.endsWith('/auth/csrf'),
+    ).length,
+    1,
+  );
+  assert.doesNotMatch(JSON.stringify(info.mock.calls.map((call) => call.arguments)), /token/);
 });
 
 test('403은 변경 요청을 재전송하지 않고 다음 수동 요청에서 CSRF를 갱신한다', async (context) => {
