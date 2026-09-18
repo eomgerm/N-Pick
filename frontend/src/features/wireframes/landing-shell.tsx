@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 
+import { AppLogo } from '@/components/app-logo';
 import styles from '@/features/wireframes/landing.module.css';
 import { routes } from '@/lib/routes';
 
@@ -202,17 +203,8 @@ export function LandingShell() {
       <main className={styles.main}>
         <section aria-labelledby="landing-title" className={styles.hero} ref={heroRef}>
           <div className={styles.brandMotion} ref={brandRef}>
+            <AppLogo className={styles.heroIcon} />
             <h1 className={styles.heroTitle} id="landing-title" ref={titleRef}>
-              <span aria-hidden="true" className={styles.heroIcon}>
-                <Image
-                  alt=""
-                  className={styles.heroIconImage}
-                  width={1254}
-                  height={1254}
-                  sizes="(max-width: 740px) 24vw, 16vw"
-                  src="/images/landing-app-icon.png"
-                />
-              </span>
               <span className={styles.heroLine}>
                 <em className={styles.heroWord}>
                   N<span className={styles.heroTrim}>EED</span>

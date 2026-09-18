@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { MouseEventHandler } from 'react';
 
+import { AppLogo } from '@/components/app-logo';
 import { routes } from '@/lib/routes';
 
 interface AppBrandProps {
@@ -15,14 +16,11 @@ export function AppBrand({ ariaDisabled, className, onClick }: AppBrandProps) {
     <Link
       aria-label="N-Pick 홈"
       aria-disabled={ariaDisabled}
-      className={`inline-flex w-fit items-center gap-2.5 text-[#123e35] no-underline${className ? ` ${className}` : ''}`}
+      className={`inline-flex w-fit items-center gap-2.5 text-[#17243b] no-underline${className ? ` ${className}` : ''}`}
       href={routes.landing}
       onClick={onClick}
     >
-      <span
-        aria-hidden="true"
-        className="size-[42px] rounded-[14px] bg-[url('/images/landing-app-icon.png')] bg-cover bg-center drop-shadow-[0_6px_12px_rgb(13_81_65/20%)]"
-      />
+      <AppLogo />
       <span
         aria-hidden="true"
         className="grid gap-0 font-[Arial,Helvetica,sans-serif] text-[13px] leading-[0.88] font-extrabold tracking-[0.1em]"

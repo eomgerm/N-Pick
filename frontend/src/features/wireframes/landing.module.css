@@ -181,27 +181,19 @@
 }
 
 .heroIcon {
+  --app-logo-size: calc(0.99em + 1cap);
+
   position: absolute;
   inset: 0 auto auto 0;
   /* 줄 간격(0.95em) + 대문자 높이 + 둥근 획 끝의 여유(0.04em). */
-  width: calc(0.99em + 1cap);
-  height: calc(0.99em + 1cap);
-  overflow: hidden;
+  font-family: 'Black Han Sans', var(--font-ui);
+  font-size: clamp(42px, 8.4vw, 150px);
   opacity: 0;
   transition: opacity 900ms ease;
 }
 
 .shell[data-intro='done'] .heroIcon {
   opacity: 1;
-}
-
-.heroIconImage {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  /* 원본 PNG의 투명 여백을 제외한 아이콘 높이를 두 줄에 맞춘다. */
-  transform: translateY(2.2%) scale(1.193);
 }
 
 .heroLine {
@@ -575,6 +567,7 @@
     padding-right: calc(var(--edge) + 40px);
   }
   .heroTitle,
+  .heroIcon,
   .wordmarkTarget {
     font-size: clamp(38px, 12.5vw, 66px);
   }
