@@ -119,11 +119,8 @@ class SearchExecutionRecordingDbTest {
     void recordsAndReadsSnapshot() throws Exception {
         QueryResolution raw = resolution(QueryResolution.Intent.UNKNOWN);
         QueryResolution verified = resolution(QueryResolution.Intent.SCENE_SEARCH);
-        long executionId = records.start(new StartSearchExecution(
-                MEMBER_ID,
-                StartSearchExecution.ExecutionType.NORMAL,
-                null,
-                "명절 교통"));
+        long executionId = records.start(
+                new StartSearchExecution(MEMBER_ID, StartSearchExecution.ExecutionType.NORMAL, null, "명절 교통"));
 
         assertThat(jdbc.queryForObject(
                         "SELECT normalized_query FROM npick.search_execution WHERE search_execution_id=?",
@@ -140,7 +137,8 @@ class SearchExecutionRecordingDbTest {
                 executionId,
                 ExplicitDateFilters.none(),
                 NormalizedSearch.of("명절 교통", Map.of(), "normalizer/v1"),
-                new RecordSearchExecutionResolution.ResolverOutput(raw, verified, "query-resolver/v2", "prompt/v3", "model/v1"),
+                new RecordSearchExecutionResolution.ResolverOutput(
+                        raw, verified, "query-resolver/v2", "prompt/v3", "model/v1"),
                 List.of(),
                 StartSearchExecution.ParseSource.RESOLVER,
                 12,
@@ -282,7 +280,7 @@ class SearchExecutionRecordingDbTest {
                         value -> value, value -> 0.0, (left, right) -> left, () -> new EnumMap<>(SoftSignal.class)));
         return new SearchConfigSnapshot(
                 new FusionSettings(60, 0.1, channels, FusionSettings.WeightStatus.EXPERIMENTAL),
-                new LexicalSearchSettings("lexical/v1", 1, 1, 1, 100),
+                new LexicalSearchSettings("lexical/v1", 1, 1, 1, 0.3, 100),
                 new DenseSearchSettings("model@0123456789012345678901234567890123456789", 100).snapshot(),
                 new StructuredScoreSettings(StructuredScoreSettings.WeightStatus.EXPERIMENTAL, axes),
                 new SoftRankingSettings(signals, 0.01, FusionSettings.WeightStatus.EXPERIMENTAL));

@@ -14,8 +14,8 @@ public interface FeedbackRepository {
     Optional<Feedback> findByResultAndCreator(long searchResultId, long createdById);
 
     /**
-     * 검색 결과가 존재하고, 그 검색을 {@code searchedById} 본인이 실행했는지 확인한다. 타인이 실행한 검색 결과에 문의를 달면 조회 시
-     * 그 검색어·필터가 노출되므로(S15P21A501-185 리뷰), 생성 단계에서 막는다. 존재 여부를 노출하지 않으려 타인 검색과 미존재를 구분하지 않는다.
+     * 검색 결과가 존재하고, 그 검색을 {@code searchedById} 본인이 실행했는지 확인한다. 타인이 실행한 검색 결과에 문의를 달면 조회 시 그 검색어·필터가 노출되므로(S15P21A501-185
+     * 리뷰), 생성 단계에서 막는다. 존재 여부를 노출하지 않으려 타인 검색과 미존재를 구분하지 않는다.
      */
     boolean existsSearchResultSearchedBy(long searchResultId, long searchedById);
 

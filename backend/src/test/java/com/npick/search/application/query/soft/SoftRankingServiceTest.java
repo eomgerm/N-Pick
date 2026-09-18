@@ -184,8 +184,8 @@ class SoftRankingServiceTest {
     /**
      * 태그의 유일한 출처가 -161 판정기다.
      *
-     * <p>교정이 반영되는지를 여기서 재현하지는 않는다 — 그것은 판정기 자신의 테스트다. 이 테스트가 막는 것은 보조 랭킹이 태그 테이블을 따로 읽어 교정을 우회하는 것이다
-     * (F-05 완료 기준 「태그 교정이 후보 추출·필터·점수·설명에 일관되게 반영된다」).
+     * <p>교정이 반영되는지를 여기서 재현하지는 않는다 — 그것은 판정기 자신의 테스트다. 이 테스트가 막는 것은 보조 랭킹이 태그 테이블을 따로 읽어 교정을 우회하는 것이다 (F-05 완료 기준 「태그
+     * 교정이 후보 추출·필터·점수·설명에 일관되게 반영된다」).
      */
     @Test
     void tagsAreReadOnlyThroughTheResolverSoCorrectionsCannotBeBypassed() {
@@ -284,10 +284,7 @@ class SoftRankingServiceTest {
     void onlyTheLatestBroadcastDateOfASceneIsUsed() {
         givenShotTypes(Map.of());
         givenTags(Map.of(
-                1L,
-                        List.of(
-                                tag(1, TagType.BROADCAST_DATE, "2020-01-01"),
-                                tag(1, TagType.BROADCAST_DATE, "2026-09-01")),
+                1L, List.of(tag(1, TagType.BROADCAST_DATE, "2020-01-01"), tag(1, TagType.BROADCAST_DATE, "2026-09-01")),
                 2L, List.of(tag(2, TagType.BROADCAST_DATE, "2023-05-05"))));
 
         var result = service(settings(1, 0, 0, 0))

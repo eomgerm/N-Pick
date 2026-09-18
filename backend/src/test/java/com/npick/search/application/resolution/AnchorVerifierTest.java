@@ -466,6 +466,7 @@ class AnchorVerifierTest {
                                 List.of(new IncidentName("없는사건", Origin.EXPLICIT_QUERY, new QuerySpan(0, 4), 0.6)))
                         .build(),
                 List.of(fromResolver),
+                null,
                 "query-resolver/v2",
                 "query-resolver-prompt/v3",
                 "gemma3:12b",
@@ -480,7 +481,7 @@ class AnchorVerifierTest {
     @DisplayName("해석 실패면 손대지 않고 그대로 돌려준다")
     void passesThroughUnresolvedResult() {
         QueryResolutionResult failed = new QueryResolutionResult(
-                normalization(), null, List.of(), null, null, null, QueryResolverErrorCode.RESOLVER_TIMEOUT);
+                normalization(), null, List.of(), null, null, null, null, QueryResolverErrorCode.RESOLVER_TIMEOUT);
 
         assertThat(verifier.verify(RAW_QUERY, failed)).isSameAs(failed);
     }
@@ -842,6 +843,7 @@ class AnchorVerifierTest {
                 normalization(),
                 builder.build(),
                 List.of(),
+                null,
                 "query-resolver/v2",
                 "query-resolver-prompt/v3",
                 "gemma3:12b",

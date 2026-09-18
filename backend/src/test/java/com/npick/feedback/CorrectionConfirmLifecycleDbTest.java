@@ -122,12 +122,12 @@ class CorrectionConfirmLifecycleDbTest {
 
         confirm(9702L).andExpect(status().isOk());
 
-        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6601",
-                        Boolean.class))
+        assertThat(jdbc.queryForObject(
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = 6601", Boolean.class))
                 .isTrue();
         assertClosedAndLinked();
-        assertThat(jdbc.queryForObject("SELECT created_rule_id FROM npick.feedback WHERE feedback_id = 9901",
-                        Long.class))
+        assertThat(jdbc.queryForObject(
+                        "SELECT created_rule_id FROM npick.feedback WHERE feedback_id = 9901", Long.class))
                 .isEqualTo(6601L);
     }
 
@@ -147,8 +147,8 @@ class CorrectionConfirmLifecycleDbTest {
 
         confirm(9702L).andExpect(status().isConflict());
 
-        assertThat(jdbc.queryForObject("SELECT active FROM npick.search_rule WHERE search_rule_id = 6601",
-                        Boolean.class))
+        assertThat(jdbc.queryForObject(
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = 6601", Boolean.class))
                 .isFalse();
         assertThat(jdbc.queryForObject("SELECT status FROM npick.feedback WHERE feedback_id = 9901", String.class))
                 .isEqualTo("REVIEWING");
@@ -190,8 +190,8 @@ class CorrectionConfirmLifecycleDbTest {
 
         confirm(9702L).andExpect(status().isConflict());
 
-        assertThat(jdbc.queryForObject("SELECT confirmed FROM npick.tag_evidence WHERE evidence_id = 7901",
-                        Boolean.class))
+        assertThat(jdbc.queryForObject(
+                        "SELECT confirmed FROM npick.tag_evidence WHERE evidence_id = 7901", Boolean.class))
                 .isFalse();
         assertThat(jdbc.queryForObject("SELECT status FROM npick.feedback WHERE feedback_id = 9901", String.class))
                 .isEqualTo("REVIEWING");

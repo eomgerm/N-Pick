@@ -15,10 +15,9 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
     Optional<FeedbackJpaEntity> findBySearchResultIdAndCreatedById(long searchResultId, long createdById);
 
     @Query(
-            value =
-                    "SELECT count(*) > 0 FROM search_result sr"
-                            + " JOIN search_execution se ON se.search_execution_id = sr.search_execution_id"
-                            + " WHERE sr.search_result_id = :id AND se.searched_by_id = :searchedById",
+            value = "SELECT count(*) > 0 FROM search_result sr"
+                    + " JOIN search_execution se ON se.search_execution_id = sr.search_execution_id"
+                    + " WHERE sr.search_result_id = :id AND se.searched_by_id = :searchedById",
             nativeQuery = true)
     boolean existsSearchResultSearchedBy(@Param("id") long searchResultId, @Param("searchedById") long searchedById);
 

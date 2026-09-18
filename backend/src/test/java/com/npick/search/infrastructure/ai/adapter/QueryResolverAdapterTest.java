@@ -339,6 +339,60 @@ class QueryResolverAdapterTest {
         assertThat(result.normalization().searchTokens()).containsExactly("어제", "뉴스");
     }
 
+    @Test
+    @DisplayName("질의 임베딩과 그 모델 버전을 dense 채널이 쓸 형태로 싣는다")
+    void resolvesQueryEmbedding() {
+        // 벡터를 백엔드가 만들지 않는다. 리졸버가 /query/resolve 응답에 실어 주고
+        // (S15P21A501-164) 조립이 그대로 dense 채널에 넘긴다. 이 배선이 없으면 dense 는
+        // 질의 벡터가 없어 항상 UNAVAILABLE 이다.
+        respondWith(VALID_RESPONSE.replace("\"error\": null", """
+                "error": null,
+                  "embedding": [0.1, -0.2, 0.3],
+                  "embedding_model_version": "bge-m3:1024"\
+                """));
+
+        QueryResolutionResult result = adapter().resolve("2024년 3월 집중호우");
+
+        assertThat(result.queryEmbedding()).isNotNull();
+        assertThat(result.queryEmbedding().embedding()).containsExactly(0.1f, -0.2f, 0.3f);
+        assertThat(result.queryEmbedding().modelVersion()).isEqualTo("bge-m3:1024");
+    }
+
+    @Test
+    @DisplayName("임베딩이 빠져도 해석은 살아 있고 임베딩만 비어 있다")
+    void resolvesWithoutQueryEmbedding() {
+        // 임베딩 실패는 해석 실패와 다른 축이다 (리졸버의 embedding_error). 해석이 성공했으면
+        // BM25 와 구조화 점수는 그대로 돌고, 빠지는 것은 dense 채널 하나다.
+        respondWith(VALID_RESPONSE);
+
+        QueryResolutionResult result = adapter().resolve("2024년 3월 집중호우");
+
+        assertThat(result.isResolved()).isTrue();
+        assertThat(result.queryEmbedding()).isNull();
+    }
+
+    @Test
+    @DisplayName("해석이 실패해도 임베딩은 살려서 dense 채널을 남긴다")
+    void keepsTheEmbeddingWhenResolutionFails() {
+        // 해석과 임베딩은 독립된 축이다. 버리면 dense 가 해석 부재를 보완할 바로 그 순간에
+        // 사라진다 — §6.2 는 fallback 을 "단어 검색으로 전환" 이라 적었을 뿐 의미 검색을 끄라고
+        // 하지 않는다.
+        respondWith("""
+                {"normalization": {"normalized_query": "어제 뉴스",
+                                   "search_tokens": ["어제", "뉴스"],
+                                   "normalization_version": "v1"},
+                 "embedding": [0.5, 0.5],
+                 "embedding_model_version": "bge-m3:1024",
+                 "error": {"category": "RESOLVER_TIMEOUT"}}
+                """);
+
+        QueryResolutionResult result = adapter().resolve("어제 뉴스");
+
+        assertThat(result.isResolved()).isFalse();
+        assertThat(result.queryEmbedding()).isNotNull();
+        assertThat(result.queryEmbedding().embedding()).containsExactly(0.5f, 0.5f);
+    }
+
     private void respondWith(String body) {
         server.expect(requestTo(BASE_URL + "/query/resolve")).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
     }

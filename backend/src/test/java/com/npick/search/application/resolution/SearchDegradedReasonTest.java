@@ -83,6 +83,7 @@ class SearchDegradedReasonTest {
                         List.of(),
                         0.9),
                 List.of(),
+                null,
                 "query-resolver/v2",
                 "prompt/v1",
                 "model/v1",
@@ -90,7 +91,7 @@ class SearchDegradedReasonTest {
     }
 
     private QueryResolutionResult failed(QueryResolverErrorCode failure) {
-        return new QueryResolutionResult(normalization(), null, List.of(), null, null, null, failure);
+        return new QueryResolutionResult(normalization(), null, List.of(), null, null, null, null, failure);
     }
 
     private QueryNormalization normalization() {

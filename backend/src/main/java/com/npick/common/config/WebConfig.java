@@ -19,7 +19,12 @@ public class WebConfig {
         configuration.setAllowedOrigins(properties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
-                "Authorization", "Content-Type", "X-Requested-With", "X-XSRF-TOKEN", "Idempotency-Key", "Range",
+                "Authorization",
+                "Content-Type",
+                "X-Requested-With",
+                "X-XSRF-TOKEN",
+                "Idempotency-Key",
+                "Range",
                 "X-Request-Id"));
         // 구간 재생 응답과 요청 추적 ID 를 브라우저 스크립트가 읽을 수 있어야 한다 (FR-RES-014, S15P21A501-136).
         configuration.setExposedHeaders(List.of("Accept-Ranges", "Content-Range", "Content-Length", "X-Request-Id"));

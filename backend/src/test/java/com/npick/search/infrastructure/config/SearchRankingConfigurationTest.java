@@ -47,7 +47,7 @@ class SearchRankingConfigurationTest {
     @Test
     void lexicalRecordingSettingsMirrorTheCandidateAdapterConfiguration() {
         // -51 의 결과는 설정을 실어 보내지 않으므로 어댑터가 주입받는 것과 같은 빈에서 읽는다.
-        var properties = new SceneCandidateProperties("candidate-v1", 1.0, 2.0, 0.0, 200);
+        var properties = new SceneCandidateProperties("candidate-v1", 1.0, 2.0, 0.0, 0.3, 200);
         var lexical = configuration.lexicalSearchSettings(properties);
         assertThat(lexical.configVersion()).isEqualTo("candidate-v1");
         assertThat(lexical.transcriptWeight()).isEqualTo(2.0);

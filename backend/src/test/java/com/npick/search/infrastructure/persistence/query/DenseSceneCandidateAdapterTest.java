@@ -194,7 +194,7 @@ class DenseSceneCandidateAdapterTest {
         assertThat(result.status()).isEqualTo(Status.UNAVAILABLE);
         assertThat(result.reason()).isEqualTo(Reason.DENSE_QUERY_FAILED);
         assertThat(result.coverage()).isNull();
-        assertThat(words().findByWords(List.of("제설")))
+        assertThat(words().findByWords(List.of("제설"), List.of()))
                 .extracting(c -> c.sceneId())
                 .containsExactly(35L);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.scene", Long.class))
@@ -208,7 +208,7 @@ class DenseSceneCandidateAdapterTest {
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         e -> assertThat(e.errorCode()).isEqualTo(DenseSearchErrorCode.DATABASE_UNAVAILABLE));
-        assertThatThrownBy(() -> words().findByWords(List.of("제설")))
+        assertThatThrownBy(() -> words().findByWords(List.of("제설"), List.of()))
                 .isInstanceOf(org.springframework.dao.DataAccessException.class);
     }
 
@@ -252,8 +252,8 @@ class DenseSceneCandidateAdapterTest {
                     .isEqualTo(1);
             var words = new WordSceneCandidateAdapter(
                     new NamedParameterJdbcTemplate(dataSource),
-                    new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 10));
-            assertThat(words.findByWords(List.of("제설")))
+                    new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 0.3, 10));
+            assertThat(words.findByWords(List.of("제설"), List.of()))
                     .extracting(c -> c.sceneId())
                     .containsExactly(35L);
             local.execute("ROLLBACK TO SAVEPOINT before_dense_fault");
@@ -273,7 +273,7 @@ class DenseSceneCandidateAdapterTest {
 
     private WordSceneCandidateAdapter words() {
         return new WordSceneCandidateAdapter(
-                new NamedParameterJdbcTemplate(source), new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 10));
+                new NamedParameterJdbcTemplate(source), new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 0.3, 10));
     }
 
     private void vector(long id, float x, float y) {

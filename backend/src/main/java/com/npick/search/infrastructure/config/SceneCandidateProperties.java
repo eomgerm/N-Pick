@@ -39,6 +39,7 @@ public record SceneCandidateProperties(
         @NotNull @PositiveOrZero Double captionWeight,
         @NotNull @PositiveOrZero Double transcriptWeight,
         @NotNull @PositiveOrZero Double ocrWeight,
+        @NotNull @PositiveOrZero Double expandedWeight,
         @NotNull @Positive @Max(10_000) Integer poolSize) {
 
     /** 전 필드가 0 이면 어떤 질의든 결과가 0건이 된다. 검색 실패를 결과 0건으로 위장하는 상태(F-06 완료 기준)라 부팅 단계에서 막는다. */

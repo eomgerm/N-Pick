@@ -70,13 +70,14 @@ class WordSceneCandidateAdapterTest {
     /** 완료 조건: 질의어가 캡션에 매칭된다. 제설 은 표본에서 캡션에만 있다. */
     @Test
     void matchesCaptionOnlyToken() {
-        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("제설")))).containsExactly(35L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("제설"), List.of())))
+                .containsExactly(35L);
     }
 
     /** 완료 조건: 질의어가 화면 글자(OCR)에 매칭된다. 속보 는 표본에서 OCR 에만 있다. */
     @Test
     void matchesOcrOnlyToken() {
-        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("속보"));
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("속보"), List.of());
         assertThat(sceneIds(candidates)).containsExactly(34L);
         var only = candidates.getFirst();
         assertThat(only.clipId()).isEqualTo(11L);
@@ -88,13 +89,14 @@ class WordSceneCandidateAdapterTest {
     /** 원인 은 표본에서 대사에만 있다. */
     @Test
     void matchesTranscriptOnlyToken() {
-        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("원인")))).containsExactly(31L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("원인"), List.of())))
+                .containsExactly(31L);
     }
 
     /** 재처리로 폐기된 처리의 장면은 같은 토큰을 갖고 있어도 나오지 않는다 (F-14). */
     @Test
     void excludesScenesOfNonActivePipelineRun() {
-        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"))))
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of())))
                 .containsExactlyInAnyOrder(30L, 31L, 34L)
                 .doesNotContain(32L);
     }
@@ -102,7 +104,7 @@ class WordSceneCandidateAdapterTest {
     /** 캡션·OCR 양쪽에 걸린 장면은 한 행으로 합쳐지고 채널 점수가 둘 다 남는다. */
     @Test
     void mergesBothChannelsIntoOneCandidate() {
-        var scene30 = adapter(1, 1, 1, 10).findByWords(List.of("화재", "단독")).stream()
+        var scene30 = adapter(1, 1, 1, 10).findByWords(List.of("화재", "단독"), List.of()).stream()
                 .filter(candidate -> candidate.sceneId() == 30L)
                 .toList();
         assertThat(scene30).hasSize(1);
@@ -113,13 +115,13 @@ class WordSceneCandidateAdapterTest {
     /** 가중치 0 은 그 필드를 검색 대상에서 뺀다 — 설정으로 대상 필드를 정한다는 요구의 실동작. */
     @Test
     void zeroWeightRemovesFieldFromSearch() {
-        assertThat(sceneIds(adapter(1, 1, 0, 10).findByWords(List.of("속보"))))
+        assertThat(sceneIds(adapter(1, 1, 0, 10).findByWords(List.of("속보"), List.of())))
                 .as("OCR 가중치 0 이면 화면 글자로만 걸리는 장면은 후보가 아니다")
                 .isEmpty();
-        assertThat(sceneIds(adapter(1, 0, 1, 10).findByWords(List.of("원인"))))
+        assertThat(sceneIds(adapter(1, 0, 1, 10).findByWords(List.of("원인"), List.of())))
                 .as("대사 가중치 0 이면 대사로만 걸리는 장면은 후보가 아니다")
                 .isEmpty();
-        assertThat(sceneIds(adapter(0, 1, 1, 10).findByWords(List.of("제설"))))
+        assertThat(sceneIds(adapter(0, 1, 1, 10).findByWords(List.of("제설"), List.of())))
                 .as("캡션 가중치 0 이면 캡션으로만 걸리는 장면은 후보가 아니다")
                 .isEmpty();
     }
@@ -128,10 +130,12 @@ class WordSceneCandidateAdapterTest {
     @Test
     void weightsChangeRanking() {
         var tokens = List.of("화재", "원인");
-        assertThat(sceneIds(adapter(10, 1, 1, 10).findByWords(tokens)).getFirst())
+        assertThat(sceneIds(adapter(10, 1, 1, 10).findByWords(tokens, List.of()))
+                        .getFirst())
                 .as("캡션 가중치가 크면 캡션에 화재 가 있는 30 번이 위")
                 .isEqualTo(30L);
-        assertThat(sceneIds(adapter(1, 10, 1, 10).findByWords(tokens)).getFirst())
+        assertThat(sceneIds(adapter(1, 10, 1, 10).findByWords(tokens, List.of()))
+                        .getFirst())
                 .as("대사 가중치가 크면 대사에 두 토큰이 다 있는 31 번이 위")
                 .isEqualTo(31L);
     }
@@ -139,8 +143,8 @@ class WordSceneCandidateAdapterTest {
     /** 후보 pool 크기는 설정이 정한다. */
     @Test
     void limitsCandidatePoolToConfiguredSize() {
-        assertThat(adapter(1, 1, 1, 10).findByWords(List.of("화재"))).hasSize(3);
-        assertThat(adapter(1, 1, 1, 1).findByWords(List.of("화재"))).hasSize(1);
+        assertThat(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of())).hasSize(3);
+        assertThat(adapter(1, 1, 1, 1).findByWords(List.of("화재"), List.of())).hasSize(1);
     }
 
     /** 내용어가 없으면 DB 를 부르지 않는다. 커넥션을 닫아 두면 질의가 일어났는지 알 수 있다. */
@@ -149,14 +153,14 @@ class WordSceneCandidateAdapterTest {
         var adapter = adapter(1, 1, 1, 10);
         connection.rollback();
         connection.close();
-        assertThat(adapter.findByWords(List.of())).isEmpty();
-        assertThat(adapter.findByWords(List.of("  ", ""))).isEmpty();
+        assertThat(adapter.findByWords(List.of(), List.of())).isEmpty();
+        assertThat(adapter.findByWords(List.of("  ", ""), List.of())).isEmpty();
     }
 
     /** 토큰에 공백이 있으면 DB 에서 두 토큰으로 쪼개져 검색어가 조용히 달라진다. 우리 토크나이저가 만든 값이므로 5xx 로 거부한다. */
     @Test
     void rejectsTokenContainingWhitespace() {
-        assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(List.of("공장 화재")))
+        assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(List.of("공장 화재"), List.of()))
                 .isInstanceOfSatisfying(
                         BusinessException.class,
                         failure -> assertThat(failure.errorCode().code()).isEqualTo("SRCH_500_001"));
@@ -165,8 +169,9 @@ class WordSceneCandidateAdapterTest {
     /** 논리 삭제된 클립의 장면은 색인에 남아 있어도 후보가 아니다 (FRD §6.1 "active_pipeline_run_id 와 논리 삭제 여부"). */
     @Test
     void excludesScenesOfSoftDeletedClip() {
-        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재")))).doesNotContain(36L);
-        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("제설"))))
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of())))
+                .doesNotContain(36L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("제설"), List.of())))
                 .as("삭제된 클립만 갖고 있던 토큰이면 결과가 비어야 한다")
                 .containsExactly(35L);
     }
@@ -175,8 +180,8 @@ class WordSceneCandidateAdapterTest {
     @Test
     void aggregatesOcrScoreByMaxNotSum() {
         // 장면 34 는 키프레임 40·41 이 둘 다 '화재' 에 걸린다. 합이면 한 건짜리의 두 배가 된다.
-        var twoHits = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("화재")), 34L);
-        var oneHit = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("속보")), 34L);
+        var twoHits = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("화재"), List.of()), 34L);
+        var oneHit = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("속보"), List.of()), 34L);
 
         assertThat(twoHits.ocrScore()).as("같은 토큰이 키프레임 둘에 걸려도 최대값 하나만 쓴다").isEqualTo(twoHits.score());
         assertThat(twoHits.ocrScore()).isLessThan(oneHit.ocrScore() * 2);
@@ -186,7 +191,7 @@ class WordSceneCandidateAdapterTest {
     @Test
     void doesNotReportScoreOfDisabledChannel() {
         // 장면 30 은 캡션('화재')과 화면 글자('단독') 양쪽에 걸린다.
-        var candidate = onlyCandidate(adapter(1, 1, 0, 10).findByWords(List.of("화재", "단독")), 30L);
+        var candidate = onlyCandidate(adapter(1, 1, 0, 10).findByWords(List.of("화재", "단독"), List.of()), 30L);
 
         assertThat(candidate.textScore()).isPositive();
         assertThat(candidate.ocrScore()).isZero();
@@ -196,7 +201,10 @@ class WordSceneCandidateAdapterTest {
     /** null 은 빈 목록과 다르다. 호출부 배선 실수를 "결과 없음" 으로 위장하지 않는다. */
     @Test
     void rejectsNullTokenList() {
-        assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(null, List.of()))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(List.of("화재"), null))
+                .isInstanceOf(NullPointerException.class);
     }
 
     private static SceneCandidateResult onlyCandidate(List<SceneCandidateResult> candidates, long sceneId) {
@@ -210,7 +218,7 @@ class WordSceneCandidateAdapterTest {
     private WordSceneCandidateAdapter adapter(double caption, double transcript, double ocr, int poolSize) {
         return new WordSceneCandidateAdapter(
                 new NamedParameterJdbcTemplate(dataSource),
-                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, poolSize));
+                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, poolSize));
     }
 
     private static List<Long> sceneIds(List<SceneCandidateResult> candidates) {

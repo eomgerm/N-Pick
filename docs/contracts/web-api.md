@@ -20,7 +20,7 @@
 | 현재 계정                  | GET    | `/auth/me`                                  | 연결됨    | 없음                                |
 | 로그아웃                   | POST   | `/auth/logout`                              | 연결됨    | 없음                                |
 | 영상 등록                  | POST   | `/clips`                                    | 연결됨    | 없음                                |
-| 장면 검색                  | POST   | `/search`                                   | 계약 확정 | 실제 호출·화면 바인딩               |
+| 장면 검색                  | POST   | `/search`                                   | BE 구현   | 실제 호출·화면 바인딩               |
 | 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | 공통 플레이어·문의 상세·검색 카드 연결 |
 | 장면 대표 이미지           | GET    | `/scenes/{sceneId}/thumbnail`               | BE 구현   | 결과 카드·문의 큐 thumbnail 바인딩  |
 | 문의 접수                  | POST   | `/search/results/{resultId}/inquiries`      | BE 구현   | 문의 생성 바인딩                    |
@@ -31,7 +31,8 @@
 | 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
 | 내 문의 기록 목록          | GET    | `/inquiries`                                | 연결됨    | 없음                               |
 | 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | 연결됨    | 없음                               |
-| 내 검색 기록 목록·상세     | 미정   | 미정                                        | 명세 필요 | -60 선행, 편집자 하단 기록 시트 바인딩 |
+| 내 검색 기록 목록          | GET    | `/search/history`                           | BE 구현   | 편집자 하단 기록 시트 바인딩        |
+| 내 검색 기록 상세          | GET    | `/search/history/{searchExecutionId}`       | BE 구현   | 기록 선택 시 당시 결과 바인딩       |
 | 영상 처리 목록             | GET    | `/clips`                                    | 연결됨    | 없음                               |
 | 영상 처리 상세             | GET    | `/clips/{id}`                               | 연결됨    | 없음                               |
 | 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
@@ -195,7 +196,7 @@ FE가 직접 처리하는 주요 오류:
 | `CLIP_409_001`~`CLIP_409_003`                 | 멱등 요청 상태             |
 | `CLIP_503_001`~`CLIP_503_010`                 | 검사·저장·등록 연계 실패   |
 
-## 5. 장면 검색 API — 계약 확정, 연결 대기
+## 5. 장면 검색 API
 
 `POST /search`
 
@@ -284,19 +285,50 @@ FE URL 상태와 wire 요청의 대응:
 - 각 `rank`는 배열 위치와 같은 1부터 시작하는 연속 정수다.
 - 한 응답 안의 `scene_id`와 null이 아닌 `search_result_id`는 중복되지 않는다.
 - `match_evidence`는 1개 이상이다. `field`는 `caption`, `ocr`, `transcript`, `tag` 중 하나다.
-- `shot_type`은 `anchor`, `interview`, `b_roll`, `unknown` 중 하나다.
+- `match_evidence[].value`는 **null일 수 있다.** 설명·대사·화면 글자·태그가 모두 없고 의미 검색 유사도만으로 올라온 장면이 있고, 그때 사람이 읽을 근거가 실제로 존재하지 않는다. 서버가 문자열을 지어내지 않는다 — 지어내면 사용자가 그 값을 근거로 판단한다. FE는 이 경우 근거 없이 카드만 보여 준다.
+- `guard_summary.excluded_result_count`는 **장면 기준**이다. 제외 판정 수가 아니라 제외된 결과 수이며, 한 장면이 guard와 승인된 장면 제외에 모두 걸려도 1로 센다.
+- `shot_type`은 `anchor`, `interview`, `b_roll`, `unknown` 중 하나다. 저장값이 이 넷 밖이면 응답에서만 `unknown`으로 좁히고 기록에는 원문이 남는다.
+- **`display_name`은 null일 수 있다.** 출처인 `clip.title`이 nullable이라 제목 없이 등록된 영상이 있다. 서버가 임의 문자열로 메우지 않는다 — 메우면 기록에서 「제목이 없었다」와 「제목이 이랬다」를 구분할 수 없다(FRD §7.2). 대체 표기는 FE가 정한다. `scene_description`도 같은 이유로 null일 수 있다.
 - 날짜 `value`가 null이면 `verification_status`는 `unknown`이다. 값이 있으면 `verified` 또는 `unverified`다.
 - `status=succeeded`면 `degraded_reasons`는 비어 있다.
+- **이 `status`와 `degraded_reasons`는 기록 컬럼의 값이 아니다.** 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 `search_execution.status`는 `degraded`가 되고 `degraded_reasons_json`에는 `skipped_conflict:<rule_id>` 같은 문자열이 함께 들어간다. 여기 세 값은 **사용자에게 보여 줄 수 있는 어휘만** 닫아 둔 것이라 그 사유를 실을 자리가 없고, 사용자가 받은 결과 자체는 온전하므로 응답은 `succeeded`다. 규칙별 판정은 `applied_rules_json`이 남기고 감사 화면(`GET /search/executions/{id}`)이 전량을 보여 준다. 기록을 읽는 화면이 이 두 필드를 만들 때 쓰는 파생 규칙은 「내 검색 기록」 절(S15P21A501-198)이 정한다.
+- `matched_keywords`는 **확장어로 걸린 단어를 포함한다.** 어느 것이 AI가 넓힌 말인지 응답이 구분하지 않는다 — 그 표기는 아직 계약에 없다. 검색에는 쓰고 근거에는 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 포함 쪽을 택했다.
 - `status=degraded`면 `resolver_fallback`, `dense_unavailable`, `snapshot_save_failed` 중 하나 이상이다.
 - `query_resolution_status=fallback` 여부는 `resolver_fallback` 포함 여부와 일치한다.
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
 - `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
 - 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
-- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.7, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
+- 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.8, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
 
 ### 5.2 오류 경계
 
-현재 공개 검색 endpoint의 전체 오류 코드 매핑은 아직 구현되지 않았다. 이미 존재하는 `SRCH_` 오류 어휘는 다음과 같다.
+검색이 **실패**했을 때만 오류로 나간다. 일부 기능만 빠진 경우는 200에 `status=degraded`다. 가르는 기준은 「결과를 줄 수 있는가」 하나이며, 실패를 결과 0건의 성공 응답으로 위장하지 않는다(FRD F-06 완료 기준).
+
+`POST /search`가 내는 오류는 다음과 같다.
+
+| 오류           | 의미                                        | 사용자 안내       |
+| -------------- | ------------------------------------------- | ----------------- |
+| `SRCH_400_101` | 검색어에서 검색할 수 있는 단어를 찾지 못함  | 검색어 수정       |
+| `SRCH_400_004` | 명시 필터의 시작일이 종료일보다 늦음        | 날짜 수정         |
+| `SRCH_503_011` | 승인된 해석 규칙을 읽지 못함                | 재시도            |
+| `SRCH_503_012` | 기본 단어 검색을 수행하지 못함              | 재시도            |
+| `SRCH_503_013` | 검색 실행을 기록하지 못해 중단              | 재시도            |
+| `SRCH_400_003` | 날짜 필터에 `from`·`to` 중 하나만 옴       | 날짜 수정         |
+| `SRCH_503_201` | 승인된 장면 제외 규칙을 확인하지 못함       | 재시도            |
+| `SRCH_503_301` | 의미 검색 저장소를 읽지 못함                | 재시도            |
+| `SRCH_500_002` `SRCH_500_003` `SRCH_500_004` | 순위 결합 불변식 위반 — 서버 결함 | 재시도 무의미, 문의 |
+
+`SRCH_503_011`은 사람의 결정을 조용히 건너뛰지 않기 위한 실패다. 규칙 없이 검색하면 검수자가 승인한 교정이 빠진 결과가 정상인 것처럼 나간다(§6.2).
+
+규칙 조회 어댑터는 해석 규칙과 장면 제외 규칙에 같은 코드를 던진다. 조립이 무엇을 조회했는지 알고 있으므로 해석 규칙 실패는 `SRCH_503_011`로 좁혀 올리고, 장면 제외 규칙 실패만 `SRCH_503_201`로 나간다.
+
+`SRCH_400_003`은 한쪽만 온 날짜를 열린 구간으로 보정하지 않기 때문이다 — 보정하면 사용자가 지정하지 않은 조건을 서버가 만들고, 그 값이 F-06의 hard 제외 근거가 된다.
+
+`SRCH_500_002~004`는 순위 결합이 자기 입력 불변식을 검사해 내는 코드다. 사용자 입력과 무관한 서버 결함이므로 재시도해도 같은 결과다.
+
+`SRCH_503_013`은 실행을 **열지** 못한 경우다. 결과 계산 뒤의 저장 실패는 오류가 아니라 `snapshot_save_failed` degraded다 — 그때는 계산이 이미 끝나 미저장 상태로 줄 수 있다.
+
+이미 존재하는 `SRCH_` 오류 어휘는 다음과 같다.
 
 | 오류           | 의미                                  |
 | -------------- | ------------------------------------- |
@@ -712,9 +744,206 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `FEEDBACK_404_002` | 404  | 본인 소유 아님·타인 검색 참조·존재하지 않음(동일 취급) |
 | `COMM_500`         | 500  | 서버 오류                                     |
 
-**내 검색 기록**(`GET /search/history` 목록·상세)은 별도 작업이다. S15P21A501-60은 실행 snapshot 저장과 소유자/검수자용 단건 상세 조회(`/search/executions/{executionId}`)를 제공한다.
+### 6.7 내 검색 기록 (S15P21A501-198)
 
-### 6.7 장면 대표 이미지(thumbnail) — 원본 반환
+검색 화면 사이드바에서 로그인 사용자가 **본인이 실행한 검색**만 조회하고, 항목을 선택해 당시 결과를 다시 본다. §6.6과 같은 규약이다 — 세션 사용자 ID로만 범위를 좁히고, 응답은 snake_case, 모든 `*_id`는 십진 문자열이다. `EDITOR`와 `REVIEWER` 모두 여기서는 자기 기록만 본다.
+
+§5의 `GET /search/executions/{executionId}`(S15P21A501-60)와 책임이 다르다. 저쪽은 소유자·검수자가 **한 실행의 해석·적용 규칙·제외 사유**를 감사하는 단건 조회이고, 이쪽은 사용자가 **자기 기록을 목록으로 훑고 당시 결과 카드를 복원**하는 화면용 조회다. 두 endpoint는 같은 `search_execution`/`search_result` 저장을 읽되 응답 모델과 대상 범위가 다르다.
+
+**`status`는 저장값이 아니라 파생값이다.** `search_execution.status`와 응답 `status`는 다를 수 있다 — 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 기록은 `degraded`로 닫히지만, 그 사유(`skipped_conflict:<rule_id>` 등)는 §5.1이 닫아 둔 공개 어휘 세 값에 없어서 `POST /search`는 같은 검색을 `succeeded`로 낸다. 저장값을 그대로 내면 **같은 검색이 검색 직후와 기록 조회에서 다른 상태로 보인다.** 이 절은 `search_snapshot`을 「§5 성공 `data`와 같은 object」로 규정하므로 공개 사유에서 파생해 두 화면을 일치시킨다. 상위 `data.status`와 `data.search_snapshot.status`도 항상 같은 값이다.
+
+**`query_resolution_status`도 같은 출처에서 파생한다.** §5.1이 「`query_resolution_status=fallback` 여부는 `resolver_fallback` 포함 여부와 일치한다」를 요구하므로, 두 값을 각자 다른 컬럼(`parse_source`와 `degraded_reasons_json`)에서 뽑으면 그 불변식이 깨진다. 한 출처에서 파생하면 구조로 보장된다. `parse_source`는 **검증**에만 쓴다 — 스키마 어휘 밖이거나, `fallback` 여부가 `resolver_fallback` 포함 여부와 어긋나면 기록이 깨진 것이므로 `unavailable`이다. 어느 한쪽을 골라 내면 남은 한쪽이 말하는 사실을 지우게 된다.
+
+규칙이 건너뛰어진 사실은 사라지지 않는다. `has_applied_review_rule`과 저장된 `applied_rules_json`에 남아 있고, 검수 감사용 단건 조회(§5의 `GET /search/executions/{executionId}`)로 규칙별 적용·건너뜀·실패와 사유를 볼 수 있다. 이 절은 사용자 화면용이라 공개 어휘만 낸다.
+
+**조회 대상.** 본인의 `execution_type='original'` 중 **저장된** `status`가 `succeeded`/`degraded`인 실행이다(대상 판정에는 저장값을 쓴다 — `failed`·`running`을 걸러내는 것이 목적이다). `replay`(교정 검증 재검색)·`running`·`failed`는 DB에 보존하되 이 화면에서 제외한다. 정상 결과 0건 실행은 **포함한다.** 검색 1회가 1건이며 같은 검색어를 다시 실행하면 별도 기록이다. 대표 장면은 당시 1위 결과이며 사용자가 실제로 본 장면이라는 뜻이 아니다.
+
+**정렬·페이지.** `created_at DESC, search_execution_id DESC` 고정(시각 동률도 결정적). `page`는 0 이상 정수 기본 0, `size`는 1~100 기본 10이며 **범위를 벗어나면 clamp하지 않고 400으로 거부한다.** 목록과 총계는 같은 범위 조건을 쓴다. 결과가 없어도 404가 아니라 200과 빈 `items: []`다. 마지막 페이지 이후 요청도 빈 `items`에 실제 `total_*`를 유지한다.
+
+**`snapshot_status` 판정.** 목록과 상세가 **같은 규칙**을 쓴다 — 변하지 않은 기록의 판정이 두 응답에서 갈리지 않는다.
+
+| 조건 | `snapshot_status` | `result_count`·`representative_result`·`search_snapshot` |
+| --- | --- | --- |
+| `filtered_json`이 object이고, `parse_source`가 스키마의 세 값 중 하나이고, 모든 결과 행에 `explain_json.display`·`.match`가 있음 | `available` | 실제 값 (결과 0건이면 `0`/`null`/`results: []`) |
+| `filtered_json`이 없음 (결과 확정 전·저장 불완전) | `unavailable` | 전부 `null` |
+| `filtered_json`이 object가 아님 (SQL NULL, JSON 리터럴 `null`, 배열 등) | `unavailable` | 전부 `null` |
+| `parse_source`가 NULL이거나 스키마에 없는 값(`resolver`·`resolver_rule`·`fallback` 밖) | `unavailable` | 전부 `null` |
+| `parse_source`가 `fallback`인지 여부와 `resolver_fallback` 포함 여부가 어긋남 | `unavailable` | 전부 `null` |
+| 결과 행 하나라도 `display`/`match` 결측 | `unavailable` | 전부 `null` |
+| 결과 행의 `display`에 표시 키가 빠졌거나 **타입이 어긋남**, 또는 구간이 `0 <= start < end`가 아님 | `unavailable` | 전부 `null` |
+| 결과 행의 `match_evidence`가 비었거나 항목의 네 키가 없거나 **타입이 어긋남** | `unavailable` | 전부 `null` |
+| 저장된 `rank`가 1부터 연속이 아님, 또는 결과가 10개 초과 | `unavailable` | 전부 `null` |
+| `explicit_filters`를 읽을 수 없거나 날짜 필터가 손상됨 | `unavailable` | 전부 `null` + `explicit_filters: null` |
+
+`filtered_json`의 유무가 **정상 0건과 저장 불완전을 가르는 유일한 근거**다. 둘을 섞지 않는다. `jsonb` 컬럼은 SQL NULL뿐 아니라 JSON 리터럴 `null`도 담을 수 있으므로 값이 비었는지가 아니라 **object인지**로 판정한다.
+
+`parse_source`가 없으면 「어떻게 해석했는지 기록이 없다」는 뜻이므로 `resolved`로 접지 않는다. 없던 사실을 만들어 내지 않는다는 원칙은 아래 `display_name`과 같다(FRD §7.2).
+
+`explicit_filters`는 **결과 snapshot만 손상된 경우**에는 실제 object를 유지한다. **필터 자체를 읽을 수 없거나 형태가 깨진 경우**에는 `null`이며 그때는 `snapshot_status`도 `unavailable`이다 — 둘을 구분하는 것이 이 필드의 목적이다. `null`을 `{}`나 현재 검색 화면의 필터로 보충하지 않는다. 필터 미선택(`{}`)과 「필터를 확인할 수 없다」(`null`)는 다른 사실이다.
+
+손상 판정: object가 아니거나(SQL NULL, JSON 리터럴 `null`, 배열), 선택한 날짜 종류에 `from`/`to` 중 하나가 없거나, 값이 실제 달력 날짜가 아니거나, `from > to`인 경우다. SQL `NOT NULL` 제약은 이 중 어느 것도 막지 못하므로 읽는 쪽이 판정한다. 한쪽 경계만 있는 과거 미지원 형식이 정상 필터로 나가지 않는다.
+
+S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nullable로 완화했지만, 같은 마이그레이션의 `ck_execution_completed_snapshot`이 **결과를 낸 실행(`succeeded`/`degraded`)에는 NOT NULL을 되돌려** 보장한다. 이 절의 조회 대상이 그 두 상태뿐이므로 컬럼 자체가 비는 일은 실무상 없고, 위 판정은 그럼에도 형태가 깨진 기록을 위한 것이다.
+
+`GET /search/history?page=0&size=10`
+
+성공 `data`:
+
+```json
+{
+  "items": [
+    {
+      "search_execution_id": "9701",
+      "query_text": "서울역 귀성 인파",
+      "explicit_filters": { "broadcast_date": { "from": "2026-09-01", "to": "2026-09-15" } },
+      "created_at": "2026-09-15T03:00:00Z",
+      "status": "succeeded",
+      "snapshot_status": "available",
+      "result_count": 1,
+      "representative_result": {
+        "search_result_id": "9801",
+        "scene_id": "9301",
+        "clip_id": "9101",
+        "display_name": "예시 뉴스 · 서울역",
+        "scene_description": "대합실 인파",
+        "start_time_ms": 42000,
+        "end_time_ms": 49000,
+        "rank": 1
+      }
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "total_elements": 1,
+  "total_pages": 1,
+  "has_next": false
+}
+```
+
+`result_count`·`representative_result`는 nullable이며 key를 생략하지 않고 null로 명시한다. 목록 항목에는 `search_snapshot`을 싣지 않는다.
+
+| 오류           | HTTP | 의미                                   |
+| -------------- | ---- | -------------------------------------- |
+| `COMM_401`     | 401  | 미인증                                 |
+| `COMM_400`     | 400  | `page`/`size` 형식 오류(정수 아님)     |
+| `COMM_400_001` | 400  | `page`/`size` 범위 오류(size 1~100 밖) |
+| `COMM_500`     | 500  | 서버 오류                              |
+
+`GET /search/history/{searchExecutionId}`
+
+목록 항목의 모든 필드에 `search_snapshot`을 더한다. `search_snapshot`은 **§5 `POST /search` 성공 `data`와 같은 object**이며 안에 envelope를 중첩하지 않는다. `search_execution_id`·`status`는 상위와 일치한다.
+
+당시 기록에서만 복원한다 — 현재 태그·resolver·검색 API로 재계산하지 않는다(FRD §7.2). 복원에 쓰는 값과 출처:
+
+| `search_snapshot` 필드 | 복원 출처 |
+| --- | --- |
+| `degraded_reasons` | `degraded_reasons_json` 중 **§5.1의 공개 어휘 세 값에 속하는 것만** |
+| `status` | 위에서 추린 공개 사유가 비었으면 `succeeded`, 있으면 `degraded`. **`search_execution.status`를 그대로 쓰지 않는다** |
+| `query_resolution_status` | 위에서 추린 공개 사유에 `resolver_fallback`이 있으면 `fallback`, 없으면 `resolved`. **`parse_source`에서 직접 뽑지 않는다** |
+| `has_applied_review_rule` | `applied_rules_json`에 `status="applied"` 존재 여부 |
+| `guard_summary.excluded_result_count`·`reasons` | **두 컬럼을 합친다.** `filtered_json.guard.verdicts` 중 `exclusion_reason`이 있는 것(guard 판정) + `applied_excludes_json`(승인된 장면 제외) |
+| `shortage_reasons` | `filtered_json.shortage_reasons` |
+| `results[]` | `search_result` 행 + `explain_json`의 `display`·`match` 블록 |
+
+`matched_keywords`에는 AI가 넓힌 확장어가 섞일 수 있다. 검색에 쓰고 근거에서 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 저장 쪽(S15P21A501-59)이 포함하기로 했다. 어느 것이 확장어인지는 응답이 구분하지 않으며, 그 표기는 아직 계약에 없다.
+
+`results[]` 한 항목은 `explain_json.display`·`explain_json.match`에 컬럼 4개(`search_result_id`·`scene_id`·`clip_id`·`rank`)를 얹은 것이다. 저장된 JSON을 **그대로 통과**시키며 필드별로 옮겨 담지 않는다. 키가 겹치면 **컬럼이 이긴다** — 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지지 않게 한다. `shot_type`은 저장값 원문을 그대로 낸다(§5.1의 4값 제약은 `POST /search` 응답에만 적용된다 — 기록을 소급 수정하지 않는다, FRD §7.2). `guard_summary`는 `explain_json.guard`가 아니다 — `search_result`에는 살아남은 장면만 남으므로 제외 건수를 알 수 없다. 출처가 두 컬럼인 이유는 `GuardExclusionReason`이 `explicit_date_conflict`·`approved_incident_conflict` 둘뿐이라서다. §5.1이 허용하는 세 번째 사유 `approved_scene_exclusion`은 guard가 내는 값이 아니라 `applied_excludes_json`(S15P21A501-58 승인 제외)에서만 온다. 한 컬럼만 읽으면 그 사유가 영원히 나오지 않고 건수가 `POST /search` 응답보다 작아진다.
+
+같은 장면이 guard와 승인 제외에 모두 걸리면 **한 번만 센다.** `excluded_result_count`는 제외된 결과 수이므로 장면 기준이다.
+
+성공 `data`(결과 1건, `available`):
+
+```json
+{
+  "search_execution_id": "9701",
+  "query_text": "서울역 귀성 인파",
+  "explicit_filters": { "broadcast_date": { "from": "2026-09-01", "to": "2026-09-15" } },
+  "created_at": "2026-09-15T03:00:00Z",
+  "status": "succeeded",
+  "snapshot_status": "available",
+  "result_count": 1,
+  "representative_result": {
+    "search_result_id": "9801",
+    "scene_id": "9301",
+    "clip_id": "9101",
+    "display_name": "예시 뉴스 · 서울역",
+    "scene_description": "대합실 인파",
+    "start_time_ms": 42000,
+    "end_time_ms": 49000,
+    "rank": 1
+  },
+  "search_snapshot": {
+    "search_execution_id": "9701",
+    "status": "succeeded",
+    "degraded_reasons": [],
+    "query_resolution_status": "resolved",
+    "has_applied_review_rule": true,
+    "guard_summary": { "excluded_result_count": 1, "reasons": ["explicit_date_conflict"] },
+    "shortage_reasons": ["candidate_pool_exhausted"],
+    "results": [
+      {
+        "search_result_id": "9801",
+        "scene_id": "9301",
+        "clip_id": "9101",
+        "rank": 1,
+        "display_name": "예시 뉴스 · 서울역",
+        "scene_description": "대합실 인파",
+        "start_time_ms": 42000,
+        "end_time_ms": 49000,
+        "shot_type": "b_roll",
+        "scene_type": "역사 인파",
+        "broadcast_date": { "value": "2026-09-14", "verification_status": "verified" },
+        "filmed_date": { "value": null, "verification_status": "unknown" },
+        "matched_keywords": ["서울역"],
+        "match_evidence": [
+          {
+            "field": "ocr",
+            "value": "서울역",
+            "source": "keyframe_ocr",
+            "verification_status": "verified"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`unavailable` 기록은 `result_count`·`representative_result`·`search_snapshot`이 null이며 `query_text`·`explicit_filters`·`created_at`·`status`는 유지한다.
+
+**`display_name`은 nullable이다.** `clip.title`(`varchar(500)` nullable)을 그대로 기록하므로 제목 없는 클립이면 null이 남는다. 서버는 대체 문자열로 메우지 않는다 — 메우면 「제목이 없었다」와 「제목이 이랬다」를 나중에 구분할 수 없다(FRD §7.2). 표시 대체는 FE가 정한다. S15P21A501-185 본문의 「`display_name`은 non-empty string」은 이 스키마와 어긋나므로 nullable이 정본이다.
+
+타인 소유·존재하지 않는 ID·이 화면 대상이 아닌 실행(`replay`/`running`/`failed`)은 **모두 같은 404**다(존재 여부 비노출).
+
+| 오류            | HTTP | 의미                                                         |
+| --------------- | ---- | ------------------------------------------------------------ |
+| `COMM_401`      | 401  | 미인증                                                       |
+| `COMM_400`      | 400  | `searchExecutionId` 형식 오류                                |
+| `COMM_400_001`  | 400  | `searchExecutionId` 범위 오류(1 미만)                        |
+| `SRCH_404_001`  | 404  | 본인 소유 아님·대상 밖 실행·존재하지 않음(동일 취급)         |
+| `COMM_500`      | 500  | 서버 오류                                                    |
+
+**저장 계약과의 관계.** 이 절은 S15P21A501-60이 소유하는 `search_execution`/`search_result` 저장 형식을 **읽기만** 한다. -60은 저장 구현과 `explain_json` 4키 계약(`score`·`match`·`guard`·`display`)까지 병합 완료다. **아직 병합되지 않은 선행은 S15P21A501-59(`POST /search` 조립)뿐이다** — 실행을 만드는 쪽이 없어 현재 검증은 고정 DB fixture로 했고, 실제 검색 실행 → 기록 조회 왕복 확인은 -59 병합 후 별도로 기록한다.
+
+읽는 쪽이 저장 형태를 **검증**하는 이유: -60의 저장 경계는 `explain_json` 내부 구조를 검사하지 않는다. 블록이 object인지만 보고 통과시키면 빈 `display`가 `available`로 나가 FE가 해석할 수 없는 `results`를 받는다. 그래서 값은 고치지 않되 아래를 확인하고, 하나라도 어긋나면 `unavailable`로 낸다.
+
+| 대상 | 요구 |
+| --- | --- |
+| `display_name`, `scene_description`, `scene_type` | `null` 또는 **비어 있지 않은** string |
+| `shot_type` | `anchor` \| `interview` \| `b_roll` \| `unknown` |
+| `start_time_ms`, `end_time_ms` | 정수이며 `0 <= start < end` |
+| `broadcast_date`, `filmed_date` | object. `value`가 `null`이면 `verification_status`는 `unknown`, 실제 달력 날짜(`YYYY-MM-DD`)면 `verified` \| `unverified` |
+| `matched_keywords` | 비어 있지 않은 문자열들의 배열 (빈 배열 자체는 허용) |
+| `match_evidence` | 1개 이상. `field`는 `caption` \| `ocr` \| `transcript` \| `tag`, `verification_status`는 `verified` \| `unverified`, `source`는 비어 있지 않은 string, `value`는 `null` 또는 비어 있지 않은 string |
+| 결과 행 전체 | `rank`가 1..N 연속이고 개수가 10 이하 |
+
+**키 부재·타입 불일치·빈 문자열·어휘 밖 값을 모두 같게 다룬다** — 넷 다 「기록이 깨졌다」다. 키만 보면 `shot_type: {}`이, 타입만 보면 `shot_type: "legacy"`나 `value: null` + `verification_status: "verified"` 조합이 통과한다.
+
+`unavailable`로 분류하는 것은 **저장값을 수정하거나 현재 태그로 재계산하는 것이 아니다.** FRD §7.2가 금하는 것은 과거 결과를 소급 수정하는 행위이고, 복원할 수 없다고 말하는 것은 그에 해당하지 않는다. 값은 그대로 두고 판정만 내린다.
+
+**감수해야 할 위험:** 저장된 값이 나중에 어휘 밖이 되면(예: `shot_type` 어휘가 확장되고 과거 기록이 옛 값을 가진 경우) 그 기록은 영구히 `unavailable`이 된다. 어휘를 넓힐 때는 이 절의 허용 집합도 함께 넓혀야 한다. §6.6의 `result_snapshot`(S15P21A501-207)은 `display_name` 타입만 보는 더 느슨한 판정을 쓰므로, 같은 `explain_json`에 대해 두 절의 판정이 다를 수 있다.
+
+### 6.8 장면 대표 이미지(thumbnail) — 원본 반환
 
 `GET /scenes/{sceneId}/thumbnail`
 
@@ -757,7 +986,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | 우선순위 | API 기능                             | 최소 계약 요구                                                                                 | 현재 FE 대체 상태             |
 | -------- | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ----------------------------- |
 | 1        | 검색 실행                            | §5 계약 그대로 구현하고 실제 결과·loading·empty·degraded·failed를 연결                         | 고정 장면과 URL demo          |
-| 2        | 검색 기록 목록·상세                  | 로그인 사용자 실행만 조회, 원문 query·명시 filter·시각·선택 장면·snapshot 식별자, pagination(S15P21A501-60 저장 계약 선행, 미착수) | `search-history.tsx` 고정 5건 |
+| 2        | 검색 기록 목록·상세                  | §6.7로 확정·BE 구현. FE 연결(loading·empty·error·`unavailable` 구분)만 남음                    | `search-history.tsx` 고정 5건 |
 | 3        | 편집자 문의 기록 목록·상세           | §6.6 목록·상세 FE 연결 완료. 본인 조회·페이지 이동·접수 후 갱신                                | 실제 API 연결                 |
 | 4        | 문의 접수·수정                       | §6.2 기존 BE 계약에 멱등 재전송 정책을 확정하고 FE dialog 연결                                 | memory 상태 변경              |
 | 5        | 영상 재생                            | §6.1 공통 Preview·문의 상세·검색 결과 clipId 바인딩 완료                               | 배포 BE endpoint 확인 필요      |
@@ -781,7 +1010,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
 | 내 문의 기록       | §6.6으로 확정·BE 구현·FE 목록과 상세 연결 완료                       | 없음                                                                                      |
-| 내 검색 기록       | 화면 필드는 있으나 목록 endpoint 없음, S15P21A501-60 저장 계약 선행  | -60이 `search_execution`/`search_result` snapshot 저장 형식을 확정한 뒤 pagination·정렬·상세 분리·ID/nullable 규칙 확정 |
+| 내 검색 기록       | §6.7로 확정·BE 구현(조회만). FE 연결 남음                            | 저장(-60)·`explain_json` 4키 계약은 병합 완료. 남은 선행은 -59 `POST /search` 조립이며 그 뒤 실제 왕복 확인 필요 |
 | 처리 조회          | §6.5 실제 목록·상세·polling 연결, unknown/null 보존                    | 수동 재처리·장면 목록·썸네일 및 추가 메타데이터 계약 필요                                 |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.

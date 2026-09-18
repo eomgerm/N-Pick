@@ -178,6 +178,7 @@ public final class AnchorVerifier {
                         resolution.expandedTerms(),
                         resolution.confidence()),
                 findings,
+                result.queryEmbedding(),
                 result.resolutionSchemaVersion(),
                 result.promptVersion(),
                 result.modelVersion(),

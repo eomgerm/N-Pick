@@ -94,7 +94,8 @@ class SearchConfigVersionTest {
      */
     @Test
     void subnormalValuesUseTheShortestRoundTripDigitsLikeTheReferenceImplementation() {
-        assertThat(SearchConfigVersion.canonicalJson(Map.of("k", Double.MIN_VALUE))).isEqualTo("{\"k\":5e-324}");
+        assertThat(SearchConfigVersion.canonicalJson(Map.of("k", Double.MIN_VALUE)))
+                .isEqualTo("{\"k\":5e-324}");
         assertThat(SearchConfigVersion.canonicalJson(Map.of("k", 1e-323))).isEqualTo("{\"k\":1e-323}");
         assertThat(SearchConfigVersion.canonicalJson(Map.of("k", 1e-322))).isEqualTo("{\"k\":1e-322}");
 
@@ -106,8 +107,8 @@ class SearchConfigVersionTest {
     /**
      * 2 의 거듭제곱 경계에서 최단 표현을 고르는지 고정한다.
      *
-     * <p>여기서는 아래쪽 ulp 가 위쪽의 절반이라 정확값이 십진 동점에 놓여도 <b>한쪽만 왕복한다</b>. 각 자릿수에서 반올림 후보를 하나만 검사하면 그 자릿수를 통째로 건너뛰고 더 긴 표현을
-     * 고르게 된다 — {@code 2^-24} 는 16 자리로 충분한데 17 자리가 나왔다.
+     * <p>여기서는 아래쪽 ulp 가 위쪽의 절반이라 정확값이 십진 동점에 놓여도 <b>한쪽만 왕복한다</b>. 각 자릿수에서 반올림 후보를 하나만 검사하면 그 자릿수를 통째로 건너뛰고 더 긴 표현을 고르게
+     * 된다 — {@code 2^-24} 는 16 자리로 충분한데 17 자리가 나왔다.
      */
     @Test
     void powerOfTwoBoundariesPickTheShorterNeighbourThatRoundTrips() {

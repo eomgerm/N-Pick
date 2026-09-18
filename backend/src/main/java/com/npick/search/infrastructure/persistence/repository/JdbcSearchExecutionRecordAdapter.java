@@ -108,8 +108,10 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public List<Long> complete(CompleteSearchExecution command) {
         validateResults(command.rankedScenes());
-        rejectSensitiveFields(command.candidates() == null ? null : command.candidates().payload());
-        rejectSensitiveFields(command.filtered() == null ? null : command.filtered().payload());
+        rejectSensitiveFields(
+                command.candidates() == null ? null : command.candidates().payload());
+        rejectSensitiveFields(
+                command.filtered() == null ? null : command.filtered().payload());
         command.rankedScenes().forEach(scene -> rejectSensitiveFields(scene.explain()));
         rejectSensitiveFields(command.verificationContext());
         try {
@@ -124,7 +126,8 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
                       FROM npick.search_execution
                      WHERE search_execution_id=? FOR UPDATE
                     """,
-                    (row, index) -> new ExecutionState(row.getString("execution_type"), row.getBoolean("resolution_recorded")),
+                    (row, index) ->
+                            new ExecutionState(row.getString("execution_type"), row.getBoolean("resolution_recorded")),
                     command.searchExecutionId());
             if (state == null) {
                 throw new SearchRecordingException("시작되지 않은 검색 실행이다");
@@ -214,15 +217,12 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
             return;
         }
         try {
-            Integer updated = failureTransactions.execute(status -> jdbc.update(
-                    """
+            Integer updated =
+                    failureTransactions.execute(status -> jdbc.update("""
                     UPDATE npick.search_execution
                        SET status='failed', error_code=?, execution_ms=?, updated_at=now()
                      WHERE search_execution_id=? AND status='running'
-                    """,
-                    errorCode,
-                    executionMs,
-                    searchExecutionId));
+                    """, errorCode, executionMs, searchExecutionId));
             if (updated == null || updated != 1) {
                 // 이미 닫힌 실행을 다시 닫지 않는다. complete 로 남은 결과를 실패로 덮으면 그 실행이 무엇을
                 // 돌려줬는지 알 수 없게 된다. 호출 규약 위반이므로 조용히 넘기지 않고 로그로 드러낸다.
@@ -235,8 +235,7 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
 
     private static Map<String, Object> explicitFilters(ExplicitDateFilters filters) {
         var value = new LinkedHashMap<String, Object>();
-        filters
-                .ranges()
+        filters.ranges()
                 .forEach((field, range) -> value.put(
                         field.name().toLowerCase(java.util.Locale.ROOT),
                         Map.of("from", range.from(), "to", range.to())));
