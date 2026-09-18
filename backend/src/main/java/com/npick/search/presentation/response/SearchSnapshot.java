@@ -30,8 +30,15 @@ import com.npick.search.application.query.SearchHistoryResultRow;
  * 보고 통과시키면 빈 블록이 {@code available} 로 나가 FE 가 해석할 수 없는 {@code results} 를 받는다(MR !126 리뷰 P1).
  * 저장 경계(S15P21A501-60)가 내부 구조를 검증하지 않으므로 읽는 쪽이 판정한다.
  *
- * <p>검증하지 <b>않는</b> 것: 닫힌 어휘의 소속. {@code shot_type} 이 4값 밖이어도 그대로 낸다 — §5.1 의 어휘 제약은
- * {@code POST /search} 응답에만 걸리고, 기록을 소급 수정하지 않는다(FRD §7.2). 키의 존재와 FE 가 깨지는 불변식만 본다.
+ * <p>검증 범위는 키의 존재 · 타입 · 값 불변식(어휘 소속, 빈 문자열 불허, 날짜 값과 확인 상태의 짝)이다. 넷 중 하나라도
+ * 어긋나면 unavailable 이다. {@code unavailable} 로 분류하는 것은 <b>저장값을 수정하거나 현재 태그로 재계산하는 것이
+ * 아니다</b> — FRD §7.2 가 금하는 것은 과거 결과를 소급 수정하는 행위이고, 복원할 수 없다고 말하는 것은 그에 해당하지
+ * 않는다. 값은 그대로 두고 판정만 내린다(MR !126 리뷰 3차).
+ *
+ * <p>대신 <b>감수하는 위험</b>이 있다. 어휘가 나중에 확장되면 옛 값을 가진 과거 기록이 영구히 unavailable 이 된다.
+ * 어휘를 넓힐 때 {@link #SHOT_TYPES} 등 이 파일의 허용 집합도 함께 넓혀야 한다. §6.6 의 {@code result_snapshot}
+ * (S15P21A501-207)은 {@code display_name} 타입만 보는 더 느슨한 판정을 쓰므로 같은 {@code explain_json} 에 대해 두
+ * 절의 판정이 다를 수 있다.
  */
 public record SearchSnapshot(
         String snapshotStatus,
@@ -294,19 +301,19 @@ public record SearchSnapshot(
     }
 
     /**
-     * 카드를 그릴 수 있는 표시 블록인가. 키의 존재만으로는 부족하고 <b>타입</b>까지 본다.
+     * 카드를 그릴 수 있는 표시 블록인가. 키의 존재 · 타입 · 값을 모두 본다.
      *
-     * <p>키만 확인하면 {@code shot_type: {}} 이나 배열인 날짜 값이 available 로 나가 FE 에 그대로 전달된다(MR !126
-     * 리뷰 2차). 값을 고치지는 않되, nullable 필드는 {@code null|string}, 나머지 표시 문자열은 string, 구간은 정수로
-     * 확인한다.
+     * <p>키만 확인하면 {@code shot_type: {}} 이나 배열인 날짜 값이 통과하고(MR !126 리뷰 2차), 타입만 확인하면
+     * {@code shot_type: "legacy"} 나 {@code value: null} + {@code verification_status: "verified"} 조합이 통과한다
+     * (리뷰 3차). 그래서 키 부재 · 타입 불일치 · 빈 문자열 · 어휘 밖 값을 모두 같게 다룬다 — 넷 다 「기록이 깨졌다」다.
      *
-     * <p>{@code display_name}·{@code scene_description}·{@code scene_type} 의 값은 null 을 허용한다 — 제목 없는 클립이
-     * 실제로 있고, 서버가 대체 문자열로 메우지 않는다. 날짜 블록은 {@code value}({@code null|string})와
-     * {@code verification_status}(string)가 모두 있어야 한다. {@code value} 가 null 이면 「모른다」이고, 키 자체가
-     * 없거나 타입이 어긋나면 「기록이 깨졌다」다.
-     *
-     * <p>어휘의 소속은 여전히 보지 않는다. {@code shot_type} 이 문자열이면 4값 밖이어도 통과시킨다 — §5.1 의 어휘
-     * 제약은 {@code POST /search} 응답에만 걸리고 과거 결과를 소급 수정하지 않는다(FRD §7.2).
+     * <ul>
+     *   <li>{@code display_name}·{@code scene_description}·{@code scene_type} — null 또는 비어 있지 않은 문자열.
+     *       제목 없는 클립이 실제로 있고 서버가 대체 문자열로 메우지 않는다. null 과 빈 문자열은 다른 사실이다.
+     *   <li>{@code shot_type} — {@link #SHOT_TYPES} 의 네 값.
+     *   <li>{@code start_time_ms}·{@code end_time_ms} — 정수이며 {@code 0 <= start < end}.
+     *   <li>날짜 블록 — {@link #hasDateShape} 가 값과 확인 상태의 짝까지 본다.
+     * </ul>
      */
     private static boolean isRenderableDisplay(ObjectNode display) {
         if (!NULLABLE_DISPLAY_STRINGS.stream().allMatch(key -> isNullableText(display.get(key)))) {
