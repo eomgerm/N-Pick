@@ -57,7 +57,7 @@ test('서버 계정 DTO는 알려진 두 역할만 허용하고 불필요한 필
   }
 });
 
-test('검색은 두 역할에 허용하고 검수 화면은 검수자만 허용한다', () => {
+test('검색은 두 역할에 허용하고 검수 화면은 아카이브 팀만 허용한다', () => {
   for (const role of ['EDITOR', 'REVIEWER']) {
     assert.equal(canAccessPath(role, '/search'), true);
     assert.equal(canAccessPath(role, '/search/results'), true);

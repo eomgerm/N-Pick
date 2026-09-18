@@ -80,7 +80,7 @@ test('검수 규칙은 적용 사실만 표시하고 내부 상세를 노출하�
   const html = renderNotices('review-rule');
 
   assert.ok(html.includes('검수 규칙 적용'));
-  assert.ok(html.includes('검수자가 확인한 규칙'));
+  assert.ok(html.includes('아카이브 팀이 확인한 규칙'));
   assert.doesNotMatch(html, /rule[_ -]?id|condition|JSON|오류 코드/i);
 });
 

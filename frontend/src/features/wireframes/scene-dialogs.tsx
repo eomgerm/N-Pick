@@ -459,8 +459,8 @@ export function InquiryDialog({
 
   if (history) {
     const statusDescription = {
-      open: '문의가 접수되었습니다. 검수자의 확인을 기다리고 있습니다.',
-      reviewing: '검수자가 문의 내용과 검색 결과를 확인하고 있습니다.',
+      open: '문의가 접수되었습니다. 아카이브 팀의 확인을 기다리고 있습니다.',
+      reviewing: '아카이브 팀이 문의 내용과 검색 결과를 확인하고 있습니다.',
       closed: null,
     }[history.status];
 
@@ -552,7 +552,7 @@ export function InquiryDialog({
   }
 
   const statusMessage =
-    '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.';
+    '접수 후 아카이브 팀이 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.';
 
   return (
     <SceneDialog

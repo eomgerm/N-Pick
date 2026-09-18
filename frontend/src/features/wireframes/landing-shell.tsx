@@ -259,7 +259,7 @@ export function LandingShell() {
                 />
               </span>
               <span className={styles.cardBody}>
-                <strong className={styles.cardTitle}>편집자로 시작하기</strong>
+                <strong className={styles.cardTitle}>편집 기사로 시작하기</strong>
                 <span className={styles.cardText}>필요한 뉴스 장면을 빠르게 찾아보세요.</span>
                 <span className={styles.cardCta}>편집 시작하기</span>
               </span>
@@ -275,7 +275,7 @@ export function LandingShell() {
                 />
               </span>
               <span className={styles.cardBody}>
-                <strong className={styles.cardTitle}>검수자로 시작하기</strong>
+                <strong className={styles.cardTitle}>아카이브 팀으로 시작하기</strong>
                 <span className={styles.cardText}>검수가 필요한 장면을 확인해 주세요.</span>
                 <span className={styles.cardCta}>검수 시작하기</span>
               </span>

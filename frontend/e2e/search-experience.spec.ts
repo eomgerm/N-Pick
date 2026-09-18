@@ -61,7 +61,9 @@ for (const role of ['editor', 'reviewer']) {
     const account = page.getByRole('button', { name: new RegExp(`e2e-${role}`) });
     const menu = page.getByRole('navigation', { name: '주요 메뉴' });
     const profile = page.getByText(`e2e-${role}`, { exact: true });
-    const roleLabel = page.getByText(role === 'reviewer' ? '검수자' : '편집기자', { exact: true });
+    const roleLabel = page.getByText(role === 'reviewer' ? '아카이브 팀' : '편집 기사', {
+      exact: true,
+    });
     await expect(page.getByRole('link', { name: 'N-Pick 홈' })).toHaveCount(0);
     await expect(account).toHaveAccessibleName(`e2e-${role}`);
     await expect(account).toHaveText('');
