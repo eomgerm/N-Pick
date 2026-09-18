@@ -975,7 +975,39 @@ sudo docker exec jenkins docker version --format '{{.Client.Version}}'
 플러그인은 남는다. 그 볼륨을 지우지 않는 한 되돌릴 수 있다. URL 설정(5장)과 웹훅
 토큰은 그 안에 있으므로 다시 넣을 필요가 없다.
 
-### 14-7. Jenkins 는 SSAFY GPU 서버로 나가지 않는다
+### 14-7. 파드가 안 켜질 때 — 재고 부족
+
+`RUNPOD_UP` 이 이렇게 끝나는 경우가 있다.
+
+```
+start pod: There are not enough free GPUs on the host machine to start this pod.
+```
+
+**정지된 파드는 특정 호스트에 묶여 있다.** 그 호스트의 GPU 를 남이 가져가면 재개가
+막힌다 — 리전 전체 재고와는 무관하다.
+
+`runpod.sh` 는 이것을 **오류가 아니라 기다릴 상태**로 본다. `RUNPOD_RESUME_TIMEOUT`
+(기본 600초) 안에서 계속 다시 청하고, 그 사이 재고가 나면 그대로 이어간다. 인증·파드 ID
+문제(4xx)는 기다려도 낫지 않으므로 그 자리에서 실패한다.
+
+끝내 안 나면 **파드를 새로 만든다.** 다른 호스트에 붙으므로 대개 이걸로 풀린다.
+
+```bash
+RUNPOD_API_KEY=... RUNPOD_VOLUME_ID=<가중치가 든 볼륨> RUNPOD_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)"   infra/jenkins/runpod-create.sh npick-worker
+```
+
+- **볼륨을 재사용하는 것이 요점이다.** 모델 가중치 20GB·venv·uv 캐시가 그대로라 재생성이
+  10분 안에 끝난다. 파드는 버려도 되는 물건으로 취급한다.
+- GPU 는 **32GB 이상 16종을 싼 순으로** 시도한다(`gpuTypePriority: custom`). 한 종류만
+  지정하면 그 종류의 재고에 운을 걸게 된다.
+- 끝나면 **Jenkins credential `runpod-pod-id` 를 새 파드 ID 로 갱신한다.** 스크립트가
+  마지막 줄에 그 값을 출력한다.
+
+리전 전체가 말랐으면 **SSAFY GPU 서버로 돌린다**(`npick-worker-drain`). 비용이 0이고,
+워커가 pull 방식이라 어느 노드가 가져가든 결과가 같다. RunPod 은 빠르면 좋은 자원이지
+없으면 안 되는 자원이 아니다.
+
+### 14-8. Jenkins 는 SSAFY GPU 서버로 나가지 않는다
 
 `npick-worker-drain` 은 **사람이 SSH 로 돌린다.** Jenkins 에이전트를 GPU 서버에 붙이는
 안은 보류했다 — 아키텍처 SSOT 의 "그 서버에 상주 서버를 올릴 수 없다"와 충돌하므로 팀
