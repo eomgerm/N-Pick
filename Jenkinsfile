@@ -28,7 +28,7 @@ pipeline {
     gitlab(
       triggerOnPush: true,
       triggerOnMergeRequest: true,
-      triggerOpenMergeRequestOnPush: 'never',
+      triggerOpenMergeRequestOnPush: 'both',
       skipWorkInProgressMergeRequest: true,
       cancelPendingBuildsOnUpdate: true,
       cancelRunningBuildsOnUpdate: true,
@@ -121,6 +121,11 @@ pipeline {
       // AI 는 아직 배선하지 않는다: torch/transformers 를 무조건 import 하는 테스트 12개가
       // gpu 마커 없이 실패한다(uv 기본 그룹엔 torch 없음). AI 팀이 이 테스트에 gpu 마커를 달아
       // `pytest -m "not smoke and not gpu"` 로 제외 가능해지면 test-ai.sh 를 여기 추가한다.
+      // 게이트 컨테이너가 상속할 Jenkins 컨테이너명을 명시한다. 스크립트는 미설정 시
+      // $(hostname)(컨테이너 ID) 로 폴백하지만, 운영에서 --name jenkins 로 뜨므로 명시가 안전하다.
+      environment {
+        JENKINS_CONTAINER = 'jenkins'
+      }
       when {
         expression { env.PIPELINE_MODE == 'MR' }
       }
