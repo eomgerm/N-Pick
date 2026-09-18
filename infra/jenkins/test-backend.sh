@@ -1,27 +1,25 @@
 #!/bin/sh
-# MR 게이트 BE 테스트. Jenkins agent 에 JDK 가 없으므로 배포 이미지와 같은 temurin:21 컨테이너
-# 안에서 gradlew test 를 돌린다. BE 통합 테스트는 testcontainers 로 paradedb 를 띄우는데,
-# 이 컨테이너는 마운트한 호스트 Docker 데몬(docker.sock)에 sibling 으로 뜬다. gradle JVM 이
-# 그 sibling 의 매핑 포트에 닿아야 한다.
+# MR 게이트 BE 테스트. Jenkins agent 에 JDK 가 없어 temurin:21 컨테이너에서 gradlew test 를 돌린다.
 #
-# 도달 경로: Docker Desktop(WSL2) 데몬에서는 컨테이너에 발행된 포트가 컨테이너의 localhost
-# (127.0.0.1)나 브리지 게이트웨이(172.17.0.1)로는 닿지 않는다 — 오직 host-gateway 주소
-# (host.docker.internal)로만 닿는다. testcontainers 는 컨테이너 안이라고 감지되면 호스트를
-# 172.17.0.1 로 잡아 Ryuk·DB 연결이 전부 refused 로 실패한다. 그래서
-#   1) --add-host 로 host.docker.internal 을 host-gateway 에 매핑하고,
-#   2) TESTCONTAINERS_HOST_OVERRIDE 로 testcontainers 가 그 주소를 쓰도록 강제한다.
-# (테스트 실행이므로 컨테이너 격리보다 sibling 도달성이 우선이라 --network host 를 유지한다.)
+# 경로(이다인 P1): Jenkins 가 컨테이너 안에서 돌면, docker.sock 으로 띄운 sibling 컨테이너의
+# bind-mount 는 "호스트 Docker 데몬" 기준으로 해석된다. Jenkins 컨테이너 안의 $PWD/$WORKSPACE 는
+# 호스트 파일시스템엔 없으므로 `-v "$PWD:/repo"` 는 빈 디렉터리로 마운트돼 검색이 항상 실패한다.
+# 대신 Jenkins 컨테이너의 볼륨을 그대로 상속(--volumes-from)해 워크스페이스를 같은 경로에 노출하고,
+# 그 경로($WORKSPACE)에서 실행한다. (JENKINS_CONTAINER 로 컨테이너명을 덮어쓸 수 있다 — 기본은
+# 컨테이너 hostname = 컨테이너 ID.)
 #
-# gradle 홈은 named volume 으로 재사용해 매 MR 마다 의존성을 새로 받지 않는다.
+# testcontainers(paradedb) sibling 도달: Docker Desktop 은 host.docker.internal, 네이티브 리눅스는
+# host-gateway 로 해석하므로 --add-host + TESTCONTAINERS_HOST_OVERRIDE 로 강제한다. --network host
+# 유지(격리보다 sibling 도달성 우선). gradle 홈은 named volume 으로 재사용한다.
 set -eu
-cd "$(dirname "$0")/../.."
+: "${WORKSPACE:?WORKSPACE 가 설정돼야 한다(Jenkins 워크스페이스 경로)}"
 docker run --rm \
   --network host \
   --add-host=host.docker.internal:host-gateway \
   -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$PWD:/repo" \
+  --volumes-from "${JENKINS_CONTAINER:-$(hostname)}" \
   -v npick-ci-gradle:/root/.gradle \
-  -w /repo/backend \
+  -w "$WORKSPACE/backend" \
   eclipse-temurin:21-jdk-noble \
-  ./gradlew test --no-daemon --init-script /repo/infra/jenkins/be-gate-exclusions.gradle
+  ./gradlew test --no-daemon --init-script "$WORKSPACE/infra/jenkins/be-gate-exclusions.gradle"
