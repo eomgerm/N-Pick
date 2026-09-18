@@ -104,6 +104,17 @@ test('available 스냅샷은 result_snapshot의 ID·순위·explain을 보존한
   assert.equal(result.resultSnapshot.explain.display.display_name, 'KBC 뉴스9');
 });
 
+test('display_name이 null(제목 없는 영상)·빈 문자열이어도 available이며 원값을 보존한다', () => {
+  // 생산자(-59)는 nullable clip.title을 그대로 기록한다. null은 유효한 과거 값이므로 오류로 바꾸지 않고,
+  // 표시용 대체 문구(제목 없는 영상)는 표현 계층이 정한다.
+  for (const displayName of [null, '']) {
+    const raw = { ...availableDetail.result_snapshot, explain: { display: { display_name: displayName } } };
+    const result = parseMyInquiryDetail({ ...availableDetail, result_snapshot: raw });
+    assert.equal(result.snapshotStatus, 'available');
+    assert.equal(result.resultSnapshot.explain.display.display_name, displayName);
+  }
+});
+
 test('알 수 없는 snapshot_status와 available의 잘못된 result_snapshot은 응답 오류로 처리한다', () => {
   assert.throws(() => parseMyInquiryDetail({ ...detail, snapshot_status: 'partial' }), ApiClientError);
   assert.throws(() => parseMyInquiryDetail({ ...availableDetail, result_snapshot: null }), ApiClientError);
@@ -113,9 +124,7 @@ test('알 수 없는 snapshot_status와 available의 잘못된 result_snapshot�
     { ...availableDetail.result_snapshot, scene_id: '0' },
     { ...availableDetail.result_snapshot, rank: 0 },
     { ...availableDetail.result_snapshot, explain: null },
-    // BE 불변식 대칭: available인데 explain.display.display_name이 온전한 표시명이 아니면 계약 이탈
-    { ...availableDetail.result_snapshot, explain: { display: { display_name: '' } } },
-    { ...availableDetail.result_snapshot, explain: { display: { display_name: '   ' } } },
+    // BE 불변식 대칭: available인데 display_name이 생산자 타입(문자열·null) 이탈이거나 display 블록·키가 없으면 계약 이탈
     { ...availableDetail.result_snapshot, explain: { display: { display_name: 42 } } },
     { ...availableDetail.result_snapshot, explain: { display: {} } },
     { ...availableDetail.result_snapshot, explain: { score: 2 } },
