@@ -497,16 +497,53 @@ UV_LINK_MODE=copy UV_HTTP_TIMEOUT=600 uv sync --locked --group gpu --group cu130
 uv sync --locked --group gpu --group cu130 --reinstall-package <망가진패키지>
 ```
 
-**entity NER 가중치는 손으로 먼저 받는다.** 어댑터가 `local_files_only=True` 라
-스스로 내려받지 않는다(`entity_extraction/local_ner.py`) — 설계가 그렇다.
+**가중치 선적재.** entity NER 어댑터는 `local_files_only=True` 라 스스로
+내려받지 않는다(`entity_extraction/local_ner.py`). 설계가 그렇다.
 
 ```bash
-uv run --locked --group gpu --group cu130 python -c \
-  'from huggingface_hub import snapshot_download; snapshot_download("KPF/KPF-bert-ner", revision="efff871f686098933bf76d699c437c3f53abc19e")'
+uv run --locked --group gpu --group cu130 python -c 'from huggingface_hub import snapshot_download; snapshot_download("KPF/KPF-bert-ner", revision="efff871f686098933bf76d699c437c3f53abc19e")'
 ```
 
+### 워커를 실제로 띄운다
+
+**`uv sync` 까지만 하면 파드 요금만 나가고 잡은 하나도 안 간다.** 아래 값이 전부
+있어야 워커가 claim 을 시작한다. 파드 재기동마다 필요하므로 `/workspace` 의
+`env.sh` 에 함께 넣어 두고 start command 가 그것을 읽게 한다.
+
+```bash
+# /workspace/npick/env.sh 에 이어서
+export NPICK_AI_JOB_POLL_ENABLED=true
+export NPICK_AI_JOB_API_BASE_URL=https://j15a501.p.ssafy.io
+export NPICK_AI_JOB_API_TOKEN=...          # **SSAFY GPU 서버와 다른 토큰**
+export NPICK_AI_JOB_FLEET=prod             # BE 의 NPICK_WORKER_JOBS_FLEET 과 같아야 한다
+export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
+export NPICK_AI_VLM_MODEL=Qwen/Qwen3.5-9B
+export NPICK_AI_ASR_MODEL=large-v3-turbo
+export NPICK_AI_ASR_MODEL_REVISION=0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf
+```
+
+`NPICK_AI_JOB_STAGES` 에서 **`ocr` 을 뺀다.** 그 단계는 EC2 CPU 워커 몫이고,
+함께 선언하면 둘이 같은 잡을 두고 다툰다.
+
+```bash
+# 파드 start command (RunPod 콘솔의 Container Start Command)
+bash -lc 'cd /workspace/npick/ai && git pull --ff-only 2>/dev/null; . /workspace/npick/env.sh && uv sync --locked --group gpu --group cu130 && exec uv run --locked --group gpu --group cu130 npick-worker'
+```
+
+`npick-worker` 는 상주형이다(`/health` 를 연다). 배치로 큐만 비우고 끝내려면
+`npick-worker-drain` 을 쓴다 — SSAFY GPU 서버 쪽과 같다.
+
+기동 뒤 확인:
+
+```bash
+curl -s localhost:8000/health | jq '{declared: .pipeline.declared, ready: .warmup.ready, polling}'
+```
+
+`polling.running` 이 `false` 면 토큰이나 fleet 이 틀린 것이다 — `/health` 자체는
+그래도 200 이라 이 값을 봐야 안다.
+
 전원은 Jenkins 가 쥔다 — `Jenkinsfile.ops` 의 `RUNPOD_UP`/`RUNPOD_DOWN`, 또는
-`infra/jenkins/runpod.sh resume|stop`. 매일 새벽 4시에 cron 이 내린다.
+`infra/jenkins/runpod.sh resume|stop`. 매일 새벽 4시(KST)에 cron 이 내린다.
 
 > **파드를 stop → start 하면 공인 IP 와 매핑 포트가 바뀐다.** SSH 로 붙을 일이 있으면
 > `GET /v1/pods/<id>` 의 `publicIp`·`portMappings` 를 다시 읽어 `~/.ssh/config` 를 고친다.
@@ -705,7 +742,7 @@ long-poll·lease·멱등성은 리졸버에 해당 사항이 없다(동기 호�
 - `stages.py`는 기존 단계 선언이다. v3.1과의 파이프라인 정합성 정리는 별도 작업이다. 단계 구현은 같은 이름의 패키지에 둔다.
 - **임계값은 코드가 아니라 `config/*.toml` 에 있다.** 값이 바뀌면 `version_id` 가 바뀐다(FRD §7.2 기록 지원).
 - HTTP 표면은 헬스·운영용이다. **잡은 워커가 BE 에서 받아 온다** — 인바운드 잡 엔드포인트가 없다. 잡 루프는 라우트가 아니라 lifespan 태스크로 돈다. 계약 정본은 [../docs/contracts/job-api.md](../docs/contracts/job-api.md) 다.
-- `NPICK_AI_JOB_POLL_ENABLED` 가 배포 단위를 가른다. 같은 이미지가 이 값 하나로 "잡을 도는 파이프라인 워커" 와 "폴링하지 않는 질의 리졸버" 가 된다.
+- `NPICK_AI_JOB_POLL_ENABLED` 가 배포 단위를 가른다. **이미지는 갈려 있고**(S15P21A501-187) 이 값이 그 위에서 폴링 여부를 정한다 — EC2 리졸버는 `false`, EC2 CPU 워커와 GPU 노드는 `true` 다.
 - 장치 정보는 프로세스 기동 후 1회만 탐지해 캐시한다. 드라이버를 교체했으면 워커를 재기동한다.
 - 빈 패키지를 미리 만들지 않는다. 실제 기능이 생길 때 추가한다.
 - 손으로 명령을 칠 때는 `--directory ai`(CWD 를 옮긴다), lefthook 훅에서는 `--project ai`(루트 기준 경로를 보존한다)를 쓴다. 클론 직후 `uv sync --directory ai` 를 먼저 돌리면 첫 커밋 훅이 빠르다.

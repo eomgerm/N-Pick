@@ -851,7 +851,7 @@ docker compose exec postgres sh -c \
 > 순서를 지킨다: **drain 을 돌릴 거면 먼저 `ACTION=RUNPOD_DOWN`**, 파드를 쓸 거면
 > SSH 로 들어가 drain 이 끝난 것을 확인한 뒤 `ACTION=RUNPOD_UP`.
 
-### 14-2. credential 2종 등록
+### 14-2. credential 3종 등록
 
 Manage Jenkins → Credentials → System → Global → Add Credentials.
 
@@ -890,10 +890,14 @@ Manage Jenkins → Credentials → System → Global → Add Credentials.
 > 아무것도 등록하지 않고 초록으로 끝났는데, 지금은 `seed-clips.sh` 가 0 건을 실패로
 > 처리한다(`등록된 영상이 0 건이다`). 시드 영상은 배포 디렉터리 아래에 두는 것이 가장 쉽다.
 
-`WAIT_SECONDS` 가 0 보다 크면 등록으로 끝내지 않고 `GET /clips` 의 `run_counts` 를 10초
-간격으로 보며 큐가 빌 때까지 기다린다. 시연 전날 밤에 걸어 두고 아침에 초록만 확인하는
-용도다. **이 집계는 전체 건수라** 예전에 실패한 클립이 DB 에 남아 있으면 그것 때문에
-빨간색으로 끝난다.
+> ⚠️ **`WAIT_SECONDS` 는 지금 0 만 쓸 수 있다.** 워커에 `transcript_selection` 구현이
+> 없어 run 이 그 단계에서 멈추므로, 기다리면 제한 시간까지 돌다 실패한다. 잡이
+> `SEED_WAIT_BLOCKED` 가드로 0 이 아닌 값을 거부한다(`Jenkinsfile.ops`). 구현이
+> 들어오고 `pipeline.yml` 에 그 단계의 `stage_versions` 가 채워지면 가드를 지운다.
+
+가드를 지운 뒤의 동작: `WAIT_SECONDS` 가 0 보다 크면 **이번 실행이 등록한 클립만**
+10초 간격으로 조회해 모두 끝날 때까지 기다린다. 전체 집계(`run_counts`)를 보지 않으므로
+예전에 실패한 클립이 남아 있어도 이번 배치 판정에 섞이지 않는다.
 
 ### 14-5. cron 이 매일 새벽 4시에 파드를 내린다
 
@@ -907,7 +911,47 @@ triggers { cron('0 4 * * *') }
 
 시연 중 새벽을 넘겨야 한다면 잡을 Disable 하고, 끝나면 반드시 되돌린다.
 
-### 14-6. Jenkins 는 SSAFY GPU 서버로 나가지 않는다
+### 14-6. `SEED` 전에 Jenkins 이미지를 다시 만든다
+
+`SEED` 는 `scripts/seed-clips.sh` 를 돌리고 그 스크립트는 `jq` 를 쓴다. `jq` 는
+`infra/jenkins/Dockerfile` 에 들어 있는데 **Jenkins 는 compose 밖 컨테이너라 앱 CD 가
+이 이미지를 갱신하지 않는다.** 사람이 한 번 다시 만들어야 한다.
+
+> **진행 중인 빌드가 없는지 먼저 본다.** 재생성은 컨테이너를 내리므로 돌던 배포가
+> 중간에 끊긴다. Jenkins 화면의 실행 중 잡을 확인하고, 급하지 않으면 배포가 없는
+> 시간에 한다.
+
+```bash
+# EC2 에서. 현재 컨테이너의 실행 인자를 먼저 적어 둔다 —
+# 볼륨·포트·네트워크·재시작 정책이 여기 전부 들어 있다.
+sudo docker inspect jenkins \
+  -f '{{range .Mounts}}-v {{.Source}}:{{.Destination}} {{end}}{{println}}{{range $p, $c := .NetworkSettings.Ports}}-p {{(index $c 0).HostIp}}:{{(index $c 0).HostPort}}:{{$p}} {{end}}'
+
+# 호스트 docker 그룹 GID 를 그대로 넘긴다(3장과 같은 값이어야 소켓이 열린다).
+DOCKER_GID=$(getent group docker | cut -d: -f3)
+sudo docker build --build-arg DOCKER_GID="$DOCKER_GID" \
+  -t npick/jenkins:latest infra/jenkins
+
+sudo docker stop jenkins && sudo docker rm jenkins
+# 위에서 적어 둔 -v/-p 를 그대로 다시 준다. 특히 /home/ubuntu/jenkins-data 와
+# /var/run/docker.sock, 그리고 127.0.0.1:18080 바인딩을 빠뜨리지 않는다.
+sudo docker run -d --name jenkins --restart unless-stopped \
+  -v /home/ubuntu/jenkins-data:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /home/ubuntu/S15P21A501:/home/ubuntu/S15P21A501 \
+  -p 127.0.0.1:18080:8080 \
+  npick/jenkins:latest
+
+# 확인 — 잡·설정·플러그인은 볼륨에 있으므로 그대로 남아 있어야 한다.
+sudo docker exec jenkins jq --version
+sudo docker exec jenkins docker version --format '{{.Client.Version}}'
+```
+
+**데이터는 `/home/ubuntu/jenkins-data` 볼륨에 있다.** 컨테이너를 지워도 잡·크리덴셜·
+플러그인은 남는다. 그 볼륨을 지우지 않는 한 되돌릴 수 있다. URL 설정(5장)과 웹훅
+토큰은 그 안에 있으므로 다시 넣을 필요가 없다.
+
+### 14-7. Jenkins 는 SSAFY GPU 서버로 나가지 않는다
 
 `npick-worker-drain` 은 **사람이 SSH 로 돌린다.** Jenkins 에이전트를 GPU 서버에 붙이는
 안은 보류했다 — 아키텍처 SSOT 의 "그 서버에 상주 서버를 올릴 수 없다"와 충돌하므로 팀

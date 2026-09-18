@@ -510,34 +510,36 @@ curl -b <쿠키> http://127.0.0.1:8080/api/v1/clips/<clip_id>
 
 ### 지금 도는 범위
 
-2026-09-16 기준 `scene_detection` 과 `frame_extraction` 두 단계다. `PipelineStages.NAMES` 의
-10단계를 모두 적으면 이렇다.
+2026-09-18 기준 **`transcript_selection` 을 뺀 아홉 단계**가 배정된다(S15P21A501-187).
+배정이 성립하려면 세 가지가 동시에 맞아야 한다 — 워커가 능력을 선언하고, BE 에 결과를
+저장할 어댑터가 있고, `pipeline.yml` 의 `stage_versions` 에 그 단계의 실측 해시가 있어야
+한다. 하나라도 어긋나면 **오류 없이 배정만 멈춘다.**
 
-| 단계 | 워커 선언 | 저장 어댑터 | `stage_versions` | 결과 |
+| 단계 | 워커 선언 | 저장 어댑터 | `stage_versions` | 맡는 노드 |
 |---|---|---|---|---|
-| `scene_detection` | O | O | O | **돈다** |
-| `frame_extraction` | O | O | O | **돈다** |
-| `ocr` | O | **없음** | — | 미배정. S15P21A501-184 |
-| `transcript_selection` | **안 함** | O | — | 미배정 |
-| `asr` | 라이브러리 없음 | O | — | 능력 목록에서 자동 제외 |
-| `scene_transcript_mapping` | O | **없음** | — | 미배정 |
-| `vlm_metadata` | 모델 없음 | 없음 | — | 능력 목록에서 자동 제외 |
-| `entity_extraction` | **안 함** | 없음 | — | 미배정 |
-| `text_embedding` | 라이브러리 없음 | O | — | 능력 목록에서 자동 제외 |
-| `indexing` | O | O | — | 미배정 |
+| `scene_detection` | O | O | O | GPU |
+| `frame_extraction` | O | O | O | GPU |
+| `ocr` | O | O | O | **EC2 CPU 워커** |
+| `transcript_selection` | **안 함** | O | **없음** | — 미배정 |
+| `asr` | 모델 지정 시 | O | O | GPU |
+| `scene_transcript_mapping` | O | O | O | GPU |
+| `vlm_metadata` | 모델 지정 시 | O | O | GPU |
+| `entity_extraction` | 가중치 적재 시 | O | O | GPU |
+| `text_embedding` | 라이브러리 있으면 | O | O | GPU |
+| `indexing` | O | O | O | GPU |
 
-"워커 선언"의 `라이브러리 없음`은 `faster-whisper`·`sentence-transformers` 가 `gpu` 그룹이라 CPU
-이미지에 없다는 뜻이고, `모델 없음`은 `NPICK_AI_VLM_MODEL` 미설정이다. 둘 다 워커가 스스로
-목록에서 빼므로 설정으로 손댈 것이 없다.
+**"모델 지정 시"·"가중치 적재 시"** 는 워커가 스스로 거르는 조건이다. `NPICK_AI_VLM_MODEL`·
+`NPICK_AI_ASR_MODEL`(+`_REVISION`)이 없거나 워밍업이 끝나지 않은 단계는 `capabilities` 에
+실리지 않는다. 설정으로 강제할 수 없고, 그게 의도다 — 배정받아 매번 죽는 것보다 낫다.
 
-`ocr` 과 `scene_transcript_mapping` 은 워커가 능력을 선언하지만 BE 가 결과를 저장할 어댑터가
-없어 `WorkerExecutionBinding` 이 목록에서 지운다. **`stage_versions` 에 넣어도 배정되지 않는다.**
+**`transcript_selection` 만 남았다.** 워커에 구현(`HANDLERS`)이 없어서 `stage_versions` 도
+비워 뒀다. `nextStage()` 는 `NAMES` 순서로 첫 `pending` 을 고르므로(`PipelineRun:73`)
+**이 단계에서 run 이 멈춘다** — 지금 파이프라인은 끝까지 가지 못한다. 구현하는 티켓이
+`pipeline.yml` 에 실측 해시 한 줄을 함께 넣어야 한다.
 
-`indexing` 은 어댑터가 **있다.** `stage_versions` 에 없는 것이 직접적인 이유이고, 설령 넣더라도
-앞선 `ocr` 이 `pending` 이라 순서상 닿지 않는다.
+어느 노드가 무엇을 맡는지는 워커의 `NPICK_AI_JOB_STAGES` 가 정한다. EC2 CPU 워커는
+`ocr` 하나이고 GPU 노드는 `ocr` 을 뺀 나머지다 — 겹치면 같은 잡을 두고 다툰다.
 
-`nextStage()` 는 `NAMES` 순서로 첫 `pending` 을 고른다(`PipelineRun:73`). 한 단계가 막히면 뒤쪽은
-어댑터가 있어도 순서상 닿지 않는다.
 
 ### 공유 미디어 볼륨 — 두 이미지의 uid 를 맞춰야 한다
 
