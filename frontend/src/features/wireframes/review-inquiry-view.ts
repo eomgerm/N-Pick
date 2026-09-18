@@ -182,7 +182,7 @@ export function getClaimRecovery(error: unknown): ClaimRecovery {
         action: 'refresh',
         actionLabel: '최신 상태 확인',
         message:
-          '다른 검수자가 먼저 시작했을 수 있습니다. 최신 담당자와 상태를 다시 확인해 주세요.',
+          '다른 아카이브 팀이 먼저 시작했을 수 있습니다. 최신 담당자와 상태를 다시 확인해 주세요.',
       };
     }
     if (error.status === 403) {

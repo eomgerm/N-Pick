@@ -135,7 +135,9 @@ test('선점 충돌 후 최신 상태를 읽으면 이전 오류를 지우고 �
   await expect(error).toBeVisible();
   await error.getByRole('button', { name: '최신 상태 확인' }).click();
   await expect(page.getByText(/서버 담당자/)).toBeVisible();
-  await expect(page.getByRole('heading', { name: '다른 검수자가 처리 중입니다.' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '다른 아카이브 팀이 처리 중입니다.' }),
+  ).toBeVisible();
   await expect(error).not.toBeVisible();
   expect(detailReads).toBeGreaterThanOrEqual(2);
   await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
@@ -159,7 +161,9 @@ test('담당자 정보가 없는 검수 중 문의는 다른 담당자로 단정
   await expect(
     page.getByRole('heading', { name: '담당자 정보를 확인할 수 없습니다.' }),
   ).toBeVisible();
-  await expect(page.getByRole('heading', { name: '다른 검수자가 처리 중입니다.' })).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: '다른 아카이브 팀이 처리 중입니다.' }),
+  ).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: '처리 결과' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^(문의 종료|판정 저장)$/ })).toHaveCount(0);
 });

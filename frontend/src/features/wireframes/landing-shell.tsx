@@ -7,6 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 
+import { AppLogo } from '@/components/app-logo';
 import styles from '@/features/wireframes/landing.module.css';
 import { routes } from '@/lib/routes';
 
@@ -202,17 +203,8 @@ export function LandingShell() {
       <main className={styles.main}>
         <section aria-labelledby="landing-title" className={styles.hero} ref={heroRef}>
           <div className={styles.brandMotion} ref={brandRef}>
+            <AppLogo className={styles.heroIcon} />
             <h1 className={styles.heroTitle} id="landing-title" ref={titleRef}>
-              <span aria-hidden="true" className={styles.heroIcon}>
-                <Image
-                  alt=""
-                  className={styles.heroIconImage}
-                  width={1254}
-                  height={1254}
-                  sizes="(max-width: 740px) 24vw, 16vw"
-                  src="/images/landing-app-icon.png"
-                />
-              </span>
               <span className={styles.heroLine}>
                 <em className={styles.heroWord}>
                   N<span className={styles.heroTrim}>EED</span>
@@ -259,7 +251,7 @@ export function LandingShell() {
                 />
               </span>
               <span className={styles.cardBody}>
-                <strong className={styles.cardTitle}>편집자로 시작하기</strong>
+                <strong className={styles.cardTitle}>편집 기사로 시작하기</strong>
                 <span className={styles.cardText}>필요한 뉴스 장면을 빠르게 찾아보세요.</span>
                 <span className={styles.cardCta}>편집 시작하기</span>
               </span>
@@ -275,7 +267,7 @@ export function LandingShell() {
                 />
               </span>
               <span className={styles.cardBody}>
-                <strong className={styles.cardTitle}>검수자로 시작하기</strong>
+                <strong className={styles.cardTitle}>아카이브 팀으로 시작하기</strong>
                 <span className={styles.cardText}>검수가 필요한 장면을 확인해 주세요.</span>
                 <span className={styles.cardCta}>검수 시작하기</span>
               </span>

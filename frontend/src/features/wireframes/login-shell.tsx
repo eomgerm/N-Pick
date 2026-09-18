@@ -93,7 +93,7 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const submissionRef = useRef(false);
-  const roleLabel = role === 'editor' ? '편집자' : '검수자';
+  const roleLabel = role === 'editor' ? '편집 기사' : '아카이브 팀';
   const mutation = useMutation({
     // No credentials in mutation variables/cache or browser storage.
     mutationFn: () =>

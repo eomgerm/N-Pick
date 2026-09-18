@@ -1,103 +1,16 @@
 'use client';
 
-import { ChevronLeft, Clock3, History, MessageSquareText, Tv, Video } from 'lucide-react';
+import { ChevronLeft, History, MessageSquareText, Tv, Video } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { DateRange } from '@/features/wireframes/date-range';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
-import { results } from '@/features/wireframes/demo-scenes';
 import { MyInquiryHistory } from '@/features/wireframes/my-inquiry-history';
-import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
+import { MySearchHistory } from '@/features/wireframes/my-search-history';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/search-history.module.css';
 
 type HistoryKind = 'search' | 'inquiry';
-
-interface HistoryItem {
-  id: string;
-  sceneId: number;
-  daysAgo: number;
-  query: string;
-}
-
-const searchHistory: HistoryItem[] = [
-  { id: 'view-1', sceneId: 1, daysAgo: 1, query: '설 연휴 서울역 귀성 인파' },
-  { id: 'view-2', sceneId: 2, daysAgo: 2, query: '2025년 추석 경부고속도로 귀성길 정체' },
-  { id: 'view-3', sceneId: 3, daysAgo: 3, query: '한국도로공사 교통상황실' },
-  { id: 'view-4', sceneId: 2, daysAgo: 5, query: '고속도로 양방향 정체 항공 영상' },
-  { id: 'view-5', sceneId: 1, daysAgo: 7, query: '서울역 대합실 귀성객' },
-];
-
-function groupByRecency(items: HistoryItem[]) {
-  return [
-    { label: '오늘', items: items.filter(({ daysAgo }) => daysAgo === 0) },
-    { label: '이번 주', items: items.filter(({ daysAgo }) => daysAgo > 0 && daysAgo <= 7) },
-  ].filter((group) => group.items.length > 0);
-}
-
-interface HistorySectionProps {
-  items: HistoryItem[];
-  onSelect: (item: HistoryItem) => void;
-}
-
-function HistorySection({ items, onSelect }: HistorySectionProps) {
-  const title = '이전 검색 기록';
-
-  return (
-    <section aria-labelledby="search-history-title" className={styles.section}>
-      <h2 className={styles.sectionHeading} id="search-history-title">
-        <History aria-hidden="true" />
-        <span>{title}</span>
-        <small>{items.length}</small>
-      </h2>
-      <div aria-label={`${title} 목록`} className={styles.listViewport} role="region" tabIndex={0}>
-        {groupByRecency(items).map((group) => (
-          <div key={group.label}>
-            <p aria-hidden="true" className={styles.groupLabel}>
-              {group.label}
-              <b>{group.items.length}</b>
-            </p>
-            <ul aria-label={group.label} className={styles.list}>
-              {group.items.map((item) => {
-                const scene = results.find(({ id }) => id === item.sceneId)!;
-                const text = scene.title;
-                return (
-                  <li key={item.id}>
-                    <button
-                      aria-haspopup="dialog"
-                      className={styles.row}
-                      onClick={() => onSelect(item)}
-                      type="button"
-                    >
-                      <span
-                        aria-label={`${scene.title} 구간 썸네일`}
-                        className={styles.thumbnail}
-                        data-scene={scene.id}
-                        role="img"
-                      />
-                      <span className={styles.rowCopy}>
-                        <span className={styles.rowTitle} title={text}>
-                          {text}
-                        </span>
-                        <span className={styles.rowSubtitle}>{scene.time}</span>
-                      </span>
-                      <span className={styles.rowMeta}>
-                        <span className={styles.age}>
-                          <Clock3 aria-hidden="true" />
-                          {item.daysAgo}일 전
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 interface SearchHistoryProps {
   broadcastRange: DateRange;
@@ -119,14 +32,13 @@ export function SearchHistory({
 }: SearchHistoryProps) {
   const [isNavExpanded, setIsNavExpanded] = useState(false);
   const [activePanel, setActivePanel] = useState<HistoryKind | null>(null);
-  const [selectedHistory, setSelectedHistory] = useState<HistoryItem | null>(null);
+  const [isSearchDetailOpen, setIsSearchDetailOpen] = useState(false);
   const [isInquiryDetailOpen, setIsInquiryDetailOpen] = useState(false);
   const dockRef = useRef<HTMLElement>(null);
   const activeTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const selectedScene = results.find(({ id }) => id === selectedHistory?.sceneId);
 
   useEffect(() => {
-    if (!isNavExpanded || selectedHistory || isInquiryDetailOpen) return;
+    if (!isNavExpanded || isSearchDetailOpen || isInquiryDetailOpen) return;
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setActivePanel(null);
@@ -145,7 +57,7 @@ export function SearchHistory({
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('pointerdown', handleOutside);
     };
-  }, [isNavExpanded, selectedHistory, isInquiryDetailOpen]);
+  }, [isNavExpanded, isSearchDetailOpen, isInquiryDetailOpen]);
 
   function closePanel() {
     setActivePanel(null);
@@ -160,10 +72,6 @@ export function SearchHistory({
     }
     setIsNavExpanded(true);
     setActivePanel(kind);
-  }
-
-  function handleClose() {
-    setSelectedHistory(null);
   }
 
   return (
@@ -262,17 +170,14 @@ export function SearchHistory({
             >
               <ChevronLeft aria-hidden="true" />
             </button>
-            {kind === 'search' ? (
-              <HistorySection items={searchHistory} onSelect={setSelectedHistory} />
-            ) : activePanel === 'inquiry' ? (
+            {kind === 'search' && activePanel === 'search' ? (
+              <MySearchHistory theme={theme} onDetailOpenChange={setIsSearchDetailOpen} />
+            ) : kind === 'inquiry' && activePanel === 'inquiry' ? (
               <MyInquiryHistory theme={theme} onDetailOpenChange={setIsInquiryDetailOpen} />
             ) : null}
           </aside>
         ))}
       </aside>
-      {selectedScene ? (
-        <ScenePreviewDialog onClose={handleClose} result={selectedScene} theme={theme} />
-      ) : null}
     </>
   );
 }

@@ -33,7 +33,7 @@ test('로그인 세 레이어가 다른 깊이로 움직이고 폼을 사용할 
   await expect.poll(async () => (await offsets(page))[2].x).toBeGreaterThan(18);
   await page.getByRole('button', { name: '로그인', exact: true }).click();
   await expect(page.getByLabel('아이디', { exact: true })).toBeFocused();
-  await expect(page.getByText('편집자 ID를 입력해 주세요.', { exact: true })).toBeVisible();
+  await expect(page.getByText('편집 기사 ID를 입력해 주세요.', { exact: true })).toBeVisible();
   await page.getByLabel('아이디', { exact: true }).fill('editor');
   await page.getByLabel('비밀번호', { exact: true }).fill('example');
   await page.mouse.move(720, 450);
@@ -111,7 +111,7 @@ test('터치 포인터는 마우스 움직임을 합성하지 않는다', async 
   expect(await offsets(page)).toEqual(Array(3).fill({ x: 0, y: 0 }));
 });
 
-test('레이어 로딩 실패는 원본 사진으로 대체하고 검수자 폼을 유지한다', async ({ page }) => {
+test('레이어 로딩 실패는 원본 사진으로 대체하고 아카이브 팀 폼을 유지한다', async ({ page }) => {
   await page.route('**/login-mountains/mountains.webp', (route) => route.abort());
   await page.goto('/login?role=reviewer');
   await expect(page.locator('[data-mountain-backdrop] [data-ready]')).toHaveAttribute(
@@ -123,6 +123,6 @@ test('레이어 로딩 실패는 원본 사진으로 대체하고 검수자 폼�
     true,
   );
   await page.getByRole('button', { name: '로그인', exact: true }).click();
-  await expect(page.getByText('검수자 ID를 입력해 주세요.', { exact: true })).toBeVisible();
+  await expect(page.getByText('아카이브 팀 ID를 입력해 주세요.', { exact: true })).toBeVisible();
   await expect(page.getByLabel('아이디', { exact: true })).toBeFocused();
 });

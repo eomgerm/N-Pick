@@ -85,7 +85,7 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
           </div>
         ) : (
           <>
-            <p className="sr-only">현재 검수자 {member.loginId}</p>
+            <p className="sr-only">현재 아카이브 팀 {member.loginId}</p>
             <InquiryList currentStatus={status} data={list.data} />
           </>
         )}

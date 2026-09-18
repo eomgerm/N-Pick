@@ -111,7 +111,7 @@ export function SessionControls({
           <div className={styles.accountProfile}>
             <p className={styles.accountName}>{member.loginId}</p>
             <p className={styles.accountRole}>
-              {member.role === 'REVIEWER' ? '검수자' : '편집기자'}
+              {member.role === 'REVIEWER' ? '아카이브 팀' : '편집 기사'}
             </p>
           </div>
           {navigation}
@@ -134,7 +134,7 @@ export function SessionControls({
         <span className="flex min-w-0 flex-wrap justify-end gap-x-1">
           <span className="max-w-48 break-all">{member.loginId}</span>
           <span className="whitespace-nowrap">
-            · {member.role === 'REVIEWER' ? '검수자' : '편집기자'}
+            · {member.role === 'REVIEWER' ? '아카이브 팀' : '편집 기사'}
           </span>
         </span>
         {logoutButton}

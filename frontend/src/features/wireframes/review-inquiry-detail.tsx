@@ -190,7 +190,7 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
             <UserCheck aria-hidden="true" />
             <div>
               <strong>아직 담당자가 없습니다.</strong>
-              <p>선점에 성공한 검수자만 처리할 수 있습니다.</p>
+              <p>선점에 성공한 아카이브 팀만 처리할 수 있습니다.</p>
             </div>
             <button
               className={styles.primaryButton}
@@ -228,7 +228,10 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
           <section className="rounded-2xl border border-(--line) p-5">
             <h2 className="font-bold">검수 이력</h2>
             <p className="mt-2 text-sm">
-              {inquiry.history.reviewerName || inquiry.history.reviewerLoginId || '담당 검수자'} ·{' '}
+              {inquiry.history.reviewerName ||
+                inquiry.history.reviewerLoginId ||
+                '담당 아카이브 팀'}{' '}
+              ·{' '}
               {inquiry.history.reviewStartedAt
                 ? formatInquiryDate(inquiry.history.reviewStartedAt)
                 : '시작 시각 확인 중'}

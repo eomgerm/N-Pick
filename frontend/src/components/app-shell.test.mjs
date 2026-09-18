@@ -75,22 +75,22 @@ function renderShell(role, pathname, loginId = 'test-member', isInteractionLocke
   }
 }
 
-test('편집기자 메뉴는 검색만 제공하며 계정과 역할을 실제 세션에서 표시한다', () => {
-  const html = renderShell('EDITOR', '/search', '편집자-계정');
+test('편집 기사 메뉴는 검색만 제공하며 계정과 역할을 실제 세션에서 표시한다', () => {
+  const html = renderShell('EDITOR', '/search', '편집 기사-계정');
   assert.match(html, /href="\/search"/);
   assert.doesNotMatch(html, /href="\/review"/);
-  assert.match(html, /편집자-계정/);
-  assert.match(html, /편집기자/);
+  assert.match(html, /편집 기사-계정/);
+  assert.match(html, /편집 기사/);
   assert.match(html, /로그아웃/);
 });
 
-test('검수자가 검색 화면으로 이동해도 검수자 역할과 두 메뉴를 유지한다', () => {
+test('아카이브 팀이 검색 화면으로 이동해도 아카이브 팀 역할과 두 메뉴를 유지한다', () => {
   for (const pathname of ['/search', '/search/results', '/review']) {
     const html = renderShell('REVIEWER', pathname);
     assert.match(html, /href="\/search"/);
     assert.match(html, /href="\/review"/);
-    assert.match(html, /검수자/);
-    assert.doesNotMatch(html, /편집기자/);
+    assert.match(html, /아카이브 팀/);
+    assert.doesNotMatch(html, /편집 기사/);
     const currentLink = html.match(/<a\b[^>]*aria-current="page"[^>]*>/g);
     assert.equal(currentLink.length, 1);
     assert.ok(currentLink[0].includes(`href="${pathname === '/review' ? '/review' : '/search'}"`));
@@ -109,7 +109,7 @@ test('공통 헤더와 페이지 본문은 한 번씩 렌더링하며 긴 계정
 });
 
 test('상호작용 잠금 중에는 공통 헤더 링크와 로그아웃도 비활성 상태를 노출한다', () => {
-  const html = renderShell('REVIEWER', '/review', '검수자', true);
+  const html = renderShell('REVIEWER', '/review', '아카이브 팀', true);
   assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 2);
   assert.match(html, /<button[^>]*disabled=""[^>]*>로그아웃<\/button>/);
 });

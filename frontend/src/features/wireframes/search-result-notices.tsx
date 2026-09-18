@@ -50,7 +50,7 @@ export function SearchResultNotices({
           <CheckCircle2 aria-hidden="true" />
           <div>
             <strong>검수 규칙 적용</strong>
-            <span>검수자가 확인한 규칙을 이 검색에 반영했어요.</span>
+            <span>아카이브 팀이 확인한 규칙을 이 검색에 반영했어요.</span>
           </div>
         </div>
       ) : null}

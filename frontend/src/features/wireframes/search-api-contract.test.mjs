@@ -28,6 +28,32 @@ const { presentSearchResponse, searchScenes } = await import('./search-results-a
 
 const emptyRange = { from: '', to: '' };
 
+test('제목 없는 검색 결과는 null을 보존하고 화면에서만 대체 제목을 표시한다', () => {
+  for (const description of ['서울역 귀성 인파', null]) {
+    const raw = createResponse();
+    raw.results[0] = createScene(1, { display_name: null, scene_description: description });
+
+    const parsed = parseSearchResponse(raw);
+    const view = presentSearchResponse(parsed);
+
+    assert.equal(view.results.length, 10);
+    assert.equal(view.results[0].displayName, '제목 없는 영상');
+    assert.equal(view.results[0].clip, '제목 없는 영상');
+    assert.equal(view.results[0].title, description ?? '제목 없는 영상');
+    assert.equal(view.results[1].displayName, '저녁 뉴스 2');
+    assert.equal(view.results[1].title, '서울역 장면 2');
+    assert.equal(parsed.results[0].displayName, null);
+  }
+});
+
+test('영상 제목은 null만 추가 허용하고 누락·빈 문자열·잘못된 타입은 거절한다', () => {
+  for (const invalidTitle of [undefined, '', '   ', 123]) {
+    const raw = createResponse();
+    raw.results[0] = createScene(1, { display_name: invalidTitle });
+    assert.throws(() => parseSearchResponse(raw), ApiClientError);
+  }
+});
+
 test('실제 검색 adapter는 clip ID와 소수 초, 추가 근거와 degraded 상태를 보존한다', () => {
   const raw = createResponse({ status: 'degraded', degraded_reasons: ['dense_unavailable'] });
   raw.results[0] = createScene(1, {
