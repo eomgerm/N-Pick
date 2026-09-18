@@ -1,12 +1,27 @@
 # S15P21A501-213. 제공 자막·CC 가 덮지 못한 구간 중 ASR 을 부를 최소 길이(ms).
 # 0: 필터 없음 — 자막 사이의 모든 빈 구간이 후보가 된다.
 #
-# **숫자를 짓지 않았다.** FRD §11·§11.1 이 실행 환경 설정값을 실측 없이 확정하지
-# 말라고 하고, 계약 §4.5 에도 최소 구간 길이 규정이 없다. config/ocr-merge.v1.toml
-# 의 similarity_threshold = 1.0(= 병합 없음)과 같은 형태로 자리만 잡아 둔다.
+# **2 는 실측에서 나온 값이다** (S15P21A501-215). 길이 축이 둘이라서 생기는 인공물을
+# 지우는 가장 작은 정수다.
 #
-# 실측 항목: 자막이 촘촘한 뉴스 클립 하나로 len(candidateRanges) 를 잰다. 0 이면
-# 수십~수백 ms 틈이 전부 후보가 되고, 1ms 틈 하나가 전체 영상 ASR 을 부른다
-# (ASR 은 candidateRanges 를 구간 제한에 쓰지 않는다 — jobs/registry.py 의 _run_asr).
+#   BE 자막 접수 검증   ffprobe `format.duration`        (SubtitleParser)
+#   4단계 커버리지      frames_to_ms(총 프레임, fps)     (pyscenedetect_backend)
+#
+# b-roll 60클립(전부 29.97fps)에서 두 축의 차이를 쟀다 — 최소 -0.467ms, 최대 +0.500ms,
+# |차이| > 0.5ms 인 표본 0건. `frames_to_ms` 의 반올림 오차뿐이고 프레임 한 장(33.4ms)
+# 과는 무관하다.
+#
+# 자막 종료 시각은 ffprobe 길이 이하의 정수 ms 이므로 꼬리에 남는 틈은
+#   (프레임 기반 길이) - (ffprobe 길이의 내림) <= 0.5 + 1 = 1.5
+# 이고 정수이므로 최대 1ms 다. 그래서 2 가 이 인공물을 지우는 최소값이다.
+#
+# 실측 사례: KNA_02701 은 영상 15181.833ms / 프레임 기반 15182ms 였다. 전 구간을 덮는
+# 자막을 붙여도 15181ms 까지밖에 쓸 수 없고(그 이상은 BE 가 CLIP_400_012 로 거절한다)
+# [15181, 15182) 한 칸이 남아 `asrRequired=true` 가 됐다. ASR 은 candidateRanges 를
+# 구간 제한에 쓰지 않으므로(jobs/registry.py 의 _run_asr) **영상 전체**가 다시 돌았다.
+#
+# **이 값은 축 불일치만 보정한다.** 자막 사이의 실제 틈(수백 ms)을 ASR 에서 뺄지는
+# 성격이 다른 판단이고, 자막이 촘촘한 실제 뉴스 클립으로 len(candidateRanges) 를 재야
+# 한다 — 지금 시드에 그런 클립이 없다. 두 판단을 한 숫자에 섞지 않는다.
 schema = "transcript-selection/v1"
-min_uncovered_ms = 0
+min_uncovered_ms = 2
