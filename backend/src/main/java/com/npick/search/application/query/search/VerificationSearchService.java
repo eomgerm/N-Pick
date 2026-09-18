@@ -114,7 +114,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         context.put("state_fingerprint", baselineFingerprint);
         context.put("candidate_tag_changes", candidates.tagEvidenceIds()); // §7.2 후보 태그 변경안
         context.put("baseline_state", Map.of("state_fingerprint", baselineFingerprint)); // §7.2 기준 상태
-        context.put("verification_rule_set", verificationRuleSet(candidates)); // §7.2 검증 규칙 집합
+        context.put("verification_rule_set", outcome.activeRuleSet()); // §7.2 검증 규칙 집합 (활성 − R1 + R2)
         return new CompleteSearchExecution(
                 executionId,
                 status,
@@ -157,11 +157,6 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                 resolved.modelVersion());
     }
 
-    /** 「활성 − R1 + R2」 규칙 id 집합의 최소 구현 — approvedRuleId 를 담은 목록이다 (조합 계산은 Task 5 에서 확정). */
-    private List<Long> verificationRuleSet(PendingCandidates candidates) {
-        return candidates.approvedRuleId() == null ? List.of() : List.of(candidates.approvedRuleId());
-    }
-
     /** {@link SearchAssemblyService#abandon} 과 같은 분류 — BusinessException 은 자기 코드를, 그 외는 기본 검색 실패 코드를 남긴다. */
     private String verificationErrorCode(RuntimeException failed) {
         return failed instanceof BusinessException business
@@ -178,7 +173,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
      * 나가 replay 기록에 쓰인다 — 일반 검색 기록과 같은 충실도(finalResolution·degradedReasons·
      * rules().outcomes())를 남기기 위해 {@code SearchCandidates} 만이 아니라 {@code InterpretedQuery} 도 담는다.
      */
-    record VerificationSearchOutcome(SearchCandidates candidates, InterpretedQuery interpreted) {}
+    record VerificationSearchOutcome(SearchCandidates candidates, InterpretedQuery interpreted, List<Long> activeRuleSet) {}
 
     /** flip → 같은 코드로 재검색 → 캡처 → 롤백. 공유·확정 데이터는 복구된다 (FRD §11). */
     private VerificationSearchOutcome searchWithCandidatesRolledBack(
@@ -189,9 +184,23 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             SearchCandidates result = ranker.rank(new RankSearchCandidatesUseCase.Query(
                     iq.resolved().normalization(), iq.finalResolution(),
                     iq.resolved().queryEmbedding(), iq.normalizedSearch()));
+            List<Long> activeRuleSet = readActivePatchRuleIds(); // flip 반영 상태 = 활성 − R1 + R2
             status.setRollbackOnly(); // flip 과 후보 적용을 모두 되돌린다
-            return new VerificationSearchOutcome(result, iq);
+            return new VerificationSearchOutcome(result, iq, activeRuleSet);
         });
+    }
+
+    /**
+     * flip 이 반영된 상태의 활성 patch_parse 규칙 집합 — 「활성 − R1 + R2」 조합 그 자체다. Task 1 지문(all-active,
+     * action 무필터)과는 목적이 다르다: 여기는 조합 검증용으로 action='patch_parse' 만 본다.
+     */
+    @SuppressWarnings("unchecked")
+    private List<Long> readActivePatchRuleIds() {
+        List<Number> rows = em.createNativeQuery(
+                        "SELECT search_rule_id FROM npick.search_rule "
+                                + "WHERE action = 'patch_parse' AND active = true ORDER BY search_rule_id")
+                .getResultList();
+        return rows.stream().map(Number::longValue).toList();
     }
 
     private void flip(PendingCandidates c) {

@@ -102,6 +102,11 @@ public final class TestGraph {
         insertPatchRule(jdbc, feedbackId, ruleId, false, replacesRuleId);
     }
 
+    /** 교체 대상 없이 대기 중인 patch_parse 신규 후보: {@code active=false, replaces_rule_id=null}. */
+    public static void insertPendingPatchRule(JdbcTemplate jdbc, long feedbackId, long ruleId) {
+        insertPatchRule(jdbc, feedbackId, ruleId, false, null);
+    }
+
     private static void insertPatchRule(
             JdbcTemplate jdbc, long feedbackId, long ruleId, boolean active, Long replacesRuleId) {
         OffsetDateTime now = OffsetDateTime.now();
