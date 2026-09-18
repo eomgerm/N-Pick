@@ -1,5 +1,5 @@
 #!/bin/sh
-# 모든 서비스가 healthy 가 될 때까지 기다리고 실제 응답을 검사한다.
+# 이 배포가 싣는 서비스가 healthy 가 될 때까지 기다리고 실제 응답을 검사한다.
 #
 # 127.0.0.1 을 쓰면 안 된다. 이 스크립트는 Jenkins 컨테이너 안에서 돌기 때문에
 # 127.0.0.1 이 Jenkins 자신을 가리켜 curl 이 000(연결 실패)을 돌려준다.
@@ -10,20 +10,43 @@ set -eu
 : "${DEPLOY_DIR:?}"
 cd "$DEPLOY_DIR"
 
+# **이 스크립트의 실패는 곧 롤백이다** (Jenkinsfile:269 → rollback.sh). 그래서 게이트는
+# 이 배포가 실제로 싣는 서비스여야 한다. 아래 목록은 그렇지 않은 것들이다.
+#
+# mlflow 를 뺀 이유가 셋이다.
+#   ① 이 배포가 싣지 않는다 — compose.yaml 의 image 가 고정 upstream 태그라
+#      deploy.sh 의 BACKEND_TAG·FRONTEND_TAG·AI_TAG 어디에도 걸리지 않는다.
+#      **되돌려도 mlflow 는 그대로다.**
+#   ② 요청 경로가 여기 묶여 있지 않다 — nginx 가 요청 시점에 upstream 이름을 다시
+#      풀어(infra/nginx/snippets/app-routes.conf) /mlflow/ 만 502 고 나머지는 서빙된다.
+#   ③ 실패가 자기 복제된다 — rollback.sh 는 같은 mlflow 를 다시 up -d 하므로 다음
+#      배포도 같은 자리에서 죽는다. 사람이 손대기 전까지 파이프라인이 잠긴다.
+#
+# profiles: 를 붙이는 것은 답이 아니다. mlflow 는 EC2 에서 실제로 떠야 하므로 프로필을
+# 켜야 하고, config --services 는 활성 프로필을 반영하니 그대로 분모에 남는다.
+non_gating='mlflow'
+
 # ps 는 뜬 서비스만 센다. 기동에 실패한 서비스가 분모에서 빠지지 않도록
 # 기대 목록은 config --services 에서 가져온다(활성 프로필 반영).
-services=$(docker compose config --services)
+services=$(docker compose config --services | grep -vxF "$non_gating")
 total=$(echo "$services" | grep -c .)
 
 n=0
 i=1
 while [ "$i" -le 30 ]; do
-  n=$(docker compose ps --format '{{.Health}}' | grep -cx healthy || true)
+  # 분자도 같은 범위로 좁힌다. 분모만 좁히면 게이트 밖 서비스가 게이트 안의 결원을
+  # 메워 깨진 배포가 초록으로 지나간다.
+  # shellcheck disable=SC2086
+  n=$(docker compose ps $services --format '{{.Health}}' | grep -cx healthy || true)
   echo "[$((i * 10))s] healthy=$n/$total"
   [ "$n" = "$total" ] && break
   sleep 10
   i=$((i + 1))
 done
+
+# 게이트 밖 서비스도 **보이기는 해야 한다.** 종료 코드에 싣지 않을 뿐이다.
+# shellcheck disable=SC2086
+docker compose ps $non_gating --format '게이트 밖 — {{.Service}} {{.Health}}' || true
 
 if [ "$n" != "$total" ]; then
   echo "healthy 가 아닌 서비스가 있다" >&2
@@ -76,7 +99,7 @@ check 200 http://ai-worker:8000/health
 # jq 는 `infra/jenkins/Dockerfile` 이 넣는다. **이미지를 다시 만들지 않은 Jenkins 에서는
 # 없다** — 그 경우 아래 파이프가 조용히 비고 parse-실패 로만 보여서 원인을 찾는 데
 # 시간이 든다(2026-09-18 실측). 먼저 확인하고 무엇이 없는지 말한다.
-if docker compose config --services | grep -qx ai-cpu-worker; then
+if echo "$services" | grep -qx ai-cpu-worker; then
   command -v jq >/dev/null 2>&1 || {
     echo "jq 가 없다. infra/jenkins/Dockerfile 로 Jenkins 이미지를 다시 만든다 (README 14-6)" >&2
     exit 1
