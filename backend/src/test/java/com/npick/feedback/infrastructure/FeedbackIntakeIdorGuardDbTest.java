@@ -19,9 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 생성측 IDOR 가드 SQL 실DB 검증 (S15P21A501-209, S15P21A501-185 후속).
  *
- * <p>문의 접수는 {@code existsSearchResultSearchedBy}로 「그 검색 결과를 **본인이 실행한** 검색인지」 확인한다.
- * 단순 결과 존재가 아니라 {@code search_execution.searched_by_id} 조건이 실제로 걸리는지를 실 PostgreSQL 로 고정한다 —
- * 이 조건이 빠지면 타인 검색 결과에 자기 명의 문의를 달아 원 검색자의 질의·필터가 노출된다(IDOR).
+ * <p>문의 접수는 {@code existsSearchResultSearchedBy}로 「그 검색 결과를 **본인이 실행한** 검색인지」 확인한다. 단순 결과 존재가 아니라
+ * {@code search_execution.searched_by_id} 조건이 실제로 걸리는지를 실 PostgreSQL 로 고정한다 — 이 조건이 빠지면 타인 검색 결과에 자기 명의 문의를 달아 원 검색자의
+ * 질의·필터가 노출된다(IDOR).
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
@@ -49,7 +49,8 @@ class FeedbackIntakeIdorGuardDbTest {
     void allowsWhenResultBelongsToOwnSearch() {
         seed();
 
-        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OWNER, OWNER)).isTrue();
+        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OWNER, OWNER))
+                .isTrue();
     }
 
     @Test
@@ -58,7 +59,8 @@ class FeedbackIntakeIdorGuardDbTest {
     void blocksWhenResultBelongsToAnotherUsersSearch() {
         seed();
 
-        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OWNER, OTHER)).isFalse();
+        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OWNER, OTHER))
+                .isFalse();
     }
 
     @Test
@@ -78,8 +80,10 @@ class FeedbackIntakeIdorGuardDbTest {
 
         // OTHER 도 자기 검색(9702)·결과(9802)를 가진다. 사용자 조건만 보고 result↔execution 연결을 틀리게 조인한 SQL 은
         // OTHER 가 자기 결과를 쓰는 것과 남의 결과를 쓰는 것을 구분하지 못해 여기서 걸린다.
-        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OTHER, OTHER)).isTrue();
-        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OTHER, OWNER)).isFalse();
+        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OTHER, OTHER))
+                .isTrue();
+        assertThat(repository.existsSearchResultSearchedBy(RESULT_OF_OTHER, OWNER))
+                .isFalse();
     }
 
     private void seed() {

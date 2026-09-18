@@ -1,13 +1,13 @@
 package com.npick.common.response;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
 
 import com.npick.common.error.CommonErrorCode;
 import com.npick.common.logging.RequestIdFilter;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 class ApiResponseTest {
 

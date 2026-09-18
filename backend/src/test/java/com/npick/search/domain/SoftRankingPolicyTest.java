@@ -92,8 +92,8 @@ class SoftRankingPolicyTest {
     /**
      * 아주 작은 {@code epsilon} 에서 관련성 순서가 뒤집히지 않는다 (MR !103 P1).
      *
-     * <p>{@code 0.9 / Double.MIN_VALUE} 와 {@code 0.5 / Double.MIN_VALUE} 는 둘 다 {@code Infinity} 라 나눗셈 결과로만 비교하면
-     * 동점이 된다. 그러면 보조 점수가 높은 0.5 후보가 0.9 후보를 추월해 이 정책의 유일한 보장이 깨진다. 버킷 폭이 0 에 수렴하는 구간의 의도된 동작은 「정확 비교」다.
+     * <p>{@code 0.9 / Double.MIN_VALUE} 와 {@code 0.5 / Double.MIN_VALUE} 는 둘 다 {@code Infinity} 라 나눗셈 결과로만 비교하면 동점이 된다.
+     * 그러면 보조 점수가 높은 0.5 후보가 0.9 후보를 추월해 이 정책의 유일한 보장이 깨진다. 버킷 폭이 0 에 수렴하는 구간의 의도된 동작은 「정확 비교」다.
      */
     @Test
     void anEpsilonTooSmallToBucketFallsBackToExactComparison() {

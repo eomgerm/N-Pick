@@ -22,6 +22,30 @@ public record QueryResolution(
         List<String> expandedTerms,
         double confidence) {
 
+    /** AI 해석 없이 돌 때 쓰는 빈 해석 이름. 실제 schema 를 흉내 내지 않는다 — 기록에서 리졸버 출력과 구분돼야 한다. */
+    public static final String NO_AI_SCHEMA = "query-resolver/none";
+
+    /**
+     * 조건이 하나도 없는 해석 (FRD §6.2 의 fallback).
+     *
+     * <p>해석이 없다고 {@code null} 을 들고 다니면 뒤 단계마다 분기가 생기고, 그 분기 하나를 빠뜨리면 사용자가 직접 건 명시 필터까지 조용히 사라진다. 빈 해석을 만들어 두면 명시 필터는 그
+     * 위에 그대로 얹히고, 구조화 점수·guard 는 활성 조건이 없어 자연히 0점·판정 없음이 된다.
+     *
+     * <p><b>없던 해석을 지어내는 것이 아니다.</b> 여기 담기는 조건은 사용자가 화면에서 직접 지정한 것뿐이고, AI 가 추정한 것은 하나도 들어가지 않는다.
+     */
+    public static QueryResolution withoutAiInterpretation() {
+        return new QueryResolution(
+                NO_AI_SCHEMA,
+                Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                0.0);
+    }
+
     public enum Intent {
         SCENE_SEARCH,
         RECENT_SCENE,

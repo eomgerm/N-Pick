@@ -11,9 +11,8 @@ import com.npick.feedback.application.query.MyInquiryListPage;
 /**
  * 「내 문의 기록」 목록 응답 (S15P21A501-185).
  *
- * <p>신규 계약이라 필드는 snake_case, 모든 *_id 는 십진 문자열이다(FE 가 Number 변환하지 않도록). nullable(comment·resolution)은
- * key 를 생략하지 않고 null 로 명시한다. 기존 검수/문의 API 의 camelCase 응답은 건드리지 않으므로 전역 전략 대신 필드별
- * {@link JsonProperty} 로 snake_case 를 고정한다.
+ * <p>신규 계약이라 필드는 snake_case, 모든 *_id 는 십진 문자열이다(FE 가 Number 변환하지 않도록). nullable(comment·resolution)은 key 를 생략하지 않고 null
+ * 로 명시한다. 기존 검수/문의 API 의 camelCase 응답은 건드리지 않으므로 전역 전략 대신 필드별 {@link JsonProperty} 로 snake_case 를 고정한다.
  */
 public record MyInquiryListResponse(
         @JsonProperty("items") List<Item> items,
@@ -45,7 +44,8 @@ public record MyInquiryListResponse(
     public static MyInquiryListResponse of(MyInquiryListPage page, int pageNumber, int size) {
         long totalPages = size == 0 ? 0 : (page.totalElements() + size - 1) / size;
         boolean hasNext = pageNumber + 1L < totalPages;
-        List<Item> items = page.items().stream().map(MyInquiryListResponse::toItem).toList();
+        List<Item> items =
+                page.items().stream().map(MyInquiryListResponse::toItem).toList();
         return new MyInquiryListResponse(items, pageNumber, size, page.totalElements(), totalPages, hasNext);
     }
 

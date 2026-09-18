@@ -5,6 +5,7 @@ import org.springframework.web.service.registry.HttpServiceGroup;
 import org.springframework.web.service.registry.ImportHttpServices;
 
 import com.npick.search.infrastructure.ai.client.QueryResolverClient;
+import com.npick.search.infrastructure.ai.client.QueryTokenizerClient;
 
 /**
  * 질의 리졸버 HTTP 클라이언트를 빈으로 등록한다.
@@ -14,7 +15,7 @@ import com.npick.search.infrastructure.ai.client.QueryResolverClient;
 @Configuration
 @ImportHttpServices(
         group = QueryResolverClientConfig.QUERY_RESOLVER_GROUP,
-        types = QueryResolverClient.class,
+        types = {QueryResolverClient.class, QueryTokenizerClient.class},
         clientType = HttpServiceGroup.ClientType.REST_CLIENT)
 public class QueryResolverClientConfig {
 

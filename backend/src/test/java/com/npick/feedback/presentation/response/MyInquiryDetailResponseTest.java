@@ -17,8 +17,23 @@ class MyInquiryDetailResponseTest {
     private static final InquiryScene SCENE = new InquiryScene(9302L, 9101L, "설 연휴 교통", 49000L, 55000L, 9201L, 3);
 
     private MyInquiryDetail detailWithExplain(String explainJson) {
-        return new MyInquiryDetail(9902L, 9701L, 9802L, Instant.now(), Instant.now(),
-                "테스트 질의", null, "OPEN", null, SCENE, 2, explainJson, "{}", null, null, null);
+        return new MyInquiryDetail(
+                9902L,
+                9701L,
+                9802L,
+                Instant.now(),
+                Instant.now(),
+                "테스트 질의",
+                null,
+                "OPEN",
+                null,
+                SCENE,
+                2,
+                explainJson,
+                "{}",
+                null,
+                null,
+                null);
     }
 
     @Test
@@ -77,15 +92,18 @@ class MyInquiryDetailResponseTest {
     @Test
     @DisplayName("explain_json 이 null·공백이어도(방어적) unavailable 로 취급한다")
     void unavailableWhenExplainNullOrBlank() {
-        assertThat(MyInquiryDetailResponse.from(detailWithExplain(null)).snapshotStatus()).isEqualTo("unavailable");
-        assertThat(MyInquiryDetailResponse.from(detailWithExplain("   ")).snapshotStatus()).isEqualTo("unavailable");
+        assertThat(MyInquiryDetailResponse.from(detailWithExplain(null)).snapshotStatus())
+                .isEqualTo("unavailable");
+        assertThat(MyInquiryDetailResponse.from(detailWithExplain("   ")).snapshotStatus())
+                .isEqualTo("unavailable");
     }
 
     @Test
-    @DisplayName("display.display_name 이 null(제목 없는 영상)이면 available 이며 null 을 보존한다 — 생산자는 nullable clip.title 을 그대로 기록한다")
+    @DisplayName(
+            "display.display_name 이 null(제목 없는 영상)이면 available 이며 null 을 보존한다 — 생산자는 nullable clip.title 을 그대로 기록한다")
     void availableWhenDisplayNameNull() {
-        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(
-                detailWithExplain("{\"display\":{\"display_name\":null,\"scene_description\":\"서울역 인파\"},\"score\":2}"));
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain(
+                "{\"display\":{\"display_name\":null,\"scene_description\":\"서울역 인파\"},\"score\":2}"));
 
         assertThat(res.snapshotStatus()).isEqualTo("available");
         MyInquiryDetailResponse.ResultSnapshot snap = (MyInquiryDetailResponse.ResultSnapshot) res.resultSnapshot();
@@ -105,9 +123,8 @@ class MyInquiryDetailResponseTest {
 
     @ParameterizedTest(name = "display.display_name={0} 이면 생산자 타입(문자열·null) 이탈이라 unavailable")
     @DisplayName("display.display_name 이 문자열도 null 도 아니면 — 숫자·객체 — 불완전 스냅샷으로 unavailable 이다")
-    @ValueSource(strings = {
-            "{\"display\":{\"display_name\":123}}",
-            "{\"display\":{\"display_name\":{\"nested\":\"x\"}}}"})
+    @ValueSource(
+            strings = {"{\"display\":{\"display_name\":123}}", "{\"display\":{\"display_name\":{\"nested\":\"x\"}}}"})
     void unavailableWhenDisplayNameNotStringOrNull(String explainJson) {
         MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain(explainJson));
 

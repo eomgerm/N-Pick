@@ -3,14 +3,10 @@ package com.npick.search.application.port;
 /**
  * 리졸버 호출 전에 남기는 최소 실행 시작 스냅샷.
  *
- * <p>원문을 AI에 보내기 전에 이 행이 먼저 커밋되어야 한다. 리졸버 산출물은
- * {@link RecordSearchExecutionResolution}으로 이어서 기록한다.
+ * <p>원문을 AI에 보내기 전에 이 행이 먼저 커밋되어야 한다. 리졸버 산출물은 {@link RecordSearchExecutionResolution}으로 이어서 기록한다.
  */
 public record StartSearchExecution(
-        long searchedById,
-        ExecutionType executionType,
-        Long replayOfFeedbackId,
-        String rawQuery) {
+        long searchedById, ExecutionType executionType, Long replayOfFeedbackId, String rawQuery) {
 
     public StartSearchExecution {
         if (searchedById <= 0 || rawQuery == null || rawQuery.isBlank()) {
@@ -56,5 +52,4 @@ public record StartSearchExecution(
             return databaseValue;
         }
     }
-
 }

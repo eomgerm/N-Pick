@@ -12,6 +12,7 @@ import com.npick.search.application.error.QueryResolverErrorCode;
 import com.npick.search.application.port.AnchorFinding;
 import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolutionResult;
+import com.npick.search.application.query.dense.DenseQuery;
 import com.npick.search.domain.model.QueryResolution;
 
 /**
@@ -19,7 +20,8 @@ import com.npick.search.domain.model.QueryResolution;
  *
  * <p>이 DTO 가 리졸버의 snake_case 표기를 떠안아 application 의 {@link QueryResolution} 이 외부 표현에 묶이지 않게 한다 (설계 정본 §10).
  *
- * <p>TODO(S15P21A501-164): 질의 임베딩 필드가 여기 들어온다. 모델·차원은 S15P21A501-100 이 확정한다.
+ * <p>질의 임베딩({@code embedding}·{@code embedding_model_version})은 해석과 독립된 축이다 — 해석이 성공해도 없을 수 있고, 그때 빠지는 것은 dense 채널 하나다
+ * (S15P21A501-164).
  *
  * <p>없는 필드를 조용히 기본값으로 채우지 않는다. 키 이름이 어긋나면 오류 없이 빈 해석이 성공으로 흘러가고, 그러면 검색은 AI 해석을 받은 것처럼 보이면서 아무 조건도 걸리지 않는다.
  */
@@ -27,6 +29,8 @@ public record QueryResolutionApiResponse(
         @JsonProperty("normalization") Normalization normalization,
         @JsonProperty("resolution") Resolution resolution,
         @JsonProperty("findings") List<Finding> findings,
+        @JsonProperty("embedding") float[] embedding,
+        @JsonProperty("embedding_model_version") String embeddingModelVersion,
         @JsonProperty("resolution_schema_version") String resolutionSchemaVersion,
         @JsonProperty("prompt_version") String promptVersion,
         @JsonProperty("model_version") String modelVersion,
@@ -43,7 +47,9 @@ public record QueryResolutionApiResponse(
             // 파싱됐고, 여기서 던지면 어댑터가 RESOLVER_SCHEMA_INVALID 로 올려 그 토큰이
             // 사라진다. 계약을 어긴 쪽을 벌하려다 검색을 같이 죽이는 셈이다 (§6.2).
             return failed(
-                    normalized, error == null ? QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID : error.toErrorCode());
+                    normalized,
+                    toQueryEmbedding(),
+                    error == null ? QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID : error.toErrorCode());
         }
         try {
             // 둘 다 오면 어느 쪽이 진짜인지 알 수 없다. 성공으로 밀면 error 를 조용히 버린다.
@@ -56,6 +62,7 @@ public record QueryResolutionApiResponse(
                     normalized,
                     resolution.toResolution(),
                     map(findings, Finding::toFinding),
+                    toQueryEmbedding(),
                     resolutionSchemaVersion,
                     promptVersion,
                     modelVersion,
@@ -63,12 +70,30 @@ public record QueryResolutionApiResponse(
         } catch (RuntimeException ex) {
             // 해석 부분만 못 읽었다. 정규화는 이미 파싱됐으므로 버리지 않는다 — 그 토큰이 없으면
             // FRD v3.1 §6.2 의 원 검색어 BM25 fallback 자체가 불가능해진다.
-            return failed(normalized, QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
+            return failed(normalized, toQueryEmbedding(), QueryResolverErrorCode.RESOLVER_SCHEMA_INVALID);
         }
     }
 
-    private static QueryResolutionResult failed(QueryNormalization normalized, QueryResolverErrorCode failure) {
-        return new QueryResolutionResult(normalized, null, List.of(), null, null, null, failure);
+    /**
+     * 해석은 실패했지만 임베딩은 살린다. 둘은 독립된 축이라 벡터만 멀쩡히 온 응답이 있고, 그때 버리면 dense 채널이 해석 부재를 보완할 바로 그 순간에 사라진다 (§6.2 는 fallback 을 「단어
+     * 검색으로 전환」이라 적었을 뿐 의미 검색을 끄라고 하지 않는다).
+     */
+    private static QueryResolutionResult failed(
+            QueryNormalization normalized, DenseQuery embedding, QueryResolverErrorCode failure) {
+        return new QueryResolutionResult(normalized, null, List.of(), embedding, null, null, null, failure);
+    }
+
+    /**
+     * 질의 벡터를 그대로 옮긴다. <b>여기서 검사하지 않는다</b> — 차원·유효값·모델 일치는 {@code DenseQueryValidation} 의 몫이고, 그쪽이 사유를 구분해
+     * {@code DenseCandidatesResult.Reason} 으로 돌려준다. 여기서 미리 걸러 {@code null} 로 만들면 "리졸버가 안 줬다" 와 "줬는데 못 쓴다" 가 같은 모양이 되어
+     * degraded 안내와 기록이 둘을 구분하지 못한다.
+     *
+     * <p>{@code embedding_error} 는 읽지 않는다. 호출부가 필요로 하는 것은 "쓸 벡터가 있는가" 하나이고, 없는 이유의 분류는 dense 채널이 자기 어휘로 다시 낸다.
+     *
+     * @return 벡터가 없으면 {@code null}. 모델 버전이 비어 있어도 벡터가 있으면 만들어 넘긴다
+     */
+    private DenseQuery toQueryEmbedding() {
+        return embedding == null ? null : new DenseQuery(embedding, embeddingModelVersion);
     }
 
     public record Normalization(

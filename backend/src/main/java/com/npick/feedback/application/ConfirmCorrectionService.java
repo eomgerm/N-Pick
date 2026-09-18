@@ -118,8 +118,7 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
                 && confirmParseRule.confirm(command.feedbackId(), run.approvedRuleId(), run.replacedRuleId()) != 1) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
-        if (isExcludeScene
-                && confirmExcludeScene.confirm(command.feedbackId(), run.approvedRuleId()) != 1) {
+        if (isExcludeScene && confirmExcludeScene.confirm(command.feedbackId(), run.approvedRuleId()) != 1) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
         if (!run.approvedEvidenceIds().isEmpty()

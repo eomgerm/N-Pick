@@ -5,7 +5,8 @@ package com.npick.search.domain.model;
  *
  * <p>여기 있는 것은 전부 <b>soft</b> 다 — 후보를 걸러내지 않고, 정렬을 강제하지 않으며, {@code baseScore} 를 바꾸지도 않는다. 적용 방법은
  * {@link com.npick.search.domain.policy.SoftRankingPolicy} 의 계약이고, 그 계약이 "관련 없는 B-roll 이나 최신 영상이 관련성이 높은 장면보다 무조건 앞서지
- * 않게 한다" 를 <b>가중치와 무관하게</b> 성립시킨다. 보조 점수가 순서를 가르는 폭을 정하는 것은 {@code tieEpsilon} 하나이고 그쪽은 상한으로 막는다 ({@link SoftRankingSettings#MAX_TIE_EPSILON}).
+ * 않게 한다" 를 <b>가중치와 무관하게</b> 성립시킨다. 보조 점수가 순서를 가르는 폭을 정하는 것은 {@code tieEpsilon} 하나이고 그쪽은 상한으로 막는다
+ * ({@link SoftRankingSettings#MAX_TIE_EPSILON}).
  *
  * <p><b>군중 밀도는 여기 없다.</b> FRD v3.2 §1.2·§11 에서 범위 밖으로 확정됐다. 태그 유형에도 없고 순위 신호로도 쓰지 않는다.
  *

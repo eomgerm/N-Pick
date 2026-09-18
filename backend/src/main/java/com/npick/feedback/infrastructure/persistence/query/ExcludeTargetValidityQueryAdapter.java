@@ -9,8 +9,8 @@ import com.npick.feedback.application.port.ExcludeTargetValidityPort;
 /**
  * 제외 규칙의 대상 장면이 현재 제공 중인 처리에 속하는지 읽는다 (S15P21A501-85, F-14).
  *
- * <p>{@code active_pipeline_run_id} 일치가 세대 격리다 — 재처리로 새 처리가 서면 그 처리의 새 장면만 이 조건을 통과하고, 구 장면(옛 {@code pipeline_run})은 걸러진다.
- * 논리 삭제된 클립도 제외한다. 태그 조회 어댑터와 같은 격리 규칙이다.
+ * <p>{@code active_pipeline_run_id} 일치가 세대 격리다 — 재처리로 새 처리가 서면 그 처리의 새 장면만 이 조건을 통과하고, 구 장면(옛 {@code pipeline_run})은
+ * 걸러진다. 논리 삭제된 클립도 제외한다. 태그 조회 어댑터와 같은 격리 규칙이다.
  */
 @Repository
 class ExcludeTargetValidityQueryAdapter implements ExcludeTargetValidityPort {

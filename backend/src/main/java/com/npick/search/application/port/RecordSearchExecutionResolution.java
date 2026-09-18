@@ -19,10 +19,7 @@ public record RecordSearchExecutionResolution(
         List<SearchDegradedReason> degradedReasons) {
 
     public RecordSearchExecutionResolution {
-        if (searchExecutionId <= 0
-                || explicitFilters == null
-                || normalizedSearch == null
-                || parseSource == null) {
+        if (searchExecutionId <= 0 || explicitFilters == null || normalizedSearch == null || parseSource == null) {
             throw new IllegalArgumentException("검색 해석 스냅샷의 필수 값이 없다");
         }
         if (parseMs != null && parseMs < 0) {
