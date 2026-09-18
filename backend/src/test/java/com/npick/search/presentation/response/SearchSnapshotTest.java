@@ -142,6 +142,89 @@ class SearchSnapshotTest {
                 .isTrue();
     }
 
+    // ---- P1 후속: 스칼라 필드의 타입 검증 (MR !126 리뷰 2차) ----
+
+    @Test
+    @DisplayName("shot_type 이 문자열이 아니면 unavailable 이다 — 키만 있으면 통과시키지 않는다")
+    void unavailableWhenShotTypeNotString() {
+        String broken = DISPLAY.replace("\"shot_type\": \"b_roll\"", "\"shot_type\": {}");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("display_name 이 문자열도 null 도 아니면 unavailable 이다")
+    void unavailableWhenDisplayNameNotStringOrNull() {
+        String broken = DISPLAY.replace("\"예시 뉴스 · 서울역\"", "[\"제목\"]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 value 가 배열이면 unavailable 이다")
+    void unavailableWhenDateValueNotStringOrNull() {
+        String broken = DISPLAY.replace(
+                "\"broadcast_date\": {\"value\": \"2026-09-14\"", "\"broadcast_date\": {\"value\": []");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("날짜 verification_status 가 문자열이 아니면 unavailable 이다")
+    void unavailableWhenVerificationStatusNotString() {
+        String broken = DISPLAY.replace("\"verification_status\": \"unknown\"", "\"verification_status\": 3");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("match_evidence 의 field 가 숫자면 unavailable 이다")
+    void unavailableWhenEvidenceFieldNotString() {
+        String broken = MATCH.replace("\"field\": \"ocr\"", "\"field\": 7");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("match_evidence 의 source 가 문자열이 아니면 unavailable 이다")
+    void unavailableWhenEvidenceSourceNotString() {
+        String broken = MATCH.replace("\"source\": \"keyframe_ocr\"", "\"source\": {}");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("matched_keywords 원소가 문자열이 아니면 unavailable 이다")
+    void unavailableWhenKeywordNotString() {
+        String broken = MATCH.replace("[\"서울역\"]", "[\"서울역\", 5]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("start_time_ms 가 문자열이면 unavailable 이다")
+    void unavailableWhenTimeNotInteger() {
+        String broken = DISPLAY.replace("\"start_time_ms\": 42000", "\"start_time_ms\": \"42000\"");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
     // ---- P2-2: rank 연속성과 개수 상한 ----
 
     @Test

@@ -56,16 +56,16 @@ public record SearchSnapshot(
             "end_time_ms",
             "rank");
 
-    /** {@code display} 블록에 반드시 있어야 하는 키. 값의 null 허용 여부는 따로 본다. */
-    private static final List<String> DISPLAY_KEYS = List.of(
-            "display_name",
-            "scene_description",
-            "start_time_ms",
-            "end_time_ms",
-            "shot_type",
-            "scene_type",
-            "broadcast_date",
-            "filmed_date");
+    /** {@code display} 의 표시 문자열 중 값이 null 일 수 있는 것. 제목·설명 없는 클립이 실제로 있다. */
+    private static final List<String> NULLABLE_DISPLAY_STRINGS =
+            List.of("display_name", "scene_description", "scene_type");
+
+    /** {@code display} 의 표시 문자열 중 항상 값이 있어야 하는 것. */
+    private static final List<String> REQUIRED_DISPLAY_STRINGS = List.of("shot_type");
+
+    /** {@code match_evidence} 한 항목에서 항상 값이 있어야 하는 문자열. {@code value} 는 따로 본다. */
+    private static final List<String> REQUIRED_EVIDENCE_STRINGS =
+            List.of("field", "source", "verification_status");
 
     /** 명시 필터에서 선택 가능한 날짜 종류. 선택했으면 from·to 가 모두 필수다. */
     private static final List<String> FILTER_DATE_KEYS = List.of("broadcast_date", "filmed_date");
@@ -219,21 +219,30 @@ public record SearchSnapshot(
     }
 
     /**
-     * 카드를 그릴 수 있는 표시 블록인가. 키가 전부 있어야 하고 구간이 {@code 0 <= start < end} 여야 한다.
+     * 카드를 그릴 수 있는 표시 블록인가. 키의 존재만으로는 부족하고 <b>타입</b>까지 본다.
+     *
+     * <p>키만 확인하면 {@code shot_type: {}} 이나 배열인 날짜 값이 available 로 나가 FE 에 그대로 전달된다(MR !126
+     * 리뷰 2차). 값을 고치지는 않되, nullable 필드는 {@code null|string}, 나머지 표시 문자열은 string, 구간은 정수로
+     * 확인한다.
      *
      * <p>{@code display_name}·{@code scene_description}·{@code scene_type} 의 값은 null 을 허용한다 — 제목 없는 클립이
-     * 실제로 있고, 서버가 대체 문자열로 메우지 않는다. 날짜 블록은 {@code value}·{@code verification_status} 두 키가
-     * 모두 있어야 한다. {@code value} 가 null 이면 「모른다」이고, 키 자체가 없으면 「기록이 깨졌다」다.
+     * 실제로 있고, 서버가 대체 문자열로 메우지 않는다. 날짜 블록은 {@code value}({@code null|string})와
+     * {@code verification_status}(string)가 모두 있어야 한다. {@code value} 가 null 이면 「모른다」이고, 키 자체가
+     * 없거나 타입이 어긋나면 「기록이 깨졌다」다.
+     *
+     * <p>어휘의 소속은 여전히 보지 않는다. {@code shot_type} 이 문자열이면 4값 밖이어도 통과시킨다 — §5.1 의 어휘
+     * 제약은 {@code POST /search} 응답에만 걸리고 과거 결과를 소급 수정하지 않는다(FRD §7.2).
      */
     private static boolean isRenderableDisplay(ObjectNode display) {
-        for (String key : DISPLAY_KEYS) {
-            if (!display.has(key)) {
-                return false;
-            }
+        if (!NULLABLE_DISPLAY_STRINGS.stream().allMatch(key -> isNullableString(display.get(key)))) {
+            return false;
+        }
+        if (!REQUIRED_DISPLAY_STRINGS.stream().allMatch(key -> isString(display.get(key)))) {
+            return false;
         }
         JsonNode start = display.get("start_time_ms");
         JsonNode end = display.get("end_time_ms");
-        if (!start.isIntegralNumber() || !end.isIntegralNumber()) {
+        if (start == null || end == null || !start.isIntegralNumber() || !end.isIntegralNumber()) {
             return false;
         }
         if (start.asLong() < 0 || start.asLong() >= end.asLong()) {
@@ -243,32 +252,50 @@ public record SearchSnapshot(
     }
 
     private static boolean hasDateShape(JsonNode date) {
-        return date != null && date.isObject() && date.has("value") && date.has("verification_status");
+        return date != null
+                && date.isObject()
+                && isNullableString(date.get("value"))
+                && isString(date.get("verification_status"));
     }
 
     /**
-     * 근거 블록이 온전한가. {@code match_evidence} 는 1개 이상이고 각 항목에 네 키가 모두 있어야 한다.
+     * 근거 블록이 온전한가. {@code match_evidence} 는 1개 이상이고 각 항목의 네 키가 타입까지 맞아야 한다.
      *
      * <p>{@code value} 는 null 을 허용한다 — 설명·대사·화면 글자·태그가 모두 없고 의미 검색 유사도만으로 올라온 장면이
-     * 있고, 그때 사람이 읽을 근거가 실제로 존재하지 않는다(S15P21A501-59 와 합의, §5.1). {@code source} 는 항상 있다.
+     * 있고, 그때 사람이 읽을 근거가 실제로 존재하지 않는다(S15P21A501-59 와 합의, §5.1). {@code field}·{@code source}
+     * ·{@code verification_status} 는 항상 문자열이다. {@code matched_keywords} 는 문자열 배열이며 비어 있어도 된다.
      */
     private static boolean isRenderableMatch(ObjectNode match) {
-        if (!(match.get("matched_keywords") instanceof ArrayNode)) {
+        if (!(match.get("matched_keywords") instanceof ArrayNode keywords)) {
             return false;
+        }
+        for (JsonNode keyword : keywords) {
+            if (!isString(keyword)) {
+                return false;
+            }
         }
         if (!(match.get("match_evidence") instanceof ArrayNode evidence) || evidence.isEmpty()) {
             return false;
         }
         for (JsonNode item : evidence) {
-            if (!item.isObject()
-                    || !item.has("field")
-                    || !item.has("value")
-                    || !item.has("source")
-                    || !item.has("verification_status")) {
+            if (!item.isObject() || !isNullableString(item.get("value"))) {
+                return false;
+            }
+            if (!REQUIRED_EVIDENCE_STRINGS.stream().allMatch(key -> isString(item.get(key)))) {
                 return false;
             }
         }
         return true;
+    }
+
+    /** 키가 있고 값이 문자열인가. 키 부재와 타입 불일치를 같게 다룬다 — 둘 다 「기록이 깨졌다」다. */
+    private static boolean isString(JsonNode node) {
+        return node != null && node.isString();
+    }
+
+    /** 키가 있고 값이 문자열이거나 명시적 null 인가. 키 자체의 부재는 허용하지 않는다. */
+    private static boolean isNullableString(JsonNode node) {
+        return node != null && (node.isNull() || node.isString());
     }
 
     /** 대표 결과는 저장된 rank=1 행이다. 결과가 없으면 null 이며 2위를 대신 올리지 않는다. */

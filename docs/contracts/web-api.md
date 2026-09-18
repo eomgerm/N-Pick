@@ -724,8 +724,8 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `filtered_json`이 object가 아님 (SQL NULL, JSON 리터럴 `null`, 배열 등) | `unavailable` | 전부 `null` |
 | `parse_source`가 NULL이거나 스키마에 없는 값 | `unavailable` | 전부 `null` |
 | 결과 행 하나라도 `display`/`match` 결측 | `unavailable` | 전부 `null` |
-| 결과 행의 `display`에 표시 키가 빠졌거나 구간이 `0 <= start < end`가 아님 | `unavailable` | 전부 `null` |
-| 결과 행의 `match_evidence`가 비었거나 항목에 네 키가 없음 | `unavailable` | 전부 `null` |
+| 결과 행의 `display`에 표시 키가 빠졌거나 **타입이 어긋남**, 또는 구간이 `0 <= start < end`가 아님 | `unavailable` | 전부 `null` |
+| 결과 행의 `match_evidence`가 비었거나 항목의 네 키가 없거나 **타입이 어긋남** | `unavailable` | 전부 `null` |
 | 저장된 `rank`가 1부터 연속이 아님, 또는 결과가 10개 초과 | `unavailable` | 전부 `null` |
 | `explicit_filters`를 읽을 수 없거나 날짜 필터가 손상됨 | `unavailable` | 전부 `null` + `explicit_filters: null` |
 
@@ -876,7 +876,21 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 
 **저장 계약과의 관계.** 이 절은 S15P21A501-60이 소유하는 `search_execution`/`search_result` 저장 형식을 **읽기만** 한다. -60은 저장 구현과 `explain_json` 4키 계약(`score`·`match`·`guard`·`display`)까지 병합 완료다. **아직 병합되지 않은 선행은 S15P21A501-59(`POST /search` 조립)뿐이다** — 실행을 만드는 쪽이 없어 현재 검증은 고정 DB fixture로 했고, 실제 검색 실행 → 기록 조회 왕복 확인은 -59 병합 후 별도로 기록한다.
 
-읽는 쪽이 저장 형태를 **검증**하는 이유: -60의 저장 경계는 `explain_json` 내부 구조를 검사하지 않는다. 블록이 object인지만 보고 통과시키면 빈 `display`가 `available`로 나가 FE가 해석할 수 없는 `results`를 받는다. 그래서 값은 고치지 않되 키의 존재와 FE가 깨지는 불변식(`0 <= start_time_ms < end_time_ms`, `match_evidence` 1개 이상, 날짜 블록의 두 키, rank 1..N 연속, 결과 10개 이하)은 확인하고, 하나라도 어긋나면 `unavailable`로 낸다. 닫힌 어휘의 소속은 검증하지 않는다 — `shot_type`이 4값 밖이어도 그대로 낸다(§5.1의 어휘 제약은 `POST /search` 응답에만 걸린다).
+읽는 쪽이 저장 형태를 **검증**하는 이유: -60의 저장 경계는 `explain_json` 내부 구조를 검사하지 않는다. 블록이 object인지만 보고 통과시키면 빈 `display`가 `available`로 나가 FE가 해석할 수 없는 `results`를 받는다. 그래서 값은 고치지 않되 아래를 확인하고, 하나라도 어긋나면 `unavailable`로 낸다.
+
+| 대상 | 요구 |
+| --- | --- |
+| `display_name`, `scene_description`, `scene_type` | `null \| string` |
+| `shot_type` | `string` |
+| `start_time_ms`, `end_time_ms` | 정수이며 `0 <= start < end` |
+| `broadcast_date`, `filmed_date` | object이고 `value`는 `null \| string`, `verification_status`는 `string` |
+| `matched_keywords` | 문자열 배열 (빈 배열 허용) |
+| `match_evidence` | 1개 이상이며 각 항목의 `field`·`source`·`verification_status`는 `string`, `value`는 `null \| string` |
+| 결과 행 전체 | `rank`가 1..N 연속이고 개수가 10 이하 |
+
+키의 존재만 보면 `shot_type: {}`이나 배열인 날짜 값이 통과하므로 **타입까지** 본다. 키 부재와 타입 불일치는 같게 다룬다 — 둘 다 「기록이 깨졌다」다.
+
+**닫힌 어휘의 소속은 검증하지 않는다.** `shot_type`이 문자열이면 4값 밖이어도 그대로 낸다(§5.1의 어휘 제약은 `POST /search` 응답에만 걸리고, 과거 결과를 소급 수정하지 않는다).
 
 ### 6.8 장면 대표 이미지(thumbnail) — 원본 반환
 
