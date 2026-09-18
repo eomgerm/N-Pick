@@ -44,6 +44,18 @@ public final class TestGraph {
                 feedbackId, resultId, memberId, now, now);
     }
 
+    /**
+     * {@link #insertReportedScene} 과 같되 장면에 {@code caption}/{@code caption_tokens} 를 채워 실제 검색 파이프라인
+     * ({@code interpret}+{@code rank}, S15P21A501-83 Task 3)이 오류 없이 돌 수 있게 한다. BM25 인덱스(pg_search)가 대상으로 삼는
+     * 컬럼은 caption_tokens/transcript_tokens 이므로 최소한 그 하나는 채워야 단어 채널 조회가 성립한다.
+     */
+    public static void insertSearchableReportedScene(JdbcTemplate jdbc, long memberId, long clipId, long runId,
+            long sceneId, long execId, long resultId, long feedbackId) {
+        insertReportedScene(jdbc, memberId, clipId, runId, sceneId, execId, resultId, feedbackId);
+        jdbc.update("UPDATE npick.scene SET caption = '원본질의 장면', caption_tokens = '원본질의 장면' "
+                + "WHERE scene_id = ?", sceneId);
+    }
+
     public static void insertPipelineRun(JdbcTemplate jdbc, long clipId, long runId) {
         OffsetDateTime now = OffsetDateTime.now();
         jdbc.update("INSERT INTO npick.pipeline_run(pipeline_run_id, clip_id, processing_no, pipeline_version, "
