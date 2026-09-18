@@ -31,7 +31,7 @@ class QueryTokenizerAdapter implements TokenizeExpandedTermsPort {
     }
 
     @Override
-    public List<String> tokenize(List<String> terms) {
+    public List<String> tokenize(List<String> terms, String expectedNormalizationVersion) {
         if (terms == null || terms.isEmpty()) {
             return List.of();
         }
@@ -39,6 +39,25 @@ class QueryTokenizerAdapter implements TokenizeExpandedTermsPort {
             TokenizeApiResponse response = client.tokenize(new TokenizeApiRequest(List.copyOf(terms)));
             if (response == null || response.tokens() == null) {
                 log.warn("확장어 토큰화 응답이 비었다. 확장어 없이 검색을 이어간다");
+                return List.of();
+            }
+            // resolver-api §2.4-4: len(tokens) == len(texts) 이고 순서가 보존된다. 어긋나면 어느
+            // 확장어의 토큰인지 알 수 없다.
+            if (response.tokens().size() != terms.size()) {
+                log.warn(
+                        "확장어 토큰화 응답의 항목 수가 다르다: 요청 {} / 응답 {}",
+                        terms.size(),
+                        response.tokens().size());
+                return List.of();
+            }
+            // §2.4-1: 두 값이 다르면 그 토큰과 그 검색은 서로 다른 규칙으로 만들어진 것이다. 섞으면
+            // 색인이 하지 않는 경계로 질의해 오류 없이 0건이 된다.
+            if (expectedNormalizationVersion != null
+                    && !expectedNormalizationVersion.equals(response.normalizationVersion())) {
+                log.warn(
+                        "확장어 토큰화 정규화 버전이 다르다: 질의 {} / 토큰 {}",
+                        expectedNormalizationVersion,
+                        response.normalizationVersion());
                 return List.of();
             }
             // 펼쳐서 중복을 뺀다. 확장어 목록 자체에 같은 토큰이 여러 번 나올 수 있고, 그대로

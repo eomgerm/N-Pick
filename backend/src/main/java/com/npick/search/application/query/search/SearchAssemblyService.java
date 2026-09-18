@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 
@@ -119,7 +120,13 @@ public class SearchAssemblyService implements ExecuteSearchUseCase {
         SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch);
         degradedReasons.addAll(candidates.degradedReasons());
 
-        List<String> queryTokens = resolved.normalization().searchTokens();
+        // 확장어도 근거 대조에 넣는다. 검색에는 쓰고 설명에는 안 쓰면 확장어로만 걸린 장면의
+        // matched_keywords 가 비어 「왜 나왔는지 모르는 결과」가 된다. 응답은 어느 것이 확장어였는지
+        // 구분하지 않는다 — 계약에 그 표기가 아직 없다 (web-api §5.1).
+        List<String> queryTokens = Stream.concat(
+                        resolved.normalization().searchTokens().stream(), candidates.expandedTokens().stream())
+                .distinct()
+                .toList();
         List<Long> resultIds = snapshotRecorded
                 ? completeRecord(
                         executionId, candidates, rules, finalResolution, degradedReasons, queryTokens, startedAt)

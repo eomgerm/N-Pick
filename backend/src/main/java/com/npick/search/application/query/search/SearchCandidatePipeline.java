@@ -104,7 +104,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     public SearchCandidates rank(Query query) {
         List<SearchDegradedReason> degraded = new ArrayList<>();
 
-        List<SceneCandidateResult> lexical = lexical(query);
+        List<String> expanded = expandedTokens(query);
+        List<SceneCandidateResult> lexical = lexical(query, expanded);
         DenseCandidatesResult dense = dense(query, degraded);
 
         StructuredScoresResult structured = structuredScores.score(
@@ -134,7 +135,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                 excluded.excludedScenes(),
                 fused.config(),
                 degraded,
-                shortageReasons(scenes.size(), guarded, excluded));
+                shortageReasons(scenes.size(), guarded, excluded),
+                expanded);
     }
 
     /**
@@ -145,11 +147,11 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      *
      * <p>dense 와 달리 사유를 남기지 않는다. 끈 채널은 장애가 아니고, 설정으로 끈 것을 사용자에게 「일부 기능 누락」으로 안내하면 매 검색이 degraded 가 된다.
      */
-    private List<SceneCandidateResult> lexical(Query query) {
+    private List<SceneCandidateResult> lexical(Query query, List<String> expandedTokens) {
         if (!fusionSettings.isActive(FusionChannel.LEXICAL)) {
             return List.of();
         }
-        return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedTokens(query));
+        return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedTokens);
     }
 
     /**
@@ -184,7 +186,11 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
             return List.of();
         }
         Set<String> queryTokens = Set.copyOf(query.normalization().searchTokens());
-        return expandedTerms.tokenize(query.finalResolution().expandedTerms()).stream()
+        return expandedTerms
+                .tokenize(
+                        query.finalResolution().expandedTerms(),
+                        query.normalization().normalizationVersion())
+                .stream()
                 .filter(token -> !queryTokens.contains(token))
                 .toList();
     }

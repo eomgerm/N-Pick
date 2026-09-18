@@ -119,7 +119,7 @@ class SearchCandidatePipelineTest {
         // expanded_terms 는 동의어 검색의 유일한 경로다. 겹친 토큰을 그대로 넘기면 원 질의 절과
         // 확장어 절에서 각각 가산돼 F-05 의 "같은 개체를 중복 계산하지 않는다" 를 깬다.
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
-        when(expandedTerms.tokenize(List.of("집중호우"))).thenReturn(List.of("집중호우", "질의"));
+        when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1")).thenReturn(List.of("집중호우", "질의"));
         when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
         givenRankingOf();
 
@@ -135,7 +135,7 @@ class SearchCandidatePipelineTest {
     void continuesWithoutExpandedTermsWhenTokenizationFails() {
         // S15P21A501-48 계약 9: 확장어 부재·토큰화 실패는 degraded 가 아니다.
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
-        when(expandedTerms.tokenize(any())).thenReturn(List.of());
+        when(expandedTerms.tokenize(any(), any())).thenReturn(List.of());
         when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
         givenRankingOf();
 

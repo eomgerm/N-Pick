@@ -15,7 +15,9 @@ public interface TokenizeExpandedTermsPort {
 
     /**
      * @param terms 규칙 적용 후의 확장어. 빈 목록이면 호출하지 않는다
-     * @return 입력 순서와 무관하게 <b>펼쳐서 중복을 뺀</b> 토큰. 원 질의 토큰과의 중복 제거는 호출부가 한다
+     * @param expectedNormalizationVersion 원 질의를 만든 정규화 버전. 워커 응답이 다른 버전이면 그 토큰을 쓰지 않는다 — 색인이 하지 않는 경계로 질의해 오류 없이 0건이 되기
+     *     때문이다 (resolver-api §2.4-1)
+     * @return 입력 순서와 무관하게 <b>펼쳐서 중복을 뺀</b> 토큰. 원 질의 토큰과의 중복 제거는 호출부가 한다. 계약 불변식을 어긴 응답이면 빈 목록이다
      */
-    List<String> tokenize(List<String> terms);
+    List<String> tokenize(List<String> terms, String expectedNormalizationVersion);
 }

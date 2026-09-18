@@ -449,7 +449,8 @@ class SearchAssemblyServiceTest {
                 base.appliedExcludes(),
                 base.config(),
                 base.degradedReasons(),
-                base.shortageReasons());
+                base.shortageReasons(),
+                base.expandedTokens());
     }
 
     private SearchCandidates candidatesWithShortage(SearchCandidates.ScoredScene... scenes) {
@@ -461,7 +462,8 @@ class SearchAssemblyServiceTest {
                 base.appliedExcludes(),
                 base.config(),
                 base.degradedReasons(),
-                List.of(ShortageReason.CANDIDATE_POOL_EXHAUSTED));
+                List.of(ShortageReason.CANDIDATE_POOL_EXHAUSTED),
+                base.expandedTokens());
     }
 
     /** 마지막으로 잰 경로만 기억한다. mock 으로 하면 태그 확인에 verify 가 필요해 테스트가 길어진다. */
@@ -556,7 +558,8 @@ class SearchAssemblyServiceTest {
                 List.of(new ActiveSceneExclusionResult.ExcludedScene(9999L, List.of(301L))),
                 base.config(),
                 base.degradedReasons(),
-                base.shortageReasons());
+                base.shortageReasons(),
+                base.expandedTokens());
     }
 
     @Test
@@ -679,6 +682,53 @@ class SearchAssemblyServiceTest {
                 .isEqualTo(SearchExecutionErrorCode.ACTIVE_RULE_LOOKUP_FAILED);
     }
 
+    @Test
+    @DisplayName("확장어로 걸린 장면도 근거에 그 단어를 싣는다")
+    void reportsExpandedTermsAsEvidence() {
+        // 검색에는 쓰고 설명에는 안 쓰면 확장어로만 걸린 장면의 matched_keywords 가 비어
+        // "왜 나왔는지 모르는 결과" 가 된다.
+        givenResolved();
+        SearchCandidates base = candidates(sceneWithCaption("집중호우 피해", List.of("집중호우", "피해")));
+        when(pipeline.rank(any()))
+                .thenReturn(new SearchCandidates(
+                        base.scenes(),
+                        base.candidates(),
+                        base.guard(),
+                        base.appliedExcludes(),
+                        base.config(),
+                        base.degradedReasons(),
+                        base.shortageReasons(),
+                        List.of("집중호우")));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.results().getFirst().matchedKeywords()).contains("집중호우");
+    }
+
+    private SearchCandidates.ScoredScene sceneWithCaption(String caption, List<String> captionTokens) {
+        SearchCandidates.ScoredScene base = scene(9301, 9101);
+        return new SearchCandidates.ScoredScene(
+                base.sceneId(),
+                base.clipId(),
+                new SceneCard(
+                        9301,
+                        9101,
+                        "KBC 뉴스9",
+                        caption,
+                        42000,
+                        49000,
+                        "b_roll",
+                        captionTokens,
+                        null,
+                        List.of(),
+                        List.of()),
+                base.tags(),
+                base.score(),
+                base.soft(),
+                base.verdict());
+    }
+
     private void givenResolved() {
         when(resolver.resolve(RAW_QUERY))
                 .thenReturn(new QueryResolutionResult(
@@ -717,6 +767,7 @@ class SearchAssemblyServiceTest {
                 new FalseHitGuardResult(List.of(), List.of(), false),
                 List.of(),
                 new SearchConfigSnapshot(fusionSettings(), LEXICAL, null, structuredSettings(), softSettings()),
+                List.of(),
                 List.of(),
                 List.of());
     }
