@@ -24,7 +24,7 @@ from npick_worker.jobs.transcripts import (
     TranscriptDecisions,
     TranscriptSegments,
     TranscriptSelectionOutput,
-    TranscriptSnapshot,
+    TranscriptSelectionSnapshot,
     json_artifact,
     validate_snapshot,
 )
@@ -155,19 +155,22 @@ def run(ctx: StageContext) -> StageOutcome:
         ref=decisions_ref, local_path=decisions_path, content_type="application/json"
     )
 
+    # 판정 세 칸은 `transcript` **안**이다. BE 가 그 객체를 열어 읽으므로 형제로
+    # 올리면 값이 맞아도 `INVALID_RESULT` 다 — `TranscriptSelectionSnapshot` 참고.
     output = TranscriptSelectionOutput(
-        transcript=TranscriptSnapshot(
-            segments_artifact=segments_ref, decisions_artifact=decisions_ref
-        ),
-        asr_required=bool(ranges),
-        candidate_ranges=[TranscriptCandidateRange(s=r.s, e=r.e) for r in ranges],
-        reason_code=(
-            "SUBTITLE_COVERED"
-            if not ranges
-            else "NO_VALID_SUBTITLE"
-            if not original.segments
-            else "UNCOVERED_RANGES"
-        ),
+        transcript=TranscriptSelectionSnapshot(
+            segments_artifact=segments_ref,
+            decisions_artifact=decisions_ref,
+            asr_required=bool(ranges),
+            candidate_ranges=[TranscriptCandidateRange(s=r.s, e=r.e) for r in ranges],
+            reason_code=(
+                "SUBTITLE_COVERED"
+                if not ranges
+                else "NO_VALID_SUBTITLE"
+                if not original.segments
+                else "UNCOVERED_RANGES"
+            ),
+        )
     )
     return StageOutcome(
         output=output.model_dump(by_alias=True),

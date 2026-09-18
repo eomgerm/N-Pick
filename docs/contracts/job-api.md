@@ -902,6 +902,29 @@ GET·PUT은 `X-Worker-Id`와 `X-Job-Lease-Id`를 현재 run의 배정·만료 �
 사유는 `SUBTITLE_COVERED`, `UNCOVERED_RANGES`, `NO_VALID_SUBTITLE`이다. 원본·선택 정책은
 워커 소유이며 BE 검증·저장이 선택 알고리즘을 대신하지 않는다.
 
+**"함께"는 `transcript` 객체 안이다.** 두 참조의 형제가 아니라 같은 객체의 칸이다.
+`transcript_selection`의 output은 다음 구조이며, 정본 타입은 워커 `jobs/transcripts.py`의
+`TranscriptSelectionOutput`이고 단계 출력 버전은 `npick.stage.transcript_selection.output/v1`이다.
+
+```json
+{
+  "transcript": {
+    "segmentsArtifact": {"kind": "transcript_segments", "storageKey": "runs/…/transcript_segments.json", "byteSize": 1234, "contentHash": "<sha256>"},
+    "decisionsArtifact": {"kind": "transcript_decisions", "storageKey": "runs/…/transcript_decisions.json", "byteSize": 567, "contentHash": "<sha256>"},
+    "asrRequired": true,
+    "candidateRanges": [{"s": 0, "e": 500}, {"s": 1500, "e": 2500}],
+    "reasonCode": "UNCOVERED_RANGES"
+  }
+}
+```
+
+세 칸을 `output` 최상위로 올리면 BE는 **세 칸이 모두 없는 것으로 읽어** `complete`를
+`INVALID_RESULT`로 거절한다 — `StageExecutionService`의 `complete` 검사와
+`JdbcWorkerStageOutputAdapter.validateTranscript`가 둘 다 `output.transcript`를 열어 그 안에서
+찾기 때문이다. 값이 전부 맞아도 거절되고 자리만 다르므로 원인이 멀다. 6단계
+`scene_transcript_mapping`의 `transcript`는 참조 두 개뿐이라는 점과 구분한다 — 판정은
+4단계만의 것이다.
+
 워커는 참조 파일의 크기·해시·원본/채택 ID 관계를 검증한 JSON을
 `StageContext.artifact_documents[storageKey]`로 실제 단계 함수에 제공한다. 원래 `upstream`도 유지한다.
 설정을 처리하지 않는 단계에는 비어 있지 않은 `inputs.config`를 배정하지 않는다. 워커는 그 설정을

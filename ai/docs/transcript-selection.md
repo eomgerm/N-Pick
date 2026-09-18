@@ -60,7 +60,26 @@ reason_code = "SUBTITLE_COVERED"  if not ranges        # 자막·CC 가 전 구�
 
 BE 가 강제하는 등가식이 둘이다 — `asrRequired == (candidateRanges 비어 있지 않음)` 과
 `SUBTITLE_COVERED ⇔ candidateRanges == []`. 보내는 쪽에서도 막는다
-(`jobs/transcripts.py` 의 `TranscriptSelectionOutput.judgement`).
+(`jobs/transcripts.py` 의 `TranscriptSelectionSnapshot.judgement`).
+
+**세 칸은 `output.transcript` 안이다.** 참조 두 개 옆이 아니다.
+
+```json
+{
+  "transcript": {
+    "segmentsArtifact": {…}, "decisionsArtifact": {…},
+    "asrRequired": true, "candidateRanges": [{"s": 0, "e": 500}],
+    "reasonCode": "UNCOVERED_RANGES"
+  }
+}
+```
+
+BE 는 `complete` 검사(`StageExecutionService`)와 저장 어댑터
+(`JdbcWorkerStageOutputAdapter.validateTranscript`) 둘 다에서 `transcript` 객체를 열어
+그 안에서 세 칸을 찾는다. 형제로 올리면 값이 맞아도 세 칸이 모두 없는 것으로 읽혀
+`INVALID_RESULT` 이고, 자리만 다를 뿐이라 원인이 멀다. 6단계의 `transcript` 는 참조
+두 개뿐이라 타입도 나눠 둔다 — `TranscriptSelectionSnapshot` 이 `TranscriptSnapshot` 을
+상속해 세 칸을 더한다.
 
 **"구간은 있으나 전부 제외" 는 도달 불가다.** 제외는 채택된 상위 출처와 겹칠 때만 일어나므로
 우선순위가 가장 높은 구간들은 반드시 채택된다. 그래서 원본이 1건 이상이면 채택도 1건
@@ -153,6 +172,15 @@ uv run pytest tests/test_transcript_selection.py
 공용 `validate_snapshot` 통과 → 6단계가 그대로 소비, 상류 결함 11종에서 파일을 한 장도 쓰지
 않음, 모의 HTTP 잡 API 의 다운로드·업로드·complete 순서를 검증한다.
 
-**검증하지 않는 것**: 실제 BE 왕복, DB 저장, 실제 배정. 배정에는
-`infra/compose/profiles/pipeline.yml` 의 `stage_versions` 실측이 선행한다 — 거기 없는 단계는
-`"unknown"` 이라 구현이 있어도 배정되지 않는다.
+**검증하지 않는 것**: 실제 BE 왕복, DB 저장, 실제 배정.
+
+배정에 필요한 `infra/compose/profiles/pipeline.yml` 의 `stage_versions` 는 채웠다 — compose 의
+ai-worker 컨테이너에서 재서 넣었고 로컬 venv 값과도 같았다(2026-09-18).
+
+```
+transcript_selection      npick.stage.transcript_selection/v1:fdcd0780
+scene_transcript_mapping  npick.stage.scene_transcript_mapping/v1:286181fa   # 옛 e1d97878
+```
+
+6단계 값이 바뀐 것은 이 티켓이 그 단계 identity 에 `selection` 축을 더했기 때문이다. 축만
+더하고 그 줄을 그대로 두면 6단계가 **오류 없이** 배정에서 빠진다.

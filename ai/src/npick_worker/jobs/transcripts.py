@@ -87,6 +87,35 @@ class TranscriptCandidateRange(WireModel):
         return self
 
 
+class TranscriptSelectionSnapshot(TranscriptSnapshot):
+    """4단계의 `output.transcript`. 두 참조 **옆이 아니라 안에** 판정 세 칸이 산다.
+
+    **BE 는 세 칸을 `transcript` 안에서 읽는다.** `StageExecutionService` 의 complete
+    검사가 `output.transcript` 를 열어 `asrRequired`·`candidateRanges`·`reasonCode` 를
+    찾고, `JdbcWorkerStageOutputAdapter.validateTranscript` 도 같은 객체를 받는다.
+    형제로 올리면 세 칸이 모두 없는 것으로 읽혀 `INVALID_RESULT` 로 거절되고 —
+    자리만 다를 뿐 값은 맞으므로 — 4단계가 이유 없이 succeeded 가 되지 못한다.
+
+    그래서 6단계의 `TranscriptSnapshot` 을 그대로 쓰지 않고 상속해 넓힌다. 6단계
+    output 의 `transcript` 는 참조 두 개뿐이고(계약 §4.5 예시), 판정은 이 단계만의
+    것이다.
+    """
+
+    asr_required: StrictBool
+    candidate_ranges: list[TranscriptCandidateRange]
+    reason_code: Literal["SUBTITLE_COVERED", "UNCOVERED_RANGES", "NO_VALID_SUBTITLE"]
+
+    @model_validator(mode="after")
+    def judgement(self) -> "TranscriptSelectionSnapshot":
+        # BE 가 강제하는 두 등가식을 보내는 쪽에서 먼저 막는다. 어기면 단계가
+        # succeeded 로 올라간 뒤 저장 어댑터에서 거절돼 원인이 멀어진다.
+        if self.asr_required != bool(self.candidate_ranges):
+            raise ValueError("asrRequired must match whether candidate ranges exist")
+        if (self.reason_code == "SUBTITLE_COVERED") != (not self.candidate_ranges):
+            raise ValueError("SUBTITLE_COVERED must mean no candidate ranges")
+        return self
+
+
 class TranscriptSelectionOutput(WireModel):
     """4단계 출력 계약(계약 §4.5).
 
@@ -96,20 +125,7 @@ class TranscriptSelectionOutput(WireModel):
     이 같은 키로 드러낸다.
     """
 
-    transcript: TranscriptSnapshot
-    asr_required: StrictBool
-    candidate_ranges: list[TranscriptCandidateRange]
-    reason_code: Literal["SUBTITLE_COVERED", "UNCOVERED_RANGES", "NO_VALID_SUBTITLE"]
-
-    @model_validator(mode="after")
-    def judgement(self) -> "TranscriptSelectionOutput":
-        # BE 가 강제하는 두 등가식을 보내는 쪽에서 먼저 막는다. 어기면 단계가
-        # succeeded 로 올라간 뒤 저장 어댑터에서 거절돼 원인이 멀어진다.
-        if self.asr_required != bool(self.candidate_ranges):
-            raise ValueError("asrRequired must match whether candidate ranges exist")
-        if (self.reason_code == "SUBTITLE_COVERED") != (not self.candidate_ranges):
-            raise ValueError("SUBTITLE_COVERED must mean no candidate ranges")
-        return self
+    transcript: TranscriptSelectionSnapshot
 
 
 class MappedSegment(WireModel):

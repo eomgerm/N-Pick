@@ -24,8 +24,9 @@ defaults:
 # StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다.
 # JdbcWorkerStageOutputAdapter 의 집합은 **10 단계**고, 이제 워커 구현도 10 단계가 모두
 # 있다 — 마지막이던 `transcript_selection` 은 S15P21A501-213 에서 뚫렸다.
-# 그래서 남은 관문은 이 파일 하나다. **여기 없는 단계는 BE 가 unknown 으로 접고 실측
-# 해시와 절대 같아지지 않아, 오류 없이 영원히 배정되지 않는다** (S15P21A501-187 리뷰 지적).
+# 그래서 남은 관문은 이 파일 하나였고, 같은 티켓에서 그 한 줄을 채워 **열 단계가 모두
+# 여기 있다**. **여기 없는 단계는 BE 가 unknown 으로 접고 실측 해시와 절대 같아지지
+# 않아, 오류 없이 영원히 배정되지 않는다** (S15P21A501-187 리뷰 지적).
 # nextStage 는 NAMES 순서로 첫 pending 을 고르므로, 앞 단계를 비워 두면 뒤 단계를 여기
 # 적어도 순서상 닿지 않는다.
 # 배포별로 선언 범위를 좁히는 노브는 ai/.env 의 NPICK_AI_JOB_STAGES 다(S15P21A501-186).
@@ -36,6 +37,12 @@ defaults:
 #            "from npick_worker.jobs import registry; print(registry.capability_versions())"
 #   GPU    uv run --group gpu --group cu128 python -c '...같은 것...'
 #          가중치를 쓰는 단계는 registry.warm_up([...]) 을 먼저 불러야 값이 나온다.
+#
+# `transcript_selection` 과 `scene_transcript_mapping` 두 줄은 compose 의 ai-worker
+# 컨테이너에서 재서 넣었다 (2026-09-18, S15P21A501-213). 6단계 값이 `e1d97878` 에서
+# 바뀐 것은 그 티켓이 채택 규칙을 두 단계가 공유하게 만들면서 identity 에 `selection`
+# 축을 더했기 때문이다 — 축을 더하고 이 줄을 그대로 두면 6단계가 **오류 없이** 배정에서
+# 빠진다. 두 단계 모두 가중치도 torch 도 쓰지 않아 로컬 venv 값과도 같았다.
 #
 # **노드가 갈려도 값은 같다 — 확인했다** (2026-09-18 실측, S15P21A501-187).
 # SSAFY GPU 서버(cu128/L40S)와 RunPod 파드(cu130/H100)에서 같은 소스·같은 가중치로
@@ -56,8 +63,9 @@ stage_versions:
   frame_extraction: "npick.stage.frame_extraction/v1:5fa70a50"
   vlm_metadata: "npick.stage.vlm_metadata/v1:de632da5"
   ocr: "npick.stage.ocr/v1:bc75979d"
+  transcript_selection: "npick.stage.transcript_selection/v1:fdcd0780"
   asr: "npick.stage.asr/v1:9e977661"
-  scene_transcript_mapping: "npick.stage.scene_transcript_mapping/v1:e1d97878"
+  scene_transcript_mapping: "npick.stage.scene_transcript_mapping/v1:286181fa"
   entity_extraction: "npick.stage.entity_extraction/v1:4d278198"
   text_embedding: "npick.stage.text_embedding/v1:308db445"
   indexing: "npick.stage.indexing/v1:44136fa3"

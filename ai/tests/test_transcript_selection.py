@@ -200,29 +200,48 @@ def test_both_stages_share_one_adoption_rule() -> None:
 
 def test_selection_reports_uncovered_ranges_and_requires_asr(tmp_path: Path) -> None:
     outcome = run(default_context(tmp_path))
-    assert outcome.output["asrRequired"] is True
-    assert outcome.output["reasonCode"] == "UNCOVERED_RANGES"
+    assert outcome.output["transcript"]["asrRequired"] is True
+    assert outcome.output["transcript"]["reasonCode"] == "UNCOVERED_RANGES"
     # 채택된 것은 u(500-1500)·cc2(2500-3000) 뿐이다. cc 는 u 와 겹쳐 제외된다.
-    assert outcome.output["candidateRanges"] == [
+    assert outcome.output["transcript"]["candidateRanges"] == [
         {"s": 0, "e": 500},
         {"s": 1500, "e": 2500},
         {"s": 3000, "e": DURATION},
     ]
 
 
+def test_judgement_lives_inside_transcript_where_the_backend_reads_it(tmp_path: Path) -> None:
+    """BE 는 세 칸을 `output.transcript` 안에서 읽는다.
+
+    `StageExecutionService` 의 complete 검사가 그 객체를 열어
+    `asrRequired`·`candidateRanges`·`reasonCode` 를 찾고
+    `JdbcWorkerStageOutputAdapter.validateTranscript` 도 같은 객체를 받는다. 형제로
+    올리면 값이 맞아도 세 칸이 모두 없는 것으로 읽혀 `INVALID_RESULT` 다.
+    """
+    output = run(default_context(tmp_path)).output
+    assert set(output) == {"transcript"}
+    assert set(output["transcript"]) == {
+        "segmentsArtifact",
+        "decisionsArtifact",
+        "asrRequired",
+        "candidateRanges",
+        "reasonCode",
+    }
+
+
 def test_full_subtitle_coverage_lets_be_skip_asr(tmp_path: Path) -> None:
     outcome = run(context(tmp_path, segment("u", 0, DURATION)))
-    assert outcome.output["asrRequired"] is False
-    assert outcome.output["reasonCode"] == "SUBTITLE_COVERED"
-    assert outcome.output["candidateRanges"] == []
+    assert outcome.output["transcript"]["asrRequired"] is False
+    assert outcome.output["transcript"]["reasonCode"] == "SUBTITLE_COVERED"
+    assert outcome.output["transcript"]["candidateRanges"] == []
 
 
 def test_no_subtitle_at_all_still_carries_one_candidate(tmp_path: Path) -> None:
     # BE 는 asrRequired=true 인데 후보가 비어 있으면 결과를 거절한다.
     outcome = run(context(tmp_path))
-    assert outcome.output["reasonCode"] == "NO_VALID_SUBTITLE"
-    assert outcome.output["asrRequired"] is True
-    assert outcome.output["candidateRanges"] == [{"s": 0, "e": DURATION}]
+    assert outcome.output["transcript"]["reasonCode"] == "NO_VALID_SUBTITLE"
+    assert outcome.output["transcript"]["asrRequired"] is True
+    assert outcome.output["transcript"]["candidateRanges"] == [{"s": 0, "e": DURATION}]
 
 
 def test_excluded_cc_is_preserved_whole_with_overlap_evidence(tmp_path: Path) -> None:
@@ -426,8 +445,13 @@ async def test_runner_uploads_both_snapshots_then_completes(
     # 원본 영상을 받지 않았다. 준비된 자막 문서 한 장만 받는다.
     assert len(fake_backend.calls("artifact_get")) == 1
     assert len(fake_backend.calls("artifact_put")) == 2
-    # 봉투의 참조와 output 의 참조가 같은 맵이어야 BE 가 받는다.
-    assert result["artifacts"] == list(result["output"]["transcript"].values())
+    # 봉투의 참조와 output 의 참조가 같아야 BE 가 받는다. `transcript` 를 통째로
+    # 펼치지 않는다 — 그 객체에는 판정 세 칸이 함께 살고 참조가 아니다.
+    transcript = result["output"]["transcript"]
+    assert result["artifacts"] == [
+        transcript["segmentsArtifact"],
+        transcript["decisionsArtifact"],
+    ]
     # 업로드가 끝난 뒤에 complete 가 간다. 순서가 뒤집히면 BE 가 없는 파일을 검증한다.
     complete_position = fake_backend.requests.index(fake_backend.calls("complete")[0])
     assert all(
