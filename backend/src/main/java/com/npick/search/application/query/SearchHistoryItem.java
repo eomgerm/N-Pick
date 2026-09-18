@@ -17,4 +17,5 @@ public record SearchHistoryItem(
         String degradedReasonsJson,
         String parseSource,
         String appliedRulesJson,
+        String appliedExcludesJson,
         String filteredJson) {}

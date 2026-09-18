@@ -138,7 +138,7 @@ public record SearchSnapshot(
         payload.set("degraded_reasons", arrayOrEmpty(item.degradedReasonsJson()));
         payload.put("query_resolution_status", queryResolutionStatus);
         payload.put("has_applied_review_rule", hasAppliedRule(item.appliedRulesJson()));
-        payload.set("guard_summary", guardSummary(filtered));
+        payload.set("guard_summary", guardSummary(filtered, item.appliedExcludesJson()));
         payload.set("shortage_reasons", arrayOf(filtered.get("shortage_reasons")));
         payload.set("results", results);
         return payload;
@@ -158,21 +158,36 @@ public record SearchSnapshot(
     }
 
     /**
-     * 제외 건수와 사유. {@code verdicts} 에는 통과한 장면의 판정도 함께 들어오므로 {@code exclusion_reason} 이 있는 것만 센다.
-     * 살아남은 장면만 남는 {@code search_result} 로는 제외 건수를 알 수 없어 {@code filtered_json} 이 유일한 출처다.
+     * 제외 건수와 사유. 출처가 <b>두 컬럼</b>이다. 살아남은 장면만 남는 {@code search_result} 로는 알 수 없다.
+     *
+     * <ul>
+     *   <li>{@code filtered_json.guard.verdicts} — false-hit guard 판정. 통과한 장면의 판정도 함께 들어오므로
+     *       {@code exclusion_reason} 이 있는 것만 센다. {@code GuardExclusionReason} 은
+     *       {@code explicit_date_conflict}·{@code approved_incident_conflict} 둘뿐이다.
+     *   <li>{@code applied_excludes_json} — 승인된 장면 제외(S15P21A501-58). 계약이 허용하는 세 번째 사유
+     *       {@code approved_scene_exclusion} 은 guard 가 내는 값이 아니라 여기서만 온다. 이 컬럼을 빼면 그 사유가
+     *       영원히 나오지 않고 건수가 {@code POST /search} 응답보다 작아진다.
+     * </ul>
+     *
+     * <p>같은 장면이 양쪽에 걸리면 한 번만 센다 — 제외된 <b>결과 수</b>이므로 장면 기준으로 센다.
      */
-    private static ObjectNode guardSummary(JsonNode filtered) {
+    private static ObjectNode guardSummary(JsonNode filtered, String appliedExcludesJson) {
         Set<String> reasons = new LinkedHashSet<>();
-        int excluded = 0;
+        Set<Long> excludedScenes = new LinkedHashSet<>();
         for (JsonNode verdict : arrayOf(filtered.path("guard").get("verdicts"))) {
             String reason = verdict.path("exclusion_reason").asString(null);
             if (reason != null) {
-                excluded++;
+                excludedScenes.add(verdict.path("scene_id").asLong());
                 reasons.add(reason);
             }
         }
+        ArrayNode appliedExcludes = arrayOrEmpty(appliedExcludesJson);
+        if (!appliedExcludes.isEmpty()) {
+            reasons.add("approved_scene_exclusion");
+            appliedExcludes.forEach(exclude -> excludedScenes.add(exclude.path("scene_id").asLong()));
+        }
         ObjectNode summary = MAPPER.createObjectNode();
-        summary.put("excluded_result_count", excluded);
+        summary.put("excluded_result_count", excludedScenes.size());
         ArrayNode reasonArray = summary.putArray("reasons");
         reasons.forEach(reasonArray::add);
         return summary;

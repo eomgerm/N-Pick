@@ -3,6 +3,8 @@ package com.npick.search.presentation.response;
 import java.time.Instant;
 import java.util.List;
 
+import tools.jackson.databind.JsonNode;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -205,6 +207,59 @@ class SearchSnapshotTest {
     }
 
     @Test
+    @DisplayName("guard_summary 는 승인된 장면 제외도 센다 — guard 판정만 보면 approved_scene_exclusion 이 영원히 안 나온다")
+    void guardSummaryIncludesApprovedSceneExclusions() {
+        // GuardExclusionReason 에는 explicit_date_conflict·approved_incident_conflict 둘뿐이다.
+        // 승인된 장면 제외(-58)는 filtered_json 이 아니라 applied_excludes_json 에 있다.
+        String filtered =
+                """
+                {"returned_count": 1, "shortage_reasons": ["guard_excluded"],
+                 "guard": {"incident_guard_active": false, "verdicts": [
+                   {"scene_id": 5, "exclusion_reason": "explicit_date_conflict"}]}}""";
+        String appliedExcludes = "[{\"scene_id\": 12, \"rule_ids\": [301, 305]}, {\"scene_id\": 13,"
+                + " \"rule_ids\": [302]}]";
+
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(filtered, "resolver", "[]", appliedExcludes), List.of()));
+
+        var guard = snapshot.payload().get("guard_summary");
+        assertThat(guard.get("excluded_result_count").asInt()).isEqualTo(3);
+        assertThat(guard.get("reasons"))
+                .extracting(JsonNode::asString)
+                .containsExactly("explicit_date_conflict", "approved_scene_exclusion");
+    }
+
+    @Test
+    @DisplayName("같은 장면이 guard 와 승인 제외에 모두 걸려도 제외 결과는 한 건이다")
+    void guardSummaryCountsSceneOnce() {
+        String filtered =
+                """
+                {"returned_count": 0, "shortage_reasons": ["guard_excluded"],
+                 "guard": {"incident_guard_active": false, "verdicts": [
+                   {"scene_id": 12, "exclusion_reason": "explicit_date_conflict"}]}}""";
+        String appliedExcludes = "[{\"scene_id\": 12, \"rule_ids\": [301]}]";
+
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(filtered, "resolver", "[]", appliedExcludes), List.of()));
+
+        var guard = snapshot.payload().get("guard_summary");
+        assertThat(guard.get("excluded_result_count").asInt()).isEqualTo(1);
+        assertThat(guard.get("reasons"))
+                .extracting(JsonNode::asString)
+                .containsExactly("explicit_date_conflict", "approved_scene_exclusion");
+    }
+
+    @Test
+    @DisplayName("승인 제외가 없으면 approved_scene_exclusion 을 내지 않는다")
+    void guardSummaryOmitsApprovedReasonWhenNoExclusions() {
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK));
+
+        var guard = snapshot.payload().get("guard_summary");
+        assertThat(guard.get("excluded_result_count").asInt()).isZero();
+        assertThat(guard.get("reasons")).isEmpty();
+    }
+
+    @Test
     @DisplayName("guard_summary 는 제외된 판정만 센다 — 통과 판정은 제외 건수에 넣지 않는다")
     void guardSummaryCountsOnlyExcludedVerdicts() {
         String filtered =
@@ -237,6 +292,11 @@ class SearchSnapshotTest {
     }
 
     private static SearchHistoryItem item(String filteredJson, String parseSource, String appliedRulesJson) {
+        return item(filteredJson, parseSource, appliedRulesJson, "[]");
+    }
+
+    private static SearchHistoryItem item(
+            String filteredJson, String parseSource, String appliedRulesJson, String appliedExcludesJson) {
         return new SearchHistoryItem(
                 9701L,
                 "서울역 귀성 인파",
@@ -246,6 +306,7 @@ class SearchSnapshotTest {
                 "[]",
                 parseSource,
                 appliedRulesJson,
+                appliedExcludesJson,
                 filteredJson);
     }
 }

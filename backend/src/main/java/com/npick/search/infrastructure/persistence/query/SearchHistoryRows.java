@@ -26,6 +26,7 @@ final class SearchHistoryRows {
             CAST(se.explicit_filters_json AS text) AS explicit_filters_json,
             CAST(se.degraded_reasons_json AS text) AS degraded_reasons_json,
             CAST(se.applied_rules_json AS text) AS applied_rules_json,
+            CAST(se.applied_excludes_json AS text) AS applied_excludes_json,
             CAST(se.filtered_json AS text) AS filtered_json
             """;
 
@@ -66,6 +67,7 @@ final class SearchHistoryRows {
                 (String) row.get("degraded_reasons_json"),
                 (String) row.get("parse_source"),
                 (String) row.get("applied_rules_json"),
+                (String) row.get("applied_excludes_json"),
                 (String) row.get("filtered_json"));
     }
 

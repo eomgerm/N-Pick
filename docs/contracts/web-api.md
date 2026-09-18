@@ -729,7 +729,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 `parse_source`가 없으면 「어떻게 해석했는지 기록이 없다」는 뜻이므로 `resolved`로 접지 않는다. 없던 사실을 만들어 내지 않는다는 원칙은 아래 `display_name`과 같다(FRD §7.2).
 
-`explicit_filters`는 `explicit_filters_json`이 NOT NULL이라 항상 읽히므로 `unavailable`에서도 실제 object를 유지한다 — 결과 snapshot만 손상된 경우와 필터 자체를 못 읽는 경우를 구분한다.
+`explicit_filters`는 `unavailable`에서도 실제 object를 유지한다 — 결과 snapshot만 손상된 경우와 필터 자체를 못 읽는 경우를 구분한다. S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nullable로 완화했지만, 같은 마이그레이션의 `ck_execution_completed_snapshot`이 **결과를 낸 실행(`succeeded`/`degraded`)에는 NOT NULL을 되돌려** 보장한다. 이 절의 조회 대상이 그 두 상태뿐이므로 필터는 항상 읽힌다.
 
 `GET /search/history?page=0&size=10`
 
@@ -786,11 +786,13 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `degraded_reasons` | `search_execution.degraded_reasons_json` |
 | `query_resolution_status` | `parse_source` — `resolver`·`resolver_rule`은 `resolved`, `fallback`은 `fallback`. 그 밖의 값과 NULL은 `unavailable` 판정 |
 | `has_applied_review_rule` | `applied_rules_json`에 `status="applied"` 존재 여부 |
-| `guard_summary.excluded_result_count`·`reasons` | `filtered_json.guard.verdicts` 중 `exclusion_reason`이 있는 것만 |
+| `guard_summary.excluded_result_count`·`reasons` | **두 컬럼을 합친다.** `filtered_json.guard.verdicts` 중 `exclusion_reason`이 있는 것(guard 판정) + `applied_excludes_json`(승인된 장면 제외) |
 | `shortage_reasons` | `filtered_json.shortage_reasons` |
 | `results[]` | `search_result` 행 + `explain_json`의 `display`·`match` 블록 |
 
-`results[]` 한 항목은 `explain_json.display`·`explain_json.match`에 컬럼 4개(`search_result_id`·`scene_id`·`clip_id`·`rank`)를 얹은 것이다. 저장된 JSON을 **그대로 통과**시키며 필드별로 옮겨 담지 않는다. 키가 겹치면 **컬럼이 이긴다** — 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지지 않게 한다. `shot_type`은 저장값 원문을 그대로 낸다(§5.1의 4값 제약은 `POST /search` 응답에만 적용된다 — 기록을 소급 수정하지 않는다, FRD §7.2). `guard_summary`는 `explain_json.guard`가 아니라 `filtered_json`에서 온다 — `search_result`에는 살아남은 장면만 남으므로 제외 건수를 알 수 없다.
+`results[]` 한 항목은 `explain_json.display`·`explain_json.match`에 컬럼 4개(`search_result_id`·`scene_id`·`clip_id`·`rank`)를 얹은 것이다. 저장된 JSON을 **그대로 통과**시키며 필드별로 옮겨 담지 않는다. 키가 겹치면 **컬럼이 이긴다** — 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지지 않게 한다. `shot_type`은 저장값 원문을 그대로 낸다(§5.1의 4값 제약은 `POST /search` 응답에만 적용된다 — 기록을 소급 수정하지 않는다, FRD §7.2). `guard_summary`는 `explain_json.guard`가 아니다 — `search_result`에는 살아남은 장면만 남으므로 제외 건수를 알 수 없다. 출처가 두 컬럼인 이유는 `GuardExclusionReason`이 `explicit_date_conflict`·`approved_incident_conflict` 둘뿐이라서다. §5.1이 허용하는 세 번째 사유 `approved_scene_exclusion`은 guard가 내는 값이 아니라 `applied_excludes_json`(S15P21A501-58 승인 제외)에서만 온다. 한 컬럼만 읽으면 그 사유가 영원히 나오지 않고 건수가 `POST /search` 응답보다 작아진다.
+
+같은 장면이 guard와 승인 제외에 모두 걸리면 **한 번만 센다.** `excluded_result_count`는 제외된 결과 수이므로 장면 기준이다.
 
 성공 `data`(결과 1건, `available`):
 
