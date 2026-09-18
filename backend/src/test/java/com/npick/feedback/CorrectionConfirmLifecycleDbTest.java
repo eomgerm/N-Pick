@@ -12,6 +12,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.npick.common.persistence.CorrectionStateFingerprint;
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.support.NpickPostgres;
 
@@ -34,6 +35,9 @@ class CorrectionConfirmLifecycleDbTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private CorrectionStateFingerprint fingerprint; // -83 와 대칭인 4축 지문 — 저장할 값을 직접 계산해 하드코딩을 피한다.
+
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry properties) {
         NpickPostgres.datasource(properties);
@@ -46,7 +50,8 @@ class CorrectionConfirmLifecycleDbTest {
         seedCommon("tag_correction");
         seedTagCandidate();
         seedReplay("{\"resolution\":\"tag_correction\",\"approved_evidence_ids\":[7901],"
-                + "\"approved_rule_id\":null,\"replaced_rule_id\":null,\"state_fingerprint\":\"rules=;tags=\"}");
+                + "\"approved_rule_id\":null,\"replaced_rule_id\":null,\"state_fingerprint\":\""
+                + fingerprint.compute(9901L) + "\"}");
 
         confirm(9702L).andExpect(status().isOk());
 
@@ -67,7 +72,8 @@ class CorrectionConfirmLifecycleDbTest {
         seedCommon("patch_parse");
         seedRuleCandidate();
         seedReplay("{\"resolution\":\"patch_parse\",\"approved_evidence_ids\":[],"
-                + "\"approved_rule_id\":6602,\"replaced_rule_id\":6601,\"state_fingerprint\":\"rules=6601;tags=\"}");
+                + "\"approved_rule_id\":6602,\"replaced_rule_id\":6601,\"state_fingerprint\":\""
+                + fingerprint.compute(9901L) + "\"}");
 
         confirm(9702L).andExpect(status().isOk());
 
@@ -91,7 +97,8 @@ class CorrectionConfirmLifecycleDbTest {
         seedRuleCandidate();
         seedTagCandidate();
         seedReplay("{\"resolution\":\"patch_parse\",\"approved_evidence_ids\":[7901],"
-                + "\"approved_rule_id\":6602,\"replaced_rule_id\":6601,\"state_fingerprint\":\"rules=6601;tags=\"}");
+                + "\"approved_rule_id\":6602,\"replaced_rule_id\":6601,\"state_fingerprint\":\""
+                + fingerprint.compute(9901L) + "\"}");
 
         confirm(9702L).andExpect(status().isOk());
 
@@ -118,7 +125,8 @@ class CorrectionConfirmLifecycleDbTest {
         jdbc.update("UPDATE npick.clip SET active_pipeline_run_id = 9201 WHERE clip_id = 9101");
         seedExcludeRule();
         seedReplay("{\"resolution\":\"exclude_scene\",\"approved_evidence_ids\":[],"
-                + "\"approved_rule_id\":6601,\"replaced_rule_id\":null,\"state_fingerprint\":\"rules=;tags=\"}");
+                + "\"approved_rule_id\":6601,\"replaced_rule_id\":null,\"state_fingerprint\":\""
+                + fingerprint.compute(9901L) + "\"}");
 
         confirm(9702L).andExpect(status().isOk());
 
