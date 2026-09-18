@@ -48,7 +48,7 @@ export function presentSearchResponse(response: SearchResponse): {
     const displayName = scene.displayName ?? '제목 없는 영상';
     const evidence: SearchEvidenceMatch[] = scene.matchEvidence.map((item) => ({
       field: fields[item.field],
-      value: item.value,
+      value: item.value ?? '근거 내용 기록 없음',
       source: item.source,
       status: item.verificationStatus,
     }));

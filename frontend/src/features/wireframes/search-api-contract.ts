@@ -41,7 +41,7 @@ export interface SearchDateInformation {
 
 export interface SearchMatchEvidence {
   field: SearchEvidenceField;
-  value: string;
+  value: string | null;
   source: string;
   verificationStatus: SearchEvidenceStatus;
 }
@@ -178,11 +178,17 @@ function parseDateInformation(value: unknown, status: number): SearchDateInforma
   return { value: date, verificationStatus };
 }
 
-function parseMatchEvidence(value: unknown, status: number): SearchMatchEvidence {
+function parseMatchEvidence(
+  value: unknown,
+  status: number,
+  isHistory: boolean,
+): SearchMatchEvidence {
   const payload = readRecord(value, status);
   return {
     field: readEnum(payload.field, ['caption', 'ocr', 'transcript', 'tag'] as const, status),
-    value: readNonEmptyString(payload.value, status),
+    value: isHistory
+      ? readNullableString(payload.value, status)
+      : readNonEmptyString(payload.value, status),
     source: readNonEmptyString(payload.source, status),
     verificationStatus: readEnum(
       payload.verification_status,
@@ -192,7 +198,7 @@ function parseMatchEvidence(value: unknown, status: number): SearchMatchEvidence
   };
 }
 
-function parseScene(value: unknown, status: number): SearchSceneResponse {
+function parseScene(value: unknown, status: number, isHistory: boolean): SearchSceneResponse {
   const payload = readRecord(value, status);
   const startTimeMs = readNonNegativeInteger(payload.start_time_ms, status);
   const endTimeMs = readPositiveInteger(payload.end_time_ms, status);
@@ -219,11 +225,26 @@ function parseScene(value: unknown, status: number): SearchSceneResponse {
     ),
     sceneType: readNullableString(payload.scene_type, status),
     matchedKeywords: readStringList(payload.matched_keywords, status),
-    matchEvidence: payload.match_evidence.map((item) => parseMatchEvidence(item, status)),
+    matchEvidence: payload.match_evidence.map((item) =>
+      parseMatchEvidence(item, status, isHistory),
+    ),
   };
 }
 
 export function parseSearchResponse(value: unknown, httpStatus = 200): SearchResponse {
+  return parseSearchPayload(value, httpStatus, false);
+}
+
+/** 과거 근거의 null은 기록 부재로 보존합니다. 실시간 검색의 검증은 완화하지 않습니다. */
+export function parseSearchSnapshot(value: unknown, httpStatus = 200): SearchResponse {
+  return parseSearchPayload(value, httpStatus, true);
+}
+
+function parseSearchPayload(
+  value: unknown,
+  httpStatus: number,
+  isHistory: boolean,
+): SearchResponse {
   const payload = readRecord(value, httpStatus);
   const searchExecutionId = readId(payload.search_execution_id, httpStatus, true);
   const status = readEnum(payload.status, ['succeeded', 'degraded'] as const, httpStatus);
@@ -254,7 +275,7 @@ export function parseSearchResponse(value: unknown, httpStatus = 200): SearchRes
   if (!Array.isArray(payload.results) || payload.results.length > SEARCH_RESULT_LIMIT) {
     return invalidResponse(httpStatus);
   }
-  const results = payload.results.map((item) => parseScene(item, httpStatus));
+  const results = payload.results.map((item) => parseScene(item, httpStatus, isHistory));
 
   const isEphemeral = degradedReasons.includes('snapshot_save_failed');
   if ((status === 'succeeded') !== (degradedReasons.length === 0)) {
