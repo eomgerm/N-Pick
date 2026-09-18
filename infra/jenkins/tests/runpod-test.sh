@@ -41,7 +41,12 @@ case "$*" in
     ;;
   *"/start"*|*"/stop"*)
     echo "POST" >> "$STATE/calls"
-    printf '{}\n%s' "$(cat "$STATE/post_code")"
+    # 코드 큐에서 하나 꺼낸다. 마지막 값은 계속 유지된다.
+    read -r head rest < <(cat "$STATE/post_code")
+    [ -n "$rest" ] && printf '%s' "$rest" > "$STATE/post_code"
+    body='{}'
+    [ "$head" = 500 ] && body='{"error":"start pod: There are not enough free GPUs on the host machine to start this pod."}'
+    printf '%s\n%s' "$body" "$head"
     ;;
   *)
     printf '{}\n404'
@@ -55,7 +60,7 @@ run() { # $1=기대코드 $2=설명 $3=상태큐 나머지=runpod.sh 인자
   local expect=$1 desc=$2 queue=$3; shift 3
   : > "$STATE/calls"
   printf '%s' "$queue"            > "$STATE/queue"
-  printf '%s' "${POST_CODE:-200}" > "$STATE/post_code"
+  printf "%s" "${POST_CODE:-200}" > "$STATE/post_code"
   printf '%s' "${GQL_CODE:-200}"  > "$STATE/gql_code"
   local out got
   set +e
@@ -105,8 +110,17 @@ posted && { echo "FAIL 요청이 이미 있는데 POST 를 또 쳤다" >&2; fail
 # 끝내 안 뜨면 실패다. GPU 재고가 없을 때가 이 경로다.
 run 1 "runtime 이 끝내 없으면 1" "EXITED/no RUNNING/no" resume
 
-# ── 5. API 오류는 1이다 ──────────────────────────────────────────────────────
-POST_CODE=500 run 1 "POST 500 → 1" "EXITED/no" resume
+# ── 5. GPU 재고 부족은 기다린다 ─────────────────────────────────────────────
+# 정지된 파드는 호스트에 묶여 있어 그 호스트가 차면 start 가 500 으로 거절된다.
+# 리전이 마른 것이 아니라 그 호스트만 찬 것이라, 즉시 실패로 끝내면 안 된다.
+POST_CODE="500 500 200" run 0 "재고 부족 → 기다렸다 성공" "EXITED/no EXITED/no EXITED/no RUNNING/yes" resume
+
+# 끝내 안 나면 실패다. 그때는 파드를 다시 만들거나 SSAFY GPU 로 돌린다.
+POST_CODE=500 run 1 "재고가 끝내 없으면 1" "EXITED/no" resume
+
+# ── 6. 인증·인자 오류는 기다리지 않는다 ─────────────────────────────────────
+# 4xx 는 기다려도 낫지 않는다. 여기서 지체하면 운영자가 재고 문제로 오해한다.
+POST_CODE=401 run 1 "POST 401 → 즉시 1" "EXITED/no" resume
 POST_CODE=200
 GQL_CODE=401 run 1 "GraphQL 401 → 1" "EXITED/no" stop
 GQL_CODE=200
