@@ -8,14 +8,25 @@ WORKDIR /app
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
+# 이 Dockerfile 이 이미지 **둘**을 낸다. 바뀌는 것은 이 인자 하나뿐이다 (S15P21A501-187):
+#
+#   ""                              EC2 CPU 워커 — ocr 만 맡는다. torch 를 받지 않는다
+#   "--group embedding --group cpu" EC2 질의 리졸버 — 임베딩 런타임 + CPU torch
+#
+# GPU 노드(SSAFY GPU 서버·RunPod 파드)는 이 이미지를 쓰지 않는다. 소스에서 직접
+# `uv sync --group gpu --group cu128|cu130` 한다 — CUDA torch 가 4.2GB 라 GPU 를 쓰지
+# 않는 EC2 컨테이너 둘이 그것을 이고 갈 이유가 없다.
+ARG UV_GROUPS=""
+
 # 의존성 레이어를 소스와 분리해 캐시가 살도록 한다.
-# --no-dev: 런타임에 ruff/mypy/pytest 불필요. gpu 그룹은 opt-in 이라 애초에 안 받는다.
+# --no-dev: 런타임에 ruff/mypy/pytest 불필요.
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-dev --no-install-project
+# shellcheck 대상이 아니다 — 인용하면 빈 문자열이 인자 하나로 들어가 uv 가 거부한다.
+RUN uv sync --frozen --no-dev --no-install-project $UV_GROUPS
 
 COPY src ./src
 COPY README.md ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev $UV_GROUPS
 
 FROM python:3.12-slim-bookworm
 WORKDIR /app
