@@ -937,22 +937,39 @@ sudo docker inspect jenkins \
 # 호스트 docker 그룹 GID 를 그대로 넘긴다(3장과 같은 값이어야 소켓이 열린다).
 DOCKER_GID=$(getent group docker | cut -d: -f3)
 sudo docker build --build-arg DOCKER_GID="$DOCKER_GID" \
-  -t npick/jenkins:latest infra/jenkins
+  -t npick/jenkins:lts infra/jenkins
 
 sudo docker stop jenkins && sudo docker rm jenkins
 # 위에서 적어 둔 -v/-p 를 그대로 다시 준다. 특히 /home/ubuntu/jenkins-data 와
 # /var/run/docker.sock, 그리고 127.0.0.1:18080 바인딩을 빠뜨리지 않는다.
 sudo docker run -d --name jenkins --restart unless-stopped \
+  --network npick_default \
+  -e JENKINS_OPTS=--prefix=/jenkins \
   -v /home/ubuntu/jenkins-data:/var/jenkins_home \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /home/ubuntu/S15P21A501:/home/ubuntu/S15P21A501 \
   -p 127.0.0.1:18080:8080 \
-  npick/jenkins:latest
+  npick/jenkins:lts
 
 # 확인 — 잡·설정·플러그인은 볼륨에 있으므로 그대로 남아 있어야 한다.
 sudo docker exec jenkins jq --version
 sudo docker exec jenkins docker version --format '{{.Client.Version}}'
 ```
+
+> ⚠️ **`--network npick_default` 와 `JENKINS_OPTS` 를 빠뜨리지 않는다.** 3장의 원본
+> 명령에는 있는데 재생성할 때 흘리기 쉽다. 네트워크를 빠뜨리면 nginx 가 `jenkins` 를
+> 못 풀어 `/jenkins/` 가 통째로 502 가 되고 **GitLab 웹훅도 같이 죽는다** — 빌드가
+> 아예 걸리지 않으므로 배포가 멈춘 것을 한참 뒤에 안다(2026-09-18 실측).
+> 접두를 빠뜨리면 Jenkins 가 자기 URL 을 `/` 로 알아 정적 리소스가 깨진다.
+>
+> 되돌리는 것은 한 줄이다: `sudo docker network connect npick_default jenkins`
+>
+> 재생성 뒤에는 **웹훅 경로까지** 확인한다. 컨테이너가 healthy 여도 nginx 경유가
+> 죽어 있을 수 있고, 그 사이 도착한 웹훅은 재전송하지 않으면 사라진다.
+>
+> ```bash
+> curl -s -o /dev/null -w '%{http_code}\n' https://j15a501.p.ssafy.io/jenkins/login   # 200
+> ```
 
 **데이터는 `/home/ubuntu/jenkins-data` 볼륨에 있다.** 컨테이너를 지워도 잡·크리덴셜·
 플러그인은 남는다. 그 볼륨을 지우지 않는 한 되돌릴 수 있다. URL 설정(5장)과 웹훅
