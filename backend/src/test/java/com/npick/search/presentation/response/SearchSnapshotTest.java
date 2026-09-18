@@ -289,7 +289,8 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("공개 사유가 있으면 status 는 degraded 다")
     void statusIsDegradedWhenPublicReasonRemains() {
-        SearchHistoryItem item = degradedItem("[\"resolver_fallback\"]");
+        // resolver_fallback 은 parse_source=fallback 과 짝이므로 여기서는 dense_unavailable 을 쓴다.
+        SearchHistoryItem item = degradedItem("[\"dense_unavailable\"]");
 
         SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
 
@@ -588,14 +589,60 @@ class SearchSnapshotTest {
     }
 
     @Test
-    @DisplayName("parse_source 가 fallback 이면 query_resolution_status 도 fallback 이다")
-    void fallbackParseSourceMapsToFallback() {
-        SearchHistoryItem item = item(FILTERED_OK, "fallback", "[]");
+    @DisplayName("query_resolution_status 는 resolver_fallback 포함 여부에서 파생한다")
+    void queryResolutionStatusDerivesFromPublicReasons() {
+        SearchHistoryItem item = fallbackItem("[\"resolver_fallback\"]");
 
         SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("available");
         assertThat(snapshot.payload().get("query_resolution_status").asString()).isEqualTo("fallback");
+        // §5.1: fallback 여부와 resolver_fallback 포함 여부가 일치한다.
+        assertThat(snapshot.payload().get("degraded_reasons"))
+                .extracting(JsonNode::asString)
+                .contains("resolver_fallback");
+        assertThat(snapshot.payload().get("status").asString()).isEqualTo("degraded");
+    }
+
+    @Test
+    @DisplayName("resolver_fallback 이 없으면 query_resolution_status 는 resolved 다")
+    void resolvedWhenNoFallbackReason() {
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK));
+
+        assertThat(snapshot.payload().get("query_resolution_status").asString()).isEqualTo("resolved");
+        assertThat(snapshot.payload().get("degraded_reasons")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("parse_source 가 fallback 인데 resolver_fallback 이 없으면 기록이 어긋난 것이므로 unavailable 이다")
+    void unavailableWhenParseSourceDisagreesWithReasons() {
+        SearchHistoryItem item = fallbackItem("[]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+        assertThat(snapshot.payload()).isNull();
+    }
+
+    @Test
+    @DisplayName("parse_source 가 resolver 인데 resolver_fallback 이 있으면 unavailable 이다")
+    void unavailableWhenResolverClaimsFallbackReason() {
+        SearchHistoryItem item = item(FILTERED_OK, "resolver", "[]");
+        SearchHistoryItem mismatched = new SearchHistoryItem(
+                item.searchExecutionId(),
+                item.queryText(),
+                item.explicitFiltersJson(),
+                item.createdAt(),
+                item.status(),
+                "[\"resolver_fallback\"]",
+                "resolver",
+                item.appliedRulesJson(),
+                item.appliedExcludesJson(),
+                item.filteredJson());
+
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(mismatched, List.of()));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
     }
 
     @Test
@@ -761,6 +808,21 @@ class SearchSnapshotTest {
 
     private static SearchHistoryRecord record(String filteredJson, SearchHistoryResultRow... rows) {
         return new SearchHistoryRecord(item(filteredJson, "resolver", "[]"), List.of(rows));
+    }
+
+    /** parse_source=fallback 으로 기록된 실행. degradedReasonsJson 만 달라진다. */
+    private static SearchHistoryItem fallbackItem(String degradedReasonsJson) {
+        return new SearchHistoryItem(
+                9701L,
+                "서울역 귀성 인파",
+                "{}",
+                Instant.parse("2026-09-15T03:00:00Z"),
+                "degraded",
+                degradedReasonsJson,
+                "fallback",
+                "[]",
+                "[]",
+                FILTERED_OK);
     }
 
     /** 기록상 degraded 로 닫힌 실행. degradedReasonsJson 만 달라진다. */

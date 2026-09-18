@@ -721,6 +721,8 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 **`status`는 저장값이 아니라 파생값이다.** `search_execution.status`와 응답 `status`는 다를 수 있다 — 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 기록은 `degraded`로 닫히지만, 그 사유(`skipped_conflict:<rule_id>` 등)는 §5.1이 닫아 둔 공개 어휘 세 값에 없어서 `POST /search`는 같은 검색을 `succeeded`로 낸다. 저장값을 그대로 내면 **같은 검색이 검색 직후와 기록 조회에서 다른 상태로 보인다.** 이 절은 `search_snapshot`을 「§5 성공 `data`와 같은 object」로 규정하므로 공개 사유에서 파생해 두 화면을 일치시킨다. 상위 `data.status`와 `data.search_snapshot.status`도 항상 같은 값이다.
 
+**`query_resolution_status`도 같은 출처에서 파생한다.** §5.1이 「`query_resolution_status=fallback` 여부는 `resolver_fallback` 포함 여부와 일치한다」를 요구하므로, 두 값을 각자 다른 컬럼(`parse_source`와 `degraded_reasons_json`)에서 뽑으면 그 불변식이 깨진다. 한 출처에서 파생하면 구조로 보장된다. `parse_source`는 **검증**에만 쓴다 — 스키마 어휘 밖이거나, `fallback` 여부가 `resolver_fallback` 포함 여부와 어긋나면 기록이 깨진 것이므로 `unavailable`이다. 어느 한쪽을 골라 내면 남은 한쪽이 말하는 사실을 지우게 된다.
+
 규칙이 건너뛰어진 사실은 사라지지 않는다. `has_applied_review_rule`과 저장된 `applied_rules_json`에 남아 있고, 검수 감사용 단건 조회(§5의 `GET /search/executions/{executionId}`)로 규칙별 적용·건너뜀·실패와 사유를 볼 수 있다. 이 절은 사용자 화면용이라 공개 어휘만 낸다.
 
 **조회 대상.** 본인의 `execution_type='original'` 중 **저장된** `status`가 `succeeded`/`degraded`인 실행이다(대상 판정에는 저장값을 쓴다 — `failed`·`running`을 걸러내는 것이 목적이다). `replay`(교정 검증 재검색)·`running`·`failed`는 DB에 보존하되 이 화면에서 제외한다. 정상 결과 0건 실행은 **포함한다.** 검색 1회가 1건이며 같은 검색어를 다시 실행하면 별도 기록이다. 대표 장면은 당시 1위 결과이며 사용자가 실제로 본 장면이라는 뜻이 아니다.
@@ -734,7 +736,8 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 | `filtered_json`이 object이고, `parse_source`가 스키마의 세 값 중 하나이고, 모든 결과 행에 `explain_json.display`·`.match`가 있음 | `available` | 실제 값 (결과 0건이면 `0`/`null`/`results: []`) |
 | `filtered_json`이 없음 (결과 확정 전·저장 불완전) | `unavailable` | 전부 `null` |
 | `filtered_json`이 object가 아님 (SQL NULL, JSON 리터럴 `null`, 배열 등) | `unavailable` | 전부 `null` |
-| `parse_source`가 NULL이거나 스키마에 없는 값 | `unavailable` | 전부 `null` |
+| `parse_source`가 NULL이거나 스키마에 없는 값(`resolver`·`resolver_rule`·`fallback` 밖) | `unavailable` | 전부 `null` |
+| `parse_source`가 `fallback`인지 여부와 `resolver_fallback` 포함 여부가 어긋남 | `unavailable` | 전부 `null` |
 | 결과 행 하나라도 `display`/`match` 결측 | `unavailable` | 전부 `null` |
 | 결과 행의 `display`에 표시 키가 빠졌거나 **타입이 어긋남**, 또는 구간이 `0 <= start < end`가 아님 | `unavailable` | 전부 `null` |
 | 결과 행의 `match_evidence`가 비었거나 항목의 네 키가 없거나 **타입이 어긋남** | `unavailable` | 전부 `null` |
@@ -805,7 +808,7 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 | --- | --- |
 | `degraded_reasons` | `degraded_reasons_json` 중 **§5.1의 공개 어휘 세 값에 속하는 것만** |
 | `status` | 위에서 추린 공개 사유가 비었으면 `succeeded`, 있으면 `degraded`. **`search_execution.status`를 그대로 쓰지 않는다** |
-| `query_resolution_status` | `parse_source` — `resolver`·`resolver_rule`은 `resolved`, `fallback`은 `fallback`. 그 밖의 값과 NULL은 `unavailable` 판정 |
+| `query_resolution_status` | 위에서 추린 공개 사유에 `resolver_fallback`이 있으면 `fallback`, 없으면 `resolved`. **`parse_source`에서 직접 뽑지 않는다** |
 | `has_applied_review_rule` | `applied_rules_json`에 `status="applied"` 존재 여부 |
 | `guard_summary.excluded_result_count`·`reasons` | **두 컬럼을 합친다.** `filtered_json.guard.verdicts` 중 `exclusion_reason`이 있는 것(guard 판정) + `applied_excludes_json`(승인된 장면 제외) |
 | `shortage_reasons` | `filtered_json.shortage_reasons` |

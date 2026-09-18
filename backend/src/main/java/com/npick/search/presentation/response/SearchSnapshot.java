@@ -78,6 +78,9 @@ public record SearchSnapshot(
     private static final List<String> REQUIRED_EVIDENCE_STRINGS =
             List.of("field", "source", "verification_status");
 
+    /** baseline {@code parse_source} 주석이 정한 저장 어휘. */
+    private static final Set<String> SCHEMA_PARSE_SOURCES = Set.of("resolver", "resolver_rule", "fallback");
+
     /** §5.1 이 정한 {@code shot_type} 어휘. */
     private static final Set<String> SHOT_TYPES = Set.of("anchor", "interview", "b_roll", "unknown");
 
@@ -104,7 +107,7 @@ public record SearchSnapshot(
             return unavailable(status, null);
         }
         JsonNode filtered = parseOrNull(item.filteredJson());
-        String queryResolutionStatus = queryResolutionStatus(item.parseSource());
+        String queryResolutionStatus = queryResolutionStatus(degradedReasons, item.parseSource());
         // jsonb 컬럼은 SQL NULL 뿐 아니라 JSON 리터럴 null 도 담을 수 있다 — CAST 하면 4글자 문자열 "null" 이
         // 되어 빈 값 검사를 통과한다. 둘 다 「결과가 확정되지 않았다」는 같은 뜻이므로 object 인지로 판정한다.
         if (filtered == null || !filtered.isObject() || queryResolutionStatus == null) {
@@ -209,21 +212,36 @@ public record SearchSnapshot(
     }
 
     /**
-     * 해석이 완료됐는지 대체 검색으로 떨어졌는지. 스키마가 정한 세 값만 인정한다(baseline {@code parse_source} 주석).
+     * 해석이 완료됐는지 대체 검색으로 떨어졌는지. <b>공개 사유에서 파생한다.</b>
      *
-     * <p>NULL 이나 미등록 값을 {@code resolved} 로 접지 않고 null 을 돌려 unavailable 로 만든다. 「어떻게 해석했는지
-     * 기록이 없다」를 「정상 해석됐다」로 바꾸면 없던 사실을 만들어 내는 것이다(FRD §7.2). {@code display_name} 을
-     * 대체 문자열로 메우지 않는 것과 같은 이유다.
+     * <p>§5.1 이 「{@code query_resolution_status=fallback} 여부는 {@code resolver_fallback} 포함 여부와 일치한다」를
+     * 요구한다. 두 값을 각자 다른 컬럼에서 뽑으면 그 불변식이 깨진다 — {@code parse_source='fallback'} 인데
+     * {@code degraded_reasons} 가 비어 있는 응답이 나갔다(MR !126 리뷰 4차). 한 출처에서 파생하면 구조로 보장된다.
+     *
+     * <p>{@code parse_source} 는 <b>검증</b>에만 남긴다. NULL 이나 스키마 밖 값이면 「어떻게 해석했는지 기록이 없다」는
+     * 뜻이라 {@code resolved} 로 접지 않고 null 을 돌려 unavailable 로 만든다. 저장값이 파생값과 어긋나도(예:
+     * {@code fallback} 인데 {@code resolver_fallback} 이 없음) 기록이 깨진 것이므로 unavailable 이다 — 어느 한쪽을
+     * 골라 내면 남은 한쪽이 말하는 사실을 지우게 된다.
      */
-    private static String queryResolutionStatus(String parseSource) {
-        if (parseSource == null) {
+    private static String queryResolutionStatus(ArrayNode publicDegradedReasons, String parseSource) {
+        // Set.of(...) 는 contains(null) 에 NPE 를 던진다. null 은 「기록 없음」이라 여기서 먼저 걸러낸다.
+        if (parseSource == null || !SCHEMA_PARSE_SOURCES.contains(parseSource)) {
             return null;
         }
-        return switch (parseSource) {
-            case "resolver", "resolver_rule" -> "resolved";
-            case "fallback" -> "fallback";
-            default -> null;
-        };
+        boolean fellBack = contains(publicDegradedReasons, "resolver_fallback");
+        if ("fallback".equals(parseSource) != fellBack) {
+            return null;
+        }
+        return fellBack ? "fallback" : "resolved";
+    }
+
+    private static boolean contains(ArrayNode values, String value) {
+        for (JsonNode candidate : values) {
+            if (value.equals(candidate.asString(null))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
