@@ -142,6 +142,62 @@ class SearchSnapshotTest {
                 .isTrue();
     }
 
+    // ---- status·degraded_reasons 를 공개 어휘로 파생한다 (S15P21A501-59 와 합의) ----
+
+    @Test
+    @DisplayName("규칙 건너뜀 사유는 공개 어휘가 아니므로 degraded_reasons 에서 걸러낸다")
+    void dropsNonPublicDegradedReasons() {
+        SearchHistoryItem item = degradedItem("[\"skipped_conflict:123\", \"skipped_incompatible:9\"]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
+
+        assertThat(snapshot.payload().get("degraded_reasons")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("공개 어휘만 남았을 때 그 값은 유지한다")
+    void keepsPublicDegradedReasons() {
+        SearchHistoryItem item = degradedItem("[\"dense_unavailable\", \"skipped_conflict:123\"]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
+
+        assertThat(snapshot.payload().get("degraded_reasons"))
+                .extracting(JsonNode::asString)
+                .containsExactly("dense_unavailable");
+    }
+
+    @Test
+    @DisplayName("기록이 degraded 여도 공개 사유가 없으면 status 는 succeeded 다 — POST /search 와 같아야 한다")
+    void statusFollowsPublicReasonsNotStoredStatus() {
+        SearchHistoryItem item = degradedItem("[\"skipped_conflict:123\"]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
+
+        assertThat(snapshot.status()).isEqualTo("succeeded");
+        assertThat(snapshot.payload().get("status").asString()).isEqualTo("succeeded");
+    }
+
+    @Test
+    @DisplayName("공개 사유가 있으면 status 는 degraded 다")
+    void statusIsDegradedWhenPublicReasonRemains() {
+        SearchHistoryItem item = degradedItem("[\"resolver_fallback\"]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
+
+        assertThat(snapshot.status()).isEqualTo("degraded");
+        assertThat(snapshot.payload().get("status").asString()).isEqualTo("degraded");
+    }
+
+    @Test
+    @DisplayName("상위 status 와 snapshot 의 status 는 항상 같은 값이다")
+    void topLevelAndSnapshotStatusAgree() {
+        SearchHistoryItem item = degradedItem("[\"skipped_conflict:1\", \"dense_unavailable\"]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
+
+        assertThat(snapshot.status()).isEqualTo(snapshot.payload().get("status").asString());
+    }
+
     // ---- P1 후속: 스칼라 필드의 타입 검증 (MR !126 리뷰 2차) ----
 
     @Test
@@ -596,6 +652,21 @@ class SearchSnapshotTest {
 
     private static SearchHistoryRecord record(String filteredJson, SearchHistoryResultRow... rows) {
         return new SearchHistoryRecord(item(filteredJson, "resolver", "[]"), List.of(rows));
+    }
+
+    /** 기록상 degraded 로 닫힌 실행. degradedReasonsJson 만 달라진다. */
+    private static SearchHistoryItem degradedItem(String degradedReasonsJson) {
+        return new SearchHistoryItem(
+                9701L,
+                "서울역 귀성 인파",
+                "{}",
+                Instant.parse("2026-09-15T03:00:00Z"),
+                "degraded",
+                degradedReasonsJson,
+                "resolver",
+                "[]",
+                "[]",
+                FILTERED_OK);
     }
 
     private static SearchHistoryItem item(String filteredJson, String parseSource, String appliedRulesJson) {

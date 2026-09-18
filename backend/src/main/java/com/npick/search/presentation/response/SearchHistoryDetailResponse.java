@@ -33,7 +33,7 @@ public record SearchHistoryDetailResponse(
                 record.item().queryText(),
                 snapshot.explicitFilters(),
                 record.item().createdAt(),
-                record.item().status(),
+                snapshot.status(),
                 snapshot.snapshotStatus(),
                 snapshot.resultCount(),
                 snapshot.representativeResult(),

@@ -711,7 +711,11 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 
 §5의 `GET /search/executions/{executionId}`(S15P21A501-60)와 책임이 다르다. 저쪽은 소유자·검수자가 **한 실행의 해석·적용 규칙·제외 사유**를 감사하는 단건 조회이고, 이쪽은 사용자가 **자기 기록을 목록으로 훑고 당시 결과 카드를 복원**하는 화면용 조회다. 두 endpoint는 같은 `search_execution`/`search_result` 저장을 읽되 응답 모델과 대상 범위가 다르다.
 
-**조회 대상.** 본인의 `execution_type='original'` 중 `status`가 `succeeded`/`degraded`인 실행이다. `replay`(교정 검증 재검색)·`running`·`failed`는 DB에 보존하되 이 화면에서 제외한다. 정상 결과 0건 실행은 **포함한다.** 검색 1회가 1건이며 같은 검색어를 다시 실행하면 별도 기록이다. 대표 장면은 당시 1위 결과이며 사용자가 실제로 본 장면이라는 뜻이 아니다.
+**`status`는 저장값이 아니라 파생값이다.** `search_execution.status`와 응답 `status`는 다를 수 있다 — 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 기록은 `degraded`로 닫히지만, 그 사유(`skipped_conflict:<rule_id>` 등)는 §5.1이 닫아 둔 공개 어휘 세 값에 없어서 `POST /search`는 같은 검색을 `succeeded`로 낸다. 저장값을 그대로 내면 **같은 검색이 검색 직후와 기록 조회에서 다른 상태로 보인다.** 이 절은 `search_snapshot`을 「§5 성공 `data`와 같은 object」로 규정하므로 공개 사유에서 파생해 두 화면을 일치시킨다. 상위 `data.status`와 `data.search_snapshot.status`도 항상 같은 값이다.
+
+규칙이 건너뛰어진 사실은 사라지지 않는다. `has_applied_review_rule`과 저장된 `applied_rules_json`에 남아 있고, 검수 감사용 단건 조회(§5의 `GET /search/executions/{executionId}`)로 규칙별 적용·건너뜀·실패와 사유를 볼 수 있다. 이 절은 사용자 화면용이라 공개 어휘만 낸다.
+
+**조회 대상.** 본인의 `execution_type='original'` 중 **저장된** `status`가 `succeeded`/`degraded`인 실행이다(대상 판정에는 저장값을 쓴다 — `failed`·`running`을 걸러내는 것이 목적이다). `replay`(교정 검증 재검색)·`running`·`failed`는 DB에 보존하되 이 화면에서 제외한다. 정상 결과 0건 실행은 **포함한다.** 검색 1회가 1건이며 같은 검색어를 다시 실행하면 별도 기록이다. 대표 장면은 당시 1위 결과이며 사용자가 실제로 본 장면이라는 뜻이 아니다.
 
 **정렬·페이지.** `created_at DESC, search_execution_id DESC` 고정(시각 동률도 결정적). `page`는 0 이상 정수 기본 0, `size`는 1~100 기본 10이며 **범위를 벗어나면 clamp하지 않고 400으로 거부한다.** 목록과 총계는 같은 범위 조건을 쓴다. 결과가 없어도 404가 아니라 200과 빈 `items: []`다. 마지막 페이지 이후 요청도 빈 `items`에 실제 `total_*`를 유지한다.
 
@@ -791,12 +795,15 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 
 | `search_snapshot` 필드 | 복원 출처 |
 | --- | --- |
-| `degraded_reasons` | `search_execution.degraded_reasons_json` |
+| `degraded_reasons` | `degraded_reasons_json` 중 **§5.1의 공개 어휘 세 값에 속하는 것만** |
+| `status` | 위에서 추린 공개 사유가 비었으면 `succeeded`, 있으면 `degraded`. **`search_execution.status`를 그대로 쓰지 않는다** |
 | `query_resolution_status` | `parse_source` — `resolver`·`resolver_rule`은 `resolved`, `fallback`은 `fallback`. 그 밖의 값과 NULL은 `unavailable` 판정 |
 | `has_applied_review_rule` | `applied_rules_json`에 `status="applied"` 존재 여부 |
 | `guard_summary.excluded_result_count`·`reasons` | **두 컬럼을 합친다.** `filtered_json.guard.verdicts` 중 `exclusion_reason`이 있는 것(guard 판정) + `applied_excludes_json`(승인된 장면 제외) |
 | `shortage_reasons` | `filtered_json.shortage_reasons` |
 | `results[]` | `search_result` 행 + `explain_json`의 `display`·`match` 블록 |
+
+`matched_keywords`에는 AI가 넓힌 확장어가 섞일 수 있다. 검색에 쓰고 근거에서 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 저장 쪽(S15P21A501-59)이 포함하기로 했다. 어느 것이 확장어인지는 응답이 구분하지 않으며, 그 표기는 아직 계약에 없다.
 
 `results[]` 한 항목은 `explain_json.display`·`explain_json.match`에 컬럼 4개(`search_result_id`·`scene_id`·`clip_id`·`rank`)를 얹은 것이다. 저장된 JSON을 **그대로 통과**시키며 필드별로 옮겨 담지 않는다. 키가 겹치면 **컬럼이 이긴다** — 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지지 않게 한다. `shot_type`은 저장값 원문을 그대로 낸다(§5.1의 4값 제약은 `POST /search` 응답에만 적용된다 — 기록을 소급 수정하지 않는다, FRD §7.2). `guard_summary`는 `explain_json.guard`가 아니다 — `search_result`에는 살아남은 장면만 남으므로 제외 건수를 알 수 없다. 출처가 두 컬럼인 이유는 `GuardExclusionReason`이 `explicit_date_conflict`·`approved_incident_conflict` 둘뿐이라서다. §5.1이 허용하는 세 번째 사유 `approved_scene_exclusion`은 guard가 내는 값이 아니라 `applied_excludes_json`(S15P21A501-58 승인 제외)에서만 온다. 한 컬럼만 읽으면 그 사유가 영원히 나오지 않고 건수가 `POST /search` 응답보다 작아진다.
 

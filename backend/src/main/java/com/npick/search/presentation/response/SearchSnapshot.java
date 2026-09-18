@@ -35,12 +35,23 @@ import com.npick.search.application.query.SearchHistoryResultRow;
  */
 public record SearchSnapshot(
         String snapshotStatus,
+        String status,
         JsonNode explicitFilters,
         Integer resultCount,
         JsonNode representativeResult,
         JsonNode payload) {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /**
+     * §5.1 이 {@code degraded_reasons} 로 허용하는 공개 어휘. 저장 컬럼과 같지 않다.
+     *
+     * <p>{@code degraded_reasons_json} 에는 규칙 판정이 {@code "skipped_conflict:<rule_id>"} 처럼 규칙 ID 를 붙인
+     * 문자열로도 들어간다({@code JdbcSearchExecutionRecordAdapter#degraded}). 그 값을 그대로 내면 닫힌 enum 자리에
+     * 어휘 밖 문자열이 나가 FE 파서가 깨진다.
+     */
+    private static final Set<String> PUBLIC_DEGRADED_REASONS =
+            Set.of("resolver_fallback", "dense_unavailable", "snapshot_save_failed");
 
     /** 계약이 정한 결과 개수 상한. */
     private static final int MAX_RESULTS = 10;
@@ -70,44 +81,47 @@ public record SearchSnapshot(
     /** 명시 필터에서 선택 가능한 날짜 종류. 선택했으면 from·to 가 모두 필수다. */
     private static final List<String> FILTER_DATE_KEYS = List.of("broadcast_date", "filmed_date");
 
-    private static SearchSnapshot unavailable(JsonNode explicitFilters) {
-        return new SearchSnapshot("unavailable", explicitFilters, null, null, null);
+    private static SearchSnapshot unavailable(String status, JsonNode explicitFilters) {
+        return new SearchSnapshot("unavailable", status, explicitFilters, null, null, null);
     }
 
     public static SearchSnapshot from(SearchHistoryRecord record) {
         SearchHistoryItem item = record.item();
+        ArrayNode degradedReasons = publicDegradedReasons(item.degradedReasonsJson());
+        String status = publicStatus(degradedReasons);
         // 필터 자체를 읽을 수 없으면 계약이 explicit_filters=null 과 unavailable 을 함께 요구한다.
         JsonNode explicitFilters = validExplicitFilters(item.explicitFiltersJson());
         if (explicitFilters == null) {
-            return unavailable(null);
+            return unavailable(status, null);
         }
         JsonNode filtered = parseOrNull(item.filteredJson());
         String queryResolutionStatus = queryResolutionStatus(item.parseSource());
         // jsonb 컬럼은 SQL NULL 뿐 아니라 JSON 리터럴 null 도 담을 수 있다 — CAST 하면 4글자 문자열 "null" 이
         // 되어 빈 값 검사를 통과한다. 둘 다 「결과가 확정되지 않았다」는 같은 뜻이므로 object 인지로 판정한다.
         if (filtered == null || !filtered.isObject() || queryResolutionStatus == null) {
-            return unavailable(explicitFilters);
+            return unavailable(status, explicitFilters);
         }
         if (record.results().size() > MAX_RESULTS) {
-            return unavailable(explicitFilters);
+            return unavailable(status, explicitFilters);
         }
         ArrayNode results = MAPPER.createArrayNode();
         for (SearchHistoryResultRow row : record.results()) {
             ObjectNode result = toResult(row);
             if (result == null) {
-                return unavailable(explicitFilters);
+                return unavailable(status, explicitFilters);
             }
             results.add(result);
         }
         if (!ranksAreConsecutive(record.results())) {
-            return unavailable(explicitFilters);
+            return unavailable(status, explicitFilters);
         }
         return new SearchSnapshot(
                 "available",
+                status,
                 explicitFilters,
                 results.size(),
                 representativeOf(results),
-                payload(item, queryResolutionStatus, filtered, results));
+                payload(item, status, degradedReasons, queryResolutionStatus, filtered, results));
     }
 
     /**
@@ -149,6 +163,40 @@ public record SearchSnapshot(
         } catch (DateTimeParseException e) {
             return null;
         }
+    }
+
+    /**
+     * 저장된 기능 저하 사유 중 <b>공개 어휘에 속하는 것만</b> 추린다.
+     *
+     * <p>저장 컬럼에는 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어진 사실도
+     * {@code "skipped_conflict:<rule_id>"} 형태로 들어간다. 그것은 검수 감사용 기록이고 §5.1 의 {@code degraded_reasons}
+     * 는 세 값으로 닫힌 enum 이다. 걸러내지 않으면 FE 파서가 깨진다. 건너뜀 사실 자체는
+     * {@code has_applied_review_rule} 과 {@code applied_rules_json} 에 남아 감사 경로
+     * ({@code GET /search/executions/{id}}, S15P21A501-60)로 볼 수 있다.
+     */
+    private static ArrayNode publicDegradedReasons(String degradedReasonsJson) {
+        ArrayNode publicReasons = MAPPER.createArrayNode();
+        for (JsonNode reason : arrayOrEmpty(degradedReasonsJson)) {
+            String value = reason.asString(null);
+            if (value != null && PUBLIC_DEGRADED_REASONS.contains(value)) {
+                publicReasons.add(value);
+            }
+        }
+        return publicReasons;
+    }
+
+    /**
+     * 응답이 낼 실행 상태. {@code search_execution.status} 를 그대로 쓰지 않는다.
+     *
+     * <p>규칙 건너뜀만으로 기록이 {@code degraded} 로 닫힌 실행을 {@code POST /search} 는 {@code succeeded} 로 낸다
+     * (공개 사유가 없으므로). 저장값을 그대로 내면 <b>같은 검색이 화면마다 다른 상태로 보인다</b> — 검색 직후엔
+     * {@code succeeded}, 기록으로 다시 보면 {@code degraded}. §6.7 이 {@code search_snapshot} 을 「§5 성공 data 와 같은
+     * object」로 규정하므로 공개 사유에서 파생해 두 화면을 일치시킨다(S15P21A501-59 와 합의).
+     *
+     * <p>{@code failed} 는 조회 대상이 아니므로 여기 오지 않는다(범위 조건이 succeeded/degraded 만 읽는다).
+     */
+    private static String publicStatus(ArrayNode publicDegradedReasons) {
+        return publicDegradedReasons.isEmpty() ? "succeeded" : "degraded";
     }
 
     /**
@@ -311,11 +359,16 @@ public record SearchSnapshot(
     }
 
     private static ObjectNode payload(
-            SearchHistoryItem item, String queryResolutionStatus, JsonNode filtered, ArrayNode results) {
+            SearchHistoryItem item,
+            String status,
+            ArrayNode degradedReasons,
+            String queryResolutionStatus,
+            JsonNode filtered,
+            ArrayNode results) {
         ObjectNode payload = MAPPER.createObjectNode();
         payload.put("search_execution_id", String.valueOf(item.searchExecutionId()));
-        payload.put("status", item.status());
-        payload.set("degraded_reasons", arrayOrEmpty(item.degradedReasonsJson()));
+        payload.put("status", status);
+        payload.set("degraded_reasons", degradedReasons);
         payload.put("query_resolution_status", queryResolutionStatus);
         payload.put("has_applied_review_rule", hasAppliedRule(item.appliedRulesJson()));
         payload.set("guard_summary", guardSummary(filtered, item.appliedExcludesJson()));
