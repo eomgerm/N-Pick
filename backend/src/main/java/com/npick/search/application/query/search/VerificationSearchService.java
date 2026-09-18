@@ -5,8 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import jakarta.persistence.EntityManager;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -31,8 +29,8 @@ import com.npick.search.domain.model.ParseRuleOutcome;
  * <p>같은 패키지에 두는 이유: {@link SearchRecordPayload}·{@link SearchExplain} 이 package-private 이고, 검증 검색은
  * 일반 검색과 <b>같은 기록 형태</b>를 남겨야 하므로(FRD §11) 그 변환을 재사용해야 한다.
  *
- * <p><b>요청당 커넥션 최대 2개, 순차 사용(§8, -176)</b>: 외부 롤백 트랜잭션(1, {@link #rollbackTemplate})이 끝난 뒤에야
- * {@code REQUIRES_NEW} 기록(1, {@link SearchExecutionRecordPort})이 시작된다 — 둘은 겹치지 않으므로 한 {@code verify()}
+ * <p><b>요청당 커넥션 최대 2개, 순차 사용(§8, -176)</b>: {@code REQUIRES_NEW} 실행 시작 기록,
+ * 외부 롤백 트랜잭션(1, {@link #rollbackTemplate}), {@code REQUIRES_NEW} 완료 기록은 순차로 실행된다. 한 {@code verify()}
  * 호출 안에서 동시에 열리는 커넥션은 최대 1개다. 그래도 검증 동시성 상한 또는 커넥션 풀 크기는 <b>동시 요청 수 × 2</b> 이상을
  * 보수적으로 잡아 둔다. 테스트 환경({@code NpickPostgres})은 풀 크기 3 에 테스트가 직렬 실행이라 이 권장치에 걸리지 않는다.
  */
@@ -47,7 +45,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
     private final SearchExecutionRecordPort record;
     private final CorrectionStateFingerprint fingerprint;
     private final TransactionTemplate rollbackTemplate;
-    private final EntityManager em;
+    private final VerificationCandidateStatePort candidateState;
 
     public VerificationSearchService(
             ExcludeContextPort excludeContextPort,
@@ -58,7 +56,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             SearchExecutionRecordPort record,
             CorrectionStateFingerprint fingerprint,
             PlatformTransactionManager txManager,
-            EntityManager em) {
+            VerificationCandidateStatePort candidateState) {
         this.excludeContextPort = excludeContextPort;
         this.inputPort = inputPort;
         this.candidatesPort = candidatesPort;
@@ -66,7 +64,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         this.ranker = ranker;
         this.record = record;
         this.fingerprint = fingerprint;
-        this.em = em;
+        this.candidateState = candidateState;
         this.rollbackTemplate = new TransactionTemplate(txManager);
         this.rollbackTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
     }
@@ -91,7 +89,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             throw new BusinessException(VerificationErrorCode.NOT_REVIEWER);
         }
         PendingCandidates candidates = candidatesPort.load(feedbackId);
-        if (candidates.tagEvidenceIds().isEmpty() && candidates.approvedRuleId() == null) {
+        if (candidates.tagEvidenceIds().isEmpty() && candidates.rules().isEmpty()) {
             throw new BusinessException(VerificationErrorCode.NO_PENDING_CANDIDATES);
         }
 
@@ -104,13 +102,13 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         long startedAt = System.nanoTime();
         try {
             VerificationSearchOutcome outcome = searchWithCandidatesRolledBack(query, candidates);
+            List<Long> originalSceneIds = inputPort.loadOriginalResultSceneIds(feedbackId);
+            SceneDiff.Result diff = SceneDiff.of(originalSceneIds, outcome.candidates());
             // complete() 는 해석 스냅샷(normalized_query 등)이 먼저 채워져 있어야 완결을 받아준다 — 일반 검색과
             // 같은 두 단계(recordResolution → complete)를 그대로 태운다. 롤백은 이미 끝났으므로 여기서 쓰는 값은
             // 롤백 전에 캡처해 둔 InterpretedQuery 그대로다.
             record.recordResolution(recordResolutionCommand(executionId, query, outcome.interpreted()));
             record.complete(completeCommand(executionId, outcome, candidates, baselineFingerprint, startedAt));
-            List<Long> originalSceneIds = inputPort.loadOriginalResultSceneIds(feedbackId);
-            SceneDiff.Result diff = SceneDiff.of(originalSceneIds, outcome.candidates());
             return new VerificationResult(executionId, diff.entered(), diff.dropped(), outcome.activeRuleSet());
         } catch (RuntimeException failed) {
             // running 누수 금지 (§8, -59 H5 패턴): 넓은 catch 로 실행 행을 fail 로 닫는다.
@@ -142,8 +140,16 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         var context = new LinkedHashMap<String, Object>();
         context.put("resolution", candidates.resolution());
         context.put("approved_evidence_ids", candidates.tagEvidenceIds());
-        context.put("approved_rule_id", candidates.approvedRuleId());
-        context.put("replaced_rule_id", candidates.replacedRuleId());
+        // -84 확정 소비자는 단수 ID를 요구한다. 복수 후보 전체도 별도 필드에 기록한다.
+        PendingCandidates.RuleCandidate firstRule = candidates.rules().isEmpty() ? null : candidates.rules().get(0);
+        context.put("approved_rule_id", firstRule == null ? null : firstRule.approvedRuleId());
+        context.put("replaced_rule_id", firstRule == null ? null : firstRule.replacedRuleId());
+        context.put("candidate_rules", candidates.rules().stream().map(rule -> {
+            Map<String, Object> pair = new LinkedHashMap<>();
+            pair.put("approved_rule_id", rule.approvedRuleId());
+            pair.put("replaced_rule_id", rule.replacedRuleId());
+            return pair;
+        }).toList());
         context.put("state_fingerprint", baselineFingerprint);
         context.put("candidate_tag_changes", candidates.tagEvidenceIds()); // §7.2 후보 태그 변경안
         context.put("baseline_state", Map.of("state_fingerprint", baselineFingerprint)); // §7.2 기준 상태
@@ -216,43 +222,15 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
     private VerificationSearchOutcome searchWithCandidatesRolledBack(
             ExecuteSearchQuery query, PendingCandidates candidates) {
         return rollbackTemplate.execute(status -> {
-            flip(candidates);
+            candidateState.flip(candidates);
             InterpretedQuery iq = interpreter.interpret(query);
             SearchCandidates result = ranker.rank(new RankSearchCandidatesUseCase.Query(
                     iq.resolved().normalization(), iq.finalResolution(),
                     iq.resolved().queryEmbedding(), iq.normalizedSearch()));
-            List<Long> activeRuleSet = readActivePatchRuleIds(); // flip 반영 상태 = 활성 − R1 + R2
+            List<Long> activeRuleSet = candidateState.readActivePatchRuleIds(); // flip 반영 상태 = 활성 − R1 + R2
             status.setRollbackOnly(); // flip 과 후보 적용을 모두 되돌린다
             return new VerificationSearchOutcome(result, iq, activeRuleSet);
         });
     }
 
-    /**
-     * flip 이 반영된 상태의 활성 patch_parse 규칙 집합 — 「활성 − R1 + R2」 조합 그 자체다. Task 1 지문(all-active,
-     * action 무필터)과는 목적이 다르다: 여기는 조합 검증용으로 action='patch_parse' 만 본다.
-     */
-    @SuppressWarnings("unchecked")
-    private List<Long> readActivePatchRuleIds() {
-        List<Number> rows = em.createNativeQuery(
-                        "SELECT search_rule_id FROM npick.search_rule "
-                                + "WHERE action = 'patch_parse' AND active = true ORDER BY search_rule_id")
-                .getResultList();
-        return rows.stream().map(Number::longValue).toList();
-    }
-
-    private void flip(PendingCandidates c) {
-        if (!c.tagEvidenceIds().isEmpty()) {
-            em.createNativeQuery("UPDATE npick.tag_evidence SET confirmed = true WHERE evidence_id IN (:ids)")
-                    .setParameter("ids", c.tagEvidenceIds())
-                    .executeUpdate();
-        }
-        if (c.approvedRuleId() != null) {
-            em.createNativeQuery("UPDATE npick.search_rule SET active = true WHERE search_rule_id = :r2")
-                    .setParameter("r2", c.approvedRuleId()).executeUpdate();
-        }
-        if (c.replacedRuleId() != null) {
-            em.createNativeQuery("UPDATE npick.search_rule SET active = false WHERE search_rule_id = :r1")
-                    .setParameter("r1", c.replacedRuleId()).executeUpdate();
-        }
-    }
 }

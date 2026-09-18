@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 
 import org.springframework.stereotype.Component;
 
@@ -40,12 +41,20 @@ public class CorrectionStateFingerprint {
                         + "JOIN npick.search_result sr ON sr.search_result_id = f.search_result_id "
                         + "JOIN npick.scene s ON s.scene_id = sr.scene_id "
                         + "JOIN npick.clip c ON c.clip_id = s.clip_id "
-                        + "WHERE f.feedback_id = " + feedbackId + " AND c.active_pipeline_run_id IS NOT NULL "
-                        + "ORDER BY c.active_pipeline_run_id");
+                        + "WHERE f.feedback_id = :feedbackId AND c.active_pipeline_run_id IS NOT NULL "
+                        + "ORDER BY c.active_pipeline_run_id", feedbackId);
     }
 
     private String joinedIds(String sql) {
-        List<?> rows = em.createNativeQuery(sql).getResultList();
+        return joinedIds(sql, null);
+    }
+
+    private String joinedIds(String sql, Long feedbackId) {
+        Query query = em.createNativeQuery(sql);
+        if (feedbackId != null) {
+            query.setParameter("feedbackId", feedbackId);
+        }
+        List<?> rows = query.getResultList();
         return rows.stream().map(v -> ((Number) v).longValue()).map(String::valueOf).collect(Collectors.joining(","));
     }
 }

@@ -87,7 +87,7 @@ class VerificationInputLoadDbTest {
         TestGraph.insertActivePatchRule(jdbc, FEEDBACK_ID, 8302080L);          // R1 active
         TestGraph.insertPendingPatchRuleReplacing(jdbc, FEEDBACK_ID, 8302081L, 8302080L); // R2 -> R1
         PendingCandidates pending = candidatesPort.load(FEEDBACK_ID);
-        assertThat(pending.approvedRuleId()).isEqualTo(8302081L);
-        assertThat(pending.replacedRuleId()).isEqualTo(8302080L);
+        assertThat(pending.rules()).containsExactly(
+                new PendingCandidates.RuleCandidate(8302081L, 8302080L));
     }
 }

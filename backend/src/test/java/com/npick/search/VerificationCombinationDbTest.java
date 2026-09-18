@@ -25,12 +25,14 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
      */
     @AfterEach
     void deactivateLeakedActiveRules() {
-        jdbc.update("UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (?, ?)", R1, OTHER_ACTIVE);
+        jdbc.update("UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (?, ?, ?)",
+                R1, OTHER_ACTIVE, MULTI_OLD_RULE);
     }
 
     private static final long MEMBER_ID = 8305001L, CLIP_ID = 8305010L, RUN_ID = 8305020L,
             SCENE_ID = 8305030L, EXEC_ID = 8305040L, RESULT_ID = 8305050L, FEEDBACK_ID = 8305060L,
-            R1 = 8305080L, R2 = 8305081L, OTHER_ACTIVE = 8305082L;
+            R1 = 8305080L, R2 = 8305081L, OTHER_ACTIVE = 8305082L,
+            MULTI_OLD_RULE = 8305180L;
 
     @Autowired
     VerifyCorrectionCandidatesUseCase useCase;
@@ -84,5 +86,37 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
                 "SELECT count(*) FROM npick.search_execution WHERE replay_of_feedback_id = ?",
                 Long.class, FEEDBACK_ID + 1);
         assertThat(count).isEqualTo(1L); // 두 검증이 아니라 한 조합 검증
+    }
+
+    @Test
+    @DisplayName("한 신고의 규칙 후보 셋을 모두 임시 활성화하고 교체 대상은 제외한다")
+    void verifiesEveryRuleCandidate() {
+        long feedbackId = FEEDBACK_ID + 2;
+        long oldRule = MULTI_OLD_RULE, firstCandidate = 8305181L;
+        TestGraph.insertSearchableReportedScene(jdbc, MEMBER_ID + 2, CLIP_ID + 2, RUN_ID + 2,
+                SCENE_ID + 2, EXEC_ID + 2, RESULT_ID + 2, feedbackId);
+        jdbc.update("UPDATE npick.feedback SET resolution = 'patch_parse' WHERE feedback_id = ?", feedbackId);
+        TestGraph.insertActivePatchRule(jdbc, feedbackId, oldRule);
+        TestGraph.insertPendingPatchRule(jdbc, feedbackId, firstCandidate);
+        TestGraph.insertPendingPatchRuleReplacing(jdbc, feedbackId, firstCandidate + 1, oldRule);
+        TestGraph.insertPendingPatchRule(jdbc, feedbackId, firstCandidate + 2);
+        TestGraph.claimFeedback(jdbc, feedbackId, MEMBER_ID + 2);
+
+        long execId = useCase.verify(feedbackId, MEMBER_ID + 2).executionId();
+        String context = jdbc.queryForObject(
+                "SELECT verification_context_json::text FROM npick.search_execution WHERE search_execution_id = ?",
+                String.class, execId);
+        String ruleSet = jdbc.queryForObject(
+                "SELECT (verification_context_json->'verification_rule_set')::text FROM npick.search_execution "
+                        + "WHERE search_execution_id = ?", String.class, execId);
+
+        assertThat(ruleSet).contains(String.valueOf(firstCandidate), String.valueOf(firstCandidate + 1),
+                        String.valueOf(firstCandidate + 2))
+                .doesNotContain(String.valueOf(oldRule));
+        assertThat(context).contains("\"candidate_rules\"");
+        assertThat(jdbc.queryForObject(
+                "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, oldRule)).isTrue();
+        assertThat(jdbc.queryForObject(
+                "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, firstCandidate)).isFalse();
     }
 }

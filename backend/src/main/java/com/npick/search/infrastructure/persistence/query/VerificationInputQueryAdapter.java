@@ -7,8 +7,8 @@ import jakarta.persistence.EntityManager;
 
 import org.springframework.stereotype.Repository;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import com.npick.common.error.BusinessException;
 import com.npick.search.application.error.SearchExecutionErrorCode;
 import com.npick.search.application.query.search.ExecuteSearchQuery;
@@ -23,10 +23,11 @@ import com.npick.search.application.query.search.VerificationInputPort;
 class VerificationInputQueryAdapter implements VerificationInputPort {
 
     private final EntityManager em;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
-    VerificationInputQueryAdapter(EntityManager em) {
+    VerificationInputQueryAdapter(EntityManager em, ObjectMapper objectMapper) {
         this.em = em;
+        this.objectMapper = objectMapper;
     }
 
     @Override

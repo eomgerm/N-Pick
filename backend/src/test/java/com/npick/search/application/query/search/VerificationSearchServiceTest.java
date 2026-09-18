@@ -3,8 +3,6 @@ package com.npick.search.application.query.search;
 import java.util.List;
 import java.util.Optional;
 
-import jakarta.persistence.EntityManager;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,9 +51,10 @@ class VerificationSearchServiceTest {
         record = mock(SearchExecutionRecordPort.class);
         CorrectionStateFingerprint fingerprint = mock(CorrectionStateFingerprint.class);
         PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
-        EntityManager em = mock(EntityManager.class);
+        VerificationCandidateStatePort candidateState = mock(VerificationCandidateStatePort.class);
         service = new VerificationSearchService(
-                excludeContextPort, inputPort, candidatesPort, interpreter, ranker, record, fingerprint, txManager, em);
+                excludeContextPort, inputPort, candidatesPort, interpreter, ranker, record, fingerprint, txManager,
+                candidateState);
     }
 
     private ExcludeContext reviewingContext(Long reviewedById) {
@@ -117,7 +116,7 @@ class VerificationSearchServiceTest {
     void rejectsNoPendingCandidates() {
         when(excludeContextPort.find(FEEDBACK_ID)).thenReturn(Optional.of(reviewingContext(9L)));
         when(candidatesPort.load(FEEDBACK_ID))
-                .thenReturn(new PendingCandidates("tag_correction", List.of(), null, null));
+                .thenReturn(new PendingCandidates("tag_correction", List.of(), List.of()));
 
         assertThatThrownBy(() -> service.verify(FEEDBACK_ID, 9L))
                 .isInstanceOfSatisfying(

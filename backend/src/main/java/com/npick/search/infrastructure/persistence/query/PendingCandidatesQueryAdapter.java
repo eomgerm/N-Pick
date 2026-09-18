@@ -39,19 +39,17 @@ class PendingCandidatesQueryAdapter implements PendingCandidatesPort {
                 .setParameter("fid", feedbackId)
                 .getResultList();
 
-        Long approvedRuleId = null;
-        Long replacedRuleId = null;
-        if (!ruleRows.isEmpty()) {
-            Object[] rule = ruleRows.get(0); // 후보 생성 멱등: 신고당 활성화 대상 규칙은 하나다
-            approvedRuleId = ((Number) rule[0]).longValue();
-            replacedRuleId = rule[1] == null ? null : ((Number) rule[1]).longValue();
-        }
+        List<PendingCandidates.RuleCandidate> rules = ruleRows.stream()
+                .map(rule -> new PendingCandidates.RuleCandidate(
+                        ((Number) rule[0]).longValue(),
+                        rule[1] == null ? null : ((Number) rule[1]).longValue()))
+                .toList();
 
         String resolution = (String) em.createNativeQuery(
                         "SELECT resolution FROM npick.feedback WHERE feedback_id = :fid")
                 .setParameter("fid", feedbackId)
                 .getSingleResult();
 
-        return new PendingCandidates(resolution, tagEvidenceIds, approvedRuleId, replacedRuleId);
+        return new PendingCandidates(resolution, tagEvidenceIds, rules);
     }
 }
