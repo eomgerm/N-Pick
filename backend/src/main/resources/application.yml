@@ -55,7 +55,7 @@ server:
   port: ${SERVER_PORT:8080}
   servlet:
     session:
-      timeout: ${SESSION_TIMEOUT:8h}
+      timeout: ${ACCESS_TOKEN_TTL:30m}
       cookie:
         # Spring Session 기본 이름(SESSION) 대신 FE/SSR의 기존 계약을 유지한다.
         name: JSESSIONID
@@ -67,6 +67,8 @@ server:
 # 합의한 입력 기본값은 환경변수로 덮어쓸 수 있다.
 # 저장 경로 등 필수 설정이 비면 등록을 거부한다.
 npick:
+  auth:
+    refresh-ttl: ${REFRESH_TOKEN_TTL:8h}
   pipeline:
     profile: ${NPICK_PIPELINE_PROFILE:classpath:pipeline-profile.yml}
   worker-jobs:

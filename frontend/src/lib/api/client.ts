@@ -106,6 +106,48 @@ export async function fetchJson<ResponseData>(
   init: JsonRequestInit = {},
   baseUrl = env.apiBaseUrl,
 ): Promise<ResponseData> {
+  const generation = refreshGeneration;
+  try {
+    return await fetchJsonOnce<ResponseData>(path, init, baseUrl);
+  } catch (error) {
+    if (
+      typeof document === 'undefined' ||
+      !(error instanceof ApiClientError) ||
+      error.status !== 401 ||
+      error.code !== 'COMM_401' ||
+      /^\/?auth\/(login|logout|csrf|refresh)(?:\?|$)/.test(path)
+    )
+      throw error;
+    if (init.signal?.aborted) throw new ApiClientError('aborted', 0);
+    if (generation === refreshGeneration) await renewBrowserSession();
+    if (init.signal?.aborted) throw new ApiClientError('aborted', 0);
+    // 인증 필터가 거부한 요청만 동일 body/멱등성 키로 한 번 다시 보낸다.
+    return fetchJsonOnce<ResponseData>(path, init, baseUrl);
+  }
+}
+
+let refreshGeneration = 0;
+let refreshInFlight: Promise<void> | undefined;
+
+export function renewBrowserSession(): Promise<void> {
+  refreshInFlight ??= fetchJsonOnce('/auth/refresh', {
+    method: 'POST',
+    signal: AbortSignal.timeout(15_000),
+  })
+    .then(() => {
+      refreshGeneration++;
+    })
+    .finally(() => {
+      refreshInFlight = undefined;
+    });
+  return refreshInFlight;
+}
+
+async function fetchJsonOnce<ResponseData>(
+  path: string,
+  init: JsonRequestInit = {},
+  baseUrl = env.apiBaseUrl,
+): Promise<ResponseData> {
   const { body, cache = 'no-store', headers, idempotencyKey, query, ...requestInit } = init;
   const requestHeaders = new Headers(headers);
   const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(

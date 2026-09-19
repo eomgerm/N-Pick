@@ -17,8 +17,12 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.session.Session;
+import org.springframework.session.SessionRepository;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
 
 import com.npick.NpickApplication;
+import com.npick.common.security.config.AccessSessionExpiryFilter;
 import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,7 +38,7 @@ class PersistentLoginSessionHttpTest {
     private int port;
 
     @Test
-    void loginSurvivesRestartAndActivityRenewsIdleTimeoutButLogoutAndExpiryStillRevokeIt() throws Exception {
+    void shortAccessRefreshAndRestartPreserveLoginButLogoutAndRefreshExpiryRevokeIt() throws Exception {
         String url = NpickPostgres.freshDatabase("persistent_login");
         // 이미 배포된 스키마에서 업그레이드한다. 신규 세션 테이블은 실제 앱의 Flyway가 만든다.
         Flyway.configure()
@@ -47,6 +51,8 @@ class PersistentLoginSessionHttpTest {
                 .migrate();
 
         String savedCookie;
+        String savedRefresh;
+        java.time.Instant refreshDeadline;
         try (var app = start(url)) {
             var jdbc = app.getBean(JdbcTemplate.class);
             jdbc.update(
@@ -60,6 +66,17 @@ class PersistentLoginSessionHttpTest {
                             .startsWith("JSESSIONID=")
                             .contains("Path=/", "HttpOnly", "SameSite=Strict"));
             savedCookie = cookie("JSESSIONID").getValue();
+            savedRefresh = cookie("NPICK_REFRESH").getValue();
+            assertThat(savedRefresh).matches("[a-f0-9]{64}");
+            assertThat(login.headers().allValues("set-cookie"))
+                    .anySatisfy(header -> assertThat(header)
+                            .startsWith("NPICK_REFRESH=")
+                            .contains("HttpOnly", "SameSite=Strict", "Max-Age="));
+            refreshDeadline = jdbc.queryForObject(
+                            "SELECT expires_at FROM npick.login_refresh", java.sql.Timestamp.class)
+                    .toInstant();
+            assertThat(jdbc.queryForObject("SELECT token_hash FROM npick.login_refresh", String.class))
+                    .isNotEqualTo(savedRefresh);
             // Next.js 서버 guard가 허용하는 쿠키 형식과 동일하다.
             assertThat(savedCookie).matches("(?i)^[a-z\\d._~-]+$");
             assertThat(cookies.getCookieStore().getCookies())
@@ -67,17 +84,16 @@ class PersistentLoginSessionHttpTest {
             assertThat(jdbc.queryForObject(
                             "SELECT MAX_INACTIVE_INTERVAL FROM npick.SPRING_SESSION WHERE PRINCIPAL_NAME = 'session-test'",
                             Integer.class))
-                    .isEqualTo(8 * 60 * 60);
+                    .isEqualTo(30 * 60);
 
-            // 예전 30분 기본값을 넘겨도 유효하고, 서버 요청을 보내면 만료 시각이 다시 연장된다.
-            long idleSince = System.currentTimeMillis() - Duration.ofMinutes(31).toMillis();
-            jdbc.update(
-                    "UPDATE npick.SPRING_SESSION SET LAST_ACCESS_TIME = ?, EXPIRY_TIME = ?",
-                    idleSince,
-                    idleSince + Duration.ofHours(8).toMillis());
+            String id = jdbc.queryForObject("SELECT SESSION_ID FROM npick.SPRING_SESSION", String.class);
+            var repository = app.getBean(JdbcIndexedSessionRepository.class);
+            Session original = repository.findById(id);
+            Long deadline = original.getAttribute(AccessSessionExpiryFilter.EXPIRES_AT);
             assertMember(request("GET", "/auth/me", null));
-            assertThat(jdbc.queryForObject("SELECT LAST_ACCESS_TIME FROM npick.SPRING_SESSION", Long.class))
-                    .isGreaterThan(idleSince);
+            Session afterRequest = repository.findById(id);
+            assertThat((Long) afterRequest.getAttribute(AccessSessionExpiryFilter.EXPIRES_AT))
+                    .isEqualTo(deadline);
         }
 
         // 서버·커넥션 풀·메모리 세션을 모두 닫고 같은 DB로 재기동한다. 브라우저 쿠키만 재사용한다.
@@ -85,35 +101,97 @@ class PersistentLoginSessionHttpTest {
             var jdbc = app.getBean(JdbcTemplate.class);
             assertThat(cookie("JSESSIONID").getValue()).isEqualTo(savedCookie);
             assertMember(request("GET", "/auth/me", null));
+            expireAccess(app, jdbc);
+            assertThat(request("GET", "/auth/me", null).statusCode()).isEqualTo(401);
+            // refresh 하나를 동시에 보내도 같은 새 access를 받으며 refresh 만료는 연장되지 않는다.
+            var first = client.sendAsync(refreshRequest(), HttpResponse.BodyHandlers.ofString());
+            var second = client.sendAsync(refreshRequest(), HttpResponse.BodyHandlers.ofString());
+            assertThat(first.join().statusCode()).isEqualTo(200);
+            assertThat(second.join().statusCode()).isEqualTo(200);
+            assertThat(first.join().headers().allValues("set-cookie"))
+                    .isEqualTo(second.join().headers().allValues("set-cookie"));
+            assertThat(cookie("JSESSIONID").getValue()).isNotEqualTo(savedCookie);
+            assertThat(cookie("NPICK_REFRESH").getValue()).isEqualTo(savedRefresh);
+            assertThat(jdbc.queryForObject("SELECT expires_at FROM npick.login_refresh", java.sql.Timestamp.class)
+                            .toInstant())
+                    .isEqualTo(refreshDeadline);
+            assertMember(request("GET", "/auth/me", null));
             assertThat(request("GET", "/clips", null).statusCode()).isEqualTo(403);
+            assertThat(client.send(
+                                    HttpRequest.newBuilder(uri("/auth/refresh"))
+                                            .POST(HttpRequest.BodyPublishers.noBody())
+                                            .build(),
+                                    HttpResponse.BodyHandlers.ofString())
+                            .statusCode())
+                    .isEqualTo(403);
+            // refresh 종료 직전에는 새 access도 남은 로그인 기한까지만 유효하다.
+            jdbc.update("UPDATE npick.login_refresh SET expires_at = now() + interval '1 minute'");
+            expireAccess(app, jdbc);
+            assertThat(request("POST", "/auth/refresh", "").statusCode()).isEqualTo(200);
+            var finalDeadline = jdbc.queryForObject(
+                            "SELECT expires_at FROM npick.login_refresh", java.sql.Timestamp.class)
+                    .toInstant();
+            Session lastAccess = app.getBean(JdbcIndexedSessionRepository.class)
+                    .findById(jdbc.queryForObject("SELECT SESSION_ID FROM npick.SPRING_SESSION", String.class));
+            assertThat((Long) lastAccess.getAttribute(AccessSessionExpiryFilter.EXPIRES_AT))
+                    .isEqualTo(finalDeadline.toEpochMilli());
+            String loggedOutCookie = cookie("JSESSIONID").getValue();
             assertThat(request("POST", "/auth/logout", "").statusCode()).isEqualTo(200);
             assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.SPRING_SESSION", Integer.class))
                     .isZero();
             assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.SPRING_SESSION_ATTRIBUTES", Integer.class))
                     .isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.login_refresh", Integer.class))
+                    .isZero();
             // 브라우저에서 지운 쿠키를 재전송해도 로그아웃한 세션이 부활하지 않는다.
             try (var replay = HttpClient.newHttpClient()) {
                 var response = replay.send(
                         HttpRequest.newBuilder(uri("/auth/me"))
-                                .header("Cookie", "JSESSIONID=" + savedCookie)
+                                .header("Cookie", "JSESSIONID=" + loggedOutCookie)
                                 .GET()
                                 .build(),
                         HttpResponse.BodyHandlers.ofString());
                 assertThat(response.statusCode()).isEqualTo(401);
+                var refreshReplay = replay.send(
+                        HttpRequest.newBuilder(uri("/auth/refresh"))
+                                .header(
+                                        "Cookie",
+                                        "NPICK_REFRESH=" + savedRefresh + "; XSRF-TOKEN="
+                                                + cookie("XSRF-TOKEN").getValue())
+                                .header("X-XSRF-TOKEN", cookie("XSRF-TOKEN").getValue())
+                                .POST(HttpRequest.BodyPublishers.noBody())
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertThat(refreshReplay.statusCode()).isEqualTo(401);
             }
 
             assertThat(login().statusCode()).isEqualTo(200);
-            long expiredSince = System.currentTimeMillis() - Duration.ofHours(9).toMillis();
-            jdbc.update(
-                    "UPDATE npick.SPRING_SESSION SET LAST_ACCESS_TIME = ?, EXPIRY_TIME = ?",
-                    expiredSince,
-                    expiredSince + Duration.ofHours(8).toMillis());
-            var expired = request("GET", "/auth/me", null);
+            expireAccess(app, jdbc);
+            jdbc.update("UPDATE npick.login_refresh SET expires_at = now() - interval '1 second'");
+            var expired = request("POST", "/auth/refresh", "");
             assertThat(expired.statusCode()).isEqualTo(401);
             assertThat(expired.body()).contains("COMM_401");
         } finally {
             client.close();
         }
+    }
+
+    private HttpRequest refreshRequest() {
+        return HttpRequest.newBuilder(uri("/auth/refresh"))
+                .header("X-XSRF-TOKEN", cookie("XSRF-TOKEN").getValue())
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+    }
+
+    private void expireAccess(ConfigurableApplicationContext app, JdbcTemplate jdbc) {
+        String id = jdbc.queryForObject("SELECT SESSION_ID FROM npick.SPRING_SESSION", String.class);
+        expire(app.getBean(JdbcIndexedSessionRepository.class), id);
+    }
+
+    private <S extends Session> void expire(SessionRepository<S> sessions, String id) {
+        S session = sessions.findById(id);
+        session.setAttribute(AccessSessionExpiryFilter.EXPIRES_AT, System.currentTimeMillis() - 1);
+        sessions.save(session);
     }
 
     private ConfigurableApplicationContext start(String url) {

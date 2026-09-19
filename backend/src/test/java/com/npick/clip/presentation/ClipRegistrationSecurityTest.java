@@ -34,6 +34,8 @@ import com.npick.common.security.config.SecurityWebMvcConfig;
 import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
+import com.npick.member.application.command.RefreshLoginService;
+import com.npick.member.application.command.login.RegisterRefreshUseCase;
 import com.npick.member.infrastructure.security.MemberUserDetailsService;
 import com.npick.member.presentation.AuthController;
 
@@ -83,6 +85,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     ClipRegistrationConfiguration.class
 })
 class ClipRegistrationSecurityTest {
+    @MockitoBean
+    RefreshLoginService refreshLogin;
+
     @Autowired
     MockMvc mvc;
 
@@ -103,6 +108,10 @@ class ClipRegistrationSecurityTest {
 
     @BeforeEach
     void setup() {
+        org.mockito.Mockito.when(refreshLogin.register(
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new RegisterRefreshUseCase.IssuedRefresh(
+                        "a".repeat(64), java.time.Instant.now().plusSeconds(28800)));
         when(members.loadUserByUsername("reviewer"))
                 .thenReturn(new AuthenticatedMember(7, "reviewer", passwords.encode("pw"), "REVIEWER"));
         when(members.loadUserByUsername("editor"))

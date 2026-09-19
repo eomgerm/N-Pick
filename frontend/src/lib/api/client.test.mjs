@@ -18,6 +18,102 @@ registerHooks({
 
 const { ApiClientError, createApiUrl, fetchJson } = await import('./client.ts');
 
+const authFailure = () =>
+  Response.json(
+    { isSuccess: false, code: 'COMM_401', message: 'Authentication is required' },
+    { status: 401 },
+  );
+const authSuccess = (data) =>
+  Response.json({ isSuccess: true, code: 'COMM_200', message: 'OK', data });
+
+async function browserClient(context, name) {
+  globalThis.document = { cookie: 'XSRF-TOKEN=test-csrf' };
+  context.after(() => {
+    delete globalThis.document;
+  });
+  return import(`./client.ts?refresh-${name}`);
+}
+
+test('동시 401은 refresh 한 번으로 복구하고 원래 POST body와 멱등성 키를 보존한다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'concurrent');
+  let refreshed = false;
+  let refreshes = 0;
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url, init) => {
+    if (url.endsWith('/auth/csrf')) return authSuccess();
+    if (url.endsWith('/auth/refresh')) {
+      refreshes++;
+      assert.equal(init.method, 'POST');
+      assert.equal(init.credentials, 'include');
+      assert.equal(init.headers.get('X-XSRF-TOKEN'), 'test-csrf');
+      refreshed = true;
+      return authSuccess();
+    }
+    calls.push({ url, init });
+    return refreshed ? authSuccess({ value: 'restored' }) : authFailure();
+  });
+  const body = { text: 'same request' };
+  const result = await Promise.all([
+    request('/search', { method: 'POST', body, idempotencyKey: 'same-key' }),
+    request('/auth/me'),
+  ]);
+  assert.equal(refreshes, 1);
+  assert.equal(result[0].value, 'restored');
+  const writes = calls.filter((call) => call.url.endsWith('/search'));
+  assert.equal(writes.length, 2);
+  for (const { init } of writes) {
+    assert.equal(init.body, JSON.stringify(body));
+    assert.equal(init.headers.get('Idempotency-Key'), 'same-key');
+  }
+});
+
+test('refresh 만료는 원래 요청 재전송 없이 로그인 만료를 전달한다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'expired');
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    return url.endsWith('/auth/csrf') ? authSuccess() : authFailure();
+  });
+  await assert.rejects(request('/auth/me'), { status: 401, code: 'COMM_401' });
+  assert.equal(calls.filter((url) => url.endsWith('/auth/me')).length, 1);
+  assert.equal(calls.filter((url) => url.endsWith('/auth/refresh')).length, 1);
+});
+
+test('refresh 네트워크 실패는 로그아웃으로 바꾸지 않는다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'network');
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    if (url.endsWith('/auth/csrf')) return authSuccess();
+    if (url.endsWith('/auth/refresh')) throw new TypeError('offline');
+    return authFailure();
+  });
+  await assert.rejects(request('/auth/me'), { kind: 'network', status: 0 });
+});
+
+test('갱신 뒤 재요청도 401이면 다시 갱신하지 않는다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'bounded');
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    return url.endsWith('/auth/me') ? authFailure() : authSuccess();
+  });
+  await assert.rejects(request('/auth/me'), { status: 401 });
+  assert.equal(calls.filter((url) => url.endsWith('/auth/me')).length, 2);
+  assert.equal(calls.filter((url) => url.endsWith('/auth/refresh')).length, 1);
+});
+
+test('로그인·로그아웃·refresh 요청 자체는 401 자동 복구 대상이 아니다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'excluded');
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    return url.endsWith('/auth/csrf') ? authSuccess() : authFailure();
+  });
+  for (const path of ['/auth/login', '/auth/logout', '/auth/refresh']) {
+    await assert.rejects(request(path, { method: 'POST' }), { status: 401 });
+  }
+  assert.equal(calls.filter((url) => url.endsWith('/auth/refresh')).length, 1);
+});
+
 test('API 기본 주소는 로컬 절대 주소와 nginx 상대 경로를 지원한다', () => {
   assert.equal(parseApiBaseUrl(' http://127.0.0.1:8080/api/v1/ '), 'http://127.0.0.1:8080/api/v1');
   assert.equal(parseApiBaseUrl('/api/v1/'), '/api/v1');

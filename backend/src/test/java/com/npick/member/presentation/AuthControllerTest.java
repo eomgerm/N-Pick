@@ -27,6 +27,8 @@ import com.npick.common.security.config.SecurityWebMvcConfig;
 import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
+import com.npick.member.application.command.RefreshLoginService;
+import com.npick.member.application.command.login.RegisterRefreshUseCase;
 import com.npick.member.infrastructure.security.MemberUserDetailsService;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -53,6 +55,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class AuthControllerTest {
+    @MockitoBean
+    RefreshLoginService refreshLogin;
 
     @Autowired
     MockMvc mockMvc;
@@ -65,6 +69,10 @@ class AuthControllerTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.when(refreshLogin.register(
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new RegisterRefreshUseCase.IssuedRefresh(
+                        "a".repeat(64), java.time.Instant.now().plusSeconds(28800)));
         given(memberUserDetailsService.loadUserByUsername("reviewer01"))
                 .willReturn(
                         new AuthenticatedMember(100L, "reviewer01", passwordEncoder.encode("pw-correct"), "REVIEWER"));
