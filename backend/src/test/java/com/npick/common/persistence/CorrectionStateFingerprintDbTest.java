@@ -1,5 +1,7 @@
 package com.npick.common.persistence;
 
+import java.util.List;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -95,5 +97,40 @@ class CorrectionStateFingerprintDbTest {
         String first = fingerprint.compute(FEEDBACK_ID);
         String second = fingerprint.compute(FEEDBACK_ID);
         assertThat(first).isEqualTo(second);
+    }
+
+    @Test
+    @DisplayName("compute(feedbackId, loaded ids) 는 pending 축을 재조회가 아니라 인자로 받은 id 에서 낸다 "
+            + "(S15P21A501-83 경합 수정)")
+    void overloadDerivesPendingAxesFromLoadedIdsNotReQuery() {
+        long loadedOnly = 8301071L;
+        long committedAfterLoad = 8301072L;
+        // "loadedOnly" 만 로드했다고 가정하고, 그 뒤 다른 후보("committedAfterLoad")가 커밋됐다고 가정한다.
+        TestGraph.insertPendingPatchRule(jdbc, FEEDBACK_ID, loadedOnly);
+        TestGraph.insertPendingPatchRule(jdbc, FEEDBACK_ID, committedAfterLoad);
+
+        String fromLoadedIds = fingerprint.compute(FEEDBACK_ID, List.of(loadedOnly), List.of());
+
+        assertThat(fromLoadedIds).contains("pending_rules=" + loadedOnly);
+        assertThat(fromLoadedIds).doesNotContain(String.valueOf(committedAfterLoad));
+        // 재조회 경로(compute(feedbackId))는 둘 다 잡아 로드 기반 값과 달라진다 — 드리프트 감지가 그대로 작동한다.
+        assertThat(fingerprint.compute(FEEDBACK_ID)).isNotEqualTo(fromLoadedIds);
+    }
+
+    @Test
+    @DisplayName("경합 없이 넘긴 id가 실제 대기 후보 전체와 같으면 오버로드 결과는 재조회(compute(feedbackId))와 같다")
+    void overloadEqualsReQueryWhenLoadedIdsMatchActualPendingState() {
+        // 다른 테스트가 공유 FEEDBACK_ID 에 남긴 대기 후보(순서 의존 오염)를 피하려고 이 테스트만 별도 신고를 심는다 —
+        // 전체 재조회와의 완전 일치를 검사하므로 다른 테스트의 잔여 행이 섞이면 안 된다.
+        long memberId = 8301091L, clipId = 8301092L, runId = 8301093L, sceneId = 8301094L,
+                execId = 8301095L, resultId = 8301096L, feedbackId = 8301097L,
+                ruleId = 8301098L, evidenceId = 8301099L;
+        TestGraph.insertReportedScene(jdbc, memberId, clipId, runId, sceneId, execId, resultId, feedbackId);
+        TestGraph.insertPendingPatchRule(jdbc, feedbackId, ruleId);
+        TestGraph.insertReviewerTagCandidate(jdbc, sceneId, clipId, feedbackId, evidenceId);
+
+        String fromLoadedIds = fingerprint.compute(feedbackId, List.of(ruleId), List.of(evidenceId));
+
+        assertThat(fromLoadedIds).isEqualTo(fingerprint.compute(feedbackId));
     }
 }

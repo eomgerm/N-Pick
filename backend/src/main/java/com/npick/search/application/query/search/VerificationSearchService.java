@@ -101,7 +101,13 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         VerificationInput input = inputPort.load(feedbackId);
         ExecuteSearchQuery query = new ExecuteSearchQuery(input.rawQuery(), input.dateFilters(), reviewerId);
 
-        String baselineFingerprint = fingerprint.compute(feedbackId); // flip 전 기준 상태
+        // pending_rules/pending_tags 축을 방금 로드한 candidates 에서 낸다(재조회 아님, S15P21A501-83 경합 수정) —
+        // 그래야 recorded fingerprint 의 pending 축 == 아래에서 실제로 flip·검색할 집합이 항상 같다. candidates 로드와
+        // 이 계산 사이에 새 후보가 커밋돼도 여기 잡히지 않으므로(의도), -84 재조회 compute(feedbackId) 는 그 새 후보를
+        // 보고 값이 달라져 드리프트를 정확히 잡는다.
+        List<Long> loadedPendingRuleIds = candidates.rules().stream()
+                .map(PendingCandidates.RuleCandidate::approvedRuleId).toList();
+        String baselineFingerprint = fingerprint.compute(feedbackId, loadedPendingRuleIds, candidates.tagEvidenceIds()); // flip 전 기준 상태 = flip 할 집합
         long executionId = record.start(new StartSearchExecution(
                 reviewerId, StartSearchExecution.ExecutionType.REPLAY, feedbackId, input.rawQuery()));
         long startedAt = System.nanoTime();
@@ -159,6 +165,13 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             return pair;
         }).toList());
         context.put("state_fingerprint", baselineFingerprint);
+        // baselineFingerprint 의 pending_rules/pending_tags 축을 그대로 낸 정확한 id 집합(S15P21A501-83) — 위
+        // approved_evidence_ids/candidate_rules 와 값은 같지만, -84 가 "이 지문의 pending 축이 정확히 이 id들에서
+        // 나왔다"를 필드명으로 바로 확인하도록 별도 키로 둔다. approved_evidence_ids 는 -84 VerificationRunQueryAdapter
+        // 엄격 계약(양의 long 배열)을 이미 쓰므로 재사용하지 않고 새 키를 추가한다.
+        context.put("verified_candidate_ids", Map.of(
+                "rule_ids", candidates.rules().stream().map(PendingCandidates.RuleCandidate::approvedRuleId).toList(),
+                "tag_evidence_ids", candidates.tagEvidenceIds()));
         context.put("candidate_tag_changes", candidates.tagEvidenceIds()); // §7.2 후보 태그 변경안
         context.put("baseline_state", Map.of("state_fingerprint", baselineFingerprint)); // §7.2 기준 상태
         context.put("verification_rule_set", outcome.activeRuleSet()); // §7.2 검증 규칙 집합 (활성 − R1 + R2)
