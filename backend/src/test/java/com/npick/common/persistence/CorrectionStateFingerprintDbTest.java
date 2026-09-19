@@ -48,10 +48,11 @@ class CorrectionStateFingerprintDbTest {
     }
 
     @Test
-    @DisplayName("4축 정규 문자열을 rules;tags;config;run 순서로 낸다")
-    void computesFourAxes() {
+    @DisplayName("6축 정규 문자열을 rules;tags;config;run;pending_rules;pending_tags 순서로 낸다")
+    void computesSixAxes() {
         String fp = fingerprint.compute(FEEDBACK_ID);
-        assertThat(fp).matches("rules=[^;]*;tags=[^;]*;config=[^;]*;run=[^;]*");
+        assertThat(fp).matches(
+                "rules=[^;]*;tags=[^;]*;config=[^;]*;run=[^;]*;pending_rules=[^;]*;pending_tags=[^;]*");
         assertThat(fp).contains("config=search-config/v1:");
         assertThat(fp).contains("run=" + RUN_ID);
     }
@@ -70,5 +71,29 @@ class CorrectionStateFingerprintDbTest {
         TestGraph.insertPipelineRun(jdbc, CLIP_ID, RUN_ID + 1);
         jdbc.update("UPDATE npick.clip SET active_pipeline_run_id = ? WHERE clip_id = ?", RUN_ID + 1, CLIP_ID);
         assertThat(fingerprint.compute(FEEDBACK_ID)).isNotEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("pending_rules 축: 이 신고에 새 대기 규칙 후보가 생기면 지문이 달라진다")
+    void pendingRulesAxisChangesWhenCandidateAdded() {
+        String before = fingerprint.compute(FEEDBACK_ID);
+        TestGraph.insertPendingPatchRule(jdbc, FEEDBACK_ID, 8301070L);
+        assertThat(fingerprint.compute(FEEDBACK_ID)).isNotEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("pending_tags 축: 이 신고에 미확정 검수자 태그 후보가 생기면 지문이 달라진다")
+    void pendingTagsAxisChangesWhenCandidateAdded() {
+        String before = fingerprint.compute(FEEDBACK_ID);
+        TestGraph.insertReviewerTagCandidate(jdbc, SCENE_ID, CLIP_ID, FEEDBACK_ID, 8301080L);
+        assertThat(fingerprint.compute(FEEDBACK_ID)).isNotEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("대기 후보가 늘지 않으면 compute 는 반복 호출에도 안정적이다")
+    void computeIsStableWithoutNewPendingCandidate() {
+        String first = fingerprint.compute(FEEDBACK_ID);
+        String second = fingerprint.compute(FEEDBACK_ID);
+        assertThat(first).isEqualTo(second);
     }
 }

@@ -9,16 +9,22 @@ import jakarta.persistence.Query;
 import org.springframework.stereotype.Component;
 
 /**
- * 교정 상태 지문 (S15P21A501-83·-84, FRD F-13.3·4). 4축 정규 문자열을 해시 없이 낸다 — 사람이 읽고 재현하기 쉬워
+ * 교정 상태 지문 (S15P21A501-83·-84, FRD F-13.3·4). 6축 정규 문자열을 해시 없이 낸다 — 사람이 읽고 재현하기 쉬워
  * 검증(-83)과 확정(-84)의 어긋남을 빨리 잡는다.
  *
  * <p>축: {@code rules}(전체 활성 규칙 집합) · {@code tags}(확정된 검수자 근거 집합) · {@code config}(검색 설정 버전) ·
- * {@code run}(신고 대상 클립의 현재 처리). -83 기록과 -84 확정이 <b>같은 이 컴포넌트</b>를 부른다. 한쪽만 넓히면 확정이 영구 불일치로 막히므로
- * 지문 규칙 변경은 반드시 이 한 파일에서 한다.
+ * {@code run}(신고 대상 클립의 현재 처리) · {@code pending_rules}(이 신고의 대기 규칙 후보) ·
+ * {@code pending_tags}(이 신고의 미확정 검수자 태그 후보). -83 기록과 -84 확정이 <b>같은 이 컴포넌트</b>를 부른다. 한쪽만 넓히면 확정이
+ * 영구 불일치로 막히므로 지문 규칙 변경은 반드시 이 한 파일에서 한다.
  *
  * <p>{@code rules} 축은 {@code action} 을 가리지 않는다 — patch_parse 뿐 아니라 exclude_scene 등 활성 규칙 전부가 검색 결과를
  * 바꾸므로, 검증 이후 어느 규칙이 활성/비활성으로 바뀌어도 재검증 대상이다(F-13 4). -84 {@code CurrentCorrectionStateQueryAdapter}
  * 는 독자적인 SQL 없이 이 컴포넌트에 위임한다 — 대칭이 코드로 강제되는 단일 진실 공급원이다.
+ *
+ * <p>{@code pending_rules}·{@code pending_tags} 축은 이 신고(feedbackId)에 딸린, 아직 활성/확정되지 않은 후보를 센다.
+ * 이 축이 없으면 검증(-83)이 후보 {A}로 지문을 남긴 뒤 같은 REVIEWING 신고에 후보 B(비활성 규칙 또는 미확정 태그)가 추가돼도
+ * rules/tags 축(전역 활성/확정 집합)은 그대로라 지문이 안 바뀐다 — 확정(-84)이 새 후보를 보지 못한 옛 검증 실행으로 통과해 부분
+ * 검증만 확정되는 stale 경합이 생긴다(F-13 4). 후보가 추가/제거되면 이 축이 바뀌어 재검증을 강제한다.
  */
 @Component
 public class CorrectionStateFingerprint {
@@ -42,7 +48,13 @@ public class CorrectionStateFingerprint {
                         + "JOIN npick.scene s ON s.scene_id = sr.scene_id "
                         + "JOIN npick.clip c ON c.clip_id = s.clip_id "
                         + "WHERE f.feedback_id = :feedbackId AND c.active_pipeline_run_id IS NOT NULL "
-                        + "ORDER BY c.active_pipeline_run_id", feedbackId);
+                        + "ORDER BY c.active_pipeline_run_id", feedbackId)
+                + ";pending_rules=" + joinedIds("SELECT search_rule_id FROM npick.search_rule "
+                        + "WHERE source_feedback_id = :feedbackId AND active = false ORDER BY search_rule_id",
+                        feedbackId)
+                + ";pending_tags=" + joinedIds("SELECT evidence_id FROM npick.tag_evidence "
+                        + "WHERE source_feedback_id = :feedbackId AND source = 'reviewer_feedback' "
+                        + "AND confirmed = false ORDER BY evidence_id", feedbackId);
     }
 
     private String joinedIds(String sql) {
