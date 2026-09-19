@@ -53,7 +53,7 @@ abstract class AbstractVerificationSearchDbTest {
         given(resolver.resolve(any())).willAnswer(invocation -> resolvedResult(invocation.getArgument(0)));
     }
 
-    private QueryResolutionResult resolvedResult(String rawQuery) {
+    protected QueryResolutionResult resolvedResult(String rawQuery) {
         QueryNormalization normalization = new QueryNormalization(rawQuery, tokens(rawQuery), "normalizer/v1");
         QueryResolution resolution = new QueryResolution(
                 "query-resolver/v2",

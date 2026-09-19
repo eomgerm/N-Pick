@@ -33,6 +33,11 @@ import com.npick.search.domain.model.ParseRuleOutcome;
  * 외부 롤백 트랜잭션(1, {@link #rollbackTemplate}), {@code REQUIRES_NEW} 완료 기록은 순차로 실행된다. 한 {@code verify()}
  * 호출 안에서 동시에 열리는 커넥션은 최대 1개다. 그래도 검증 동시성 상한 또는 커넥션 풀 크기는 <b>동시 요청 수 × 2</b> 이상을
  * 보수적으로 잡아 둔다. 테스트 환경({@code NpickPostgres})은 풀 크기 3 에 테스트가 직렬 실행이라 이 권장치에 걸리지 않는다.
+ *
+ * <p><b>AI 리졸버 호출은 롤백 트랜잭션 밖에서 먼저 끝낸다(S15P21A501-219)</b>: {@link InterpretSearchQueryUseCase#resolve} 를
+ * 트랜잭션을 열기 전에 부르고, 트랜잭션 안에서는 {@link InterpretSearchQueryUseCase#interpretFromResolution} 만 부른다 — 활성
+ * 규칙 조회가 flip 반영 상태를 읽어야 해서 그 부분만 트랜잭션 안에 남는다. 리졸버 응답 지연이 후보 행 잠금·커넥션 점유
+ * 시간에 더해지지 않는다.
  */
 @Service
 public class VerificationSearchService implements VerifyCorrectionCandidatesUseCase {
@@ -101,7 +106,10 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                 reviewerId, StartSearchExecution.ExecutionType.REPLAY, feedbackId, input.rawQuery()));
         long startedAt = System.nanoTime();
         try {
-            VerificationSearchOutcome outcome = searchWithCandidatesRolledBack(query, candidates);
+            // 리졸버 HTTP 는 flip 과 무관하다(S15P21A501-219) — 롤백 트랜잭션을 열기 전에 끝내 둔다.
+            // 트랜잭션 안에서 부르면 리졸버 지연만큼 flip 이 쥔 행 잠금·커넥션 점유가 늘어난다.
+            InterpretSearchQueryUseCase.Resolution resolution = interpreter.resolve(query);
+            VerificationSearchOutcome outcome = searchWithCandidatesRolledBack(query, candidates, resolution);
             List<Long> originalSceneIds = inputPort.loadOriginalResultSceneIds(feedbackId);
             SceneDiff.Result diff = SceneDiff.of(originalSceneIds, outcome.candidates());
             // complete() 는 해석 스냅샷(normalized_query 등)이 먼저 채워져 있어야 완결을 받아준다 — 일반 검색과
@@ -218,12 +226,17 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
      */
     record VerificationSearchOutcome(SearchCandidates candidates, InterpretedQuery interpreted, List<Long> activeRuleSet) {}
 
-    /** flip → 같은 코드로 재검색 → 캡처 → 롤백. 공유·확정 데이터는 복구된다 (FRD §11). */
+    /**
+     * flip → 같은 코드로 재검색 → 캡처 → 롤백. 공유·확정 데이터는 복구된다 (FRD §11).
+     *
+     * <p>{@code resolution} 은 트랜잭션 밖에서 이미 끝난 리졸버 호출 결과다(S15P21A501-219) — 여기서는
+     * {@link InterpretSearchQueryUseCase#interpretFromResolution} 만 불러 flip 반영 상태로 활성 규칙을 읽는다.
+     */
     private VerificationSearchOutcome searchWithCandidatesRolledBack(
-            ExecuteSearchQuery query, PendingCandidates candidates) {
+            ExecuteSearchQuery query, PendingCandidates candidates, InterpretSearchQueryUseCase.Resolution resolution) {
         return rollbackTemplate.execute(status -> {
             candidateState.flip(candidates);
-            InterpretedQuery iq = interpreter.interpret(query);
+            InterpretedQuery iq = interpreter.interpretFromResolution(query, resolution);
             SearchCandidates result = ranker.rank(new RankSearchCandidatesUseCase.Query(
                     iq.resolved().normalization(), iq.finalResolution(),
                     iq.resolved().queryEmbedding(), iq.normalizedSearch()));
