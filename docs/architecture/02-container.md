@@ -82,10 +82,10 @@ C4Container
 | 요소 | 유형 | 기술 | 책임 |
 | --- | --- | --- | --- |
 | 웹 애플리케이션 | Container | Next.js 16.3.4 (Turbopack), Node 24 | `/review` 처리·문의 화면과 `/search` 화면 |
-| 서비스 서버 | Container | Spring Boot 4.1.1, Java 21 LTS | 정본 쓰기 소유, 검색 오케스트레이션(RRF·guard·Top 10 보충), 잡 디스패치, 외부 전송 게이트와 감사 기록 |
+| 서비스 서버 | Container | Spring Boot 4.1.1, Java 21 LTS, Spring Session JDBC | 정본 쓰기 소유, PostgreSQL 로그인 세션 관리, 검색 오케스트레이션(RRF·guard·Top 10 보충), 잡 디스패치, 외부 전송 게이트와 감사 기록 |
 | 질의 리졸버 | Container | FastAPI, Python 3.12 | 질의 구조화, 질의 임베딩, Kiwi 형태소 토큰화. 동기 호출 전용이며 재시도 없음 |
 | 파이프라인 워커 | Container | FastAPI, Python 3.12, PyTorch | 장면 분할, keyframe 추출, OCR, transcript 선택, ASR, scene-transcript 매핑, VLM 메타데이터, entity 추출, 텍스트 임베딩, 색인 (10단계) |
-| 정본 및 검색 인덱스 | ContainerDb | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4 | 모든 ID·관계·상태·snapshot·교정·inquiry의 정본이자 BM25·dense 인덱스 |
+| 정본 및 검색 인덱스 | ContainerDb | PostgreSQL 18.6 + pg_search 0.25.6 + pgvector 0.8.4 | 모든 ID·관계·상태·snapshot·교정·inquiry의 정본이자 BM25·dense 인덱스, 로그인 세션 보존 |
 | 에셋 스토어 | ContainerDb | 로컬 파일시스템 | 원본 영상, keyframe, thumbnail. 인덱스 재구축 시 manifest 원천 |
 | 평가 추적 | Container | MLflow 3.15.2 (backend store: 같은 인스턴스의 별도 `mlflow` DB) | search_version별 파라미터·지표·artifact를 불변 run으로 기록 |
 

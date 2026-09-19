@@ -1,5 +1,6 @@
 package com.npick.common.security;
 
+import java.io.Serial;
 import java.util.Collection;
 import java.util.List;
 
@@ -8,6 +9,9 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 public class AuthenticatedMember implements UserDetails {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
 
     private final long memberId;
     private final String loginId;

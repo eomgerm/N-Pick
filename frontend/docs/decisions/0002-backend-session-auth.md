@@ -11,6 +11,7 @@ FRD F01과 현재 Spring Security 구현은 사전 등록 계정의 세션 로�
 ## 결정
 
 - 인증의 정본은 백엔드 `JSESSIONID` 세션이다. JWT, NextAuth, 별도 프론트 세션, 브라우저 저장소의 인증 상태는 만들지 않는다.
+- 백엔드 세션은 Spring Session JDBC로 PostgreSQL에 보존한다. 기본 유휴 만료는 8시간이며 요청 시 연장된다. 재배포에도 유지되며, 메모리 세션에서 최초 전환할 때만 재로그인이 필요하다.
 - 보호된 각 page에서 `/auth/me`를 `no-store`로 조회한다. Server Component는 server-only `API_INTERNAL_BASE_URL`로 요청하며 수신한 `JSESSIONID`만 전달한다. 세션·쿠키를 Client Component에 전달하지 않는다. layout만으로 접근을 보호하지 않는다.
 - 검색은 EDITOR/REVIEWER, `/review`의 모든 화면은 REVIEWER만 허용한다. URL의 로그인 역할은 안내용이다. 최종 데이터 접근 권한은 항상 백엔드가 검증한다.
 - 브라우저는 공통 HTTP client로 백엔드에 직접 요청하고 `credentials: include`를 사용한다. 배포에서는 nginx의 동일 오리진 `/api/v1`을 사용하며 Next.js API 프록시는 추가하지 않는다.

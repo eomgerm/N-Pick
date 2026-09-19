@@ -6,6 +6,11 @@ spring:
     name: npick
   profiles:
     default: local
+  session:
+    jdbc:
+      # 스키마는 Flyway만 관리한다. 재배포 시에도 기존 로그인 세션을 읽는다.
+      initialize-schema: never
+      table-name: npick.SPRING_SESSION
   servlet:
     multipart:
       max-file-size: ${CLIP_MAX_FILE_BYTES:10737418240}B
@@ -50,7 +55,11 @@ server:
   port: ${SERVER_PORT:8080}
   servlet:
     session:
+      timeout: ${SESSION_TIMEOUT:8h}
       cookie:
+        # Spring Session 기본 이름(SESSION) 대신 FE/SSR의 기존 계약을 유지한다.
+        name: JSESSIONID
+        path: /
         http-only: true
         secure: true
         same-site: strict

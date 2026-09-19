@@ -74,6 +74,16 @@ FATAL: password authentication failed for user "npick"
 curl http://localhost:8080/actuator/health   # {"status":"UP"}
 ```
 
+로그인은 Spring Session JDBC로 기존 PostgreSQL의 `npick.spring_session`과
+`npick.spring_session_attributes`에 보존한다. 쿠키는 기존 계약인 `JSESSIONID`이며 기본 유휴 만료는
+8시간이다. 세션 요청이 들어오면 만료 시각이 연장되고, 로그아웃은 DB의 세션과 속성을 삭제한다.
+만료 세션은 Spring Session의 정리 작업이 제거한다. 테이블은 Flyway가 생성하며 별도 DB 초기화는 하지 않는다.
+
+최초 전환 배포에서는 이전 프로세스의 메모리 세션을 옮길 수 없어 한 번 재로그인해야 한다.
+이후에는 같은 DB를 사용하는 백엔드 재시작·컨테이너 교체 후에도 만료 전 로그인이 유지된다.
+이전 버전으로 롤백하면 다시 로그인해야 하며, 추가된 두 테이블과 Flyway 이력은 삭제하지 않는다.
+인증 principal의 직렬화 형태를 변경할 때는 저장된 세션과의 호환성을 확인한다.
+
 ## 빌드 / 테스트
 
 ```bash
@@ -136,6 +146,7 @@ java -jar build/libs/npick-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `SERVER_PORT` | `8080` | 포트 충돌 시 오버라이드 |
+| `SESSION_TIMEOUT` | `8h` | 로그인 세션 유휴 만료 시간. `backend/.env`에서 조정 가능 |
 | `LOCAL_DB_URL` | `jdbc:postgresql://localhost:5432/npick` | local 프로파일 접속 주소 |
 | `LOCAL_DB_USERNAME` | `npick` | `.env` 의 `POSTGRES_USER` 와 같아야 한다 |
 | `LOCAL_DB_PASSWORD` | **없음** | `.env` 의 `POSTGRES_PASSWORD` 를 넘긴다 |

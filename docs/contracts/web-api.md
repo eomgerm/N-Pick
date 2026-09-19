@@ -47,6 +47,7 @@
 ### 2.1 인증과 요청 보호
 
 - 로그인 세션은 `JSESSIONID` cookie로 유지한다. FE는 `credentials: include`로 요청한다.
+- 세션은 PostgreSQL에 보존하며 백엔드 재시작 후에도 유효하다. 기본 유휴 만료는 8시간(`SESSION_TIMEOUT`으로 조정)이며 세션 요청 시 연장된다. 로그아웃은 저장된 세션을 무효화한다.
 - 브라우저의 변경 요청은 먼저 `GET /auth/csrf`로 `XSRF-TOKEN` cookie를 준비하고 같은 값을 `X-XSRF-TOKEN` header로 보낸다.
 - 세션 token과 비밀번호를 FE 저장소에 저장하지 않는다.
 - 서버는 사용자 ID를 요청 본문에서 신뢰하지 않고 로그인 세션에서 결정한다.
