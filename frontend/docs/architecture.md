@@ -23,6 +23,7 @@ src/
 │  ├─ page.tsx             랜딩 기본 버전으로 이동
 │  ├─ landing/            영상 배경과 역할 선택 랜딩
 │  ├─ login/              백엔드 세션 로그인 (역할 query는 안내용)
+│  ├─ session/renew/      SSR access 만료 시 브라우저 refresh와 원래 화면 복귀
 │  ├─ search/             편집자 검색 입력
 │  │  └─ results/         검색 결과와 URL 필터
 │  ├─ review/             문의·영상 등록·처리 현황
@@ -37,6 +38,7 @@ src/
 │  ├─ api-error-notice.tsx  한국어 오류·코드·요청 ID 공통 표시
 │  ├─ query-provider.tsx   TanStack Query와 인증 만료·탭 간 세션 변경 처리
 │  ├─ session-boundary.tsx 서버 사용자 snapshot과 클라이언트 세션 재확인
+│  ├─ session-renewal.tsx 브라우저 갱신·쿠키 확인·오류 재시도
 │  └─ session-controls.tsx 현재 계정·검색 화면의 메뉴 드롭다운·로그아웃
 ├─ features/               기능 단위 UI와 로직
 │  ├─ search/

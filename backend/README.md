@@ -74,6 +74,23 @@ FATAL: password authentication failed for user "npick"
 curl http://localhost:8080/actuator/health   # {"status":"UP"}
 ```
 
+로그인은 Spring Session JDBC로 기존 PostgreSQL의 `npick.spring_session`과
+`npick.spring_session_attributes`에 보존한다. `JSESSIONID`는 기본 30분의 짧은 access 인증이며
+일반 요청으로 절대 만료 시각이 늘어나지 않는다. `NPICK_REFRESH`는 HttpOnly·Secure·SameSite=Strict
+쿠키로만 발급하는 256비트 불투명 토큰이다. `npick.login_refresh`에는 SHA-256 해시만 저장한다.
+`POST /api/v1/auth/refresh`는 CSRF 검증 후 access를 재발급하며, 최초 로그인부터 최대 8시간인
+refresh 기한은 연장하지 않는다. 새 access도 이 기한을 넘지 못한다. 동시 갱신은 DB 행 잠금으로
+직렬화하여 같은 유효 access를 반환한다. refresh 토큰 자체는 고정 기한 동안 유지한다.
+로그아웃은 access와 refresh를 모두 폐기하며 access가 이미 만료돼도 가능하다.
+만료 access는 Spring Session이 정리하고, 만료 refresh 행은 다음 로그인에서 정리한다.
+테이블은 Flyway가 생성하며 별도 DB 초기화는 하지 않는다.
+
+최초 전환 배포에서는 이전 프로세스의 메모리 세션을 옮길 수 없어 한 번 재로그인해야 한다.
+이후에는 같은 DB를 사용하는 백엔드 재시작·컨테이너 교체 후에도 만료 전 로그인이 유지된다.
+8시간 access만 사용하던 버전에서 전환할 때도 한 번 재로그인해야 한다.
+이전 버전으로 롤백하면 다시 로그인해야 하며, 추가된 테이블과 Flyway 이력은 삭제하지 않는다.
+인증 principal의 직렬화 형태를 변경할 때는 저장된 세션과의 호환성을 확인한다.
+
 ## 빌드 / 테스트
 
 ```bash
@@ -136,6 +153,8 @@ java -jar build/libs/npick-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 | 변수 | 기본값 | 설명 |
 | --- | --- | --- |
 | `SERVER_PORT` | `8080` | 포트 충돌 시 오버라이드 |
+| `ACCESS_TOKEN_TTL` | `30m` | 짧은 인증의 절대 수명과 세션 idle 상한 |
+| `REFRESH_TOKEN_TTL` | `8h` | 최초 로그인부터 refresh를 사용할 수 있는 최대 기간 |
 | `LOCAL_DB_URL` | `jdbc:postgresql://localhost:5432/npick` | local 프로파일 접속 주소 |
 | `LOCAL_DB_USERNAME` | `npick` | `.env` 의 `POSTGRES_USER` 와 같아야 한다 |
 | `LOCAL_DB_PASSWORD` | **없음** | `.env` 의 `POSTGRES_PASSWORD` 를 넘긴다 |

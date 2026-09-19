@@ -47,6 +47,7 @@
 ### 2.1 인증과 요청 보호
 
 - 로그인 세션은 `JSESSIONID` cookie로 유지한다. FE는 `credentials: include`로 요청한다.
+- access 인증은 기본 30분의 절대 수명(`ACCESS_TOKEN_TTL`)이며 일반 요청으로 늘어나지 않는다. 별도 `NPICK_REFRESH` HttpOnly cookie로 최초 로그인부터 최대 8시간(`REFRESH_TOKEN_TTL`)까지 재발급한다. 둘 다 PostgreSQL에 보존하며 로그아웃 시 폐기한다. refresh를 사용해도 8시간 기한은 늘어나지 않는다.
 - 브라우저의 변경 요청은 먼저 `GET /auth/csrf`로 `XSRF-TOKEN` cookie를 준비하고 같은 값을 `X-XSRF-TOKEN` header로 보낸다.
 - 세션 token과 비밀번호를 FE 저장소에 저장하지 않는다.
 - 서버는 사용자 ID를 요청 본문에서 신뢰하지 않고 로그인 세션에서 결정한다.
@@ -115,7 +116,7 @@
 }
 ```
 
-두 필드는 빈 문자열일 수 없다. 성공하면 새 session ID를 발급하고 다음 `data`를 보낸다.
+두 필드는 빈 문자열일 수 없다. 성공하면 새 `JSESSIONID`와 `NPICK_REFRESH` cookie를 발급하고 다음 `data`를 보낸다. 인증 자격 증명은 응답 body에 넣지 않는다.
 
 ```json
 {
@@ -142,7 +143,15 @@
 
 `POST /auth/logout`
 
-요청 body는 없다. session을 무효화하고 body 없는 성공 envelope를 보낸다.
+요청 body는 없다. access와 refresh를 무효화하고 refresh cookie를 삭제하며 body 없는 성공 envelope를 보낸다. access가 이미 만료돼도 가능하며 CSRF 검증은 필요하다.
+
+### 3.5 인증 갱신
+
+`POST /auth/refresh`
+
+요청 body는 없다. `NPICK_REFRESH` cookie와 CSRF cookie/header를 검증한 후 짧은 access cookie를 발급한다. 성공 `data`는 로그인 응답과 같다. 아직 유효한 access가 있으면 동시 갱신 요청들이 같은 access를 받는다. refresh가 없거나 만료·폐기됐으면 `401 COMM_401`, CSRF 실패는 `403 COMM_403`이다.
+
+FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하면 같은 body와 멱등성 키로 원래 요청을 한 번만 재전송한다. 같은 탭의 동시 실패는 갱신 요청을 공유한다. refresh 실패가 네트워크·서버 오류이면 로그인 만료로 처리하지 않는다. SSR 보호 페이지에서 access가 만료되면 브라우저 갱신 화면을 거쳐 원래 화면으로 복귀한다.
 
 ## 4. 영상 등록 API — 연결됨
 

@@ -33,6 +33,8 @@ import com.npick.common.security.config.SecurityWebMvcConfig;
 import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
+import com.npick.member.application.command.RefreshLoginService;
+import com.npick.member.application.command.login.RegisterRefreshUseCase;
 import com.npick.member.infrastructure.security.MemberUserDetailsService;
 import com.npick.member.presentation.AuthController;
 
@@ -65,6 +67,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     GlobalExceptionHandler.class
 })
 class ClipMediaControllerTest {
+    @MockitoBean
+    RefreshLoginService refreshLogin;
 
     private static final byte[] CONTENT = "0123456789".repeat(10).getBytes(StandardCharsets.UTF_8);
     private static final String URL = "/api/v1/media/42";
@@ -84,6 +88,10 @@ class ClipMediaControllerTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.when(refreshLogin.register(
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new RegisterRefreshUseCase.IssuedRefresh(
+                        "a".repeat(64), java.time.Instant.now().plusSeconds(28800)));
         when(members.loadUserByUsername("reviewer"))
                 .thenReturn(new AuthenticatedMember(7, "reviewer", passwords.encode("pw"), "REVIEWER"));
         when(members.loadUserByUsername("editor"))
