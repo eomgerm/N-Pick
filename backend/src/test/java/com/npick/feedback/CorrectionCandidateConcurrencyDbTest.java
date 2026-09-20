@@ -28,6 +28,7 @@ import com.npick.common.error.ErrorCode;
 import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.feedback.application.ConfirmCorrectionCommand;
 import com.npick.feedback.application.ConfirmCorrectionUseCase;
+import com.npick.feedback.application.ResolveInquiryUseCase;
 import com.npick.feedback.application.error.ConfirmCorrectionErrorCode;
 import com.npick.feedback.application.port.CurrentCorrectionStatePort;
 import com.npick.search.application.CreateParsePatchCandidateCommand;
@@ -70,6 +71,9 @@ class CorrectionCandidateConcurrencyDbTest {
 
     @Autowired
     private ConfirmCorrectionUseCase confirmCorrection;
+
+    @Autowired
+    private ResolveInquiryUseCase resolveInquiry;
 
     @Autowired
     private CreateParsePatchCandidateUseCase createParsePatch;
@@ -121,6 +125,95 @@ class CorrectionCandidateConcurrencyDbTest {
             assertThat(candidate.get(5, TimeUnit.SECONDS)).isEqualTo(path.notReviewingError());
             assertThat(feedbackStatus()).isEqualTo("CLOSED");
             assertThat(candidateCount(path)).isEqualTo(1);
+        } finally {
+            gate.releaseFirst().countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: 종료 판정이 먼저 잠금을 잡으면 후보 생성은 종료 상태를 다시 읽고 거부된다")
+    @EnumSource(CandidatePath.class)
+    @Timeout(15)
+    void terminalResolutionFirstRejectsEveryCandidatePath(CandidatePath path) throws Exception {
+        seedForCandidateCreation(path);
+        LockGate gate = gateFirst("resolve-first");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<ErrorCode> resolution = executor.submit(
+                    () -> named("resolve-first", () -> resolveAttempt("no_action", "조치 불필요")));
+            assertThat(gate.firstAcquired().await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<ErrorCode> candidate =
+                    executor.submit(() -> named("candidate-second", () -> candidateAttempt(path)));
+            assertThat(gate.secondEntered().await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(candidate.isDone()).isFalse();
+
+            gate.releaseFirst().countDown();
+
+            assertThat(resolution.get(5, TimeUnit.SECONDS)).isNull();
+            assertThat(candidate.get(5, TimeUnit.SECONDS)).isEqualTo(path.notReviewingError());
+            assertThat(feedbackStatus()).isEqualTo("CLOSED");
+            assertThat(feedbackResolution()).isEqualTo("no_action");
+            assertThat(candidateCount(path)).isZero();
+        } finally {
+            gate.releaseFirst().countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: 다른 교정 판정이 먼저 잠금을 잡으면 후보 생성은 새 판정을 다시 읽고 거부된다")
+    @EnumSource(CandidatePath.class)
+    @Timeout(15)
+    void correctionResolutionFirstRejectsCandidateForPreviousResolution(CandidatePath path) throws Exception {
+        seedForCandidateCreation(path);
+        LockGate gate = gateFirst("resolve-first");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<ErrorCode> resolution = executor.submit(
+                    () -> named("resolve-first", () -> resolveAttempt(path.incompatibleResolution(), null)));
+            assertThat(gate.firstAcquired().await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<ErrorCode> candidate =
+                    executor.submit(() -> named("candidate-second", () -> candidateAttempt(path)));
+            assertThat(gate.secondEntered().await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(candidate.isDone()).isFalse();
+
+            gate.releaseFirst().countDown();
+
+            assertThat(resolution.get(5, TimeUnit.SECONDS)).isNull();
+            assertThat(candidate.get(5, TimeUnit.SECONDS)).isEqualTo(path.wrongResolutionError());
+            assertThat(feedbackStatus()).isEqualTo("REVIEWING");
+            assertThat(feedbackResolution()).isEqualTo(path.incompatibleResolution());
+            assertThat(candidateCount(path)).isZero();
+        } finally {
+            gate.releaseFirst().countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @ParameterizedTest(name = "{0}: 후보 생성이 먼저 잠금을 잡으면 판정 변경이 후보 커밋까지 대기한다")
+    @EnumSource(CandidatePath.class)
+    @Timeout(15)
+    void candidateFirstBlocksResolutionChangeUntilCandidateCommits(CandidatePath path) throws Exception {
+        seedForCandidateCreation(path);
+        LockGate gate = gateFirst("candidate-first");
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<ErrorCode> candidate = executor.submit(() -> named("candidate-first", () -> candidateAttempt(path)));
+            assertThat(gate.firstAcquired().await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<ErrorCode> resolution = executor.submit(
+                    () -> named("resolve-second", () -> resolveAttempt("no_action", "조치 불필요")));
+            assertThat(gate.secondEntered().await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(resolution.isDone()).isFalse();
+
+            gate.releaseFirst().countDown();
+
+            assertThat(candidate.get(5, TimeUnit.SECONDS)).isNull();
+            assertThat(resolution.get(5, TimeUnit.SECONDS)).isNull();
+            assertThat(candidateCount(path)).isEqualTo(1);
+            assertThat(feedbackStatus()).isEqualTo("CLOSED");
+            assertThat(feedbackResolution()).isEqualTo("no_action");
         } finally {
             gate.releaseFirst().countDown();
             executor.shutdownNow();
@@ -219,6 +312,15 @@ class CorrectionCandidateConcurrencyDbTest {
         }
     }
 
+    private ErrorCode resolveAttempt(String resolution, String note) {
+        try {
+            resolveInquiry.resolve(FEEDBACK_ID, REVIEWER_ID, resolution, note);
+            return null;
+        } catch (BusinessException e) {
+            return e.errorCode();
+        }
+    }
+
     private <T> T named(String name, ThrowingSupplier<T> action) throws Exception {
         Thread.currentThread().setName(name);
         return action.get();
@@ -232,6 +334,10 @@ class CorrectionCandidateConcurrencyDbTest {
             case TAG_CORRECTION -> seedTagCandidate();
         }
         seedReplay(path, currentCorrectionState.currentFingerprint(FEEDBACK_ID));
+    }
+
+    private void seedForCandidateCreation(CandidatePath path) {
+        seedCommon(path.resolution());
     }
 
     private void seedCommon(String resolution) {
@@ -332,17 +438,42 @@ class CorrectionCandidateConcurrencyDbTest {
                 "SELECT status FROM npick.feedback WHERE feedback_id = ?", String.class, FEEDBACK_ID);
     }
 
+    private String feedbackResolution() {
+        return jdbc.queryForObject(
+                "SELECT resolution FROM npick.feedback WHERE feedback_id = ?", String.class, FEEDBACK_ID);
+    }
+
     private enum CandidatePath {
-        PATCH_PARSE("patch_parse", ParseRuleCandidateErrorCode.NOT_REVIEWING),
-        EXCLUDE_SCENE("exclude_scene", SceneExcludeCandidateErrorCode.NOT_REVIEWING),
-        TAG_CORRECTION("tag_correction", TagCorrectionCandidateErrorCode.NOT_REVIEWING);
+        PATCH_PARSE(
+                "patch_parse",
+                "exclude_scene",
+                ParseRuleCandidateErrorCode.NOT_REVIEWING,
+                ParseRuleCandidateErrorCode.NOT_PATCH_PARSE),
+        EXCLUDE_SCENE(
+                "exclude_scene",
+                "patch_parse",
+                SceneExcludeCandidateErrorCode.NOT_REVIEWING,
+                SceneExcludeCandidateErrorCode.NOT_EXCLUDE_SCENE),
+        TAG_CORRECTION(
+                "tag_correction",
+                "exclude_scene",
+                TagCorrectionCandidateErrorCode.NOT_REVIEWING,
+                TagCorrectionCandidateErrorCode.NOT_TAG_CORRECTION);
 
         private final String resolution;
+        private final String incompatibleResolution;
         private final ErrorCode notReviewingError;
+        private final ErrorCode wrongResolutionError;
 
-        CandidatePath(String resolution, ErrorCode notReviewingError) {
+        CandidatePath(
+                String resolution,
+                String incompatibleResolution,
+                ErrorCode notReviewingError,
+                ErrorCode wrongResolutionError) {
             this.resolution = resolution;
+            this.incompatibleResolution = incompatibleResolution;
             this.notReviewingError = notReviewingError;
+            this.wrongResolutionError = wrongResolutionError;
         }
 
         String resolution() {
@@ -351,6 +482,14 @@ class CorrectionCandidateConcurrencyDbTest {
 
         ErrorCode notReviewingError() {
             return notReviewingError;
+        }
+
+        String incompatibleResolution() {
+            return incompatibleResolution;
+        }
+
+        ErrorCode wrongResolutionError() {
+            return wrongResolutionError;
         }
     }
 
