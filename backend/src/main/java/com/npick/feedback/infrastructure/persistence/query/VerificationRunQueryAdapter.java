@@ -72,6 +72,11 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
         }
         List<Long> evidenceIds = new ArrayList<>();
         JsonNode ids = node.get("approved_evidence_ids");
+        // -84의 단수 규칙 확정 계약으로 복수 후보를 일부만 확정해서는 안 된다.
+        JsonNode candidateRules = node.get("candidate_rules");
+        if (candidateRules != null && (!candidateRules.isArray() || candidateRules.size() > 1)) {
+            return null;
+        }
         if (ids != null && !ids.isNull()) {
             if (!ids.isArray()) {
                 return null;

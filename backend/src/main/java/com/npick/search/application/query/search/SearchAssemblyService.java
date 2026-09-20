@@ -95,6 +95,17 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
      */
     @Override
     public InterpretedQuery interpret(ExecuteSearchQuery query) {
+        return interpretFromResolution(query, resolve(query));
+    }
+
+    /**
+     * 리졸버 호출까지만 한다 — {@link #interpret} 의 유일한 외부 HTTP 구간이자 flip 상태와 무관한 부분(S15P21A501-219).
+     *
+     * <p>검증 재검색은 이 메서드를 롤백 트랜잭션 <b>밖</b>에서 부른다. 리졸버 지연이 flip 이 쥔 행 잠금·커넥션 점유
+     * 시간에 더해지지 않게 하기 위해서다.
+     */
+    @Override
+    public Resolution resolve(ExecuteSearchQuery query) {
         long resolveStartedAt = System.nanoTime();
         // 검증 전 값을 따로 들고 있는다. §7.2 가 resolver_output_json 을 「교정 전 AI 해석」으로
         // 못박았는데, 검증본만 남기면 리졸버가 실제로 무엇을 주장했는지 사라진다 — 출처 강등과
@@ -102,6 +113,18 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
         QueryResolutionResult raw = resolver.resolve(query.rawQuery());
         QueryResolutionResult resolved = anchorVerifier.verify(query.rawQuery(), raw);
         int parseMs = elapsedMs(resolveStartedAt);
+        return new Resolution(raw, resolved, parseMs);
+    }
+
+    /**
+     * {@link #resolve} 이후 나머지 해석을 한다 — 활성 규칙 조회가 flip 반영 상태를 읽으므로(§규칙 판정) 검증 재검색은
+     * 이 메서드를 롤백 트랜잭션 <b>안</b>에서 부른다(S15P21A501-219).
+     */
+    @Override
+    public InterpretedQuery interpretFromResolution(ExecuteSearchQuery query, Resolution resolution) {
+        QueryResolutionResult raw = resolution.raw();
+        QueryResolutionResult resolved = resolution.resolved();
+        int parseMs = resolution.parseMs();
         // 리졸버 장애가 아닌 실패는 여기서 예외로 올라간다. 해석 못 한 질의를 빈 결과의 성공
         // 응답으로 위장하지 않는다 (§6.2 「검색 실패를 결과 0건으로 위장하지 않는다」).
         List<SearchDegradedReason> degradedReasons = new ArrayList<>(SearchDegradedReason.reasonsFor(resolved));
@@ -327,7 +350,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                     SearchRecordPayload.candidates(candidates),
                     SearchRecordPayload.filtered(candidates),
                     SearchRecordPayload.appliedExcludes(candidates),
-                    rankedScenes(candidates, queryTokens),
+                    SearchRecordPayload.rankedScenes(candidates, queryTokens),
                     candidates.config(),
                     elapsedMs(startedAt),
                     null));
@@ -352,29 +375,6 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
             // 닫지도 못했다. running 으로 남고, 그 행을 성공으로 읽지 않는 것은 읽는 쪽의 규약이다.
         }
         return null;
-    }
-
-    private List<CompleteSearchExecution.RankedScene> rankedScenes(
-            SearchCandidates candidates, List<String> queryTokens) {
-        List<CompleteSearchExecution.RankedScene> ranked = new ArrayList<>();
-        int rank = 1;
-        for (SearchCandidates.ScoredScene scene : candidates.scenes()) {
-            ranked.add(new CompleteSearchExecution.RankedScene(scene.sceneId(), rank++, explain(scene, queryTokens)));
-        }
-        return ranked;
-    }
-
-    /**
-     * {@code search_result.explain_json}. baseline COLUMN COMMENT 가 정한 {@code score}·{@code match}·{@code guard} 에 당시
-     * 표시값 {@code display} 를 더한 네 덩어리다.
-     */
-    private Map<String, Object> explain(SearchCandidates.ScoredScene scene, List<String> queryTokens) {
-        var explain = new LinkedHashMap<String, Object>();
-        explain.put("score", SearchExplain.score(scene));
-        explain.put("match", SearchExplain.match(scene, queryTokens));
-        explain.put("guard", SearchExplain.guard(scene));
-        explain.put("display", SearchExplain.display(scene));
-        return explain;
     }
 
     private List<SearchExecutionResult.ResultCard> cards(

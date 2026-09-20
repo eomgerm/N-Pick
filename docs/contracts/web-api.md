@@ -39,6 +39,7 @@
 | 태그 교정 후보             | POST   | `/review/inquiries/{feedbackId}/tag-correction-candidate` | BE 구현 | 검수 교정 바인딩            |
 | 해석 교정 후보             | POST   | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 검수 교정 바인딩            |
 | 장면 제외 후보             | POST   | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 검수 교정 바인딩            |
+| 후보 검증 재검색           | POST   | `/review/inquiries/{feedbackId}/verify`                   | BE 구현 | 검수 재검색·확정 바인딩     |
 | 교정 확정                  | POST   | `/review/inquiries/{feedbackId}/confirm`                  | BE 구현 | 검수 재검색·확정 바인딩     |
 | 검색 규칙 사용 중단         | PATCH  | `/review/search-rules/{ruleId}`             | BE 구현   | 검수 규칙 관리 바인딩               |
 
@@ -592,6 +593,45 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_409_201`  | 409  | 검수 중이 아님                    |
 | `SRCH_409_202`  | 409  | 해석 교정으로 처리된 신고 아님    |
 | `SRCH_409_203`  | 409  | 원 검색에 교정할 해석 출력이 없음 |
+
+`POST /review/inquiries/{feedbackId}/verify` (S15P21A501-83)
+
+검수 중(`REVIEWING`)인 신고에서, 담당 검수자가 대기 중인 교정 후보(태그·해석 patch·장면 제외)를 실제로 재검색해 결과를 확인한다(F-12). Body 없음 — 원 신고의 검색어·명시 필터를 서버가 자동으로 다시 불러온다(F-12 2). 후보는 이 요청에만 임시로 반영되고 롤백되므로 일반 검색과 확정 데이터는 바뀌지 않는다(F-12 3). 기존 규칙을 교체하는 경우 검증 조합은 **현재 활성 규칙 − 교체 대상(R1) + 신규 후보(R2)**다. 태그와 해석을 함께 고치면 최종 조합 하나로 검증한다(F-12, 한 번의 검증 실행).
+
+일반 검색과 같은 검색 코드(`interpret`+`rank`)를 그대로 태운다 — 이미 나온 결과의 배지만 바꾸거나 재정렬하는 것이 아니라 실제로 다시 계산한다(F-12).
+
+성공 `200` body `data`:
+
+```json
+{
+  "execution_id": "9702",
+  "entered_scenes": [
+    { "scene_id": "9302", "reason": { "match": { "matched_keywords": ["제주도"], "match_evidence": [] }, "score": { "base_score": 1.2 } } }
+  ],
+  "dropped_scenes": [
+    { "scene_id": "9301", "reason": "approved_scene_exclusion" }
+  ],
+  "verification_rule_set": ["8001", "8002"]
+}
+```
+
+- `execution_id`는 이 검증 재검색이 남긴 replay 실행 ID다(정밀도 보존을 위해 문자열). 확정(`/confirm`, S15P21A501-84)이 이 값을 근거로 받는다.
+- `entered_scenes`는 원 결과에 없다가 검증 결과에 새로 들어온 장면과 그 이유(`match`·`score` 근거, `SearchExplain`과 같은 모양)다. `dropped_scenes`는 원 결과에 있다가 검증 결과에서 빠진 장면과 사유 문자열이다: `approved_scene_exclusion`(제외 규칙에 걸림) · `false_hit_guard`(F-06 판정에 걸림) · `score_drop`(그 외 순위·컷오프 이탈).
+- `verification_rule_set`은 이번 검증이 실제로 적용한 patch_parse 규칙 ID 집합(활성 − R1 + R2)이다. 문자열 배열이다.
+- **검증 성공이 자동 승인이 아니다(F-12 5).** 이 응답을 받아도 태그·규칙은 확정되지 않는다 — 검수자가 결과를 확인하고 별도로 `/confirm`을 호출해야 한다. 변경안을 다시 수정하면 다시 검증해야 한다.
+
+오류: 다른 교정 후보 endpoint(§6.4 태그/해석/장면 제외 후보)와 같은 성격의 담당자·상태·후보 존재 검사를 `VerificationSearchService.verify`가 수행한다. 신고 존재 확인이 가장 먼저이므로, 신고가 아예 없으면 아래 상태·후보 검사까지 가지 않고 404로 끝난다. `SRCH_409_231`(신고 상태가 `REVIEWING`이 아님)과 `SRCH_409_232`(대기 중인 교정 후보가 없음)는 서로 다른 검사다 — 신고가 검수 중이어도 대기 후보가 하나도 없으면 232로 끝난다.
+
+| 오류            | HTTP | 의미                              |
+| --------------- | ---- | --------------------------------- |
+| `SRCH_403_231`  | 403  | 담당 검수자 아님 (claim 전 포함)  |
+| `SRCH_404_231`  | 404  | 신고 없음                         |
+| `SRCH_409_231`  | 409  | 검수 중이 아님                    |
+| `SRCH_409_232`  | 409  | 대기 중인 교정 후보가 없음        |
+
+동시성 노트: 이 endpoint 한 요청은 실행 시작 기록(`REQUIRES_NEW`) → 외부 롤백 트랜잭션 → 완료/실패 기록(`REQUIRES_NEW`) 순으로 커넥션을 쓴다. 트랜잭션은 겹치지 않으므로 동시에 열리는 커넥션은 최대 1개다. 그래도 검증 동시 요청 상한 또는 커넥션 풀 크기는 동시 요청 수 × 2 이상을 보수적으로 권장한다. AI 리졸버 호출은 롤백 트랜잭션을 열기 전에 끝낸다(S15P21A501-219) — 트랜잭션은 flip과 재랭킹만 담당해 후보 행 잠금·커넥션을 점유하는 시간이 짧다.
+
+복수 규칙 후보는 모두 임시 활성화해 재검색하고 `verification_context_json.candidate_rules`에 `(approved_rule_id, replaced_rule_id)` 쌍 전체를 기록한다. 기존 `/confirm`의 단수 `approved_rule_id`/`replaced_rule_id` 계약도 유지한다. 따라서 복수 규칙 후보의 검증 결과는 확인할 수 있지만, 확정 시 일부만 반영되는 일을 막기 위해 `/confirm`은 이를 거부한다. 복수 규칙 일괄 확정은 별도 계약 확장이 필요하다.
 
 `POST /review/inquiries/{feedbackId}/confirm` (S15P21A501-84)
 
