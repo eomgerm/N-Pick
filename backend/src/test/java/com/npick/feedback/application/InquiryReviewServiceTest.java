@@ -9,6 +9,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.feedback.application.query.InquiryDetailQuery;
 import com.npick.feedback.application.query.InquiryListQuery;
 import com.npick.feedback.domain.error.FeedbackErrorCode;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,11 +41,14 @@ class InquiryReviewServiceTest {
     @Mock
     FeedbackRepository repository;
 
+    @Mock
+    CorrectionStateLock correctionStateLock;
+
     InquiryReviewService service;
 
     @BeforeEach
     void setUp() {
-        service = new InquiryReviewService(listQuery, detailQuery, repository);
+        service = new InquiryReviewService(listQuery, detailQuery, repository, correctionStateLock);
     }
 
     @Test
@@ -172,6 +177,32 @@ class InquiryReviewServiceTest {
                 .willReturn(1);
         service.resolve(1L, 9L, "patch_parse", null);
         verify(repository)
+                .resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.PATCH_PARSE),
+                        isNull(),
+                        org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("판정 변경은 상태 조회 전에 교정 상태 잠금을 획득한다")
+    void resolveLocksBeforeReadingCurrentState() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.PATCH_PARSE),
+                        isNull(),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+
+        service.resolve(1L, 9L, "patch_parse", null);
+
+        var ordered = inOrder(correctionStateLock, repository);
+        ordered.verify(correctionStateLock).acquire();
+        ordered.verify(repository).findById(1L);
+        ordered.verify(repository)
                 .resolve(
                         eq(1L),
                         eq(9L),

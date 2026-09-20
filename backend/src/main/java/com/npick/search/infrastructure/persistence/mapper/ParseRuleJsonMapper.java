@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
 import org.springframework.stereotype.Component;
 
+import com.npick.search.application.port.ParseRuleJsonPort;
 import com.npick.search.domain.model.ParseRule;
 import com.npick.search.domain.model.ResolutionAxis;
 
@@ -29,7 +30,7 @@ import com.npick.search.domain.model.ResolutionAxis;
  * <p>읽지 못한 규칙을 목록에서 빼지도 않는다. 사유를 들고 와 {@code skipped_incompatible} 로 기록되게 한다 (F-14).
  */
 @Component
-public class ParseRuleJsonMapper {
+public class ParseRuleJsonMapper implements ParseRuleJsonPort {
 
     private static final Set<String> CONDITION_KEYS = Set.of("syntax_version", "resolution_schema_version", "all");
     private static final Set<String> PATCH_KEYS = Set.of("syntax_version", "operations");
@@ -51,6 +52,7 @@ public class ParseRuleJsonMapper {
      *
      * <p>엔티티가 아니라 값을 받는다. 파싱이 이 클래스의 전부이고 JPA 를 끌고 들어올 이유가 없다.
      */
+    @Override
     public ParseRule toDomain(long ruleId, String conditionJson, String patchJson) {
         String snapshot = snapshot(conditionJson, patchJson);
         try {

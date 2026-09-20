@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.search.application.error.ParseRuleCandidateErrorCode;
 import com.npick.search.application.port.ParseContext;
 import com.npick.search.application.port.ParseContextPort;
@@ -35,14 +36,16 @@ class CreateParsePatchCandidateServiceTest {
 
     private ParseContextPort parseContextPort;
     private ParseRuleCandidateRepository candidateRepository;
+    private CorrectionStateLock correctionStateLock;
     private CreateParsePatchCandidateService service;
 
     @BeforeEach
     void setUp() {
         parseContextPort = mock(ParseContextPort.class);
         candidateRepository = mock(ParseRuleCandidateRepository.class);
-        service =
-                new CreateParsePatchCandidateService(parseContextPort, candidateRepository, new ParseRuleJsonMapper());
+        correctionStateLock = mock(CorrectionStateLock.class);
+        service = new CreateParsePatchCandidateService(
+                parseContextPort, candidateRepository, new ParseRuleJsonMapper(), correctionStateLock);
     }
 
     private void reviewingPatchParse() {
@@ -65,6 +68,7 @@ class CreateParsePatchCandidateServiceTest {
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, CONDITION, PATCH, null));
 
+        verify(correctionStateLock).acquire();
         assertThat(outcome.searchRuleId()).isEqualTo(777L);
         assertThat(outcome.created()).isTrue();
         ArgumentCaptor<ParseRuleCandidate> captor = ArgumentCaptor.forClass(ParseRuleCandidate.class);
@@ -80,6 +84,7 @@ class CreateParsePatchCandidateServiceTest {
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ParseRuleCandidateErrorCode.EDITOR_FORBIDDEN));
         verify(candidateRepository, never()).insertIfAbsent(any());
+        verify(correctionStateLock, never()).acquire();
     }
 
     @Test

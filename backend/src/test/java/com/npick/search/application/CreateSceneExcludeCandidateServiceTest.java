@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.search.application.error.SceneExcludeCandidateErrorCode;
 import com.npick.search.application.port.ExcludeContext;
 import com.npick.search.application.port.ExcludeContextPort;
@@ -26,13 +27,15 @@ class CreateSceneExcludeCandidateServiceTest {
 
     private ExcludeContextPort excludeContextPort;
     private SceneExcludeCandidateRepository candidateRepository;
+    private CorrectionStateLock correctionStateLock;
     private CreateSceneExcludeCandidateService service;
 
     @BeforeEach
     void setUp() {
         excludeContextPort = mock(ExcludeContextPort.class);
         candidateRepository = mock(SceneExcludeCandidateRepository.class);
-        service = new CreateSceneExcludeCandidateService(excludeContextPort, candidateRepository);
+        correctionStateLock = mock(CorrectionStateLock.class);
+        service = new CreateSceneExcludeCandidateService(excludeContextPort, candidateRepository, correctionStateLock);
     }
 
     private void reviewingExclude() {
@@ -54,6 +57,7 @@ class CreateSceneExcludeCandidateServiceTest {
 
         ParseCandidateOutcome outcome = service.create(command(true, 9L, 300L));
 
+        verify(correctionStateLock).acquire();
         assertThat(outcome.searchRuleId()).isEqualTo(777L);
         assertThat(outcome.created()).isTrue();
         ArgumentCaptor<SceneExcludeCandidate> captor = ArgumentCaptor.forClass(SceneExcludeCandidate.class);
@@ -71,6 +75,7 @@ class CreateSceneExcludeCandidateServiceTest {
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(SceneExcludeCandidateErrorCode.EDITOR_FORBIDDEN));
         verify(candidateRepository, never()).insertIfAbsent(any());
+        verify(correctionStateLock, never()).acquire();
     }
 
     @Test

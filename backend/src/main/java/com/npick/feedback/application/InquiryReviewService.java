@@ -7,6 +7,7 @@ import java.util.Locale;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.feedback.application.query.InquiryDetail;
 import com.npick.feedback.application.query.InquiryDetailQuery;
 import com.npick.feedback.application.query.InquiryListItem;
@@ -26,12 +27,17 @@ public class InquiryReviewService
     private final InquiryListQuery listQuery;
     private final InquiryDetailQuery detailQuery;
     private final FeedbackRepository repository;
+    private final CorrectionStateLock correctionStateLock;
 
     public InquiryReviewService(
-            InquiryListQuery listQuery, InquiryDetailQuery detailQuery, FeedbackRepository repository) {
+            InquiryListQuery listQuery,
+            InquiryDetailQuery detailQuery,
+            FeedbackRepository repository,
+            CorrectionStateLock correctionStateLock) {
         this.listQuery = listQuery;
         this.detailQuery = detailQuery;
         this.repository = repository;
+        this.correctionStateLock = correctionStateLock;
     }
 
     @Override
@@ -70,7 +76,7 @@ public class InquiryReviewService
 
     /**
      * 검수 처리 결과를 기록한다(F-09). 교정 3종은 reviewing 유지, no_action·deferred 는 사유를 필수로 받아 이 자리에서 closed 로 종료한다. reviewing 동안은
-     * 판정을 몇 번이든 덮어쓸 수 있고, closed 후엔 CAS 가드로 잠긴다. 교정 후보 생성·검증은 이 API 범위가 아니다.
+     * 판정을 몇 번이든 덮어쓸 수 있고, closed 후엔 CAS 가드로 잠긴다. 판정 변경은 후보 생성·확정과 같은 교정 상태 잠금에 참여해 전제 조회와 쓰기가 서로 끼어들지 않게 한다.
      */
     @Override
     @Transactional
@@ -84,6 +90,7 @@ public class InquiryReviewService
         if (resolution.isNoteRequired() && normalizedNote == null) {
             throw new FeedbackException(FeedbackErrorCode.NOTE_REQUIRED);
         }
+        correctionStateLock.acquire();
         Feedback feedback = repository
                 .findById(feedbackId)
                 .orElseThrow(() -> new FeedbackException(FeedbackErrorCode.FEEDBACK_NOT_FOUND));

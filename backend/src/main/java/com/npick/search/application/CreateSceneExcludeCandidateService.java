@@ -3,8 +3,10 @@ package com.npick.search.application;
 import java.util.Optional;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.search.application.error.SceneExcludeCandidateErrorCode;
 import com.npick.search.application.port.ExcludeContext;
 import com.npick.search.application.port.ExcludeContextPort;
@@ -17,25 +19,32 @@ import com.npick.search.domain.repository.SceneExcludeCandidateRepository;
  * <p>전제(검수 중·장면 제외 판정·담당 검수자)와 대상 검증(제외 장면 == 신고 장면)만 한다. 본문 검증이 없는 것이 patch_parse 후보와의 차이다 — 제외는 조건/연산이 아니라 원 검색 지문으로
  * 매칭하기 때문이다. 검색 시 적용(-58)·검증(-83)·확정(-85)은 이 서비스의 일이 아니다.
  *
- * <p><b>트랜잭션 경계는 저장소가 갖는다.</b> 이 서비스는 트랜잭션을 열지 않는다. 유니크 위반이 저장소 트랜잭션 안에서만 롤백되어야 복구 조회(멱등)가 오염 없이 성립하기 때문이다.
+ * <p>확정과 같은 교정 상태 잠금을 잡은 짧은 트랜잭션 안에서 전제를 다시 읽고 후보를 저장한다. 삽입은 {@code ON CONFLICT DO NOTHING} 이라 충돌이 트랜잭션을 오염시키지 않으며, 충돌
+ * 뒤 기존 후보 조회도 같은 트랜잭션에서 안전하게 이어진다.
  */
 @Service
 public class CreateSceneExcludeCandidateService implements CreateSceneExcludeCandidateUseCase {
 
     private final ExcludeContextPort excludeContextPort;
     private final SceneExcludeCandidateRepository candidateRepository;
+    private final CorrectionStateLock correctionStateLock;
 
     public CreateSceneExcludeCandidateService(
-            ExcludeContextPort excludeContextPort, SceneExcludeCandidateRepository candidateRepository) {
+            ExcludeContextPort excludeContextPort,
+            SceneExcludeCandidateRepository candidateRepository,
+            CorrectionStateLock correctionStateLock) {
         this.excludeContextPort = excludeContextPort;
         this.candidateRepository = candidateRepository;
+        this.correctionStateLock = correctionStateLock;
     }
 
     @Override
+    @Transactional
     public ParseCandidateOutcome create(CreateSceneExcludeCandidateCommand command) {
         if (!command.reviewerRole()) {
             throw new BusinessException(SceneExcludeCandidateErrorCode.EDITOR_FORBIDDEN);
         }
+        correctionStateLock.acquire();
         ExcludeContext context = excludeContextPort
                 .find(command.feedbackId())
                 .orElseThrow(() -> new BusinessException(SceneExcludeCandidateErrorCode.FEEDBACK_NOT_FOUND));

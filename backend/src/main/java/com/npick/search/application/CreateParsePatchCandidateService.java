@@ -6,16 +6,18 @@ import java.util.Optional;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.search.application.error.ParseRuleCandidateErrorCode;
 import com.npick.search.application.port.ParseContext;
 import com.npick.search.application.port.ParseContextPort;
+import com.npick.search.application.port.ParseRuleJsonPort;
 import com.npick.search.domain.model.ParseRule;
 import com.npick.search.domain.model.ParseRuleCandidate;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.repository.ParseRuleCandidateRepository;
-import com.npick.search.infrastructure.persistence.mapper.ParseRuleJsonMapper;
 
 /**
  * 검수자가 만든 비활성 patch_parse 규칙 후보를 저장한다 (S15P21A501-81, F-11).
@@ -24,7 +26,8 @@ import com.npick.search.infrastructure.persistence.mapper.ParseRuleJsonMapper;
  * 소관이다: resolver_output 에는 explicit_filter 값이 없고(validator 가 강등, F-05), patch_parse 는 이번 신고가 아니라 조건이 맞는 미래 검색에
  * 적용되므로(F-11) 대상이 지금 해석에 실재할 것을 생성 시점에 요구하지 않는다.
  *
- * <p><b>트랜잭션 경계는 저장소가 갖는다.</b> 이 서비스는 트랜잭션을 열지 않는다. 유니크 위반이 저장소 트랜잭션 안에서만 롤백되어야 복구 조회(멱등)가 오염 없이 성립하기 때문이다.
+ * <p>확정과 같은 교정 상태 잠금을 잡은 짧은 트랜잭션 안에서 전제를 다시 읽고 후보를 저장한다. 삽입은 {@code ON CONFLICT DO NOTHING} 이라 충돌이 트랜잭션을 오염시키지 않으며, 충돌
+ * 뒤 기존 후보 조회도 같은 트랜잭션에서 안전하게 이어진다.
  */
 @Service
 public class CreateParsePatchCandidateService implements CreateParsePatchCandidateUseCase {
@@ -33,22 +36,27 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
 
     private final ParseContextPort parseContextPort;
     private final ParseRuleCandidateRepository candidateRepository;
-    private final ParseRuleJsonMapper jsonMapper;
+    private final ParseRuleJsonPort jsonMapper;
+    private final CorrectionStateLock correctionStateLock;
 
     public CreateParsePatchCandidateService(
             ParseContextPort parseContextPort,
             ParseRuleCandidateRepository candidateRepository,
-            ParseRuleJsonMapper jsonMapper) {
+            ParseRuleJsonPort jsonMapper,
+            CorrectionStateLock correctionStateLock) {
         this.parseContextPort = parseContextPort;
         this.candidateRepository = candidateRepository;
         this.jsonMapper = jsonMapper;
+        this.correctionStateLock = correctionStateLock;
     }
 
     @Override
+    @Transactional
     public ParseCandidateOutcome create(CreateParsePatchCandidateCommand command) {
         if (!command.reviewerRole()) {
             throw new BusinessException(ParseRuleCandidateErrorCode.EDITOR_FORBIDDEN);
         }
+        correctionStateLock.acquire();
         ParseContext context = parseContextPort
                 .find(command.feedbackId())
                 .orElseThrow(() -> new BusinessException(ParseRuleCandidateErrorCode.FEEDBACK_NOT_FOUND));
