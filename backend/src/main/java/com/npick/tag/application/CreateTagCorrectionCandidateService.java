@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.tag.application.error.TagCorrectionCandidateErrorCode;
 import com.npick.tag.application.port.TagContext;
 import com.npick.tag.application.port.TagContextPort;
@@ -26,11 +27,15 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
 
     private final TagContextPort tagContextPort;
     private final TagCorrectionCandidateRepository candidateRepository;
+    private final CorrectionStateLock correctionStateLock;
 
     public CreateTagCorrectionCandidateService(
-            TagContextPort tagContextPort, TagCorrectionCandidateRepository candidateRepository) {
+            TagContextPort tagContextPort,
+            TagCorrectionCandidateRepository candidateRepository,
+            CorrectionStateLock correctionStateLock) {
         this.tagContextPort = tagContextPort;
         this.candidateRepository = candidateRepository;
+        this.correctionStateLock = correctionStateLock;
     }
 
     @Override
@@ -39,6 +44,7 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
         if (!command.reviewerRole()) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.EDITOR_FORBIDDEN);
         }
+        correctionStateLock.acquire();
         TagContext context = tagContextPort
                 .find(command.feedbackId())
                 .orElseThrow(() -> new BusinessException(TagCorrectionCandidateErrorCode.FEEDBACK_NOT_FOUND));

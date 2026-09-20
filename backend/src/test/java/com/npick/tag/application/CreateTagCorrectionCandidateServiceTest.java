@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import com.npick.common.error.BusinessException;
+import com.npick.common.persistence.CorrectionStateLock;
 import com.npick.tag.application.error.TagCorrectionCandidateErrorCode;
 import com.npick.tag.application.port.TagContext;
 import com.npick.tag.application.port.TagContextPort;
@@ -27,13 +28,15 @@ class CreateTagCorrectionCandidateServiceTest {
 
     private TagContextPort tagContextPort;
     private TagCorrectionCandidateRepository candidateRepository;
+    private CorrectionStateLock correctionStateLock;
     private CreateTagCorrectionCandidateService service;
 
     @BeforeEach
     void setUp() {
         tagContextPort = mock(TagContextPort.class);
         candidateRepository = mock(TagCorrectionCandidateRepository.class);
-        service = new CreateTagCorrectionCandidateService(tagContextPort, candidateRepository);
+        correctionStateLock = mock(CorrectionStateLock.class);
+        service = new CreateTagCorrectionCandidateService(tagContextPort, candidateRepository, correctionStateLock);
     }
 
     private void reviewingTagCorrection() {
@@ -57,6 +60,7 @@ class CreateTagCorrectionCandidateServiceTest {
                 new TagOperation(TagCorrectionAction.REJECT, TagScope.SCENE, "location", "서울", "서울"),
                 new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
 
+        verify(correctionStateLock).acquire();
         assertThat(ids).containsExactly(5001L, 5002L);
         ArgumentCaptor<ReviewerTagJudgment> captor = ArgumentCaptor.forClass(ReviewerTagJudgment.class);
         verify(candidateRepository, org.mockito.Mockito.times(2)).addJudgment(captor.capture());
@@ -110,6 +114,7 @@ class CreateTagCorrectionCandidateServiceTest {
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.EDITOR_FORBIDDEN));
         verify(candidateRepository, never()).addJudgment(any());
+        verify(correctionStateLock, never()).acquire();
     }
 
     @Test
