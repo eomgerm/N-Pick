@@ -20,6 +20,7 @@ import {
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import { TagCorrectionForm } from '@/features/wireframes/review-tag-correction';
+import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -253,6 +254,10 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
         {inquiry.status === 'reviewing' &&
         (inquiry.resolution === 'tag_correction' || inquiry.resolution === 'patch_parse') ? (
           <TagCorrectionForm feedbackId={inquiry.feedbackId} />
+        ) : null}
+
+        {inquiry.status === 'reviewing' && inquiry.resolution === 'patch_parse' ? (
+          <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
         ) : null}
 
         {inquiry.resolution ? (
