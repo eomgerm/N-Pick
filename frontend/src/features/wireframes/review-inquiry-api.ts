@@ -47,7 +47,7 @@ export interface ReviewInquiryDetail extends ReviewInquiryListItem {
   evidence: Array<{
     taggingId: string;
     tagName: string;
-    source: string | null;
+    sources: string[];
     verifiedState: string | null;
     scope: string;
   }>;
@@ -209,7 +209,7 @@ export function parseReviewInquiryDetail(value: unknown): ReviewInquiryDetail {
       return {
         taggingId: identifier(item.taggingId),
         tagName: text(item.tagName),
-        source: nullableText(item.source),
+        sources: Array.isArray(item.sources) ? item.sources.map(text) : [],
         verifiedState: nullableText(item.verifiedState),
         scope: text(item.scope),
       };
