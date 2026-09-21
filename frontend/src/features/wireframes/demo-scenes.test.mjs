@@ -67,7 +67,7 @@ test('모든 검색 결과는 필드·값·출처와 자동 근거 검증 상태
 test('검증 상태는 색상 없이도 구분되는 한국어 텍스트를 제공한다', () => {
   assert.deepEqual(
     ['verified', 'unverified', 'unknown', 'rejected', 'withdrawn'].map(getVerificationStatusLabel),
-    ['검증됨', '미검증', '미상', '반려됨', '개입 해제'],
+    ['검증됨', '자동 인식', '미상', '반려됨', '개입 해제'],
   );
 });
 
