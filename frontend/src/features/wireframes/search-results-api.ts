@@ -90,8 +90,6 @@ export function presentSearchResponse(response: SearchResponse): {
       matchedKeywords: scene.matchedKeywords,
       source: primary.source,
       score: 0,
-      imageClass: '',
-      imageLabel: '대표 이미지 없음',
     };
   });
   return {

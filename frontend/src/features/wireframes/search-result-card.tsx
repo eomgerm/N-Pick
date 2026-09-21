@@ -9,6 +9,8 @@ import {
   type SearchResult,
 } from '@/features/wireframes/demo-scenes';
 import { SceneHoverPreview } from '@/features/wireframes/scene-hover-preview';
+import { getSceneThumbnailUrl } from '@/features/wireframes/scene-preview-media';
+import { SceneThumbnail } from '@/features/wireframes/scene-thumbnail';
 import styles from '@/features/wireframes/wireframe.module.css';
 
 interface SearchResultCardProps {
@@ -39,6 +41,8 @@ export function SearchResultCard({
   const [isHovering, setIsHovering] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const evidenceTooltipId = `${idPrefix}match-evidence-${result.id}`;
+  // 실제 장면은 대표 이미지를 endpoint에서 받고, 장면 ID가 없는 데모 화면만 배경 이미지를 쓴다.
+  const thumbnailUrl = getSceneThumbnailUrl(result.sceneId);
 
   return (
     <article
@@ -51,10 +55,13 @@ export function SearchResultCard({
       onPointerLeave={() => setIsHovering(false)}
     >
       <div
-        aria-label={result.imageLabel}
-        className={`${styles.thumbnail} ${result.imageClass}`}
-        role="img"
+        aria-label={thumbnailUrl ? undefined : result.imageLabel}
+        className={`${styles.thumbnail} ${thumbnailUrl ? '' : (result.imageClass ?? '')}`}
+        role={thumbnailUrl ? undefined : 'img'}
       >
+        {thumbnailUrl ? (
+          <SceneThumbnail alt={`${result.title} 대표 이미지`} src={thumbnailUrl} />
+        ) : null}
         <span aria-label={`검색 결과 ${position}번째`} className={styles.rank}>
           {position}
         </span>
