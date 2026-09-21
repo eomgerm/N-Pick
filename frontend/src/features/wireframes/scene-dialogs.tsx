@@ -126,7 +126,6 @@ type ScenePreviewResult = Pick<
       | 'filmingState'
       | 'matchEvidence'
       | 'shotType'
-      | 'sceneType'
     >
   > & {
     id: string | number;
@@ -371,10 +370,6 @@ export function ScenePreviewDialog({
               <div>
                 <dt>샷 유형</dt>
                 <dd>{result.shotType ?? '정보 없음'}</dd>
-              </div>
-              <div>
-                <dt>장면 유형</dt>
-                <dd>{result.sceneType ?? '정보 없음'}</dd>
               </div>
             </dl>
           </section>

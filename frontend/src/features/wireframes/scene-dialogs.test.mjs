@@ -167,6 +167,21 @@ test('정상 Preview는 문의를 허용하고 공용 송출 전 고지를 표�
   assert.ok(html.includes('송출 전 최종 확인'));
 });
 
+test('Preview는 샷 유형만 표시하고 장면 유형은 표시하지 않는다', () => {
+  const html = renderPreview({
+    result: {
+      ...results[0],
+      shotType: '인터뷰',
+      sceneType: '상세에 노출되면 안 되는 값',
+    },
+  });
+
+  assert.ok(html.includes('샷 유형'));
+  assert.ok(html.includes('인터뷰'));
+  assert.ok(!html.includes('장면 유형'));
+  assert.ok(!html.includes('상세에 노출되면 안 되는 값'));
+});
+
 test('데모와 유효하지 않은 결과 ID로는 문의를 접수할 수 없다', () => {
   for (const searchResultId of [undefined, null, '', '0', '-1', '1.5', 'scene-1']) {
     const html = renderPreview({ result: { ...results[0], searchResultId } });
