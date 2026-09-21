@@ -117,24 +117,33 @@ const snapshotLabels: Record<string, string> = {
   op: '연산',
 };
 
+// 출처 어휘는 `tag_evidence.source` 컬럼 주석이 여덟 값으로 닫아 둔 정본이다(baseline 마이그레이션).
+// 같은 값을 검색 상세(`search-results-api.ts`)와 같은 문구로 옮긴다 — 한 출처를 화면마다 다른
+// 이름으로 부르면 같은 근거인지 알 수 없다. 검증 상태는 검수자 판단인 `rejected`·`withdrawn`까지
+// 담는다. S15P21A501-235가 그 둘을 뭉개지 않고 상세로 내보내므로 화면에 실제로 도달한다.
+const evidenceLabels: Record<string, string> = {
+  user_input: '사용자 입력',
+  original_metadata: '영상 원본 정보',
+  cc: '방송 자막',
+  ocr: '화면 글자 인식',
+  asr: '음성 인식',
+  vlm: 'AI 화면 분석',
+  rule: '텍스트 자동 추출',
+  reviewer_feedback: '아카이빙 팀 피드백',
+  verified: '검증됨',
+  unverified: '자동 인식',
+  rejected: '거부됨',
+  withdrawn: '검수 판단 해제',
+  scene: '장면',
+  clip: '클립',
+  applied: '적용',
+  skipped: '건너뜀',
+  failed: '실패',
+};
+
 export function evidenceLabel(value: string | null): string {
   if (!value) return '기록 없음';
-  const labels: Record<string, string> = {
-    ocr: '화면 문자',
-    asr: '음성 인식',
-    subtitle: '자막',
-    original_metadata: '원본 메타데이터',
-    user_input: '사용자 입력',
-    verified: '검증됨',
-    unverified: '자동 인식',
-    rejected: '거부됨',
-    scene: '장면',
-    clip: '클립',
-    applied: '적용',
-    skipped: '건너뜀',
-    failed: '실패',
-  };
-  return labels[value.toLowerCase()] ?? '알 수 없는 값';
+  return evidenceLabels[value.toLowerCase()] ?? '정보 없음';
 }
 
 // Known display fields only: never render resolver output, paths, or arbitrary JSON keys.

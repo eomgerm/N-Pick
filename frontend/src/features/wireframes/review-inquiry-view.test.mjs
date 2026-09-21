@@ -71,6 +71,28 @@ test('과거 근거와 적용 규칙의 내용을 보존하고 내부 필드는 
   assert.equal(evidenceLabel(null), '기록 없음');
 });
 
+test('근거 출처와 검수자 판단은 계약 어휘 전체를 한국어로 옮기고 어휘 밖 값은 감춘다', () => {
+  assert.deepEqual(
+    ['user_input', 'original_metadata', 'cc', 'ocr', 'asr', 'vlm', 'rule', 'reviewer_feedback'].map(
+      evidenceLabel,
+    ),
+    [
+      '사용자 입력',
+      '영상 원본 정보',
+      '방송 자막',
+      '화면 글자 인식',
+      '음성 인식',
+      'AI 화면 분석',
+      '텍스트 자동 추출',
+      '아카이빙 팀 피드백',
+    ],
+  );
+  assert.equal(evidenceLabel('rejected'), '거부됨');
+  assert.equal(evidenceLabel('withdrawn'), '검수 판단 해제');
+  assert.equal(evidenceLabel('CLIP'), '클립');
+  assert.equal(evidenceLabel('legacy_source'), '정보 없음');
+});
+
 test('제목 없는 영상 fallback과 중복 없는 태그명만 화면 값으로 만든다', () => {
   assert.equal(displayClipTitle(null), '제목 없는 영상');
   assert.equal(displayClipTitle('   '), '제목 없는 영상');
