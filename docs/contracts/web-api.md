@@ -174,7 +174,7 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | `rights_confirmed`              | boolean | 필수   | `true`여야 등록 가능                            |
 | `external_processing_confirmed` | boolean | 조건부 | 현재 처리 설정이 외부 AI 동의를 요구하면 `true` |
 
-자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다.
+자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다. 보낸 날짜는 등록일(Asia/Seoul) 이후일 수 없고, 두 날짜를 모두 보내면 `broadcast_date`가 `filmed_date`보다 빠를 수 없다. 위반은 `COMM_400_001`의 `data.broadcastDateNotFuture`·`data.filmedDateNotFuture`·`data.broadcastDateNotBeforeFilmedDate`로 거부한다. 요청 검증을 우회한 호출에서도 같은 규칙을 `CLIP_400_013`(방송일)·`CLIP_400_014`(촬영일)로 거부한다.
 
 제목은 FE와 BE 모두 UTF-16 길이로 검사한다. 일반 한글 50자 또는 `😀` 25개는 허용하며, 한글 51자 또는 `😀` 26개는 거절한다. 50자 제한은 신규 등록 입력에 적용하고 기존 제목·검색 기록은 자르지 않는다. 기존 데이터 보존을 위해 DB의 `clip.title varchar(500)`은 유지한다.
 
@@ -205,6 +205,7 @@ FE가 직접 처리하는 주요 오류:
 | `CLIP_400_010`                                | 외부 처리 확인             |
 | `CLIP_400_011`                                | 날짜                       |
 | `CLIP_400_012`                                | 자막 내용                  |
+| `CLIP_400_013`, `CLIP_400_014`                | 날짜 값 범위               |
 | `CLIP_409_001`~`CLIP_409_003`                 | 멱등 요청 상태             |
 | `CLIP_503_001`~`CLIP_503_010`                 | 검사·저장·등록 연계 실패   |
 

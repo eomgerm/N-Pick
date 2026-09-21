@@ -142,6 +142,67 @@ test('허용한 validation 필드의 안전한 한국어 문자열만 인라인 
   });
 });
 
+test('서버의 날짜 검증 실패를 해당 날짜 입력의 인라인 오류로 읽는다', () => {
+  const error = new ApiClientError('api', 400, {
+    code: 'COMM_400_001',
+    message: 'Request validation failed',
+    diagnostics: {
+      response: {
+        data: {
+          filmedDateNotFuture: '촬영일은 오늘 이후 날짜로 입력할 수 없습니다.',
+          broadcastDateNotBeforeFilmedDate: '방송일은 촬영일보다 빠를 수 없습니다.',
+        },
+      },
+    },
+  });
+  assert.deepEqual(getClipRegistrationErrorPresentation(error), {
+    fieldErrors: {
+      filmedDate: '촬영일은 오늘 이후 날짜로 입력할 수 없습니다.',
+      broadcastDate: '방송일은 촬영일보다 빠를 수 없습니다.',
+    },
+    retryMode: 'none',
+    showGlobal: false,
+  });
+});
+
+test('서버의 미래 방송일 거부를 방송일 입력의 인라인 오류로 읽는다', () => {
+  const error = new ApiClientError('api', 400, {
+    code: 'COMM_400_001',
+    message: 'Request validation failed',
+    diagnostics: {
+      response: {
+        data: { broadcastDateNotFuture: '방송일은 오늘 이후 날짜로 입력할 수 없습니다.' },
+      },
+    },
+  });
+  assert.deepEqual(getClipRegistrationErrorPresentation(error), {
+    fieldErrors: { broadcastDate: '방송일은 오늘 이후 날짜로 입력할 수 없습니다.' },
+    retryMode: 'none',
+    showGlobal: false,
+  });
+});
+
+// 도메인까지 내려간 날짜 오류. 코드마다 가리키는 입력이 하나여야 방송일 문구가 촬영일 밑에 붙지 않는다.
+test('날짜 업무 오류 코드는 각자의 날짜 입력에 붙는다', () => {
+  const futureBroadcast = new ApiClientError('api', 400, {
+    code: 'CLIP_400_013',
+    message: '방송일은 등록일 이후 날짜일 수 없습니다.',
+  });
+  assert.equal(
+    getClipRegistrationErrorPresentation(futureBroadcast).fieldErrors.broadcastDate,
+    futureBroadcast.message,
+  );
+
+  const futureFilmed = new ApiClientError('api', 400, {
+    code: 'CLIP_400_014',
+    message: '촬영일은 등록일 이후 날짜일 수 없습니다.',
+  });
+  assert.equal(
+    getClipRegistrationErrorPresentation(futureFilmed).fieldErrors.filmedDate,
+    futureFilmed.message,
+  );
+});
+
 test('자막 진단 문자열과 전체 용량 초과는 한국어 입력 안내로 표시한다', () => {
   const subtitle = getClipRegistrationErrorPresentation(
     new ApiClientError('api', 400, {

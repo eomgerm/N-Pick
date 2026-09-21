@@ -130,7 +130,10 @@ const validationFieldMap: Record<string, RegistrationField> = {
   broadcastDateAllowed: 'sourceType',
   title: 'title',
   broadcastDateValid: 'broadcastDate',
+  broadcastDateNotFuture: 'broadcastDate',
+  broadcastDateNotBeforeFilmedDate: 'broadcastDate',
   filmedDateValid: 'filmedDate',
+  filmedDateNotFuture: 'filmedDate',
   subtitle: 'subtitle',
   subtitleContentPresent: 'subtitle',
   scriptText: 'scriptText',
@@ -151,6 +154,8 @@ const codeFieldMap: Record<string, RegistrationField> = {
   CLIP_400_010: 'externalProcessingConfirmed',
   CLIP_400_011: 'filmedDate',
   CLIP_400_012: 'subtitle',
+  CLIP_400_013: 'broadcastDate',
+  CLIP_400_014: 'filmedDate',
 };
 
 function safeFieldMessage(value: unknown): string | undefined {
