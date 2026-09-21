@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState, useTransition } from 'react';
 
@@ -32,6 +32,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   const queryClient = useQueryClient();
   const [isNavigating, startNavigation] = useTransition();
   const [isRegistrationBusy, setIsRegistrationBusy] = useState(false);
+  const [registeredVideo, setRegisteredVideo] = useState<RegisteredVideo | null>(null);
   const registrationBusyRef = useRef(false);
   const isProcessing = searchParams.get('view') === 'processing';
   const isRegistration = searchParams.get('view') === 'upload';
@@ -55,6 +56,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     });
   }
   function handleRegistrationOpen() {
+    setRegisteredVideo(null);
     handleLocationChange({
       view: 'upload',
       tab: null,
@@ -64,6 +66,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     });
   }
   function handleRegister(record: RegisteredVideo) {
+    setRegisteredVideo(record);
     void queryClient.invalidateQueries({ queryKey: ['processing-clips'] });
     void queryClient.invalidateQueries({ queryKey: ['processing-clip', record.id] });
     // Registration returns a real ID; the detail query owns all subsequent processing state.
@@ -127,7 +130,27 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
             onRegister={handleRegister}
           />
         ) : clipId ? (
-          <ProcessingClipDetail key={clipId} clipId={clipId} />
+          <>
+            {registeredVideo?.id === clipId ? (
+              <section
+                aria-label="영상 등록 결과"
+                aria-live="polite"
+                className={styles.registrationNotice}
+                role="status"
+              >
+                <CheckCircle2 aria-hidden="true" />
+                <div>
+                  <p>등록 완료</p>
+                  <h2>영상이 등록되었습니다.</h2>
+                  <span>
+                    {registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할
+                    수 있습니다.
+                  </span>
+                </div>
+              </section>
+            ) : null}
+            <ProcessingClipDetail key={clipId} clipId={clipId} />
+          </>
         ) : feedbackId ? (
           <InquiryDetail key={feedbackId} feedbackId={feedbackId} theme={theme} />
         ) : (

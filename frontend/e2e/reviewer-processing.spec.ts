@@ -300,6 +300,12 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await page.locator('#external-processing-confirmed').check();
   await page.getByRole('button', { name: '등록', exact: true }).click();
   await expect(page).toHaveURL(/view=processing&tab=uploads&clip=21/);
+  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toContainText(
+    '영상이 등록되었습니다.',
+  );
+  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toContainText(
+    'preview-fixture.mp4 · 처리 대기 상태',
+  );
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
   const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   const noRunNotice = overview.getByText(
@@ -318,6 +324,55 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
   expect(registrations).toBe(1);
   expect(reads).toBeGreaterThanOrEqual(2);
+});
+
+test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 지원한다', async ({ page }) => {
+  await page.goto('/review?view=upload');
+
+  const emptyTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await page.locator('label[data-kind="subtitle"]').dispatchEvent('drop', {
+    dataTransfer: emptyTransfer,
+  });
+  await expect(page.locator('#subtitle-error')).toHaveCount(0);
+
+  await page.locator('#subtitle-file').setInputFiles({
+    name: '잘못된-자막.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('자막이 아님'),
+  });
+  await expect(page.locator('#subtitle-error')).toHaveText(
+    '자막 파일은 SRT 또는 VTT 형식으로 선택해 주세요.',
+  );
+  await expect(page.getByRole('status')).toHaveText(/자막 파일을 선택하지 못했습니다/);
+
+  const subtitleTransfer = await page.evaluateHandle(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['1\n00:00:00,000 --> 00:00:01,000\n뉴스'], '뉴스.srt'));
+    return transfer;
+  });
+  await page.locator('label[data-kind="subtitle"]').dispatchEvent('drop', {
+    dataTransfer: subtitleTransfer,
+  });
+  const subtitleList = page.getByRole('list', { name: '선택한 자막 파일' });
+  await expect(subtitleList).toContainText('선택됨');
+  await expect(subtitleList).toContainText('뉴스.srt');
+  await expect(page.getByRole('status')).toHaveText('자막 파일 뉴스.srt이 선택되었습니다.');
+
+  await page.locator('#script-file').setInputFiles({
+    name: '취재대본.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('취재 대본'),
+  });
+  await expect(page.getByRole('list', { name: '선택한 일반 대본 파일' })).toContainText(
+    '취재대본.txt',
+  );
+  await expect(page.getByRole('status')).toHaveText(
+    '일반 대본 파일 취재대본.txt이 선택되었습니다.',
+  );
+
+  await page.getByRole('button', { name: '자막 파일 삭제' }).click();
+  await expect(subtitleList).toHaveCount(0);
+  await expect(page.getByRole('status')).toHaveText('자막 파일 뉴스.srt이 삭제되었습니다.');
 });
 
 test('최근 등록의 기록 없음 재조회는 1분 뒤 멈추고 수동 조회로 복구한다', async ({ page }) => {

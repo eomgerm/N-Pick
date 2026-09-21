@@ -307,6 +307,7 @@
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
   border-radius: var(--radius-md);
   background: var(--accent-soft);
+  margin-bottom: 18px;
 }
 
 .registrationNotice > svg {
