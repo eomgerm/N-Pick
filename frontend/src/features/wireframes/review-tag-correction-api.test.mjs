@@ -15,8 +15,22 @@ registerHooks({
   },
 });
 
-const { createTagCorrectionCandidate, parseTagCorrectionCandidate, tagCorrectionErrorMessage } =
-  await import('./review-tag-correction-api.ts');
+const {
+  MAX_TAG_OPERATIONS,
+  createTagCorrectionCandidate,
+  parseTagCorrectionCandidate,
+  tagCorrectionErrorMessage,
+} = await import('./review-tag-correction-api.ts');
+
+function operations(count) {
+  return Array.from({ length: count }, (unused, index) => ({
+    action: 'APPROVE',
+    scope: 'SCENE',
+    tagType: 'location',
+    matchValue: `장소${index}`,
+    displayName: `장소${index}`,
+  }));
+}
 
 const replaceOperations = [
   {
@@ -119,6 +133,8 @@ test('계약 오류 코드를 검수자용 한국어 안내로 바꾼다', () =>
     'TAG_404_001',
     'TAG_409_001',
     'TAG_409_002',
+    'TAG_400_004',
+    'TAG_409_003',
   ];
   const messages = codes.map((code) =>
     tagCorrectionErrorMessage(new ApiClientError('api', 400, { code })),
@@ -130,4 +146,33 @@ test('계약 오류 코드를 검수자용 한국어 안내로 바꾼다', () =>
     null,
   );
   assert.equal(tagCorrectionErrorMessage(new Error('network down')), null);
+});
+
+test('상한을 넘는 변경안은 서버에 보내기 전에 막는다', async (context) => {
+  const fetchMock = context.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('요청을 보내면 안 된다');
+  });
+
+  await assert.rejects(
+    () => createTagCorrectionCandidate('41', operations(MAX_TAG_OPERATIONS + 1)),
+    ApiClientError,
+  );
+  assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test('상한과 같은 개수는 그대로 보낸다', async (context) => {
+  const requests = [];
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push(init);
+    return Response.json({
+      isSuccess: true,
+      code: 'COMM_201',
+      message: 'ok',
+      data: { feedbackId: '41', created: MAX_TAG_OPERATIONS, evidenceIds: ['9001'] },
+    });
+  });
+
+  await createTagCorrectionCandidate('41', operations(MAX_TAG_OPERATIONS));
+
+  assert.equal(JSON.parse(requests[0].body).operations.length, MAX_TAG_OPERATIONS);
 });

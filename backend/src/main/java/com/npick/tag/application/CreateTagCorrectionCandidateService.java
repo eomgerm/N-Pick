@@ -25,6 +25,13 @@ import com.npick.tag.domain.repository.TagCorrectionCandidateRepository;
 @Service
 public class CreateTagCorrectionCandidateService implements CreateTagCorrectionCandidateUseCase {
 
+    // 한 장면·클립 교정은 보통 1~5개, 교체가 2개씩이다. 20 이면 교체 10건을 한 번에 보내는 셈이라 정상 작업은 막지 않는다.
+    private static final int MAX_OPERATIONS_PER_REQUEST = 20;
+
+    // 이 엔드포인트에는 멱등 키가 없어 같은 본문을 반복해 보내면 근거가 무한히 쌓인다. 요청당 상한만으로는 누적이 안 막혀
+    // 신고 단위로도 센다 (S15P21A501-255).
+    private static final int MAX_JUDGMENTS_PER_FEEDBACK = 50;
+
     private final TagContextPort tagContextPort;
     private final TagCorrectionCandidateRepository candidateRepository;
     private final CorrectionStateLock correctionStateLock;
@@ -44,6 +51,14 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
         if (!command.reviewerRole()) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.EDITOR_FORBIDDEN);
         }
+        // 본문 형태만 보는 두 검사는 전역 교정 상태 잠금보다 앞에 둔다 — 거대한 요청이 400 을 받기까지
+        // 확정·판정 변경·규칙 중단을 함께 막지 않도록, 가장 싼 관문을 가장 먼저 지나게 한다.
+        if (command.operations().isEmpty()) {
+            throw new BusinessException(TagCorrectionCandidateErrorCode.EMPTY_OPERATIONS);
+        }
+        if (command.operations().size() > MAX_OPERATIONS_PER_REQUEST) {
+            throw new BusinessException(TagCorrectionCandidateErrorCode.TOO_MANY_OPERATIONS);
+        }
         correctionStateLock.acquire();
         TagContext context = tagContextPort
                 .find(command.feedbackId())
@@ -59,8 +74,11 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
         if (context.reviewedById() == null || context.reviewedById() != command.reviewerId()) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.NOT_REVIEWER);
         }
-        if (command.operations().isEmpty()) {
-            throw new BusinessException(TagCorrectionCandidateErrorCode.EMPTY_OPERATIONS);
+        // 부분 저장을 남기지 않으려고 저장 루프 전에 이번 요청분까지 더해 판정한다.
+        if (candidateRepository.countByFeedback(command.feedbackId())
+                        + command.operations().size()
+                > MAX_JUDGMENTS_PER_FEEDBACK) {
+            throw new BusinessException(TagCorrectionCandidateErrorCode.JUDGMENT_LIMIT_EXCEEDED);
         }
 
         List<Long> evidenceIds = new ArrayList<>();

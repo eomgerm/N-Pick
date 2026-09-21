@@ -27,7 +27,11 @@ public enum TagCorrectionCandidateErrorCode implements ErrorCode {
     /** 태그 유형이 11종에 없다. */
     INVALID_TAG_TYPE(ErrorType.BAD_REQUEST, "TAG_400_002", "알 수 없는 태그 유형이다"),
     /** 정규화 후 match_value 가 비었다. */
-    INVALID_MATCH_VALUE(ErrorType.BAD_REQUEST, "TAG_400_003", "정규화 후 태그 값이 비어 있다");
+    INVALID_MATCH_VALUE(ErrorType.BAD_REQUEST, "TAG_400_003", "정규화 후 태그 값이 비어 있다"),
+    /** 한 요청에 담은 변경안이 개수 상한을 넘었다 (S15P21A501-255). */
+    TOO_MANY_OPERATIONS(ErrorType.BAD_REQUEST, "TAG_400_004", "한 번에 보낼 수 있는 변경안 수를 넘었다"),
+    /** 이 신고에 쌓인 태그 판단이 개수 상한에 닿았다 (S15P21A501-255). */
+    JUDGMENT_LIMIT_EXCEEDED(ErrorType.CONFLICT, "TAG_409_003", "이 신고에서 만들 수 있는 태그 변경안 수를 넘었다");
 
     private final ErrorType type;
     private final String code;
