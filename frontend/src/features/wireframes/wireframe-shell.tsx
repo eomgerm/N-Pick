@@ -69,6 +69,8 @@ interface WireframeShellProps {
     hasMore?: boolean;
     /** 더보기 추가 조회가 도는 중. 버튼만 로딩으로 표시하고 결과 그리드는 유지한다. */
     isLoadingMore?: boolean;
+    /** 더보기 조회가 실패함. 불러온 결과는 그대로 두고 더보기 영역에서만 재시도를 안내한다. */
+    loadMoreError?: boolean;
     onLoadMore?: () => void;
   };
   initialQuery?: string;
@@ -421,8 +423,17 @@ export function WireframeShell({
                       disabled={api.isLoadingMore}
                       onClick={() => api.onLoadMore?.()}
                     >
-                      {api.isLoadingMore ? '불러오는 중…' : '더보기'}
+                      {api.isLoadingMore
+                        ? '불러오는 중…'
+                        : api.loadMoreError
+                          ? '다시 시도'
+                          : '더보기'}
                     </button>
+                    {api.loadMoreError ? (
+                      <p className={styles.loadMoreError} role="alert">
+                        다음 결과를 불러오지 못했어요. 다시 시도해 주세요.
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </>

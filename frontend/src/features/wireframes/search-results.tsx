@@ -5,7 +5,12 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { WireframeShell, type SearchScreenParams } from '@/features/wireframes/wireframe-shell';
 import { createSearchRequestBody } from '@/features/wireframes/search-api-contract';
 import { readDateRange } from '@/features/wireframes/date-range';
-import { presentSearchResponse, searchScenes } from '@/features/wireframes/search-results-api';
+import {
+  mergeSearchExecutions,
+  mergeSearchResultDetails,
+  presentSearchResponse,
+  searchScenes,
+} from '@/features/wireframes/search-results-api';
 import { validateSearchQuery } from '@/features/wireframes/input-validation';
 
 export function SearchResults({ params }: { params: SearchScreenParams }) {
@@ -40,15 +45,20 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
   });
 
   // 페이지를 이어 붙인다. 페이지마다 rank 가 1..10 로 반복되므로 표시 id·rank 를 전체 순번으로
-  // 다시 매긴다 — 그대로 두면 카드 key 와 선택 id 가 페이지 간 충돌한다. 실행·상세는 첫 페이지 기준이다.
+  // 다시 매긴다 — 그대로 두면 카드 key 와 선택 id 가 페이지 간 충돌한다. 실행·상세는 페이지별로
+  // 다르므로 첫 페이지만 쓰지 않고 모든 페이지를 병합한다 (S15P21A501-251 리뷰).
   const pages = search.data?.pages ?? [];
   let presentation;
   if (pages.length > 0) {
-    const first = presentSearchResponse(pages[0]);
-    const results = pages
-      .flatMap((page) => presentSearchResponse(page).results)
+    const presented = pages.map(presentSearchResponse);
+    const results = presented
+      .flatMap((page) => page.results)
       .map((result, index) => ({ ...result, id: index + 1, rank: index + 1 }));
-    presentation = { results, execution: first.execution, details: first.details };
+    presentation = {
+      results,
+      execution: mergeSearchExecutions(presented.map((page) => page.execution)),
+      details: mergeSearchResultDetails(presented.map((page) => page.details)),
+    };
   }
 
   return (
@@ -60,7 +70,14 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
         validationMessage: validateSearchQuery(params.q ?? ''),
         presentation,
         // 더보기 추가 조회(isFetchingNextPage)는 전체 화면을 loading 으로 바꾸지 않는다 — 첫 로딩만.
-        state: body === null || search.isError ? 'failed' : search.isLoading ? 'loading' : 'ready',
+        // 첫 페이지가 이미 있으면 더보기 실패로 전체 화면을 failed 로 덮지 않는다 — 불러온 결과를
+        // 유지하고 더보기 영역에서만 재시도한다 (S15P21A501-251 리뷰).
+        state:
+          body === null || (search.isError && pages.length === 0)
+            ? 'failed'
+            : search.isLoading
+              ? 'loading'
+              : 'ready',
         error: search.error,
         failureReason: rangeError || undefined,
         retry: () => {
@@ -68,6 +85,7 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
         },
         hasMore: search.hasNextPage,
         isLoadingMore: search.isFetchingNextPage,
+        loadMoreError: search.isFetchNextPageError,
         onLoadMore: () => {
           if (search.hasNextPage) void search.fetchNextPage();
         },
