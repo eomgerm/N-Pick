@@ -1,11 +1,14 @@
+'use client';
+
+import { useState } from 'react';
 import { Play } from 'lucide-react';
 
 import {
   formatTimestamp,
   getVerificationStatusLabel,
-  getKeyframeTimes,
   type SearchResult,
 } from '@/features/wireframes/demo-scenes';
+import { SceneHoverPreview } from '@/features/wireframes/scene-hover-preview';
 import styles from '@/features/wireframes/wireframe.module.css';
 
 interface SearchResultCardProps {
@@ -31,11 +34,19 @@ export function SearchResultCard({
   isSelected,
   onSelect,
 }: SearchResultCardProps) {
-  const keyframeTimes = getKeyframeTimes(result);
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const evidenceTooltipId = `${idPrefix}match-evidence-${result.id}`;
 
   return (
-    <article className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}>
+    <article
+      className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setIsPreviewing(false);
+      }}
+      onFocus={() => setIsPreviewing(true)}
+      onPointerEnter={() => setIsPreviewing(true)}
+      onPointerLeave={() => setIsPreviewing(false)}
+    >
       <div
         aria-label={result.imageLabel}
         className={`${styles.thumbnail} ${result.imageClass}`}
@@ -51,16 +62,13 @@ export function SearchResultCard({
         <span className={styles.timecode}>
           {formatTimestamp(result.sceneStart)} – {formatTimestamp(result.sceneEnd)}
         </span>
-        <span aria-hidden="true" className={styles.keyframePreview}>
-          {keyframeTimes.map((keyframeTime) => (
-            <span
-              className={`${styles.keyframe} ${result.imageClass}`}
-              key={`${result.id}-${keyframeTime}`}
-            >
-              <span className={styles.keyframeTime}>{keyframeTime}</span>
-            </span>
-          ))}
-        </span>
+        {isPreviewing ? (
+          <SceneHoverPreview
+            clipId={result.clipId}
+            sceneEnd={result.sceneEnd}
+            sceneStart={result.sceneStart}
+          />
+        ) : null}
       </div>
 
       <div className={styles.cardBody}>
