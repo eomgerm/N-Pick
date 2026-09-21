@@ -75,7 +75,14 @@ for video in "$DIR"/*.{mp4,mov,mkv}; do
   external=$(field externalProcessingConfirmed "$meta")
   form+=(--form-string "external_processing_confirmed=${external:-false}")
   # 텍스트 필드에 -F 를 쓰면 안 된다. curl 은 값이 @ 나 < 로 시작하면 파일로 읽는다.
-  title=$(field title "$meta");       [ -z "$title" ]    || form+=(--form-string "title=$title")
+  title=$(field title "$meta")
+  # jq 는 UTF-8 이 아닌 바이트를 U+FFFD 로 바꿔 놓고 성공으로 끝낸다. CP949 로 저장된 사이드카가
+  # 조용히 글자를 잃은 채 등록되는 경로였다 (S15P21A501-226). 사라진 바이트는 서버도 사람도
+  # 되돌릴 수 없으므로 보내기 전에 멈춘다.
+  case "$title" in
+    *$'\357\277\275'*) fail "제목을 UTF-8 로 읽지 못했다. 사이드카를 UTF-8 로 다시 저장한다: $meta"; continue ;;
+  esac
+  [ -z "$title" ] || form+=(--form-string "title=$title")
   filmed=$(field filmedDate "$meta"); [ -z "$filmed" ]   || form+=(--form-string "filmed_date=$filmed")
   subtitle=$(field subtitle "$meta"); [ -z "$subtitle" ] || form+=(-F "subtitle=@$DIR/$subtitle")
   broadcast=$(field broadcastDate "$meta")

@@ -166,7 +166,7 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | ------------------------------- | ------- | ------ | ----------------------------------------------- |
 | `video`                         | file    | 필수   | 1개, 실제 영상 내용·형식·크기·길이 검사         |
 | `source_type`                   | string  | 필수   | `broadcast` 또는 `archive`                      |
-| `title`                         | string  | 선택   | 공백은 생략, 최대 500자                         |
+| `title`                         | string  | 선택   | 공백은 생략, 최대 500자, UTF-8                  |
 | `broadcast_date`                | date    | 선택   | `broadcast`에서만 허용                          |
 | `filmed_date`                   | date    | 선택   | 두 source 모두 허용                             |
 | `subtitle`                      | file    | 선택   | 1개, UTF-8 SRT/VTT 또는 승인된 JSON             |
