@@ -60,11 +60,13 @@ function renderPreview({
   isSubmitted = false,
   isSubmitting = false,
   result = { ...results[0], searchResultId: '987' },
+  scenes,
   state,
 } = {}) {
   return renderToStaticMarkup(
     createElement(ScenePreviewDialog, {
       result,
+      scenes,
       theme: 'shinhan',
       isSubmitted,
       isSubmitting,
@@ -254,4 +256,20 @@ test('제출 중에는 입력과 닫기·재제출을 잠그고 실패는 다시
   assert.ok(failedHtml.includes('서버 응답을 확인할 수 없습니다.'));
   assert.ok(!failedHtml.includes('raw failure'));
   assert.ok(failedHtml.includes('role="alert"'));
+});
+
+test('구간 목록의 시각은 화면과 aria-label 모두 소수 초 없이 표시한다', () => {
+  const scenes = [
+    { ...results[0], id: 1, sceneStart: 12.345, sceneEnd: 20.6 },
+    { ...results[1], id: 2, sceneStart: 73.5, sceneEnd: 80.25 },
+  ];
+  const html = renderPreview({ result: { ...scenes[0], searchResultId: '987' }, scenes });
+
+  assert.ok(html.includes('00:12 – 00:20'));
+  assert.ok(html.includes('01:13 – 01:20'));
+  assert.match(html, /aria-label="구간 1: [^"]*, 00:12부터 00:20까지"/);
+  assert.match(html, /aria-label="구간 2: [^"]*, 01:13부터 01:20까지"/);
+  for (const decimal of ['12.345', '20.6', '73.5', '80.25']) {
+    assert.ok(!html.includes(decimal));
+  }
 });

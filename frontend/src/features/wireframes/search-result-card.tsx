@@ -3,13 +3,9 @@
 import { useState } from 'react';
 import { Play } from 'lucide-react';
 
-import {
-  formatTimestamp,
-  getVerificationStatusLabel,
-  type SearchResult,
-} from '@/features/wireframes/demo-scenes';
+import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
 import { SceneHoverPreview } from '@/features/wireframes/scene-hover-preview';
-import { getSceneThumbnailUrl } from '@/features/wireframes/scene-preview-media';
+import { formatMediaTime, getSceneThumbnailUrl } from '@/features/wireframes/scene-preview-media';
 import { SceneThumbnail } from '@/features/wireframes/scene-thumbnail';
 import styles from '@/features/wireframes/wireframe.module.css';
 
@@ -70,7 +66,7 @@ export function SearchResultCard({
           <span>장면 보기</span>
         </span>
         <span className={styles.timecode}>
-          {formatTimestamp(result.sceneStart)} – {formatTimestamp(result.sceneEnd)}
+          {formatMediaTime(result.sceneStart)} – {formatMediaTime(result.sceneEnd)}
         </span>
         {isHovering || isFocused ? (
           <SceneHoverPreview

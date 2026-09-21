@@ -19,11 +19,8 @@ import {
   inquiryStatusLabels,
   type InquiryResolution,
 } from '@/features/wireframes/inquiry-state';
-import {
-  formatTimestamp,
-  getVerificationStatusLabel,
-  type SearchResult,
-} from '@/features/wireframes/demo-scenes';
+import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
+import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
 import {
   canCreateInquiry,
   type SearchExecutionPresentation,
@@ -335,7 +332,7 @@ export function ScenePreviewDialog({
                   <li key={scene.id}>
                     <button
                       aria-current={scene.id === result.id ? 'true' : undefined}
-                      aria-label={`구간 ${index + 1}: ${scene.title}, ${formatTimestamp(scene.sceneStart)}부터 ${formatTimestamp(scene.sceneEnd)}까지`}
+                      aria-label={`구간 ${index + 1}: ${scene.title}, ${formatMediaTime(scene.sceneStart)}부터 ${formatMediaTime(scene.sceneEnd)}까지`}
                       onClick={() => handleSceneSelect(scene)}
                       type="button"
                     >
@@ -345,7 +342,7 @@ export function ScenePreviewDialog({
                       <span className={styles.sceneListInfo}>
                         <strong>{scene.title}</strong>
                         <span>
-                          {formatTimestamp(scene.sceneStart)} – {formatTimestamp(scene.sceneEnd)} ·{' '}
+                          {formatMediaTime(scene.sceneStart)} – {formatMediaTime(scene.sceneEnd)} ·{' '}
                           {scene.duration}
                         </span>
                       </span>
