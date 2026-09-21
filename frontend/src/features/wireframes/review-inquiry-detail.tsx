@@ -21,6 +21,7 @@ import {
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import { TagCorrectionForm } from '@/features/wireframes/review-tag-correction';
 import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
+import { CorrectionVerificationPanel } from '@/features/wireframes/review-verification';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -29,6 +30,7 @@ import {
   formatInquiryTimecode,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
+import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
@@ -260,6 +262,17 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
           <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
         ) : null}
 
+        {inquiry.status === 'reviewing' && inquiry.resolution === 'exclude_scene' ? (
+          <SceneExcludeCandidateForm inquiry={inquiry} />
+        ) : null}
+
+        {inquiry.status === 'reviewing' &&
+        (inquiry.resolution === 'tag_correction' ||
+          inquiry.resolution === 'patch_parse' ||
+          inquiry.resolution === 'exclude_scene') ? (
+          <CorrectionVerificationPanel feedbackId={inquiry.feedbackId} key={inquiry.feedbackId} />
+        ) : null}
+
         {inquiry.resolution ? (
           <section
             className={`rounded-2xl border border-(--line) p-5 ${inquiryResolutionClasses[inquiry.resolution]}`}
@@ -320,7 +333,9 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                         }`}
                       />
                       <span className="font-semibold text-(--text)">{tag.tagName}</span>
-                      <span className="text-xs text-(--muted)">{evidenceLabel(tag.verifiedState)}</span>
+                      <span className="text-xs text-(--muted)">
+                        {evidenceLabel(tag.verifiedState)}
+                      </span>
                     </li>
                   ))}
                 </ul>
