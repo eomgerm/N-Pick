@@ -80,6 +80,13 @@ export function SearchResultCard({
       <div className={styles.cardBody}>
         <h3 className={styles.cardTitle}>{result.title}</h3>
 
+        {/* 계약상 네 값뿐이고 `unknown`은 '정보 없음'으로 온다. 「샷 유형」 이름을 함께 두어야
+            그 값이 무엇에 대한 정보 없음인지 카드에서 바로 읽힌다(FRD §6.3). */}
+        <p className={styles.cardShotType}>
+          <span>샷 유형</span>
+          <span className={styles.cardShotTypeValue}>{result.shotType}</span>
+        </p>
+
         <div className={styles.matchedKeywords}>
           <span className={styles.keywordList}>
             <span>키워드</span>
