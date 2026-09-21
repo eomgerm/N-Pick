@@ -19,6 +19,7 @@ import {
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
+import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -247,6 +248,10 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
             key={`${inquiry.feedbackId}-${inquiry.resolution ?? 'new'}`}
             memberLoginId={member.loginId}
           />
+        ) : null}
+
+        {inquiry.status === 'reviewing' && inquiry.resolution === 'patch_parse' ? (
+          <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
         ) : null}
 
         {inquiry.resolution ? (
