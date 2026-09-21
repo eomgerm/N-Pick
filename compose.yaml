@@ -224,7 +224,17 @@ services:
       NPICK_AI_JOB_API_BASE_URL: http://backend:8080
       # **좁히지 않으면 GPU 노드와 선언이 겹쳐 잡을 서로 뺏는다.** 구현은 이 이미지에도
       # scene_detection·frame_extraction·indexing 이 들어 있다(기본 의존성이라서다).
-      NPICK_AI_JOB_STAGES: ocr
+      #
+      # GPU 를 쓰지 않는 단계를 전부 여기로 모은다. RunPod 파드는 시간당 과금이고
+      # 디코드 두 단계가 편당 20.4초였다(2026-09-21 실측, H200). 그 시간을 GPU
+      # 요금으로 태울 이유가 없다 — 파드는 vlm_metadata·asr·text_embedding·
+      # entity_extraction 넷만 맡는다(ai/README.md "RunPod 파드" 절).
+      #
+      # **entity_extraction 은 여기 없다.** GPU 연산은 아니지만 KPF-BERT 를 쓰는데
+      # 이 이미지에는 torch 가 없어(UV_GROUPS: "") 워밍업이 ModuleNotFoundError 로
+      # 실패한다. 옮기려면 이미지에 torch 를 넣어야 하고, 그건 크기와 빌드 시간을
+      # 크게 올린다. 실측 0.4초라 파드에 두어도 GPU 를 붙잡지 않는다.
+      NPICK_AI_JOB_STAGES: scene_detection,frame_extraction,ocr,transcript_selection,scene_transcript_mapping,indexing
       NPICK_AI_OCR_MODEL_DIR: /var/cache/npick/models/rapidocr
     # 포트를 퍼블리시하지 않는다. 잡 수신은 이 워커가 발신하는 방향이고
     # /health 는 compose 네트워크 안에서만 쓴다.
