@@ -88,7 +88,7 @@ def test_empty_sides() -> None:
 @pytest.mark.parametrize(
     ("reference", "hypothesis", "distance"),
     [
-        ("꿀떡", "꿀찍", 1),
+        ("꿀꺽", "꿀찍", 1),
         ("", "abc", 3),
         ("abc", "", 3),
         ("페스티벌", "페스티벨", 1),
@@ -101,7 +101,7 @@ def test_edit_distance(reference: str, hypothesis: str, distance: int) -> None:
 
 def test_character_error_rate_uses_the_label_as_denominator() -> None:
     # 티켓을 연 사례. 두 글자 중 한 글자가 틀렸다.
-    assert character_error_rate("꿀떡", "꿀찍") == pytest.approx(0.5)
+    assert character_error_rate("꿀꺽", "꿀찍") == pytest.approx(0.5)
 
 
 def test_character_error_rate_of_an_empty_label() -> None:
@@ -114,7 +114,7 @@ def test_character_error_rate_of_an_empty_label() -> None:
 
 def test_a_misread_is_not_counted_as_read() -> None:
     """이 하네스가 존재하는 이유. 재현율은 이걸 정답으로 세고 검색은 놓친다."""
-    result = match_frame(frame_of(line("꿀떡")), [observed("꿀찍")])
+    result = match_frame(frame_of(line("꿀꺽")), [observed("꿀찍")])
     assert [entry.outcome for entry in result.lines] == ["misread"]
     assert result.lines[0].cer == pytest.approx(0.5)
 
@@ -181,7 +181,7 @@ def test_summary_separates_silent_misreads() -> None:
     표시 없는 오독만 그대로 검색 토큰이 된다(`docs/ocr.md` §5 의 unverified 는
     버리는 기준이 아니라 표시다).
     """
-    frame = frame_of(line("꿀떡"), line("페스티벌"))
+    frame = frame_of(line("꿀꺽"), line("페스티벌"))
     _, summary = evaluate(
         [frame],
         {frame.key: [observed("꿀찍", 0.95), observed("페스티벨", 0.42)]},
@@ -200,7 +200,7 @@ def test_summary_counts_a_miss_as_a_full_character_error() -> None:
 
 
 def test_exact_rate_is_the_headline() -> None:
-    frame = frame_of(line("컬링"), line("꿀떡"))
+    frame = frame_of(line("컬링"), line("꿀꺽"))
     _, summary = evaluate([frame], {frame.key: [observed("컬링"), observed("꿀찍")]})
     assert summary.exact_rate == pytest.approx(0.5)
 
@@ -275,7 +275,7 @@ def test_committed_cases_load() -> None:
 def test_the_reported_case_is_registered_even_without_a_frame() -> None:
     """원본 화면을 못 구했다고 사례를 빼면 다음 사람이 같은 것을 다시 발견한다."""
     case = next(case for case in load_cases(CASES_PATH) if case.id == "S15P21A501-260-honeyrice")
-    assert (case.expected, case.observed) == ("꿀떡", "꿀찍")
+    assert (case.expected, case.observed) == ("꿀꺽", "꿀찍")
     assert case.frame is None
 
 
@@ -300,8 +300,8 @@ def case(expected: str, observed_text: str, *, frame: str | None = "f.jpg") -> C
 
 
 def test_case_status_tells_fixed_from_still_wrong() -> None:
-    subject = case("꿀떡", "꿀찍")
-    assert case_status(subject, [observed("꿀떡")]) == "fixed"
+    subject = case("꿀꺽", "꿀찍")
+    assert case_status(subject, [observed("꿀꺽")]) == "fixed"
     assert case_status(subject, [observed("꿀찍")]) == "reproduced"
     # 여전히 틀리는데 다르게 틀린다. 고쳐진 것이 아니다.
     assert case_status(subject, [observed("꿀뚝")]) == "changed"
@@ -352,13 +352,13 @@ def test_a_case_outside_this_run_is_not_reported_as_absent() -> None:
     않은 것이다. 둘을 같은 값으로 두면 라벨된 클립만 돌린 측정이 다른 클립의 사례를
     "사라졌다" 로 보고한다 — 고쳐지지 않았는데 고쳐진 것처럼 읽힌다.
     """
-    subject = case("꿀떡", "꿀찍", frame="other/clip/kf-0.jpg")
+    subject = case("꿀꺽", "꿀찍", frame="other/clip/kf-0.jpg")
     assert check_cases([subject], {}) == [{"id": "t", "status": "not-in-run"}]
     assert check_cases([subject], {"other/clip/kf-0": ()}) == [{"id": "t", "status": "absent"}]
 
 
 def test_a_case_without_a_frame_is_reported_as_frame_missing() -> None:
-    subject = case("꿀떡", "꿀찍", frame=None)
+    subject = case("꿀꺽", "꿀찍", frame=None)
     assert check_cases([subject], {}) == [{"id": "t", "status": "frame-missing"}]
 
 

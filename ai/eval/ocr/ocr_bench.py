@@ -2,7 +2,7 @@
 
     uv run --directory ai python eval/ocr/ocr_bench.py --variant all
 
-QA 가 보고한 오독(`꿀떡` → `꿀찍`)을 계기로 만든 하네스다. 하는 일은 셋이다.
+QA 가 보고한 오독(`꿀꺽` → `꿀찍`)을 계기로 만든 하네스다. 하는 일은 셋이다.
 
 1. 라벨된 keyframe 을 실제 엔진으로 읽어 **문구마다 exact / misread / miss 를 가른다**
    (`ocr_metrics.py` 가 왜 재현율만으로 부족한지 적는다).
