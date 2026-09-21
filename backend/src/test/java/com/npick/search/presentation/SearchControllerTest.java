@@ -169,6 +169,17 @@ class SearchControllerTest {
     }
 
     @Test
+    @DisplayName("1글자 검색어는 형태소 충돌을 부르므로 400 으로 막는다 (S15P21A501-243)")
+    void rejectsSingleCharacterQuery() throws Exception {
+        mockMvc.perform(post("/api/v1/search")
+                        .with(user(EDITOR))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\":\"비\",\"explicit_filters\":{}}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("로그인하지 않으면 401 이다")
     void requiresLogin() throws Exception {
         mockMvc.perform(post("/api/v1/search")

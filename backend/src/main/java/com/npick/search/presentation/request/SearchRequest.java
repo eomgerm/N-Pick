@@ -18,7 +18,7 @@ import com.npick.search.application.query.search.ExecuteSearchQuery;
  * @param query 사용자가 친 원문. 정규화는 서버가 한다
  */
 public record SearchRequest(
-        @JsonProperty("query") @NotBlank @Size(max = 500) String query,
+        @JsonProperty("query") @NotBlank @Size(min = 2, max = 500, message = "검색어는 2글자 이상 입력해 주세요") String query,
         @JsonProperty("explicit_filters") Filters explicitFilters) {
 
     /**
