@@ -65,6 +65,11 @@ interface WireframeShellProps {
     /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
     failureReason?: string;
     retry: () => void;
+    /** 다음 페이지(더보기)가 있으면 참. 없으면 버튼을 숨긴다 (S15P21A501-251). */
+    hasMore?: boolean;
+    /** 더보기 추가 조회가 도는 중. 버튼만 로딩으로 표시하고 결과 그리드는 유지한다. */
+    isLoadingMore?: boolean;
+    onLoadMore?: () => void;
   };
   initialQuery?: string;
   theme: WireframeTheme;
@@ -408,6 +413,18 @@ export function WireframeShell({
                     />
                   ))}
                 </div>
+                {api?.hasMore ? (
+                  <div className={styles.loadMore}>
+                    <button
+                      className={styles.loadMoreButton}
+                      type="button"
+                      disabled={api.isLoadingMore}
+                      onClick={() => api.onLoadMore?.()}
+                    >
+                      {api.isLoadingMore ? '불러오는 중…' : '더보기'}
+                    </button>
+                  </div>
+                ) : null}
               </>
             )}
           </section>

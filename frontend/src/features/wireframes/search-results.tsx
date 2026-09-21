@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 
 import { WireframeShell, type SearchScreenParams } from '@/features/wireframes/wireframe-shell';
 import { createSearchRequestBody } from '@/features/wireframes/search-api-contract';
@@ -24,16 +24,33 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
         broadcast: broadcast.range,
         filming: filming.range,
       });
-  const search = useQuery({
+  const search = useInfiniteQuery({
     queryKey: ['scene-search', body],
-    queryFn: ({ signal }) => searchScenes(body!, signal),
+    // page 는 요청마다 pageParam 으로 싣는다. base body 에는 page 가 없어(첫 페이지=0) 하위호환이다.
+    queryFn: ({ pageParam, signal }) => searchScenes({ ...body!, page: pageParam }, signal),
     enabled: body !== null,
+    initialPageParam: 0,
+    // 다음 페이지 번호 = 지금까지 받은 페이지 수(0-based). has_next 가 거짓이면 더보기를 멈춘다.
+    getNextPageParam: (lastPage, allPages) => (lastPage.hasNext ? allPages.length : undefined),
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     retry: false,
   });
+
+  // 페이지를 이어 붙인다. 페이지마다 rank 가 1..10 로 반복되므로 표시 id·rank 를 전체 순번으로
+  // 다시 매긴다 — 그대로 두면 카드 key 와 선택 id 가 페이지 간 충돌한다. 실행·상세는 첫 페이지 기준이다.
+  const pages = search.data?.pages ?? [];
+  let presentation;
+  if (pages.length > 0) {
+    const first = presentSearchResponse(pages[0]);
+    const results = pages
+      .flatMap((page) => presentSearchResponse(page).results)
+      .map((result, index) => ({ ...result, id: index + 1, rank: index + 1 }));
+    presentation = { results, execution: first.execution, details: first.details };
+  }
+
   return (
     <WireframeShell
       initialQuery={params.q}
@@ -41,12 +58,18 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
       theme="shinhan"
       api={{
         validationMessage: validateSearchQuery(params.q ?? ''),
-        presentation: search.data ? presentSearchResponse(search.data) : undefined,
-        state: body === null || search.isError ? 'failed' : search.isFetching ? 'loading' : 'ready',
+        presentation,
+        // 더보기 추가 조회(isFetchingNextPage)는 전체 화면을 loading 으로 바꾸지 않는다 — 첫 로딩만.
+        state: body === null || search.isError ? 'failed' : search.isLoading ? 'loading' : 'ready',
         error: search.error,
         failureReason: rangeError || undefined,
         retry: () => {
           if (body) void search.refetch();
+        },
+        hasMore: search.hasNextPage,
+        isLoadingMore: search.isFetchingNextPage,
+        onLoadMore: () => {
+          if (search.hasNextPage) void search.fetchNextPage();
         },
       }}
     />

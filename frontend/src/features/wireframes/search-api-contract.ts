@@ -23,6 +23,8 @@ export interface SearchExplicitFilters {
 export interface SearchRequestBody {
   query: string;
   explicit_filters: SearchExplicitFilters;
+  // 0-based 결과 페이지. 생략하면 서버가 첫 페이지(0)로 본다. 더보기가 다음 페이지를 요청할 때만 싣는다.
+  page?: number;
 }
 
 export type SearchExecutionStatus = 'succeeded' | 'degraded';
@@ -80,6 +82,8 @@ export interface SearchResponse {
   guardSummary: SearchGuardSummary;
   shortageReasons: SearchShortageReason[];
   results: SearchSceneResponse[];
+  // 다음 페이지가 있으면 참. 더보기 버튼 노출을 결정한다 (S15P21A501-251).
+  hasNext: boolean;
 }
 
 function toInclusiveFilter(range: DateRange): InclusiveDateFilter | undefined {
@@ -320,5 +324,7 @@ function parseSearchPayload(
     guardSummary,
     shortageReasons,
     results,
+    // 더보기는 실시간 검색 전용이다. 스냅샷(과거 기록)에는 has_next 가 없으므로 항상 false 로 둔다.
+    hasNext: isHistory ? false : readBoolean(payload.has_next, httpStatus),
   };
 }
