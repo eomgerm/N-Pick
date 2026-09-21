@@ -176,7 +176,7 @@ for (const width of [1440, 390]) {
     ).toHaveAttribute('title', `귀성 차량 행렬\n키워드: ${manyKeywords.join(', ')}`);
 
     const crowdedCard = cards.nth(2);
-    const badge = crowdedCard.getByText('미검증', { exact: true });
+    const badge = crowdedCard.getByText('자동 인식', { exact: true });
     await expect(badge).toBeVisible();
     const badgeBounds = (await badge.boundingBox())!;
     const cardBounds = (await crowdedCard.boundingBox())!;
