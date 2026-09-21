@@ -1,5 +1,10 @@
 import type { InquiryResolution, InquiryStatus } from '@/features/wireframes/inquiry-state';
 
+import {
+  getVerificationStatusLabel,
+  type VerificationStatus,
+} from '@/features/wireframes/demo-scenes';
+import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
 import { ApiClientError } from '@/lib/api/error';
 
 const filterLabels: Record<string, string> = {
@@ -89,6 +94,15 @@ export function countSnapshotEntries(value: string | null): number | null {
 }
 
 const snapshotLabels: Record<string, string> = {
+  display: '표시값',
+  shot_type: '샷 유형',
+  broadcast_date: '방송일',
+  filmed_date: '촬영일',
+  scene_description: '장면 설명',
+  start_time_ms: '시작',
+  end_time_ms: '종료',
+  verification_status: '검증 상태',
+  match_evidence: '일치 근거',
   score: '점수',
   reason: '이유',
   explanation: '설명',
@@ -148,6 +162,65 @@ export function evidenceLabel(value: string | null): string {
   return evidenceLabels[value.toLowerCase()] ?? '정보 없음';
 }
 
+const shotTypeLabels: Record<string, string> = {
+  anchor: '앵커',
+  interview: '인터뷰',
+  b_roll: '자료 화면',
+  unknown: '정보 없음',
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function displayVerificationStatus(value: unknown): string {
+  const statuses: VerificationStatus[] = [
+    'verified',
+    'unverified',
+    'unknown',
+    'rejected',
+    'withdrawn',
+  ];
+  return typeof value === 'string' && statuses.includes(value as VerificationStatus)
+    ? getVerificationStatusLabel(value as VerificationStatus)
+    : '정보 없음';
+}
+
+function displayDateFact(label: string, value: unknown): FilterFact | null {
+  if (!isRecord(value)) return null;
+  const date = value.value === null ? '미상' : typeof value.value === 'string' ? value.value : null;
+  if (date === null) return null;
+  return {
+    label,
+    value: `${date} · ${displayVerificationStatus(value.verification_status)}`,
+  };
+}
+
+function getDisplayFacts(value: unknown): FilterFact[] {
+  if (!isRecord(value)) return [];
+  const facts: FilterFact[] = [];
+  if (typeof value.shot_type === 'string') {
+    facts.push({
+      label: snapshotLabels.shot_type,
+      value: shotTypeLabels[value.shot_type] ?? '정보 없음',
+    });
+  }
+  const broadcastDate = displayDateFact(snapshotLabels.broadcast_date, value.broadcast_date);
+  if (broadcastDate) facts.push(broadcastDate);
+  const filmedDate = displayDateFact(snapshotLabels.filmed_date, value.filmed_date);
+  if (filmedDate) facts.push(filmedDate);
+  if (typeof value.scene_description === 'string') {
+    facts.push({ label: snapshotLabels.scene_description, value: value.scene_description });
+  }
+  if (typeof value.start_time_ms === 'number' && typeof value.end_time_ms === 'number') {
+    facts.push({
+      label: '구간',
+      value: `${formatMediaTime(value.start_time_ms / 1000)} – ${formatMediaTime(value.end_time_ms / 1000)}`,
+    });
+  }
+  return facts;
+}
+
 // Known display fields only: never render resolver output, paths, or arbitrary JSON keys.
 export function getSnapshotFacts(value: string | null): FilterFact[] | null {
   if (!value) return [];
@@ -161,7 +234,11 @@ export function getSnapshotFacts(value: string | null): FilterFact[] | null {
       } else if (item !== null && typeof item === 'object') {
         for (const [key, child] of Object.entries(item)) {
           if (Object.hasOwn(snapshotLabels, key)) {
-            visit(child, [path, snapshotLabels[key]].filter(Boolean).join(' · '), depth + 1);
+            if (key === 'display') {
+              facts.push(...getDisplayFacts(child));
+            } else {
+              visit(child, [path, snapshotLabels[key]].filter(Boolean).join(' · '), depth + 1);
+            }
           }
         }
       } else if (
@@ -174,7 +251,14 @@ export function getSnapshotFacts(value: string | null): FilterFact[] | null {
         ) {
           facts.push({
             label: path,
-            value: typeof item === 'boolean' ? (item ? '예' : '아니요') : text,
+            value:
+              path.endsWith(snapshotLabels.verification_status) && typeof item === 'string'
+                ? displayVerificationStatus(item)
+                : typeof item === 'boolean'
+                  ? item
+                    ? '예'
+                    : '아니요'
+                  : text,
           });
         }
       }
