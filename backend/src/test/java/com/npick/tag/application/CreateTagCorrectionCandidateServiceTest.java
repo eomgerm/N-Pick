@@ -237,6 +237,7 @@ class CreateTagCorrectionCandidateServiceTest {
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.EMPTY_OPERATIONS));
         verify(candidateRepository, never()).addJudgment(any());
+        verify(correctionStateLock, never()).acquire();
     }
 
     @Test
@@ -249,6 +250,8 @@ class CreateTagCorrectionCandidateServiceTest {
                         ex -> assertThat(ex.errorCode())
                                 .isEqualTo(TagCorrectionCandidateErrorCode.TOO_MANY_OPERATIONS));
         verify(candidateRepository, never()).addJudgment(any());
+        // 요청 형태만 보는 검사라 전역 교정 상태 잠금을 잡기 전에 끝나야 한다 — 거대한 본문이 다른 교정 경로를 막지 않게.
+        verify(correctionStateLock, never()).acquire();
     }
 
     @Test

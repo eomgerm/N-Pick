@@ -80,7 +80,8 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
         }
 
         // 멱등 재생(위)을 통과시킨 뒤에 센다 — 상한에 닿았다고 같은 키의 재시도가 갑자기 409 가 되면 안 된다.
-        // 확정으로 active 가 된 규칙도 이 신고가 만든 것이라 함께 세며, 세기와 쓰기는 같은 교정 상태 잠금 안에 있다.
+        // 세는 대상은 대기 중인 후보뿐이며, 세기와 쓰기는 같은 교정 상태 잠금 안에 있다.
+        // 대기 후보를 버리는 경로는 없다. 상한에 닿으면 남은 후보로 확정하거나 판정을 다시 내려야 한다.
         if (candidateRepository.countByFeedback(command.feedbackId()) >= MAX_CANDIDATES_PER_FEEDBACK) {
             throw new BusinessException(ParseRuleCandidateErrorCode.CANDIDATE_LIMIT_EXCEEDED);
         }
