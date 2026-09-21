@@ -291,7 +291,8 @@ export function WireframeShell({
           onQueryChange={setQuery}
           onSubmit={handleSearch}
           placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
-          label="뉴스 장면 검색어"
+          formLabel="뉴스 장면 검색"
+          inputLabel="뉴스 장면 검색어"
           isBusy={isSearchPending}
           isDisabled={isSearchPending}
           fieldRef={searchFieldRef}

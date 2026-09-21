@@ -91,7 +91,8 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
             onQueryChange={setQuery}
             onSubmit={handleSubmit}
             placeholder="예: 비 내리는 출근길 광화문 횡단보도"
-            label="뉴스 장면 검색어"
+            formLabel="뉴스 장면 검색"
+            inputLabel="뉴스 장면 검색어"
             isBusy={isNavigating}
             isDisabled={isNavigating}
             fieldRef={searchFieldRef}

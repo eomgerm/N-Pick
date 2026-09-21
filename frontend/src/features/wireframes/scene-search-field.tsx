@@ -25,7 +25,9 @@ interface SceneSearchFieldProps {
   onQueryChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   placeholder: string;
-  label: string;
+  // form landmark 이름과 입력 필드 이름을 나눈다 — 같은 값을 쓰면 landmark 와 필드가 한 이름이 된다.
+  formLabel: string;
+  inputLabel: string;
   classes: SceneSearchClasses;
   isDisabled?: boolean;
   isBusy?: boolean;
@@ -40,7 +42,8 @@ export function SceneSearchField({
   onQueryChange,
   onSubmit,
   placeholder,
-  label,
+  formLabel,
+  inputLabel,
   classes,
   isDisabled = false,
   isBusy = false,
@@ -63,11 +66,11 @@ export function SceneSearchField({
 
   if (variant === 'compact') {
     return (
-      <form aria-label={label} className={classes.form} onSubmit={onSubmit} role="search">
+      <form aria-label={formLabel} className={classes.form} onSubmit={onSubmit} role="search">
         <div className={classes.field} ref={fieldRef}>
           <input
             aria-describedby={describedBy}
-            aria-label={label}
+            aria-label={inputLabel}
             disabled={isDisabled}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder={placeholder}
@@ -90,7 +93,7 @@ export function SceneSearchField({
   return (
     <form
       aria-busy={isBusy}
-      aria-label={label}
+      aria-label={formLabel}
       className={classes.form}
       onSubmit={onSubmit}
       role="search"
@@ -98,7 +101,7 @@ export function SceneSearchField({
       <div className={classes.field} ref={fieldRef}>
         <Search aria-hidden="true" className={classes.icon} />
         <label className={classes.srOnly} htmlFor={inputId}>
-          {label}
+          {inputLabel}
         </label>
         <span className={classes.surface}>
           <input
