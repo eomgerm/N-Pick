@@ -482,15 +482,20 @@ export NPICK_AI_JOB_POLL_ENABLED=true
 export NPICK_AI_JOB_API_BASE_URL=https://j15a501.p.ssafy.io
 export NPICK_AI_JOB_API_TOKEN=...             # fleet 과 짝이 맞아야 한다
 export NPICK_AI_JOB_FLEET=prod
-export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
+export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,ocr,vlm_metadata,transcript_selection,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
 export NPICK_AI_VLM_MODEL=Qwen/Qwen3.5-9B
 export NPICK_AI_ASR_MODEL=large-v3-turbo      # ai/docs/asr.md §5.6 확정값
 export NPICK_AI_ASR_MODEL_REVISION=0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf  # 고정 필수
 uv run --locked --group gpu --group cu128 npick-worker-drain
 ```
 
-`NPICK_AI_JOB_STAGES` 에서 **`ocr` 을 뺀다.** 그 단계는 EC2 CPU 워커 몫이고, 여기서
-함께 선언하면 둘이 같은 잡을 두고 다툰다. 종료 코드의 뜻은 위 [배치 실행](#배치-실행--npick-worker-drain) 절에 있다.
+**여기서는 10단계를 전부 선언한다.** 이 노드는 상주 워커가 아니라 사람이 칠 때만 도는
+배치라(`npick-worker-drain`), 한 번 돌려 큐를 끝까지 비우는 것이 목적이다. 중간 단계를
+남의 워커에 맡기면 그 워커가 떠 있어야 완주하는데 그 전제를 여기서는 세울 수 없다.
+
+`ocr` 이 EC2 CPU 워커와 겹치지만 문제가 되지 않는다 — 이 노드는 평소 떠 있지 않고,
+겹치는 동안에는 먼저 claim 한 쪽이 가져갈 뿐 잡이 사라지지 않는다. 상주 워커로 바꾼다면
+그때 `ocr` 을 뺀다. 종료 코드의 뜻은 위 [배치 실행](#배치-실행--npick-worker-drain) 절에 있다.
 
 > **SSH 를 끊을 예정이면 `tmux` 안에서 돌린다.** drain 은 큐가 빌 때까지 돈다.
 
@@ -573,14 +578,19 @@ export NPICK_AI_JOB_POLL_ENABLED=true
 export NPICK_AI_JOB_API_BASE_URL=https://j15a501.p.ssafy.io
 export NPICK_AI_JOB_API_TOKEN=...          # **SSAFY GPU 서버와 다른 토큰**
 export NPICK_AI_JOB_FLEET=prod             # BE 의 NPICK_WORKER_JOBS_FLEET 과 같아야 한다
-export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
+export NPICK_AI_JOB_STAGES=vlm_metadata,asr,text_embedding,entity_extraction
 export NPICK_AI_VLM_MODEL=Qwen/Qwen3.5-9B
 export NPICK_AI_ASR_MODEL=large-v3-turbo
 export NPICK_AI_ASR_MODEL_REVISION=0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf
 ```
 
-`NPICK_AI_JOB_STAGES` 에서 **`ocr` 을 뺀다.** 그 단계는 EC2 CPU 워커 몫이고,
-함께 선언하면 둘이 같은 잡을 두고 다툰다.
+**GPU 연산을 하는 단계만 선언한다.** 파드는 시간당 과금이고, `scene_detection`·
+`frame_extraction` 은 영상 디코드라 GPU 를 쓰지 않는다. 실측으로 그 둘이 편당 20.4초였다
+(2026-09-21, H200) — 그 시간을 GPU 요금으로 태울 이유가 없다. 나머지는 EC2 CPU 워커가 맡는다.
+
+`entity_extraction` 은 GPU 연산이 아닌데도 여기 있다. **CPU 워커 이미지에 torch 가 없기
+때문이다**(`compose.yaml` 의 `UV_GROUPS: ""`). 그쪽에서 선언하면 `ModuleNotFoundError` 로
+워밍업이 실패한다. 실측 0.4초라 파드를 붙잡지 않는다.
 
 ```bash
 # 파드 start command (RunPod 콘솔의 Container Start Command)
@@ -707,9 +717,13 @@ for k, v in registry.capability_versions().items(): print(k, v)'
 의 `pipeline.declared` 로 확인한다.
 
 ```
-CPU 워커   NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,ocr,indexing
-GPU 파드   NPICK_AI_JOB_STAGES=vlm_metadata,asr,text_embedding
+EC2 CPU 워커   NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,ocr,transcript_selection,scene_transcript_mapping,indexing
+RunPod 파드    NPICK_AI_JOB_STAGES=vlm_metadata,asr,text_embedding,entity_extraction
+SSAFY GPU      NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,ocr,vlm_metadata,transcript_selection,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
 ```
+
+앞의 둘은 **함께 떠서 10단계를 나눠 맡는다.** SSAFY GPU 는 그 둘과 겹치는 배치 노드이며
+혼자 완주하는 것이 목적이라 전부를 선언한다(위 [SSAFY GPU 서버](#ssafy-gpu-서버) 절).
 
 ```powershell
 $env:NPICK_AI_PORT = "8001"; uv run --directory ai npick-worker
