@@ -67,12 +67,14 @@ export function SearchResultCard({
         <h3 className={styles.cardTitle}>{result.title}</h3>
 
         <div className={styles.matchedKeywords}>
-          <span>키워드</span>
-          {result.matchedKeywords.map((keyword) => (
-            <span className={styles.keywordChip} key={keyword}>
-              {keyword}
-            </span>
-          ))}
+          <span className={styles.keywordList}>
+            <span>키워드</span>
+            {result.matchedKeywords.map((keyword) => (
+              <span className={styles.keywordChip} key={keyword}>
+                {keyword}
+              </span>
+            ))}
+          </span>
           <span className={styles.evidenceTooltip}>
             <span
               aria-describedby={evidenceTooltipId}
@@ -95,6 +97,7 @@ export function SearchResultCard({
         aria-label={`${position}위 ${result.title} Preview 열기`}
         className={styles.cardSelectButton}
         onClick={() => onSelect(result.id)}
+        title={`${result.title}\n키워드: ${result.matchedKeywords.join(', ')}`}
         type="button"
       />
     </article>
