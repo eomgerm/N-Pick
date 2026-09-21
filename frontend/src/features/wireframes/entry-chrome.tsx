@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { AppBrand } from '@/components/app-brand';
+import { ParallaxToggle } from '@/components/parallax-toggle';
 
 import styles from '@/features/wireframes/entry.module.css';
 
@@ -22,6 +23,7 @@ export function EntryFooter() {
   return (
     <footer className={styles.footer}>
       <span>© N-Pick</span>
+      <ParallaxToggle />
     </footer>
   );
 }

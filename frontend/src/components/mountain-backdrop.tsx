@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
 
 import styles from '@/components/mountain-backdrop.module.css';
+import { useParallaxPreference } from '@/lib/parallax-preference';
 
 const layers = ['sky', 'mountains', 'foreground'] as const;
 
@@ -13,12 +14,12 @@ export function MountainBackdrop() {
   const loadedLayers = useRef(new Set<string>());
   const [isReady, setIsReady] = useState(false);
   const [hasFailed, setHasFailed] = useState(false);
+  const { isInitialized, isMotionEnabled, isReducedMotion } = useParallaxPreference();
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !isReady || hasFailed) return;
+    if (!scene || !isReady || hasFailed || !isMotionEnabled) return;
 
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
     const current = { x: 0, y: 0, scroll: 0 };
     const target = { ...current };
@@ -54,13 +55,13 @@ export function MountainBackdrop() {
     }
 
     function schedule() {
-      if (!frameId && !reducedMotion.matches && !document.hidden) {
+      if (!frameId && !document.hidden) {
         frameId = requestAnimationFrame(animate);
       }
     }
 
     function handlePointerMove(event: PointerEvent) {
-      if (!finePointer.matches || event.pointerType !== 'mouse' || reducedMotion.matches) return;
+      if (!finePointer.matches || event.pointerType !== 'mouse') return;
       target.x = (Math.max(0, Math.min(1, event.clientX / window.innerWidth)) * 2 - 1) * -20;
       target.y = (Math.max(0, Math.min(1, event.clientY / window.innerHeight)) * 2 - 1) * -14;
       schedule();
@@ -80,17 +81,10 @@ export function MountainBackdrop() {
 
     function handleMotionChange() {
       stop();
-      scene!.dataset.motion = reducedMotion.matches
-        ? 'reduced'
-        : document.hidden
-          ? 'paused'
-          : 'active';
+      scene!.dataset.motion = document.hidden ? 'paused' : 'active';
       target.x = 0;
       target.y = 0;
-      if (reducedMotion.matches) {
-        Object.assign(current, { x: 0, y: 0, scroll: 0 });
-        paint();
-      } else if (!document.hidden) {
+      if (!document.hidden) {
         handleScroll();
       }
     }
@@ -101,22 +95,22 @@ export function MountainBackdrop() {
     window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('resize', handleMotionChange);
     document.addEventListener('visibilitychange', handleMotionChange);
-    reducedMotion.addEventListener('change', handleMotionChange);
     finePointer.addEventListener('change', handleMotionChange);
     handleMotionChange();
 
     return () => {
       stop();
+      Object.assign(current, { x: 0, y: 0, scroll: 0 });
+      paint();
       window.removeEventListener('pointermove', handlePointerMove);
       document.documentElement.removeEventListener('pointerleave', handlePointerLeave);
       window.removeEventListener('blur', handlePointerLeave);
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleMotionChange);
       document.removeEventListener('visibilitychange', handleMotionChange);
-      reducedMotion.removeEventListener('change', handleMotionChange);
       finePointer.removeEventListener('change', handleMotionChange);
     };
-  }, [isReady, hasFailed]);
+  }, [isReady, hasFailed, isMotionEnabled]);
 
   return (
     <div
@@ -134,7 +128,20 @@ export function MountainBackdrop() {
           src="/images/login-mountains/original.webp"
           unoptimized
         />
-        <div className={styles.layers} data-ready={isReady && !hasFailed} ref={sceneRef}>
+        <div
+          className={styles.layers}
+          data-motion={
+            !isInitialized
+              ? 'paused'
+              : isReducedMotion
+                ? 'reduced'
+                : !isMotionEnabled
+                  ? 'disabled'
+                  : 'active'
+          }
+          data-ready={isReady && !hasFailed}
+          ref={sceneRef}
+        >
           {layers.map((layer) => (
             <div className={`${styles.layer} ${styles[layer]}`} data-depth={layer} key={layer}>
               <Image
