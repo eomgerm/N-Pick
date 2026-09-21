@@ -20,6 +20,7 @@ import com.npick.common.security.support.PingController;
 import com.npick.member.infrastructure.security.MemberUserDetailsService;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -50,6 +51,19 @@ class SecurityConfigIntegrationTest {
     @DisplayName("미인증 보호경로는 401")
     void unauthenticatedProtectedPathReturns401() throws Exception {
         mockMvc.perform(get("/api/v1/review/ping")).andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * 보안 필터의 실패 응답은 {@code @RestControllerAdvice} 를 거치지 않고 {@link ApiErrorResponseWriter} 가 직접 쓴다. 그 경로로 한국어 message 가
+     * 깨지지 않고 나가는지는 상태 코드 검증만으로는 알 수 없다.
+     */
+    @Test
+    @DisplayName("보안 필터 실패 응답의 message 는 한국어로 나간다")
+    void securityFailureMessageIsKorean() throws Exception {
+        mockMvc.perform(get("/api/v1/review/ping"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("COMM_401"))
+                .andExpect(jsonPath("$.message").value("로그인이 필요합니다. 로그인 후 다시 시도해 주세요."));
     }
 
     @Test
