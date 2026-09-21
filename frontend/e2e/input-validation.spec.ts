@@ -96,8 +96,14 @@ test('파일 선택과 DnD에서 자막 상한을 막고 제목 제한·자막 �
     { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
   ]);
   let uploads = 0;
+  let submittedTitle: string | undefined;
   await page.route('**/api/v1/clips', (route) => {
     uploads++;
+    submittedTitle = route
+      .request()
+      .postDataBuffer()
+      ?.toString('utf8')
+      .match(/name="title"\r\n\r\n([^\r\n]*)\r\n/)?.[1];
     return route.fulfill({
       status: 400,
       json: {
@@ -111,10 +117,13 @@ test('파일 선택과 DnD에서 자막 상한을 막고 제목 제한·자막 �
   await page.goto('/review?view=upload');
   await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
   const title = page.locator('#registration-title');
-  expect(await paste(title, '가'.repeat(501))).toBe(false);
-  await expect(title).toHaveValue('');
-  await expect(page.locator('#title-error')).toContainText('500자');
-  await title.fill('가'.repeat(500));
+  await expect(title).toHaveAttribute('maxlength', '50');
+  await title.fill('기존 제목');
+  expect(await paste(title, '가'.repeat(51))).toBe(false);
+  await expect(title).toHaveValue('기존 제목');
+  await expect(page.locator('#title-error')).toContainText('50자');
+  await title.fill('가'.repeat(50));
+  await expect(page.locator('#title-hint')).toContainText('50/50자');
   await page.locator('#rights-confirmed').check();
   await page.locator('#external-processing-confirmed').check();
   const subtitle = page.locator('#subtitle-file');
@@ -148,10 +157,11 @@ test('파일 선택과 DnD에서 자막 상한을 막고 제목 제한·자막 �
   });
   await page.getByRole('button', { name: '등록', exact: true }).click();
   await expect.poll(() => uploads).toBe(1);
+  expect(submittedTitle).toBe('가'.repeat(50));
   await expect(page.locator('#subtitle-error')).toHaveText(
     '자막 파일의 형식, 인코딩과 시간 정보를 확인해 주세요.',
   );
-  await expect(title).toHaveValue('가'.repeat(500));
+  await expect(title).toHaveValue('가'.repeat(50));
   await expect(page.getByRole('main')).not.toContainText(
     /CLIP_400_012|private-upload-id|segments\[0\]/,
   );

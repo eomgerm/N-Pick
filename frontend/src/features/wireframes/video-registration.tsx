@@ -334,7 +334,8 @@ export function VideoRegistration({
     const subtitleError = validateSubtitleFiles(subtitle ? [subtitle] : []);
     const scriptError = validateScriptFiles(script ? [script] : []);
     if (videoError) errors.video = videoError;
-    if (title.length > CLIP_TITLE_MAX_LENGTH) errors.title = '제목은 500자 이내로 입력해 주세요.';
+    if (title.length > CLIP_TITLE_MAX_LENGTH)
+      errors.title = `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`;
     if (subtitleError) errors.subtitle = subtitleError;
     if (scriptError) errors.scriptText = scriptError;
     if (!rightsConfirmed) errors.rightsConfirmed = '등록 전 확인 내용에 체크해주세요.';
@@ -548,7 +549,7 @@ export function VideoRegistration({
             </fieldset>
             <label className={styles.textField}>
               <span>
-                제목 <small>선택 · 최대 500자</small>
+                제목 <small>선택 · 최대 {CLIP_TITLE_MAX_LENGTH}자</small>
               </span>
               <input
                 aria-describedby={fieldErrors.title ? 'title-error' : 'title-hint'}
@@ -560,7 +561,7 @@ export function VideoRegistration({
                   rejectOversizedPaste(event, CLIP_TITLE_MAX_LENGTH, () =>
                     setFieldErrors((current) => ({
                       ...current,
-                      title: '제목은 500자 이내로 입력해 주세요.',
+                      title: `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`,
                     })),
                   )
                 }
@@ -573,7 +574,7 @@ export function VideoRegistration({
                 value={title}
               />
               <small id="title-hint">
-                {title.length}/500자 · 비워둘 경우 파일명을 제목으로 사용합니다.
+                {title.length}/{CLIP_TITLE_MAX_LENGTH}자 · 비워둘 경우 파일명을 제목으로 사용합니다.
               </small>
               {fieldErrors.title ? (
                 <FieldError id="title-error">{fieldErrors.title}</FieldError>
