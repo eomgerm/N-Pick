@@ -170,11 +170,15 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | `broadcast_date`                | date    | 선택   | `broadcast`에서만 허용                          |
 | `filmed_date`                   | date    | 선택   | 두 source 모두 허용                             |
 | `subtitle`                      | file    | 선택   | 1개, UTF-8 SRT/VTT 또는 승인된 JSON             |
-| `script_text`                   | string  | 선택   | UTF-8 TXT를 FE가 읽어 문자열로 전송             |
+| `script_text`                   | string  | 선택   | UTF-8 TXT를 FE가 읽어 문자열로 전송, UTF-8      |
 | `rights_confirmed`              | boolean | 필수   | `true`여야 등록 가능                            |
 | `external_processing_confirmed` | boolean | 조건부 | 현재 처리 설정이 외부 AI 동의를 요구하면 `true` |
 
 자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다.
+
+**자막 종료 시각의 상한은 영상 길이를 올림한 정수 ms다.** 자막 시각은 정수 ms만 표현할 수 있는데 검사 기준인 ffprobe `format.duration`은 소수 ms라, 두 축을 오차 0으로 비교하면 영상 끝까지 덮는 자막이 1ms 미만 초과로 거절된다. 영상 전체를 담는 가장 작은 정수 ms를 상한으로 삼는다. 그 상한을 넘으면 문제 구간·상한·초과량과 함께 파일 전체를 거절하며 시간 보정·잘라내기·부분 적용은 하지 않는다 (`CLIP_400_012`).
+
+**`title`과 `script_text`는 U+FFFD를 담고 있으면 거절한다.** UTF-8이 아닌 본문을 보내면 읽지 못한 바이트마다 U+FFFD가 남고 원래 글자는 복구할 수 없다. 각각 `CLIP_400_004`·`CLIP_400_013`이다.
 
 성공 envelope의 `data`:
 
@@ -203,6 +207,7 @@ FE가 직접 처리하는 주요 오류:
 | `CLIP_400_010`                                | 외부 처리 확인             |
 | `CLIP_400_011`                                | 날짜                       |
 | `CLIP_400_012`                                | 자막 내용                  |
+| `CLIP_400_013`                                | 일반 대본 내용             |
 | `CLIP_409_001`~`CLIP_409_003`                 | 멱등 요청 상태             |
 | `CLIP_503_001`~`CLIP_503_010`                 | 검사·저장·등록 연계 실패   |
 
