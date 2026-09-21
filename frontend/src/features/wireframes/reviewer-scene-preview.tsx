@@ -80,12 +80,13 @@ export function ReviewInquiryPreview({
   return (
     <>
       <button
-        className={styles.primaryButton}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-(--accent-soft) px-3 py-1.5 text-sm font-semibold text-(--accent-strong) transition-[filter] hover:brightness-95 [&>svg]:size-4"
         type="button"
         aria-haspopup="dialog"
+        aria-label="문의 장면 재생"
         onClick={() => setIsOpen(true)}
       >
-        <Play aria-hidden="true" /> 문의 장면 재생
+        <Play aria-hidden="true" fill="currentColor" /> 장면 재생
       </button>
       {isOpen ? (
         <ScenePreviewDialog

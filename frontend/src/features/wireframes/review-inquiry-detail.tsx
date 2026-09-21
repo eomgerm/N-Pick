@@ -25,6 +25,7 @@ import {
   evidenceLabel,
   formatInquiryDate,
   formatInquiryTimecode,
+  groupTagEvidence,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
@@ -160,8 +161,10 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
         </section>
 
         <section className="rounded-2xl border border-(--line) p-5">
-          <h2 className="font-bold">문의 장면</h2>
-          <ReviewInquiryPreview key={inquiry.feedbackId} inquiry={inquiry} theme={theme} />
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-bold">문의 장면</h2>
+            <ReviewInquiryPreview key={inquiry.feedbackId} inquiry={inquiry} theme={theme} />
+          </div>
           <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
             <div>
               <dt className="text-(--muted)">클립 / 장면 ID</dt>
@@ -294,17 +297,20 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                 <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
               ) : (
                 <ul className="mt-4 flex flex-wrap gap-2" aria-label="현재 장면과 영상의 태그">
-                  {inquiry.evidence.map((evidence, index) => (
+                  {groupTagEvidence(inquiry.evidence).map((tag) => (
                     <li
-                      className="rounded-full bg-(--accent-soft) px-3 py-2 text-sm font-semibold text-(--accent-strong)"
-                      key={`${evidence.taggingId}-${index}`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-(--line) bg-(--surface) py-1.5 pr-3 pl-2.5 text-sm"
+                      key={tag.taggingId}
+                      title={`출처: ${tag.sources.map(evidenceLabel).join('·') || '기록 없음'} · 범위: ${evidenceLabel(tag.scope)}`}
                     >
-                      <strong>{evidence.tagName}</strong>
-                      <span className="mt-1 block text-xs text-(--muted)">
-                        출처: {evidenceLabel(evidence.source)} · 검증:{' '}
-                        {evidenceLabel(evidence.verifiedState)} · 범위:{' '}
-                        {evidenceLabel(evidence.scope)}
-                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`size-1.5 shrink-0 rounded-full ${
+                          tag.state === 'verified' ? 'bg-(--positive)' : 'bg-(--muted)'
+                        }`}
+                      />
+                      <span className="font-semibold text-(--text)">{tag.tagName}</span>
+                      <span className="text-xs text-(--muted)">{evidenceLabel(tag.state)}</span>
                     </li>
                   ))}
                 </ul>
