@@ -371,10 +371,3 @@ export const results: SearchResult[] = [
     imageLabel: '새벽 시간 한산한 경부고속도로를 달리는 차량',
   },
 ];
-
-export function formatTimestamp(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}

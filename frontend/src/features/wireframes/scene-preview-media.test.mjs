@@ -41,3 +41,12 @@ test('시작·종료 시각과 같은 절삭 규칙을 쓴다', () => {
     assert.equal(formatMediaTime(seconds), formatMediaTime(Math.floor(seconds)));
   }
 });
+
+test('구간 시각의 소수 초를 버리고 경계값을 표기한다', () => {
+  assert.equal(formatMediaTime(12.345), '00:12');
+  assert.equal(formatMediaTime(0), '00:00');
+  assert.equal(formatMediaTime(-1.5), '00:00');
+  assert.equal(formatMediaTime(59.999), '00:59');
+  assert.equal(formatMediaTime(3600), '1:00:00');
+  assert.equal(formatMediaTime(3900.75), '1:05:00');
+});

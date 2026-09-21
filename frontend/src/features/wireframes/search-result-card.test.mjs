@@ -160,3 +160,11 @@ test('장면 ID가 없는 데모 결과는 기존 배경 표시를 그대로 쓴
   assert.ok(html.includes('imageOne'));
   assert.ok(!html.includes('data-thumbnail-state'));
 });
+
+test('밀리초에서 온 소수 구간 시각도 카드 타임코드는 초 단위로만 표시한다', () => {
+  const html = renderCard({ ...results[0], sceneStart: 12.345, sceneEnd: 20.6 });
+
+  assert.ok(html.includes('00:12 – 00:20'));
+  assert.ok(!html.includes('12.345'));
+  assert.ok(!html.includes('20.6'));
+});
