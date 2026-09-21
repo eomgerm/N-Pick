@@ -12,6 +12,7 @@ import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
 import { SceneSearchField } from '@/features/wireframes/scene-search-field';
 import { SearchLayout } from '@/features/wireframes/search-layout';
 import { useSearchArrival } from '@/features/wireframes/search-transition';
+import { SEARCH_QUERY_MIN_LENGTH } from '@/features/wireframes/search-api-contract';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
@@ -158,7 +159,9 @@ export function WireframeShell({
     event.preventDefault();
     const normalizedQuery = query.trim();
 
-    if (normalizedQuery) {
+    // 진입 화면과 같은 하한을 결과 화면 재검색에도 적용한다(S15P21A501-243). 1글자면
+    // 이동하지 않고 SceneSearchField 힌트로 안내한다 — 이동시키면 결과 화면이 맨 오류만 낸다.
+    if (normalizedQuery.length >= SEARCH_QUERY_MIN_LENGTH) {
       handleSearchNavigation(normalizedQuery, broadcastRange, filmingRange);
     }
   }
@@ -296,6 +299,7 @@ export function WireframeShell({
             form: styles.searchForm,
             field: styles.searchField,
             submitButton: styles.searchButton,
+            hint: styles.searchHint,
           }}
         />
       }

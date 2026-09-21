@@ -267,6 +267,15 @@
   margin-inline: auto;
 }
 
+/* 결과 화면 재검색창 하단 최소길이 안내(S15P21A501-243). 어두운 헤더 위라 밝은 경고색을 쓴다. */
+.searchHint {
+  width: min(920px, 100%);
+  margin: 6px auto 0;
+  padding-inline: 20px;
+  color: #fecaca;
+  font-size: 13px;
+}
+
 .searchField {
   display: flex;
   min-width: 0;

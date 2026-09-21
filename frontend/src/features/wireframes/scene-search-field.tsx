@@ -50,12 +50,23 @@ export function SceneSearchField({
   const inputRef = useRef<HTMLInputElement>(null);
   const trimmedLength = query.trim().length;
   const isBelowMinLength = trimmedLength < SEARCH_QUERY_MIN_LENGTH;
+  const showMinLengthHint = trimmedLength >= 1 && isBelowMinLength;
+  const hintId = `${inputId}-hint`;
+  // 힌트를 입력창에 aria-describedby 로 묶어, 비활성 제출 버튼의 이유가 스크린리더에 이어지게 한다.
+  const describedBy = showMinLengthHint && classes.hint ? hintId : undefined;
+  const minLengthHint =
+    showMinLengthHint && classes.hint ? (
+      <p className={classes.hint} id={hintId} role="alert">
+        검색어는 {SEARCH_QUERY_MIN_LENGTH}글자 이상 입력해 주세요.
+      </p>
+    ) : null;
 
   if (variant === 'compact') {
     return (
       <form aria-label={label} className={classes.form} onSubmit={onSubmit} role="search">
         <div className={classes.field} ref={fieldRef}>
           <input
+            aria-describedby={describedBy}
             aria-label={label}
             disabled={isDisabled}
             onChange={(event) => onQueryChange(event.target.value)}
@@ -71,11 +82,10 @@ export function SceneSearchField({
             <ArrowRight aria-hidden="true" />
           </button>
         </div>
+        {minLengthHint}
       </form>
     );
   }
-
-  const showMinLengthHint = trimmedLength >= 1 && isBelowMinLength;
 
   return (
     <form
@@ -92,6 +102,7 @@ export function SceneSearchField({
         </label>
         <span className={classes.surface}>
           <input
+            aria-describedby={describedBy}
             autoComplete="off"
             disabled={isDisabled}
             enterKeyHint="search"
@@ -124,11 +135,7 @@ export function SceneSearchField({
           <ArrowRight aria-hidden="true" />
         </button>
       </div>
-      {showMinLengthHint ? (
-        <p className={classes.hint} role="alert">
-          검색어는 {SEARCH_QUERY_MIN_LENGTH}글자 이상 입력해 주세요.
-        </p>
-      ) : null}
+      {minLengthHint}
       <p aria-live="polite" className={classes.srOnly}>
         {isBusy ? '검색 중입니다. 검색 결과 화면을 준비하고 있습니다.' : ''}
       </p>
