@@ -11,7 +11,11 @@ import type {
   SearchExecutionPresentation,
 } from '@/features/wireframes/search-execution-status';
 import type { SearchResultDetails } from '@/features/wireframes/search-result-details';
-import { formatMediaTime, toScenePreviewMedia } from '@/features/wireframes/scene-preview-media';
+import {
+  formatMediaTime,
+  formatSceneDuration,
+  toScenePreviewMedia,
+} from '@/features/wireframes/scene-preview-media';
 
 export async function searchScenes(body: SearchRequestBody, signal?: AbortSignal) {
   return parseSearchResponse(
@@ -69,7 +73,7 @@ export function presentSearchResponse(response: SearchResponse): {
       title: scene.sceneDescription ?? displayName,
       clip: displayName,
       time: `${formatMediaTime(media.sceneStart)} – ${formatMediaTime(media.sceneEnd)}`,
-      duration: `${(scene.endTimeMs - scene.startTimeMs) / 1000}초`,
+      duration: formatSceneDuration((scene.endTimeMs - scene.startTimeMs) / 1000),
       totalDuration: '',
       totalSeconds: 0,
       broadcastDate: scene.broadcastDate.value,
