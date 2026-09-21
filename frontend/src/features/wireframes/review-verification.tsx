@@ -1,8 +1,9 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import { confirmCorrection, confirmErrorMessages } from '@/features/wireframes/review-confirm-api';
 import {
   verificationErrorMessages,
   verifyCorrectionCandidates,
@@ -27,6 +28,18 @@ export function CorrectionVerificationPanel({
   feedbackId,
   onVerified,
 }: CorrectionVerificationPanelProps) {
+  const queryClient = useQueryClient();
+  // 같은 executionId 재요청은 서버가 멱등 성공으로 돌려주므로 재시도만 막는다.
+  const confirmation = useMutation({
+    mutationFn: (executionId: string) => confirmCorrection(feedbackId, executionId),
+    retry: false,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] }),
+        queryClient.invalidateQueries({ queryKey: ['review-inquiries'] }),
+      ]);
+    },
+  });
   // ponytail: 후보 조회 GET 이 없어 검증 결과는 세션 한정. 새로고침 후에는 다시 검증으로 복구한다.
   const verification = useMutation({
     mutationFn: () => verifyCorrectionCandidates(feedbackId),
@@ -37,6 +50,10 @@ export function CorrectionVerificationPanel({
   const guidance =
     verification.error instanceof ApiClientError
       ? verificationErrorMessages[verification.error.code]
+      : undefined;
+  const confirmGuidance =
+    confirmation.error instanceof ApiClientError
+      ? confirmErrorMessages[confirmation.error.code]
       : undefined;
 
   return (
@@ -54,7 +71,10 @@ export function CorrectionVerificationPanel({
       <button
         className={`${styles.primaryButton} mt-4`}
         disabled={verification.isPending}
-        onClick={() => verification.mutate()}
+        onClick={() => {
+          confirmation.reset();
+          verification.mutate();
+        }}
         type="button"
       >
         {verification.isPending ? '검증 중…' : result ? '다시 검증' : '후보 검증'}
@@ -127,6 +147,38 @@ export function CorrectionVerificationPanel({
                 ))}
               </ul>
             )}
+          </section>
+          <section className="border-t border-(--line) pt-4">
+            <h3 className="text-sm font-bold">교정 확정</h3>
+            <p className="mt-2 text-sm text-(--muted)">
+              이 검증 실행을 근거로 교정을 확정하고 문의를 종료합니다.
+            </p>
+            <button
+              className={`${styles.primaryButton} mt-3`}
+              disabled={confirmation.isPending || !result.executionId}
+              onClick={() => confirmation.mutate(result.executionId)}
+              type="button"
+            >
+              {confirmation.isPending ? '확정 중…' : '교정 확정'}
+            </button>
+            <p aria-live="polite" className="sr-only" role="status">
+              {confirmation.isPending
+                ? '교정 확정 요청을 처리하고 있습니다.'
+                : confirmation.isSuccess
+                  ? '교정을 확정하고 문의를 종료했습니다.'
+                  : ''}
+            </p>
+            {confirmation.isSuccess ? (
+              <p className="mt-3 text-sm text-(--positive)">
+                교정을 확정하고 문의를 종료했습니다.
+              </p>
+            ) : null}
+            {confirmation.isError ? (
+              <div className="mt-3 space-y-3">
+                <ApiErrorNotice error={confirmation.error} />
+                {confirmGuidance ? <p className="text-sm">{confirmGuidance}</p> : null}
+              </div>
+            ) : null}
           </section>
         </div>
       ) : null}

@@ -109,8 +109,8 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
         ) : null}
         {!isTerminal ? (
           <p className="text-sm text-(--muted)">
-            교정 판정은 저장돼도 문의가 종료되지 않습니다. 후속 교정·검증 API가 완료될 때까지 검수
-            중으로 유지됩니다.
+            판정을 저장하면 아래에 검증 패널이 열립니다. 변경안을 작성해 검증하고 교정을 확정하면
+            문의가 종료됩니다.
           </p>
         ) : null}
         {mutation.isError ? <ApiErrorNotice error={mutation.error} /> : null}
