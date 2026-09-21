@@ -28,6 +28,25 @@ const { presentSearchResponse, searchScenes } = await import('./search-results-a
 
 const emptyRange = { from: '', to: '' };
 
+test('직접 URL과 API 함수 호출에서도 잘못된 검색어는 전송하지 않는다', async (context) => {
+  const fetch = context.mock.method(globalThis, 'fetch', () => {
+    throw new Error('must not send');
+  });
+  for (const query of ['', ' 비 ', '가'.repeat(501)]) {
+    assert.equal(
+      createSearchRequestBody({ query, broadcast: emptyRange, filming: emptyRange }),
+      null,
+    );
+    await assert.rejects(searchScenes({ query, explicit_filters: {} }), ApiClientError);
+  }
+  assert.equal(fetch.mock.callCount(), 0);
+  assert.equal(
+    createSearchRequestBody({ query: '가'.repeat(500), broadcast: emptyRange, filming: emptyRange })
+      .query.length,
+    500,
+  );
+});
+
 test('제목 없는 검색 결과는 null을 보존하고 화면에서만 대체 제목을 표시한다', () => {
   for (const description of ['서울역 귀성 인파', null]) {
     const raw = createResponse();

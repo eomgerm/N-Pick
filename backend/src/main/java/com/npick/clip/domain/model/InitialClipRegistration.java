@@ -50,7 +50,7 @@ public record InitialClipRegistration(
         title = emptyToNull(title);
         transcriptFileKey = emptyToNull(transcriptFileKey);
         scriptText = emptyToNull(scriptText);
-        if (title != null && title.length() > 500) {
+        if (title != null && title.length() > 50) {
             throw new BusinessException(ClipRegistrationErrorCode.TITLE_TOO_LONG);
         }
         // U+FFFD 는 「이 자리에 있던 바이트를 읽지 못했다」는 표식이다. UTF-8 아닌 본문(CP949 등)을 보낸 요청에서

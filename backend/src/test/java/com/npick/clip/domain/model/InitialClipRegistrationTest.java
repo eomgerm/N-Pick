@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.npick.clip.domain.error.ClipRegistrationErrorCode;
 import com.npick.clip.domain.model.InitialClipRegistration.PipelineDefinition;
@@ -154,6 +158,24 @@ class InitialClipRegistrationTest {
                         BusinessException.class,
                         error -> assertThat(error.errorCode())
                                 .isEqualTo(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"가, 50", "😀, 25"})
+    void enforcesTitleLimitInUtf16UnitsEvenOutsideHttpValidation(String character, int count) {
+        String title = character.repeat(count);
+        assertThat(titled(title).title()).isEqualTo(title);
+        assertThatThrownBy(() -> titled(title + character)).isInstanceOfSatisfying(BusinessException.class, error -> {
+            assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.TITLE_TOO_LONG);
+            assertThat(error.errorCode().message()).isEqualTo("제목은 50자 이내로 입력해 주세요.");
+        });
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    void treatsBlankOptionalTitleAsAbsent(String title) {
+        assertThat(titled(title).title()).isNull();
     }
 
     /**

@@ -166,7 +166,7 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | ------------------------------- | ------- | ------ | ----------------------------------------------- |
 | `video`                         | file    | 필수   | 1개, 실제 영상 내용·형식·크기·길이 검사         |
 | `source_type`                   | string  | 필수   | `broadcast` 또는 `archive`                      |
-| `title`                         | string  | 선택   | 공백은 생략, 최대 500자, UTF-8                  |
+| `title`                         | string  | 선택   | 공백은 생략, 최대 50자(UTF-16 길이), UTF-8       |
 | `broadcast_date`                | date    | 선택   | `broadcast`에서만 허용                          |
 | `filmed_date`                   | date    | 선택   | 두 source 모두 허용                             |
 | `subtitle`                      | file    | 선택   | 1개, UTF-8 SRT/VTT 또는 승인된 JSON             |
@@ -175,6 +175,8 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | `external_processing_confirmed` | boolean | 조건부 | 현재 처리 설정이 외부 AI 동의를 요구하면 `true` |
 
 자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다. 보낸 날짜는 등록일(Asia/Seoul) 이후일 수 없고, 두 날짜를 모두 보내면 `broadcast_date`가 `filmed_date`보다 빠를 수 없다. 위반은 `COMM_400_001`의 `data.broadcastDateNotFuture`·`data.filmedDateNotFuture`·`data.broadcastDateNotBeforeFilmedDate`로 거부한다. 요청 검증을 우회한 호출에서도 같은 규칙을 `CLIP_400_013`(방송일)·`CLIP_400_014`(촬영일)로 거부한다.
+
+제목은 FE와 BE 모두 UTF-16 길이로 검사한다. 일반 한글 50자 또는 `😀` 25개는 허용하며, 한글 51자 또는 `😀` 26개는 거절한다. 50자 제한은 신규 등록 입력에 적용하고 기존 제목·검색 기록은 자르지 않는다. 기존 데이터 보존을 위해 DB의 `clip.title varchar(500)`은 유지한다.
 
 성공 envelope의 `data`:
 

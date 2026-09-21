@@ -167,15 +167,24 @@ class PyAvFrameGrabber:
 def _profile(container: "av.container.InputContainer") -> MediaProfile:
     """열린 컨테이너에서 디코드 성질을 읽는다.
 
-    프레임레이트로 `average_rate` 를 쓴다. PySceneDetect 의 `VideoStreamAv` 가 같은 값을
-    쓰기 때문이다 — 다른 값을 쓰면 `scene_detection` 이 만든 ms 를 프레임 번호로 되돌릴
-    때 어긋나고, keyframe 이 자기 scene 밖의 프레임을 가리킬 수 있다.
+    프레임레이트로 `guessed_rate` 를 쓴다. PySceneDetect 의 `VideoStreamAv.frame_rate`
+    가 그 값이기 때문이다(scenedetect 0.7.1, `backends/pyav.py`) — 다른 값을 쓰면
+    `scene_detection` 이 만든 ms 를 프레임 번호로 되돌릴 때 어긋나고, keyframe 이 자기
+    scene 밖의 프레임을 가리킬 수 있다.
+
+    **`average_rate` 는 쓸 수 없다.** 그것은 컨테이너가 적어 둔 값이 아니라 대개
+    `프레임수 / duration` 으로 유도되는 값이라, 마지막 프레임의 지속시간을 duration 에
+    넣지 않는 먹서를 만나면 위로 밀린다. 짧은 영상일수록 크게 밀린다 — 분모가 작아서다.
+    배포에서 죽은 26.8초 클립이 정확히 그 경우다 — 간격 804 개 중 777 개가 정확히
+    1/30초이고 나머지도 한 곳(1584 ticks)을 빼면 ±1 tick 인데, `average_rate` 만
+    30.0355 였다(S15P21A501-259). ffmpeg 을 거쳐 다시 써진 파일은 duration 이 정리되므로
+    두 값이 같아지고, 그래서 주로 폰·카메라가 직접 쓴 원본에서 드러난다.
     """
     if not container.streams.video:
         msg = "비디오 스트림이 없는 파일이다"
         raise MediaUnreadableError(msg)
     stream = container.streams.video[0]
-    if stream.average_rate is None or float(stream.average_rate) <= 0:
+    if stream.guessed_rate is None or float(stream.guessed_rate) <= 0:
         msg = "프레임레이트를 읽을 수 없다"
         raise MediaUnreadableError(msg)
     width = stream.codec_context.width
@@ -183,7 +192,7 @@ def _profile(container: "av.container.InputContainer") -> MediaProfile:
     if width <= 0 or height <= 0:
         msg = f"해상도를 읽을 수 없다: {width}x{height}"
         raise MediaUnreadableError(msg)
-    return MediaProfile(frame_rate=float(stream.average_rate), width=width, height=height)
+    return MediaProfile(frame_rate=float(stream.guessed_rate), width=width, height=height)
 
 
 def _decode_until(

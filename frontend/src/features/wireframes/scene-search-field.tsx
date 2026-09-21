@@ -1,9 +1,13 @@
 'use client';
 
 import { ArrowRight, Search, X } from 'lucide-react';
-import { type FormEvent, type Ref, useRef } from 'react';
+import { type FormEvent, type Ref, useRef, useState } from 'react';
 
-import { SEARCH_QUERY_MIN_LENGTH } from '@/features/wireframes/search-api-contract';
+import {
+  SEARCH_QUERY_MAX_LENGTH,
+  rejectOversizedPaste,
+  validateSearchQuery,
+} from '@/features/wireframes/input-validation';
 
 // 슬롯별 클래스는 호출 페이지가 자기 CSS 모듈에서 주입한다. entry.module.css(hero)와
 // wireframe.module.css(compact)의 .searchForm 이 서로 다른 요소를 가리키므로, 클래스명이 아니라
@@ -51,41 +55,66 @@ export function SceneSearchField({
   inputId = 'scene-search',
 }: SceneSearchFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const trimmedLength = query.trim().length;
-  const isBelowMinLength = trimmedLength < SEARCH_QUERY_MIN_LENGTH;
-  const showMinLengthHint = trimmedLength >= 1 && isBelowMinLength;
+  const [pasteError, setPasteError] = useState('');
+  const [isComposing, setIsComposing] = useState(false);
+  const queryError = validateSearchQuery(query);
   const hintId = `${inputId}-hint`;
-  // 힌트를 입력창에 aria-describedby 로 묶어, 비활성 제출 버튼의 이유가 스크린리더에 이어지게 한다.
-  const describedBy = showMinLengthHint && classes.hint ? hintId : undefined;
-  const minLengthHint =
-    showMinLengthHint && classes.hint ? (
-      <p className={classes.hint} id={hintId} role="alert">
-        검색어는 {SEARCH_QUERY_MIN_LENGTH}글자 이상 입력해 주세요.
-      </p>
-    ) : null;
+  const describedBy = classes.hint ? hintId : undefined;
+  const hint = classes.hint ? (
+    <p className={classes.hint} id={hintId} aria-live="polite">
+      {pasteError ||
+        (query && !isComposing ? queryError : '') ||
+        `검색어 2~500자 · ${query.length}/500`}
+    </p>
+  ) : null;
+  const validationProps = {
+    maxLength: SEARCH_QUERY_MAX_LENGTH,
+    'aria-invalid': Boolean(pasteError || (query && queryError)),
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+      onQueryChange(event.target.value);
+      setPasteError('');
+    },
+    onCompositionStart: () => setIsComposing(true),
+    onCompositionEnd: () => setIsComposing(false),
+    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault();
+    },
+    onPaste: (event: React.ClipboardEvent<HTMLInputElement>) =>
+      rejectOversizedPaste(event, SEARCH_QUERY_MAX_LENGTH, () =>
+        setPasteError('검색어는 500자 이내로 입력해 주세요.'),
+      ),
+  };
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    if (isComposing || queryError || isDisabled) {
+      event.preventDefault();
+      return;
+    }
+    onSubmit(event);
+  }
 
   if (variant === 'compact') {
     return (
-      <form aria-label={formLabel} className={classes.form} onSubmit={onSubmit} role="search">
+      <form aria-label={formLabel} className={classes.form} onSubmit={handleSubmit} role="search">
         <div className={classes.field} ref={fieldRef}>
           <input
             aria-describedby={describedBy}
             aria-label={inputLabel}
             disabled={isDisabled}
-            onChange={(event) => onQueryChange(event.target.value)}
+            {...validationProps}
             placeholder={placeholder}
             value={query}
           />
           <button
             aria-label={isBusy ? '검색 중' : '검색'}
             className={classes.submitButton}
-            disabled={isBelowMinLength || isDisabled}
+            disabled={Boolean(queryError) || isDisabled || isComposing}
             type="submit"
           >
             <ArrowRight aria-hidden="true" />
           </button>
         </div>
-        {minLengthHint}
+        {hint}
       </form>
     );
   }
@@ -95,7 +124,7 @@ export function SceneSearchField({
       aria-busy={isBusy}
       aria-label={formLabel}
       className={classes.form}
-      onSubmit={onSubmit}
+      onSubmit={handleSubmit}
       role="search"
     >
       <div className={classes.field} ref={fieldRef}>
@@ -110,7 +139,7 @@ export function SceneSearchField({
             disabled={isDisabled}
             enterKeyHint="search"
             id={inputId}
-            onChange={(event) => onQueryChange(event.target.value)}
+            {...validationProps}
             placeholder={placeholder}
             ref={inputRef}
             type="search"
@@ -122,6 +151,7 @@ export function SceneSearchField({
             disabled={!query || isDisabled}
             onClick={() => {
               onQueryChange('');
+              setPasteError('');
               inputRef.current?.focus();
             }}
             type="button"
@@ -132,13 +162,13 @@ export function SceneSearchField({
         <button
           aria-label={isBusy ? '검색 중' : '장면 찾기'}
           className={classes.submitButton}
-          disabled={isBelowMinLength || isDisabled}
+          disabled={Boolean(queryError) || isDisabled || isComposing}
           type="submit"
         >
           <ArrowRight aria-hidden="true" />
         </button>
       </div>
-      {minLengthHint}
+      {hint}
       <p aria-live="polite" className={classes.srOnly}>
         {isBusy ? '검색 중입니다. 검색 결과 화면을 준비하고 있습니다.' : ''}
       </p>
