@@ -183,15 +183,30 @@ def test_warm_up_marks_unknown_stage_names_as_not_warmed() -> None:
     assert report.ready is False
 
 
-def test_warm_up_marks_stages_without_warmup_as_not_warmed() -> None:
-    """구현은 있지만 미리 치를 비용이 없는 단계. 위와 사실이 다르다.
+def test_warm_up_counts_stages_without_warmup_as_ready() -> None:
+    """구현은 있지만 미리 치를 비용이 없는 단계. **없는 단계와 갈라서 센다.**
 
-    `warm_up` 은 둘을 같은 분기로 처리하므로(핸들러가 없는 것과 `warm` 이 없는 것),
-    한쪽만 테스트하면 다른 한쪽이 언제 깨졌는지 알 수 없다.
+    `transcript_selection`·`text_embedding`·`indexing` 은 적재할 모델이 없어 `warm` 을
+    두지 않는다. 그것을 실패로 세면 `ready` 가 `all(warmed)` 라 **그 셋 중 하나라도
+    선언한 워커는 영원히 `ready=False`** 가 된다 — 실제로 잡은 멀쩡히 처리하면서다.
+
+    그 상태가 두 가지를 망가뜨렸다 (S15P21A501-229). 옛 메시지 "핸들러 없음" 을
+    "구현이 없다" 로 읽어 멀쩡한 워커를 두 번 죽였고, `verify.sh` 가 쓰는
+    `warmup.ready` 를 GPU 워커에는 붙일 수 없게 됐다.
     """
     report = warm_up(["transcript_selection"])
-    assert report.stages[0].warmed is False
+    assert report.stages[0].warmed is True
+    assert report.stages[0].detail == "워밍업 불필요"
+    assert report.ready is True
+
+
+def test_warm_up_still_fails_on_a_stage_that_does_not_exist() -> None:
+    """**둘을 가른 뒤에도 이쪽은 실패다.** 같이 통과시키면 `NPICK_AI_JOB_STAGES` 오타가
+    조용히 지나가고, 잡을 하나도 안 가져가는 워커가 프로브를 전부 통과한다.
+    """
+    report = warm_up(["transcript_selection", "nope"])
     assert report.ready is False
+    assert [o.warmed for o in report.stages] == [True, False]
 
 
 def test_warm_up_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:

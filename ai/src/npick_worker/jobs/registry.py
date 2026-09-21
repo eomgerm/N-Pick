@@ -1340,8 +1340,20 @@ def warm_up(stage_names: Iterable[str] | None = None) -> WarmupReport:
     outcomes: list[WarmOutcome] = []
     for name in names:
         handler = HANDLERS.get(name)
-        if handler is None or handler.warm is None:
+        # **둘을 가른다.** 구현이 없는 것과, 구현은 있는데 미리 치를 비용이 없는 것은
+        # 다른 사실이다. 한 분기로 묶으면 `transcript_selection`·`text_embedding`·
+        # `indexing` 처럼 적재할 모델이 없는 단계가 실패로 세어지고, `ready` 는
+        # `all(warmed)` 라 **그 셋 중 하나라도 선언한 워커는 영원히 ready 가 아니다** —
+        # 잡은 멀쩡히 처리하면서다 (S15P21A501-229).
+        #
+        # 그게 두 가지를 망가뜨렸다. 옛 메시지 "핸들러 없음" 을 "구현이 없다" 로 읽어
+        # 멀쩡한 워커를 죽이는 오진을 불렀고, `infra/jenkins/verify.sh` 가 쓰는
+        # `warmup.ready` 를 GPU 워커에는 붙일 수 없게 만들었다.
+        if handler is None:
             outcomes.append(WarmOutcome(name, warmed=False, detail="핸들러 없음"))
+            continue
+        if handler.warm is None:
+            outcomes.append(WarmOutcome(name, warmed=True, detail="워밍업 불필요"))
             continue
         try:
             outcomes.append(WarmOutcome(name, warmed=True, detail=handler.warm()))
