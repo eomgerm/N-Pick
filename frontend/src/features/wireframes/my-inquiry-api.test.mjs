@@ -108,7 +108,10 @@ test('display_name이 null(제목 없는 영상)·빈 문자열이어도 availab
   // 생산자(-59)는 nullable clip.title을 그대로 기록한다. null은 유효한 과거 값이므로 오류로 바꾸지 않고,
   // 표시용 대체 문구(제목 없는 영상)는 표현 계층이 정한다.
   for (const displayName of [null, '']) {
-    const raw = { ...availableDetail.result_snapshot, explain: { display: { display_name: displayName } } };
+    const raw = {
+      ...availableDetail.result_snapshot,
+      explain: { display: { display_name: displayName } },
+    };
     const result = parseMyInquiryDetail({ ...availableDetail, result_snapshot: raw });
     assert.equal(result.snapshotStatus, 'available');
     assert.equal(result.resultSnapshot.explain.display.display_name, displayName);
@@ -116,8 +119,14 @@ test('display_name이 null(제목 없는 영상)·빈 문자열이어도 availab
 });
 
 test('알 수 없는 snapshot_status와 available의 잘못된 result_snapshot은 응답 오류로 처리한다', () => {
-  assert.throws(() => parseMyInquiryDetail({ ...detail, snapshot_status: 'partial' }), ApiClientError);
-  assert.throws(() => parseMyInquiryDetail({ ...availableDetail, result_snapshot: null }), ApiClientError);
+  assert.throws(
+    () => parseMyInquiryDetail({ ...detail, snapshot_status: 'partial' }),
+    ApiClientError,
+  );
+  assert.throws(
+    () => parseMyInquiryDetail({ ...availableDetail, result_snapshot: null }),
+    ApiClientError,
+  );
   for (const badSnap of [
     { ...availableDetail.result_snapshot, explain: undefined },
     { ...availableDetail.result_snapshot, search_result_id: 42 },
