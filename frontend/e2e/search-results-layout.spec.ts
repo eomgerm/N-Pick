@@ -1,4 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
+
+import { searchFixture } from './search-fixture';
 
 for (const width of [1440, 390]) {
   test(`검색 결과 공통 메뉴와 사이드바를 ${width}px에서 사용한다`, async ({ page }, testInfo) => {
@@ -90,5 +92,94 @@ for (const width of [1440, 390]) {
     await searchInput.click();
     await expect(menu).not.toBeVisible();
     await expect(searchInput).toBeFocused();
+  });
+}
+
+const shortSceneDescription = '서울역 대합실 전경';
+const longSceneDescription =
+  '설 연휴 첫날 이른 아침부터 서울역 대합실과 승강장을 가득 메운 귀성객들이 열차를 기다리며 짐을 들고 이동하는 모습과 안내 전광판을 확인하는 장면';
+const manyKeywords = [
+  '설 연휴 귀성',
+  '서울역 대합실',
+  '열차 승강장',
+  '귀성객 인파',
+  '안내 전광판',
+  '이동 통로',
+];
+
+// 잘린 제목은 보이는 상자보다 실제 글줄이 높다. 상자 높이만 재면 고정 높이 때문에 항상 같아 무의미하다.
+function isTitleFullyVisible(title: Locator) {
+  return title.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    return range.getBoundingClientRect().height <= element.clientHeight + 0.5;
+  });
+}
+
+for (const width of [1440, 390]) {
+  test(`결과 카드 높이는 제목 길이와 키워드 개수에 흔들리지 않는다 (${width}px)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page
+      .context()
+      .addCookies([{ name: 'JSESSIONID', value: 'e2e-editor', url: 'http://127.0.0.1:3116' }]);
+    const descriptions = [shortSceneDescription, longSceneDescription, '귀성 차량 행렬'];
+    const keywordSets = [['장면'], ['서울역'], manyKeywords];
+    await page.route('**/api/v1/search', (route) =>
+      route.fulfill({
+        status: 200,
+        json: {
+          isSuccess: true,
+          code: 'COMM_200',
+          message: '성공',
+          data: {
+            ...searchFixture,
+            results: descriptions.map((description, index) => ({
+              ...searchFixture.results[0],
+              search_result_id: String(101 + index),
+              scene_id: String(31 + index),
+              rank: index + 1,
+              scene_description: description,
+              matched_keywords: keywordSets[index],
+            })),
+          },
+        },
+      }),
+    );
+    await page.goto('/search/results?q=장면&broadcastFrom=2026-09-01&broadcastTo=2026-09-03');
+    await expect(page.getByRole('heading', { name: '관련 장면 3개' })).toBeVisible();
+
+    const cards = page.locator('#search-results article');
+    await expect(cards).toHaveCount(3);
+    const heights = await cards.evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().height),
+    );
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(1);
+
+    const longTitle = page.getByRole('heading', { level: 3, name: longSceneDescription });
+    await expect(longTitle).toHaveCSS('-webkit-line-clamp', '2');
+    await expect(longTitle).toHaveText(longSceneDescription);
+    expect(await isTitleFullyVisible(longTitle)).toBe(false);
+    expect(
+      await isTitleFullyVisible(
+        page.getByRole('heading', { level: 3, name: shortSceneDescription }),
+      ),
+    ).toBe(true);
+
+    await expect(
+      page.getByRole('button', { name: `2위 ${longSceneDescription} Preview 열기` }),
+    ).toHaveAttribute('title', `${longSceneDescription}\n키워드: 서울역`);
+    await expect(
+      page.getByRole('button', { name: '3위 귀성 차량 행렬 Preview 열기' }),
+    ).toHaveAttribute('title', `귀성 차량 행렬\n키워드: ${manyKeywords.join(', ')}`);
+
+    const crowdedCard = cards.nth(2);
+    const badge = crowdedCard.getByText('미검증', { exact: true });
+    await expect(badge).toBeVisible();
+    const badgeBounds = (await badge.boundingBox())!;
+    const cardBounds = (await crowdedCard.boundingBox())!;
+    expect(badgeBounds.x + badgeBounds.width).toBeLessThanOrEqual(cardBounds.x + cardBounds.width);
   });
 }
