@@ -1,5 +1,6 @@
 package com.npick.clip.domain.model;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -92,6 +93,25 @@ class InitialClipRegistrationTest {
                                 .isEqualTo(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE));
     }
 
+    /**
+     * S15P21A501-226 재현. dev 의 clip 64행 중 53행이 이 상태로 저장돼 있었다.
+     *
+     * <p>「인수위」를 CP949 로 적은 바이트다. UTF-8 로 읽으면 {@code CE BC} 만 우연히 유효한 두 바이트 문자(μ)로 살아남고 나머지는 한 바이트씩 U+FFFD 가 된다. 사라진 바이트
+     * 값은 어디에도 남지 않아 되돌릴 수 없으므로, 저장 전에 거절하는 것 말고는 손쓸 방법이 없다.
+     */
+    @Test
+    void rejectsTitleThatLostBytesToAFailedDecode() {
+        byte[] cp949 = {(byte) 0xC0, (byte) 0xCE, (byte) 0xBC, (byte) 0xF6, (byte) 0xC0, (byte) 0xA7};
+        String mojibake = new String(cp949, StandardCharsets.UTF_8);
+        assertThat(mojibake).contains(String.valueOf((char) 0xFFFD));
+
+        assertThatThrownBy(() -> titled(mojibake))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.TITLE_NOT_UTF8));
+        assertThat(titled("설 연휴 교통 정보").title()).isEqualTo("설 연휴 교통 정보");
+    }
+
     @Test
     void rejectsMissingVersionAndInvalidStageDefinition() {
         assertThatThrownBy(() -> new PipelineDefinition(" ", List.of("scene_detection")))
@@ -109,6 +129,23 @@ class InitialClipRegistrationTest {
                         BusinessException.class,
                         error ->
                                 assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.INVALID_SOURCE_TYPE));
+    }
+
+    private InitialClipRegistration titled(String title) {
+        return new InitialClipRegistration(
+                123,
+                456,
+                SourceType.BROADCAST,
+                "clips/123/original",
+                "a".repeat(64),
+                title,
+                null,
+                null,
+                789,
+                null,
+                null,
+                definition(),
+                registeredAt);
     }
 
     private PipelineDefinition definition() {

@@ -49,6 +49,12 @@ public record InitialClipRegistration(
         if (title != null && title.length() > 500) {
             throw new BusinessException(ClipRegistrationErrorCode.TITLE_TOO_LONG);
         }
+        // U+FFFD 는 「이 자리에 있던 바이트를 읽지 못했다」는 표식이다. UTF-8 아닌 본문(CP949 등)을 보낸 요청에서
+        // 글자당 한 바이트씩 사라진 뒤에 남는다. 원래 글자는 복구할 수 없으므로 저장 전에 거절한다 — 받아 두면
+        // 화면에 영구히 깨진 제목이 남고, 나중에 고칠 방법도 없다 (S15P21A501-226).
+        if (title != null && title.indexOf(0xFFFD) >= 0) {
+            throw new BusinessException(ClipRegistrationErrorCode.TITLE_NOT_UTF8);
+        }
         if (sourceType == SourceType.ARCHIVE && broadcastDate != null) {
             throw new BusinessException(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE);
         }
