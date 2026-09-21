@@ -59,6 +59,8 @@ interface WireframeShellProps {
     };
     state: 'loading' | 'failed' | 'ready';
     error: unknown;
+    /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
+    failureReason?: string;
     retry: () => void;
   };
   initialQuery?: string;
@@ -368,6 +370,7 @@ export function WireframeShell({
                 broadcastRange={broadcastRange}
                 filmingRange={filmingRange}
                 details={details}
+                reason={api?.failureReason}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }

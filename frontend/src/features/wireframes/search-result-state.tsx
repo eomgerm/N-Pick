@@ -14,6 +14,8 @@ interface SearchResultStateProps {
   broadcastRange: DateRange;
   filmingRange: DateRange;
   details?: SearchResultDetails;
+  /** 서버 왕복이 아닌 이유로 실패했을 때 그 설명. 있으면 다시 시도가 같은 결과를 낸다. */
+  reason?: string;
   onReset: () => void;
   onRetry: () => void;
 }
@@ -24,10 +26,12 @@ export function SearchResultState({
   broadcastRange,
   filmingRange,
   details,
+  reason,
   onReset,
   onRetry,
 }: SearchResultStateProps) {
   const isFailed = state === 'failed';
+  const isRetryable = isFailed && !reason;
   const isLoading = state === 'loading';
   const Icon = isLoading ? LoaderCircle : isFailed ? CircleAlert : SearchX;
   return (
@@ -51,6 +55,12 @@ export function SearchResultState({
         <p>
           {isLoading ? (
             '검색어와 선택한 기간을 확인하고 있어요. 잠시만 기다려 주세요.'
+          ) : reason && isFailed ? (
+            <>
+              {reason}
+              <br />
+              입력한 검색어와 기간은 유지돼요.
+            </>
           ) : isFailed ? (
             <>
               일시적인 연결 문제로 검색을 완료하지 못했어요.
@@ -93,10 +103,10 @@ export function SearchResultState({
           <div className={styles.stateActions}>
             <button
               className={styles.primaryButton}
-              onClick={isFailed ? onRetry : onReset}
+              onClick={isRetryable ? onRetry : onReset}
               type="button"
             >
-              {isFailed ? '같은 조건으로 다시 시도' : '기간 초기화하고 다시 검색'}
+              {isRetryable ? '같은 조건으로 다시 시도' : '기간 초기화하고 다시 검색'}
             </button>
           </div>
         </div>

@@ -35,3 +35,14 @@ export function readDateRange(from?: string, to?: string): DateRange {
   const range = { from: from ?? '', to: to ?? '' };
   return validateDateRange(range) ? emptyDateRange : range;
 }
+
+/**
+ * URL 이 실어 온 기간을 {@link readDateRange} 가 버렸다면 그 이유. 버릴 것이 없으면 빈 문자열입니다.
+ *
+ * 접는 것 자체는 화면을 계속 쓰게 하려는 것이지 조건이 없었다는 뜻이 아닙니다. 이유를 함께 읽지
+ * 않으면 방송일·촬영일을 건 링크가 필터 없는 검색으로 조용히 돌아갑니다. 계약 §5 는 한쪽만 온
+ * 기간을 `SRCH_400_003` 으로 막습니다.
+ */
+export function readDateRangeError(from?: string, to?: string): string {
+  return validateDateRange({ from: from ?? '', to: to ?? '' });
+}
