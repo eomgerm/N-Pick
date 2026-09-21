@@ -293,10 +293,12 @@
   align-items: center;
   column-gap: clamp(40px, 6vw, 110px);
   min-height: 100svh;
-  width: min(1440px, 100%);
+  width: 100%;
   /* 음수 마진으로 히어로와 같은 자리에 겹친 뒤, 함께 sticky로 고정된 채 페이드 인 한다. */
-  margin: -100svh auto 0;
-  padding: clamp(110px, 15vh, 170px) var(--edge) clamp(26px, 4vh, 44px);
+  margin: -100svh 0 0;
+  /* 배경은 화면 전체를 덮고, 콘텐츠만 히어로와 같은 1440px 안에 놓는다. */
+  padding: clamp(110px, 15vh, 170px) max(var(--edge), calc((100% - 1440px) / 2 + var(--edge)))
+    clamp(26px, 4vh, 44px);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -321,16 +323,14 @@
   grid-row: 1;
 }
 
-.rolesBrand > :not(.wordmarkTarget) {
-  /* 이동 중인 로고 아래로 안내 문구가 겹치지 않도록 도착 무렵에 보여 준다. */
-  opacity: var(--brand-copy-fade, 0);
-  transition: opacity 140ms ease-out;
-}
-
 .wordmarkTarget {
   /* 같은 로고가 도착할 자리를 실제 레이아웃 안에 확보한다. */
   height: 1.9em;
   font-size: clamp(42px, 7vw, 120px);
+}
+
+.flowBrand {
+  display: none;
 }
 
 .wordmarkTagline {
@@ -369,7 +369,11 @@
   --card-scale: 1;
 
   position: relative;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   aspect-ratio: 3 / 4;
   /* 세로가 짧은 화면에서 카드가 한 화면을 넘지 않도록 묶어 둔다. */
@@ -430,8 +434,7 @@
      완전히 켜진 자리에서 시작한다. */
   --glass-ramp: 104px;
 
-  position: absolute;
-  inset: auto 0 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: calc(var(--glass-ramp) + 12px) clamp(16px, 1.4vw, 20px) clamp(16px, 1.4vw, 18px);
@@ -528,17 +531,43 @@
 
 /* ── 반응형 ──────────────────────────────────────────────────────── */
 
-@media (max-width: 1000px) {
+/* 한 화면에 콘텐츠를 담기 어려우면 고정을 풀고 필요한 만큼 스크롤한다.
+   landing-shell.tsx의 FLOW_LAYOUT_QUERY와 같은 조건이다. */
+@media (max-width: 1000px), (max-height: 720px) {
+  .header {
+    position: absolute;
+  }
   .headerNote {
     font-size: 26px;
   }
   .headerNoteLead {
     font-size: 14px;
   }
+  .main::after {
+    display: none;
+  }
+  .hero {
+    position: relative;
+  }
+  .brandMotion {
+    transform: none;
+    transition: none;
+    will-change: auto;
+  }
+  .roles,
+  .roles[data-revealed='false'] {
+    position: relative;
+    margin: 0;
+    padding-top: 56px;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    will-change: auto;
+  }
   .roles {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
-    align-content: center;
+    align-content: start;
     row-gap: clamp(34px, 6vh, 56px);
   }
   .rolesBrand,
@@ -557,6 +586,31 @@
   .rolesTitle {
     margin-top: clamp(24px, 4vh, 36px);
   }
+  .wordmarkTarget {
+    height: auto;
+    font-size: clamp(38px, 7vw, 72px);
+  }
+  .flowBrand {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.25em;
+    font-family: 'Black Han Sans', var(--font-ui);
+  }
+  .flowIcon {
+    --app-logo-size: calc(0.99em + 1cap);
+  }
+  .flowWordmark {
+    display: flex;
+    flex-direction: column;
+    line-height: 0.95;
+    letter-spacing: -0.045em;
+  }
+  .roleCard {
+    aspect-ratio: 4 / 3;
+    min-height: 320px;
+    max-height: none;
+    transform: scale(var(--card-scale));
+  }
 }
 
 @media (max-width: 740px) {
@@ -567,8 +621,7 @@
     padding-right: calc(var(--edge) + 40px);
   }
   .heroTitle,
-  .heroIcon,
-  .wordmarkTarget {
+  .heroIcon {
     font-size: clamp(38px, 12.5vw, 66px);
   }
   .scrollCue {
@@ -577,9 +630,10 @@
   .roleList {
     grid-template-columns: minmax(0, 1fr);
   }
-  /* 세로로 쌓이므로 카드를 가로로 눕혀 두 장이 한 화면에 들어가게 한다. */
+  /* 좁은 창에서도 설명과 버튼에 필요한 높이는 문서 흐름으로 확보한다. */
   .roleCard {
     aspect-ratio: 16 / 11;
+    min-height: 280px;
     border-radius: 22px;
   }
   .cardBody {
@@ -587,16 +641,9 @@
 
     padding: calc(var(--glass-ramp) + 10px) 16px 14px;
   }
-  /* 카드가 낮아 유리 패널이 화면을 다 덮어 버리므로 설명 한 줄은 접는다. */
-  .cardText {
-    display: none;
-  }
   .cardCta {
     height: 42px;
     margin-top: 12px;
-  }
-  .rolesDescription {
-    display: none;
   }
   .roles {
     padding-top: 66px;
@@ -610,8 +657,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .brandMotion,
-  .rolesBrand > :not(.wordmarkTarget) {
+  .brandMotion {
     transition: none;
   }
   .heroIcon {
