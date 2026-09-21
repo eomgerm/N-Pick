@@ -620,6 +620,7 @@ export function VideoRegistration({
 
         <fieldset className={styles.confirmations} disabled={isBusy}>
           <legend>등록 전 확인</legend>
+          <div className={styles.confirmBox}>
           <label data-invalid={Boolean(fieldErrors.rightsConfirmed)}>
             <input
               aria-describedby={fieldErrors.rightsConfirmed ? 'rights-error' : undefined}
@@ -661,6 +662,7 @@ export function VideoRegistration({
               {fieldErrors.externalProcessingConfirmed}
             </FieldError>
           ) : null}
+          </div>
         </fieldset>
 
         {errorPresentation?.showGlobal && mutation.error ? (

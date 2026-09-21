@@ -17,7 +17,7 @@ export interface SearchEvidenceMatch {
 
 const verificationStatusLabels: Record<VerificationStatus, string> = {
   verified: '검증됨',
-  unverified: '미검증',
+  unverified: '자동 인식',
   unknown: '미상',
   rejected: '반려됨',
   withdrawn: '개입 해제',

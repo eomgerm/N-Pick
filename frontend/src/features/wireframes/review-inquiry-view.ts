@@ -126,7 +126,7 @@ export function evidenceLabel(value: string | null): string {
     original_metadata: '원본 메타데이터',
     user_input: '사용자 입력',
     verified: '검증됨',
-    unverified: '미검증',
+    unverified: '자동 인식',
     rejected: '거부됨',
     scene: '장면',
     clip: '클립',
@@ -135,6 +135,55 @@ export function evidenceLabel(value: string | null): string {
     failed: '실패',
   };
   return labels[value.toLowerCase()] ?? '알 수 없는 값';
+}
+
+export interface TagChip {
+  taggingId: string;
+  tagName: string;
+  scope: string;
+  /** 검증 상태 하나로 합친 값. 한 근거라도 verified 면 verified, 아니면 unverified, 둘 다 없으면 첫 값. */
+  state: string | null;
+  /** 중복 없는 출처 목록. 상세는 hover 로만 노출한다. */
+  sources: string[];
+}
+
+// verified 우선 병합: 같은 태그(tagging)에 근거가 여러 개 붙으면 상태 하나로 접는다.
+function mergeVerification(current: string | null, next: string | null): string | null {
+  if (current === 'verified' || next === 'verified') return 'verified';
+  if (current === 'unverified' || next === 'unverified') return 'unverified';
+  return current ?? next;
+}
+
+/**
+ * tagging_id 기준으로 근거를 묶어 태그 하나당 칩 하나를 만든다.
+ * 한 태그에 근거가 여러 개 붙어(F-04) 같은 태그명이 근거 수만큼 반복되던 것을 접는다.
+ */
+export function groupTagEvidence(
+  evidence: {
+    taggingId: string;
+    tagName: string;
+    source: string | null;
+    verifiedState: string | null;
+    scope: string;
+  }[],
+): TagChip[] {
+  const byTag = new Map<string, TagChip>();
+  for (const item of evidence) {
+    const chip = byTag.get(item.taggingId);
+    if (chip) {
+      if (item.source && !chip.sources.includes(item.source)) chip.sources.push(item.source);
+      chip.state = mergeVerification(chip.state, item.verifiedState);
+    } else {
+      byTag.set(item.taggingId, {
+        taggingId: item.taggingId,
+        tagName: item.tagName,
+        scope: item.scope,
+        state: item.verifiedState,
+        sources: item.source ? [item.source] : [],
+      });
+    }
+  }
+  return [...byTag.values()];
 }
 
 // Known display fields only: never render resolver output, paths, or arbitrary JSON keys.

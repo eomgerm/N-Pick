@@ -66,14 +66,16 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
         >
           <ApiErrorNotice error={detail.error} />
           {data && <p>아래는 마지막으로 확인한 기록입니다. 최신 상태를 다시 확인해 주세요.</p>}
-          <button
-            className={styles.detailButton}
-            type="button"
-            disabled={detail.isFetching}
-            onClick={() => detail.refetch()}
-          >
-            처리 상세 다시 시도
-          </button>
+          <div className="mt-4 flex justify-end">
+            <button
+              className={styles.detailButton}
+              type="button"
+              disabled={detail.isFetching}
+              onClick={() => detail.refetch()}
+            >
+              처리 상세 다시 시도
+            </button>
+          </div>
         </section>
       )}
       {clip && data && (
@@ -199,7 +201,7 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                 <dt>실패·중단 단계</dt>
                 <dd>
                   {processing
-                    ? processing.failed_stages.length
+                    ? processing.failed_stages && processing.failed_stages.length
                       ? processing.failed_stages.map(processingStageLabel).join(', ')
                       : '확인된 실패 단계 없음'
                     : '미확인'}
