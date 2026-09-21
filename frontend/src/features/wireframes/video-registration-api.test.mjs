@@ -95,6 +95,56 @@ test('일반 대본은 잘못된 UTF-8 바이트를 대체 문자로 보내지 �
   });
 });
 
+// 파일을 고른 뒤 같은 자리에 다시 저장하면 브라우저가 쥔 File 핸들이 무효가 되어 arrayBuffer() 가 거부된다.
+// 이것을 디코드 실패와 같은 문구로 덮으면 "UTF-8 로 고쳤는데도 안 된다" 가 된다 (S15P21A501-258).
+test('일반 대본 파일을 읽지 못한 것은 인코딩 실패와 구분한다', async () => {
+  const unreadable = new File(['대본'], '대본.txt', { type: 'text/plain' });
+  unreadable.arrayBuffer = () =>
+    Promise.reject(new DOMException('file changed', 'NotReadableError'));
+
+  await assert.rejects(
+    () => createClipRegistrationFormData(createSnapshot({ script: unreadable })),
+    {
+      name: 'ScriptFileReadError',
+    },
+  );
+});
+
+test('읽기 실패와 인코딩 실패는 일반 대본 항목에 서로 다른 문구를 남긴다', async () => {
+  const messages = [];
+  for (const script of [
+    new File([Uint8Array.of(0xff, 0xfe)], '잘못된대본.txt'),
+    Object.assign(new File(['대본'], '대본.txt'), {
+      arrayBuffer: () => Promise.reject(new DOMException('file changed', 'NotReadableError')),
+    }),
+  ]) {
+    const error = await createClipRegistrationFormData(createSnapshot({ script })).then(
+      () => null,
+      (failure) => failure,
+    );
+    const presentation = getClipRegistrationErrorPresentation(error);
+    assert.equal(presentation.retryMode, 'none');
+    assert.equal(presentation.showGlobal, false);
+    messages.push(presentation.fieldErrors.scriptText);
+  }
+  assert.match(messages[0], /UTF-8/);
+  assert.match(messages[1], /다시 선택/);
+  assert.notEqual(messages[0], messages[1]);
+});
+
+test('대본 UTF-8 거절 코드는 일반 대본 항목에 붙는다', () => {
+  const presentation = getClipRegistrationErrorPresentation(
+    new ApiClientError('api', 400, {
+      code: 'CLIP_400_013',
+      message: '일반 대본을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요.',
+    }),
+  );
+  assert.equal(
+    presentation.fieldErrors.scriptText,
+    '일반 대본을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요.',
+  );
+});
+
 test('성공 응답은 문자열 영상·처리 ID와 queued만 허용한다', () => {
   assert.deepEqual(
     parseClipRegistrationResponse({
