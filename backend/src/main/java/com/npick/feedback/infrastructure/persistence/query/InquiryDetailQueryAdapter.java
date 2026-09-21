@@ -45,7 +45,7 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
     // 신고 장면의 태깅 + 그 장면이 속한 클립의 클립레벨 태깅(scene_id IS NULL)을 함께 조회한다.
     // 클립 태그는 장면에 상속되므로 F-09·F-10의 "당시 근거 비교"에 포함해야 한다(P2). 장면 태깅을 먼저 노출한다.
     private static final String EVIDENCE_SQL = """
-            SELECT tg.tagging_id, t.name AS tag_name, te.source, te.verification_status,
+            SELECT tg.tagging_id, t.tag_type, t.match_value, t.name AS tag_name, te.source, te.verification_status,
                    CASE WHEN tg.scene_id IS NULL THEN 'CLIP' ELSE 'SCENE' END AS scope
             FROM tagging tg
             JOIN tag t ON t.tag_id = tg.tag_id
@@ -127,6 +127,8 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
     private SceneEvidence toEvidence(Tuple row) {
         return new SceneEvidence(
                 ((Number) row.get("tagging_id")).longValue(),
+                (String) row.get("tag_type"),
+                (String) row.get("match_value"),
                 (String) row.get("tag_name"),
                 (String) row.get("source"),
                 (String) row.get("verification_status"),

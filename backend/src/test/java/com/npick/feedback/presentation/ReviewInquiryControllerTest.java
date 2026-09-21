@@ -137,7 +137,7 @@ class ReviewInquiryControllerTest {
                 "{\"score\":1}",
                 new ExecutionSnapshot("query", "{\"date\":\"2026\"}", "{}", "{}", "{}", "{}"),
                 java.util.List.of(new com.npick.feedback.application.query.SceneEvidence(
-                        5L, "사건명", "verified", "verified", "SCENE")),
+                        5L, "event", "사건명", "사건명", "verified", "verified", "SCENE")),
                 new ReviewHistory(200L, "검수자01", "reviewer01", java.time.Instant.parse("2026-09-08T01:00:00Z"), null));
         given(reviewService.detail(1L)).willReturn(detail);
         mockMvc.perform(get("/api/v1/review/inquiries/1")
@@ -156,6 +156,8 @@ class ReviewInquiryControllerTest {
                 .andExpect(jsonPath("$.data.execution.explicitFiltersJson").value("{\"date\":\"2026\"}"))
                 .andExpect(jsonPath("$.data.history.reviewerName").value("검수자01"))
                 .andExpect(jsonPath("$.data.history.reviewerLoginId").value("reviewer01"))
+                .andExpect(jsonPath("$.data.evidence[0].tagType").value("event"))
+                .andExpect(jsonPath("$.data.evidence[0].matchValue").value("사건명"))
                 .andExpect(jsonPath("$.data.evidence[0].scope").value("SCENE"));
     }
 

@@ -4,7 +4,7 @@ function inquiry(feedbackId = '41', status = 'OPEN') {
   return {
     feedbackId,
     status,
-    resolution: null,
+    resolution: null as string | null,
     resolutionNote: null,
     createdAt: '2026-09-09T01:00:00Z',
     queryText: '귀성길 정체',
@@ -30,7 +30,15 @@ function inquiry(feedbackId = '41', status = 'OPEN') {
       appliedRulesJson: '[]',
       appliedExcludesJson: '[]',
     },
-    evidence: [],
+    evidence: [] as Array<{
+      taggingId: string;
+      tagType: string;
+      matchValue: string;
+      tagName: string;
+      source: string | null;
+      verifiedState: string | null;
+      scope: string;
+    }>,
     history: {
       reviewedById: status === 'OPEN' ? null : '2',
       reviewerName: status === 'OPEN' ? null : '서버 담당자',
@@ -166,6 +174,79 @@ test('담당자 정보가 없는 검수 중 문의는 다른 담당자로 단정
   ).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: '처리 결과' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^(문의 종료|판정 저장)$/ })).toHaveCount(0);
+});
+
+test('담당 검수자는 쉼표로 여러 태그를 추가하고 기존 태그 삭제 후보를 만든다', async ({ page }) => {
+  await reviewer(page);
+  const current = inquiry('41', 'REVIEWING');
+  current.resolution = 'tag_correction';
+  current.history.reviewerLoginId = 'e2e-reviewer';
+  current.history.reviewerName = 'E2E 검수자';
+  current.evidence = [
+    {
+      taggingId: '51',
+      tagType: 'location',
+      matchValue: '서울역',
+      tagName: '서울역',
+      source: 'ocr',
+      verifiedState: 'verified',
+      scope: 'SCENE',
+    },
+  ];
+  const operations: unknown[][] = [];
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
+  await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
+    const body = route.request().postDataJSON() as { operations: unknown[] };
+    operations.push(body.operations);
+    await success(route, {
+      feedbackId: '41',
+      created: body.operations.length,
+      evidenceIds: body.operations.map((_, index) => String(61 + index)),
+    });
+  });
+
+  await page.goto('/review?inquiry=41');
+  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('서울, 부산, 서울, 광주');
+  await expect(page.getByText('3개 후보: 서울 · 부산 · 광주')).toBeVisible();
+  await page.getByRole('button', { name: '3개 추가 후보 만들기' }).click();
+  await expect(page.getByText(/3개 태그를 검증 후보로 저장했습니다/)).toBeVisible();
+  expect(operations[0]).toEqual([
+    {
+      action: 'APPROVE',
+      scope: 'SCENE',
+      tagType: 'keyword',
+      matchValue: '서울',
+      displayName: '서울',
+    },
+    {
+      action: 'APPROVE',
+      scope: 'SCENE',
+      tagType: 'keyword',
+      matchValue: '부산',
+      displayName: '부산',
+    },
+    {
+      action: 'APPROVE',
+      scope: 'SCENE',
+      tagType: 'keyword',
+      matchValue: '광주',
+      displayName: '광주',
+    },
+  ]);
+
+  await page.getByRole('button', { name: '삭제 후보' }).click();
+  await expect(page.getByText(/서울역.*태그를 삭제 후보로 만들까요/)).toBeVisible();
+  await page.getByRole('button', { name: '삭제 후보 저장' }).click();
+  await expect(page.getByText(/'서울역' 삭제 후보를 저장했습니다/)).toBeVisible();
+  expect(operations[1]).toEqual([
+    {
+      action: 'REJECT',
+      scope: 'SCENE',
+      tagType: 'location',
+      matchValue: '서울역',
+      displayName: '서울역',
+    },
+  ]);
 });
 
 test('연결 실패는 같은 키로 재시도하고 요청 중 중복 입력을 막으며 서버 이력을 표시한다', async ({

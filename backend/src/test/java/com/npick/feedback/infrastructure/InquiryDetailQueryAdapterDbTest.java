@@ -49,6 +49,10 @@ class InquiryDetailQueryAdapterDbTest {
         assertThat(detail.resultExplainJson()).containsIgnoringWhitespaces("\"score\":1");
         assertThat(detail.resolutionNote()).isEqualTo("조치 불필요");
         assertThat(detail.evidence()).anyMatch(e -> "CLIP".equals(e.scope())).anyMatch(e -> "SCENE".equals(e.scope()));
+        assertThat(detail.evidence()).allMatch(e -> "keyword".equals(e.tagType()));
+        assertThat(detail.evidence())
+                .extracting(e -> e.matchValue())
+                .containsExactly("scene-tag-9401", "clip-tag-9402");
         assertThat(detail.execution().queryText()).isNotBlank();
         assertThat(detail.sceneId()).isEqualTo(9301L);
         assertThat(detail.scene().clipId()).isEqualTo(9101L);
