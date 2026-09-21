@@ -718,7 +718,6 @@
   background: var(--surface);
   color: var(--text);
   line-height: 1.4;
-  overflow-wrap: anywhere;
 }
 
 .matchedKeywords {
