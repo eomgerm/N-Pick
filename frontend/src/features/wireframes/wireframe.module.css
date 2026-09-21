@@ -262,18 +262,21 @@
 }
 
 .searchForm {
+  position: relative;
   display: block;
   width: min(920px, 100%);
   margin-inline: auto;
 }
 
-/* 결과 화면 재검색창 하단 최소길이 안내(S15P21A501-243). 진입 화면 힌트와 같은 토큰을 써
-   헤더(color: var(--text)) 위에서 가독성·톤을 맞춘다. */
+/* 안내가 고정 헤더의 검색창·계정 메뉴 정렬에 영향을 주지 않도록 배치한다. */
 .searchHint {
+  position: absolute;
+  top: 100%;
+  inset-inline: 0;
   width: min(920px, 100%);
-  margin: 6px auto 0;
+  margin: 4px auto 0;
   padding-inline: 20px;
-  color: color-mix(in srgb, var(--text) 68%, transparent);
+  color: #e2e8f0;
   font-size: 13px;
 }
 
@@ -2129,6 +2132,7 @@
 }
 
 .modalResult strong {
+  overflow-wrap: anywhere;
   font-size: 13px;
 }
 
@@ -2151,6 +2155,9 @@
 
 .modal textarea {
   width: 100%;
+  max-width: 100%;
+  max-height: 40vh;
+  overflow-wrap: anywhere;
   resize: vertical;
   padding: 12px;
   border: 1px solid var(--line);

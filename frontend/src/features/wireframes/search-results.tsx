@@ -6,6 +6,7 @@ import { WireframeShell, type SearchScreenParams } from '@/features/wireframes/w
 import { createSearchRequestBody } from '@/features/wireframes/search-api-contract';
 import { readDateRange } from '@/features/wireframes/date-range';
 import { presentSearchResponse, searchScenes } from '@/features/wireframes/search-results-api';
+import { validateSearchQuery } from '@/features/wireframes/input-validation';
 
 export function SearchResults({ params }: { params: SearchScreenParams }) {
   const broadcast = readDateRange(params.broadcastFrom, params.broadcastTo);
@@ -39,6 +40,7 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
       initialParams={params}
       theme="shinhan"
       api={{
+        validationMessage: validateSearchQuery(params.q ?? ''),
         presentation: search.data ? presentSearchResponse(search.data) : undefined,
         state: body === null || search.isError ? 'failed' : search.isFetching ? 'loading' : 'ready',
         error: search.error,

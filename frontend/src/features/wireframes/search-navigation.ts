@@ -2,6 +2,7 @@ import { routes } from '@/lib/routes';
 
 import type { DateRange } from '@/features/wireframes/date-range';
 import { validateDateRange } from '@/features/wireframes/date-range';
+import { validateSearchQuery } from '@/features/wireframes/input-validation';
 
 export interface SearchNavigationInput {
   query: string;
@@ -25,7 +26,8 @@ export function createSearchResultsHref({
   filming,
 }: SearchNavigationInput): string | null {
   const normalizedQuery = query.trim();
-  if (!normalizedQuery || validateDateRange(broadcast) || validateDateRange(filming)) return null;
+  if (validateSearchQuery(query) || validateDateRange(broadcast) || validateDateRange(filming))
+    return null;
 
   const params = new URLSearchParams({ q: normalizedQuery });
   appendDateRange(params, 'broadcast', broadcast);

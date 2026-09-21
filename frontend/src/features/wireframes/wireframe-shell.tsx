@@ -54,6 +54,7 @@ export interface SearchScreenParams {
 
 interface WireframeShellProps {
   api?: {
+    validationMessage?: string;
     presentation?: {
       results: SearchResult[];
       execution: SearchExecutionPresentation;
@@ -95,8 +96,7 @@ export function WireframeShell({
   const demoState = initialParams.state;
   const demoSearchExecution = getDemoSearchExecution(demoState);
   const [query, setQuery] = useState(
-    (typeof initialQuery === 'string' && initialQuery.trim()) ||
-      '2025년 추석 경부고속도로 귀성길 정체',
+    initialQuery?.trim() ?? (api ? '' : '2025년 추석 경부고속도로 귀성길 정체'),
   );
   const [submittedQuery] = useState(query);
   const [selectedResultId, setSelectedResultId] = useState(1);
@@ -333,7 +333,7 @@ export function WireframeShell({
               {resultState === 'failed'
                 ? // 서버에 가 보지도 않은 실패를 연결 실패로 적지 않는다. 배지라 사유 전문은
                   // 아래 패널이 싣고 여기에는 짧은 상태만 둔다.
-                  api?.failureReason
+                  api?.validationMessage || api?.failureReason
                   ? '검색 조건 확인 필요'
                   : '검색 연결 실패'
                 : resultState === 'loading'
@@ -350,7 +350,9 @@ export function WireframeShell({
                 <p>검색 결과</p>
                 <h2>
                   {resultState === 'failed'
-                    ? '검색을 완료하지 못했어요'
+                    ? api?.validationMessage
+                      ? '검색어를 확인해 주세요'
+                      : '검색을 완료하지 못했어요'
                     : resultState === 'loading'
                       ? '검색 중'
                       : `관련 장면 ${displayedResults.length}개`}
@@ -373,7 +375,11 @@ export function WireframeShell({
               </p>
             ) : null}
 
-            {resultState !== 'populated' ? (
+            {api?.validationMessage ? (
+              <p role="alert" className="p-4 text-sm wrap-anywhere">
+                {api.validationMessage}
+              </p>
+            ) : resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
                 query={submittedQuery}
@@ -410,7 +416,7 @@ export function WireframeShell({
 
       <div aria-live="polite" className={styles.visuallyHidden}>
         {resultState === 'failed'
-          ? (api?.failureReason ?? '검색에 실패했습니다.')
+          ? api?.validationMessage || api?.failureReason || '검색에 실패했습니다.'
           : resultState === 'loading'
             ? '검색 중입니다.'
             : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}

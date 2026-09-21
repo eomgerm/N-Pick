@@ -34,6 +34,11 @@ import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
 import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
+import {
+  INQUIRY_COMMENT_MAX_LENGTH,
+  rejectOversizedPaste,
+  validateInquiryComment,
+} from '@/features/wireframes/input-validation';
 
 interface SceneDialogProps {
   children: ReactNode;
@@ -446,6 +451,7 @@ export function InquiryDialog({
   onClose,
 }: InquiryDialogProps) {
   const [comment, setComment] = useState(history?.comment ?? '');
+  const [commentError, setCommentError] = useState('');
   const errorId = useId();
   const hasError = error !== undefined && error !== null;
 
@@ -588,26 +594,50 @@ export function InquiryDialog({
         aria-busy={isSubmitting}
         onSubmit={(event) => {
           event.preventDefault();
+          const validationError = validateInquiryComment(comment);
+          setCommentError(validationError);
+          if (validationError || isSubmitting) return;
           onSubmit(comment);
         }}
       >
         <label htmlFor="inquiry-comment">설명 (선택)</label>
         <textarea
           aria-describedby={
-            [statusMessage ? 'inquiry-status-message' : null, hasError ? errorId : null]
+            [
+              'inquiry-comment-limit',
+              commentError ? 'inquiry-comment-error' : null,
+              statusMessage ? 'inquiry-status-message' : null,
+              hasError ? errorId : null,
+            ]
               .filter(Boolean)
               .join(' ') || undefined
           }
           disabled={isSubmitting}
           id="inquiry-comment"
+          maxLength={INQUIRY_COMMENT_MAX_LENGTH}
+          aria-invalid={Boolean(commentError)}
           onChange={(event) => {
             setComment(event.target.value);
+            setCommentError(validateInquiryComment(event.target.value));
             onCommentChange?.();
           }}
+          onPaste={(event) =>
+            rejectOversizedPaste(event, INQUIRY_COMMENT_MAX_LENGTH, () =>
+              setCommentError('문의 내용은 2,000자 이내로 입력해 주세요.'),
+            )
+          }
           placeholder="무엇이 이상했는지 알려주세요. 비워두어도 접수할 수 있어요."
           rows={4}
           value={comment}
         />
+        <p id="inquiry-comment-limit" className="text-sm text-(--muted)">
+          {comment.length}/2,000자
+        </p>
+        {commentError ? (
+          <p id="inquiry-comment-error" role="alert" className="text-sm text-(--danger)">
+            {commentError}
+          </p>
+        ) : null}
         {statusMessage ? <p id="inquiry-status-message">{statusMessage}</p> : null}
         {hasError ? (
           <div className={styles.inquiryError}>
@@ -618,7 +648,11 @@ export function InquiryDialog({
           <button disabled={isSubmitting} onClick={onClose} type="button">
             취소
           </button>
-          <button className={styles.submitInquiry} disabled={isSubmitting} type="submit">
+          <button
+            className={styles.submitInquiry}
+            disabled={isSubmitting || Boolean(validateInquiryComment(comment))}
+            type="submit"
+          >
             {isSubmitting ? (
               <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
             ) : (
