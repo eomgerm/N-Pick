@@ -59,6 +59,8 @@ interface WireframeShellProps {
     };
     state: 'loading' | 'failed' | 'ready';
     error: unknown;
+    /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
+    failureReason?: string;
     retry: () => void;
   };
   initialQuery?: string;
@@ -83,8 +85,11 @@ export function WireframeShell({
   const [isNavigating, startNavigation] = useTransition();
   const navigationLockRef = useRef(false);
   const hasObservedNavigationRef = useRef(false);
-  const broadcastRange = readDateRange(initialParams.broadcastFrom, initialParams.broadcastTo);
-  const filmingRange = readDateRange(initialParams.filmingFrom, initialParams.filmingTo);
+  const broadcastRange = readDateRange(
+    initialParams.broadcastFrom,
+    initialParams.broadcastTo,
+  ).range;
+  const filmingRange = readDateRange(initialParams.filmingFrom, initialParams.filmingTo).range;
   const demoState = initialParams.state;
   const demoSearchExecution = getDemoSearchExecution(demoState);
   const [query, setQuery] = useState(
@@ -323,7 +328,11 @@ export function WireframeShell({
                 )
               ) : null}
               {resultState === 'failed'
-                ? '검색 연결 실패'
+                ? // 서버에 가 보지도 않은 실패를 연결 실패로 적지 않는다. 배지라 사유 전문은
+                  // 아래 패널이 싣고 여기에는 짧은 상태만 둔다.
+                  api?.failureReason
+                  ? '검색 조건 확인 필요'
+                  : '검색 연결 실패'
                 : resultState === 'loading'
                   ? '검색 중'
                   : searchExecution.status === 'degraded'
@@ -368,6 +377,7 @@ export function WireframeShell({
                 broadcastRange={broadcastRange}
                 filmingRange={filmingRange}
                 details={details}
+                reason={api?.failureReason}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
@@ -397,7 +407,7 @@ export function WireframeShell({
 
       <div aria-live="polite" className={styles.visuallyHidden}>
         {resultState === 'failed'
-          ? '검색에 실패했습니다.'
+          ? (api?.failureReason ?? '검색에 실패했습니다.')
           : resultState === 'loading'
             ? '검색 중입니다.'
             : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}

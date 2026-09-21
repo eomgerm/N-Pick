@@ -31,7 +31,23 @@ export function formatDateRange(range: DateRange): string {
     : '전체 기간';
 }
 
-export function readDateRange(from?: string, to?: string): DateRange {
+export interface ReadDateRangeResult {
+  /** 화면이 쓸 기간. 쓸 수 없는 값이면 빈 기간입니다. */
+  range: DateRange;
+  /** 왜 빈 기간이 되었는지. 버릴 것이 없었으면 빈 문자열입니다. */
+  error: string;
+}
+
+/**
+ * URL 이 실어 온 기간을 읽습니다. <b>버린 값과 버린 이유를 함께 돌려줍니다.</b>
+ *
+ * 쓸 수 없는 값을 빈 기간으로 접는 것은 좌측 기간 선택기를 계속 열어 두기 위해서이지 조건이
+ * 없었다는 뜻이 아닙니다. 이유를 따로 읽게 하면 같은 파라미터를 두 곳이 보고 서로 다른 결론을
+ * 내게 되고, 그것이 방송일·촬영일을 건 링크가 필터 없는 검색으로 조용히 돌아간 원인이었습니다.
+ * 계약 §5 는 한쪽만 온 기간을 `SRCH_400_003` 으로 막습니다.
+ */
+export function readDateRange(from?: string, to?: string): ReadDateRangeResult {
   const range = { from: from ?? '', to: to ?? '' };
-  return validateDateRange(range) ? emptyDateRange : range;
+  const error = validateDateRange(range);
+  return { range: error ? emptyDateRange : range, error };
 }
