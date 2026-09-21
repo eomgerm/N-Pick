@@ -27,6 +27,7 @@ import {
   formatInquiryTimecode,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
+import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
@@ -247,6 +248,10 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
             key={`${inquiry.feedbackId}-${inquiry.resolution ?? 'new'}`}
             memberLoginId={member.loginId}
           />
+        ) : null}
+
+        {inquiry.status === 'reviewing' && inquiry.resolution === 'exclude_scene' ? (
+          <SceneExcludeCandidateForm inquiry={inquiry} />
         ) : null}
 
         {inquiry.resolution ? (
