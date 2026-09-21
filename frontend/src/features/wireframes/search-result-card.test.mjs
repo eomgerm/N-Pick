@@ -10,18 +10,29 @@ const cssModuleUrl = `data:text/javascript,${encodeURIComponent(
   'export default new Proxy({}, { get: (_, key) => String(key) });',
 )}`;
 
+const localFiles = {
+  '@/features/wireframes/demo-scenes': './demo-scenes.ts',
+  '@/features/wireframes/scene-hover-preview': './scene-hover-preview.tsx',
+  '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
+  '@/lib/api/client': '../../lib/api/client.ts',
+  '@/lib/api/error': '../../lib/api/error.ts',
+  '@/lib/api/log': '../../lib/api/log.ts',
+  '@/lib/auth/session-events': '../../lib/auth/session-events.ts',
+  '@/lib/env': '../../lib/env.ts',
+};
+
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === '@/features/wireframes/wireframe.module.css') {
       return { url: cssModuleUrl, shortCircuit: true };
     }
-    if (specifier === '@/features/wireframes/demo-scenes') {
-      return { url: new URL('./demo-scenes.ts', import.meta.url).href, shortCircuit: true };
+    if (localFiles[specifier]) {
+      return { url: new URL(localFiles[specifier], import.meta.url).href, shortCircuit: true };
     }
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
-    if (url === new URL('./search-result-card.tsx', import.meta.url).href) {
+    if (url.endsWith('.ts') || url.endsWith('.tsx')) {
       return {
         format: 'module',
         source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {

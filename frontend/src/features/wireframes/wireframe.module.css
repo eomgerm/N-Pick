@@ -652,164 +652,20 @@
   font-variant-numeric: tabular-nums;
 }
 
-.keyframePreview {
+.hoverPreview {
   position: absolute;
   z-index: 3;
   inset: 0;
-  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   opacity: 0;
   pointer-events: none;
   transition: opacity 140ms ease;
 }
 
-.resultCard:hover .keyframePreview,
-.resultCard:focus-within .keyframePreview {
+.hoverPreview[data-ready] {
   opacity: 1;
-}
-
-.keyframe {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  padding: 10px;
-  background-image:
-    linear-gradient(180deg, transparent 50%, rgb(0 0 0 / 66%) 100%),
-    url('/images/news-scenes-triptych.png');
-  background-repeat: no-repeat;
-  background-size:
-    100% 100%,
-    315% auto;
-  opacity: 0;
-  animation: keyframe-cycle-first 2.4s steps(1, end) infinite paused;
-}
-
-.keyframe:nth-child(2) {
-  background-size:
-    100% 100%,
-    325% auto;
-  animation-name: keyframe-cycle-second;
-}
-
-.keyframe:nth-child(3) {
-  background-size:
-    100% 100%,
-    320% auto;
-  animation-name: keyframe-cycle-third;
-}
-
-.keyframe.imageOne:nth-child(1) {
-  background-position:
-    center,
-    0 38%;
-}
-
-.keyframe.imageOne:nth-child(2) {
-  background-position:
-    center,
-    3% 50%;
-}
-
-.keyframe.imageOne:nth-child(3) {
-  background-position:
-    center,
-    5% 62%;
-}
-
-.keyframe.imageTwo:nth-child(1) {
-  background-position:
-    center,
-    47% 40%;
-}
-
-.keyframe.imageTwo:nth-child(2) {
-  background-position:
-    center,
-    50% 52%;
-}
-
-.keyframe.imageTwo:nth-child(3) {
-  background-position:
-    center,
-    53% 64%;
-}
-
-.keyframe.imageThree:nth-child(1) {
-  background-position:
-    center,
-    95% 38%;
-}
-
-.keyframe.imageThree:nth-child(2) {
-  background-position:
-    center,
-    98% 50%;
-}
-
-.keyframe.imageThree:nth-child(3) {
-  background-position:
-    center,
-    100% 62%;
-}
-
-.resultCard:hover .keyframe,
-.resultCard:focus-within .keyframe {
-  animation-play-state: running;
-}
-
-.keyframeTime {
-  padding: 4px 7px;
-  border: 1px solid rgb(255 255 255 / 26%);
-  border-radius: 999px;
-  background: rgb(0 0 0 / 58%);
-  color: #ffffff;
-  font-family: Consolas, monospace;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  backdrop-filter: blur(5px);
-}
-
-@keyframes keyframe-cycle-first {
-  0%,
-  32% {
-    opacity: 1;
-  }
-
-  33%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes keyframe-cycle-second {
-  0%,
-  32% {
-    opacity: 0;
-  }
-
-  33%,
-  65% {
-    opacity: 1;
-  }
-
-  66%,
-  100% {
-    opacity: 0;
-  }
-}
-
-@keyframes keyframe-cycle-third {
-  0%,
-  65% {
-    opacity: 0;
-  }
-
-  66%,
-  100% {
-    opacity: 1;
-  }
 }
 
 .cardBody {
@@ -2963,23 +2819,14 @@
   }
 
   .resultCard,
-  .keyframePreview,
+  .hoverPreview,
   .evidenceTooltipContent,
-  .keyframe,
   .playingBadge > span,
   .sceneProgress,
   .timelinePlayhead,
   .previewProgress {
     animation: none;
     transition: none;
-  }
-
-  .keyframe:not(:first-child) {
-    display: none;
-  }
-
-  .keyframe:first-child {
-    opacity: 1;
   }
 
   .sceneProgress {

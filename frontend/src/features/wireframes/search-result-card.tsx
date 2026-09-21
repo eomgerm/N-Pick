@@ -1,11 +1,14 @@
+'use client';
+
+import { useState } from 'react';
 import { Play } from 'lucide-react';
 
 import {
   formatTimestamp,
   getVerificationStatusLabel,
-  getKeyframeTimes,
   type SearchResult,
 } from '@/features/wireframes/demo-scenes';
+import { SceneHoverPreview } from '@/features/wireframes/scene-hover-preview';
 import styles from '@/features/wireframes/wireframe.module.css';
 
 interface SearchResultCardProps {
@@ -31,11 +34,22 @@ export function SearchResultCard({
   isSelected,
   onSelect,
 }: SearchResultCardProps) {
-  const keyframeTimes = getKeyframeTimes(result);
+  // Hover and focus are tracked apart so that moving the mouse off a focused card,
+  // or tabbing out of a hovered one, leaves the other reason to preview standing.
+  const [isHovering, setIsHovering] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const evidenceTooltipId = `${idPrefix}match-evidence-${result.id}`;
 
   return (
-    <article className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}>
+    <article
+      className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setIsFocused(false);
+      }}
+      onFocus={() => setIsFocused(true)}
+      onPointerEnter={() => setIsHovering(true)}
+      onPointerLeave={() => setIsHovering(false)}
+    >
       <div
         aria-label={result.imageLabel}
         className={`${styles.thumbnail} ${result.imageClass}`}
@@ -51,16 +65,13 @@ export function SearchResultCard({
         <span className={styles.timecode}>
           {formatTimestamp(result.sceneStart)} – {formatTimestamp(result.sceneEnd)}
         </span>
-        <span aria-hidden="true" className={styles.keyframePreview}>
-          {keyframeTimes.map((keyframeTime) => (
-            <span
-              className={`${styles.keyframe} ${result.imageClass}`}
-              key={`${result.id}-${keyframeTime}`}
-            >
-              <span className={styles.keyframeTime}>{keyframeTime}</span>
-            </span>
-          ))}
-        </span>
+        {isHovering || isFocused ? (
+          <SceneHoverPreview
+            clipId={result.clipId}
+            sceneEnd={result.sceneEnd}
+            sceneStart={result.sceneStart}
+          />
+        ) : null}
       </div>
 
       <div className={styles.cardBody}>

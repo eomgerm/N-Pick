@@ -377,12 +377,3 @@ export function formatTimestamp(totalSeconds: number) {
 
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
-
-export function getKeyframeTimes(result: SearchResult) {
-  const lastFrameSecond = Math.max(result.sceneStart, result.sceneEnd - 1);
-  const sceneDuration = lastFrameSecond - result.sceneStart;
-
-  return [0, 0.5, 1].map((position) =>
-    formatTimestamp(Math.round(result.sceneStart + sceneDuration * position)),
-  );
-}
