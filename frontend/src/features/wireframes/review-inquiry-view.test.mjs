@@ -87,8 +87,8 @@ test('근거 출처와 검수자 판단은 계약 어휘 전체를 한국어로 
       '아카이빙 팀 피드백',
     ],
   );
-  assert.equal(evidenceLabel('rejected'), '거부됨');
-  assert.equal(evidenceLabel('withdrawn'), '검수 판단 해제');
+  assert.equal(evidenceLabel('rejected'), '반려됨');
+  assert.equal(evidenceLabel('withdrawn'), '개입 해제');
   assert.equal(evidenceLabel('CLIP'), '클립');
   assert.equal(evidenceLabel('legacy_source'), '정보 없음');
 });

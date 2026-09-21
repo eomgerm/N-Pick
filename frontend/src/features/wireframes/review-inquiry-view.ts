@@ -120,7 +120,9 @@ const snapshotLabels: Record<string, string> = {
 // 출처 어휘는 `tag_evidence.source` 컬럼 주석이 여덟 값으로 닫아 둔 정본이다(baseline 마이그레이션).
 // 같은 값을 검색 상세(`search-results-api.ts`)와 같은 문구로 옮긴다 — 한 출처를 화면마다 다른
 // 이름으로 부르면 같은 근거인지 알 수 없다. 검증 상태는 검수자 판단인 `rejected`·`withdrawn`까지
-// 담는다. S15P21A501-235가 그 둘을 뭉개지 않고 상세로 내보내므로 화면에 실제로 도달한다.
+// 담는다. S15P21A501-235가 그 둘을 뭉개지 않고 상세로 내보내므로 화면에 실제로 도달한다. 검증
+// 상태 문구는 같은 이유로 `demo-scenes.ts`의 `verificationStatusLabels`를 따른다 — 검색 화면이
+// 쓰는 말이고, F-10의 네 작업을 부르는 이름(반려·개입 해제)도 그쪽이다.
 const evidenceLabels: Record<string, string> = {
   user_input: '사용자 입력',
   original_metadata: '영상 원본 정보',
@@ -132,8 +134,8 @@ const evidenceLabels: Record<string, string> = {
   reviewer_feedback: '아카이빙 팀 피드백',
   verified: '검증됨',
   unverified: '자동 인식',
-  rejected: '거부됨',
-  withdrawn: '검수 판단 해제',
+  rejected: '반려됨',
+  withdrawn: '개입 해제',
   scene: '장면',
   clip: '클립',
   applied: '적용',
