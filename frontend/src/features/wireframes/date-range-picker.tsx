@@ -196,7 +196,7 @@ export function DateRangePicker({
             {(['from', 'to'] as const).map((endpoint) => (
               <DateRangeCalendar
                 endpoint={endpoint}
-                initialDate={value[endpoint] || value.from || localToday()}
+                initialDate={draft[endpoint] || value[endpoint] || value.from || localToday()}
                 key={endpoint}
                 onSelect={(date) => {
                   setDraft((current) => ({ ...current, [endpoint]: date }));

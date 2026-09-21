@@ -228,7 +228,7 @@ test('월·연도 선택 후 왼쪽 시작일과 오른쪽 종료일을 독립�
   );
 });
 
-test('사이드바에는 적용한 기간만 표시하고 취소·초기화와 접힘 상태를 반영한다', async ({
+test('사이드바에는 적용한 기간만 표시하고 즉시 초기화와 접힘 상태를 반영한다', async ({
   page,
 }, testInfo) => {
   await page.goto('/search');
@@ -240,10 +240,6 @@ test('사이드바에는 적용한 기간만 표시하고 취소·초기화와 �
     await dialog.locator('[data-endpoint="to"] [data-date="2026-09-16"]').click();
     await expect(trigger.locator('time')).toHaveCount(0);
     await dialog.getByRole('button', { name: '적용', exact: true }).click();
-    await expect(trigger.locator('time')).toHaveText(['2026.09.01', '2026.09.16']);
-    await trigger.click();
-    await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-    await dialog.getByRole('button', { name: '취소', exact: true }).click();
     await expect(trigger.locator('time')).toHaveText(['2026.09.01', '2026.09.16']);
   }
   await page.screenshot({ path: testInfo.outputPath('selected-periods-desktop.png') });
@@ -264,7 +260,7 @@ test('사이드바에는 적용한 기간만 표시하고 취소·초기화와 �
   await broadcast.click();
   const dialog = page.getByRole('dialog', { name: '방송일 기간', exact: true });
   await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-  await dialog.getByRole('button', { name: '적용', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
   await expect(broadcast.locator('time')).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: /^촬영일 기간 선택:/ }).locator('time'),
@@ -295,7 +291,7 @@ test('기간 검증·취소·초기화와 월 경계의 키보드 조작을 보�
   await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 2026.09.20 – 2026.09.20');
   await trigger.click();
   await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-  await dialog.getByRole('button', { name: '적용', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
   await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 전체 기간');
   await trigger.click();
   await start.locator('[data-date="2026-09-01"]').click();

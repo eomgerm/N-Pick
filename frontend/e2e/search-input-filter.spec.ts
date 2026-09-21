@@ -156,6 +156,12 @@ test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 
     .getByRole('dialog')
     .filter({ has: page.getByRole('heading', { name: '방송일 기간' }) });
   await broadcastDialog.getByRole('button', { name: '최근 1년' }).click();
+  await expect(
+    broadcastDialog.getByRole('button', { name: '시작일 2025년 9월, 월 선택', exact: true }),
+  ).toBeVisible();
+  await expect(
+    broadcastDialog.locator('[data-endpoint="from"] [data-date="2025-09-11"]'),
+  ).toHaveAttribute('tabindex', '0');
   await broadcastDialog.getByRole('button', { name: '적용' }).click();
   await expect(
     page.getByRole('button', { name: '방송일 기간 선택: 2025.09.11 – 2026.09.11' }),
@@ -167,6 +173,12 @@ test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 
     .getByRole('dialog')
     .filter({ has: page.getByRole('heading', { name: '촬영일 기간' }) });
   await filmingDialog.getByRole('button', { name: '최근 3년' }).click();
+  await expect(
+    filmingDialog.getByRole('button', { name: '시작일 2023년 9월, 월 선택', exact: true }),
+  ).toBeVisible();
+  await expect(
+    filmingDialog.locator('[data-endpoint="from"] [data-date="2023-09-11"]'),
+  ).toHaveAttribute('tabindex', '0');
   await filmingDialog.getByRole('button', { name: '적용' }).click();
   await expect(
     page.getByRole('button', { name: '촬영일 기간 선택: 2023.09.11 – 2026.09.11' }),
