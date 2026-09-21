@@ -20,6 +20,7 @@ import {
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import { TagCorrectionForm } from '@/features/wireframes/review-tag-correction';
+import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -255,6 +256,10 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
           <TagCorrectionForm feedbackId={inquiry.feedbackId} />
         ) : null}
 
+        {inquiry.status === 'reviewing' && inquiry.resolution === 'patch_parse' ? (
+          <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
+        ) : null}
+
         {inquiry.resolution ? (
           <section
             className={`rounded-2xl border border-(--line) p-5 ${inquiryResolutionClasses[inquiry.resolution]}`}
@@ -315,9 +320,7 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                         }`}
                       />
                       <span className="font-semibold text-(--text)">{tag.tagName}</span>
-                      <span className="text-xs text-(--muted)">
-                        {evidenceLabel(tag.verifiedState)}
-                      </span>
+                      <span className="text-xs text-(--muted)">{evidenceLabel(tag.verifiedState)}</span>
                     </li>
                   ))}
                 </ul>
