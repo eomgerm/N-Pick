@@ -5,7 +5,10 @@ import { useState } from 'react';
 
 import type { Inquiry } from '@/features/wireframes/reviewer-inquiries';
 import type { ReviewInquiryDetail } from '@/features/wireframes/review-inquiry-api';
-import { toScenePreviewMedia } from '@/features/wireframes/scene-preview-media';
+import {
+  formatSceneDuration,
+  toScenePreviewMedia,
+} from '@/features/wireframes/scene-preview-media';
 import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/reviewer.module.css';
@@ -55,7 +58,7 @@ export function ReviewerScenePreview({ inquiry, theme }: ReviewerScenePreviewPro
             title: inquiry.sceneTitle,
             sceneStart,
             sceneEnd,
-            duration: `${sceneEnd - sceneStart}초`,
+            duration: formatSceneDuration(sceneEnd - sceneStart),
             evidenceType: '영상에서 확인한 내용',
             evidence: inquiry.evidence,
             source: inquiry.guard,
@@ -96,7 +99,9 @@ export function ReviewInquiryPreview({
             ...toScenePreviewMedia(inquiry.scene),
             id: inquiry.sceneId,
             title: inquiry.scene.clipTitle ?? '제목 없는 영상',
-            duration: `${(inquiry.scene.endTimeMs - inquiry.scene.startTimeMs) / 1000}초`,
+            duration: formatSceneDuration(
+              (inquiry.scene.endTimeMs - inquiry.scene.startTimeMs) / 1000,
+            ),
             evidenceType: '문의에 연결된 태그',
             evidence: inquiry.evidence.map(({ tagName }) => tagName).join(', ') || '기록 없음',
             source: '검증 상태와 출처는 문의 상세의 각 근거에서 확인해 주세요.',
