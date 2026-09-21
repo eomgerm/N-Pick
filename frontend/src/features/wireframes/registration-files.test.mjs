@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   MAX_VIDEO_SIZE_BYTES,
+  MAX_SUBTITLE_SIZE_BYTES,
   validateScriptFiles,
   validateSubtitleFiles,
   validateVideoFiles,
@@ -54,4 +55,18 @@ test('자막은 SRT/VTT 한 개, 일반 대본은 TXT 한 개로 분리해 검�
   assert.notEqual(validateScriptFiles([script, script]), '');
   assert.notEqual(validateScriptFiles([subtitle]), '');
   assert.notEqual(validateScriptFiles([new File([], '빈대본.txt')]), '');
+});
+
+test('자막은 10 MiB 경계를 검사하고 승인 JSON 형식은 서버 내용 검증으로 전달한다', () => {
+  for (const name of ['자막.srt', '자막.VTT', '자막.json']) {
+    assert.equal(validateSubtitleFiles([{ name, size: MAX_SUBTITLE_SIZE_BYTES, type: '' }]), '');
+    assert.match(
+      validateSubtitleFiles([{ name, size: MAX_SUBTITLE_SIZE_BYTES + 1, type: '' }]),
+      /10 MiB/,
+    );
+  }
+  assert.notEqual(
+    validateSubtitleFiles([{ name: '자막.srt.exe', size: 1, type: 'text/plain' }]),
+    '',
+  );
 });

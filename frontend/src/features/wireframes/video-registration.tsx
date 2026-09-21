@@ -448,7 +448,7 @@ export function VideoRegistration({
             <div>
               <h3>자막 파일</h3>
               <p className={styles.description} id="subtitle-desc">
-                자막 파일을 선택해주세요 (SRT/VTT 지원)
+                SRT, VTT 또는 승인된 JSON 한 개 · 10 MiB 이하
               </p>
               <FileDropzone
                 accept={subtitleAccept}
