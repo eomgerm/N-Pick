@@ -19,6 +19,12 @@ export function getSceneMediaUrl({ clipId, sceneStart, sceneEnd }: ScenePreviewM
   return createApiUrl(`/media/${clipId}`);
 }
 
+// 검색·문의 응답은 이미지도 URL도 싣지 않는다. scene_id로 endpoint를 조립한다(web-api.md §6.8).
+export function getSceneThumbnailUrl(sceneId: string | null | undefined) {
+  if (!sceneId || !/^[1-9]\d*$/.test(sceneId)) return null;
+  return createApiUrl(`/scenes/${sceneId}/thumbnail`);
+}
+
 export function toScenePreviewMedia(scene: {
   clipId: string;
   startTimeMs: number;

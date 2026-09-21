@@ -135,7 +135,9 @@ test('경로·다른 ID·비정상 구간을 media URL로 만들지 않는다', 
 });
 
 test('장면 ID로 대표 이미지 endpoint 경로를 조립한다', () => {
-  assert.ok(getSceneThumbnailUrl('9007199254740993').endsWith('/api/v1/scenes/9007199254740993/thumbnail'));
+  assert.ok(
+    getSceneThumbnailUrl('9007199254740993').endsWith('/api/v1/scenes/9007199254740993/thumbnail'),
+  );
 });
 
 test('경로나 비정상 장면 ID를 thumbnail URL로 만들지 않는다', () => {
@@ -146,7 +148,7 @@ test('경로나 비정상 장면 ID를 thumbnail URL로 만들지 않는다', ()
     '0',
     '../21',
     '21/../22',
-    'C:\media\21.jpg',
+    'C:\\media\\21.jpg',
     'https://example.com/21',
     'scene_21',
   ]) {

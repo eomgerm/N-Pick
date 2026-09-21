@@ -39,7 +39,11 @@ function failure(status, code) {
 }
 
 test('장면 대표 이미지를 받으면 표시할 objectUrl을 돌려준다', async () => {
-  const restore = stubFetch(async () => ({ ok: true, status: 200, blob: async () => new Blob(['x']) }));
+  const restore = stubFetch(async () => ({
+    ok: true,
+    status: 200,
+    blob: async () => new Blob(['x']),
+  }));
   try {
     const result = await loadSceneThumbnail(
       '/api/v1/scenes/21/thumbnail',
@@ -63,7 +67,10 @@ test('이미지 없음과 파일 누락은 서로 다른 대체 안내를 준다
   for (const [code, message] of cases) {
     const restore = stubFetch(async () => failure(code.startsWith('SCENE_404') ? 404 : 503, code));
     try {
-      const result = await loadSceneThumbnail('/api/v1/scenes/21/thumbnail', new AbortController().signal);
+      const result = await loadSceneThumbnail(
+        '/api/v1/scenes/21/thumbnail',
+        new AbortController().signal,
+      );
       assert.deepEqual(result, { message });
     } finally {
       restore();
@@ -76,7 +83,10 @@ test('실패 envelope가 아니거나 요청 자체가 실패해도 대체 안�
     throw new TypeError('network down');
   });
   try {
-    const result = await loadSceneThumbnail('/api/v1/scenes/21/thumbnail', new AbortController().signal);
+    const result = await loadSceneThumbnail(
+      '/api/v1/scenes/21/thumbnail',
+      new AbortController().signal,
+    );
     assert.deepEqual(result, { message: '대표 이미지를 불러오지 못했습니다.' });
   } finally {
     restore();

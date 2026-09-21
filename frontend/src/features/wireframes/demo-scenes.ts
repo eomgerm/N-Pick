@@ -54,8 +54,9 @@ export interface SearchResult {
   matchedKeywords: string[];
   source: string;
   score: number;
-  imageClass: string;
-  imageLabel: string;
+  // 와이어프레임 데모 전용 배경 이미지다. 실제 장면은 sceneId로 대표 이미지를 받는다.
+  imageClass?: string;
+  imageLabel?: string;
 }
 
 export const results: SearchResult[] = [
