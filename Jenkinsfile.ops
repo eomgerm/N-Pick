@@ -8,10 +8,6 @@
 // (docs/architecture/03-deployment.md 의 "상주 서버를 올릴 수 없다"와 충돌하므로
 // Jenkins 에이전트를 붙이는 안은 팀 합의 전까지 보류).
 
-// transcript_selection 워커 구현이 들어오면 이 값을 false 로 바꾸고,
-// pipeline.yml 에 그 단계의 stage_versions 를 채운다. 그때 WAIT 가 열린다.
-SEED_WAIT_BLOCKED = true
-
 pipeline {
   agent any
 
@@ -38,7 +34,7 @@ pipeline {
     string(
       name: 'WAIT_SECONDS',
       defaultValue: '0',
-      description: 'SEED 에서만 쓴다. **현재는 0 만 쓸 수 있다** — transcript_selection 워커 구현이 없어 run 이 완주하지 못하므로 0 보다 큰 값은 거부한다. 구현되면 Jenkinsfile.ops 의 SEED_WAIT_BLOCKED 를 지운다'
+      description: 'SEED 에서만 쓴다. 등록한 클립이 이 초만큼 안에 완주하는지 기다린다. 0 이면 등록만 하고 끝낸다'
     )
   }
 
@@ -86,15 +82,6 @@ pipeline {
         script {
           if (!params.VIDEO_DIR?.trim()) {
             error('SEED 에는 VIDEO_DIR 이 필요하다')
-          }
-          // **완주할 수 없는 대기를 걸지 않는다.** pipeline.yml 의
-          // stage_versions 에 transcript_selection 이 없고 워커에도 구현이
-          // 없어서, run 이 그 단계에서 멈추고 대기는 제한 시간까지 돈다.
-          // 숨기지 않고 여기서 거부한다 — 숨기면 되살리는 것을 잊는다.
-          if ((params.WAIT_SECONDS ?: '0').trim() != '0' && SEED_WAIT_BLOCKED) {
-            error('WAIT_SECONDS 는 아직 0 만 쓸 수 있다. '
-                + 'transcript_selection 이 구현되고 pipeline.yml 에 '
-                + 'stage_versions 가 채워진 뒤에 이 가드를 지운다 (S15P21A501-187).')
           }
         }
         withCredentials([usernamePassword(

@@ -482,7 +482,7 @@ export NPICK_AI_JOB_POLL_ENABLED=true
 export NPICK_AI_JOB_API_BASE_URL=https://j15a501.p.ssafy.io
 export NPICK_AI_JOB_API_TOKEN=...             # fleet 과 짝이 맞아야 한다
 export NPICK_AI_JOB_FLEET=prod
-export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
+export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,transcript_selection,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
 export NPICK_AI_VLM_MODEL=Qwen/Qwen3.5-9B
 export NPICK_AI_ASR_MODEL=large-v3-turbo      # ai/docs/asr.md §5.6 확정값
 export NPICK_AI_ASR_MODEL_REVISION=0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf  # 고정 필수
@@ -573,7 +573,7 @@ export NPICK_AI_JOB_POLL_ENABLED=true
 export NPICK_AI_JOB_API_BASE_URL=https://j15a501.p.ssafy.io
 export NPICK_AI_JOB_API_TOKEN=...          # **SSAFY GPU 서버와 다른 토큰**
 export NPICK_AI_JOB_FLEET=prod             # BE 의 NPICK_WORKER_JOBS_FLEET 과 같아야 한다
-export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
+export NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,transcript_selection,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
 export NPICK_AI_VLM_MODEL=Qwen/Qwen3.5-9B
 export NPICK_AI_ASR_MODEL=large-v3-turbo
 export NPICK_AI_ASR_MODEL_REVISION=0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf
@@ -707,8 +707,8 @@ for k, v in registry.capability_versions().items(): print(k, v)'
 의 `pipeline.declared` 로 확인한다.
 
 ```
-CPU 워커   NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,ocr,indexing
-GPU 파드   NPICK_AI_JOB_STAGES=vlm_metadata,asr,text_embedding
+CPU 워커   NPICK_AI_JOB_STAGES=ocr
+GPU 파드   NPICK_AI_JOB_STAGES=scene_detection,frame_extraction,vlm_metadata,transcript_selection,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing
 ```
 
 ```powershell
