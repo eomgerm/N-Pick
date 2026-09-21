@@ -7,11 +7,7 @@ import { useState } from 'react';
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { useMember } from '@/components/session-boundary';
 import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
-import {
-  getMyInquiries,
-  getMyInquiry,
-  myInquiryKeys,
-} from '@/features/wireframes/my-inquiry-api';
+import { getMyInquiries, getMyInquiry, myInquiryKeys } from '@/features/wireframes/my-inquiry-api';
 import { resolveInquiryResultTitle } from '@/features/wireframes/my-inquiry-view';
 import {
   InquiryDialog,
