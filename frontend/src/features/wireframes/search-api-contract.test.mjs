@@ -80,6 +80,33 @@ test('실제 검색 adapter는 clip ID와 소수 초, 추가 근거와 degraded 
   });
 });
 
+test('근거 출처는 한국어 라벨로 바꾸고 어휘 밖 값은 원값을 노출하지 않는다', () => {
+  const raw = createResponse();
+  raw.results[0] = createScene(1, {
+    match_evidence: [
+      { field: 'ocr', value: '서울역', source: 'keyframe_ocr', verification_status: 'verified' },
+      { field: 'caption', value: '귀성 인파', source: 'vlm', verification_status: 'unverified' },
+      { field: 'tag', value: '귀성', source: 'reviewer_feedback', verification_status: 'verified' },
+      {
+        field: 'tag',
+        value: '설 연휴',
+        source: 'legacy_source',
+        verification_status: 'unverified',
+      },
+    ],
+  });
+
+  const view = presentSearchResponse(parseSearchResponse(raw));
+  const [scene] = view.results;
+
+  assert.equal(scene.matchEvidence.source, '대표 이미지 글자 인식');
+  assert.equal(scene.source, '대표 이미지 글자 인식');
+  assert.deepEqual(
+    scene.additionalEvidence.map((evidence) => evidence.source),
+    ['AI 화면 분석', '아카이빙 팀 피드백', '정보 없음'],
+  );
+});
+
 test('검색 API는 요청 객체를 한 번만 JSON 직렬화한다', async () => {
   const originalFetch = globalThis.fetch;
   const body = { query: '뉴스', explicit_filters: {} };

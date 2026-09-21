@@ -43,6 +43,22 @@ export function presentSearchResponse(response: SearchResponse): {
     transcript: '대사',
     tag: '태그',
   } as const;
+  // `source`는 계약이 어휘를 닫지 않은 비어 있지 않은 string이다(web-api.md §6.7). 서버가 실제로
+  // 싣는 값만 옮기고, 그 밖의 값은 영어 원값 대신 대체 문구로 보여 준다.
+  const sources: Record<string, string> = {
+    scene_caption: 'AI 장면 설명',
+    scene_transcript: '원본 대사',
+    keyframe_ocr: '대표 이미지 글자 인식',
+    dense_similarity: 'AI 의미 검색',
+    user_input: '사용자 입력',
+    original_metadata: '영상 원본 정보',
+    cc: '방송 자막',
+    ocr: '화면 글자 인식',
+    asr: '음성 인식',
+    vlm: 'AI 화면 분석',
+    rule: '텍스트 자동 추출',
+    reviewer_feedback: '아카이빙 팀 피드백',
+  };
   const guardReasons = {
     explicit_date_conflict: '명시한 날짜와 검증된 날짜가 일치하지 않음',
     approved_incident_conflict: '승인된 사건 충돌 규칙에 해당',
@@ -53,7 +69,7 @@ export function presentSearchResponse(response: SearchResponse): {
     const evidence: SearchEvidenceMatch[] = scene.matchEvidence.map((item) => ({
       field: fields[item.field],
       value: item.value ?? '근거 내용 기록 없음',
-      source: item.source,
+      source: sources[item.source] ?? '정보 없음',
       status: item.verificationStatus,
     }));
     const primary = evidence[0] ?? {
