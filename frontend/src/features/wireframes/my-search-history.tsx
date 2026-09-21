@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Clock3, History } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock3, FileSearch, History } from 'lucide-react';
 import { useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -17,9 +17,10 @@ import styles from '@/features/wireframes/search-history.module.css';
 interface MySearchHistoryProps {
   theme: WireframeTheme;
   onDetailOpenChange: (isOpen: boolean) => void;
+  onSelect: (query: string) => void;
 }
 
-export function MySearchHistory({ theme, onDetailOpenChange }: MySearchHistoryProps) {
+export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearchHistoryProps) {
   const { memberId } = useMember();
   const [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -73,15 +74,11 @@ export function MySearchHistory({ theme, onDetailOpenChange }: MySearchHistoryPr
               ) : (
                 <ul className={styles.list}>
                   {list.data.items.map((item) => (
-                    <li key={item.searchExecutionId}>
+                    <li className={styles.rowItem} key={item.searchExecutionId}>
                       <button
-                        aria-haspopup="dialog"
                         className={styles.row}
                         type="button"
-                        onClick={() => {
-                          setSelectedId(item.searchExecutionId);
-                          onDetailOpenChange(true);
-                        }}
+                        onClick={() => onSelect(item.queryText)}
                       >
                         <span className={styles.sceneIcon} aria-hidden="true">
                           <History />
@@ -117,6 +114,19 @@ export function MySearchHistory({ theme, onDetailOpenChange }: MySearchHistoryPr
                             </time>
                           </span>
                         </span>
+                      </button>
+                      <button
+                        aria-label={`${item.queryText} 검색 기록 상세 보기`}
+                        aria-haspopup="dialog"
+                        className={styles.rowDetail}
+                        onClick={() => {
+                          setSelectedId(item.searchExecutionId);
+                          onDetailOpenChange(true);
+                        }}
+                        type="button"
+                      >
+                        <FileSearch aria-hidden="true" />
+                        <span>상세</span>
                       </button>
                     </li>
                   ))}
