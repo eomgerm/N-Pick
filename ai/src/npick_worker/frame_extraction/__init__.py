@@ -158,9 +158,14 @@ def _check_measured(
 ) -> None:
     """**자리 하나가 통째로** 미디어 밖이면 멈춘다.
 
-    디코드는 0번부터 순차로 훑으므로(`pyav_backend._decode_until`) 요청한 프레임에 닿지
-    못하는 경우는 하나뿐이다 — **미디어가 그 전에 끝났다.** 즉 상류 scene 목록이 이
-    미디어의 것이 아니다(길이가 다른 파일, 잘린 입력).
+    디코드는 순차로 훑으므로(`pyav_backend._decode_until`) 요청한 프레임에 닿지 못하는
+    경우는 둘이다. **미디어가 그 전에 끝났거나**(상류 scene 목록이 이 미디어의 것이
+    아니다 — 길이가 다른 파일, 잘린 입력), **그 시각에 프레임이 없거나.** 뒤엣것은
+    프레임 번호가 PTS 에서 오기 때문에 생긴다(`timecode.frame_number_from_pts`) —
+    간격이 고르지 않으면 번호가 건너뛰고, 건너뛴 번호에는 디코드할 프레임이 없다.
+
+    둘을 메시지에서 가른다. 원인이 다르면 고칠 곳도 다른데, 영구 오류라 정본에 남는
+    원인이 그대로 조사의 출발점이 된다.
 
     이 사실을 장 수로 추론하지 않는 이유가 있다. 예전에는 `_check_keyframe_count` 가
     "하한보다 적다" 로 함께 걸러 줬는데, 그건 자리를 2 개만 놓던 시절에 그중 하나가
@@ -184,10 +189,17 @@ def _check_measured(
         for slot in request.slots:
             if any(frame_number in reached for frame_number in slot.frame_numbers):
                 continue
-            msg = (
-                f"미디어가 scene 보다 먼저 끝났다: scene_index={request.scene_index} "
-                f"(자리 {slot.slot_index} 의 후보 {sorted(slot.frame_numbers)} 에 닿지 못했다)"
+            wanted = sorted(slot.frame_numbers)
+            where = (
+                f"scene_index={request.scene_index} "
+                f"(자리 {slot.slot_index} 의 후보 {wanted} 에 닿지 못했다)"
             )
+            if reached and max(reached) > wanted[-1]:
+                # 이 scene 안에서 더 뒤의 프레임을 쟀다. 미디어는 거기까지 있었으므로
+                # 못 닿은 이유는 길이가 아니라 번호가 건너뛴 것이다.
+                msg = f"그 시각에 프레임이 없다: {where}"
+            else:
+                msg = f"미디어가 scene 보다 먼저 끝났다: {where}"
             raise ValueError(msg)
 
 
