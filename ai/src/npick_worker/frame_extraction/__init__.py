@@ -243,7 +243,7 @@ def _validate_scenes(scenes: Sequence[SceneSpan]) -> None:
         previous = scene
 
 
-#: 프레임레이트 대조 허용 오차. 정상 경로에서는 상류와 이 단계가 같은 `average_rate` 를
+#: 프레임레이트 대조 허용 오차. 정상 경로에서는 상류와 이 단계가 같은 `guessed_rate` 를
 #: 읽으므로 차가 0 이다. JSON 왕복에서 생길 수 있는 마지막 자리 차이만 허용한다.
 FRAME_RATE_TOLERANCE: Final[float] = 0.01
 

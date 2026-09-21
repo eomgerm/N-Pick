@@ -5,18 +5,22 @@
 """
 
 from collections.abc import Callable, Mapping, Sequence
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+import av
 import numpy as np
 import pytest
+from scenedetect.backends.pyav import VideoStreamAv
 
 from npick_worker.frame_extraction import (
     DEFAULT_CONFIG_PATH,
     ChosenFrame,
     FrameExtractionConfig,
     MediaProfile,
+    PyAvFrameGrabber,
     SceneMeasurement,
     SceneRequest,
     SceneSpan,
@@ -1144,8 +1148,22 @@ def test_normal_scenes_keep_the_margin_and_the_planned_count(frame_rate: float) 
 
 
 class _StubStream:
-    def __init__(self, average_rate: float | None, width: int, height: int) -> None:
-        self.average_rate = average_rate
+    """`average_rate` 는 주지 않으면 `guessed_rate` 와 같다.
+
+    실측한 클립 110개 중 109개가 그랬다. 둘이 갈리는 것이 예외이므로 그쪽만 인자로
+    적게 한다.
+    """
+
+    def __init__(
+        self,
+        guessed_rate: Fraction | float | None,
+        width: int,
+        height: int,
+        *,
+        average_rate: Fraction | float | None = None,
+    ) -> None:
+        self.guessed_rate = guessed_rate
+        self.average_rate = guessed_rate if average_rate is None else average_rate
         self.codec_context = SimpleNamespace(width=width, height=height)
 
 
@@ -1179,3 +1197,89 @@ def test_profile_reports_unreadable_media_not_a_validation_error(
     """
     with pytest.raises(MediaUnreadableError, match=message):
         pyav_backend._profile(cast("Any", container))
+
+
+# ── 상류와 같은 프레임레이트를 읽는가 ──────────────────────────────────
+
+#: 배포에서 `VALIDATION_ERROR` 로 죽은 클립(889783826175660755)의 실측값.
+#: 안드로이드로 직접 찍은 26.8초·805프레임 영상이고, 간격 804개 중 777개가 정확히
+#: 3000 ticks(=1/30초)다. 그런데 컨테이너 duration 이 마지막 프레임 길이만큼 짧게
+#: 적혀 있어 `프레임수 / duration` 으로 유도되는 `average_rate` 만 위로 밀렸다.
+PHONE_GUESSED_RATE = Fraction(30, 1)
+PHONE_AVERAGE_RATE = Fraction(71875, 2393)  # = 30.0355…
+
+
+def test_profile_reads_the_same_frame_rate_as_scene_detection() -> None:
+    """상류가 쓰는 값은 `guessed_rate` 다. 이 단계도 그것을 읽어야 한다.
+
+    기대값의 출처는 이 모듈이 아니라 상류다 — `scene_detection` 은 PySceneDetect 의
+    `VideoStreamAv.frame_rate` 를 쓰고 그것이 `guessed_rate` 다(scenedetect 0.7.1,
+    `backends/pyav.py`). 두 단계가 다른 값을 읽으면 `_check_frame_rate` 가 멈춰
+    세우고, 검사가 없었다면 keyframe 의 `timestamp_ms` 가 조용히 어긋난다.
+    """
+    container = _StubContainer(
+        _StubStream(PHONE_GUESSED_RATE, 1920, 1080, average_rate=PHONE_AVERAGE_RATE)
+    )
+
+    assert pyav_backend._profile(cast("Any", container)).frame_rate == float(PHONE_GUESSED_RATE)
+
+
+def test_profile_agrees_with_pyscenedetect_on_a_real_file(make_video: MakeVideo) -> None:
+    """위 테스트가 잠그는 "상류가 읽는 값" 을 상류에게 직접 물어본다.
+
+    스텁만으로는 절반만 잠긴다 — 이 단계가 `guessed_rate` 를 읽는다는 것은 확인해도,
+    상류가 **여전히** 그것을 읽는다는 것은 확인하지 못한다. scenedetect 가
+    `VideoStreamAv.frame_rate` 의 출처를 바꾸면(0.7.1 은 `guessed_rate` 를
+    `framerate_to_fraction` 에 통과시킨다) 아무 테스트도 빨개지지 않고 배포에서 같은
+    자리가 다시 죽는다. 두 끝을 한 파일로 맞대어 그 쪽 끝을 고정한다.
+
+    CFR 합성 영상이라 이 테스트만으로는 원래 버그를 못 잡는다. 위 스텁 테스트와 짝이다.
+    """
+    video = make_video("upstream-agreement", [("bars", BLOCK_FRAMES)])
+
+    with av.open(str(video)) as container:
+        ours = pyav_backend._profile(container).frame_rate
+
+    assert ours == float(VideoStreamAv(str(video)).frame_rate)
+
+
+class _DriftedAverageRateGrabber(PyAvFrameGrabber):
+    """`average_rate` 만 어긋난 컨테이너를 흉내낸다. 디코드는 진짜 영상으로 한다.
+
+    합성 영상으로는 이 상황을 만들 수 없다 — PyAV 의 mp4 먹서가 duration 을 깔끔하게
+    다시 쓰므로 `average_rate` 가 언제나 `guessed_rate` 와 같아진다. 어긋난 파일은
+    폰·카메라가 직접 쓴 원본에서 온다.
+    """
+
+    def profile(self, video_path: Path) -> MediaProfile:
+        container = _StubContainer(
+            _StubStream(
+                Fraction(int(VIDEO_FPS), 1),
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT,
+                average_rate=Fraction(1005, 100),
+            )
+        )
+        return pyav_backend._profile(cast("Any", container))
+
+
+def test_extract_accepts_media_whose_average_rate_drifts(
+    make_video: MakeVideo, tmp_path: Path
+) -> None:
+    """상류가 적어 보낸 프레임레이트로 keyframe 이 끝까지 나온다.
+
+    배포에서 죽은 경로다(S15P21A501-259). `_profile` 단위 테스트와 갈라 두는 이유는
+    두 단계를 잇는 것이 `extract_keyframes` 의 `expected_frame_rate` 이기 때문이다 —
+    `_profile` 만 고치고 대조가 다른 값을 보면 여전히 같은 자리에서 죽는다.
+    """
+    video = make_video("drifted-rate", [("bars", BLOCK_FRAMES)])
+
+    result = extract_keyframes(
+        video,
+        _spans(1),
+        tmp_path / "out",
+        grabber=_DriftedAverageRateGrabber(),
+        expected_frame_rate=VIDEO_FPS,
+    )
+
+    assert result.scenes[0].keyframes
