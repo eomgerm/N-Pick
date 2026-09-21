@@ -11,6 +11,9 @@ export interface TagCorrectionOperation {
   displayName: string;
 }
 
+/** 한 요청에 담을 수 있는 변경안 수. 서버 계약(TAG_400_004)과 같은 값이며 여기서는 헛걸음을 줄이는 용도다. */
+export const MAX_TAG_OPERATIONS = 20;
+
 export interface TagCorrectionCandidate {
   feedbackId: string;
   created: number;
@@ -56,6 +59,8 @@ const errorMessages: Record<string, string> = {
   TAG_404_001: '문의를 찾을 수 없습니다. 목록에서 최신 상태를 확인해 주세요.',
   TAG_409_001: '검수 중인 문의에서만 태그 변경안을 저장할 수 있습니다.',
   TAG_409_002: '태그 교정 또는 해석 교정으로 판정한 문의에서만 태그 변경안을 저장할 수 있습니다.',
+  TAG_400_004: `변경안은 한 번에 ${MAX_TAG_OPERATIONS}개까지 저장할 수 있습니다. 나눠서 저장해 주세요.`,
+  TAG_409_003: '이 문의에 저장한 변경안이 너무 많습니다. 지금까지 만든 변경안으로 검증을 진행해 주세요.',
 };
 
 /** 계약 오류 코드를 검수자용 안내로 바꾼다. 계약에 없는 실패는 null이며 공통 오류 표시에 맡긴다. */
@@ -70,6 +75,12 @@ export async function createTagCorrectionCandidate(
   signal?: AbortSignal,
 ): Promise<TagCorrectionCandidate> {
   identifier(feedbackId);
+  if (operations.length > MAX_TAG_OPERATIONS) {
+    throw new ApiClientError('api', 0, {
+      code: 'CLIENT_TAG_OPERATIONS_LIMIT',
+      message: errorMessages.TAG_400_004,
+    });
+  }
   return parseTagCorrectionCandidate(
     await fetchJson<unknown>(`/review/inquiries/${feedbackId}/tag-correction-candidate`, {
       method: 'POST',

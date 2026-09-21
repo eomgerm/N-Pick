@@ -272,6 +272,7 @@ test('교정 후보 오류 코드는 검수자가 읽을 한국어 문구로 바
     'SRCH_409_201',
     'SRCH_409_202',
     'SRCH_409_203',
+    'SRCH_409_204',
   ]) {
     const message = parseRuleErrorMessage(new ApiClientError('api', 400, { code }));
     assert.ok(message && /[가-힣]/.test(message), code);
