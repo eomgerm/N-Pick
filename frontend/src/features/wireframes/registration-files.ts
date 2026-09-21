@@ -25,7 +25,7 @@ export function validateSubtitleFiles(files: readonly FileInfo[]): string {
   if (files.length > 1) return '자막 파일은 하나만 선택할 수 있습니다.';
   if (files.length === 0) return '';
   const file = files[0];
-  if (file.size === 0) return '올바른 자막 파일이 아닙니다.';
+  if (file.size === 0) return '내용이 비어 있는 자막 파일은 등록할 수 없습니다.';
   if (!/\.(srt|vtt)$/i.test(file.name)) return '자막 파일은 SRT 또는 VTT 형식으로 선택해 주세요.';
   return '';
 }

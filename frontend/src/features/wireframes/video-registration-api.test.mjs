@@ -132,17 +132,23 @@ test('읽기 실패와 인코딩 실패는 일반 대본 항목에 서로 다른
   assert.notEqual(messages[0], messages[1]);
 });
 
-test('대본 UTF-8 거절 코드는 일반 대본 항목에 붙는다', () => {
-  const presentation = getClipRegistrationErrorPresentation(
-    new ApiClientError('api', 400, {
-      code: 'CLIP_400_013',
-      message: '일반 대본을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요.',
-    }),
-  );
+// 자막·대본 거절 메시지는 어느 구간이 상한을 얼마나 넘었는지를 담는다. 전역 배너로만 띄우면
+// 고쳐야 할 입력 옆에 그 안내가 없고 포커스도 그 항목을 건너뛴다 (S15P21A501-258).
+test('자막·대본 내용 거절 코드는 각자의 입력 항목에 붙는다', () => {
+  const subtitle = new ApiClientError('api', 400, {
+    code: 'CLIP_400_012',
+    message: '구간 [0, 3000] ms의 종료 시간이 영상 길이를 초과합니다.',
+  });
+  const script = new ApiClientError('api', 400, {
+    code: 'CLIP_400_013',
+    message: '일반 대본을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요.',
+  });
+
   assert.equal(
-    presentation.fieldErrors.scriptText,
-    '일반 대본을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요.',
+    getClipRegistrationErrorPresentation(subtitle).fieldErrors.subtitle,
+    subtitle.message,
   );
+  assert.equal(getClipRegistrationErrorPresentation(script).fieldErrors.scriptText, script.message);
 });
 
 test('성공 응답은 문자열 영상·처리 ID와 queued만 허용한다', () => {

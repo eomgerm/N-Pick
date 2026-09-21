@@ -56,4 +56,5 @@ test('자막은 SRT/VTT 한 개, 일반 대본은 TXT 한 개로 분리해 검�
   assert.notEqual(validateScriptFiles([new File([], '빈대본.txt')]), '');
   // 빈 파일과 UTF-8 디코드 실패가 같은 문구를 쓰면 무엇을 고쳐야 할지 알 수 없다 (S15P21A501-258).
   assert.match(validateScriptFiles([new File([], '빈대본.txt')]), /비어/);
+  assert.match(validateSubtitleFiles([new File([], '빈자막.srt')]), /비어/);
 });

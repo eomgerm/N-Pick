@@ -166,6 +166,7 @@ const codeFieldMap: Record<string, RegistrationField> = {
   CLIP_400_009: 'rightsConfirmed',
   CLIP_400_010: 'externalProcessingConfirmed',
   CLIP_400_011: 'filmedDate',
+  CLIP_400_012: 'subtitle',
   CLIP_400_013: 'scriptText',
 };
 
