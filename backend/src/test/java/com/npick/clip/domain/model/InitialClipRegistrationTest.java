@@ -59,7 +59,7 @@ class InitialClipRegistrationTest {
     }
 
     @Test
-    void preservesIndependentDatesAsUnverifiedClipLevelInputEvidence() {
+    void preservesIndependentDatesAsVerifiedClipLevelInputEvidence() {
         LocalDate broadcast = LocalDate.of(2026, 9, 7);
         LocalDate filmed = LocalDate.of(2024, 2, 29);
         var registration = registration(SourceType.BROADCAST, broadcast, filmed, null, null, definition());
@@ -71,7 +71,8 @@ class InitialClipRegistrationTest {
                 .containsExactly("broadcast_date", "filmed_date");
         assertThat(registration.dateEvidence()).allSatisfy(evidence -> {
             assertThat(evidence.source()).isEqualTo("user_input");
-            assertThat(evidence.verificationStatus()).isEqualTo("unverified");
+            // 사용자 입력은 관측 근거다. 미검증으로 두면 방송일·촬영일 필터가 아무것도 걸러내지 못한다 (F-04, S15P21A501-231).
+            assertThat(evidence.verificationStatus()).isEqualTo("verified");
             assertThat(evidence.confidence()).isNull();
             assertThat(evidence.sceneId()).isNull();
             assertThat(evidence.sourceRefType()).isNull();
