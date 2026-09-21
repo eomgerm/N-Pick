@@ -83,6 +83,22 @@ class InquiryDetailQueryAdapterDbTest {
         assertThat(sceneTag.verifiedState()).isEqualTo("verified"); // 하나라도 verified 면 verified
     }
 
+    @Test
+    @Transactional
+    @DisplayName("확정 근거가 검수자 반려 판단뿐인 태그는 NULL 로 뭉개지 않고 'rejected' 를 반환한다 (S15P21A501-235)")
+    void keepsReviewerRejectedVerificationStatus() {
+        seed(); // tagging 9503 에 확정 근거가 reviewer_feedback/rejected 하나뿐
+
+        InquiryDetail detail = adapter.findById(9901L).orElseThrow();
+
+        SceneEvidence rejectedTag = detail.evidence().stream()
+                .filter(e -> e.taggingId() == 9503L)
+                .findFirst()
+                .orElseThrow();
+        assertThat(rejectedTag.verifiedState()).isEqualTo("rejected"); // verified/unverified 아니어도 NULL 로 뭉개지 않는다
+        assertThat(rejectedTag.sources()).containsExactly("reviewer_feedback");
+    }
+
     private void seed() {
         exec("""
                 INSERT INTO npick.member (member_id, login_id, password_hash, name, role, created_at, updated_at)
@@ -113,12 +129,21 @@ class InquiryDetailQueryAdapterDbTest {
                 VALUES (9402, 'keyword', 'clip-tag-9402', '클립태그9402')
                 """);
         exec("""
+                INSERT INTO npick.tag (tag_id, tag_type, match_value, name)
+                VALUES (9403, 'keyword', 'rejected-tag-9403', '반려태그9403')
+                """);
+        exec("""
                 INSERT INTO npick.tagging (tagging_id, clip_id, scene_id, tag_id, created_at)
                 VALUES (9501, 9101, 9301, 9401, now())
                 """);
         exec("""
                 INSERT INTO npick.tagging (tagging_id, clip_id, scene_id, tag_id, created_at)
                 VALUES (9502, 9101, NULL, 9402, now())
+                """);
+        // 확정 근거가 검수자 반려 판단 하나뿐인 tagging(F-10 장면별 예외). 이 태그의 검증 상태는 'rejected' 로 나가야 한다(S15P21A501-235).
+        exec("""
+                INSERT INTO npick.tagging (tagging_id, clip_id, scene_id, tag_id, created_at)
+                VALUES (9503, 9101, 9301, 9403, now())
                 """);
         exec("""
                 INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, confidence, verification_status, created_at)
@@ -149,6 +174,12 @@ class InquiryDetailQueryAdapterDbTest {
                 INSERT INTO npick.feedback (feedback_id, search_result_id, created_by_id, status, reviewed_by_id,
                     resolution, resolution_note, created_at, review_started_at, updated_at)
                 VALUES (9901, 9801, 9001, 'REVIEWING', 9002, 'no_action', '조치 불필요', now(), now(), now())
+                """);
+        // feedback 뒤에 넣는다 — source_feedback_id 가 feedback(9901) 을 참조한다.
+        // reviewer_feedback 반려 근거: source_feedback_id 필수, confidence NULL(ck_evidence_review_shape).
+        exec("""
+                INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, source_feedback_id, confidence, verification_status, created_at)
+                VALUES (9604, 9503, 'reviewer_feedback', 9901, NULL, 'rejected', now())
                 """);
     }
 

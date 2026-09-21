@@ -50,7 +50,10 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
                    CASE
                        WHEN bool_or(te.verification_status = 'verified') THEN 'verified'
                        WHEN bool_or(te.verification_status = 'unverified') THEN 'unverified'
-                       ELSE NULL
+                       -- 여기까지 안 걸리면 남은 건 검수자 판단(rejected/withdrawn)뿐이다. NULL 로 뭉개면
+                       -- 반려 태그가 "기록 없음"으로 보인다(S15P21A501-235). 옛 FE current ?? next 와 같은 수준으로
+                       -- 남은 상태를 그대로 넘긴다. 근거가 아예 없으면(LEFT JOIN NULL) max 도 NULL 이라 그대로 NULL.
+                       ELSE max(te.verification_status)
                    END AS verification_status,
                    CASE WHEN tg.scene_id IS NULL THEN 'CLIP' ELSE 'SCENE' END AS scope
             FROM tagging tg
