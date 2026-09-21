@@ -206,6 +206,33 @@ test('검색 실패에는 빈 결과의 제외 정보와 부족 안내를 표시
   assert.doesNotMatch(html, /제외된 결과|검색 결과 부족 안내|후보 부족/);
 });
 
+test('기간을 버린 실패는 연결 문제로 안내하지 않고 기간 초기화로 유도한다', () => {
+  // S15P21A501-227. 한쪽만 온 기간을 조용히 버리고 필터 없이 검색하던 자리다. 검색을 세우는
+  // 것만으로는 부족하고, 왜 세웠는지가 화면 세 곳(배지·패널·live region)에 같은 말로 남아야
+  // 한다 — 서버에 가 보지도 않았으므로 연결 문제로 적으면 거짓이다.
+  const html = renderShell(
+    { broadcastFrom: '2026-09-01' },
+    {
+      api: {
+        state: 'failed',
+        error: null,
+        failureReason: '시작일과 종료일을 모두 선택해 주세요.',
+        retry() {},
+      },
+    },
+  );
+  assert.match(html, /시작일과 종료일을 모두 선택해 주세요\./);
+  assert.doesNotMatch(html, /일시적인 연결 문제|검색 연결 실패|검색에 실패했습니다\./);
+  assert.match(html, /기간 초기화하고 다시 검색/);
+  assert.doesNotMatch(html, /같은 조건으로 다시 시도/);
+});
+
+test('사유 없는 검색 실패는 기존 연결 안내와 재시도를 유지한다', () => {
+  const html = renderShell({}, { api: { state: 'failed', error: null, retry() {} } });
+  assert.match(html, /일시적인 연결 문제/);
+  assert.match(html, /같은 조건으로 다시 시도/);
+});
+
 const { SearchResultState } = await import('./search-result-state.tsx');
 
 test('빈 결과의 적용 조건과 제외 수 0·미제공·유효하지 않은 값을 구분한다', () => {
