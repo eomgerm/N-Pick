@@ -113,6 +113,25 @@ class InitialClipRegistrationTest {
         assertThat(titled("설 연휴 교통 정보").title()).isEqualTo("설 연휴 교통 정보");
     }
 
+    /**
+     * 226 이 제목에만 건 가드를 일반 대본에도 건다 (S15P21A501-258). 대본 컬럼은 {@code text} 라 길이로는 걸리지 않으므로, 깨진 바이트를 받으면 되돌릴 수 없는 대본이 그대로
+     * 저장되고 VLM 이 그것을 참고 자료로 읽는다.
+     */
+    @Test
+    void rejectsScriptTextThatLostBytesToAFailedDecode() {
+        byte[] cp949 = {(byte) 0xC0, (byte) 0xCE, (byte) 0xBC, (byte) 0xF6, (byte) 0xC0, (byte) 0xA7};
+        String mojibake = new String(cp949, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> registration(SourceType.BROADCAST, null, null, null, mojibake, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.SCRIPT_TEXT_NOT_UTF8));
+        assertThat(registration(SourceType.BROADCAST, null, null, null, "앵커 멘트 전문", definition())
+                        .scriptText())
+                .isEqualTo("앵커 멘트 전문");
+    }
+
     @Test
     void rejectsMissingVersionAndInvalidStageDefinition() {
         assertThatThrownBy(() -> new PipelineDefinition(" ", List.of("scene_detection")))

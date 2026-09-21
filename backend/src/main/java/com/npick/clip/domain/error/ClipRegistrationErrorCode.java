@@ -8,7 +8,8 @@ public enum ClipRegistrationErrorCode implements ErrorCode {
     ARCHIVE_BROADCAST_DATE("CLIP_400_003", "자료 영상에는 방송일을 입력할 수 없습니다."),
     TITLE_TOO_LONG("CLIP_400_004", "제목은 500자 이내로 입력해 주세요."),
     TITLE_NOT_UTF8("CLIP_400_004", "제목을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요."),
-    INVALID_DATE("CLIP_400_011", "날짜는 0001년부터 9999년 사이의 실제 날짜여야 합니다.");
+    INVALID_DATE("CLIP_400_011", "날짜는 0001년부터 9999년 사이의 실제 날짜여야 합니다."),
+    SCRIPT_TEXT_NOT_UTF8("CLIP_400_013", "일반 대본을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요.");
 
     private final String code;
     private final String message;

@@ -55,6 +55,11 @@ public record InitialClipRegistration(
         if (title != null && title.indexOf(0xFFFD) >= 0) {
             throw new BusinessException(ClipRegistrationErrorCode.TITLE_NOT_UTF8);
         }
+        // 일반 대본도 같은 길로 들어오는 텍스트 파트다. 컬럼이 text 라 길이로도 걸리지 않아, 막지 않으면 되돌릴 수 없는
+        // 대본이 저장되고 VLM 이 그것을 참고 자료로 읽는다 (S15P21A501-258).
+        if (scriptText != null && scriptText.indexOf(0xFFFD) >= 0) {
+            throw new BusinessException(ClipRegistrationErrorCode.SCRIPT_TEXT_NOT_UTF8);
+        }
         if (sourceType == SourceType.ARCHIVE && broadcastDate != null) {
             throw new BusinessException(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE);
         }
