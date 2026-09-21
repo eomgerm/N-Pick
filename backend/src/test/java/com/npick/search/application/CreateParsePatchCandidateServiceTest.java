@@ -193,4 +193,45 @@ class CreateParsePatchCandidateServiceTest {
         assertThat(outcome.searchRuleId()).isEqualTo(999L);
         assertThat(outcome.created()).isFalse();
     }
+
+    @Test
+    @DisplayName("신고에 쌓인 후보가 상한(10)이면 새 후보를 거부한다")
+    void rejectsWhenFeedbackCandidateLimitReached() {
+        reviewingPatchParse();
+        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
+        when(candidateRepository.countByFeedback(1L)).thenReturn(10);
+
+        assertThatThrownBy(() -> service.create(command(true, 9L, CONDITION, PATCH, null)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode())
+                                .isEqualTo(ParseRuleCandidateErrorCode.CANDIDATE_LIMIT_EXCEEDED));
+        verify(candidateRepository, never()).insertIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("상한 직전(9)이면 후보를 저장한다")
+    void createsJustBelowFeedbackCandidateLimit() {
+        reviewingPatchParse();
+        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
+        when(candidateRepository.countByFeedback(1L)).thenReturn(9);
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.of(777L));
+
+        ParseCandidateOutcome outcome = service.create(command(true, 9L, CONDITION, PATCH, null));
+
+        assertThat(outcome.created()).isTrue();
+    }
+
+    @Test
+    @DisplayName("상한에 닿았어도 같은 요청키 재요청은 거부하지 않고 기존 후보를 준다")
+    void idempotentReplayIsNotRejectedAtLimit() {
+        reviewingPatchParse();
+        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.of(555L));
+        when(candidateRepository.countByFeedback(1L)).thenReturn(10);
+
+        ParseCandidateOutcome outcome = service.create(command(true, 9L, CONDITION, PATCH, null));
+
+        assertThat(outcome.searchRuleId()).isEqualTo(555L);
+        assertThat(outcome.created()).isFalse();
+    }
 }

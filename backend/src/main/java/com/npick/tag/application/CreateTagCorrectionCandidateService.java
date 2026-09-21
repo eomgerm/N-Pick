@@ -25,6 +25,13 @@ import com.npick.tag.domain.repository.TagCorrectionCandidateRepository;
 @Service
 public class CreateTagCorrectionCandidateService implements CreateTagCorrectionCandidateUseCase {
 
+    // 한 장면·클립 교정은 보통 1~5개, 교체가 2개씩이다. 20 이면 교체 10건을 한 번에 보내는 셈이라 정상 작업은 막지 않는다.
+    private static final int MAX_OPERATIONS_PER_REQUEST = 20;
+
+    // 이 엔드포인트에는 멱등 키가 없어 같은 본문을 반복해 보내면 근거가 무한히 쌓인다. 요청당 상한만으로는 누적이 안 막혀
+    // 신고 단위로도 센다 (S15P21A501-255).
+    private static final int MAX_JUDGMENTS_PER_FEEDBACK = 50;
+
     private final TagContextPort tagContextPort;
     private final TagCorrectionCandidateRepository candidateRepository;
     private final CorrectionStateLock correctionStateLock;
@@ -61,6 +68,15 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
         }
         if (command.operations().isEmpty()) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.EMPTY_OPERATIONS);
+        }
+        if (command.operations().size() > MAX_OPERATIONS_PER_REQUEST) {
+            throw new BusinessException(TagCorrectionCandidateErrorCode.TOO_MANY_OPERATIONS);
+        }
+        // 부분 저장을 남기지 않으려고 저장 루프 전에 이번 요청분까지 더해 판정한다.
+        if (candidateRepository.countByFeedback(command.feedbackId())
+                        + command.operations().size()
+                > MAX_JUDGMENTS_PER_FEEDBACK) {
+            throw new BusinessException(TagCorrectionCandidateErrorCode.JUDGMENT_LIMIT_EXCEEDED);
         }
 
         List<Long> evidenceIds = new ArrayList<>();

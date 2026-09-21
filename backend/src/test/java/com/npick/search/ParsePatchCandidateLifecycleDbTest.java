@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.security.AuthenticatedMember;
+import com.npick.search.domain.repository.ParseRuleCandidateRepository;
 import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +39,9 @@ class ParsePatchCandidateLifecycleDbTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private ParseRuleCandidateRepository candidateRepository;
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry properties) {
@@ -78,6 +82,27 @@ class ParsePatchCandidateLifecycleDbTest {
         String condition = jdbc.queryForObject(
                 "SELECT CAST(condition_json AS text) FROM search_rule WHERE source_feedback_id = 9901", String.class);
         assertThat(condition).contains("parse-rule/v1");
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("신고당 후보 수는 그 신고의 patch_parse 후보만 센다")
+    void countsOnlyPatchParseCandidatesOfTheFeedback() throws Exception {
+        seed();
+        var reviewer = new AuthenticatedMember(9002L, "reviewer01", "h", "REVIEWER");
+
+        for (String key : new String[] {"rk-1", "rk-2"}) {
+            mockMvc.perform(post("/api/v1/review/inquiries/9901/parse-patch-candidate")
+                            .with(user(reviewer))
+                            .with(csrf())
+                            .header("Idempotency-Key", key)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(BODY))
+                    .andExpect(status().isCreated());
+        }
+
+        assertThat(candidateRepository.countByFeedback(9901L)).isEqualTo(2);
+        assertThat(candidateRepository.countByFeedback(9902L)).isZero();
     }
 
     private void seed() {

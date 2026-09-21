@@ -34,6 +34,10 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    // 신고 하나 = 해석 오류 하나(F-11)이고 교체도 R1→R2 한 쌍이라 실사용은 1~3개다. 초안을 고쳐 다시 낼 때마다
+    // Idempotency-Key 가 바뀌어 행이 늘어나므로(F-12 5) 그 반복분까지 덮는 값으로 둔다 (S15P21A501-255).
+    private static final int MAX_CANDIDATES_PER_FEEDBACK = 10;
+
     private final ParseContextPort parseContextPort;
     private final ParseRuleCandidateRepository candidateRepository;
     private final ParseRuleJsonPort jsonMapper;
@@ -73,6 +77,12 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
         Optional<Long> existing = candidateRepository.findId(command.feedbackId(), command.requestKey());
         if (existing.isPresent()) {
             return ParseCandidateOutcome.existing(existing.get());
+        }
+
+        // 멱등 재생(위)을 통과시킨 뒤에 센다 — 상한에 닿았다고 같은 키의 재시도가 갑자기 409 가 되면 안 된다.
+        // 확정으로 active 가 된 규칙도 이 신고가 만든 것이라 함께 세며, 세기와 쓰기는 같은 교정 상태 잠금 안에 있다.
+        if (candidateRepository.countByFeedback(command.feedbackId()) >= MAX_CANDIDATES_PER_FEEDBACK) {
+            throw new BusinessException(ParseRuleCandidateErrorCode.CANDIDATE_LIMIT_EXCEEDED);
         }
 
         if (context.resolverOutputJson() == null || context.resolverOutputJson().isBlank()) {

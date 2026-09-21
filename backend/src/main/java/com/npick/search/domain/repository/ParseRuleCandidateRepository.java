@@ -24,4 +24,7 @@ public interface ParseRuleCandidateRepository {
 
     /** 교체 대상이 켜져 있는 patch_parse 규칙인지. */
     boolean existsActivePatchParse(long searchRuleId);
+
+    /** 이 신고에서 만들어진 patch_parse 후보 수. 누적 개수 상한 판정에 쓴다 (S15P21A501-255). */
+    int countByFeedback(long sourceFeedbackId);
 }
