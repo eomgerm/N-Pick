@@ -54,6 +54,17 @@ public class TagCorrectionCandidateRepositoryAdapter implements TagCorrectionCan
         return evidenceId;
     }
 
+    // 확정(-84)은 confirmed 만 올리고 행을 지우지 않으므로 confirmed 여부와 무관하게 이 신고가 만든 근거를 전부 센다.
+    @Override
+    public int countByFeedback(long sourceFeedbackId) {
+        Number count = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM tag_evidence "
+                        + "WHERE source_feedback_id = :feedbackId AND source = 'reviewer_feedback'")
+                .setParameter("feedbackId", sourceFeedbackId)
+                .getSingleResult();
+        return count.intValue();
+    }
+
     private long ensureTagId(ReviewerTagJudgment judgment) {
         entityManager.flush();
         entityManager

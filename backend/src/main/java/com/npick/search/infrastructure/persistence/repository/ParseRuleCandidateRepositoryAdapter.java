@@ -43,4 +43,9 @@ public class ParseRuleCandidateRepositoryAdapter implements ParseRuleCandidateRe
     public boolean existsActivePatchParse(long searchRuleId) {
         return jpaRepository.existsActivePatchParse(searchRuleId);
     }
+
+    @Override
+    public int countByFeedback(long sourceFeedbackId) {
+        return (int) jpaRepository.countByFeedback(sourceFeedbackId);
+    }
 }

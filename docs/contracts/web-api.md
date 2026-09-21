@@ -542,7 +542,8 @@ body는 생략하거나 다음처럼 보낸다.
 }
 ```
 
-- `operations`는 최소 1개. 교체는 `REJECT`+`APPROVE` 두 항목으로 보낸다. `action`은 `APPROVE|REJECT|WITHDRAW`, `scope`는 `SCENE|CLIP`.
+- `operations`는 최소 1개, 한 요청에 최대 20개. 교체는 `REJECT`+`APPROVE` 두 항목으로 보낸다. `action`은 `APPROVE|REJECT|WITHDRAW`, `scope`는 `SCENE|CLIP`.
+- 한 신고에 쌓을 수 있는 검수자 판단은 누적 50개까지다. 이번 요청분을 더해 넘으면 하나도 저장하지 않고 거부한다.
 - `tagType`은 11종 어휘, `matchValue`는 서버가 정규화한다(NFKC·불가시 문자 제거). 범위는 신고 컨텍스트의 장면/클립으로만 한정되어 임의 대상을 지정할 수 없다.
 - 성공 `201` body `data`: `{ feedbackId, created, evidenceIds }`. id는 정밀도 보존을 위해 문자열(TSID)이다.
 
@@ -551,11 +552,13 @@ body는 생략하거나 다음처럼 보낸다.
 | `TAG_400_001`      | 400  | 변경안이 비어 있음                |
 | `TAG_400_002`      | 400  | 알 수 없는 태그 유형              |
 | `TAG_400_003`      | 400  | 정규화 후 빈 태그 값              |
+| `TAG_400_004`      | 400  | 한 요청의 변경안이 20개 초과      |
 | `TAG_403_001`      | 403  | 검수자 아님                       |
 | `TAG_403_002`      | 403  | 담당 검수자 아님                  |
 | `TAG_404_001`      | 404  | 신고 없음                         |
 | `TAG_409_001`      | 409  | 검수 중이 아님                    |
 | `TAG_409_002`      | 409  | 태그·해석 교정으로 처리된 신고 아님 |
+| `TAG_409_003`      | 409  | 신고당 누적 변경안 50개 초과      |
 
 `POST /review/inquiries/{feedbackId}/scene-exclude-candidate` (S15P21A501-82)
 
@@ -583,6 +586,8 @@ body는 생략하거나 다음처럼 보낸다.
 - Header: `Idempotency-Key` 필수, 공백 불가, 최대 64자.
 - Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
 - 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
+- 한 신고에서 대기 중인 후보는 10개까지다. 확정되어 활성이 된 규칙은 세지 않는다. 상한에 닿은 뒤에도 같은 키의 멱등 재요청은 기존 후보를 돌려준다.
+- 대기 후보를 버리는 API 는 없다. 상한에 닿으면 남은 후보로 검증·확정하거나 판정을 다시 내려야 한다.
 - 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`. `searchRuleId`·`feedbackId`는 정밀도 보존을 위해 문자열(TSID)이다 — §8의 신규 응답 string 규칙을 따른다(S15P21A501-202).
 
 | 오류            | HTTP | 의미                              |
@@ -595,6 +600,7 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_409_201`  | 409  | 검수 중이 아님                    |
 | `SRCH_409_202`  | 409  | 해석 교정으로 처리된 신고 아님    |
 | `SRCH_409_203`  | 409  | 원 검색에 교정할 해석 출력이 없음 |
+| `SRCH_409_204`  | 409  | 신고당 후보 10개 초과             |
 
 `POST /review/inquiries/{feedbackId}/verify` (S15P21A501-83)
 

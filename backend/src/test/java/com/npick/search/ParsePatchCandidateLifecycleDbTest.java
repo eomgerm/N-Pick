@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.common.security.AuthenticatedMember;
+import com.npick.search.domain.repository.ParseRuleCandidateRepository;
 import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,6 +39,9 @@ class ParsePatchCandidateLifecycleDbTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private ParseRuleCandidateRepository candidateRepository;
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry properties) {
@@ -78,6 +82,55 @@ class ParsePatchCandidateLifecycleDbTest {
         String condition = jdbc.queryForObject(
                 "SELECT CAST(condition_json AS text) FROM search_rule WHERE source_feedback_id = 9901", String.class);
         assertThat(condition).contains("parse-rule/v1");
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("후보 수는 그 신고의 대기 중 patch_parse 후보만 센다")
+    void countsOnlyPendingPatchParseCandidatesOfTheFeedback() throws Exception {
+        seed();
+        seedOtherFeedbackWithCandidate();
+        var reviewer = new AuthenticatedMember(9002L, "reviewer01", "h", "REVIEWER");
+
+        for (String key : new String[] {"rk-1", "rk-2"}) {
+            mockMvc.perform(post("/api/v1/review/inquiries/9901/parse-patch-candidate")
+                            .with(user(reviewer))
+                            .with(csrf())
+                            .header("Idempotency-Key", key)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(BODY))
+                    .andExpect(status().isCreated());
+        }
+        // 확정으로 켜진 규칙(대기 아님)과 장면 제외 규칙은 이 신고 소속이어도 후보 수에 들어가지 않는다.
+        insertPatchParseRule(8801L, 9901L, true);
+        jdbc.execute("INSERT INTO search_rule (search_rule_id, query_fingerprint, normalized_query,"
+                + " normalized_filters_json, normalization_version, action, target_scene_id, source_feedback_id,"
+                + " active, created_at, updated_at) VALUES (8802, 'fp-9701', 'q', '{}'::jsonb, 'v1',"
+                + " 'exclude_scene', 9301, 9901, false, now(), now())");
+
+        assertThat(candidateRepository.countByFeedback(9901L)).isEqualTo(2);
+        assertThat(candidateRepository.countByFeedback(9902L)).isEqualTo(1);
+    }
+
+    // 다른 신고에도 대기 후보를 둔다 — source_feedback_id 조건이 빠지면 두 단언이 함께 깨진다.
+    private void seedOtherFeedbackWithCandidate() {
+        // search_result 는 (실행, 장면) 유니크라 두 번째 신고에는 다른 장면이 필요하다.
+        jdbc.execute("INSERT INTO scene (scene_id, clip_id, pipeline_run_id, start_time_ms, end_time_ms, shot_type,"
+                + " created_at, updated_at) VALUES (9302, 9101, 9201, 50000, 57000, 'b_roll', now(), now())");
+        jdbc.execute("INSERT INTO search_result (search_result_id, search_execution_id, scene_id, result_rank,"
+                + " explain_json) VALUES (9802, 9701, 9302, 2, '{\"score\":1}'::jsonb)");
+        jdbc.execute("INSERT INTO feedback (feedback_id, search_result_id, created_by_id, status, reviewed_by_id,"
+                + " resolution, created_at, review_started_at, updated_at) VALUES (9902, 9802, 9002,"
+                + " 'REVIEWING', 9002, 'patch_parse', now(), now(), now())");
+        insertPatchParseRule(8803L, 9902L, false);
+    }
+
+    private void insertPatchParseRule(long ruleId, long feedbackId, boolean active) {
+        jdbc.execute("INSERT INTO search_rule (search_rule_id, query_fingerprint, normalized_query,"
+                + " normalized_filters_json, normalization_version, action, source_feedback_id, active,"
+                + " created_at, updated_at, condition_json, patch_json) VALUES (" + ruleId + ", '', '',"
+                + " '{}'::jsonb, '', 'patch_parse', " + feedbackId + ", " + active + ", now(), now(),"
+                + " '{}'::jsonb, '{}'::jsonb)");
     }
 
     private void seed() {

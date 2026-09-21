@@ -5,6 +5,7 @@ import { type FormEvent, useId, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
+  MAX_TAG_OPERATIONS,
   createTagCorrectionCandidate,
   tagCorrectionErrorMessage,
   type TagCorrectionAction,
@@ -228,15 +229,21 @@ export function TagCorrectionForm({ feedbackId }: TagCorrectionFormProps) {
             </div>
           </fieldset>
         ))}
-        <div>
+        <div className="grid gap-2">
           <button
             className={styles.secondaryButton}
-            disabled={mutation.isPending}
+            disabled={mutation.isPending || rows.length >= MAX_TAG_OPERATIONS}
             onClick={addRow}
             type="button"
           >
             변경안 추가
           </button>
+          {rows.length >= MAX_TAG_OPERATIONS ? (
+            <p className="text-sm text-(--muted)">
+              한 번에 저장할 수 있는 변경안은 {MAX_TAG_OPERATIONS}개까지입니다. 지금까지 만든
+              변경안을 저장한 뒤 이어서 추가해 주세요.
+            </p>
+          ) : null}
         </div>
         {validationError ? (
           <p className="text-sm text-(--danger)" role="alert">
