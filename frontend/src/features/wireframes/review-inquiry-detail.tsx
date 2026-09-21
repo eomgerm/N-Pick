@@ -19,6 +19,7 @@ import {
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
+import { TagCorrectionForm } from '@/features/wireframes/review-tag-correction';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -247,6 +248,11 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
             key={`${inquiry.feedbackId}-${inquiry.resolution ?? 'new'}`}
             memberLoginId={member.loginId}
           />
+        ) : null}
+
+        {inquiry.status === 'reviewing' &&
+        (inquiry.resolution === 'tag_correction' || inquiry.resolution === 'patch_parse') ? (
+          <TagCorrectionForm feedbackId={inquiry.feedbackId} />
         ) : null}
 
         {inquiry.resolution ? (
