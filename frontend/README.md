@@ -120,9 +120,9 @@ src/
 
 `fetchJson<T>`는 백엔드 공통 envelope(`isSuccess/code/message/data`)의 성공 `data`만 반환합니다. 데이터가 생략된 성공 또는 HTTP 204·205는 `undefined`이므로 해당 호출은 `fetchJson<void>`를 사용합니다. 그 외 비정상·빈 응답은 `ApiClientError`로 처리하며 오류를 성공이나 빈 결과로 바꾸지 않습니다.
 
-기능 계층에서 오류를 catch하여 `ApiErrorNotice`의 `error`에 전달하면 한국어 메시지·stable code·요청 ID가 표시됩니다. form 오류는 `id`를 지정하고 입력의 `aria-describedby`에서 참조합니다. `ApiClientError.kind`로 `http/api/network/invalid-response/aborted`를 구분하고, `status`는 실제 HTTP 상태(응답 전 실패는 0)입니다. 취소 안내 표시 여부와 재시도는 기능 계층이 결정하며 client는 자동 재시도하지 않습니다. 원래 응답과 예외는 `diagnostics`에만 보존되므로 UI에서 출력하거나 사용자 상태로 복사하지 않습니다.
+기능 계층에서 오류를 catch하여 `ApiErrorNotice`의 `error`에 전달하면 한국어 메시지와 후속 안내가 표시됩니다. stable code·요청 ID는 오류 객체와 기존 `[API]` 로그에 보존하고 사용자 화면에는 표시하지 않습니다. form 오류는 `id`를 지정하고 입력의 `aria-describedby`에서 참조합니다. `ApiClientError.kind`로 `http/api/network/invalid-response/aborted`를 구분하고, `status`는 실제 HTTP 상태(응답 전 실패는 0)입니다. 취소 안내 표시 여부와 재시도는 기능 계층이 결정하며 client는 자동 재시도하지 않습니다. 원래 응답과 예외는 `diagnostics`에만 보존되므로 UI에서 출력하거나 사용자 상태로 복사하지 않습니다.
 
-정상 한국어 서버 메시지를 우선합니다. 현재 백엔드의 고정 영어 오류 6개는 정확한 코드·메시지 조합만 번역하며, 누락·비정상 사용자 메시지는 한국어 fallback으로 처리합니다. 요청 ID는 본문 `requestId` 또는 `X-Request-ID` 응답 헤더에서 읽고 없으면 `제공되지 않음`으로 표시합니다. 현재 백엔드는 요청 ID를 제공하지 않으므로 백엔드 계약 보완과 실제 화면 연동은 남아 있습니다. 자세한 계약은 [API와 데이터 흐름](docs/architecture.md#api와-데이터-흐름)을 참고합니다.
+정상 한국어 서버 메시지를 우선합니다. 현재 백엔드의 고정 영어 오류 6개는 정확한 코드·메시지 조합만 번역하며, 누락·비정상 사용자 메시지와 진단 코드가 섞인 문자열은 한국어 fallback으로 처리합니다. 요청 ID는 본문 `requestId` 또는 `X-Request-ID` 응답 헤더에서 읽어 진단용으로 유지하며 없는 값을 임의 생성하지 않습니다. 자세한 계약과 FE 입력·파일 제한은 [API와 데이터 흐름](docs/architecture.md#api와-데이터-흐름)을 참고합니다.
 
 ## 현재 구현 상태
 

@@ -118,7 +118,10 @@ test('서버 전체 집계·필터·페이지를 사용하고 상세에서 목�
   await expect(
     page.getByText('이전 처리 결과로 검색을 제공하고 있습니다.', { exact: false }),
   ).toBeVisible();
-  await expect(page.getByRole('region', { name: '최신 처리 단계' })).toContainText('WORKER_BUSY');
+  await expect(page.getByRole('region', { name: '최신 처리 단계' })).toContainText('처리 실패');
+  await expect(page.getByRole('region', { name: '최신 처리 단계' })).not.toContainText(
+    'WORKER_BUSY',
+  );
   await expect(page.getByRole('button', { name: /다시 처리|재처리 요청/ })).toHaveCount(0);
   await page.getByRole('button', { name: '처리 현황으로', exact: true }).click();
   await expect(page).toHaveURL(/progressPage=2$/);
@@ -199,7 +202,8 @@ test('영상 API 오류를 데모로 대체하지 않고 문의 요약과 재조
     { times: 1 },
   );
   await page.goto('/review?view=processing&tab=uploads');
-  await expect(page.getByRole('main').getByRole('alert')).toContainText('CLIP_QUERY_503');
+  await expect(page.getByRole('main').getByRole('alert')).toContainText('영상 조회 실패');
+  await expect(page.getByRole('main').getByRole('alert')).not.toContainText('CLIP_QUERY_503');
   await expect(page.getByRole('region', { name: '문의 처리 요약' })).toContainText('전체 20개');
   await expect(page.getByRole('region', { name: '영상 등록 요약' })).toContainText('전체 —개');
   await expect(page.getByRole('tabpanel')).toContainText('최신 목록을 불러오지 못했습니다.');
@@ -427,9 +431,11 @@ for (const width of [1440, 390, 320]) {
     await expect(header.getByText('영상 등록 처리 상세', { exact: true })).toBeVisible();
     await expect(overview.getByText('영상 등록 처리 상세', { exact: true })).toHaveCount(0);
     await expect(overview.getByRole('status')).toContainText('확인 필요');
-    await expect(overview.getByRole('status')).toContainText('STAGE_TIMEOUT');
+    await expect(overview.getByRole('status')).toContainText('영상 처리를 완료하지 못했습니다.');
+    await expect(overview).not.toContainText('STAGE_TIMEOUT');
     await expect(overview.getByText('검색 가능', { exact: true })).toBeVisible();
-    await expect(stages.getByText(/WORKER_BUSY/)).toBeVisible();
+    await expect(stages.getByText(/처리 실패/)).toBeVisible();
+    await expect(stages).not.toContainText('WORKER_BUSY');
     const stageBox = await stages.boundingBox();
     const media = page.getByRole('region', { name: '원본 영상', exact: true });
     if (width > 760) {
@@ -482,7 +488,8 @@ for (const width of [1440, 390, 320]) {
     await expect(record.getByRole('heading', { name: '장면 나누기', exact: true })).toBeVisible();
     await expect(record).not.toContainText('WORKER_BUSY');
     await tabs.nth(2).hover();
-    await expect(record).toContainText('WORKER_BUSY');
+    await expect(record).toContainText('처리 실패');
+    await expect(record).not.toContainText('WORKER_BUSY');
     await firstStage.focus();
     await firstStage.press('ArrowRight');
     await expect(tabs.nth(1)).toBeFocused();

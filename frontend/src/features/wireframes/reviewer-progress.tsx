@@ -388,7 +388,9 @@ export function ReviewerProgress({
                       {processingProgressLabel(video.progress)}
                     </p>
                     {video.latest_run?.error_code && (
-                      <p className={styles.errorCaption}>오류: {video.latest_run.error_code}</p>
+                      <p className={styles.errorCaption}>
+                        처리를 완료하지 못했습니다. 상세 내역을 확인해 주세요.
+                      </p>
                     )}
                   </div>
                   <button

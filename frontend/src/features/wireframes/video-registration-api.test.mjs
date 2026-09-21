@@ -127,7 +127,7 @@ test('허용한 validation 필드의 안전한 한국어 문자열만 인라인 
     diagnostics: {
       response: {
         data: {
-          title: '제목은 500자 이내로 입력해 주세요.',
+          title: '제목은 50자 이내로 입력해 주세요.',
           video: 'C:\\server\\secret.mp4',
           unknownField: '알 수 없는 필드는 노출하지 않습니다.',
         },
@@ -135,10 +135,28 @@ test('허용한 validation 필드의 안전한 한국어 문자열만 인라인 
     },
   });
   assert.deepEqual(getClipRegistrationErrorPresentation(error), {
-    fieldErrors: { title: '제목은 500자 이내로 입력해 주세요.' },
+    fieldErrors: { title: '제목은 50자 이내로 입력해 주세요.' },
     retryMode: 'none',
     showGlobal: true,
+    globalMessage: '입력한 내용을 확인한 뒤 다시 등록해 주세요.',
   });
+});
+
+test('자막 진단 문자열과 전체 용량 초과는 한국어 입력 안내로 표시한다', () => {
+  const subtitle = getClipRegistrationErrorPresentation(
+    new ApiClientError('api', 400, {
+      code: 'CLIP_400_012',
+      message: 'segments[0].e: 영상 길이 초과',
+    }),
+  );
+  assert.equal(
+    subtitle.fieldErrors.subtitle,
+    '자막 파일의 형식, 인코딩과 시간 정보를 확인해 주세요.',
+  );
+  assert.equal(subtitle.retryMode, 'none');
+  const oversized = getClipRegistrationErrorPresentation(new ApiClientError('http', 413));
+  assert.match(oversized.globalMessage, /전체 크기/);
+  assert.equal(oversized.retryMode, 'none');
 });
 
 test('403 보안 실패는 입력 변경 없이 같은 요청으로 수동 재시도한다', () => {

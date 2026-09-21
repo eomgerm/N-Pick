@@ -25,6 +25,10 @@ import {
   registerClip,
 } from '@/features/wireframes/video-registration-api';
 import styles from '@/features/wireframes/video-registration.module.css';
+import {
+  CLIP_TITLE_MAX_LENGTH,
+  rejectOversizedPaste,
+} from '@/features/wireframes/input-validation';
 
 export interface RegisteredVideo {
   id: string;
@@ -330,7 +334,8 @@ export function VideoRegistration({
     const subtitleError = validateSubtitleFiles(subtitle ? [subtitle] : []);
     const scriptError = validateScriptFiles(script ? [script] : []);
     if (videoError) errors.video = videoError;
-    if (title.length > 500) errors.title = '제목은 500자 이내로 입력해 주세요.';
+    if (title.length > CLIP_TITLE_MAX_LENGTH)
+      errors.title = `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`;
     if (subtitleError) errors.subtitle = subtitleError;
     if (scriptError) errors.scriptText = scriptError;
     if (!rightsConfirmed) errors.rightsConfirmed = '등록 전 확인 내용에 체크해주세요.';
@@ -444,7 +449,7 @@ export function VideoRegistration({
             <div>
               <h3>자막 파일</h3>
               <p className={styles.description} id="subtitle-desc">
-                자막 파일을 선택해주세요 (SRT/VTT 지원)
+                SRT, VTT 또는 승인된 JSON 한 개 · 10 MiB 이하
               </p>
               <FileDropzone
                 accept={subtitleAccept}
@@ -544,14 +549,22 @@ export function VideoRegistration({
             </fieldset>
             <label className={styles.textField}>
               <span>
-                제목 <small>선택 · 최대 500자</small>
+                제목 <small>선택 · 최대 {CLIP_TITLE_MAX_LENGTH}자</small>
               </span>
               <input
                 aria-describedby={fieldErrors.title ? 'title-error' : 'title-hint'}
                 aria-invalid={Boolean(fieldErrors.title)}
                 disabled={isBusy}
                 id="registration-title"
-                maxLength={500}
+                maxLength={CLIP_TITLE_MAX_LENGTH}
+                onPaste={(event) =>
+                  rejectOversizedPaste(event, CLIP_TITLE_MAX_LENGTH, () =>
+                    setFieldErrors((current) => ({
+                      ...current,
+                      title: `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`,
+                    })),
+                  )
+                }
                 onChange={(event) => {
                   markEdited('title');
                   setTitle(event.target.value);
@@ -560,7 +573,9 @@ export function VideoRegistration({
                 type="text"
                 value={title}
               />
-              <small id="title-hint">비워둘 경우 파일명을 제목으로 사용합니다.</small>
+              <small id="title-hint">
+                {title.length}/{CLIP_TITLE_MAX_LENGTH}자 · 비워둘 경우 파일명을 제목으로 사용합니다.
+              </small>
               {fieldErrors.title ? (
                 <FieldError id="title-error">{fieldErrors.title}</FieldError>
               ) : null}
@@ -658,7 +673,11 @@ export function VideoRegistration({
 
         {errorPresentation?.showGlobal && mutation.error ? (
           <div className={styles.apiError} ref={globalErrorRef} tabIndex={-1}>
-            <ApiErrorNotice error={mutation.error} id="registration-api-error" />
+            <ApiErrorNotice
+              error={mutation.error}
+              id="registration-api-error"
+              message={errorPresentation.globalMessage}
+            />
             {errorPresentation.retryMode === 'same-request' ? (
               <div className={styles.retryAction}>
                 <p>동일한 요청으로 재시도합니다.</p>

@@ -32,21 +32,25 @@ const legacyMessages: Record<string, readonly [string, string]> = {
   ],
 };
 
-function getUserMessage(message: unknown, code: string, kind: ApiClientErrorKind): string {
-  if (typeof message !== 'string' || !message.trim()) return fallbackMessages[kind];
-
-  const legacy = legacyMessages[code];
-  if (legacy && message === legacy[0]) return legacy[1];
-
+export function readUserMessage(message: unknown): string | undefined {
+  if (typeof message !== 'string' || !message.trim()) return undefined;
   // Only the envelope's user-facing Korean text is displayable. Diagnostic
   // payloads (HTML/JSON, paths, URLs and exception traces) violate that contract.
   const hasDiagnosticText =
     /[<>{}]|https?:\/\/|[a-z]:[\\/]|(?:^|[\s(:])\/\S+|\\|\b\w*(?:Exception|Error)\b|\bat\s+[\w.$]+\(/i.test(
       message,
-    ) || /\p{Cc}/u.test(message.replace(/[\r\n\t]/g, ''));
-  if (!/[가-힣]/.test(message) || hasDiagnosticText) return fallbackMessages[kind];
+    ) ||
+    /\p{Cc}/u.test(message.replace(/[\r\n\t]/g, '')) ||
+    /\b[A-Z][A-Z\d]*_\d{3}(?:_\d+)*\b|\b[a-z]+(?:_[a-z\d]+)+\b|\brequest[ -]?id\b/i.test(message);
+  if (!/[가-힣]/.test(message) || hasDiagnosticText) return undefined;
 
   return message;
+}
+
+function getUserMessage(message: unknown, code: string, kind: ApiClientErrorKind): string {
+  const legacy = legacyMessages[code];
+  if (legacy && message === legacy[0]) return legacy[1];
+  return readUserMessage(message) ?? fallbackMessages[kind];
 }
 
 export function readRequestId(value: unknown): string | undefined {
@@ -69,12 +73,19 @@ export class ApiClientError extends Error {
         : kind === 'http'
           ? `HTTP_${status}`
           : `CLIENT_${kind.replaceAll('-', '_').toUpperCase()}`;
-    super(getUserMessage(details.message, code, kind));
+    const requestId = readRequestId(details.requestId);
+    const message =
+      typeof details.message === 'string' &&
+      ((requestId && details.message.includes(requestId)) ||
+        (code.length >= 4 && details.message.includes(code)))
+        ? undefined
+        : details.message;
+    super(getUserMessage(message, code, kind));
     this.name = 'ApiClientError';
     this.kind = kind;
     this.status = status;
     this.code = code;
-    this.requestId = readRequestId(details.requestId);
+    this.requestId = requestId;
     this.#diagnostics = details.diagnostics;
   }
 

@@ -120,7 +120,7 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                     <strong>{clipRunLabels[run?.status ?? 'no_run']}</strong>
                     <p>
                       {run?.error_code
-                        ? `처리 오류: ${run.error_code}`
+                        ? '영상 처리를 완료하지 못했습니다. 아래 처리 내역을 확인해 주세요.'
                         : clip.progress?.current_stage
                           ? processingStageLabel(clip.progress.current_stage)
                           : processingProgressLabel(clip.progress)}

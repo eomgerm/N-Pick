@@ -1,4 +1,5 @@
-import { fetchJson } from '@/lib/api/client';
+import { ApiClientError, fetchJson } from '@/lib/api/client';
+import { validateSearchQuery } from '@/features/wireframes/input-validation';
 import {
   parseSearchResponse,
   SEARCH_API_PATH,
@@ -18,6 +19,8 @@ import {
 } from '@/features/wireframes/scene-preview-media';
 
 export async function searchScenes(body: SearchRequestBody, signal?: AbortSignal) {
+  const validationError = validateSearchQuery(body.query);
+  if (validationError) throw new ApiClientError('api', 0, { message: validationError });
   return parseSearchResponse(
     await fetchJson<unknown>(SEARCH_API_PATH, {
       method: 'POST',

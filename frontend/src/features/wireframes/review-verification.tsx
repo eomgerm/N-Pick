@@ -57,7 +57,10 @@ export function CorrectionVerificationPanel({
       : undefined;
 
   return (
-    <section aria-labelledby="verification-title" className="rounded-2xl border border-(--line) p-5">
+    <section
+      aria-labelledby="verification-title"
+      className="rounded-2xl border border-(--line) p-5"
+    >
       <h2 className="font-bold" id="verification-title">
         교정 후보 검증 재검색
       </h2>
@@ -169,9 +172,7 @@ export function CorrectionVerificationPanel({
                   : ''}
             </p>
             {confirmation.isSuccess ? (
-              <p className="mt-3 text-sm text-(--positive)">
-                교정을 확정하고 문의를 종료했습니다.
-              </p>
+              <p className="mt-3 text-sm text-(--positive)">교정을 확정하고 문의를 종료했습니다.</p>
             ) : null}
             {confirmation.isError ? (
               <div className="mt-3 space-y-3">

@@ -220,7 +220,8 @@ test('최신 상세 조회가 실패하면 조회 오류를 안내하고 재조�
   await page.goto('/review?inquiry=41');
   await page.getByRole('button', { name: '검수 시작', exact: true }).click();
   await page.getByRole('button', { name: '최신 상태 확인' }).click();
-  await expect(page.getByRole('main').getByRole('alert')).toContainText('COMM_500');
+  await expect(page.getByRole('main').getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('main').getByRole('alert')).not.toContainText('COMM_500');
   await page.getByRole('button', { name: '다시 시도', exact: true }).click();
   await expect(page.getByText(/서버 담당자/)).toBeVisible();
   await expect(page.getByRole('region', { name: '검수 시작 실패 안내' })).not.toBeVisible();
