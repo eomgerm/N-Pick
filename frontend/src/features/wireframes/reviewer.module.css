@@ -172,6 +172,12 @@
   justify-content: space-between;
   gap: 28px;
   margin-bottom: 28px;
+  /* 사진 배경 위에서 짙은 헤더 텍스트(제목·라벨·날짜)가 묻히지 않도록 카드 배경을 깐다.
+     아래 콘텐츠 카드(surface)와 통일한다. */
+  padding: 22px 28px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
 .eyebrow,
