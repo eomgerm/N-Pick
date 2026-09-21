@@ -63,7 +63,7 @@
 {
   "isSuccess": true,
   "code": "COMM_200",
-  "message": "Request succeeded",
+  "message": "요청을 처리했습니다.",
   "data": {}
 }
 ```
@@ -76,7 +76,7 @@
 {
   "isSuccess": false,
   "code": "COMM_400_001",
-  "message": "Request validation failed",
+  "message": "입력한 내용을 확인해 주세요.",
   "timestamp": "2026-09-11T03:00:00Z",
   "path": "/api/v1/example",
   "data": {
@@ -238,7 +238,7 @@ FE URL 상태와 wire 요청의 대응:
 {
   "isSuccess": true,
   "code": "COMM_200",
-  "message": "Request succeeded",
+  "message": "요청을 처리했습니다.",
   "data": {
     "search_execution_id": "398021847361024",
     "status": "succeeded",

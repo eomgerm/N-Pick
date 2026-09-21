@@ -19,6 +19,7 @@ import {
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
+import { TagCorrectionForm } from '@/features/wireframes/review-tag-correction';
 import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
 import {
   displayClipTitle,
@@ -248,6 +249,11 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
             key={`${inquiry.feedbackId}-${inquiry.resolution ?? 'new'}`}
             memberLoginId={member.loginId}
           />
+        ) : null}
+
+        {inquiry.status === 'reviewing' &&
+        (inquiry.resolution === 'tag_correction' || inquiry.resolution === 'patch_parse') ? (
+          <TagCorrectionForm feedbackId={inquiry.feedbackId} />
         ) : null}
 
         {inquiry.status === 'reviewing' && inquiry.resolution === 'patch_parse' ? (
