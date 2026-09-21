@@ -4,7 +4,8 @@ name: npick
 
 # **mem_limit 은 전부 실측 기반이다** (S15P21A501-187, 2026-09-18 `docker stats` 및
 # 컨테이너 안 peak RSS). EC2 는 15GB 에 swap 이 없어서, 한 컨테이너가 폭주하면 커널
-# OOM killer 가 postgres 를 골라 사이트 전체를 끌어내릴 수 있다. 상한 합계는 11.1g 다.
+# OOM killer 가 postgres 를 골라 사이트 전체를 끌어내릴 수 있다. 상한 합계는 14.1g 다
+# (S15P21A501-250 에서 11.1g 에서 올랐다 — 여유가 약 1.3g 뿐이니 더 올리기 전에 어딘가를 줄인다).
 # 숫자를 올릴 때는 그 서비스의 실사용량을 먼저 재고 이 주석에 근거를 남긴다.
 
 services:
@@ -210,9 +211,15 @@ services:
     image: npick/ai-cpu-worker:${AI_TAG:-local}
     container_name: npick-ai-cpu-worker
     restart: unless-stopped
-    # 실측 167 MiB — 배포 컨테이너 안에서 `registry.warm_up(["ocr"])` 뒤 peak RSS
-    # (2026-09-18). keyframe JPEG 디코드가 얹히는 몫으로 넉넉히 1g 를 준다.
-    mem_limit: 1g
+    # **1g 이던 값을 올린다** (S15P21A501-250). 옛 근거는 "실측 167 MiB — `warm_up(["ocr"])`
+    # 뒤 peak RSS (2026-09-18)" 였고 그때 이 컨테이너는 OCR 만 맡았다. S15P21A501-228 이
+    # scene_detection·frame_extraction(영상 디코드)을 여기로 옮기면서 그 근거가 무효가 됐는데
+    # 한도는 그대로여서, 2026-09-21 에 커널이 13번 죽였다:
+    #   Memory cgroup out of memory: Killed process (npick-worker) anon-rss:1042232kB
+    # 한도 직전 유휴만으로 829 MiB(81%)를 쓰고 있었다 — 어떤 영상이든 넘길 여유가 없었다.
+    # 디코드 피크를 재지 않고 형제 ai-worker(3g)보다 한 칸 위로 잡는다. 줄일 때는 머리말대로
+    # 실사용량을 먼저 재고 근거를 여기 남긴다.
+    mem_limit: 4g
     env_file:
       # 잡 API 토큰과 fleet 은 여기 있다. 커밋되지 않는다.
       - path: ./ai/.env

@@ -78,7 +78,7 @@ test('검색 POST의 실제 응답 카드에서 clip ID와 밀리초 구간으�
     .poll(() => dialog.locator('video').evaluate((video: HTMLVideoElement) => video.currentTime))
     .toBeGreaterThanOrEqual(1.25);
   await expect(dialog.getByText('테스트 장면 설명')).toBeVisible();
-  await expect(dialog.getByText('미검증', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('자동 인식', { exact: true })).toBeVisible();
 });
 
 test('검색 실패를 데모 카드로 대체하지 않고 수동 재시도한다', async ({ page }) => {

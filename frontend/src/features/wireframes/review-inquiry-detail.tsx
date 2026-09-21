@@ -333,7 +333,9 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                         }`}
                       />
                       <span className="font-semibold text-(--text)">{tag.tagName}</span>
-                      <span className="text-xs text-(--muted)">{evidenceLabel(tag.verifiedState)}</span>
+                      <span className="text-xs text-(--muted)">
+                        {evidenceLabel(tag.verifiedState)}
+                      </span>
                     </li>
                   ))}
                 </ul>
