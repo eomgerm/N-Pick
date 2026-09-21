@@ -97,7 +97,7 @@ test('ID 없는 데모는 미디어를 요청하거나 재생 중으로 표시�
   assert.ok(!html.includes('재생 중'));
 });
 
-const { getSceneMediaUrl, toScenePreviewMedia, formatMediaTime } =
+const { getSceneMediaUrl, getSceneThumbnailUrl, toScenePreviewMedia, formatMediaTime } =
   await import('./scene-preview-media.ts');
 
 test('큰 clip ID를 보존하고 밀리초를 초로 변환한다', () => {
@@ -131,6 +131,26 @@ test('경로·다른 ID·비정상 구간을 media URL로 만들지 않는다', 
     [0, Infinity],
   ]) {
     assert.equal(getSceneMediaUrl({ clipId: '21', sceneStart, sceneEnd }), null);
+  }
+});
+
+test('장면 ID로 대표 이미지 endpoint 경로를 조립한다', () => {
+  assert.ok(getSceneThumbnailUrl('9007199254740993').endsWith('/api/v1/scenes/9007199254740993/thumbnail'));
+});
+
+test('경로나 비정상 장면 ID를 thumbnail URL로 만들지 않는다', () => {
+  for (const sceneId of [
+    undefined,
+    null,
+    '',
+    '0',
+    '../21',
+    '21/../22',
+    'C:\media\21.jpg',
+    'https://example.com/21',
+    'scene_21',
+  ]) {
+    assert.equal(getSceneThumbnailUrl(sceneId), null);
   }
 });
 

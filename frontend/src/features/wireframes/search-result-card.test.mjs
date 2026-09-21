@@ -14,6 +14,7 @@ const localFiles = {
   '@/features/wireframes/demo-scenes': './demo-scenes.ts',
   '@/features/wireframes/scene-hover-preview': './scene-hover-preview.tsx',
   '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
+  '@/features/wireframes/scene-thumbnail': './scene-thumbnail.tsx',
   '@/lib/api/client': '../../lib/api/client.ts',
   '@/lib/api/error': '../../lib/api/error.ts',
   '@/lib/api/log': '../../lib/api/log.ts',
@@ -142,4 +143,20 @@ test('결과 카드에는 이상해요 버튼을 표시하지 않고 Preview 진
   assert.ok(!html.includes('이상해요'));
   assert.ok(!html.includes('cardInquiryButton'));
   assert.match(html, /aria-label="1위 설 연휴 첫날, 서울역 귀성 인파 Preview 열기"/);
+});
+
+test('장면 ID가 있으면 데모 배경 대신 실제 대표 이미지 endpoint를 배선한다', () => {
+  const html = renderCard({ ...results[0], sceneId: '21' });
+
+  assert.ok(!html.includes('imageOne'));
+  assert.ok(!html.includes(results[0].imageLabel));
+  assert.match(html, /data-thumbnail-state="loading"/);
+});
+
+test('장면 ID가 없는 데모 결과는 기존 배경 표시를 그대로 쓴다', () => {
+  const html = renderCard(results[0]);
+
+  assert.match(html, new RegExp(`aria-label="${results[0].imageLabel}"`));
+  assert.ok(html.includes('imageOne'));
+  assert.ok(!html.includes('data-thumbnail-state'));
 });
