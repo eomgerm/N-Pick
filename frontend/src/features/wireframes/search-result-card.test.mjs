@@ -140,7 +140,10 @@ test('긴 백엔드 메타데이터도 카드 DOM에 노출하지 않는다', ()
 test('샷 유형이 unknown이면 이름과 함께 정보 없음으로 표시한다', () => {
   const html = renderCard({ ...results[0], shotType: '정보 없음' });
 
-  assert.match(html, /샷 유형[\s\S]*?정보 없음/);
+  assert.match(
+    html,
+    /<p class="cardShotType"><span>샷 유형<\/span><span class="cardShotTypeValue">정보 없음<\/span>/,
+  );
 });
 
 test('결과 카드에는 이상해요 버튼을 표시하지 않고 Preview 진입점만 제공한다', () => {
