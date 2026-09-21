@@ -25,6 +25,10 @@ import {
   registerClip,
 } from '@/features/wireframes/video-registration-api';
 import styles from '@/features/wireframes/video-registration.module.css';
+import {
+  CLIP_TITLE_MAX_LENGTH,
+  rejectOversizedPaste,
+} from '@/features/wireframes/input-validation';
 
 export interface RegisteredVideo {
   id: string;
@@ -330,7 +334,7 @@ export function VideoRegistration({
     const subtitleError = validateSubtitleFiles(subtitle ? [subtitle] : []);
     const scriptError = validateScriptFiles(script ? [script] : []);
     if (videoError) errors.video = videoError;
-    if (title.length > 500) errors.title = '제목은 500자 이내로 입력해 주세요.';
+    if (title.length > CLIP_TITLE_MAX_LENGTH) errors.title = '제목은 500자 이내로 입력해 주세요.';
     if (subtitleError) errors.subtitle = subtitleError;
     if (scriptError) errors.scriptText = scriptError;
     if (!rightsConfirmed) errors.rightsConfirmed = '등록 전 확인 내용에 체크해주세요.';
@@ -551,7 +555,15 @@ export function VideoRegistration({
                 aria-invalid={Boolean(fieldErrors.title)}
                 disabled={isBusy}
                 id="registration-title"
-                maxLength={500}
+                maxLength={CLIP_TITLE_MAX_LENGTH}
+                onPaste={(event) =>
+                  rejectOversizedPaste(event, CLIP_TITLE_MAX_LENGTH, () =>
+                    setFieldErrors((current) => ({
+                      ...current,
+                      title: '제목은 500자 이내로 입력해 주세요.',
+                    })),
+                  )
+                }
                 onChange={(event) => {
                   markEdited('title');
                   setTitle(event.target.value);
@@ -560,7 +572,9 @@ export function VideoRegistration({
                 type="text"
                 value={title}
               />
-              <small id="title-hint">비워둘 경우 파일명을 제목으로 사용합니다.</small>
+              <small id="title-hint">
+                {title.length}/500자 · 비워둘 경우 파일명을 제목으로 사용합니다.
+              </small>
               {fieldErrors.title ? (
                 <FieldError id="title-error">{fieldErrors.title}</FieldError>
               ) : null}

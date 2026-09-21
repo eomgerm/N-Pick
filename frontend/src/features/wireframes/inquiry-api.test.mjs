@@ -18,6 +18,15 @@ registerHooks({
 const { createInquirySubmission, isSameInquiryRequest, parseInquiryResponse, submitInquiry } =
   await import('./inquiry-api.ts');
 
+test('2000자를 넘는 문의는 API에 전송하지 않는다', async (context) => {
+  const fetch = context.mock.method(globalThis, 'fetch', () => {
+    throw new Error('must not send');
+  });
+  const submission = createInquirySubmission('123', '가'.repeat(2001), () => 'test-key');
+  await assert.rejects(submitInquiry(submission), /2,000자/);
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
 test('문의 요청은 저장된 결과 ID, trim한 선택 설명과 멱등성 키를 전송한다', async (context) => {
   const fetch = context.mock.method(globalThis, 'fetch', async () =>
     Response.json({
