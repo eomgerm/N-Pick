@@ -19,13 +19,12 @@ import {
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
-import { TagCorrectionForm } from '@/features/wireframes/review-tag-correction';
+import { ReviewInquiryTags } from '@/features/wireframes/review-inquiry-tags';
 import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
 import { CorrectionVerificationPanel } from '@/features/wireframes/review-verification';
 import {
   displayClipTitle,
   getClaimRecovery,
-  evidenceLabel,
   formatInquiryDate,
   formatInquiryTimecode,
   inquiryResolutionClasses,
@@ -253,11 +252,6 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
           />
         ) : null}
 
-        {inquiry.status === 'reviewing' &&
-        (inquiry.resolution === 'tag_correction' || inquiry.resolution === 'patch_parse') ? (
-          <TagCorrectionForm feedbackId={inquiry.feedbackId} />
-        ) : null}
-
         {inquiry.status === 'reviewing' && inquiry.resolution === 'patch_parse' ? (
           <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
         ) : null}
@@ -314,33 +308,7 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                 <SnapshotCount label="장면 제외" value={inquiry.execution.appliedExcludesJson} />
               </dl>
             </section>
-            <section className="rounded-2xl border border-(--line) p-5">
-              <h3 className="font-bold">현재 태그</h3>
-              {inquiry.evidence.length === 0 ? (
-                <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
-              ) : (
-                <ul className="mt-4 flex flex-wrap gap-2" aria-label="현재 장면과 영상의 태그">
-                  {inquiry.evidence.map((tag) => (
-                    <li
-                      className="inline-flex items-center gap-2 rounded-lg border border-(--line) bg-(--surface) py-1.5 pr-3 pl-2.5 text-sm"
-                      key={tag.taggingId}
-                      title={`출처: ${tag.sources.map(evidenceLabel).join('·') || '기록 없음'} · 범위: ${evidenceLabel(tag.scope)}`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={`size-1.5 shrink-0 rounded-full ${
-                          tag.verifiedState === 'verified' ? 'bg-(--positive)' : 'bg-(--muted)'
-                        }`}
-                      />
-                      <span className="font-semibold text-(--text)">{tag.tagName}</span>
-                      <span className="text-xs text-(--muted)">
-                        {evidenceLabel(tag.verifiedState)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            <ReviewInquiryTags inquiry={inquiry} memberLoginId={member.loginId} />
           </div>
         </section>
 
