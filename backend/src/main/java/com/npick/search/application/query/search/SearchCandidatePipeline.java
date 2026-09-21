@@ -123,7 +123,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         FalseHitGuardResult guarded =
                 guard.apply(new ApplyFalseHitGuardQuery(query.finalResolution(), rankedSceneIds, tags));
         ActiveSceneExclusionResult excluded = sceneExclusions.apply(
-                new ApplyActiveSceneExclusionsQuery(query.normalizedSearch(), guarded.sceneIds()));
+                new ApplyActiveSceneExclusionsQuery(query.normalizedSearch(), guarded.sceneIds(), query.page()));
 
         // 부족 사유는 실제로 내보내는 수로 센다. 제외 뒤 개수로 세면 카드가 없어 빠진 장면이
         // 누락돼 «9개인데 사유 없음» 이 나가고 계약 §5.1 이 깨진다.
@@ -136,7 +136,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                 fused.config(),
                 degraded,
                 shortageReasons(scenes.size(), guarded, excluded),
-                expanded);
+                expanded,
+                excluded.hasMore());
     }
 
     /**

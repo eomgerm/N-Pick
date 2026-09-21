@@ -174,7 +174,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                 interpreted.parseMs(),
                 degradedReasons);
 
-        SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch);
+        SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch, query.page());
         degradedReasons.addAll(candidates.degradedReasons());
 
         // 확장어도 근거 대조에 넣는다. 검색에는 쓰고 설명에는 안 쓰면 확장어로만 걸린 장면의
@@ -207,7 +207,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                 candidates.shortageReasons().stream()
                         .map(ShortageReason::wireValue)
                         .toList(),
-                cards(candidates, resultIds, queryTokens));
+                cards(candidates, resultIds, queryTokens),
+                candidates.hasNext());
     }
 
     /**
@@ -283,10 +284,13 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
      * 검색 실패가 0건의 성공 응답으로 나간다.
      */
     private SearchCandidates runPipeline(
-            QueryResolutionResult resolved, QueryResolution finalResolution, NormalizedSearch normalizedSearch) {
+            QueryResolutionResult resolved,
+            QueryResolution finalResolution,
+            NormalizedSearch normalizedSearch,
+            int page) {
         try {
             return pipeline.rank(new RankSearchCandidatesUseCase.Query(
-                    resolved.normalization(), finalResolution, resolved.queryEmbedding(), normalizedSearch));
+                    resolved.normalization(), finalResolution, resolved.queryEmbedding(), normalizedSearch, page));
         } catch (BusinessException alreadyClassified) {
             throw alreadyClassified;
         } catch (RuntimeException failed) {

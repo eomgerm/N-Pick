@@ -1,6 +1,8 @@
 package com.npick.search.presentation.request;
 
 import java.time.LocalDate;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -19,7 +21,15 @@ import com.npick.search.application.query.search.ExecuteSearchQuery;
  */
 public record SearchRequest(
         @JsonProperty("query") @NotBlank @Size(min = 2, max = 500, message = "검색어는 2글자 이상 입력해 주세요") String query,
-        @JsonProperty("explicit_filters") Filters explicitFilters) {
+        @JsonProperty("explicit_filters") Filters explicitFilters,
+        @JsonProperty("page") @Min(0) @Max(20) Integer page) {
+
+    // 20 = 후보 pool 200 / 페이지 크기 10. 이 위 페이지는 결과가 없다.
+
+    /** page 를 지정하지 않은 요청은 첫 페이지(0)다 — 하위호환. */
+    public int pageOrDefault() {
+        return page == null ? 0 : page;
+    }
 
     /**
      * 화면에서 직접 건 날짜 필터.

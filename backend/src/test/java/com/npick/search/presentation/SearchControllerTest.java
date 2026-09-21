@@ -90,7 +90,8 @@ class SearchControllerTest {
                 .andExpect(jsonPath("$.data.results[0].filmed_date.value").doesNotExist())
                 .andExpect(jsonPath("$.data.results[0].filmed_date.verification_status")
                         .value("unknown"))
-                .andExpect(jsonPath("$.data.results[0].match_evidence[0].field").value("ocr"));
+                .andExpect(jsonPath("$.data.results[0].match_evidence[0].field").value("ocr"))
+                .andExpect(jsonPath("$.data.has_next").value(false));
     }
 
     @Test
@@ -158,6 +159,54 @@ class SearchControllerTest {
     }
 
     @Test
+    @DisplayName("요청한 page 를 질의로 넘기고 has_next 를 그대로 응답한다 (S15P21A501-251)")
+    void passesPageAndSurfacesHasNext() throws Exception {
+        given(useCase.execute(any())).willReturn(withNextPage());
+
+        mockMvc.perform(post("/api/v1/search")
+                        .with(user(EDITOR))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.has_next").value(true));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(ExecuteSearchQuery.class);
+        verify(useCase).execute(captor.capture());
+        assertThat(captor.getValue().page()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("page 를 생략하면 첫 페이지(0)로 검색한다 (S15P21A501-251)")
+    void defaultsToFirstPage() throws Exception {
+        given(useCase.execute(any())).willReturn(succeeded());
+
+        mockMvc.perform(post("/api/v1/search")
+                        .with(user(EDITOR))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"query\":\"명절 교통\",\"explicit_filters\":{}}"))
+                .andExpect(status().isOk());
+
+        var captor = org.mockito.ArgumentCaptor.forClass(ExecuteSearchQuery.class);
+        verify(useCase).execute(captor.capture());
+        assertThat(captor.getValue().page()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("음수·상한 초과 page 는 400 으로 막는다 (S15P21A501-251)")
+    void rejectsInvalidPage() throws Exception {
+        for (String page : new String[] {"-1", "21"}) {
+            mockMvc.perform(post("/api/v1/search")
+                            .with(user(EDITOR))
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":" + page + "}"))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
     @DisplayName("빈 검색어는 400 으로 막는다")
     void rejectsBlankQuery() throws Exception {
         mockMvc.perform(post("/api/v1/search")
@@ -197,7 +246,20 @@ class SearchControllerTest {
                 false,
                 SearchExecutionResult.GuardSummary.none(),
                 List.of(),
-                List.of(card(801L)));
+                List.of(card(801L)),
+                false);
+    }
+
+    private static SearchExecutionResult withNextPage() {
+        return new SearchExecutionResult(
+                700L,
+                List.of(),
+                true,
+                false,
+                SearchExecutionResult.GuardSummary.none(),
+                List.of(),
+                List.of(card(801L)),
+                true);
     }
 
     private static SearchExecutionResult unsaved() {
@@ -208,7 +270,8 @@ class SearchControllerTest {
                 false,
                 SearchExecutionResult.GuardSummary.none(),
                 List.of(),
-                List.of(card(null)));
+                List.of(card(null)),
+                false);
     }
 
     private static SearchExecutionResult.ResultCard card(Long resultId) {
