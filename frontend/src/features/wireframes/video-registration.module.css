@@ -221,7 +221,15 @@
 .attachmentGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
+  /* 제목·설명·드롭존을 두 열이 공유하는 3행으로 두어, 설명 줄 수가 달라도 드롭존이 같은 높이에서 시작한다. */
+  grid-template-rows: auto auto auto;
+  column-gap: 20px;
+  row-gap: 0;
+}
+.attachmentGrid > div {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 3;
 }
 .error {
   margin: 10px 0 0;
@@ -342,16 +350,23 @@
   line-height: 1.6;
 }
 .confirmations {
+  margin: 30px 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+/* legend 는 다른 섹션의 h2 처럼 테두리 없는 헤딩으로 둔다. 테두리·배경은 아래 박스가 가진다 —
+   fieldset 테두리에 legend 를 얹으면 테두리 선과 글자가 겹친다(브라우저·DPI 별로 도드라짐). */
+.confirmations legend {
+  padding: 0;
+}
+.confirmBox {
   display: grid;
   gap: 10px;
-  margin: 30px 0;
   padding: 24px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
-}
-.confirmations legend {
-  padding: 0 4px;
 }
 .confirmations label {
   display: flex;
