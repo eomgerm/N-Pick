@@ -2,9 +2,21 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { ArrowLeft, Check, FileText, Film, Plus, UploadCloud, X } from 'lucide-react';
-import { type DragEvent, type FormEvent, useEffect, useRef, useState } from 'react';
+import {
+  type DragEvent,
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import {
+  registrationDateBounds,
+  registrationToday,
+  validateRegistrationDates,
+} from '@/features/wireframes/registration-dates';
 import {
   formatFileSize,
   scriptAccept,
@@ -64,6 +76,9 @@ interface FileDropzoneProps {
   label: string;
   onFiles: (files: File[]) => void;
 }
+
+const subscribeToNothing = () => () => {};
+const getNoToday = () => '';
 
 const focusSelectors: Record<RegistrationField, string> = {
   video: '#video-file',
@@ -279,6 +294,10 @@ export function VideoRegistration({
     },
   });
   const isBusy = isNavigating || mutation.isPending || isSubmissionLocked;
+  // 서버에서는 빈 값을 주고 마운트 후에 로컬 오늘로 바꾼다. 렌더 중에 오늘을 읽으면 서버·브라우저 시간대 차이로
+  // hydration 이 어긋난다.
+  const today = useSyncExternalStore(subscribeToNothing, registrationToday, getNoToday);
+  const dateBounds = registrationDateBounds({ sourceType, broadcastDate, filmedDate }, today);
 
   function scheduleErrorFocus(errors: RegistrationFieldErrors, showGlobal: boolean) {
     const firstField = Object.keys(focusSelectors).find(
@@ -297,7 +316,14 @@ export function VideoRegistration({
     retrySubmissionRef.current = null;
     setErrorPresentation(null);
     mutation.reset();
-    setFieldErrors((current) => ({ ...current, [field]: undefined }));
+    setFieldErrors((current) => ({
+      ...current,
+      [field]: undefined,
+      // 날짜 안내는 두 값의 관계로 정해진다. 한쪽을 고치면 반대쪽에 붙은 안내도 더는 사실이 아니다.
+      ...(field === 'broadcastDate' || field === 'filmedDate'
+        ? { broadcastDate: undefined, filmedDate: undefined }
+        : {}),
+    }));
   }
 
   function handleVideoFiles(files: File[]) {
@@ -331,6 +357,7 @@ export function VideoRegistration({
     const scriptError = validateScriptFiles(script ? [script] : []);
     if (videoError) errors.video = videoError;
     if (title.length > 500) errors.title = '제목은 500자 이내로 입력해 주세요.';
+    Object.assign(errors, validateRegistrationDates({ sourceType, broadcastDate, filmedDate }));
     if (subtitleError) errors.subtitle = subtitleError;
     if (scriptError) errors.scriptText = scriptError;
     if (!rightsConfirmed) errors.rightsConfirmed = '등록 전 확인 내용에 체크해주세요.';
@@ -575,6 +602,8 @@ export function VideoRegistration({
                   aria-invalid={Boolean(fieldErrors.broadcastDate)}
                   disabled={isBusy}
                   id="broadcast-date"
+                  max={dateBounds.broadcastMax}
+                  min={dateBounds.broadcastMin}
                   onChange={(event) => {
                     markEdited('broadcastDate');
                     setBroadcastDate(event.target.value);
@@ -598,6 +627,7 @@ export function VideoRegistration({
                 aria-invalid={Boolean(fieldErrors.filmedDate)}
                 disabled={isBusy}
                 id="filmed-date"
+                max={dateBounds.filmedMax}
                 onChange={(event) => {
                   markEdited('filmedDate');
                   setFilmedDate(event.target.value);
