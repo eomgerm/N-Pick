@@ -90,6 +90,8 @@ test('당시 결과 표시값은 검색 화면과 같은 한국어 어휘와 시
     },
     score: { base_score: 1.2 },
     display: {
+      display_name: '당시 KBC 뉴스9',
+      scene_type: '국회 현장',
       shot_type: 'interview',
       broadcast_date: { value: '2022-04-02', verification_status: 'unverified' },
       filmed_date: { value: null, verification_status: 'unknown' },
@@ -101,10 +103,12 @@ test('당시 결과 표시값은 검색 화면과 같은 한국어 어휘와 시
   });
 
   assert.deepEqual(getSnapshotFacts(snapshot), [
-    { label: '일치 근거 · 일치 근거 1 · 항목', value: 'caption' },
+    { label: '일치 근거 · 일치 근거 1 · 항목', value: '장면 설명' },
     { label: '일치 근거 · 일치 근거 1 · 값', value: '국회 로고가 보이는 배경' },
-    { label: '일치 근거 · 일치 근거 1 · 출처', value: 'scene_caption' },
+    { label: '일치 근거 · 일치 근거 1 · 출처', value: 'AI 장면 설명' },
     { label: '일치 근거 · 일치 근거 1 · 검증 상태', value: '자동 인식' },
+    { label: '클립 제목', value: '당시 KBC 뉴스9' },
+    { label: '장면 유형', value: '국회 현장' },
     { label: '샷 유형', value: '인터뷰' },
     { label: '방송일', value: '2022-04-02 · 자동 인식' },
     { label: '촬영일', value: '미상 · 미상' },
@@ -118,6 +122,9 @@ test('표시값 전용 렌더러는 알 수 없는 값과 임의 키를 원문�
     getSnapshotFacts(
       JSON.stringify({
         display: {
+          display_name: '/srv/private',
+          scene_type: '<script>alert(1)</script>',
+          scene_description: 'Bearer secret',
           shot_type: 'legacy',
           broadcast_date: { value: null, verification_status: 'legacy' },
           private_path: '/srv/private',
