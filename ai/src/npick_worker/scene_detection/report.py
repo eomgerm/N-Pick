@@ -21,6 +21,7 @@ from npick_worker.scene_detection import (
     frames_to_ms,
     load_config,
 )
+from npick_worker.timecode import frame_number_from_pts
 
 
 def _format_ms(value: int) -> str:
@@ -50,12 +51,26 @@ def save_boundary_frames(video_path: Path, result: SceneDetectionResult, out_dir
     PyAV 에 번들된 ffmpeg 의 png 인코더를 쓴다 — Pillow·OpenCV 를 새로 끌어오지
     않기 위해서다. 한 번의 순차 디코드로 전부 뽑는다(탐색은 키프레임 정렬 때문에
     경계를 놓칠 수 있다).
+
+    프레임 번호는 `timecode.frame_number_from_pts` 로 센다. 디코드 순번으로 세면 간격이
+    고르지 않은 파일에서 경계 ms 와 어긋나 엉뚱한 화면이 저장된다 — 검출이 맞았는지
+    눈으로 보려고 만든 도구가 틀린 근거를 보여 주면 도구가 아니라 함정이다.
     """
     wanted = {scene.start_time_ms: scene.scene_index for scene in result.scenes}
     saved = 0
     with av.open(str(video_path)) as container:
         stream = container.streams.video[0]
-        for frame_number, frame in enumerate(container.decode(stream)):
+        start_time = stream.start_time or 0
+        for frame in container.decode(stream):
+            if frame.pts is None or frame.time_base is None:
+                continue
+            frame_number = frame_number_from_pts(
+                frame.pts,
+                frame.time_base,
+                result.frame_rate,
+                start_time=start_time,
+                stream_time_base=stream.time_base,
+            )
             frame_ms = frames_to_ms(frame_number, result.frame_rate)
             index = wanted.pop(frame_ms, None)
             if index is None:
