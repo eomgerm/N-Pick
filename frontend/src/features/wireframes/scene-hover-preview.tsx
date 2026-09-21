@@ -24,30 +24,39 @@ export function SceneHoverPreview({ clipId, sceneStart, sceneEnd }: ScenePreview
     const video = videoRef.current;
     if (!video || !src) return;
     const isStill = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const toSceneStart = () => {
-      video.currentTime = sceneStart;
-    };
-    const onSeeked = () => {
+    const onReady = () => {
       setIsReady(true);
       // Reduced motion keeps the first frame of the scene instead of playing it.
       if (!isStill) void video.play().catch(() => {});
+    };
+    const toSceneStart = () => {
+      // A seek to the current position (especially zero) need not emit seeked.
+      if (Math.abs(video.currentTime - sceneStart) < 0.001 && !video.seeking) {
+        onReady();
+        return;
+      }
+      video.currentTime = sceneStart;
     };
     const onTimeUpdate = () => {
       if (video.currentTime >= sceneEnd) toSceneStart();
     };
     video.addEventListener('loadedmetadata', toSceneStart);
-    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('seeked', onReady);
     video.addEventListener('timeupdate', onTimeUpdate);
+    // A scene that runs past the stored duration never reaches sceneEnd, so loop on the clip end too.
+    video.addEventListener('ended', toSceneStart);
     video.muted = true;
     video.src = src;
     video.load();
     return () => {
       video.removeEventListener('loadedmetadata', toSceneStart);
-      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('seeked', onReady);
       video.removeEventListener('timeupdate', onTimeUpdate);
+      video.removeEventListener('ended', toSceneStart);
       video.pause();
       video.removeAttribute('src');
       video.load();
+      setIsReady(false);
     };
   }, [src, sceneStart, sceneEnd]);
 

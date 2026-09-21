@@ -66,6 +66,40 @@ test('키보드 focus에서도 장면 구간 영상을 재생하고 focus를 잃
   await expect(video).toHaveCount(0);
 });
 
+test('focus를 쥔 카드에서 마우스만 벗어나도 프리뷰를 유지한다', async ({ page }) => {
+  const card = await openResults(page);
+  const video = page.locator('article video');
+
+  await card.focus();
+  await card.hover();
+  await expect(video).toHaveCount(1);
+
+  await page.mouse.move(0, 0);
+  await expect(card).toBeFocused();
+  await expect(video).toHaveCount(1);
+
+  await card.blur();
+  await expect(video).toHaveCount(0);
+});
+
+test('0초에서 시작하는 장면도 프리뷰를 표시한다', async ({ page }) => {
+  await page.route('**/api/v1/search', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.data.results[0].start_time_ms = 0;
+    body.data.results[0].end_time_ms = 1250;
+    await route.fulfill({ response, json: body });
+  });
+
+  const card = await openResults(page);
+  const video = page.locator('article video');
+  await card.hover();
+  await expect(video).toHaveCount(1);
+  // The seek to zero is a no-op, so readiness must not wait on a seeked event.
+  await expect(video).toHaveAttribute('data-ready', '');
+  await expect.poll(() => readTime(video)).toBeGreaterThan(0);
+});
+
 test('prefers-reduced-motion에서는 장면 시작 화면만 보여 주고 재생하지 않는다', async ({
   page,
 }) => {

@@ -34,18 +34,21 @@ export function SearchResultCard({
   isSelected,
   onSelect,
 }: SearchResultCardProps) {
-  const [isPreviewing, setIsPreviewing] = useState(false);
+  // Hover and focus are tracked apart so that moving the mouse off a focused card,
+  // or tabbing out of a hovered one, leaves the other reason to preview standing.
+  const [isHovering, setIsHovering] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const evidenceTooltipId = `${idPrefix}match-evidence-${result.id}`;
 
   return (
     <article
       className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setIsPreviewing(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) setIsFocused(false);
       }}
-      onFocus={() => setIsPreviewing(true)}
-      onPointerEnter={() => setIsPreviewing(true)}
-      onPointerLeave={() => setIsPreviewing(false)}
+      onFocus={() => setIsFocused(true)}
+      onPointerEnter={() => setIsHovering(true)}
+      onPointerLeave={() => setIsHovering(false)}
     >
       <div
         aria-label={result.imageLabel}
@@ -62,7 +65,7 @@ export function SearchResultCard({
         <span className={styles.timecode}>
           {formatTimestamp(result.sceneStart)} – {formatTimestamp(result.sceneEnd)}
         </span>
-        {isPreviewing ? (
+        {isHovering || isFocused ? (
           <SceneHoverPreview
             clipId={result.clipId}
             sceneEnd={result.sceneEnd}
