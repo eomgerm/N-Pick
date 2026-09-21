@@ -100,11 +100,12 @@ function FileDropzone({
     event.stopPropagation();
     dragDepth.current = 0;
     setIsDragging(false);
-    if (!isDisabled) onFiles(Array.from(event.dataTransfer.files));
+    const files = Array.from(event.dataTransfer.files);
+    if (!isDisabled && files.length > 0) onFiles(files);
   }
 
   return (
-    <>
+    <div className={styles.dropzoneGroup}>
       <label
         className={styles.dropzone}
         data-kind={kind}
@@ -151,7 +152,7 @@ function FileDropzone({
         {isVideo ? <span className={styles.chooseFile}>파일 선택</span> : null}
       </label>
       {error ? <FieldError id={`${kind}-error`}>{error}</FieldError> : null}
-    </>
+    </div>
   );
 }
 
@@ -167,16 +168,19 @@ function SelectedFileRow({
   onRemove: () => void;
 }) {
   return (
-    <div className={styles.fileRow}>
+    <li className={styles.fileRow}>
       {label === '영상 파일' ? <Film aria-hidden="true" /> : <FileText aria-hidden="true" />}
       <span>
+        <span className={styles.selectionStatus}>
+          <Check aria-hidden="true" /> 선택됨
+        </span>
         <strong>{file.name}</strong>
         <small>{formatFileSize(file.size)}</small>
       </span>
       <button aria-label={`${label} 삭제`} disabled={isDisabled} onClick={onRemove} type="button">
         <X aria-hidden="true" />
       </button>
-    </div>
+    </li>
   );
 }
 
@@ -309,7 +313,12 @@ export function VideoRegistration({
     setVideo(null);
     const error = validateVideoFiles(files);
     setFieldErrors((current) => ({ ...current, video: error || undefined }));
-    if (!error) setVideo(files[0]);
+    if (error) {
+      setLiveMessage(`영상 파일을 선택하지 못했습니다. ${error}`);
+      return;
+    }
+    setVideo(files[0]);
+    setLiveMessage(`영상 파일 ${files[0].name}이 선택되었습니다.`);
   }
 
   function handleSubtitleFiles(files: File[]) {
@@ -317,7 +326,12 @@ export function VideoRegistration({
     setSubtitle(null);
     const error = validateSubtitleFiles(files);
     setFieldErrors((current) => ({ ...current, subtitle: error || undefined }));
-    if (!error) setSubtitle(files[0]);
+    if (error) {
+      setLiveMessage(`자막 파일을 선택하지 못했습니다. ${error}`);
+      return;
+    }
+    setSubtitle(files[0]);
+    setLiveMessage(`자막 파일 ${files[0].name}이 선택되었습니다.`);
   }
 
   function handleScriptFiles(files: File[]) {
@@ -325,7 +339,12 @@ export function VideoRegistration({
     setScript(null);
     const error = validateScriptFiles(files);
     setFieldErrors((current) => ({ ...current, scriptText: error || undefined }));
-    if (!error) setScript(files[0]);
+    if (error) {
+      setLiveMessage(`일반 대본 파일을 선택하지 못했습니다. ${error}`);
+      return;
+    }
+    setScript(files[0]);
+    setLiveMessage(`일반 대본 파일 ${files[0].name}이 선택되었습니다.`);
   }
 
   function validateForm(): RegistrationFieldErrors {
@@ -429,15 +448,18 @@ export function VideoRegistration({
             onFiles={handleVideoFiles}
           />
           {video ? (
-            <SelectedFileRow
-              file={video}
-              isDisabled={isBusy}
-              label="영상 파일"
-              onRemove={() => {
-                markEdited('video');
-                setVideo(null);
-              }}
-            />
+            <ul aria-label="선택한 영상 파일" className={styles.files}>
+              <SelectedFileRow
+                file={video}
+                isDisabled={isBusy}
+                label="영상 파일"
+                onRemove={() => {
+                  markEdited('video');
+                  setVideo(null);
+                  setLiveMessage(`영상 파일 ${video.name}이 삭제되었습니다.`);
+                }}
+              />
+            </ul>
           ) : null}
         </section>
 
@@ -455,21 +477,25 @@ export function VideoRegistration({
                 accept={subtitleAccept}
                 error={fieldErrors.subtitle ?? ''}
                 hasFile={Boolean(subtitle)}
+                hint="드래그하거나 클릭하여 선택 · SRT/VTT/JSON 1개 · 10 MiB 이하"
                 isDisabled={isBusy}
                 kind="subtitle"
                 label="자막 파일"
                 onFiles={handleSubtitleFiles}
               />
               {subtitle ? (
-                <SelectedFileRow
-                  file={subtitle}
-                  isDisabled={isBusy}
-                  label="자막 파일"
-                  onRemove={() => {
-                    markEdited('subtitle');
-                    setSubtitle(null);
-                  }}
-                />
+                <ul aria-label="선택한 자막 파일" className={styles.files}>
+                  <SelectedFileRow
+                    file={subtitle}
+                    isDisabled={isBusy}
+                    label="자막 파일"
+                    onRemove={() => {
+                      markEdited('subtitle');
+                      setSubtitle(null);
+                      setLiveMessage(`자막 파일 ${subtitle.name}이 삭제되었습니다.`);
+                    }}
+                  />
+                </ul>
               ) : null}
             </div>
             <div>
@@ -481,21 +507,25 @@ export function VideoRegistration({
                 accept={scriptAccept}
                 error={fieldErrors.scriptText ?? ''}
                 hasFile={Boolean(script)}
+                hint="드래그하거나 클릭하여 선택 · TXT 1개"
                 isDisabled={isBusy}
                 kind="script"
                 label="일반 대본 파일"
                 onFiles={handleScriptFiles}
               />
               {script ? (
-                <SelectedFileRow
-                  file={script}
-                  isDisabled={isBusy}
-                  label="일반 대본 파일"
-                  onRemove={() => {
-                    markEdited('scriptText');
-                    setScript(null);
-                  }}
-                />
+                <ul aria-label="선택한 일반 대본 파일" className={styles.files}>
+                  <SelectedFileRow
+                    file={script}
+                    isDisabled={isBusy}
+                    label="일반 대본 파일"
+                    onRemove={() => {
+                      markEdited('scriptText');
+                      setScript(null);
+                      setLiveMessage(`일반 대본 파일 ${script.name}이 삭제되었습니다.`);
+                    }}
+                  />
+                </ul>
               ) : null}
             </div>
           </div>
