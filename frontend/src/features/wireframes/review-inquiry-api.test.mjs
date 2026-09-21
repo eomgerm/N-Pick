@@ -103,7 +103,7 @@ test('상세 응답은 당시 실행·근거·담당 이력을 보존한다', ()
         tagType: 'location',
         matchValue: '서울역',
         tagName: '서울역',
-        source: 'ocr',
+        sources: ['ocr', 'vlm'],
         verifiedState: 'VERIFIED',
         scope: 'SCENE',
       },
@@ -122,6 +122,7 @@ test('상세 응답은 당시 실행·근거·담당 이력을 보존한다', ()
   assert.equal(detail.evidence[0].taggingId, '51');
   assert.equal(detail.evidence[0].tagType, 'location');
   assert.equal(detail.evidence[0].matchValue, '서울역');
+  assert.deepEqual(detail.evidence[0].sources, ['ocr', 'vlm']);
 });
 
 test('쉼표 입력은 공백과 빈 값을 제거하고 중복 없이 여러 태그로 나눈다', () => {

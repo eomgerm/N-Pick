@@ -63,7 +63,7 @@ public record InquiryDetailResponse(
             String tagType,
             String matchValue,
             String tagName,
-            String source,
+            List<String> sources,
             String verifiedState,
             String scope) {
         public static SceneEvidenceResponse from(SceneEvidence evidence) {
@@ -72,7 +72,7 @@ public record InquiryDetailResponse(
                     evidence.tagType(),
                     evidence.matchValue(),
                     evidence.tagName(),
-                    evidence.source(),
+                    evidence.sources(),
                     evidence.verifiedState(),
                     evidence.scope());
         }

@@ -4,7 +4,8 @@ name: npick
 
 # **mem_limit 은 전부 실측 기반이다** (S15P21A501-187, 2026-09-18 `docker stats` 및
 # 컨테이너 안 peak RSS). EC2 는 15GB 에 swap 이 없어서, 한 컨테이너가 폭주하면 커널
-# OOM killer 가 postgres 를 골라 사이트 전체를 끌어내릴 수 있다. 상한 합계는 11.1g 다.
+# OOM killer 가 postgres 를 골라 사이트 전체를 끌어내릴 수 있다. 상한 합계는 14.1g 다
+# (S15P21A501-250 에서 11.1g 에서 올랐다 — 여유가 약 1.3g 뿐이니 더 올리기 전에 어딘가를 줄인다).
 # 숫자를 올릴 때는 그 서비스의 실사용량을 먼저 재고 이 주석에 근거를 남긴다.
 
 services:
@@ -65,6 +66,15 @@ services:
       # 포트는 컨테이너 내부 값(NPICK_AI_PORT)이라 8000 고정이다. AI_WORKER_PORT 는
       # 호스트 퍼블리시 포트이므로 여기 쓰면 안 된다.
       QUERY_RESOLVER_BASE_URL: http://ai-worker:8000
+      # 텍스트 의미 검색(dense) 채널을 켠다 (S15P21A501-233). application.yml 기본값이 0 인 이유는
+      # 그 값이 저장 벡터가 없는 환경 — 테스트와 갓 띄운 로컬 — 에서도 쓰이기 때문이다. 벡터
+      # 없이 켜면 모든 검색이 degraded 로 떨어지므로, 켜는 것은 적재를 마친 배포의 몫이다.
+      # lexical 과 같은 1.0 은 두 채널을 동등 비율로 둔다는 뜻이고 실측 전 잠정값이다 (FRD §11.1).
+      #
+      # 인코더는 application.yml 의 npick.search.dense.model-version 기본값을 쓴다. 다른 인코더로
+      # 색인한 환경만 SEARCH_DENSE_MODEL_VERSION 으로 덮는다 — 색인과 어긋나면 dense 리더가 전
+      # 장면을 model_mismatch 로 걸러 조용히 0 건이 되고 화면에는 아무 표시도 나지 않는다.
+      SEARCH_FUSION_DENSE_WEIGHT: ${SEARCH_FUSION_DENSE_WEIGHT:-1.0}
       SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
       # local·prod 두 프로필의 변수를 모두 넘긴다. BACKEND_PROFILE 만 바꿔 고를 수 있다.
       # prod 는 기본값 없이 요구하므로 여기서 주지 않으면 기동에 실패한다.
@@ -201,9 +211,15 @@ services:
     image: npick/ai-cpu-worker:${AI_TAG:-local}
     container_name: npick-ai-cpu-worker
     restart: unless-stopped
-    # 실측 167 MiB — 배포 컨테이너 안에서 `registry.warm_up(["ocr"])` 뒤 peak RSS
-    # (2026-09-18). keyframe JPEG 디코드가 얹히는 몫으로 넉넉히 1g 를 준다.
-    mem_limit: 1g
+    # **1g 이던 값을 올린다** (S15P21A501-250). 옛 근거는 "실측 167 MiB — `warm_up(["ocr"])`
+    # 뒤 peak RSS (2026-09-18)" 였고 그때 이 컨테이너는 OCR 만 맡았다. S15P21A501-228 이
+    # scene_detection·frame_extraction(영상 디코드)을 여기로 옮기면서 그 근거가 무효가 됐는데
+    # 한도는 그대로여서, 2026-09-21 에 커널이 13번 죽였다:
+    #   Memory cgroup out of memory: Killed process (npick-worker) anon-rss:1042232kB
+    # 한도 직전 유휴만으로 829 MiB(81%)를 쓰고 있었다 — 어떤 영상이든 넘길 여유가 없었다.
+    # 디코드 피크를 재지 않고 형제 ai-worker(3g)보다 한 칸 위로 잡는다. 줄일 때는 머리말대로
+    # 실사용량을 먼저 재고 근거를 여기 남긴다.
+    mem_limit: 4g
     env_file:
       # 잡 API 토큰과 fleet 은 여기 있다. 커밋되지 않는다.
       - path: ./ai/.env

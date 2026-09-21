@@ -17,7 +17,7 @@ export interface SearchEvidenceMatch {
 
 const verificationStatusLabels: Record<VerificationStatus, string> = {
   verified: '검증됨',
-  unverified: '미검증',
+  unverified: '자동 인식',
   unknown: '미상',
   rejected: '반려됨',
   withdrawn: '개입 해제',
@@ -371,10 +371,3 @@ export const results: SearchResult[] = [
     imageLabel: '새벽 시간 한산한 경부고속도로를 달리는 차량',
   },
 ];
-
-export function formatTimestamp(totalSeconds: number) {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-}

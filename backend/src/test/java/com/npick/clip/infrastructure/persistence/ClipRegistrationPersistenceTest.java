@@ -289,7 +289,7 @@ class ClipRegistrationPersistenceTest {
         dates.forEach(date -> assertThat(date)
                 .containsEntry("scene_id", null)
                 .containsEntry("source", "user_input")
-                .containsEntry("verification_status", "unverified")
+                .containsEntry("verification_status", "verified")
                 .containsEntry("confidence", null)
                 .containsEntry("source_ref_id", null));
     }

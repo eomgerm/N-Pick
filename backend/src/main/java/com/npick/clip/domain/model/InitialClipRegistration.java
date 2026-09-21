@@ -46,7 +46,7 @@ public record InitialClipRegistration(
         title = emptyToNull(title);
         transcriptFileKey = emptyToNull(transcriptFileKey);
         scriptText = emptyToNull(scriptText);
-        if (title != null && title.length() > 500) {
+        if (title != null && title.length() > 50) {
             throw new BusinessException(ClipRegistrationErrorCode.TITLE_TOO_LONG);
         }
         // U+FFFD 는 「이 자리에 있던 바이트를 읽지 못했다」는 표식이다. UTF-8 아닌 본문(CP949 등)을 보낸 요청에서
@@ -135,8 +135,16 @@ public record InitialClipRegistration(
             return "user_input";
         }
 
+        /**
+         * 등록자가 직접 적어 넣은 날짜다. 관측 근거이므로 검증으로 저장한다 (F-04).
+         *
+         * <p>미검증으로 두면 {@code TagJudgment.observationVerified()} 가 거짓이 되고, 그 장면의 날짜 태그는 {@code FalseHitGuardPolicy} 에서
+         * 통째로 건너뛰어진다. 방송일·촬영일 범위를 지정해도 범위 밖 장면이 하나도 걸러지지 않았던 이유다 (S15P21A501-231).
+         *
+         * <p>F-04 가 기본 미검증으로 두는 것은 ASR·VLM·일반 추론 규칙의 <b>추정</b> 근거다. 사용자 입력은 그 목록에 없다.
+         */
         public String verificationStatus() {
-            return "unverified";
+            return "verified";
         }
 
         public BigDecimal confidence() {

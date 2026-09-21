@@ -1,4 +1,5 @@
 import { ApiClientError } from '@/lib/api/error';
+import { validateSearchQuery } from '@/features/wireframes/input-validation';
 
 import { isCalendarDate, validateDateRange } from '@/features/wireframes/date-range';
 import type { DateRange } from '@/features/wireframes/date-range';
@@ -6,6 +7,8 @@ import type { SearchNavigationInput } from '@/features/wireframes/search-navigat
 
 export const SEARCH_API_PATH = '/search';
 export const SEARCH_RESULT_LIMIT = 10;
+// 1글자 질의는 형태소 충돌로 무관 결과를 대량 반환한다("비"→"비해", "불"→"불다"). BE @Size(min=2) 와 같은 하한이다.
+export { SEARCH_QUERY_MIN_LENGTH } from '@/features/wireframes/input-validation';
 
 export interface InclusiveDateFilter {
   from: string;
@@ -89,7 +92,8 @@ export function createSearchRequestBody({
   filming,
 }: SearchNavigationInput): SearchRequestBody | null {
   const normalizedQuery = query.trim();
-  if (!normalizedQuery || validateDateRange(broadcast) || validateDateRange(filming)) return null;
+  if (validateSearchQuery(query) || validateDateRange(broadcast) || validateDateRange(filming))
+    return null;
 
   const explicitFilters: SearchExplicitFilters = {};
   const broadcastDate = toInclusiveFilter(broadcast);

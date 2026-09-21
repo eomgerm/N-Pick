@@ -72,6 +72,8 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
     '검증됨',
     '화면 속 글자',
     '서울역, 설 연휴 귀성객',
+    '샷 유형',
+    result.shotType,
   ]) {
     assert.ok(html.includes(value));
   }
@@ -101,7 +103,6 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
     result.displayName,
     result.broadcastDate,
     result.filmedDate,
-    result.shotType,
     result.sceneType,
   ]) {
     assert.ok(!html.includes(value));
@@ -131,10 +132,18 @@ test('긴 백엔드 메타데이터도 카드 DOM에 노출하지 않는다', ()
   const html = renderCard({
     ...results[0],
     displayName: longValue,
-    shotType: longValue,
     sceneType: longValue,
   });
   assert.ok(!html.includes(longValue));
+});
+
+test('샷 유형이 unknown이면 이름과 함께 정보 없음으로 표시한다', () => {
+  const html = renderCard({ ...results[0], shotType: '정보 없음' });
+
+  assert.match(
+    html,
+    /<p class="cardShotType"><span>샷 유형<\/span><span class="cardShotTypeValue">정보 없음<\/span>/,
+  );
 });
 
 test('결과 카드에는 이상해요 버튼을 표시하지 않고 Preview 진입점만 제공한다', () => {
@@ -159,4 +168,12 @@ test('장면 ID가 없는 데모 결과는 기존 배경 표시를 그대로 쓴
   assert.match(html, new RegExp(`aria-label="${results[0].imageLabel}"`));
   assert.ok(html.includes('imageOne'));
   assert.ok(!html.includes('data-thumbnail-state'));
+});
+
+test('밀리초에서 온 소수 구간 시각도 카드 타임코드는 초 단위로만 표시한다', () => {
+  const html = renderCard({ ...results[0], sceneStart: 12.345, sceneEnd: 20.6 });
+
+  assert.ok(html.includes('00:12 – 00:20'));
+  assert.ok(!html.includes('12.345'));
+  assert.ok(!html.includes('20.6'));
 });

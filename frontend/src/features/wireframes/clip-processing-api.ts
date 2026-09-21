@@ -87,7 +87,7 @@ export interface ClipDetail {
     pipeline_run_id: string;
     record_status: ProcessingRecordStatus;
     stages: ProcessingStage[];
-    failed_stages: string[];
+    failed_stages: string[] | null;
     missing_channels: string[] | null;
     retryable: boolean | null;
     transcript: ProcessingTranscript | null;
@@ -274,7 +274,8 @@ export function parseClipDetail(value: unknown): ClipDetail {
       pipeline_run_id: identifier(detail.pipeline_run_id),
       record_status: recordStatus(detail.record_status),
       stages,
-      failed_stages: array(detail.failed_stages, text),
+      // record_status 가 unavailable 이면 백엔드가 null 로 보낸다(형제 필드와 같은 규약).
+      failed_stages: nullable(detail.failed_stages, (values) => array(values, text)),
       missing_channels: nullable(detail.missing_channels, (values) => array(values, text)),
       retryable: nullable(detail.retryable, boolean),
       transcript: nullable(detail.transcript, parseTranscript),

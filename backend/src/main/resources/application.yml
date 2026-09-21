@@ -138,9 +138,10 @@ npick:
       # 상한을 코드로 막지 않는다. 실제 세기는 Gate B 실측으로 정한다.
       lambda: ${SEARCH_FUSION_LAMBDA:1.0}
       # 가중치 0 이 곧 채널 off 다. 공통 배율은 R/M 에서 상쇄되므로 의미를 갖는 것은 채널 사이의 비율뿐이다.
-      # DENSE 기본값이 0 인 이유: 질의 임베딩 생성(S15P21A501-164)은 병합됐지만 BE 가 그 벡터를
-      # 받아올 경로가 아직 없다. 리졸버 응답 DTO 에 embedding 필드가 없고 조회하는 어댑터도 없다.
-      # 배선은 조립(S15P21A501-59) 범위이며, 그때 이 값을 켜고 model-version 을 함께 설정한다.
+      # DENSE 기본값이 0 인 이유: 배선은 모두 끝났지만(S15P21A501-164·-53·-59) 이 기본값은 저장
+      # 벡터가 없는 환경 — 테스트와 갓 띄운 로컬 — 에서도 쓰인다. 벡터 없이 켜면 모든 검색이
+      # degraded 로 떨어지므로, 켜는 것은 적재를 마친 배포 환경의 설정으로 한다.
+      # 실제로 켜는 자리는 compose.yaml 의 backend environment 다 (S15P21A501-233).
       # 켜려면 npick.search.dense.model-version 을 함께 설정해야 하며, 없으면 부팅이 막힌다.
       channel-weights:
         lexical: ${SEARCH_FUSION_LEXICAL_WEIGHT:1.0}
@@ -168,9 +169,16 @@ npick:
         # 질의 해석의 classifications 에 그 조건이 있을 때만 켜진다.
         season: ${SEARCH_SOFT_SEASON_WEIGHT:1.0}
         weather: ${SEARCH_SOFT_WEATHER_WEIGHT:1.0}
-    # 텍스트 의미 검색 실행 설정. model-version 은 질의 임베딩이 쓰는 인코더와 같아야 하므로
-    # 기본값을 두지 않는다 — 임의값을 넣으면 저장 벡터와 어긋난 채로 검색이 돈다.
+    # 텍스트 의미 검색 실행 설정. model-version 은 색인을 만든 인코더와 **정확히** 같아야 한다 —
+    # 어긋나면 DenseSceneCandidateAdapter 가 전 장면을 model_mismatch 로 걸러 dense 가 조용히
+    # 0 건을 낸다. 화면에는 아무 표시도 나지 않으므로 추측값을 넣지 않는다.
+    # 아래 값은 ai settings.py 의 embedding_model@embedding_model_revision 이고, 적재된
+    # pipeline_run.stage_states_json 의 text_embedding.versions.detail.modelVersion 과 같은
+    # 값임을 확인했다 (S15P21A501-233). 다른 인코더로 색인한 환경은 이 값을 함께 바꿔야 하며,
+    # 모델 교체는 색인 재생성과 같은 배포여야 한다 (ai/docs/query-embedding.md §9).
+    # 이 값이 있어도 dense 가중치가 0 이면 채널은 꺼진 채다 — 켜는 자리는 compose.yaml 이다.
     dense:
+      model-version: ${SEARCH_DENSE_MODEL_VERSION:dragonkue/snowflake-arctic-embed-l-v2.0-ko@55ec6e9358a56d56af759bc8372e970caf8c305f}
       pool-size: ${SEARCH_DENSE_POOL_SIZE:200}
 
 # PostgreSQL error details may include the failing row (script, paths, secrets).

@@ -81,7 +81,7 @@ export interface ReviewInquiryDetail extends ReviewInquiryListItem {
     tagType: ReviewTagType;
     matchValue: string;
     tagName: string;
-    source: string | null;
+    sources: string[];
     verifiedState: string | null;
     scope: ReviewTagScope;
   }>;
@@ -255,7 +255,7 @@ export function parseReviewInquiryDetail(value: unknown): ReviewInquiryDetail {
         tagType: tagType(item.tagType),
         matchValue: text(item.matchValue),
         tagName: text(item.tagName),
-        source: nullableText(item.source),
+        sources: Array.isArray(item.sources) ? item.sources.map(text) : [],
         verifiedState: nullableText(item.verifiedState),
         scope: tagScope(item.scope),
       };

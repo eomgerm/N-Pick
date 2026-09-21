@@ -43,10 +43,11 @@ test('검색 오류 팝업은 자동·수동으로 닫히고 재시도 오류를
   );
   await openAsEditor(page, '/search/results?q=장면');
 
-  const notice = page.getByRole('alert').filter({ hasText: 'COMM_404' });
+  const notice = page.getByRole('alert').filter({ hasText: '요청한 항목을 찾을 수 없습니다.' });
   const retry = page.getByRole('button', { name: '같은 조건으로 다시 시도' });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText('search-error-test');
+  await expect(notice).not.toContainText('search-error-test');
+  await expect(notice).not.toContainText('COMM_404');
   await expect(notice.locator('..')).toHaveCSS('position', 'fixed');
 
   await page.clock.fastForward(5_000);

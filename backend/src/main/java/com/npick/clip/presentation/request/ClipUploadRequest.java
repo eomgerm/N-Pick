@@ -21,7 +21,7 @@ public record ClipUploadRequest(
         @BindParam("source_type")
         @NotNull(message = "영상 종류를 선택해 주세요.") @Pattern(regexp = "broadcast|archive", message = "영상 종류는 broadcast 또는 archive여야 합니다.") String sourceType,
 
-        @Size(max = 500, message = "제목은 500자 이내로 입력해 주세요.") String title,
+        @Size(max = 50, message = "제목은 50자 이내로 입력해 주세요.") String title,
         @BindParam("broadcast_date") String broadcastDate,
         @BindParam("filmed_date") String filmedDate,
         @Size(max = 1, message = "자막 파일은 1개만 첨부할 수 있습니다.") List<MultipartFile> subtitle,

@@ -139,7 +139,8 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
               <span>
                 <strong>{evidence.tagName}</strong>
                 <span className="mt-1 block text-xs text-(--muted)">
-                  {tagTypeLabels[evidence.tagType]} · 출처: {evidenceLabel(evidence.source)} · 검증:{' '}
+                  {tagTypeLabels[evidence.tagType]} · 출처:{' '}
+                  {evidence.sources.map(evidenceLabel).join('·') || '기록 없음'} · 검증:{' '}
                   {evidenceLabel(evidence.verifiedState)} · 범위: {tagScopeLabels[evidence.scope]}
                 </span>
               </span>

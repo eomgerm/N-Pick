@@ -63,7 +63,7 @@
 {
   "isSuccess": true,
   "code": "COMM_200",
-  "message": "Request succeeded",
+  "message": "요청을 처리했습니다.",
   "data": {}
 }
 ```
@@ -76,7 +76,7 @@
 {
   "isSuccess": false,
   "code": "COMM_400_001",
-  "message": "Request validation failed",
+  "message": "입력한 내용을 확인해 주세요.",
   "timestamp": "2026-09-11T03:00:00Z",
   "path": "/api/v1/example",
   "data": {
@@ -166,7 +166,7 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | ------------------------------- | ------- | ------ | ----------------------------------------------- |
 | `video`                         | file    | 필수   | 1개, 실제 영상 내용·형식·크기·길이 검사         |
 | `source_type`                   | string  | 필수   | `broadcast` 또는 `archive`                      |
-| `title`                         | string  | 선택   | 공백은 생략, 최대 500자, UTF-8                  |
+| `title`                         | string  | 선택   | 공백은 생략, 최대 50자(UTF-16 길이), UTF-8       |
 | `broadcast_date`                | date    | 선택   | `broadcast`에서만 허용                          |
 | `filmed_date`                   | date    | 선택   | 두 source 모두 허용                             |
 | `subtitle`                      | file    | 선택   | 1개, UTF-8 SRT/VTT 또는 승인된 JSON             |
@@ -175,6 +175,8 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | `external_processing_confirmed` | boolean | 조건부 | 현재 처리 설정이 외부 AI 동의를 요구하면 `true` |
 
 자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다.
+
+제목은 FE와 BE 모두 UTF-16 길이로 검사한다. 일반 한글 50자 또는 `😀` 25개는 허용하며, 한글 51자 또는 `😀` 26개는 거절한다. 50자 제한은 신규 등록 입력에 적용하고 기존 제목·검색 기록은 자르지 않는다. 기존 데이터 보존을 위해 DB의 `clip.title varchar(500)`은 유지한다.
 
 성공 envelope의 `data`:
 
@@ -238,7 +240,7 @@ FE URL 상태와 wire 요청의 대응:
 {
   "isSuccess": true,
   "code": "COMM_200",
-  "message": "Request succeeded",
+  "message": "요청을 처리했습니다.",
   "data": {
     "search_execution_id": "398021847361024",
     "status": "succeeded",
@@ -682,7 +684,7 @@ FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문�
 | 영상 파일 메타데이터 | 기존 상세 응답에 공개 가능한 원본 파일명·용량·길이·방송일·촬영일을 필요에 따라 추가. nullable·단위 명시. 업로더 표시는 계정 공개 범위 결정 필요 | 서버가 제공하는 제목·유형·등록 시각 표시. 요청 메모리로 누락값을 채우지 않음 |
 | 문의 행의 추가 정보 | 기존 목록에 의견 미리보기·담당 검수자 등 실제 저장 정보 확장. 문의자·주제 노출은 도메인/권한 정책 확정 필요 | 실제 queryText·scene·createdAt·hasComment 표시 |
 
-교정 흐름의 태그·해석·장면 제외 후보 생성과 최종 확정, 규칙 사용 중단은 §6.4에 공개 API가 정의되어 있다. 이를 신규 API 요구로 분류하지 않는다. 처리 화면의 문의 상세는 기존 실제 조회·claim·resolution 화면을 재사용하며, 후보 생성 전용 편집 UI와 재검색 검증·확정 흐름의 FE 연결은 별도 작업이다.
+교정 흐름의 태그·해석·장면 제외 후보 생성과 최종 확정, 규칙 사용 중단은 §6.4에 공개 API가 정의되어 있다. 이를 신규 API 요구로 분류하지 않는다. 처리 화면의 문의 상세는 기존 실제 조회·claim·resolution 화면을 재사용하고 재검색 검증·확정 흐름까지 FE에 연결되어 있으며, 후보 생성 전용 편집 UI만 별도 작업으로 남아 있다.
 
 ### 6.6 내 문의 기록 (S15P21A501-185)
 

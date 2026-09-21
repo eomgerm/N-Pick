@@ -108,7 +108,7 @@ export function ProcessingPipeline({ stages }: ProcessingPipelineProps) {
         {activeStage ? (
           <>
             {activeStage.error_code && (
-              <p className={styles.stageError}>오류: {activeStage.error_code}</p>
+              <p className={styles.stageError}>이 단계의 처리를 완료하지 못했습니다.</p>
             )}
             {activeStage.reason_code && (
               <p className={styles.stageMeta}>
@@ -147,8 +147,8 @@ export function ProcessingPipeline({ stages }: ProcessingPipelineProps) {
               <ul className={styles.attemptList} aria-label="실패한 시도 기록">
                 {activeStage.failed_attempts.map((attempt, index) => (
                   <li key={index}>
-                    {attempt.attempt === null ? '회차 미확인' : `${attempt.attempt}회차`} ·{' '}
-                    {attempt.error_code ?? '오류 코드 미확인'} · {dateLabel(attempt.finished_at)}
+                    {attempt.attempt === null ? '회차 미확인' : `${attempt.attempt}회차`} · 처리
+                    실패 · {dateLabel(attempt.finished_at)}
                   </li>
                 ))}
               </ul>

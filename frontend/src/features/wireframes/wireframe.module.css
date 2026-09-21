@@ -262,9 +262,22 @@
 }
 
 .searchForm {
+  position: relative;
   display: block;
   width: min(920px, 100%);
   margin-inline: auto;
+}
+
+/* 안내가 고정 헤더의 검색창·계정 메뉴 정렬에 영향을 주지 않도록 배치한다. */
+.searchHint {
+  position: absolute;
+  top: 100%;
+  inset-inline: 0;
+  width: min(920px, 100%);
+  margin: 4px auto 0;
+  padding-inline: 20px;
+  color: #e2e8f0;
+  font-size: 13px;
 }
 
 .searchField {
@@ -694,6 +707,32 @@
   overflow-wrap: anywhere;
 }
 
+.cardShotType {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: hidden;
+  gap: 6px;
+  min-width: 0;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cardShotType > * {
+  flex: 0 0 auto;
+}
+
+.cardShotTypeValue {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  line-height: 1.4;
+}
+
 .matchedKeywords {
   display: flex;
   flex-wrap: nowrap;
@@ -701,7 +740,7 @@
   justify-content: flex-start;
   gap: 6px;
   min-width: 0;
-  margin-top: 16px;
+  margin-top: 12px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 500;
@@ -2093,6 +2132,7 @@
 }
 
 .modalResult strong {
+  overflow-wrap: anywhere;
   font-size: 13px;
 }
 
@@ -2115,6 +2155,9 @@
 
 .modal textarea {
   width: 100%;
+  max-width: 100%;
+  max-height: 40vh;
+  overflow-wrap: anywhere;
   resize: vertical;
   padding: 12px;
   border: 1px solid var(--line);

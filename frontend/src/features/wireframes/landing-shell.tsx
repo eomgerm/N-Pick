@@ -15,6 +15,8 @@ import { routes } from '@/lib/routes';
 const HERO_FADE_END = 0.55;
 const ROLES_FADE_START = 0.3;
 const ROLES_FADE_END = 0.85;
+// landing.module.css의 일반 문서 흐름 전환 조건과 맞춘다.
+const FLOW_LAYOUT_QUERY = '(max-width: 1000px), (max-height: 720px)';
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
@@ -86,24 +88,43 @@ export function LandingShell() {
     if (!shell || !hero || !roles || !brand || !target) return;
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const flowLayout = window.matchMedia(FLOW_LAYOUT_QUERY);
+    let wasFlowLayout = flowLayout.matches;
+    let wasInRoles = false;
+    let previousHeroHeight = hero.offsetHeight;
     let frame = 0;
     const update = () => {
       frame = 0;
-      const progress = clamp01(window.scrollY / Math.max(1, window.innerHeight));
+      const isFlowLayout = flowLayout.matches;
+      const heroHeight = hero.offsetHeight;
+      // 역할 선택 중 배치가 바뀌어도 인트로로 되돌아가거나 카드 아래로 밀리지 않는다.
+      if (
+        wasInRoles &&
+        (isFlowLayout !== wasFlowLayout || (!isFlowLayout && heroHeight !== previousHeroHeight))
+      ) {
+        window.scrollTo({ top: heroHeight, behavior: 'instant' });
+      }
+      wasFlowLayout = isFlowLayout;
+      previousHeroHeight = heroHeight;
+      const progress = clamp01(window.scrollY / Math.max(1, heroHeight));
+      wasInRoles = progress >= ROLES_FADE_END;
       const heroFade = 1 - clamp01(progress / HERO_FADE_END);
-      const rolesFade = clamp01(
-        (progress - ROLES_FADE_START) / (ROLES_FADE_END - ROLES_FADE_START),
-      );
+      const rolesFade = isFlowLayout
+        ? 1
+        : clamp01((progress - ROLES_FADE_START) / (ROLES_FADE_END - ROLES_FADE_START));
 
       if (window.scrollY > 0) setIsIntroDone(true);
       shell.style.setProperty('--hero-fade', String(heroFade));
-      shell.style.setProperty(
-        '--brand-copy-fade',
-        String(clamp01((progress - ROLES_FADE_END) / (1 - ROLES_FADE_END))),
-      );
       hero.dataset.faded = String(heroFade <= 0);
       roles.style.setProperty('--roles-fade', String(rolesFade));
       roles.dataset.revealed = String(rolesFade > 0);
+
+      if (isFlowLayout) {
+        brand.style.removeProperty('--brand-x');
+        brand.style.removeProperty('--brand-y');
+        brand.style.removeProperty('--brand-scale');
+        return;
+      }
 
       const heroBounds = hero.getBoundingClientRect();
       const targetBounds = target.getBoundingClientRect();
@@ -132,12 +153,14 @@ export function LandingShell() {
     observer.observe(brand);
     observer.observe(target);
     reducedMotion.addEventListener('change', requestUpdate);
+    flowLayout.addEventListener('change', requestUpdate);
     window.addEventListener('scroll', requestUpdate, { passive: true });
     window.addEventListener('resize', requestUpdate, { passive: true });
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       observer.disconnect();
       reducedMotion.removeEventListener('change', requestUpdate);
+      flowLayout.removeEventListener('change', requestUpdate);
       window.removeEventListener('scroll', requestUpdate);
       window.removeEventListener('resize', requestUpdate);
     };
@@ -164,7 +187,7 @@ export function LandingShell() {
 
   const handleScrollCue = useCallback(() => {
     window.scrollTo({
-      top: window.innerHeight,
+      top: heroRef.current?.offsetHeight ?? window.innerHeight,
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
         ? 'instant'
         : 'smooth',
@@ -231,7 +254,15 @@ export function LandingShell() {
           style={{ '--roles-fade': 0 } as CSSProperties}
         >
           <div className={styles.rolesBrand}>
-            <div aria-hidden="true" className={styles.wordmarkTarget} ref={brandTargetRef} />
+            <div aria-hidden="true" className={styles.wordmarkTarget} ref={brandTargetRef}>
+              <div className={styles.flowBrand}>
+                <AppLogo className={styles.flowIcon} />
+                <span className={styles.flowWordmark}>
+                  <span>N</span>
+                  <span>PICK</span>
+                </span>
+              </div>
+            </div>
             <p className={styles.wordmarkTagline}>필요한 순간, 정확한 선택.</p>
             <h2 className={styles.rolesTitle} id="role-title">
               어떤 작업을 시작할까요?

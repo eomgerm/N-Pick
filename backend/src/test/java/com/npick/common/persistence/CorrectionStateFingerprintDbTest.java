@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.feedback.application.port.CurrentCorrectionStatePort;
 import com.npick.support.NpickPostgres;
@@ -18,6 +19,7 @@ import com.npick.support.TestGraph;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
+@Transactional
 class CorrectionStateFingerprintDbTest {
 
     private static final long MEMBER_ID = 8301001L;

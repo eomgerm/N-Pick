@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -9,8 +9,10 @@ import { results as demoResults, type SearchResult } from '@/features/wireframes
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
+import { SceneSearchField } from '@/features/wireframes/scene-search-field';
 import { SearchLayout } from '@/features/wireframes/search-layout';
 import { useSearchArrival } from '@/features/wireframes/search-transition';
+import { SEARCH_QUERY_MIN_LENGTH } from '@/features/wireframes/search-api-contract';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
@@ -52,6 +54,7 @@ export interface SearchScreenParams {
 
 interface WireframeShellProps {
   api?: {
+    validationMessage?: string;
     presentation?: {
       results: SearchResult[];
       execution: SearchExecutionPresentation;
@@ -93,8 +96,7 @@ export function WireframeShell({
   const demoState = initialParams.state;
   const demoSearchExecution = getDemoSearchExecution(demoState);
   const [query, setQuery] = useState(
-    (typeof initialQuery === 'string' && initialQuery.trim()) ||
-      '2025년 추석 경부고속도로 귀성길 정체',
+    initialQuery?.trim() ?? (api ? '' : '2025년 추석 경부고속도로 귀성길 정체'),
   );
   const [submittedQuery] = useState(query);
   const [selectedResultId, setSelectedResultId] = useState(1);
@@ -157,7 +159,9 @@ export function WireframeShell({
     event.preventDefault();
     const normalizedQuery = query.trim();
 
-    if (normalizedQuery) {
+    // 진입 화면과 같은 하한을 결과 화면 재검색에도 적용한다(S15P21A501-243). 1글자면
+    // 이동하지 않고 SceneSearchField 힌트로 안내한다 — 이동시키면 결과 화면이 맨 오류만 낸다.
+    if (normalizedQuery.length >= SEARCH_QUERY_MIN_LENGTH) {
       handleSearchNavigation(normalizedQuery, broadcastRange, filmingRange);
     }
   }
@@ -281,25 +285,24 @@ export function WireframeShell({
       onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
       onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
       searchField={
-        <form className={styles.searchForm} onSubmit={handleSearch}>
-          <div className={styles.searchField} ref={searchFieldRef}>
-            <input
-              aria-label="뉴스 장면 검색어"
-              disabled={isSearchPending}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
-              value={query}
-            />
-            <button
-              aria-label={isSearchPending ? '검색 중' : '검색'}
-              className={styles.searchButton}
-              disabled={!query.trim() || isSearchPending}
-              type="submit"
-            >
-              <ArrowRight aria-hidden="true" />
-            </button>
-          </div>
-        </form>
+        <SceneSearchField
+          variant="compact"
+          query={query}
+          onQueryChange={setQuery}
+          onSubmit={handleSearch}
+          placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
+          formLabel="뉴스 장면 검색"
+          inputLabel="뉴스 장면 검색어"
+          isBusy={isSearchPending}
+          isDisabled={isSearchPending}
+          fieldRef={searchFieldRef}
+          classes={{
+            form: styles.searchForm,
+            field: styles.searchField,
+            submitButton: styles.searchButton,
+            hint: styles.searchHint,
+          }}
+        />
       }
     >
       <div className={styles.workspace} data-state={resultState} ref={workspaceRef}>
@@ -330,7 +333,7 @@ export function WireframeShell({
               {resultState === 'failed'
                 ? // 서버에 가 보지도 않은 실패를 연결 실패로 적지 않는다. 배지라 사유 전문은
                   // 아래 패널이 싣고 여기에는 짧은 상태만 둔다.
-                  api?.failureReason
+                  api?.validationMessage || api?.failureReason
                   ? '검색 조건 확인 필요'
                   : '검색 연결 실패'
                 : resultState === 'loading'
@@ -347,7 +350,9 @@ export function WireframeShell({
                 <p>검색 결과</p>
                 <h2>
                   {resultState === 'failed'
-                    ? '검색을 완료하지 못했어요'
+                    ? api?.validationMessage
+                      ? '검색어를 확인해 주세요'
+                      : '검색을 완료하지 못했어요'
                     : resultState === 'loading'
                       ? '검색 중'
                       : `관련 장면 ${displayedResults.length}개`}
@@ -370,7 +375,11 @@ export function WireframeShell({
               </p>
             ) : null}
 
-            {resultState !== 'populated' ? (
+            {api?.validationMessage ? (
+              <p role="alert" className="p-4 text-sm wrap-anywhere">
+                {api.validationMessage}
+              </p>
+            ) : resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
                 query={submittedQuery}
@@ -407,7 +416,7 @@ export function WireframeShell({
 
       <div aria-live="polite" className={styles.visuallyHidden}>
         {resultState === 'failed'
-          ? (api?.failureReason ?? '검색에 실패했습니다.')
+          ? api?.validationMessage || api?.failureReason || '검색에 실패했습니다.'
           : resultState === 'loading'
             ? '검색 중입니다.'
             : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}

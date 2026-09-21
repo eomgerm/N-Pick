@@ -12,11 +12,18 @@ registerHooks({
         shortCircuit: true,
       };
     }
+    if (specifier.startsWith('@/')) {
+      return {
+        url: new URL(`../../${specifier.slice(2)}.ts`, import.meta.url).href,
+        shortCircuit: true,
+      };
+    }
     return nextResolve(specifier, context);
   },
 });
 
-const { formatTimestamp, getVerificationStatusLabel, results } = await import('./demo-scenes.ts');
+const { getVerificationStatusLabel, results } = await import('./demo-scenes.ts');
+const { formatMediaTime } = await import('./scene-preview-media.ts');
 
 test('기본 검색 결과는 고유 ID와 순위 1~10을 가진 유효한 장면 10개다', () => {
   assert.equal(results.length, 10);
@@ -33,7 +40,7 @@ test('기본 검색 결과는 고유 ID와 순위 1~10을 가진 유효한 장�
     assert.ok(result.sceneEnd <= result.totalSeconds);
     assert.equal(
       result.time,
-      `${formatTimestamp(result.sceneStart)} - ${formatTimestamp(result.sceneEnd)}`,
+      `${formatMediaTime(result.sceneStart)} - ${formatMediaTime(result.sceneEnd)}`,
     );
   }
 });
@@ -60,7 +67,7 @@ test('모든 검색 결과는 필드·값·출처와 자동 근거 검증 상태
 test('검증 상태는 색상 없이도 구분되는 한국어 텍스트를 제공한다', () => {
   assert.deepEqual(
     ['verified', 'unverified', 'unknown', 'rejected', 'withdrawn'].map(getVerificationStatusLabel),
-    ['검증됨', '미검증', '미상', '반려됨', '개입 해제'],
+    ['검증됨', '자동 인식', '미상', '반려됨', '개입 해제'],
   );
 });
 

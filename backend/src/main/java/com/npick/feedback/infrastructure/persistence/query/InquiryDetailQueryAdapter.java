@@ -45,14 +45,26 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
     // 신고 장면의 태깅 + 그 장면이 속한 클립의 클립레벨 태깅(scene_id IS NULL)을 함께 조회한다.
     // 클립 태그는 장면에 상속되므로 F-09·F-10의 "당시 근거 비교"에 포함해야 한다(P2). 장면 태깅을 먼저 노출한다.
     private static final String EVIDENCE_SQL = """
-            SELECT tg.tagging_id, t.tag_type, t.match_value, t.name AS tag_name, te.source, te.verification_status,
+            SELECT tg.tagging_id, t.tag_type, t.match_value, t.name AS tag_name,
+                   COALESCE(string_agg(DISTINCT te.source, ',' ORDER BY te.source), '') AS sources,
+                   CASE
+                       WHEN bool_or(te.verification_status = 'verified') THEN 'verified'
+                       WHEN bool_or(te.verification_status = 'unverified') THEN 'unverified'
+                       -- 여기까지 안 걸리면 남은 건 검수자 판단(rejected/withdrawn)뿐이다. NULL 로 뭉개면
+                       -- 반려 태그가 "기록 없음"으로 보인다(S15P21A501-235). 옛 FE current ?? next 와 같은 수준으로
+                       -- 남은 상태를 그대로 넘긴다. 근거가 아예 없으면(LEFT JOIN NULL) max 도 NULL 이라 그대로 NULL.
+                       ELSE max(te.verification_status)
+                   END AS verification_status,
                    CASE WHEN tg.scene_id IS NULL THEN 'CLIP' ELSE 'SCENE' END AS scope
             FROM tagging tg
             JOIN tag t ON t.tag_id = tg.tag_id
             -- 확정된 근거만 붙인다. 검수자 교정 후보(confirmed=false, S15P21A501-160)는 확정 전까지 근거 패널에 확정 근거처럼 섞이면 안 된다.
             -- TagJudgmentQueryAdapter 의 e.confirmed 필터와 같은 불변식을 이 리더에서도 지킨다(F-09 "당시 결과와 현재 태그·근거 비교").
+            -- 한 tagging 에 확정 근거가 여러 건(같은 태그가 여러 키프레임 OCR 등)이면 이 조인이 1:N 이라 tagging 이
+            -- 근거 수만큼 곱해진다(S15P21A501-235). tagging 단위로 묶어 출처는 모으고 검증 상태는 verified 우선으로 하나만 낸다.
             LEFT JOIN tag_evidence te ON te.tagging_id = tg.tagging_id AND te.confirmed
             WHERE tg.scene_id = :sceneId OR (tg.scene_id IS NULL AND tg.clip_id = :clipId)
+            GROUP BY tg.tagging_id, t.tag_type, t.match_value, t.name, tg.scene_id
             ORDER BY (tg.scene_id IS NULL), tg.tagging_id
             """;
 
@@ -125,12 +137,13 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
     }
 
     private SceneEvidence toEvidence(Tuple row) {
+        String sources = (String) row.get("sources");
         return new SceneEvidence(
                 ((Number) row.get("tagging_id")).longValue(),
                 (String) row.get("tag_type"),
                 (String) row.get("match_value"),
                 (String) row.get("tag_name"),
-                (String) row.get("source"),
+                sources == null || sources.isBlank() ? List.of() : List.of(sources.split(",")),
                 (String) row.get("verification_status"),
                 (String) row.get("scope"));
     }

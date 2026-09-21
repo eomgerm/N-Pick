@@ -483,6 +483,12 @@
   gap: 16px;
   width: 100%;
 }
+.searchHint {
+  margin: 0;
+  padding-left: 18px;
+  color: color-mix(in srgb, var(--text) 68%, transparent);
+  font-size: 13px;
+}
 .searchForm {
   display: flex;
   gap: 10px;

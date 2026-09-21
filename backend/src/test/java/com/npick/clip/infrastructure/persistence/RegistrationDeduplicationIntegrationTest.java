@@ -149,8 +149,9 @@ class RegistrationDeduplicationIntegrationTest {
         // baseline 이후 마이그레이션 수. 늘 때마다 같이 올린다
         // (registration_request, pipeline_run_lease, parse_rule_comments, tag_match_value_invisible_chars,
         // search_rule_candidate, scene_exclude_candidate_unique, tag_evidence_candidate,
-        // search_execution_running_snapshot, persistent_login_session, login_refresh).
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(10);
+        // search_execution_running_snapshot, persistent_login_session, login_refresh,
+        // clip_title_failed_decode, user_input_date_evidence_verified).
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(12);
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (var c = DriverManager.getConnection(url, user, password);

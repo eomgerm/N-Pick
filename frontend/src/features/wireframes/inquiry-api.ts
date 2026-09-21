@@ -1,6 +1,7 @@
 import type { InquiryStatus } from '@/features/wireframes/inquiry-state';
 import { ApiClientError, fetchJson } from '@/lib/api/client';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
+import { validateInquiryComment } from '@/features/wireframes/input-validation';
 
 export interface InquirySubmissionSnapshot {
   resultId: string;
@@ -89,6 +90,8 @@ export async function submitInquiry(
   signal?: AbortSignal,
 ): Promise<InquirySubmissionResult> {
   const { resultId, comment } = submission.snapshot;
+  const validationError = validateInquiryComment(comment);
+  if (validationError) throw new ApiClientError('api', 0, { message: validationError });
   const response = await fetchJson<unknown>(`/search/results/${resultId}/inquiries`, {
     method: 'POST',
     body: comment ? { comment } : {},

@@ -20,6 +20,8 @@ import {
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import { ReviewInquiryTags } from '@/features/wireframes/review-inquiry-tags';
+import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
+import { CorrectionVerificationPanel } from '@/features/wireframes/review-verification';
 import {
   displayClipTitle,
   getClaimRecovery,
@@ -27,6 +29,7 @@ import {
   formatInquiryTimecode,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
+import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import boardStyles from '@/features/wireframes/reviewer-board.module.css';
@@ -160,8 +163,10 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
         </section>
 
         <section className="rounded-2xl border border-(--line) p-5">
-          <h2 className="font-bold">문의 장면</h2>
-          <ReviewInquiryPreview key={inquiry.feedbackId} inquiry={inquiry} theme={theme} />
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-bold">문의 장면</h2>
+            <ReviewInquiryPreview key={inquiry.feedbackId} inquiry={inquiry} theme={theme} />
+          </div>
           <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
             <div>
               <dt className="text-(--muted)">클립 / 장면 ID</dt>
@@ -245,6 +250,21 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
             key={`${inquiry.feedbackId}-${inquiry.resolution ?? 'new'}`}
             memberLoginId={member.loginId}
           />
+        ) : null}
+
+        {inquiry.status === 'reviewing' && inquiry.resolution === 'patch_parse' ? (
+          <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
+        ) : null}
+
+        {inquiry.status === 'reviewing' && inquiry.resolution === 'exclude_scene' ? (
+          <SceneExcludeCandidateForm inquiry={inquiry} />
+        ) : null}
+
+        {inquiry.status === 'reviewing' &&
+        (inquiry.resolution === 'tag_correction' ||
+          inquiry.resolution === 'patch_parse' ||
+          inquiry.resolution === 'exclude_scene') ? (
+          <CorrectionVerificationPanel feedbackId={inquiry.feedbackId} key={inquiry.feedbackId} />
         ) : null}
 
         {inquiry.resolution ? (

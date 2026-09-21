@@ -10,6 +10,7 @@ const cssModuleUrl = `data:text/javascript,${encodeURIComponent(
   'export default new Proxy({}, { get: (_, key) => String(key) });',
 )}`;
 const localFiles = {
+  '@/features/wireframes/input-validation': './input-validation.ts',
   '@/features/wireframes/scene-preview-player': './scene-preview-player.tsx',
   '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
   '@/lib/api/client': '../../lib/api/client.ts',
@@ -60,11 +61,13 @@ function renderPreview({
   isSubmitted = false,
   isSubmitting = false,
   result = { ...results[0], searchResultId: '987' },
+  scenes,
   state,
 } = {}) {
   return renderToStaticMarkup(
     createElement(ScenePreviewDialog, {
       result,
+      scenes,
       theme: 'shinhan',
       isSubmitted,
       isSubmitting,
@@ -165,6 +168,21 @@ test('정상 Preview는 문의를 허용하고 공용 송출 전 고지를 표�
   assert.ok(html.includes('송출 전 최종 확인'));
 });
 
+test('Preview는 샷 유형만 표시하고 장면 유형은 표시하지 않는다', () => {
+  const html = renderPreview({
+    result: {
+      ...results[0],
+      shotType: '인터뷰',
+      sceneType: '상세에 노출되면 안 되는 값',
+    },
+  });
+
+  assert.ok(html.includes('샷 유형'));
+  assert.ok(html.includes('인터뷰'));
+  assert.ok(!html.includes('장면 유형'));
+  assert.ok(!html.includes('상세에 노출되면 안 되는 값'));
+});
+
 test('데모와 유효하지 않은 결과 ID로는 문의를 접수할 수 없다', () => {
   for (const searchResultId of [undefined, null, '', '0', '-1', '1.5', 'scene-1']) {
     const html = renderPreview({ result: { ...results[0], searchResultId } });
@@ -254,4 +272,20 @@ test('제출 중에는 입력과 닫기·재제출을 잠그고 실패는 다시
   assert.ok(failedHtml.includes('서버 응답을 확인할 수 없습니다.'));
   assert.ok(!failedHtml.includes('raw failure'));
   assert.ok(failedHtml.includes('role="alert"'));
+});
+
+test('구간 목록의 시각은 화면과 aria-label 모두 소수 초 없이 표시한다', () => {
+  const scenes = [
+    { ...results[0], id: 1, sceneStart: 12.345, sceneEnd: 20.6 },
+    { ...results[1], id: 2, sceneStart: 73.5, sceneEnd: 80.25 },
+  ];
+  const html = renderPreview({ result: { ...scenes[0], searchResultId: '987' }, scenes });
+
+  assert.ok(html.includes('00:12 – 00:20'));
+  assert.ok(html.includes('01:13 – 01:20'));
+  assert.match(html, /aria-label="구간 1: [^"]*, 00:12부터 00:20까지"/);
+  assert.match(html, /aria-label="구간 2: [^"]*, 01:13부터 01:20까지"/);
+  for (const decimal of ['12.345', '20.6', '73.5', '80.25']) {
+    assert.ok(!html.includes(decimal));
+  }
 });
