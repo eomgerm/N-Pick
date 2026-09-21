@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -9,6 +9,7 @@ import { results as demoResults, type SearchResult } from '@/features/wireframes
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
+import { SceneSearchField } from '@/features/wireframes/scene-search-field';
 import { SearchLayout } from '@/features/wireframes/search-layout';
 import { useSearchArrival } from '@/features/wireframes/search-transition';
 import {
@@ -281,25 +282,22 @@ export function WireframeShell({
       onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
       onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
       searchField={
-        <form className={styles.searchForm} onSubmit={handleSearch}>
-          <div className={styles.searchField} ref={searchFieldRef}>
-            <input
-              aria-label="뉴스 장면 검색어"
-              disabled={isSearchPending}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
-              value={query}
-            />
-            <button
-              aria-label={isSearchPending ? '검색 중' : '검색'}
-              className={styles.searchButton}
-              disabled={!query.trim() || isSearchPending}
-              type="submit"
-            >
-              <ArrowRight aria-hidden="true" />
-            </button>
-          </div>
-        </form>
+        <SceneSearchField
+          variant="compact"
+          query={query}
+          onQueryChange={setQuery}
+          onSubmit={handleSearch}
+          placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
+          label="뉴스 장면 검색어"
+          isBusy={isSearchPending}
+          isDisabled={isSearchPending}
+          fieldRef={searchFieldRef}
+          classes={{
+            form: styles.searchForm,
+            field: styles.searchField,
+            submitButton: styles.searchButton,
+          }}
+        />
       }
     >
       <div className={styles.workspace} data-state={resultState} ref={workspaceRef}>
