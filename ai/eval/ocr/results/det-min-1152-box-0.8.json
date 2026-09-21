@@ -1,0 +1,260 @@
+{
+ "variant": "det-min-1152-box-0.8",
+ "why": "입력 크기를 조금 줄여 시간을 되찾을 수 있는지",
+ "overrides": {
+  "det_limit_type": "min",
+  "det_limit_side_len": 1152,
+  "det_box_thresh": 0.8
+ },
+ "upscale": 1.0,
+ "configVersion": "ocr/v1:c7b16d45",
+ "engine": "rapidocr",
+ "engineVersion": "rapidocr3.9.2+onnxruntime1.29.0",
+ "minConfidence": 0.7,
+ "misreadFloor": 0.34,
+ "frames": 23,
+ "elapsedSeconds": 27.25,
+ "msPerFrame": 1185,
+ "summary": {
+  "legible": 37,
+  "exact": 23,
+  "misread": 5,
+  "miss": 9,
+  "silentMisread": 5,
+  "hallucination": 0,
+  "unmatched": 10,
+  "observations": 42,
+  "exactRate": 0.6216,
+  "cer": 0.3904,
+  "cerMatched": 0.043
+ },
+ "lines": [
+  {
+   "frame": "s0000/kf-000004133",
+   "label": "KBS",
+   "outcome": "misread",
+   "observed": "S KBS",
+   "confidence": 0.7683,
+   "unverified": false,
+   "similarity": 0.857,
+   "cer": 0.333
+  },
+  {
+   "frame": "s0000/kf-000004133",
+   "label": "올림픽 G-1년 페스티벌",
+   "outcome": "misread",
+   "observed": "클림픽 G-1년 페스티벌",
+   "confidence": 0.8138,
+   "unverified": false,
+   "similarity": 0.909,
+   "cer": 0.091
+  },
+  {
+   "frame": "s0000/kf-000011933",
+   "label": "KBS",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0000/kf-000011933",
+   "label": "올림픽 G-1년 페스티벌",
+   "outcome": "misread",
+   "observed": "-림픽 G-1년 페스티벨",
+   "confidence": 0.9357,
+   "unverified": false,
+   "similarity": 0.818,
+   "cer": 0.182
+  },
+  {
+   "frame": "s0000/kf-000019867",
+   "label": "경기방식",
+   "outcome": "misread",
+   "observed": "*경기방식",
+   "confidence": 0.9533,
+   "unverified": false,
+   "similarity": 0.889,
+   "cer": 0.25
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "홍보영상 상영관",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "대한장애인컬링협회",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "대한컬링경기연맹",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "2018평창동계올림픽 G-1년 페스티벌",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0008/kf-000071833",
+   "label": "GANGWON PROVINCE",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0008/kf-000072600",
+   "label": "GANGWON PROVINCE",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0009/kf-000073833",
+   "label": "Best Product pavilion",
+   "outcome": "misread",
+   "observed": "Best Probuct pavlior",
+   "confidence": 0.8545,
+   "unverified": false,
+   "similarity": 0.865,
+   "cer": 0.158
+  },
+  {
+   "frame": "s0009/kf-000075067",
+   "label": "Beauty Style",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0009/kf-000075067",
+   "label": "Best Product pavilion",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  }
+ ],
+ "hallucinations": [],
+ "floorSweep": {
+  "0.20": {
+   "legible": 37,
+   "exact": 23,
+   "misread": 6,
+   "miss": 8,
+   "silentMisread": 5,
+   "hallucination": 0,
+   "unmatched": 9,
+   "observations": 42,
+   "exactRate": 0.6216,
+   "cer": 0.387,
+   "cerMatched": 0.0773
+  },
+  "0.30": {
+   "legible": 37,
+   "exact": 23,
+   "misread": 5,
+   "miss": 9,
+   "silentMisread": 5,
+   "hallucination": 0,
+   "unmatched": 10,
+   "observations": 42,
+   "exactRate": 0.6216,
+   "cer": 0.3904,
+   "cerMatched": 0.043
+  },
+  "0.34": {
+   "legible": 37,
+   "exact": 23,
+   "misread": 5,
+   "miss": 9,
+   "silentMisread": 5,
+   "hallucination": 0,
+   "unmatched": 10,
+   "observations": 42,
+   "exactRate": 0.6216,
+   "cer": 0.3904,
+   "cerMatched": 0.043
+  },
+  "0.40": {
+   "legible": 37,
+   "exact": 23,
+   "misread": 5,
+   "miss": 9,
+   "silentMisread": 5,
+   "hallucination": 0,
+   "unmatched": 10,
+   "observations": 42,
+   "exactRate": 0.6216,
+   "cer": 0.3904,
+   "cerMatched": 0.043
+  },
+  "0.50": {
+   "legible": 37,
+   "exact": 23,
+   "misread": 5,
+   "miss": 9,
+   "silentMisread": 5,
+   "hallucination": 0,
+   "unmatched": 10,
+   "observations": 42,
+   "exactRate": 0.6216,
+   "cer": 0.3904,
+   "cerMatched": 0.043
+  },
+  "0.60": {
+   "legible": 37,
+   "exact": 23,
+   "misread": 5,
+   "miss": 9,
+   "silentMisread": 5,
+   "hallucination": 0,
+   "unmatched": 10,
+   "observations": 42,
+   "exactRate": 0.6216,
+   "cer": 0.3904,
+   "cerMatched": 0.043
+  }
+ },
+ "cases": [
+  {
+   "id": "S15P21A501-260-honeyrice",
+   "status": "frame-missing"
+  }
+ ]
+}

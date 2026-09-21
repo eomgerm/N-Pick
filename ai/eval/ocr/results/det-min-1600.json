@@ -1,0 +1,395 @@
+{
+ "variant": "det-min-1600",
+ "why": "같은 축을 더",
+ "overrides": {
+  "det_limit_type": "min",
+  "det_limit_side_len": 1600
+ },
+ "upscale": 1.0,
+ "configVersion": "ocr/v1:4828cdea",
+ "engine": "rapidocr",
+ "engineVersion": "rapidocr3.9.2+onnxruntime1.29.0",
+ "minConfidence": 0.7,
+ "misreadFloor": 0.34,
+ "frames": 23,
+ "elapsedSeconds": 44.34,
+ "msPerFrame": 1928,
+ "summary": {
+  "legible": 37,
+  "exact": 20,
+  "misread": 12,
+  "miss": 5,
+  "silentMisread": 7,
+  "hallucination": 21,
+  "unmatched": 98,
+  "observations": 135,
+  "exactRate": 0.5405,
+  "cer": 0.3562,
+  "cerMatched": 0.2389
+ },
+ "lines": [
+  {
+   "frame": "s0000/kf-000004133",
+   "label": "KBS",
+   "outcome": "misread",
+   "observed": "$KBS",
+   "confidence": 0.8217,
+   "unverified": false,
+   "similarity": 0.857,
+   "cer": 0.333
+  },
+  {
+   "frame": "s0000/kf-000004133",
+   "label": "올림픽 G-1년 페스티벌",
+   "outcome": "misread",
+   "observed": "림픽 G-1년페스티벌",
+   "confidence": 0.9021,
+   "unverified": false,
+   "similarity": 0.952,
+   "cer": 0.091
+  },
+  {
+   "frame": "s0000/kf-000011933",
+   "label": "KBS",
+   "outcome": "misread",
+   "observed": "SKBS",
+   "confidence": 0.8205,
+   "unverified": false,
+   "similarity": 0.857,
+   "cer": 0.333
+  },
+  {
+   "frame": "s0000/kf-000011933",
+   "label": "올림픽 G-1년 페스티벌",
+   "outcome": "misread",
+   "observed": "-림픽 G-1년 페스티벨",
+   "confidence": 0.8723,
+   "unverified": false,
+   "similarity": 0.818,
+   "cer": 0.182
+  },
+  {
+   "frame": "s0000/kf-000019867",
+   "label": "Biathlon",
+   "outcome": "misread",
+   "observed": "Biothion 바이애슬론",
+   "confidence": 0.8823,
+   "unverified": false,
+   "similarity": 0.571,
+   "cer": 0.875
+  },
+  {
+   "frame": "s0000/kf-000019867",
+   "label": "바이애슬론",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "컬링",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "Curling",
+   "outcome": "misread",
+   "observed": "컬링curing",
+   "confidence": 0.9337,
+   "unverified": false,
+   "similarity": 0.8,
+   "cer": 0.429
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "홍보영상 상영관",
+   "outcome": "misread",
+   "observed": "R보영상성",
+   "confidence": 0.4182,
+   "unverified": true,
+   "similarity": 0.5,
+   "cer": 0.571
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "대한장애인컬링협회",
+   "outcome": "misread",
+   "observed": "대한찰에인법일법",
+   "confidence": 0.4785,
+   "unverified": true,
+   "similarity": 0.353,
+   "cer": 0.667
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "대한컬링경기연맹",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0000/kf-000027633",
+   "label": "2018평창동계올림픽 G-1년 페스티벌",
+   "outcome": "misread",
+   "observed": "CBB8G-1년2스",
+   "confidence": 0.6528,
+   "unverified": true,
+   "similarity": 0.414,
+   "cer": 0.684
+  },
+  {
+   "frame": "s0008/kf-000071833",
+   "label": "GANGWON PROVINCE",
+   "outcome": "misread",
+   "observed": "GSSEOKHONSCE",
+   "confidence": 0.5039,
+   "unverified": true,
+   "similarity": 0.37,
+   "cer": 0.667
+  },
+  {
+   "frame": "s0008/kf-000072600",
+   "label": "GANGWON PROVINCE",
+   "outcome": "misread",
+   "observed": "CESBON ROENCE",
+   "confidence": 0.6797,
+   "unverified": true,
+   "similarity": 0.519,
+   "cer": 0.533
+  },
+  {
+   "frame": "s0009/kf-000073833",
+   "label": "Best Product pavilion",
+   "outcome": "misread",
+   "observed": "Best Probuct pavlien",
+   "confidence": 0.8007,
+   "unverified": false,
+   "similarity": 0.865,
+   "cer": 0.158
+  },
+  {
+   "frame": "s0009/kf-000075067",
+   "label": "Beauty Style",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  },
+  {
+   "frame": "s0009/kf-000075067",
+   "label": "Best Product pavilion",
+   "outcome": "miss",
+   "observed": null,
+   "confidence": null,
+   "unverified": null,
+   "similarity": 0.0,
+   "cer": 1.0
+  }
+ ],
+ "hallucinations": [
+  {
+   "frame": "s0001/kf-000041267",
+   "observed": "M",
+   "confidence": 0.5201
+  },
+  {
+   "frame": "s0001/kf-000041267",
+   "observed": "6",
+   "confidence": 0.2406
+  },
+  {
+   "frame": "s0001/kf-000041267",
+   "observed": "X",
+   "confidence": 0.3684
+  },
+  {
+   "frame": "s0001/kf-000041267",
+   "observed": "*",
+   "confidence": 0.9373
+  },
+  {
+   "frame": "s0001/kf-000044033",
+   "observed": "*",
+   "confidence": 0.9504
+  },
+  {
+   "frame": "s0001/kf-000044033",
+   "observed": "22R",
+   "confidence": 0.3618
+  },
+  {
+   "frame": "s0001/kf-000044033",
+   "observed": "E",
+   "confidence": 0.6375
+  },
+  {
+   "frame": "s0001/kf-000044033",
+   "observed": "X",
+   "confidence": 0.8454
+  },
+  {
+   "frame": "s0003/kf-000049667",
+   "observed": "N",
+   "confidence": 0.7118
+  },
+  {
+   "frame": "s0003/kf-000049667",
+   "observed": "1",
+   "confidence": 0.3368
+  },
+  {
+   "frame": "s0003/kf-000051433",
+   "observed": "E",
+   "confidence": 0.4287
+  },
+  {
+   "frame": "s0003/kf-000051433",
+   "observed": "N",
+   "confidence": 0.7731
+  },
+  {
+   "frame": "s0003/kf-000051433",
+   "observed": "1",
+   "confidence": 0.2269
+  },
+  {
+   "frame": "s0003/kf-000051433",
+   "observed": "A",
+   "confidence": 0.81
+  },
+  {
+   "frame": "s0003/kf-000051433",
+   "observed": "X",
+   "confidence": 0.1923
+  },
+  {
+   "frame": "s0007/kf-000065167",
+   "observed": "X",
+   "confidence": 0.1236
+  },
+  {
+   "frame": "s0007/kf-000065167",
+   "observed": "7",
+   "confidence": 0.4538
+  },
+  {
+   "frame": "s0007/kf-000065167",
+   "observed": "03",
+   "confidence": 0.5243
+  },
+  {
+   "frame": "s0007/kf-000065167",
+   "observed": "¶",
+   "confidence": 0.2178
+  },
+  {
+   "frame": "s0007/kf-000065167",
+   "observed": "A",
+   "confidence": 0.3172
+  },
+  {
+   "frame": "s0007/kf-000065167",
+   "observed": "4a",
+   "confidence": 0.5408
+  }
+ ],
+ "floorSweep": {
+  "0.20": {
+   "legible": 37,
+   "exact": 20,
+   "misread": 12,
+   "miss": 5,
+   "silentMisread": 7,
+   "hallucination": 21,
+   "unmatched": 98,
+   "observations": 135,
+   "exactRate": 0.5405,
+   "cer": 0.3562,
+   "cerMatched": 0.2389
+  },
+  "0.30": {
+   "legible": 37,
+   "exact": 20,
+   "misread": 12,
+   "miss": 5,
+   "silentMisread": 7,
+   "hallucination": 21,
+   "unmatched": 98,
+   "observations": 135,
+   "exactRate": 0.5405,
+   "cer": 0.3562,
+   "cerMatched": 0.2389
+  },
+  "0.34": {
+   "legible": 37,
+   "exact": 20,
+   "misread": 12,
+   "miss": 5,
+   "silentMisread": 7,
+   "hallucination": 21,
+   "unmatched": 98,
+   "observations": 135,
+   "exactRate": 0.5405,
+   "cer": 0.3562,
+   "cerMatched": 0.2389
+  },
+  "0.40": {
+   "legible": 37,
+   "exact": 20,
+   "misread": 10,
+   "miss": 7,
+   "silentMisread": 7,
+   "hallucination": 21,
+   "unmatched": 100,
+   "observations": 135,
+   "exactRate": 0.5405,
+   "cer": 0.3836,
+   "cerMatched": 0.1928
+  },
+  "0.50": {
+   "legible": 37,
+   "exact": 20,
+   "misread": 9,
+   "miss": 8,
+   "silentMisread": 7,
+   "hallucination": 21,
+   "unmatched": 101,
+   "observations": 135,
+   "exactRate": 0.5405,
+   "cer": 0.4041,
+   "cerMatched": 0.1471
+  },
+  "0.60": {
+   "legible": 37,
+   "exact": 20,
+   "misread": 6,
+   "miss": 11,
+   "silentMisread": 6,
+   "hallucination": 21,
+   "unmatched": 104,
+   "observations": 135,
+   "exactRate": 0.5405,
+   "cer": 0.4418,
+   "cerMatched": 0.0632
+  }
+ },
+ "cases": [
+  {
+   "id": "S15P21A501-260-honeyrice",
+   "status": "frame-missing"
+  }
+ ]
+}
