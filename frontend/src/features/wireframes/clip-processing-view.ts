@@ -46,7 +46,7 @@ const stageLabels: Record<string, string> = {
   indexing: '검색 반영',
 };
 export function processingStageLabel(name: string) {
-  return stageLabels[name] ?? name;
+  return stageLabels[name] ?? '기타 처리 단계';
 }
 export function processingRecordLabel(status: ProcessingRecordStatus | undefined) {
   return status === 'available'
@@ -105,5 +105,5 @@ const transcriptLabels: Record<string, string> = {
   ...stageStatusLabels,
 };
 export function processingTranscriptLabel(value: string | null) {
-  return value === null ? '미확인' : (transcriptLabels[value] ?? value);
+  return value === null ? '미확인' : (transcriptLabels[value] ?? '상세 사유를 확인할 수 없습니다.');
 }

@@ -672,7 +672,11 @@ export function VideoRegistration({
 
         {errorPresentation?.showGlobal && mutation.error ? (
           <div className={styles.apiError} ref={globalErrorRef} tabIndex={-1}>
-            <ApiErrorNotice error={mutation.error} id="registration-api-error" />
+            <ApiErrorNotice
+              error={mutation.error}
+              id="registration-api-error"
+              message={errorPresentation.globalMessage}
+            />
             {errorPresentation.retryMode === 'same-request' ? (
               <div className={styles.retryAction}>
                 <p>동일한 요청으로 재시도합니다.</p>

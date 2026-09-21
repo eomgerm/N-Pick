@@ -1,5 +1,6 @@
 import { ApiClientError, fetchJson } from '@/lib/api/client';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
+import { readUserMessage } from '@/lib/api/error';
 
 export type ClipSourceType = 'broadcast' | 'archive';
 
@@ -153,18 +154,8 @@ const codeFieldMap: Record<string, RegistrationField> = {
 };
 
 function safeFieldMessage(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const message = value.trim();
-  if (!message || message.length > 300 || !/[가-힣]/.test(message)) return undefined;
-  if (
-    /[<>{}]|https?:\/\/|[a-z]:[\\/]|(?:^|[\s(:])\/\S+|\\|\b\w*(?:Exception|Error)\b|\bat\s+[\w.$]+\(/i.test(
-      message,
-    ) ||
-    /\p{Cc}/u.test(message.replace(/[\r\n\t]/g, ''))
-  ) {
-    return undefined;
-  }
-  return message;
+  const message = readUserMessage(value);
+  return message && message.length <= 300 ? message.trim() : undefined;
 }
 
 interface ParsedValidationFields {
@@ -187,7 +178,10 @@ function validationFieldsFrom(error: ApiClientError): ParsedValidationFields {
   let hasUnmapped = false;
   for (const [serverField, value] of Object.entries(data)) {
     const field = validationFieldMap[serverField];
-    const message = safeFieldMessage(value);
+    const message =
+      typeof value === 'string' && error.requestId && value.includes(error.requestId)
+        ? undefined
+        : safeFieldMessage(value);
     if (!field || !message) {
       hasUnmapped = true;
     } else if (fields[field] === undefined) {
