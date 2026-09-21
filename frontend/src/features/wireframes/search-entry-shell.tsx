@@ -8,6 +8,7 @@ import { emptyDateRange } from '@/features/wireframes/date-range';
 import { EntryFooter } from '@/features/wireframes/entry-chrome';
 import { SearchLayout } from '@/features/wireframes/search-layout';
 import { prepareSearchTransition } from '@/features/wireframes/search-transition';
+import { SEARCH_QUERY_MIN_LENGTH } from '@/features/wireframes/search-api-contract';
 import {
   createSearchResultsHref,
   isSameSearchDestination,
@@ -68,6 +69,10 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
     }
   }
 
+  const trimmedQueryLength = query.trim().length;
+  const showMinLengthHint =
+    trimmedQueryLength >= 1 && trimmedQueryLength < SEARCH_QUERY_MIN_LENGTH;
+
   return (
     <SearchLayout
       className={`${styles.shell} ${styles.searchShell}`}
@@ -126,12 +131,17 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
               <button
                 aria-label={isNavigating ? '검색 중' : '장면 찾기'}
                 className={styles.primaryButton}
-                disabled={!query.trim() || isNavigating}
+                disabled={trimmedQueryLength < SEARCH_QUERY_MIN_LENGTH || isNavigating}
                 type="submit"
               >
                 <ArrowRight aria-hidden="true" />
               </button>
             </div>
+            {showMinLengthHint ? (
+              <p className={styles.searchHint} role="alert">
+                검색어는 {SEARCH_QUERY_MIN_LENGTH}글자 이상 입력해 주세요.
+              </p>
+            ) : null}
             <p aria-live="polite" className={styles.srOnly}>
               {isNavigating ? '검색 중입니다. 검색 결과 화면을 준비하고 있습니다.' : ''}
             </p>

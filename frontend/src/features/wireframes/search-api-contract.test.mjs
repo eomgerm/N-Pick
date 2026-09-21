@@ -214,6 +214,20 @@ test('빈 질의나 불완전하고 잘못된 날짜는 요청 본문을 만들�
   }
 });
 
+test('1글자 질의는 형태소 충돌을 부르므로 요청 본문을 만들지 않는다 (S15P21A501-243)', () => {
+  for (const query of ['비', '불', '  눈  ']) {
+    assert.equal(
+      createSearchRequestBody({ query, broadcast: emptyRange, filming: emptyRange }),
+      null,
+    );
+  }
+  // 2글자부터는 통과한다 — 한국어 명사 다수가 2글자다(대구·지진·화재).
+  assert.deepEqual(
+    createSearchRequestBody({ query: '화재', broadcast: emptyRange, filming: emptyRange }),
+    { query: '화재', explicit_filters: {} },
+  );
+});
+
 test('정상 응답은 서버가 준 Top 10 순서를 그대로 보존하고 문자열 ID를 유지한다', () => {
   const parsed = parseSearchResponse(createResponse());
 
