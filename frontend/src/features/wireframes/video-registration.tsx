@@ -477,7 +477,7 @@ export function VideoRegistration({
                 accept={subtitleAccept}
                 error={fieldErrors.subtitle ?? ''}
                 hasFile={Boolean(subtitle)}
-                hint="드래그하거나 클릭하여 선택 · SRT/VTT 1개"
+                hint="드래그하거나 클릭하여 선택 · SRT/VTT/JSON 1개 · 10 MiB 이하"
                 isDisabled={isBusy}
                 kind="subtitle"
                 label="자막 파일"

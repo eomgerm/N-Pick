@@ -297,6 +297,17 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
         : response,
     );
   });
+  await page.route('**/api/v1/clips?*', (route) =>
+    success(route, {
+      items: [clip('21', 'succeeded')],
+      page: 0,
+      size: 10,
+      total_elements: 1,
+      total_pages: 1,
+      has_next: false,
+      run_counts: { queued: 0, running: 0, failed: 0, succeeded: 1, no_run: 0 },
+    }),
+  );
   await page.goto('/review?view=upload');
   await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
   await page.locator('#registration-title').fill('등록 요청 제목');
@@ -321,6 +332,17 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
     await expect(overview).toContainText(state);
   }
   await expect(noRunNotice).toHaveCount(0);
+  await page.getByRole('button', { name: '처리 현황으로', exact: true }).click();
+  await expect(page).toHaveURL(/view=processing&tab=uploads$/);
+  await expect(
+    page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toHaveCount(0);
+  await page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }).click();
+  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '영상 처리 상세', exact: true })).toContainText(
+    '처리 완료',
+  );
   const settledReads = reads;
   await page.clock.fastForward(15_000);
   expect(reads).toBe(settledReads);
@@ -345,7 +367,7 @@ test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 �
     buffer: Buffer.from('자막이 아님'),
   });
   await expect(page.locator('#subtitle-error')).toHaveText(
-    '자막 파일은 SRT 또는 VTT 형식으로 선택해 주세요.',
+    '자막 파일은 SRT, VTT 또는 승인된 JSON 형식으로 선택해 주세요.',
   );
   await expect(page.getByRole('status')).toHaveText(/자막 파일을 선택하지 못했습니다/);
 

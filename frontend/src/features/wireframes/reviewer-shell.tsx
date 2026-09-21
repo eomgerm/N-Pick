@@ -3,7 +3,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { ProcessingClipDetail } from '@/features/wireframes/processing-clip-detail';
 import { InquiryDetail } from '@/features/wireframes/review-inquiry-detail';
@@ -33,6 +33,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   const [isNavigating, startNavigation] = useTransition();
   const [isRegistrationBusy, setIsRegistrationBusy] = useState(false);
   const [registeredVideo, setRegisteredVideo] = useState<RegisteredVideo | null>(null);
+  const registrationDetailShownRef = useRef<string | null>(null);
   const registrationBusyRef = useRef(false);
   const isProcessing = searchParams.get('view') === 'processing';
   const isRegistration = searchParams.get('view') === 'upload';
@@ -42,6 +43,24 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   const progressTab: ProgressTab =
     rawTab === 'completed' || rawTab === 'uploads' ? rawTab : 'inquiries';
   const isInteractionLocked = isNavigating || isRegistrationBusy;
+
+  useEffect(() => {
+    const registeredId = registeredVideo?.id;
+    if (!registeredId) return;
+
+    const isRegisteredDetail = isProcessing && clipId === registeredId;
+    const isPendingRegistrationNavigation =
+      isRegistration && registrationDetailShownRef.current !== registeredId;
+
+    if (isRegisteredDetail) {
+      registrationDetailShownRef.current = registeredId;
+      return;
+    }
+    if (isPendingRegistrationNavigation) return;
+
+    registrationDetailShownRef.current = null;
+    setRegisteredVideo(null);
+  }, [clipId, isProcessing, isRegistration, registeredVideo]);
 
   function handleLocationChange(updates: Record<string, string | null>) {
     if (registrationBusyRef.current) return;
@@ -56,6 +75,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     });
   }
   function handleRegistrationOpen() {
+    registrationDetailShownRef.current = null;
     setRegisteredVideo(null);
     handleLocationChange({
       view: 'upload',
@@ -66,6 +86,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     });
   }
   function handleRegister(record: RegisteredVideo) {
+    registrationDetailShownRef.current = null;
     setRegisteredVideo(record);
     void queryClient.invalidateQueries({ queryKey: ['processing-clips'] });
     void queryClient.invalidateQueries({ queryKey: ['processing-clip', record.id] });
