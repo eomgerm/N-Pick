@@ -48,7 +48,7 @@ export interface ClipRegistrationErrorPresentation {
 
 class ScriptTextDecodeError extends Error {
   constructor() {
-    super('일반 대본을 UTF-8 텍스트로 읽을 수 없습니다. UTF-8 TXT 파일인지 확인해 주세요.');
+    super('올바른 대본 파일이 아닙니다.');
     this.name = 'ScriptTextDecodeError';
   }
 }
