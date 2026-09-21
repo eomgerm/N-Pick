@@ -170,15 +170,16 @@ class ClipUploadRequestTest {
         assertThat(received.filmedDate()).isNull();
     }
 
-    @Test
-    void enforcesTitleLengthFromDatabaseSchema() throws Exception {
-        String title = "가".repeat(500);
+    @ParameterizedTest
+    @CsvSource({"가, 50", "😀, 25"})
+    void enforcesTitleLimitInUtf16Units(String character, int count) throws Exception {
+        String title = character.repeat(count);
         mockMvc.perform(videoRequest().param("source_type", "broadcast").param("title", title))
                 .andExpect(status().isCreated());
         assertThat(received.title()).isEqualTo(title);
-        mockMvc.perform(videoRequest().param("source_type", "broadcast").param("title", title + "나"))
+        mockMvc.perform(videoRequest().param("source_type", "broadcast").param("title", title + character))
                 .andExpect(status().isBadRequest())
-                .andExpect(invalidField("title", "제목은 500자 이내로 입력해 주세요."));
+                .andExpect(invalidField("title", "제목은 50자 이내로 입력해 주세요."));
     }
 
     @Test
