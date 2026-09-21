@@ -25,7 +25,6 @@ import {
   evidenceLabel,
   formatInquiryDate,
   formatInquiryTimecode,
-  groupTagEvidence,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
@@ -297,7 +296,7 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                 <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
               ) : (
                 <ul className="mt-4 flex flex-wrap gap-2" aria-label="현재 장면과 영상의 태그">
-                  {groupTagEvidence(inquiry.evidence).map((tag) => (
+                  {inquiry.evidence.map((tag) => (
                     <li
                       className="inline-flex items-center gap-2 rounded-lg border border-(--line) bg-(--surface) py-1.5 pr-3 pl-2.5 text-sm"
                       key={tag.taggingId}
@@ -306,11 +305,11 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                       <span
                         aria-hidden="true"
                         className={`size-1.5 shrink-0 rounded-full ${
-                          tag.state === 'verified' ? 'bg-(--positive)' : 'bg-(--muted)'
+                          tag.verifiedState === 'verified' ? 'bg-(--positive)' : 'bg-(--muted)'
                         }`}
                       />
                       <span className="font-semibold text-(--text)">{tag.tagName}</span>
-                      <span className="text-xs text-(--muted)">{evidenceLabel(tag.state)}</span>
+                      <span className="text-xs text-(--muted)">{evidenceLabel(tag.verifiedState)}</span>
                     </li>
                   ))}
                 </ul>

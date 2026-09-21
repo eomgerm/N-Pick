@@ -59,12 +59,12 @@ public record InquiryDetailResponse(
     }
 
     public record SceneEvidenceResponse(
-            long taggingId, String tagName, String source, String verifiedState, String scope) {
+            long taggingId, String tagName, List<String> sources, String verifiedState, String scope) {
         public static SceneEvidenceResponse from(SceneEvidence evidence) {
             return new SceneEvidenceResponse(
                     evidence.taggingId(),
                     evidence.tagName(),
-                    evidence.source(),
+                    evidence.sources(),
                     evidence.verifiedState(),
                     evidence.scope());
         }

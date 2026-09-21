@@ -14,6 +14,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.npick.feedback.application.query.InquiryDetail;
+import com.npick.feedback.application.query.SceneEvidence;
 import com.npick.feedback.infrastructure.persistence.query.InquiryDetailQueryAdapter;
 import com.npick.support.NpickPostgres;
 
@@ -63,6 +64,25 @@ class InquiryDetailQueryAdapterDbTest {
         assertThat(detail.history().reviewerLoginId()).isEqualTo("reviewer-test-9002");
     }
 
+    @Test
+    @Transactional
+    @DisplayName("한 태그에 확정 근거가 여러 건이어도 태그당 한 번만 반환하고, 출처는 모으고 검증 상태는 verified 우선이다 (S15P21A501-235)")
+    void groupsEvidenceByTaggingWithoutDuplicates() {
+        seed(); // tagging 9501 에 확정 근거 2건(9601 ocr/verified, 9603 vlm/unverified)
+
+        InquiryDetail detail = adapter.findById(9901L).orElseThrow();
+
+        // 태그당 한 줄 — 같은 taggingId 가 여러 번 나오지 않는다
+        assertThat(detail.evidence()).extracting(SceneEvidence::taggingId).doesNotHaveDuplicates();
+
+        SceneEvidence sceneTag = detail.evidence().stream()
+                .filter(e -> e.taggingId() == 9501L)
+                .findFirst()
+                .orElseThrow();
+        assertThat(sceneTag.sources()).containsExactlyInAnyOrder("ocr", "vlm");
+        assertThat(sceneTag.verifiedState()).isEqualTo("verified"); // 하나라도 verified 면 verified
+    }
+
     private void seed() {
         exec("""
                 INSERT INTO npick.member (member_id, login_id, password_hash, name, role, created_at, updated_at)
@@ -103,6 +123,11 @@ class InquiryDetailQueryAdapterDbTest {
         exec("""
                 INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, confidence, verification_status, created_at)
                 VALUES (9601, 9501, 'ocr', 0.9, 'verified', now())
+                """);
+        // 같은 태그(9501)에 확정 근거가 하나 더 — 여러 키프레임에서 잡히는 경우. 1:N 조인이 tagging 을 곱하던 원인(S15P21A501-235).
+        exec("""
+                INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, confidence, verification_status, created_at)
+                VALUES (9603, 9501, 'vlm', NULL, 'unverified', now())
                 """);
         exec("""
                 INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, confidence, verification_status, created_at)
