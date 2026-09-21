@@ -90,7 +90,9 @@ test('일반 대본은 잘못된 UTF-8 바이트를 대체 문자로 보내지 �
   const snapshot = createSnapshot({
     script: new File([Uint8Array.of(0xff, 0xfe)], '잘못된대본.txt'),
   });
-  await assert.rejects(() => createClipRegistrationFormData(snapshot), /UTF-8/);
+  await assert.rejects(() => createClipRegistrationFormData(snapshot), {
+    name: 'ScriptTextDecodeError',
+  });
 });
 
 test('성공 응답은 문자열 영상·처리 ID와 queued만 허용한다', () => {

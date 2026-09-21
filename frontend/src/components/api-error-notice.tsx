@@ -27,7 +27,7 @@ export function ApiErrorNotice({ error, id }: ApiErrorNoticeProps) {
           <dd className="mt-1 wrap-anywhere">{apiError.requestId ?? '제공되지 않음'}</dd>
         </div>
       </dl>
-      <p className="mt-3">문제가 계속되면 오류 코드와 요청 ID를 담당자에게 전달해 주세요.</p>
+      <p className="mt-3">문제가 지속될 경우 오류 코드 및 요청 ID와 함께 문의 바랍니다.</p>
     </div>
   );
 }
