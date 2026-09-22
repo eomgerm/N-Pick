@@ -381,7 +381,7 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   }
   await expect(noRunNotice).toHaveCount(0);
   await page.getByRole('button', { name: '처리 현황으로', exact: true }).click();
-  await expect(page).toHaveURL(/view=processing&tab=uploads$/);
+  await expect(page).toHaveURL(/view=processing$/);
   await expect(
     page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }),
   ).toBeVisible();
