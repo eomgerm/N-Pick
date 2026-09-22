@@ -8,6 +8,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import com.npick.search.application.query.card.SceneCard;
 import com.npick.search.domain.model.ShotType;
@@ -34,7 +35,11 @@ final class SearchExplain {
     private SearchExplain() {}
 
     static SearchExecutionResult.ResultCard card(
-            SearchCandidates.ScoredScene scene, int rank, Long resultId, List<String> queryTokens) {
+            SearchCandidates.ScoredScene scene,
+            int rank,
+            Long resultId,
+            List<String> userTokens,
+            List<String> expandedTokens) {
         SceneCard card = scene.card();
         return new SearchExecutionResult.ResultCard(
                 resultId,
@@ -49,8 +54,8 @@ final class SearchExplain {
                 date(scene.tags(), TagType.FILMED_DATE),
                 shotType(card.shotType()),
                 firstTagName(scene.tags(), TagType.SCENE_TYPE),
-                matchedKeywords(scene, queryTokens),
-                evidence(scene, queryTokens));
+                matchedKeywords(scene, userTokens, expandedTokens),
+                evidence(scene, allTokens(userTokens, expandedTokens)));
     }
 
     static Map<String, Object> score(SearchCandidates.ScoredScene scene) {
@@ -77,11 +82,12 @@ final class SearchExplain {
         return score;
     }
 
-    static Map<String, Object> match(SearchCandidates.ScoredScene scene, List<String> queryTokens) {
+    static Map<String, Object> match(
+            SearchCandidates.ScoredScene scene, List<String> userTokens, List<String> expandedTokens) {
         var match = new LinkedHashMap<String, Object>();
-        match.put("matched_keywords", matchedKeywords(scene, queryTokens));
+        match.put("matched_keywords", matchedKeywordsJson(scene, userTokens, expandedTokens));
         var evidence = new ArrayList<Map<String, Object>>();
-        for (SearchExecutionResult.MatchEvidence item : evidence(scene, queryTokens)) {
+        for (SearchExecutionResult.MatchEvidence item : evidence(scene, allTokens(userTokens, expandedTokens))) {
             var entry = new LinkedHashMap<String, Object>();
             entry.put("field", item.field());
             entry.put("value", item.value());
@@ -197,17 +203,61 @@ final class SearchExplain {
     }
 
     /**
-     * 질의 토큰 중 이 장면의 색인 토큰에 실제로 있던 것.
+     * 질의 토큰 중 이 장면의 색인 토큰에 실제로 있던 것과, 그 말이 어디서 왔는지.
      *
      * <p>점수 채널은 장면당 점수 하나만 주므로 무엇이 걸렸는지 알려 주지 않는다. 카드가 「서울역 때문에 나왔다」를 말하려면 여기서 다시 맞춰 봐야 한다.
+     *
+     * <p><b>출처 판정은 품사 태그가 붙은 채로 하고 {@link #stripPosTag} 는 그 뒤에 건다.</b> 색인 토큰이 {@code 형태/품사} 라 동형이의를 가르므로
+     * (S15P21A501-279), 태그를 먼저 떼면 사용자가 친 {@code 비/NNG} 와 확장어 {@code 비/VV} 가 한 덩어리가 되어 출처를 잘못 붙인다.
+     *
+     * <p><b>태그를 뗀 형태가 겹치면 사용자 쪽이 이긴다</b> (F-05 「원문에서 확인되지 않는 조건을 사용자의 명시 조건으로 표시하지 않는다」의 역방향 — 사용자가 실제로
+     * 친 말을 AI 가 넓힌 말로 표시하지 않는다). 파이프라인이 겹친 토큰을 이미 빼고 넘기지만 그 뺄셈은 태그를 단 채로 하므로, 형태만 같고 품사가 다른 짝은
+     * 여기까지 살아 온다.
      */
-    private static List<String> matchedKeywords(SearchCandidates.ScoredScene scene, List<String> queryTokens) {
+    private static List<SearchExecutionResult.MatchedKeyword> matchedKeywords(
+            SearchCandidates.ScoredScene scene, List<String> userTokens, List<String> expandedTokens) {
         Set<String> indexed = new LinkedHashSet<>(scene.card().captionTokens());
         indexed.addAll(scene.card().transcriptTokens());
         scene.card().ocrTexts().forEach(ocr -> indexed.addAll(ocr.tokens()));
-        return queryTokens.stream()
-                .filter(indexed::contains)
-                .map(SearchExplain::stripPosTag)
+
+        // 순서가 곧 칩 순서다. 사용자가 친 말을 먼저 넣어 앞에 세우고, 같은 형태면 putIfAbsent 로 사용자 쪽이 이기게 한다.
+        Map<String, String> origins = new LinkedHashMap<>();
+        collectMatched(userTokens, indexed, SearchExecutionResult.MatchedKeyword.ORIGIN_USER, origins);
+        collectMatched(expandedTokens, indexed, SearchExecutionResult.MatchedKeyword.ORIGIN_EXPANDED, origins);
+        return origins.entrySet().stream()
+                .map(entry -> new SearchExecutionResult.MatchedKeyword(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private static void collectMatched(
+            List<String> tokens, Set<String> indexed, String origin, Map<String, String> origins) {
+        for (String token : tokens) {
+            if (indexed.contains(token)) {
+                origins.putIfAbsent(stripPosTag(token), origin);
+            }
+        }
+    }
+
+    /** {@code explain_json} 은 응답과 <b>같은 구조</b>를 싣는다 — 화면과 기록이 같은 값을 다르게 부르면 신고·검수에서 대조가 안 된다. */
+    private static List<Map<String, Object>> matchedKeywordsJson(
+            SearchCandidates.ScoredScene scene, List<String> userTokens, List<String> expandedTokens) {
+        var keywords = new ArrayList<Map<String, Object>>();
+        for (SearchExecutionResult.MatchedKeyword matched : matchedKeywords(scene, userTokens, expandedTokens)) {
+            var entry = new LinkedHashMap<String, Object>();
+            entry.put("keyword", matched.keyword());
+            entry.put("origin", matched.origin());
+            keywords.add(entry);
+        }
+        return keywords;
+    }
+
+    /**
+     * 근거({@code match_evidence})가 볼 토큰. 어느 쪽에서 왔든 걸린 것은 모두 근거다 — 출처 구분은 키워드 칩이 맡는다.
+     *
+     * <p>확장어를 근거에서 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 된다 (S15P21A501-59 가 포함 쪽을 택한 이유).
+     */
+    private static List<String> allTokens(List<String> userTokens, List<String> expandedTokens) {
+        return Stream.concat(userTokens.stream(), expandedTokens.stream())
                 .distinct()
                 .toList();
     }

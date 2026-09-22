@@ -63,7 +63,7 @@ public record SearchResponse(
             @JsonProperty("filmed_date") DateValue filmedDate,
             @JsonProperty("shot_type") String shotType,
             @JsonProperty("scene_type") String sceneType,
-            @JsonProperty("matched_keywords") List<String> matchedKeywords,
+            @JsonProperty("matched_keywords") List<MatchedKeyword> matchedKeywords,
             @JsonProperty("match_evidence") List<MatchEvidence> matchEvidence) {
 
         static Result of(SearchExecutionResult.ResultCard card) {
@@ -80,7 +80,7 @@ public record SearchResponse(
                     DateValue.of(card.filmedDate()),
                     card.shotType(),
                     card.sceneType(),
-                    card.matchedKeywords(),
+                    card.matchedKeywords().stream().map(MatchedKeyword::of).toList(),
                     card.matchEvidence().stream().map(MatchEvidence::of).toList());
         }
     }
@@ -91,6 +91,20 @@ public record SearchResponse(
 
         static DateValue of(SearchExecutionResult.DateValue value) {
             return new DateValue(value.value() == null ? null : value.value().toString(), value.verificationStatus());
+        }
+    }
+
+    /**
+     * 걸린 키워드 하나와 그 출처.
+     *
+     * <p>{@code origin} 은 {@code user} · {@code expanded} · {@code unknown} 이다. 화면은 사용자가 친 말과 AI 가 넓힌 말을 구분해 표시한다 (F-05·F-07).
+     * {@code explain_json} 도 같은 구조를 싣는다 — 화면과 기록이 갈리면 신고·검수에서 대조가 안 된다.
+     */
+    public record MatchedKeyword(
+            @JsonProperty("keyword") String keyword, @JsonProperty("origin") String origin) {
+
+        static MatchedKeyword of(SearchExecutionResult.MatchedKeyword matched) {
+            return new MatchedKeyword(matched.keyword(), matched.origin());
         }
     }
 
