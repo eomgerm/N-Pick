@@ -227,10 +227,13 @@ FE URL 상태와 wire 요청의 대응:
 | `broadcastFrom`, `broadcastTo` | `explicit_filters.broadcast_date.from`, `.to` |
 | `filmingFrom`, `filmingTo`     | `explicit_filters.filmed_date.from`, `.to`    |
 | (더보기)                       | `page` (0-based, 생략 시 첫 페이지)            |
+| (더보기)                       | `search_execution_id` (첫 페이지 응답의 값)   |
 
 선택하지 않은 날짜 종류는 key 자체를 생략한다. `from`과 `to`는 모두 포함되는 날짜다.
 
 `page`는 결과 더보기용 0-based 페이지 번호다. 첫 페이지 요청은 `page`를 생략하고(서버가 0으로 본다), 더보기가 다음 페이지를 요청할 때만 싣는다. 한 페이지는 최대 10개이며, 응답의 `has_next`가 참이면 다음 페이지가 있다(F-05 §6). 페이지마다 새 실행이며 결과 구간만 다르다 — 실행·세션 식별자가 아니라 결과 순번이므로 §7.2의 해석 캐시에 해당하지 않는다.
+
+`search_execution_id`는 더보기 요청이 첫 페이지 응답의 `search_execution_id`를 그대로 실어 보내는 값이다. 첫 페이지 요청엔 싣지 않는다. 서버가 이어보기 실행을 첫 페이지(root) 실행 아래로 묶어 「내 검색 기록」이 한 검색을 한 줄로 보이게 하는 **기록 그룹핑 힌트**이며, 결과·해석을 재사용하지 않는다(더보기 페이지는 여전히 처음부터 다시 계산한다). 검색코어 소유자 확인상 같은 실행의 이어보기는 §7.2의 「해석 캐시」 대상이 아니다(S15P21A501-280). 형식이 아니거나 없으면 서버는 root 검색으로 본다.
 
 ```json
 {
@@ -242,7 +245,7 @@ FE URL 상태와 wire 요청의 대응:
 }
 ```
 
-날짜 필터가 없을 때도 `explicit_filters`는 빈 object로 보낸다.
+날짜 필터가 없을 때도 `explicit_filters`는 빈 object로 보낸다. 위 예시는 첫 페이지 요청이라 `page`와 `search_execution_id`가 없다 — 둘은 더보기 요청에만 함께 싣는다.
 
 성공 응답 전체 모양:
 
