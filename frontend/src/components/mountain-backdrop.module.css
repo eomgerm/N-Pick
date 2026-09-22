@@ -27,11 +27,6 @@
   mask-size: cover;
 }
 
-.layers[data-motion='disabled'] .layer,
-.layers[data-motion='reduced'] .layer {
-  transform: none;
-}
-
 .sky {
   --depth: 0.12;
 }

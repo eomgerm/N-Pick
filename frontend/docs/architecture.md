@@ -33,7 +33,6 @@ src/
 │  ├─ app-backdrop.tsx      검색 결과·검수의 공통 정지 산 배경
 │  ├─ mountain-backdrop.tsx 로그인·검색의 하늘·설산·전경 파라랙스
 │  ├─ mountain-backdrop.module.css 레이어 마스크·깊이·모션 감소
-│  ├─ parallax-toggle.tsx   로그인·검색 공통 배경 움직임 스위치
 │  ├─ app-shell.tsx        제품 공통 헤더·역할별 메뉴와 페이지 본문 조합
 │  ├─ app-shell.module.css 검색 공통 고정 헤더·검색바 뒤 프로스티드 페이드
 │  ├─ api-error-notice.tsx  한국어 오류·후속 안내 공통 표시
@@ -104,7 +103,6 @@ src/
 │     ├─ wireframe-themes.ts   신한 단일 테마 타입과 route 검증
 │     └─ wireframe.module.css  신한 토큰과 반응형 레이아웃
 └─ lib/                    프레임워크·인프라 성격의 공통 코드
-   ├─ parallax-preference.ts 배경 움직임 공유 설정·브라우저 저장·모션 감소 구독
    ├─ routes.ts            화면 경로 상수
    ├─ env.ts               공개 환경변수 읽기와 검증
    ├─ server-env.ts        server-only 내부 API 주소
@@ -171,7 +169,7 @@ src/
 
 ## 의존 방향
 
-로그인·검색 입력의 `EntryFooter`는 공통 `ParallaxToggle`로 ‘배경 움직임’ 스위치를 제공합니다. `lib/parallax-preference.ts`의 React 외부 상태 구독으로 배경과 스위치가 같은 선택을 읽으며, `localStorage`의 `npick:parallax-enabled`에 저장해 로그인·로그아웃의 전체 문서 이동과 새로고침에도 유지합니다. 같은 브라우저의 다른 탭에도 변경을 반영합니다. 기본값은 켜짐이며, 끄면 배경을 기본 위치에 고정하고 이벤트와 예약 프레임을 정리합니다. 서버 렌더와 저장값을 읽기 전에는 정지합니다. 운영체제 모션 감소 중에는 스위치를 꺼짐·비활성화 상태로 표시하고 사유를 안내하며 저장된 선택은 보존합니다. 저장소 읽기·쓰기 실패 시 현재 문서의 메모리로 동작하며 이 경우 새로고침 이후 지속성은 보장하지 않습니다. 이 동작은 `e2e/parallax-toggle.spec.ts`로 검증합니다.
+로그인·검색 입력의 `EntryFooter`에는 저작권 문구만 표시하며 배경 움직임 토글과 브라우저 저장 설정은 사용하지 않습니다. 과거 `npick:parallax-enabled` 저장값은 무시합니다. 배경 파라랙스는 기본 활성화하며 운영체제 모션 감소 설정을 우선합니다.
 
 로그인(`/login`)과 검색(`/search`)은 사용자 요청에 따라 공통 `MountainBackdrop`의 산 파라랙스를 표시합니다. 사진을 바탕으로 재구성한 하늘·설산·숲과 호수 이미지는 `public/images/login-mountains/`에 보관하며, SVG 능선 마스크로 레이어를 합성합니다. 미세 포인터와 실제 문서 스크롤에 깊이 0.12/0.45/1로 반응하고, 64px 여유 영역 안에서 이동량을 제한합니다. `requestAnimationFrame`은 이동 중에만 실행하며 모션 감소·숨긴 탭에서는 멈추고 unmount 때 이벤트를 정리합니다. 레이어를 모두 읽기 전이나 이미지 로딩 실패 시 원본 사진을 표시합니다. 배경은 포커스·클릭·인증 상태를 소유하지 않습니다. 동작·폼·모바일 검증은 `e2e/login-mountain-backdrop.spec.ts`와 `e2e/search-experience.spec.ts`가 담당합니다.
 
@@ -232,7 +230,7 @@ Server Component
 | Server 상태        | TanStack Query (페이지 접근 확인은 Server Component) | 현재 계정, 이후 검색 결과·처리 상태·문의 목록 |
 | Local UI 상태      | 가장 가까운 Client Component                         | modal, 펼침 여부, 입력 중인 값                |
 | Form 상태          | form 경계                                            | validation 오류, 제출 중 상태                 |
-| Global client 상태 | `lib/parallax-preference.ts`와 브라우저 저장소       | 로그인·검색의 배경 움직임 선택                |
+| Global client 상태 | 당분간 없음                                          | 필요가 생기면 재검토                          |
 
 URL로 표현할 수 있는 상태를 전역 store에 중복 저장하지 않습니다. 서버에서 받은 데이터를 여러 상태 계층에 복사하면 어느 값이 최신인지 불명확해지므로 하나의 소유 위치를 유지합니다.
 

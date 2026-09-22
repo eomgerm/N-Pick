@@ -13,7 +13,9 @@ test('검색도 세 산 레이어가 깊이별로 움직이며 모션 감소에�
 }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => localStorage.setItem('npick:parallax-enabled', 'false'));
   await page.goto('/search');
+  await expect(page.getByRole('switch', { name: '배경 움직임' })).toHaveCount(0);
   await expect(page.locator('[data-mountain-backdrop] [data-ready]')).toHaveAttribute(
     'data-ready',
     'true',
@@ -26,11 +28,6 @@ test('검색도 세 산 레이어가 깊이별로 움직이며 모션 감소에�
   const intro = page.getByRole('heading', { name: '안녕하세요.' }).locator('..');
   await expect(intro).toHaveCSS('animation-duration', '1s');
   await expect(intro).toHaveCSS('opacity', '1');
-  for (const height of [650, 900]) {
-    await page.setViewportSize({ width: 1440, height });
-    const searchBounds = (await page.getByRole('search').boundingBox())!;
-    expect(searchBounds.y + searchBounds.height / 2).toBeCloseTo(height / 2, 0);
-  }
   const offsets = () =>
     page
       .locator('[data-depth]')
@@ -42,6 +39,11 @@ test('검색도 세 산 레이어가 깊이별로 움직이며 모션 감소에�
   const layers = await offsets();
   expect(Math.abs(layers[0])).toBeLessThan(Math.abs(layers[1]));
   expect(Math.abs(layers[1])).toBeLessThan(Math.abs(layers[2]));
+  for (const height of [650, 900]) {
+    await page.setViewportSize({ width: 1440, height });
+    const searchBounds = (await page.getByRole('search').boundingBox())!;
+    expect(searchBounds.y + searchBounds.height / 2).toBeCloseTo(height / 2, 0);
+  }
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect.poll(offsets).toEqual([0, 0, 0]);
   await expect(intro).toHaveCSS('animation-name', 'none');
