@@ -53,7 +53,8 @@ registerHooks({
   },
 });
 
-const { InquiryDialog, ScenePreviewDialog } = await import('./scene-dialogs.tsx');
+const { buildInquiryComment, InquiryDialog, ScenePreviewDialog } =
+  await import('./scene-dialogs.tsx');
 const { getDemoSearchExecution } = await import('./search-execution-status.ts');
 const { results } = await import('./demo-scenes.ts');
 
@@ -159,13 +160,17 @@ test('경로나 비정상 장면 ID를 thumbnail URL로 만들지 않는다', ()
   }
 });
 
-test('정상 Preview는 문의를 허용하고 공용 송출 전 고지를 표시한다', () => {
+test('정상 Preview는 문의를 허용한다', () => {
   const html = renderPreview();
+  const playerStart = html.indexOf('class="previewPlayer"');
+  const inquiryButton = html.indexOf('>이상해요</button>');
+  const sidebarStart = html.indexOf('class="previewSidebar"');
 
   assert.match(html, /data-state="ready"/);
   assert.ok(html.includes('이상해요'));
   assert.ok(!html.includes('문의 불가'));
-  assert.ok(html.includes('송출 전 최종 확인'));
+  assert.ok(playerStart >= 0 && playerStart < inquiryButton);
+  assert.ok(inquiryButton < sidebarStart);
 });
 
 test('Preview는 샷 유형만 표시하고 장면 유형은 표시하지 않는다', () => {
@@ -243,7 +248,7 @@ test('Preview도 문의 제출 중 상태를 문구로 표시하고 재클릭을
   assert.ok(html.includes('접수 중'));
 });
 
-test('문의 다이얼로그는 설명 없이 제출할 수 있고 즉시 자동 개선되지 않음을 알린다', () => {
+test('문의 다이얼로그는 설명 없이 제출할 수 있고 선택 프리셋을 제공한다', () => {
   const html = renderToStaticMarkup(
     createElement(InquiryDialog, {
       result: results[0],
@@ -254,11 +259,21 @@ test('문의 다이얼로그는 설명 없이 제출할 수 있고 즉시 자동
     }),
   );
 
-  assert.ok(html.includes('설명 (선택)'));
-  assert.ok(html.includes('비워두어도 접수할 수 있어요.'));
+  assert.ok(html.includes('어떤 점이 이상한가요? (선택)'));
+  assert.ok(html.includes('검색 내용과 맞지 않는 장면'));
+  assert.ok(html.includes('기타'));
+  // 기타를 고르기 전에는 상세 설명 입력이 나타나지 않는다.
+  assert.ok(!html.includes('상세 설명'));
   assert.ok(html.includes('현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'));
   assert.ok(html.includes('문의 접수'));
-  assert.ok(!html.includes('required'));
+  assert.match(html, /<button class="submitInquiry" type="submit">/);
+});
+
+test('문의 프리셋과 선택 설명을 API comment 값으로 변환한다', () => {
+  assert.equal(buildInquiryComment('', ''), '');
+  assert.equal(buildInquiryComment('검색 내용과 맞지 않는 장면', ''), '검색 내용과 맞지 않는 장면');
+  assert.equal(buildInquiryComment('기타', '  직접 설명  '), '직접 설명');
+  assert.equal(buildInquiryComment('기타', '   '), '');
 });
 
 test('제출 중에는 입력과 닫기·재제출을 잠그고 실패는 다시 시도로 표시한다', () => {
