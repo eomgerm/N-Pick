@@ -19,6 +19,10 @@ import {
   selectClipFilter,
   type ClipFilter,
 } from '@/features/wireframes/clip-processing-view';
+import {
+  ProcessingRefreshStatus,
+  useProcessingRefreshState,
+} from '@/features/wireframes/processing-refresh-status';
 import dashboardStyles from '@/features/wireframes/review-dashboard.module.css';
 import {
   displayClipTitle,
@@ -92,6 +96,11 @@ export function ReviewerProgress({
     refetchInterval: (query) =>
       clipListPollInterval(query.state.data?.run_counts, query.state.status === 'error'),
   });
+  const refreshState = useProcessingRefreshState({
+    canPoll: Boolean(clipListPollInterval(videos.data?.run_counts, videos.isError)),
+    hasError: videos.isError,
+    fetchStatus: videos.fetchStatus,
+  });
   const counts = videos.data ? clipFilterCounts(videos.data.run_counts) : undefined;
   const totalPages = videos.data?.total_pages;
   const total = videos.data?.total_elements;
@@ -141,6 +150,8 @@ export function ReviewerProgress({
             <RefreshCw aria-hidden="true" /> 현황 새로고침
           </button>
         </div>
+
+        <ProcessingRefreshStatus state={refreshState} dataUpdatedAt={videos.dataUpdatedAt} />
 
         {videos.isError && (
           <div className={styles.listError}>

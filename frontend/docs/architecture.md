@@ -81,6 +81,7 @@ src/
 │     ├─ clip-processing-api.ts 영상 목록·상세 조회와 공개 응답 검증
 │     ├─ clip-processing-view.ts 처리 상태 표시와 polling 조건
 │     ├─ processing-clip-detail.tsx 영상 요약·원본 영상·처리 기록·대사 정보
+│     ├─ processing-refresh-status.tsx 영상 목록·상세의 조회 안내와 마지막 성공 확인 시각
 │     ├─ processing-pipeline.tsx 계약 순서의 10단계와 hover·키보드·터치 상세 조회
 │     ├─ reviewer-progress-state.ts 탭 타입과 구 화면 단위 테스트용 집계
 │     ├─ reviewer-progress.module.css 진행 목록의 테마·반응형 레이아웃
@@ -140,6 +141,10 @@ src/
 성공 응답은 문자열 `clip_id`, `pipeline_run_id`와 `queued`만 인정합니다. `ReviewerShell`은 영상 목록 캐시를 무효화하고 `view=processing&tab=uploads&clip=<clipId>`로 이동해 실제 상세 GET을 실행합니다. 새로고침에도 URL의 ID로 서버 기록을 조회하며, 처리 상태와 단계 정보를 등록 요청 메모리에서 만들지 않습니다. media decode, pipeline enqueue와 등록 결과의 영속성은 서버 책임입니다.
 
 처리 현황은 `view=processing`에서 `문의 처리 중` 탭을 먼저 보여주고, `tab=uploads`와 `tab=completed`로 영상 상태를 나눕니다. 문의는 서버의 REVIEWING 목록, 종료 건수는 statusCounts.closed를 사용합니다. 영상은 최신 run의 대기·진행·실패·성공·기록 없음 상태를 표시합니다. 상세에서 돌아오면 선택한 탭과 progressPage를 유지합니다. 신규 등록의 단계 수와 상태는 상세 API 응답을 따르며 시간 경과로 임의 증가하지 않습니다.
+
+영상 목록·상세의 갱신 안내는 기존 5초 polling 조건과 Query의 요청 상태를 따릅니다. 마지막 확인 시각은 성공한 조회의 `dataUpdatedAt`이며 처리 단계 변경 시각과 구분합니다. 조회 오류·완료·실패에서는 자동 확인 종료를 안내하고, 오프라인·백그라운드 화면에서는 일시 중지를 표시합니다. 등록 직후 실행 기록이 없는 상세는 등록 시각부터 1분 동안 기록을 자동 확인하며, 1분 경계에서 안내를 수동 새로고침으로 바꿉니다. 이 경계용 단발 타이머는 조회 간격을 바꾸거나 진행률을 만들지 않습니다. 요청·시각 안내는 live region 밖에 두어 5초마다 반복 낭독하지 않고, 실제 처리 상태 변경만 기존 상태 영역에서 알립니다. 갱신 중 원본 영상과 키보드 포커스는 유지합니다.
+
+최신 처리 시도의 음성 인식 상태는 대사 기록의 알려진 `asr_status`를 우선하여 `대기 / 처리 중 / 완료 / 실패 / 생략`으로 표시합니다. 상태가 미확인이면 같은 `pipeline_run_id`의 `asr` 단계로만 보완하며, 근거가 없으면 `상태 정보 없음`으로 남깁니다. 대사 출처의 `record_status=unavailable`은 별도로 저장된 ASR 상태를 무효화하지 않습니다. 전체 실행의 성공·실패와 `asr_required`로 ASR 상태를 추정하지 않으며, 후보 구간의 실제 0건과 null, 현재 검색 제공 결과의 대사 출처는 기존대로 구분합니다.
 
 문의 검수 상세는 일반 문의 목록과 처리 현황에서 같은 `InquiryDetail`을 사용합니다. 실제 문의·장면·당시 검색 snapshot·근거·담당 이력을 조회하고 claim·resolution 성공 시 관련 목록과 상세 캐시를 갱신합니다. 서버에 없는 후보 재검색·검증·확정 결과를 로컬에서 생성하지 않습니다. 이전 mock의 교정 편집·재시도 화면은 제품 경로에서 제거했으며 추가 API 범위는 웹 API 계약 §6.5와 §7에 기록합니다.
 
