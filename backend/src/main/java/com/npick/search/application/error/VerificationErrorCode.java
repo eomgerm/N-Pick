@@ -8,8 +8,8 @@ import com.npick.common.error.ErrorCode;
 import com.npick.common.error.ErrorType;
 
 /**
- * 후보 검증 자동 재검색(S15P21A501-83) 실패. {@link ParseRuleCandidateErrorCode}·{@link SceneExcludeCandidateErrorCode}
- * 와 같은 성격(담당 검수자·신고 상태)이되, 검증은 처리 결과(resolution) 종류를 가리지 않고 「대기 후보가 있는가」만 본다.
+ * 후보 검증 자동 재검색(S15P21A501-83) 실패. {@link ParseRuleCandidateErrorCode}·{@link SceneExcludeCandidateErrorCode} 와 같은 성격(담당
+ * 검수자·신고 상태)이되, 검증은 처리 결과(resolution) 종류를 가리지 않고 「대기 후보가 있는가」만 본다.
  */
 @Getter
 @Accessors(fluent = true)

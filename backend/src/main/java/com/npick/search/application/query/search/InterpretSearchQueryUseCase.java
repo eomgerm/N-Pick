@@ -10,9 +10,9 @@ import com.npick.search.application.port.QueryResolutionResult;
  *
  * <p>여기에 이어 {@link RankSearchCandidatesUseCase} 를 부르면 일반 검색과 같은 경로가 된다 (FRD §11 「일반 검색과 같은 코드」).
  *
- * <p>{@link #resolve} / {@link #interpretFromResolution} 은 {@link #interpret} 을 둘로 쪼갠 자리다(S15P21A501-219). {@code resolve} 만
- * 외부 리졸버 HTTP 를 태우고 flip 상태와 무관하다 — 검증 재검색이 이 부분을 롤백 트랜잭션 <b>밖</b>에서 먼저 부르고, {@code interpretFromResolution} 만
- * (활성 규칙 조회가 flip 반영 상태를 읽어야 하므로) 트랜잭션 <b>안</b>에서 부른다.
+ * <p>{@link #resolve} / {@link #interpretFromResolution} 은 {@link #interpret} 을 둘로 쪼갠 자리다(S15P21A501-219).
+ * {@code resolve} 만 외부 리졸버 HTTP 를 태우고 flip 상태와 무관하다 — 검증 재검색이 이 부분을 롤백 트랜잭션 <b>밖</b>에서 먼저 부르고,
+ * {@code interpretFromResolution} 만 (활성 규칙 조회가 flip 반영 상태를 읽어야 하므로) 트랜잭션 <b>안</b>에서 부른다.
  */
 public interface InterpretSearchQueryUseCase {
 

@@ -19,15 +19,19 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.willThrow;
 
 /**
- * Task 7(S15P21A501-83): 검증 경로의 오류·격리·잔여 이음새 — 기록 커밋 시점 예외에도 {@code running} 이
- * 누수되지 않고(§8), {@code complete()} 반환 결과 ID 가 순위와 1:1 이며, 검색 성공이 자동 승인이 아님을
- * 단언한다. Task 6 이 verify() 앞에 담당 검수자·REVIEWING·대기 후보 존재를 검사하는 인가 가드를 걸었으므로
- * 모든 테스트가 소유(reviewed_by_id)·REVIEWING·대기 후보를 함께 심는다.
+ * Task 7(S15P21A501-83): 검증 경로의 오류·격리·잔여 이음새 — 기록 커밋 시점 예외에도 {@code running} 이 누수되지 않고(§8), {@code complete()} 반환 결과 ID
+ * 가 순위와 1:1 이며, 검색 성공이 자동 승인이 아님을 단언한다. Task 6 이 verify() 앞에 담당 검수자·REVIEWING·대기 후보 존재를 검사하는 인가 가드를 걸었으므로 모든 테스트가
+ * 소유(reviewed_by_id)·REVIEWING·대기 후보를 함께 심는다.
  */
 class VerificationErrorIsolationDbTest extends AbstractVerificationSearchDbTest {
 
-    private static final long MEMBER_ID = 8307001L, CLIP_ID = 8307010L, RUN_ID = 8307020L,
-            SCENE_ID = 8307030L, EXEC_ID = 8307040L, RESULT_ID = 8307050L, FEEDBACK_ID = 8307060L,
+    private static final long MEMBER_ID = 8307001L,
+            CLIP_ID = 8307010L,
+            RUN_ID = 8307020L,
+            SCENE_ID = 8307030L,
+            EXEC_ID = 8307040L,
+            RESULT_ID = 8307050L,
+            FEEDBACK_ID = 8307060L,
             EVIDENCE_ID = 8307070L;
 
     @Autowired
@@ -42,7 +46,9 @@ class VerificationErrorIsolationDbTest extends AbstractVerificationSearchDbTest 
         TestGraph.insertReviewerTagCandidate(jdbc, SCENE_ID, CLIP_ID, FEEDBACK_ID, EVIDENCE_ID);
         // record.start() 는 이미 커밋된 뒤다 — 그 다음 interpret() 안의 resolver 호출이 던지도록
         // 이 테스트에서만 스텁을 덮어써 「시작 뒤 실패」를 강제한다.
-        willThrow(new BusinessException(QueryResolverErrorCode.RESOLVER_NETWORK)).given(resolver).resolve(any());
+        willThrow(new BusinessException(QueryResolverErrorCode.RESOLVER_NETWORK))
+                .given(resolver)
+                .resolve(any());
 
         assertThatThrownBy(() -> useCase.verify(FEEDBACK_ID, MEMBER_ID)).isInstanceOf(BusinessException.class);
 
@@ -70,7 +76,8 @@ class VerificationErrorIsolationDbTest extends AbstractVerificationSearchDbTest 
         String errorCode = jdbc.queryForObject(
                 "SELECT error_code FROM npick.search_execution WHERE replay_of_feedback_id = ? "
                         + "ORDER BY search_execution_id DESC LIMIT 1",
-                String.class, FEEDBACK_ID);
+                String.class,
+                FEEDBACK_ID);
         assertThat(errorCode).isEqualTo(VerificationErrorCode.VERIFICATION_FAILED.code());
     }
 
@@ -80,8 +87,8 @@ class VerificationErrorIsolationDbTest extends AbstractVerificationSearchDbTest 
         TestGraph.insertSearchableReportedScene(
                 jdbc, MEMBER_ID, CLIP_ID, RUN_ID, SCENE_ID, EXEC_ID, RESULT_ID, FEEDBACK_ID);
         // 검증 재검색이 찾아야 할 두 번째 장면 — 원 결과와 무관한 별도 클립/신고 아래 같은 캡션 토큰.
-        TestGraph.insertSearchableReportedScene(jdbc, MEMBER_ID, CLIP_ID + 1, RUN_ID + 1, SCENE_ID + 1,
-                EXEC_ID + 1, RESULT_ID + 1, FEEDBACK_ID + 1);
+        TestGraph.insertSearchableReportedScene(
+                jdbc, MEMBER_ID, CLIP_ID + 1, RUN_ID + 1, SCENE_ID + 1, EXEC_ID + 1, RESULT_ID + 1, FEEDBACK_ID + 1);
         claimAsReviewer(FEEDBACK_ID);
         TestGraph.insertReviewerTagCandidate(jdbc, SCENE_ID, CLIP_ID, FEEDBACK_ID, EVIDENCE_ID);
 
@@ -89,14 +96,17 @@ class VerificationErrorIsolationDbTest extends AbstractVerificationSearchDbTest 
 
         List<Integer> ranks = jdbc.queryForList(
                 "SELECT result_rank FROM npick.search_result WHERE search_execution_id = ? ORDER BY result_rank",
-                Integer.class, execId);
+                Integer.class,
+                execId);
         assertThat(ranks).isNotEmpty();
         // uq_search_result_rank 의 실제 값이 연속(1..n)임을 시드 건수에 하드코딩하지 않고 확인한다.
-        assertThat(ranks).isEqualTo(IntStream.rangeClosed(1, ranks.size()).boxed().toList());
+        assertThat(ranks)
+                .isEqualTo(IntStream.rangeClosed(1, ranks.size()).boxed().toList());
 
         Long distinctScenes = jdbc.queryForObject(
                 "SELECT count(DISTINCT scene_id) FROM npick.search_result WHERE search_execution_id = ?",
-                Long.class, execId);
+                Long.class,
+                execId);
         assertThat(distinctScenes).isEqualTo((long) ranks.size()); // uq_search_result_scene — 장면 중복 없음
     }
 

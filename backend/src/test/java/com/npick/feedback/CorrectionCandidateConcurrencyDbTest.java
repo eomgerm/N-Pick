@@ -139,8 +139,8 @@ class CorrectionCandidateConcurrencyDbTest {
         LockGate gate = gateFirst("resolve-first");
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<ErrorCode> resolution = executor.submit(
-                    () -> named("resolve-first", () -> resolveAttempt("no_action", "조치 불필요")));
+            Future<ErrorCode> resolution =
+                    executor.submit(() -> named("resolve-first", () -> resolveAttempt("no_action", "조치 불필요")));
             assertThat(gate.firstAcquired().await(5, TimeUnit.SECONDS)).isTrue();
 
             Future<ErrorCode> candidate =
@@ -202,8 +202,8 @@ class CorrectionCandidateConcurrencyDbTest {
             Future<ErrorCode> candidate = executor.submit(() -> named("candidate-first", () -> candidateAttempt(path)));
             assertThat(gate.firstAcquired().await(5, TimeUnit.SECONDS)).isTrue();
 
-            Future<ErrorCode> resolution = executor.submit(
-                    () -> named("resolve-second", () -> resolveAttempt("no_action", "조치 불필요")));
+            Future<ErrorCode> resolution =
+                    executor.submit(() -> named("resolve-second", () -> resolveAttempt("no_action", "조치 불필요")));
             assertThat(gate.secondEntered().await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(resolution.isDone()).isFalse();
 

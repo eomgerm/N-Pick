@@ -78,17 +78,22 @@ class SearchHistoryHttpDbTest {
                 .andExpect(jsonPath("$.data.items[0].search_execution_id").value("9702"))
                 .andExpect(jsonPath("$.data.items[1].search_execution_id").value("9701"))
                 .andExpect(jsonPath("$.data.items[1].query_text").value("서울역 귀성 인파"))
-                .andExpect(jsonPath("$.data.items[1].explicit_filters.broadcast_date.from").value("2026-09-01"))
+                .andExpect(jsonPath("$.data.items[1].explicit_filters.broadcast_date.from")
+                        .value("2026-09-01"))
                 .andExpect(jsonPath("$.data.items[1].created_at").value("2026-09-15T03:00:00Z"))
                 .andExpect(jsonPath("$.data.items[1].status").value("succeeded"))
                 .andExpect(jsonPath("$.data.items[1].snapshot_status").value("available"))
                 .andExpect(jsonPath("$.data.items[1].result_count").value(1))
-                .andExpect(jsonPath("$.data.items[1].representative_result.search_result_id").value("9801"))
-                .andExpect(jsonPath("$.data.items[1].representative_result.scene_id").value("9301"))
-                .andExpect(jsonPath("$.data.items[1].representative_result.clip_id").value("9101"))
+                .andExpect(jsonPath("$.data.items[1].representative_result.search_result_id")
+                        .value("9801"))
+                .andExpect(jsonPath("$.data.items[1].representative_result.scene_id")
+                        .value("9301"))
+                .andExpect(jsonPath("$.data.items[1].representative_result.clip_id")
+                        .value("9101"))
                 .andExpect(jsonPath("$.data.items[1].representative_result.display_name")
                         .value("예시 뉴스 · 서울역"))
-                .andExpect(jsonPath("$.data.items[1].representative_result.rank").value(1))
+                .andExpect(
+                        jsonPath("$.data.items[1].representative_result.rank").value(1))
                 // 목록 항목에는 상세 전용 필드를 싣지 않는다.
                 .andExpect(jsonPath("$.data.items[1].search_snapshot").doesNotExist());
     }
@@ -107,7 +112,8 @@ class SearchHistoryHttpDbTest {
                 .andExpect(jsonPath("$.data.items[0].representative_result").value(Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.items[0].query_text").value("필터만 남은 질의"))
                 .andExpect(jsonPath("$.data.items[0].created_at").exists())
-                .andExpect(jsonPath("$.data.items[0].explicit_filters.broadcast_date.to").value("2026-09-15"));
+                .andExpect(jsonPath("$.data.items[0].explicit_filters.broadcast_date.to")
+                        .value("2026-09-15"));
     }
 
     @Test
@@ -144,10 +150,8 @@ class SearchHistoryHttpDbTest {
     void rejectsBadPaging() throws Exception {
         mockMvc.perform(get("/api/v1/search/history?size=101").with(user(OWNER)))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history?size=0").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history?page=-1").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?size=0").with(user(OWNER))).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?page=-1").with(user(OWNER))).andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/search/history?page=abc").with(user(OWNER)))
                 .andExpect(status().isBadRequest());
     }
@@ -160,10 +164,8 @@ class SearchHistoryHttpDbTest {
         mockMvc.perform(get("/api/v1/search/history?page=&size=").with(user(OWNER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMM_400"));
-        mockMvc.perform(get("/api/v1/search/history?page=").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history?size=").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?page=").with(user(OWNER))).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?size=").with(user(OWNER))).andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/search/history?page=%20").with(user(OWNER)))
                 .andExpect(status().isBadRequest());
     }
@@ -197,26 +199,34 @@ class SearchHistoryHttpDbTest {
                 .andExpect(jsonPath("$.data.snapshot_status").value("available"))
                 .andExpect(jsonPath("$.data.result_count").value(1))
                 // 상위와 일치하며 envelope 을 중첩하지 않는다.
-                .andExpect(jsonPath("$.data.search_snapshot.search_execution_id").value("9701"))
+                .andExpect(
+                        jsonPath("$.data.search_snapshot.search_execution_id").value("9701"))
                 .andExpect(jsonPath("$.data.search_snapshot.status").value("succeeded"))
                 .andExpect(jsonPath("$.data.search_snapshot.isSuccess").doesNotExist())
                 .andExpect(jsonPath("$.data.search_snapshot.degraded_reasons").isEmpty())
-                .andExpect(jsonPath("$.data.search_snapshot.query_resolution_status").value("resolved"))
-                .andExpect(jsonPath("$.data.search_snapshot.has_applied_review_rule").value(true))
+                .andExpect(jsonPath("$.data.search_snapshot.query_resolution_status")
+                        .value("resolved"))
+                .andExpect(jsonPath("$.data.search_snapshot.has_applied_review_rule")
+                        .value(true))
                 // verdicts 중 exclusion_reason 이 있는 1건만 센다.
-                .andExpect(jsonPath("$.data.search_snapshot.guard_summary.excluded_result_count").value(1))
+                .andExpect(jsonPath("$.data.search_snapshot.guard_summary.excluded_result_count")
+                        .value(1))
                 .andExpect(jsonPath("$.data.search_snapshot.guard_summary.reasons[0]")
                         .value("explicit_date_conflict"))
-                .andExpect(jsonPath("$.data.search_snapshot.shortage_reasons[0]")
-                        .value("candidate_pool_exhausted"))
+                .andExpect(
+                        jsonPath("$.data.search_snapshot.shortage_reasons[0]").value("candidate_pool_exhausted"))
                 .andExpect(jsonPath("$.data.search_snapshot.results.length()").value(1))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].search_result_id").value("9801"))
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].search_result_id")
+                        .value("9801"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].rank").value(1))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].scene_type").value("역사 인파"))
+                .andExpect(
+                        jsonPath("$.data.search_snapshot.results[0].scene_type").value("역사 인파"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].filmed_date.verification_status")
                         .value("unknown"))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0]").value("서울역"))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].match_evidence[0].field").value("ocr"));
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0]")
+                        .value("서울역"))
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].match_evidence[0].field")
+                        .value("ocr"));
     }
 
     @Test
@@ -270,10 +280,8 @@ class SearchHistoryHttpDbTest {
     @Transactional
     @DisplayName("경로 ID 가 0 이하면 400 으로 거부한다")
     void rejectsNonPositivePathId() throws Exception {
-        mockMvc.perform(get("/api/v1/search/history/0").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history/-1").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history/0").with(user(OWNER))).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history/-1").with(user(OWNER))).andExpect(status().isBadRequest());
     }
 
     @Test
@@ -421,7 +429,15 @@ class SearchHistoryHttpDbTest {
                 + " created_at, updated_at) VALUES (9301, 9101, 9201, 42000, 49000, 'b_roll', now(), now())");
 
         // 9701 — 결과 1건, 저장 온전. applied_rules_json 에 적용 기록이 있다.
-        execution(9701, 9001, "서울역 귀성 인파", "succeeded", "original", null, "2026-09-15T03:00:00Z", FILTERED,
+        execution(
+                9701,
+                9001,
+                "서울역 귀성 인파",
+                "succeeded",
+                "original",
+                null,
+                "2026-09-15T03:00:00Z",
+                FILTERED,
                 "[{\"rule_id\": 1, \"status\": \"applied\", \"applied_order\": 1}]");
         exec("INSERT INTO npick.search_result (search_result_id, search_execution_id, scene_id, result_rank,"
                 + " explain_json) VALUES (9801, 9701, 9301, 1, '{" + DISPLAY + ", " + MATCH + "}'::jsonb)");
@@ -430,9 +446,17 @@ class SearchHistoryHttpDbTest {
         execution(9702, 9001, "필터만 남은 질의", "succeeded", "original", null, "2026-09-15T04:00:00Z", null, "[]");
 
         // 9703 — 정상 완료 0건. 불완전과 구분되어야 한다.
-        execution(9703, 9001, "결과 없는 질의", "succeeded", "original", null, "2026-09-14T03:00:00Z",
+        execution(
+                9703,
+                9001,
+                "결과 없는 질의",
+                "succeeded",
+                "original",
+                null,
+                "2026-09-14T03:00:00Z",
                 "{\"returned_count\": 0, \"shortage_reasons\": [\"candidate_pool_exhausted\"],"
-                        + " \"guard\": {\"verdicts\": []}}", "[]");
+                        + " \"guard\": {\"verdicts\": []}}",
+                "[]");
 
         // 9704 — replay. 이 화면 대상이 아니다.
         exec("INSERT INTO npick.feedback (feedback_id, search_result_id, created_by_id, status,"
