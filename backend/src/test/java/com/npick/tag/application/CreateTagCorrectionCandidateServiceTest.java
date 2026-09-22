@@ -145,10 +145,10 @@ class CreateTagCorrectionCandidateServiceTest {
     }
 
     @Test
-    @DisplayName("태그·해석 교정이 아닌 판정(장면 제외 등)은 거부한다")
+    @DisplayName("교정류가 아닌 종결 판정(오류없음 등)은 거부한다")
     void rejectsNotTagCorrection() {
         when(tagContextPort.find(1L))
-                .thenReturn(Optional.of(new TagContext("REVIEWING", "exclude_scene", 9L, 300L, 100L)));
+                .thenReturn(Optional.of(new TagContext("REVIEWING", "no_action", 9L, 300L, 100L)));
         assertThatThrownBy(() -> service.create(command(
                         true,
                         9L,
@@ -159,10 +159,36 @@ class CreateTagCorrectionCandidateServiceTest {
     }
 
     @Test
-    @DisplayName("patch_parse(태그·해석 모두 잘못) 신고에서도 태그 변경안을 만든다 (F-09)")
+    @DisplayName("patch_parse(태그·해석 모두 잘못) 신고에서도 태그 변경안을 만든다 (F-09, 레거시 하위 호환)")
     void acceptsPatchParseResolution() {
         when(tagContextPort.find(1L))
                 .thenReturn(Optional.of(new TagContext("REVIEWING", "patch_parse", 9L, 300L, 100L)));
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+
+        List<Long> ids = service.create(command(
+                true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
+
+        assertThat(ids).containsExactly(5001L);
+    }
+
+    @Test
+    @DisplayName("통합 판정 correction 신고에서도 태그 변경안을 만든다 (S15P21A501-281)")
+    void acceptsUnifiedCorrectionResolution() {
+        when(tagContextPort.find(1L))
+                .thenReturn(Optional.of(new TagContext("REVIEWING", "correction", 9L, 300L, 100L)));
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+
+        List<Long> ids = service.create(command(
+                true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
+
+        assertThat(ids).containsExactly(5001L);
+    }
+
+    @Test
+    @DisplayName("장면 제외로 처리된 신고에서도 태그 변경안을 만든다 (레거시 하위 호환, S15P21A501-281)")
+    void acceptsExcludeSceneResolution() {
+        when(tagContextPort.find(1L))
+                .thenReturn(Optional.of(new TagContext("REVIEWING", "exclude_scene", 9L, 300L, 100L)));
         when(candidateRepository.addJudgment(any())).thenReturn(5001L);
 
         List<Long> ids = service.create(command(

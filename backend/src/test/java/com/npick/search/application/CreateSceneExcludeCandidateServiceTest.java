@@ -101,6 +101,21 @@ class CreateSceneExcludeCandidateServiceTest {
     }
 
     @Test
+    @DisplayName("통합 판정 correction 신고에서도 장면 제외 후보를 만든다 (S15P21A501-281)")
+    void acceptsUnifiedCorrectionResolution() {
+        when(excludeContextPort.find(1L))
+                .thenReturn(Optional.of(
+                        new ExcludeContext("REVIEWING", "correction", 9L, 300L, "fp-1", "제주 불꽃놀이", "{}", "v1")));
+        when(candidateRepository.findByTargetScene(1L, 300L)).thenReturn(Optional.empty());
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.of(777L));
+
+        ParseCandidateOutcome outcome = service.create(command(true, 9L, 300L));
+
+        assertThat(outcome.created()).isTrue();
+        assertThat(outcome.searchRuleId()).isEqualTo(777L);
+    }
+
+    @Test
     @DisplayName("장면 제외로 처리된 신고가 아니면 거부한다")
     void rejectsNotExcludeScene() {
         when(excludeContextPort.find(1L))
