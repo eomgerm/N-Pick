@@ -678,14 +678,17 @@ body는 생략하거나 다음처럼 보낸다.
 검수자 전용 `GET /clips`, `GET /clips/{id}`. 필드별 스키마는 서버 OpenAPI의 `ClipPageResponse`, `ClipSummaryResponse`, `ClipDetailResponse`, `ProcessingDetailsResponse`, `ProcessingProgressResponse`를 따른다.
 
 - 목록은 `page=0`, `size=20` 기본값이며 size는 1~100이다. `status=queued,running` 또는 반복 status 파라미터로 최신 run 상태를 OR 필터링한다. 허용값은 `queued/running/failed/succeeded/no_run`, 생략하면 전체다. `no_run`은 run이 없는 클립이다.
-- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. 한 페이지의 `items`에는 같은 `clip_id`가 중복되지 않는다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 필터·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
+- `mine=true`면 로그인한 검수자가 등록한 클립만 반환한다. 등록자는 세션에서 정하며 요청이 보낸 사용자 ID는 쓰지 않는다(§2.1). 생략·`false`면 전체다. `status`와 함께 쓸 수 있다.
+- `items[].registered_by`는 그 클립을 등록한 검수자다. 공개 범위는 `login_id` **하나뿐**이며 내부 식별자 `registered_by_id`는 어떤 응답에도 싣지 않는다. 계정이 조회되지 않으면 null이다. 상세 `GET /clips/{id}`의 `clip`에도 같은 필드가 붙는다.
+- `mine`은 권한 경계가 아니라 편의 필터다. 검수자는 `mine`을 빼면 다른 검수자가 등록한 클립까지 본다 — FRD §2의 역할 정책이 클립을 등록자별로 격리하지 않기 때문이다. 상세 `GET /clips/{id}`에는 이 필터가 없다.
+- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. 한 페이지의 `items`에는 같은 `clip_id`가 중복되지 않는다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 `status`·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 다만 `mine=true`면 `run_counts`도 그 검수자 범위로 좁아진다 — 화면의 상태별 건수 배지가 목록과 어긋나지 않게 하기 위해서다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
 - `items[].progress`는 해당 `latest_run`의 기록 요약이다. `current_stage`는 running 단계가 정확히 하나일 때 그 이름이며, 그 외에는 null이다. `total_steps/succeeded_steps/skipped_steps/failed_steps`는 저장된 단계 상태의 수이며 생략은 실패 수에 중복 포함하지 않는다. 필수 단계 생략으로 run 자체가 실패할 수 있다.
 - run이 없으면 progress는 null이다. 기록이 부분·미확인·지원하지 않는 버전이면 `record_status`로 구분하고 단계 수는 null이다. 이 값을 0%나 완료로 추정하지 않는다. 진행 수는 소요 시간 기반 백분율이 아니다.
 - `search_available`과 `active_pipeline_run_id`는 현재 검색 제공 결과, `latest_run`·`progress`·`processing_details`는 최신 처리 시도다. 논리 삭제를 제외하는 이 목록·상세 API에서 `search_available`은 `active_pipeline_run_id != null`과 동치다. 활성 처리 ID가 있으면 true, 없으면 false이며 최신 run 상태로 계산하지 않는다. 재처리 실패가 활성 결과를 무효화하지 않으며 검색 준비와 검수 완료는 별개다. 상세의 기본 대사 출처는 활성 결과 기준이다.
 - 처리 상세는 단계 상태·실패 사유·누락 채널·실제 채택 대사 출처를 반환한다. `automatic_retryable`은 승인된 다음 자동 시도가 대기 중인지 나타낸다. 수동 재처리 가능 여부 `retryable`은 저장된 판정이 없어 null이며 재처리 API에서 별도로 연결한다.
 - 잘못된 페이지는 `CLIP_QUERY_400`, 허용하지 않는 상태는 `CLIP_QUERY_400_001`, 없는/삭제된 클립은 `CLIP_QUERY_404`를 반환한다.
 
-FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문의 목록을 연결한다. 영상 탭은 `queued,running,failed,no_run`과 `succeeded`를 서버에서 필터링하고, `progressPage` URL로 10건 단위 페이지를 유지한다. 영상 요약은 필터·페이지와 무관한 `run_counts`, 문의 요약은 `statusCounts`를 사용한다. 상세에서 원본 영상은 §6.1 미디어 API로 재생한다. 등록 후에는 응답 ID로 상세를 다시 조회하며 로컬 처리·장면 데이터를 합성하지 않는다. 영상 목록은 전체 queued/running이 있으면, 상세는 해당 최신 run이 queued/running이면 5초마다 조회한다. 상세 응답의 `latest_run`이 null인 경우에도 `clip.created_at` 기준 등록 후 1분 동안은 5초마다 재조회한다. 그 이후에도 기록이 없으면 반복 조회를 멈추고 ‘상태 새로고침’으로 다시 확인하도록 안내한다. 완료·실패 및 조회 오류에서는 polling을 멈추며 사용자가 다시 조회할 수 있다.
+FE `/review?view=processing`은 위 목록·상세만 연결한다. 검수 중 문의는 §6.3의 문의 화면이 담당하며 이 화면에는 문의 탭이 없다. 상태 칩 4종은 서버의 다섯 상태를 접은 것으로 `clipStatus` URL 파라미터에 `processing`(=`queued,running`) · `attention`(=`failed,no_run`) · `done`(=`succeeded`)로 싣고, 전체는 파라미터를 생략한다. 「내 영상만 보기」는 `mine=true`이고, 칩·토글을 바꾸면 `progressPage`를 1로 되돌린다. 페이지네이션은 한 페이지뿐이어도 항상 표시하고 이동 가능 여부는 버튼 비활성으로 알린다(§6.3 문의 목록과 같은 규약). 칩 키가 `status`가 아닌 이유는 §6.3의 문의 목록이 같은 `/review` URL에서 `status`로 `open|reviewing|closed`를 쓰기 때문이다. 영상 등록 직후에는 `clipStatus`를 비워 새 영상이 목록에 남게 한다. 각 행에는 `registered_by.login_id`를 등록 시각 옆에 표시한다. 칩의 건수 배지는 `run_counts`를 같은 방식으로 접어 만든다. 상세에서 원본 영상은 §6.1 미디어 API로 재생한다. 등록 후에는 응답 ID로 상세를 다시 조회하며 로컬 처리·장면 데이터를 합성하지 않는다. 영상 목록은 전체 queued/running이 있으면, 상세는 해당 최신 run이 queued/running이면 5초마다 조회한다. 상세 응답의 `latest_run`이 null인 경우에도 `clip.created_at` 기준 등록 후 1분 동안은 5초마다 재조회한다. 그 이후에도 기록이 없으면 반복 조회를 멈추고 ‘상태 새로고침’으로 다시 확인하도록 안내한다. 완료·실패 및 조회 오류에서는 polling을 멈추며 사용자가 다시 조회할 수 있다.
 
 기존 처리 화면의 mock 기능 중 다음 항목은 BE 추가·확장이 필요하다. 아래는 필요한 기능과 최소 데이터이며, 새로운 경로·method는 아직 확정하지 않는다.
 
@@ -694,7 +697,7 @@ FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문�
 | 수동 재처리 | 검수자 전용 command와 가능 여부·불가 사유. 대상 clip/최신 run 사전조건, 중복 요청 멱등성, 진행 중·영구 실패 거절 규칙, 기존 active run 보존, 새 pipeline run ID·상태 반환. `automatic_retryable`과 구분 | 가짜 재처리 버튼 제거. 실제 자동 재시도 이력만 표시 |
 | 영상별 장면 목록 | 대상 clip과 run을 식별하는 페이지 조회. scene ID, 순서, 시작·종료 ms, 설명, 총 건수. active/latest run 중 어느 결과인지 명시 | 고정 장면 카드·장면 수 제거. 원본 영상 재생 제공 |
 | 장면 썸네일 | scene ID 기반 byte 조회와 인증·cache 정책. 서버 내부 파일 경로 비노출 | 관련 없는 데모 이미지 대신 일반 영상 아이콘 |
-| 영상 파일 메타데이터 | 기존 상세 응답에 공개 가능한 원본 파일명·용량·길이·방송일·촬영일을 필요에 따라 추가. nullable·단위 명시. 업로더 표시는 계정 공개 범위 결정 필요 | 서버가 제공하는 제목·유형·등록 시각 표시. 요청 메모리로 누락값을 채우지 않음 |
+| 영상 파일 메타데이터 | 기존 상세 응답에 공개 가능한 원본 파일명·용량·길이·방송일·촬영일을 필요에 따라 추가. nullable·단위 명시. **업로더 표시는 결정됨 — `registered_by.login_id`까지 공개하고 실명·내부 ID는 공개하지 않는다 (S15P21A501-266)** | 서버가 제공하는 제목·유형·등록 시각·등록자 표시. 요청 메모리로 누락값을 채우지 않음 |
 | 문의 행의 추가 정보 | 기존 목록에 의견 미리보기·담당 검수자 등 실제 저장 정보 확장. 문의자·주제 노출은 도메인/권한 정책 확정 필요 | 실제 queryText·scene·createdAt·hasComment 표시 |
 
 교정 흐름의 태그·해석·장면 제외 후보 생성과 최종 확정, 규칙 사용 중단은 §6.4에 공개 API가 정의되어 있다. 이를 신규 API 요구로 분류하지 않는다. 처리 화면의 문의 상세는 기존 실제 조회·claim·resolution 화면을 재사용하고 재검색 검증·확정 흐름까지 FE에 연결되어 있으며, 후보 생성 전용 편집 UI만 별도 작업으로 남아 있다.

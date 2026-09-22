@@ -33,6 +33,7 @@ import com.npick.member.application.command.login.RegisterRefreshUseCase;
 import com.npick.member.infrastructure.security.MemberUserDetailsService;
 import com.npick.member.presentation.AuthController;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -99,7 +100,7 @@ class ClipQuerySecurityTest {
     @Test
     void editorAndUnrelatedRoleCannotReadEitherEndpoint() throws Exception {
         MockHttpSession session = login("editor");
-        for (String path : List.of("/api/v1/clips", "/api/v1/clips/10")) {
+        for (String path : List.of("/api/v1/clips", "/api/v1/clips/10", "/api/v1/clips?mine=true")) {
             mvc.perform(get(path).session(session))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("COMM_403"));
@@ -110,11 +111,23 @@ class ClipQuerySecurityTest {
 
     @Test
     void loggedInReviewerReadsBothWithoutCsrfOnGet() throws Exception {
-        when(list.getClips(0, 20, List.of()))
+        when(list.getClips(0, 20, List.of(), null))
                 .thenReturn(new GetClipsResult(List.of(), 0, 20, 0, java.util.Map.of(), java.util.Map.of()));
         when(detail.getClip(10))
                 .thenReturn(new ClipQueryResult(
-                        10, null, "archive", null, Instant.EPOCH, Instant.EPOCH, "none", false, false, null, null));
+                        10,
+                        null,
+                        "archive",
+                        null,
+                        Instant.EPOCH,
+                        Instant.EPOCH,
+                        "none",
+                        false,
+                        false,
+                        7,
+                        new com.npick.member.application.query.MemberSummary(7, "reviewer"),
+                        null,
+                        null));
         MockHttpSession session = login("reviewer");
         mvc.perform(get("/api/v1/clips").session(session))
                 .andExpect(status().isOk())
@@ -122,6 +135,30 @@ class ClipQuerySecurityTest {
         mvc.perform(get("/api/v1/clips/10").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.clip.clip_id").value("10"));
+    }
+
+    @Test
+    void mineFilterUsesTheReviewerIdFromTheSession() throws Exception {
+        when(list.getClips(0, 20, List.of(), 7L))
+                .thenReturn(new GetClipsResult(List.of(), 0, 20, 0, java.util.Map.of(), java.util.Map.of()));
+        MockHttpSession session = login("reviewer");
+
+        mvc.perform(get("/api/v1/clips?mine=true").session(session)).andExpect(status().isOk());
+
+        verify(list).getClips(0, 20, List.of(), 7L);
+    }
+
+    @Test
+    void clientSuppliedOwnerIdsAreIgnored() throws Exception {
+        when(list.getClips(0, 20, List.of(), 7L))
+                .thenReturn(new GetClipsResult(List.of(), 0, 20, 0, java.util.Map.of(), java.util.Map.of()));
+        MockHttpSession session = login("reviewer");
+
+        mvc.perform(get("/api/v1/clips?mine=true&registeredById=9&registered_by_id=9")
+                        .session(session))
+                .andExpect(status().isOk());
+
+        verify(list).getClips(0, 20, List.of(), 7L);
     }
 
     private MockHttpSession login(String username) throws Exception {

@@ -107,3 +107,44 @@ const transcriptLabels: Record<string, string> = {
 export function processingTranscriptLabel(value: string | null) {
   return value === null ? '미확인' : (transcriptLabels[value] ?? '상세 사유를 확인할 수 없습니다.');
 }
+
+/** 목록 칩. 서버가 아는 다섯 상태(`ClipQueryController` status 파라미터)를 네 묶음으로 접는다. */
+export const CLIP_FILTERS = [
+  { value: 'all', label: '전체', statuses: [] },
+  { value: 'processing', label: '처리 중', statuses: ['queued', 'running'] },
+  { value: 'attention', label: '확인 필요', statuses: ['failed', 'no_run'] },
+  { value: 'done', label: '처리 완료', statuses: ['succeeded'] },
+] as const;
+
+export type ClipFilter = (typeof CLIP_FILTERS)[number]['value'];
+type ClipRunCounts = Record<ClipRunStatus | 'no_run', number>;
+
+export function clipFilterCounts(runCounts: ClipRunCounts): Record<ClipFilter, number> {
+  const total = Object.values(runCounts).reduce((sum, count) => sum + count, 0);
+  return Object.fromEntries(
+    CLIP_FILTERS.map(({ value, statuses }) => [
+      value,
+      statuses.length === 0
+        ? total
+        : statuses.reduce((sum, status) => sum + runCounts[status], 0),
+    ]),
+  ) as Record<ClipFilter, number>;
+}
+
+export function clipFilterStatuses(filter: ClipFilter): string[] {
+  return [...(CLIP_FILTERS.find((item) => item.value === filter)?.statuses ?? [])];
+}
+
+export function selectClipFilter(raw: string | null): ClipFilter {
+  return CLIP_FILTERS.some((item) => item.value === raw) ? (raw as ClipFilter) : 'all';
+}
+
+/**
+ * 칩을 바꾸면 걸러진 목록의 페이지 수가 달라지므로 페이지를 처음으로 되돌린다.
+ *
+ * 키는 `clipStatus` 다. 문의 화면이 같은 URL 에서 `status` 로 open/reviewing/closed 를 쓰므로
+ * 어휘가 겹치지 않도록 분리한다.
+ */
+export function clipFilterUpdates(filter: ClipFilter): Record<string, string | null> {
+  return { clipStatus: filter === 'all' ? null : filter, progressPage: null };
+}
