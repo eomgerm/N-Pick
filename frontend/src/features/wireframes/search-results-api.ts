@@ -116,3 +116,43 @@ export function presentSearchResponse(response: SearchResponse): {
           },
   };
 }
+
+// 더보기로 이어 붙인 페이지들의 실행 상태는 하나로 합친다. 첫 페이지만 보면 이후 페이지에서 생긴
+// 열화(snapshot 저장 실패·resolver fallback·dense 장애)가 화면에서 사라진다 (S15P21A501-251 리뷰).
+// 한 페이지라도 열화면 전체를 열화로 보고, 사유는 합집합·검수 규칙 적용은 논리합으로 센다.
+export function mergeSearchExecutions(
+  executions: readonly SearchExecutionPresentation[],
+): SearchExecutionPresentation {
+  const reasons = new Set<DegradedReason>();
+  let hasAppliedReviewRule = false;
+  for (const execution of executions) {
+    for (const reason of execution.degradedReasons) reasons.add(reason);
+    if (execution.hasAppliedReviewRule) hasAppliedReviewRule = true;
+  }
+  if (reasons.size === 0) {
+    return { status: 'succeeded', degradedReasons: [], hasAppliedReviewRule };
+  }
+  return {
+    status: 'degraded',
+    degradedReasons: [...reasons] as [DegradedReason, ...DegradedReason[]],
+    hasAppliedReviewRule,
+  };
+}
+
+// 상세도 페이지별로 다르다. resolver 는 한 페이지라도 fallback 이면 fallback, 제외 수는 지금까지
+// 불러온 페이지 몫의 합, 제외 사유는 순서를 지키며 합집합으로 모은다.
+export function mergeSearchResultDetails(
+  details: readonly SearchResultDetails[],
+): SearchResultDetails {
+  const exclusionReasons: string[] = [];
+  let excludedCount = 0;
+  let resolverStatus: SearchResultDetails['resolverStatus'] = 'succeeded';
+  for (const detail of details) {
+    if (detail.resolverStatus === 'fallback') resolverStatus = 'fallback';
+    excludedCount += detail.excludedCount ?? 0;
+    for (const reason of detail.exclusionReasons ?? []) {
+      if (!exclusionReasons.includes(reason)) exclusionReasons.push(reason);
+    }
+  }
+  return { resolverStatus, excludedCount, exclusionReasons };
+}

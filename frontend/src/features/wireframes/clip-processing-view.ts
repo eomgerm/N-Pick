@@ -124,9 +124,7 @@ export function clipFilterCounts(runCounts: ClipRunCounts): Record<ClipFilter, n
   return Object.fromEntries(
     CLIP_FILTERS.map(({ value, statuses }) => [
       value,
-      statuses.length === 0
-        ? total
-        : statuses.reduce((sum, status) => sum + runCounts[status], 0),
+      statuses.length === 0 ? total : statuses.reduce((sum, status) => sum + runCounts[status], 0),
     ]),
   ) as Record<ClipFilter, number>;
 }

@@ -11,19 +11,31 @@ import com.npick.search.domain.model.QueryResolution;
 /**
  * 검색 한 번의 입력.
  *
- * <p>이전 검색이나 대화를 이어받지 않는다 (F-05 1항). 그래서 세션·이전 실행 식별자를 받지 않는다 — 받을 자리가 있으면 언젠가 캐시로 쓰이고, §7.2 가 그것을 금지한다.
+ * <p>이전 검색이나 대화를 <b>몰래</b> 이어받지 않는다 (F-05 1항). 세션·이전 실행 식별자를 받지 않는다 — 받을 자리가 있으면 언젠가 해석 캐시로 쓰이고, §7.2 가 그것을 금지한다.
+ *
+ * <p>{@code page} 는 그 금지의 예외가 아니다. 실행 식별자가 아니라 <b>같은 질의의 결과 구간</b>을 가리키는 0-based 정수이고, 더보기는 매 페이지 해석을 처음부터 다시 계산한다 (과거 결과나 해석을
+ * 참조하지 않는다). 따라서 §1 의 「몰래 이어받기」·§7.2 의 「해석 캐시」 어느 것도 성립하지 않는다 (S15P21A501-251).
  *
  * <p><b>날짜를 domain VO 가 아니라 날짜 네 개로 받는다.</b> presentation 이 domain 을 알지 못하게 하면서 (설계 정본 §4) 같은 검증을 표현 계층에 복제하지 않기 위해서다.
  * 범위 검증({@code SRCH_400_003}·{@code SRCH_400_004})은 {@link #explicitFilters()} 가 domain 으로 옮길 때 한 번만 일어난다.
  *
  * @param rawQuery 사용자가 친 그대로. 정규화본이 아니다 — 리졸버가 원문을 봐야 anchor 의 span 을 짚을 수 있다
  * @param dateFilters 화면에서 직접 건 날짜. AI 해석과 승인 규칙보다 강하다 (F-05 4항)
+ * @param page 0-based 결과 페이지. 같은 질의의 다음 10개를 보는 더보기용이며, 지정하지 않으면 첫 페이지다
  */
-public record ExecuteSearchQuery(String rawQuery, DateFilters dateFilters, long memberId) {
+public record ExecuteSearchQuery(String rawQuery, DateFilters dateFilters, long memberId, int page) {
 
     public ExecuteSearchQuery {
         Objects.requireNonNull(rawQuery, "rawQuery");
         Objects.requireNonNull(dateFilters, "dateFilters");
+        if (page < 0) {
+            throw new IllegalArgumentException("page 는 0 이상이어야 한다: " + page);
+        }
+    }
+
+    /** 페이지를 지정하지 않는 호출(검증 검색 등 더보기가 없는 경로)은 첫 페이지다. */
+    public ExecuteSearchQuery(String rawQuery, DateFilters dateFilters, long memberId) {
+        this(rawQuery, dateFilters, memberId, 0);
     }
 
     /**

@@ -226,8 +226,11 @@ FE URL 상태와 wire 요청의 대응:
 | `q`                            | `query`                                       |
 | `broadcastFrom`, `broadcastTo` | `explicit_filters.broadcast_date.from`, `.to` |
 | `filmingFrom`, `filmingTo`     | `explicit_filters.filmed_date.from`, `.to`    |
+| (더보기)                       | `page` (0-based, 생략 시 첫 페이지)            |
 
 선택하지 않은 날짜 종류는 key 자체를 생략한다. `from`과 `to`는 모두 포함되는 날짜다.
+
+`page`는 결과 더보기용 0-based 페이지 번호다. 첫 페이지 요청은 `page`를 생략하고(서버가 0으로 본다), 더보기가 다음 페이지를 요청할 때만 싣는다. 한 페이지는 최대 10개이며, 응답의 `has_next`가 참이면 다음 페이지가 있다(F-05 §6). 페이지마다 새 실행이며 결과 구간만 다르다 — 실행·세션 식별자가 아니라 결과 순번이므로 §7.2의 해석 캐시에 해당하지 않는다.
 
 ```json
 {
@@ -259,6 +262,7 @@ FE URL 상태와 wire 요청의 대응:
       "reasons": []
     },
     "shortage_reasons": ["candidate_pool_exhausted"],
+    "has_next": false,
     "results": [
       {
         "search_result_id": "398021847361025",
@@ -317,6 +321,7 @@ FE URL 상태와 wire 요청의 대응:
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
 - `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
 - 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
+- `has_next`는 다음 페이지(더보기)가 있는지를 나타내는 boolean이다. 실시간 검색 응답에만 있고, 과거 기록 복원용 `search_snapshot`(§6.7)에는 없다 — 더보기는 실시간 검색 전용이므로 FE는 스냅샷에서 `has_next`를 항상 거짓으로 본다. `has_next`가 참이면 남은 유효(비제외) 후보가 한 페이지 몫을 넘어 더 있다는 뜻이다.
 - 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.8, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
 
 ### 5.2 오류 경계

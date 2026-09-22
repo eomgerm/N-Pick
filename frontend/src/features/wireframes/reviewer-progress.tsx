@@ -113,7 +113,8 @@ export function ReviewerProgress({
     if (isNavigating) return;
     let next: number;
     if (event.key === 'ArrowRight') next = (index + 1) % CLIP_FILTERS.length;
-    else if (event.key === 'ArrowLeft') next = (index - 1 + CLIP_FILTERS.length) % CLIP_FILTERS.length;
+    else if (event.key === 'ArrowLeft')
+      next = (index - 1 + CLIP_FILTERS.length) % CLIP_FILTERS.length;
     else if (event.key === 'Home') next = 0;
     else if (event.key === 'End') next = CLIP_FILTERS.length - 1;
     else return;
