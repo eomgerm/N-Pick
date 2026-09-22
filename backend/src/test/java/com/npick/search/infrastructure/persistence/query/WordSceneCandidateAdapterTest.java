@@ -260,6 +260,31 @@ class WordSceneCandidateAdapterTest {
     }
 
     /**
+     * 구에 쓸 수 없는 토큰이 하나라도 있으면 <b>그 구를 통째로 버린다</b> — 남은 토큰으로 계속 걸지 않는다.
+     *
+     * <p>토큰만 빼면 「중국 음식」이 {@code 중국} 단독 매칭이 되어 이 티켓이 없애려던 넓은 매칭이 되살아난다. 장면 60 은 '중국' 만 가진 장면이고, 그것이 후보로 올라오는 것이 바로 그
+     * 결함이다.
+     */
+    @Test
+    void dropsWholePhraseWhenOneTokenIsUnusable() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음 식")))))
+                .as("'음 식' 이 못 쓰는 토큰이라고 '중국' 단독으로 걸면 안 된다")
+                .isEmpty();
+        assertThat(sceneIds(
+                        adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(java.util.Arrays.asList("중국", null)))))
+                .as("빈 토큰도 같다")
+                .isEmpty();
+    }
+
+    /** 버려지는 것은 그 구 하나뿐이다. 구 사이는 OR 이므로 다른 구는 영향받지 않는다. */
+    @Test
+    void droppingOnePhraseLeavesTheOthers() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음 식"), List.of("불")));
+
+        assertThat(sceneIds(candidates)).containsExactly(63L);
+    }
+
+    /**
      * 확장어 목록이 비어도 원 질의 토큰 검색은 그대로 돈다 (S15P21A501-48 계약 9).
      *
      * <p>쓸 수 없는 확장어가 섞여 있어도 마찬가지다. 확장어는 보조 신호이고, 한 건 때문에 검색을 끊으면 원 질의로 충분히 찾을 수 있던 결과까지 잃는다. 원 질의 토큰은 반대로 규약 위반이면 거부한다

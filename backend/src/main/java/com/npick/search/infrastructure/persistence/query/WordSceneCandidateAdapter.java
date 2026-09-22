@@ -1,6 +1,5 @@
 package com.npick.search.infrastructure.persistence.query;
 
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -151,37 +150,47 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
      * 조회에 쓸 수 있는 확장어 구만 남긴다 — 빈 구와 같은 구의 중복을 뺀다.
      *
      * <p><b>여기서는 던지지 않는다</b> (S15P21A501-48 계약 9 「확장어 부재·토큰화 실패는 degraded 가 아니다」). 확장어는 보조 신호이고, 한 건이 이상하다고 원 질의 검색까지
-     * 끊으면 원 질의로 충분히 찾을 수 있던 결과까지 잃는다. 쓸 수 없는 토큰은 사유를 로그에만 남기고 버린다. 원 질의 토큰은 반대다 — 그쪽은 우리 토크나이저가 만든 값이라 규약 위반이면
-     * {@link #joinTokens} 가 거부한다.
+     * 끊으면 원 질의로 충분히 찾을 수 있던 결과까지 잃는다. 원 질의 토큰은 반대다 — 그쪽은 우리 토크나이저가 만든 값이라 규약 위반이면 {@link #joinTokens} 가 거부한다.
      *
      * <p>같은 구의 중복을 빼는 이유는 한 구가 두 절에서 가산되면 F-05 의 「같은 개체를 중복 계산하지 않는다」를 깨기 때문이다.
      */
     private static List<List<String>> usablePhrases(List<List<String>> expandedPhrases) {
         Set<List<String>> phrases = new LinkedHashSet<>();
         for (List<String> phrase : expandedPhrases) {
-            if (phrase == null) {
-                log.warn("확장어 구가 비어 있다. 그 구 없이 검색을 이어간다");
-                continue;
-            }
-            List<String> cleaned = List.copyOf(new LinkedHashSet<>(usableTokens(phrase)));
-            if (!cleaned.isEmpty()) phrases.add(cleaned);
+            List<String> usable = usablePhrase(phrase);
+            if (usable != null && !usable.isEmpty()) phrases.add(usable);
         }
         return List.copyOf(phrases);
     }
 
-    /** 확장어 토큰 거르기. 색인에 질의할 수 없는 값은 검색을 끊지 않고 버린다 (계약 9). */
-    private static List<String> usableTokens(List<String> tokens) {
-        List<String> usable = new ArrayList<>();
-        for (String token : tokens) {
-            if (token == null || token.isBlank()) continue;
+    /**
+     * 구 하나를 검사한다. 쓸 수 없는 토큰이 하나라도 있으면 <b>그 구를 통째로 버린다</b>.
+     *
+     * <p>토큰만 빼고 남은 것으로 {@code must} 를 걸면 구가 그만큼 헐거워진다 — 「중국 음식」에서 한쪽이 빠지면 {@code 중국} 단독 매칭이 되어 이 티켓이 없애려던 넓은 매칭이 그대로
+     * 되살아난다. 확장어 하나를 통째로 잃는 비용보다 헐거워진 구가 무관한 후보를 끌어오는 비용이 크다. 문서빈도 컷을 뺀 것과 같은 판단이며 (S15P21A501-302), 출처가 「흔한 토큰」이 아니라
+     * 「쓸 수 없는 토큰」일 뿐이다.
+     *
+     * @return 쓸 수 있는 토큰 목록(중복 제거). 구를 버려야 하면 {@code null}
+     */
+    private static List<String> usablePhrase(List<String> phrase) {
+        if (phrase == null) {
+            log.warn("확장어 구가 null 이다. 그 구 없이 검색을 이어간다");
+            return null;
+        }
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String token : phrase) {
+            if (token == null || token.isBlank()) {
+                log.warn("확장어 구에 빈 토큰이 있다. 그 구 없이 검색을 이어간다");
+                return null;
+            }
             if (token.codePoints().anyMatch(Character::isWhitespace)) {
                 // 공백이 있으면 DB 에서 두 토큰으로 쪼개져 구의 의미가 조용히 달라진다.
-                log.warn("확장어 토큰에 공백이 있다. 그 토큰 없이 검색을 이어간다");
-                continue;
+                log.warn("확장어 구에 공백이 든 토큰이 있다. 그 구 없이 검색을 이어간다");
+                return null;
             }
-            usable.add(token);
+            tokens.add(token);
         }
-        return usable;
+        return List.copyOf(tokens);
     }
 
     /** 구마다 캡션 {@code must} 절과 대사 {@code must} 절을 하나씩 만든다. 구가 없으면 확장어 절 자체가 없다. */
