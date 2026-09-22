@@ -9,18 +9,24 @@
  "minConfidence": 0.7,
  "misreadFloor": 0.34,
  "frames": 23,
- "elapsedSeconds": 15.14,
- "msPerFrame": 658,
+ "elapsedSeconds": 10.78,
+ "msPerFrame": 469,
  "summary": {
   "legible": 37,
   "exact": 16,
   "misread": 13,
   "miss": 8,
-  "silentMisread": 12,
+  "unflaggedMisread": 12,
+  "unsearchable": 0,
+  "reachable": 21,
+  "lost": 16,
+  "strayTokens": 33,
   "hallucination": 1,
   "unmatched": 10,
   "observations": 44,
   "exactRate": 0.4324,
+  "searchable": 37,
+  "reachRate": 0.5676,
   "cer": 0.4623,
   "cerMatched": 0.2452
  },
@@ -33,7 +39,20 @@
    "confidence": 0.911,
    "unverified": false,
    "similarity": 0.818,
-   "cer": 0.182
+   "cer": 0.182,
+   "reach": "reachable",
+   "goldTokens": [
+    "올림픽",
+    "g",
+    "1",
+    "페스티벌"
+   ],
+   "observedTokens": [
+    "립픽",
+    "g",
+    "1",
+    "페스티벌"
+   ]
   },
   {
    "frame": "s0000/kf-000011933",
@@ -43,7 +62,14 @@
    "confidence": 0.8861,
    "unverified": false,
    "similarity": 0.857,
-   "cer": 0.333
+   "cer": 0.333,
+   "reach": "lost",
+   "goldTokens": [
+    "kbs"
+   ],
+   "observedTokens": [
+    "kbsk"
+   ]
   },
   {
    "frame": "s0000/kf-000011933",
@@ -53,7 +79,19 @@
    "confidence": 0.7849,
    "unverified": false,
    "similarity": 0.818,
-   "cer": 0.182
+   "cer": 0.182,
+   "reach": "reachable",
+   "goldTokens": [
+    "올림픽",
+    "g",
+    "1",
+    "페스티벌"
+   ],
+   "observedTokens": [
+    "림픽",
+    "g",
+    "1년페스티벨"
+   ]
   },
   {
    "frame": "s0000/kf-000019867",
@@ -63,7 +101,15 @@
    "confidence": 0.8791,
    "unverified": false,
    "similarity": 0.571,
-   "cer": 0.875
+   "cer": 0.875,
+   "reach": "lost",
+   "goldTokens": [
+    "biathlon"
+   ],
+   "observedTokens": [
+    "bicthion",
+    "바이애슬론"
+   ]
   },
   {
    "frame": "s0000/kf-000019867",
@@ -73,7 +119,12 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "바이애슬론"
+   ],
+   "observedTokens": []
   },
   {
    "frame": "s0000/kf-000027633",
@@ -83,7 +134,12 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "컬링"
+   ],
+   "observedTokens": []
   },
   {
    "frame": "s0000/kf-000027633",
@@ -93,7 +149,15 @@
    "confidence": 0.9227,
    "unverified": false,
    "similarity": 0.8,
-   "cer": 0.429
+   "cer": 0.429,
+   "reach": "lost",
+   "goldTokens": [
+    "curling"
+   ],
+   "observedTokens": [
+    "컬링",
+    "curing"
+   ]
   },
   {
    "frame": "s0000/kf-000027633",
@@ -103,7 +167,16 @@
    "confidence": 0.5048,
    "unverified": true,
    "similarity": 0.364,
-   "cer": 0.714
+   "cer": 0.714,
+   "reach": "lost",
+   "goldTokens": [
+    "홍보",
+    "영상",
+    "상영관"
+   ],
+   "observedTokens": [
+    "보행"
+   ]
   },
   {
    "frame": "s0000/kf-000027633",
@@ -113,7 +186,15 @@
    "confidence": 0.8386,
    "unverified": false,
    "similarity": 0.857,
-   "cer": 0.25
+   "cer": 0.25,
+   "reach": "lost",
+   "goldTokens": [
+    "경기",
+    "종목"
+   ],
+   "observedTokens": [
+    "경기종"
+   ]
   },
   {
    "frame": "s0000/kf-000027633",
@@ -123,7 +204,15 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "대한",
+    "장애인",
+    "컬링",
+    "협회"
+   ],
+   "observedTokens": []
   },
   {
    "frame": "s0000/kf-000027633",
@@ -133,7 +222,15 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "대한",
+    "컬링",
+    "경기",
+    "연맹"
+   ],
+   "observedTokens": []
   },
   {
    "frame": "s0000/kf-000027633",
@@ -143,7 +240,21 @@
    "confidence": 0.7724,
    "unverified": false,
    "similarity": 0.348,
-   "cer": 0.789
+   "cer": 0.789,
+   "reach": "reachable",
+   "goldTokens": [
+    "2018",
+    "평창",
+    "동계",
+    "올림픽",
+    "g",
+    "1",
+    "페스티벌"
+   ],
+   "observedTokens": [
+    "20",
+    "g"
+   ]
   },
   {
    "frame": "s0005/kf-000056967",
@@ -153,7 +264,14 @@
    "confidence": 0.9655,
    "unverified": false,
    "similarity": 0.933,
-   "cer": 0.125
+   "cer": 0.125,
+   "reach": "lost",
+   "goldTokens": [
+    "acelites"
+   ],
+   "observedTokens": [
+    "celites"
+   ]
   },
   {
    "frame": "s0005/kf-000058133",
@@ -163,7 +281,14 @@
    "confidence": 0.7882,
    "unverified": false,
    "similarity": 0.667,
-   "cer": 0.5
+   "cer": 0.5,
+   "reach": "lost",
+   "goldTokens": [
+    "acelites"
+   ],
+   "observedTokens": [
+    "elit"
+   ]
   },
   {
    "frame": "s0008/kf-000071833",
@@ -173,7 +298,13 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "gangwon",
+    "province"
+   ],
+   "observedTokens": []
   },
   {
    "frame": "s0008/kf-000072600",
@@ -183,7 +314,13 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "gangwon",
+    "province"
+   ],
+   "observedTokens": []
   },
   {
    "frame": "s0009/kf-000073833",
@@ -193,7 +330,18 @@
    "confidence": 0.7886,
    "unverified": false,
    "similarity": 0.811,
-   "cer": 0.211
+   "cer": 0.211,
+   "reach": "reachable",
+   "goldTokens": [
+    "best",
+    "product",
+    "pavilion"
+   ],
+   "observedTokens": [
+    "best",
+    "probuct",
+    "pavliet"
+   ]
   },
   {
    "frame": "s0009/kf-000073833",
@@ -203,7 +351,16 @@
    "confidence": 0.9831,
    "unverified": false,
    "similarity": 0.9,
-   "cer": 0.182
+   "cer": 0.182,
+   "reach": "reachable",
+   "goldTokens": [
+    "beauty",
+    "style"
+   ],
+   "observedTokens": [
+    "beauty",
+    "sty"
+   ]
   },
   {
    "frame": "s0009/kf-000075067",
@@ -213,7 +370,16 @@
    "confidence": 0.9182,
    "unverified": false,
    "similarity": 0.714,
-   "cer": 0.444
+   "cer": 0.444,
+   "reach": "lost",
+   "goldTokens": [
+    "life",
+    "style"
+   ],
+   "observedTokens": [
+    "fe",
+    "sty"
+   ]
   },
   {
    "frame": "s0009/kf-000075067",
@@ -223,7 +389,13 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "beauty",
+    "style"
+   ],
+   "observedTokens": []
   },
   {
    "frame": "s0009/kf-000075067",
@@ -233,8 +405,48 @@
    "confidence": null,
    "unverified": null,
    "similarity": 0.0,
-   "cer": 1.0
+   "cer": 1.0,
+   "reach": "lost",
+   "goldTokens": [
+    "best",
+    "product",
+    "pavilion"
+   ],
+   "observedTokens": []
   }
+ ],
+ "strayTokens": [
+  "1년페스티벨",
+  "20",
+  "4",
+  "8",
+  "bicthion",
+  "celites",
+  "curing",
+  "deca",
+  "elit",
+  "fe",
+  "fee",
+  "ifestle",
+  "kbsk",
+  "paidt",
+  "palie",
+  "pavliet",
+  "probuct",
+  "rg",
+  "sty",
+  "x",
+  "견",
+  "경기종",
+  "림픽",
+  "립픽",
+  "보행",
+  "볼거리",
+  "분",
+  "얼량",
+  "우수상동관",
+  "은여리",
+  "있"
  ],
  "hallucinations": [
   {
@@ -249,11 +461,17 @@
    "exact": 16,
    "misread": 13,
    "miss": 8,
-   "silentMisread": 12,
+   "unflaggedMisread": 12,
+   "unsearchable": 0,
+   "reachable": 21,
+   "lost": 16,
+   "strayTokens": 33,
    "hallucination": 1,
    "unmatched": 10,
    "observations": 44,
    "exactRate": 0.4324,
+   "searchable": 37,
+   "reachRate": 0.5676,
    "cer": 0.4623,
    "cerMatched": 0.2452
   },
@@ -262,11 +480,17 @@
    "exact": 16,
    "misread": 13,
    "miss": 8,
-   "silentMisread": 12,
+   "unflaggedMisread": 12,
+   "unsearchable": 0,
+   "reachable": 21,
+   "lost": 16,
+   "strayTokens": 33,
    "hallucination": 1,
    "unmatched": 10,
    "observations": 44,
    "exactRate": 0.4324,
+   "searchable": 37,
+   "reachRate": 0.5676,
    "cer": 0.4623,
    "cerMatched": 0.2452
   },
@@ -275,11 +499,17 @@
    "exact": 16,
    "misread": 13,
    "miss": 8,
-   "silentMisread": 12,
+   "unflaggedMisread": 12,
+   "unsearchable": 0,
+   "reachable": 21,
+   "lost": 16,
+   "strayTokens": 33,
    "hallucination": 1,
    "unmatched": 10,
    "observations": 44,
    "exactRate": 0.4324,
+   "searchable": 37,
+   "reachRate": 0.5676,
    "cer": 0.4623,
    "cerMatched": 0.2452
   },
@@ -288,11 +518,17 @@
    "exact": 16,
    "misread": 11,
    "miss": 10,
-   "silentMisread": 11,
+   "unflaggedMisread": 11,
+   "unsearchable": 0,
+   "reachable": 20,
+   "lost": 17,
+   "strayTokens": 33,
    "hallucination": 1,
    "unmatched": 12,
    "observations": 44,
    "exactRate": 0.4324,
+   "searchable": 37,
+   "reachRate": 0.5405,
    "cer": 0.4829,
    "cerMatched": 0.1703
   },
@@ -301,11 +537,17 @@
    "exact": 16,
    "misread": 11,
    "miss": 10,
-   "silentMisread": 11,
+   "unflaggedMisread": 11,
+   "unsearchable": 0,
+   "reachable": 20,
+   "lost": 17,
+   "strayTokens": 33,
    "hallucination": 1,
    "unmatched": 12,
    "observations": 44,
    "exactRate": 0.4324,
+   "searchable": 37,
+   "reachRate": 0.5405,
    "cer": 0.4829,
    "cerMatched": 0.1703
   },
@@ -314,11 +556,17 @@
    "exact": 16,
    "misread": 10,
    "miss": 11,
-   "silentMisread": 10,
+   "unflaggedMisread": 10,
+   "unsearchable": 0,
+   "reachable": 20,
+   "lost": 17,
+   "strayTokens": 33,
    "hallucination": 1,
    "unmatched": 13,
    "observations": 44,
    "exactRate": 0.4324,
+   "searchable": 37,
+   "reachRate": 0.5405,
    "cer": 0.4863,
    "cerMatched": 0.1379
   }
@@ -327,6 +575,18 @@
   {
    "id": "S15P21A501-260-honeyrice",
    "status": "frame-missing"
+  },
+  {
+   "id": "S15P21A501-260-tree",
+   "status": "not-in-run"
+  },
+  {
+   "id": "S15P21A501-260-bill",
+   "status": "not-in-run"
+  },
+  {
+   "id": "S15P21A501-260-button",
+   "status": "not-in-run"
   }
  ]
 }

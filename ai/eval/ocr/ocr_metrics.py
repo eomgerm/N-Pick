@@ -10,17 +10,34 @@ venv 의 pytest 로 검증된다(`tests/test_ocr_eval_metrics.py`). `eval/query_
 수치다. 그 세는 방식에서는 `올림픽 G-1년 페스티벌` → `-립픽G-1년페스티벌` 이 정답 쪽에
 들어간다. 사람 눈에는 읽어 낸 것이 맞다.
 
-**검색에는 아니다.** `ocr_observation.tokens` 는 이 원문을 Kiwi 로 자른 결과이고
-(`docs/ocr.md` §6), 한 글자가 어긋나면 그 문구로 들어온 질의는 **0 건**이 된다. 티켓
-S15P21A501-260 의 제약 "검색 근거로 OCR 토큰이 쓰이므로 품질이 검색에 영향" 이 가리키는
-것이 이 자리다. QA 가 보고한 `꿀꺽` → `꿀찍` 도 검출·인식은 성공했고 글자만 틀린 사례다.
+**검색에는 아니다.** 그래서 이 모듈은 문구 하나의 결과를 셋으로 가른다.
 
-그래서 이 모듈은 문구 하나의 결과를 셋으로 가른다.
-
-- `exact` — 비교값이 같다. **이것만 검색으로 이어진다.**
-- `misread` — 그 문구를 읽기는 했는데 글자가 다르다. 재현율은 이걸 정답으로 세고
-  검색은 놓친다. 이 티켓이 보는 실패다.
+- `exact` — 비교값이 같다.
+- `misread` — 그 문구를 읽기는 했는데 글자가 다르다. 재현율은 이걸 정답으로 센다.
 - `miss` — 그 문구에 대응하는 관측이 없다.
+
+## 그러나 `exact` 는 검색 성공률이 아니다
+
+**이 모듈의 초판은 "정확일치만 검색으로 이어진다" 로 적었고 그것은 틀렸다.** 검색이
+맞대는 것은 원문이 아니라 **토큰**이다. 색인 쪽은 `korean_tokens.index_tokens` 가
+만들고(`npick_worker/ocr/postprocess.py`), 질의 쪽도 같은 함수를 거치며, BE 는 그
+토큰 집합으로 조회한다(`WordSceneCandidateAdapter` 의 `paradedb.term_set('tokens', …)`).
+그래서 글자가 틀려도 토큰이 겹치면 검색은 된다.
+
+| 라벨 → 관측 | 토큰 | 검색 |
+| --- | --- | --- |
+| `지폐를 넣고` → `지패를 넣고` | `(지폐, 넣)` → `(지패, 넣)` | `넣` 이 겹친다 |
+| `버튼을 꾹 누르면` → `버른을 록누르면` | `(버튼, 누르)` → `(버른, 록, 누르)` | `누르` 가 겹친다 |
+| `트리가 반짝반짝!` → `트리가 반적반데!` | `(트리,)` → `(트리가, 반적반)` | 겹치지 않는다 |
+| `꿀꺽` → `꿀찍` | `()` → `(꿀,)` | **라벨 쪽이 비어 있다** |
+
+네 줄 모두 판정은 `misread` 다. 그런데 검색 결과는 셋으로 갈린다.
+
+마지막 줄이 이 티켓의 대표 사례다. `꿀꺽` 은 Kiwi 가 내용어로 보지 않아 색인 토큰이
+**빈 튜플**이고, 질의 `꿀꺽` 도 `query_normalization` 이 "내용어가 없다" 로 거부한다.
+**정확히 읽어도 검색되지 않는다** — 이 한 건에 한해 OCR 은 병목이 아니다.
+
+그래서 `exact` 는 **문자 정확도**로만 읽는다. 검색에 닿는가는 따로 센다(`Reach`).
 
 ## 비교 규칙은 새로 만들지 않는다
 
@@ -41,13 +58,26 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from npick_worker.korean_tokens import index_tokens
 from npick_worker.ocr.merge import comparison_text
 
 #: `samples/README.md` 가 정한 세 값. 재현율 분모는 `legible` 뿐이다.
 Legibility = Literal["legible", "partial", "illegible"]
 
-#: 문구 하나의 판정.
+#: 문구 하나의 판정. **문자 기준이다.**
 Outcome = Literal["exact", "misread", "miss"]
+
+#: 그 문구로 들어온 질의가 이 관측에 닿는가. **토큰 기준이다.**
+#:
+#: - `reachable` — 라벨 토큰과 관측 토큰이 하나라도 겹친다. 글자가 틀려도 검색은 된다.
+#: - `lost` — 라벨 토큰은 있는데 겹치는 것이 없다. 그 문구로는 못 찾는다.
+#: - `unsearchable` — 라벨 쪽 토큰이 비어 있다. 무엇을 읽든 그 문구로는 못 찾고,
+#:   질의도 `query_normalization` 에서 거부된다. **OCR 로 고칠 수 있는 자리가 아니다.**
+#:
+#: **낙관적인 수다.** 라벨 문구 *전체*로 물었을 때를 잰다. 사람은 낱말로 검색한다 —
+#: `지폐를 넣고` → `지패를 넣고` 는 `넣` 이 겹쳐 `reachable` 이지만 질의 `지폐` 로는
+#: 0 건이다. "검색되는 비율" 의 **상한**으로 읽는다(`README.md` 의 한계).
+Reach = Literal["reachable", "lost", "unsearchable"]
 
 #: 이 값 미만으로 닮은 쌍은 "그 문구를 잘못 읽었다" 로 보지 않고 누락으로 센다.
 #:
@@ -117,14 +147,30 @@ class LineResult:
     similarity: float
     #: 라벨 문구 기준 문자 오류율. `miss` 는 1.0 이다 — 한 글자도 못 얻었다.
     cer: float
+    #: 라벨 문구의 색인 토큰. 워커가 `ocr_observation.tokens` 를 만드는 함수와 같다.
+    gold_tokens: tuple[str, ...] = ()
+    #: 읽어 낸 문구의 색인 토큰. `miss` 면 빈 튜플이다.
+    observed_tokens: tuple[str, ...] = ()
 
     @property
-    def silent(self) -> bool:
-        """검증 표시 없이 검색으로 새는 오독인가.
+    def reach(self) -> Reach:
+        """그 문구로 들어온 질의가 이 관측에 닿는가. 모듈 docstring 의 표 참조."""
+        if not self.gold_tokens:
+            return "unsearchable"
+        return "reachable" if set(self.gold_tokens) & set(self.observed_tokens) else "lost"
 
-        `unverified` 는 버리는 기준이 아니라 표시다(`docs/ocr.md` §5). 표시가 붙은
-        오독은 근거로 쓰이지 않지만, **표시 없는 오독은 그대로 검색 토큰이 된다.**
-        이 티켓이 실제로 줄여야 하는 수가 이것이다.
+    @property
+    def unflagged(self) -> bool:
+        """`min_confidence` 를 넘겨 검증 표시가 붙지 않은 오독인가.
+
+        **이 값은 색인 여부와 무관하다.** `unverified` 는 `ocr_observation` 에 담을
+        칸이 없고(`docs/contracts/job-api.md` §4.3.2 "`unverified` 는 담을 컬럼이
+        없다"), BE 는 미달 관측도 전부 저장하며 검색도 confidence 로 거르지 않는다
+        (같은 문서: "BE 는 `unverified: true` 인 행을 거절하면 안 된다"). 표시는
+        `tag_evidence.verification_status` 를 정할 때만 쓰인다.
+
+        그래서 이 수는 **"검색에 새는 오독"이 아니라 "검증 표시조차 안 붙는 오독"**
+        이다. 색인에 들어가는 잘못된 토큰은 `FrameResult.stray_tokens` 가 센다.
         """
         return (
             self.outcome == "misread" and self.observed is not None and not self.observed.unverified
@@ -137,6 +183,16 @@ class FrameResult:
     lines: tuple[LineResult, ...]
     #: 어느 라벨에도 붙지 못한 관측.
     unmatched: tuple[Observation, ...]
+    #: 이 장의 화면 글자에서 나오는 토큰 전체.
+    #:
+    #: `partial`·`illegible` 라벨도 넣는다 — 점수에서 빼는 것과 "화면에 있는 글자냐"
+    #: 는 다른 질문이고, 색인 오염을 세는 데 쓰는 것은 뒤엣것이다.
+    gold_tokens: tuple[str, ...] = ()
+    #: 이 장의 관측이 색인에 넣는 토큰 중 화면에 근거가 없는 것.
+    #:
+    #: **오독이 실제로 검색을 오염시키는 양이다.** 짝지어진 관측이든 오탐이든
+    #: `unverified` 든 가리지 않는다 — BE 는 모든 관측의 토큰을 저장한다.
+    stray_tokens: tuple[str, ...] = ()
 
     @property
     def hallucinations(self) -> tuple[Observation, ...]:
@@ -152,8 +208,16 @@ class Summary:
     exact: int
     misread: int
     miss: int
-    #: 검증 표시 없이 검색으로 새는 오독.
-    silent_misread: int
+    #: 검증 표시가 붙지 않은 오독. **색인 여부와 무관하다**(`LineResult.unflagged`).
+    unflagged_misread: int
+    #: 라벨 토큰이 비어 있어 무엇을 읽든 그 문구로는 못 찾는 문구.
+    unsearchable: int
+    #: 라벨 토큰이 있고 관측과 겹치는 문구. **글자가 틀려도 여기 들어올 수 있다.**
+    reachable: int
+    #: 라벨 토큰이 있는데 겹치는 것이 없는 문구. 그 문구로는 0 건이다.
+    lost: int
+    #: 화면에 근거가 없는데 색인에 들어가는 토큰(중복 제외).
+    stray_tokens: int
     #: 글자 없는 프레임에서 나온 출력.
     hallucination: int
     #: 라벨에 붙지 못한 관측 전체(오탐 포함). 판정하지 않고 세기만 한다.
@@ -166,8 +230,23 @@ class Summary:
 
     @property
     def exact_rate(self) -> float:
-        """**검색으로 이어지는 비율.** 이 하네스의 주 지표다."""
+        """글자까지 맞은 비율. **문자 정확도이지 검색 성공률이 아니다**(모듈 docstring)."""
         return self.exact / self.legible if self.legible else 0.0
+
+    @property
+    def searchable(self) -> int:
+        """애초에 그 문구로 검색이 가능한 라벨의 수. `reach_rate` 의 분모다."""
+        return self.reachable + self.lost
+
+    @property
+    def reach_rate(self) -> float:
+        """**검색에 닿는 비율.** 검색 관점의 주 지표다.
+
+        분모에서 `unsearchable` 을 뺀다 — 라벨 토큰이 비어 있는 문구는 OCR 이
+        무엇을 해도 결과가 같아서, 분모에 넣으면 이 단계를 고쳐도 오르지 않는
+        비율이 된다.
+        """
+        return self.reachable / self.searchable if self.searchable else 0.0
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -175,11 +254,17 @@ class Summary:
             "exact": self.exact,
             "misread": self.misread,
             "miss": self.miss,
-            "silentMisread": self.silent_misread,
+            "unflaggedMisread": self.unflagged_misread,
+            "unsearchable": self.unsearchable,
+            "reachable": self.reachable,
+            "lost": self.lost,
+            "strayTokens": self.stray_tokens,
             "hallucination": self.hallucination,
             "unmatched": self.unmatched,
             "observations": self.observations,
             "exactRate": round(self.exact_rate, 4),
+            "searchable": self.searchable,
+            "reachRate": round(self.reach_rate, 4),
             "cer": round(self.cer, 4),
             "cerMatched": round(self.cer_matched, 4),
         }
@@ -352,7 +437,14 @@ def match_frame(
         matched = taken_lines.get(line_index)
         if matched is None:
             results.append(
-                LineResult(line=line, outcome="miss", observed=None, similarity=0.0, cer=1.0)
+                LineResult(
+                    line=line,
+                    outcome="miss",
+                    observed=None,
+                    similarity=0.0,
+                    cer=1.0,
+                    gold_tokens=index_tokens(line.text),
+                )
             )
             continue
         obs_index, score = matched
@@ -365,11 +457,23 @@ def match_frame(
                 observed=observed,
                 similarity=score,
                 cer=character_error_rate(line.text, observed.raw_text),
+                gold_tokens=index_tokens(line.text),
+                observed_tokens=index_tokens(observed.raw_text),
             )
         )
 
     unmatched = tuple(obs for index, obs in enumerate(observations) if index not in taken_obs)
-    return FrameResult(frame=frame, lines=tuple(results), unmatched=unmatched)
+    # 색인 오염은 판정과 따로 센다 — BE 는 짝이 맞았는지도 `unverified` 도 보지 않고
+    # 모든 관측의 토큰을 저장한다(`docs/contracts/job-api.md` §4.3.2).
+    gold_tokens = {token for line in frame.lines for token in index_tokens(line.text)}
+    observed_tokens = {token for obs in observations for token in index_tokens(obs.raw_text)}
+    return FrameResult(
+        frame=frame,
+        lines=tuple(results),
+        unmatched=unmatched,
+        gold_tokens=tuple(sorted(gold_tokens)),
+        stray_tokens=tuple(sorted(observed_tokens - gold_tokens)),
+    )
 
 
 def evaluate(
@@ -396,7 +500,10 @@ def evaluate(
     exact = sum(1 for line in scored if line.outcome == "exact")
     misread = sum(1 for line in scored if line.outcome == "misread")
     miss = sum(1 for line in scored if line.outcome == "miss")
-    silent = sum(1 for line in scored if line.silent)
+    unflagged = sum(1 for line in scored if line.unflagged)
+    unsearchable = sum(1 for line in scored if line.reach == "unsearchable")
+    reachable = sum(1 for line in scored if line.reach == "reachable")
+    lost = sum(1 for line in scored if line.reach == "lost")
 
     read = [line for line in scored if line.outcome != "miss"]
     total_reference = sum(len(comparison_text(line.line.text)) for line in scored)
@@ -419,7 +526,11 @@ def evaluate(
         exact=exact,
         misread=misread,
         miss=miss,
-        silent_misread=silent,
+        unflagged_misread=unflagged,
+        unsearchable=unsearchable,
+        reachable=reachable,
+        lost=lost,
+        stray_tokens=sum(len(frame.stray_tokens) for frame in results),
         hallucination=sum(len(frame.hallucinations) for frame in results),
         unmatched=sum(len(frame.unmatched) for frame in results),
         observations=sum(len(observations.get(frame.frame.key, ())) for frame in results),

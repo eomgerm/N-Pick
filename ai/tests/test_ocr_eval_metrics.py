@@ -21,13 +21,19 @@ sys.path.insert(0, str(_EVAL))
 
 import ocr_bench  # noqa: E402
 from ocr_bench import (  # noqa: E402
+    DETAIL_VARIANT_NAMES,
+    SUMMARY_FIELDS,
+    SUMMARY_FILENAME,
+    SUMMARY_SCHEMA,
     VARIANTS,
     VARIANTS_BY_NAME,
     Case,
     case_status,
     check_cases,
+    compact_summary,
     frame_key,
     load_cases,
+    write_results,
 )
 from ocr_metrics import (  # noqa: E402
     GoldError,
@@ -175,11 +181,12 @@ def test_greedy_matching_prefers_the_closer_pair() -> None:
 # ── 합계 ──────────────────────────────────────────────────────────────
 
 
-def test_summary_separates_silent_misreads() -> None:
-    """검증 표시가 붙은 오독과 붙지 않은 오독은 같은 실패가 아니다.
+def test_summary_separates_unflagged_misreads() -> None:
+    """검증 표시가 붙은 오독과 붙지 않은 오독을 따로 센다.
 
-    표시 없는 오독만 그대로 검색 토큰이 된다(`docs/ocr.md` §5 의 unverified 는
-    버리는 기준이 아니라 표시다).
+    **이 수는 색인 여부가 아니다.** BE 는 `unverified` 를 저장하지도, 검색에서
+    거르지도 않는다(`docs/contracts/job-api.md` §4.3.2). 색인에 들어가는 잘못된
+    토큰은 `stray_tokens` 가 센다 — 아래 테스트가 그 둘이 다름을 고정한다.
     """
     frame = frame_of(line("꿀꺽"), line("페스티벌"))
     _, summary = evaluate(
@@ -187,7 +194,60 @@ def test_summary_separates_silent_misreads() -> None:
         {frame.key: [observed("꿀찍", 0.95), observed("페스티벨", 0.42)]},
     )
     assert summary.misread == 2
-    assert summary.silent_misread == 1
+    assert summary.unflagged_misread == 1
+
+
+def test_stray_tokens_do_not_care_about_the_verification_flag() -> None:
+    """색인 오염은 confidence 와 무관하다.
+
+    BE 는 미달 관측도 전부 저장하고 검색도 그것을 거르지 않는다. 그래서 표시가
+    붙은 오독의 토큰도 색인에 들어간다 — `unflagged_misread` 로 이 수를 대신
+    읽으면 오염을 과소평가한다.
+    """
+    frame = frame_of(line("페스티벌"))
+    results, summary = evaluate([frame], {frame.key: [observed("페스티벨", 0.10)]})
+    assert summary.unflagged_misread == 0, "표시가 붙었다"
+    assert "페스티벨" in results[0].stray_tokens, "그래도 색인에는 들어간다"
+    assert summary.stray_tokens == 1
+
+
+def test_reach_is_not_the_same_question_as_exact() -> None:
+    """글자가 틀려도 토큰이 겹치면 검색은 닿는다.
+
+    리뷰가 짚은 자리다 — `exact` 를 "검색으로 이어지는 비율" 로 읽으면 틀린다.
+    """
+    frame = frame_of(line("지폐를 넣고"))
+    results, summary = evaluate([frame], {frame.key: [observed("지패를 넣고")]})
+    only = results[0].lines[0]
+    assert only.outcome == "misread", "글자는 틀렸다"
+    assert only.reach == "reachable", "그래도 '넣' 토큰이 겹친다"
+    assert summary.exact == 0
+    assert summary.reachable == 1
+
+
+def test_a_label_without_content_words_is_unsearchable() -> None:
+    """`꿀꺽` 은 색인 토큰이 비어 있어 정확히 읽어도 그 문구로는 못 찾는다.
+
+    이 티켓의 대표 사례이고, **OCR 로 고칠 수 있는 자리가 아니다.** 분모에서
+    빼지 않으면 이 단계를 고쳐도 오르지 않는 비율이 된다.
+    """
+    frame = frame_of(line("꿀꺽"))
+    results, summary = evaluate([frame], {frame.key: [observed("꿀꺽")]})
+    only = results[0].lines[0]
+    assert only.outcome == "exact", "글자는 맞았다"
+    assert only.reach == "unsearchable"
+    assert summary.unsearchable == 1
+    assert summary.searchable == 0, "reach_rate 의 분모에서 빠진다"
+    assert summary.reach_rate == 0.0
+
+
+def test_reach_rate_ignores_unsearchable_labels() -> None:
+    frame = frame_of(line("꿀꺽"), line("지폐를 넣고"))
+    _, summary = evaluate([frame], {frame.key: [observed("꿀찍"), observed("지패를 넣고")]})
+    assert summary.unsearchable == 1
+    assert summary.searchable == 1
+    assert summary.reachable == 1
+    assert summary.reach_rate == 1.0
 
 
 def test_summary_counts_a_miss_as_a_full_character_error() -> None:
@@ -315,6 +375,72 @@ def test_case_status_tells_fixed_from_still_wrong() -> None:
 
 def test_variant_names_are_unique() -> None:
     assert len(VARIANTS_BY_NAME) == len(VARIANTS)
+
+
+def test_detail_variants_are_the_three_decision_points() -> None:
+    assert DETAIL_VARIANT_NAMES == (
+        "base",
+        "det-min-1152-box-0.8",
+        "det-min-1280-box-0.8",
+    )
+    assert set(DETAIL_VARIANT_NAMES) <= set(VARIANTS_BY_NAME)
+
+
+def result_record(name: str) -> dict[str, object]:
+    record: dict[str, object] = {field: f"value-{field}" for field in SUMMARY_FIELDS}
+    record["variant"] = name
+    record["lines"] = [{"label": "detail"}]
+    record["strayTokens"] = ["noise"]
+    record["hallucinations"] = []
+    record["floorSweep"] = {"0.34": {"exact": 1}}
+    record["cases"] = [{"id": "case", "status": "changed"}]
+    return record
+
+
+def test_compact_summary_keeps_all_variants_without_repeating_details() -> None:
+    records = [result_record(name) for name in VARIANTS_BY_NAME]
+    compact = compact_summary(records)
+    assert compact["schema"] == SUMMARY_SCHEMA
+    assert compact["detailVariants"] == list(DETAIL_VARIANT_NAMES)
+    assert [entry["variant"] for entry in compact["variants"]] == list(VARIANTS_BY_NAME)
+    for entry in compact["variants"]:
+        assert set(entry) == set(SUMMARY_FIELDS)
+        assert "lines" not in entry
+        assert "floorSweep" not in entry
+
+
+def test_all_variant_output_keeps_only_three_details_and_summary(tmp_path: Path) -> None:
+    records = [result_record(name) for name in VARIANTS_BY_NAME]
+    stale = tmp_path / "unclip-1.8.json"
+    stale.write_text("stale", encoding="utf-8")
+    unrelated = tmp_path / "review-note.json"
+    unrelated.write_text("keep", encoding="utf-8")
+
+    write_results(records, tmp_path, all_variants=True)
+
+    expected = {"summary.json", "review-note.json"} | {
+        f"{name}.json" for name in DETAIL_VARIANT_NAMES
+    }
+    assert {path.name for path in tmp_path.glob("*.json")} == expected
+    assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
+def test_single_variant_output_always_writes_its_detail(tmp_path: Path) -> None:
+    record = result_record("unclip-1.8")
+    write_results([record], tmp_path, all_variants=False)
+    assert json.loads((tmp_path / "unclip-1.8.json").read_text(encoding="utf-8")) == record
+    assert not (tmp_path / SUMMARY_FILENAME).exists()
+
+
+def test_committed_results_use_the_compact_layout() -> None:
+    root = Path(__file__).resolve().parents[1] / "eval" / "ocr" / "results"
+    expected = {SUMMARY_FILENAME} | {f"{name}.json" for name in DETAIL_VARIANT_NAMES}
+    assert {path.name for path in root.glob("*.json")} == expected
+
+    summary = json.loads((root / SUMMARY_FILENAME).read_text(encoding="utf-8"))
+    assert summary["schema"] == SUMMARY_SCHEMA
+    assert summary["detailVariants"] == list(DETAIL_VARIANT_NAMES)
+    assert [entry["variant"] for entry in summary["variants"]] == list(VARIANTS_BY_NAME)
 
 
 def test_every_variant_builds_a_valid_config() -> None:

@@ -4,8 +4,9 @@
 
 QA 가 보고한 오독(`꿀꺽` → `꿀찍`)을 계기로 만든 하네스다. 하는 일은 셋이다.
 
-1. 라벨된 keyframe 을 실제 엔진으로 읽어 **문구마다 exact / misread / miss 를 가른다**
-   (`ocr_metrics.py` 가 왜 재현율만으로 부족한지 적는다).
+1. 라벨된 keyframe 을 실제 엔진으로 읽어 문구마다 두 축으로 가른다 — 글자가 맞았는가
+   (`exact`/`misread`/`miss`)와 **그 문구로 검색이 닿는가**(`reachable`/`lost`/
+   `unsearchable`). 둘이 왜 다른지는 `ocr_metrics.py` 의 모듈 docstring 에 있다.
 2. `config/ocr.v1.toml` 의 값을 덮어 쓴 변형들을 같은 입력에 돌려 비교한다. 설정
    파일을 늘리지 않는다 — 실측으로 이길 때만 정본을 고친다(FRD §11).
 3. QA 가 보고한 개별 오독 사례를 `cases.json` 으로 등록해 두고 회귀를 본다.
@@ -52,6 +53,8 @@ DEFAULT_FRAMES: Final[Path] = Path("samples/out/KNI_02205-frames")
 DEFAULT_GOLD: Final[Path] = Path("samples/ocr-ground-truth.KNI_02205.json")
 DEFAULT_OUT: Final[Path] = Path("eval/ocr/results")
 DEFAULT_CASES: Final[Path] = Path("eval/ocr/cases.json")
+SUMMARY_SCHEMA: Final[str] = "ocr-eval-summary/v1"
+SUMMARY_FILENAME: Final[str] = "summary.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +137,33 @@ VARIANTS: Final[tuple[Variant, ...]] = (
 )
 
 VARIANTS_BY_NAME: Final[Mapping[str, Variant]] = {variant.name: variant for variant in VARIANTS}
+
+#: 전체 스윕에서 문구별 실패까지 보존할 변형. 나머지는 `summary.json` 의 비교 행만
+#: 남긴다. 기준·속도/오염 절충안·정확일치 최댓값 후보라 의사결정을 다시 검토할 때
+#: 필요한 세 점이다. 단일 `--variant` 실행은 이 목록과 무관하게 해당 상세본을 쓴다.
+DETAIL_VARIANT_NAMES: Final[tuple[str, ...]] = (
+    "base",
+    "det-min-1152-box-0.8",
+    "det-min-1280-box-0.8",
+)
+
+#: `summary.json` 에 남기는 공통 재현 정보. 문구별 `lines`·토큰 목록·오탐·floor sweep은
+#: 상세본에만 둔다.
+SUMMARY_FIELDS: Final[tuple[str, ...]] = (
+    "variant",
+    "why",
+    "overrides",
+    "upscale",
+    "configVersion",
+    "engine",
+    "engineVersion",
+    "minConfidence",
+    "misreadFloor",
+    "frames",
+    "elapsedSeconds",
+    "msPerFrame",
+    "summary",
+)
 
 
 # ── 전처리 축 ─────────────────────────────────────────────────────────
@@ -237,11 +267,15 @@ def run_variant(
                 "unverified": line.observed.unverified if line.observed else None,
                 "similarity": round(line.similarity, 3),
                 "cer": round(line.cer, 3),
+                "reach": line.reach,
+                "goldTokens": list(line.gold_tokens),
+                "observedTokens": list(line.observed_tokens),
             }
             for frame in frame_results
             for line in frame.lines
             if line.line.scored and line.outcome != "exact"
         ],
+        "strayTokens": sorted({token for frame in frame_results for token in frame.stray_tokens}),
         "hallucinations": [
             {"frame": obs.frame, "observed": obs.raw_text, "confidence": obs.confidence}
             for frame in frame_results
@@ -396,8 +430,8 @@ def check_cases(
 
 def render_table(records: Sequence[Mapping[str, Any]]) -> str:
     header = (
-        f"{'변형':<22} {'exact':>7} {'오독':>5} {'누락':>5} "
-        f"{'표시없는오독':>12} {'오탐':>5} {'CER':>6} {'장당':>7}"
+        f"{'변형':<22} {'exact':>7} {'검색도달':>9} {'못찾음':>7} {'오독':>5} {'누락':>5} "
+        f"{'오염토큰':>9} {'오탐':>5} {'CER':>6} {'장당':>7}"
     )
     rows = [header, "-" * len(header)]
     for record in records:
@@ -405,11 +439,50 @@ def render_table(records: Sequence[Mapping[str, Any]]) -> str:
         rows.append(
             f"{record['variant']:<22} "
             f"{summary['exact']:>3}/{summary['legible']:<3} "
+            f"{summary['reachable']:>5}/{summary['searchable']:<3} "
+            f"{summary['lost']:>7} "
             f"{summary['misread']:>5} {summary['miss']:>5} "
-            f"{summary['silentMisread']:>12} {summary['hallucination']:>5} "
+            f"{summary['strayTokens']:>9} {summary['hallucination']:>5} "
             f"{summary['cer']:>6.3f} {record['msPerFrame']:>6}ms"
         )
     return "\n".join(rows)
+
+
+def compact_summary(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """전체 변형의 비교·재현 필드만 한 파일로 모은다."""
+    return {
+        "schema": SUMMARY_SCHEMA,
+        "detailVariants": list(DETAIL_VARIANT_NAMES),
+        "variants": [{field: record[field] for field in SUMMARY_FIELDS} for record in records],
+    }
+
+
+def write_results(records: Sequence[Mapping[str, Any]], out: Path, *, all_variants: bool) -> None:
+    """측정 결과를 쓴다.
+
+    전체 스윕은 비교 행 20개를 `summary.json` 하나에 모으고 세 변형만 상세본으로
+    보존한다. 예전 전체 스윕이 남긴 나머지 변형 상세본은 이 하네스가 만든 알려진
+    파일에 한해 지운다. 단일 변형 실행은 기존처럼 그 변형의 상세본만 갱신한다.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    if all_variants:
+        (out / SUMMARY_FILENAME).write_text(
+            json.dumps(compact_summary(records), ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
+        details = frozenset(DETAIL_VARIANT_NAMES)
+        for name in VARIANTS_BY_NAME:
+            if name not in details:
+                (out / f"{name}.json").unlink(missing_ok=True)
+    else:
+        details = frozenset(str(record["variant"]) for record in records)
+
+    for record in records:
+        name = str(record["variant"])
+        if name in details:
+            (out / f"{name}.json").write_text(
+                json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8"
+            )
 
 
 def _parse_args() -> argparse.Namespace:
@@ -454,7 +527,6 @@ def main() -> int:
 
     gold = load_gold(args.gold)
     records: list[dict[str, Any]] = []
-    args.out.mkdir(parents=True, exist_ok=True)
     for name in names:
         variant = VARIANTS_BY_NAME[name]
         print(f"[{name}] {variant.why}", flush=True)
@@ -473,9 +545,8 @@ def main() -> int:
         if args.cases.exists():
             record["cases"] = check_cases(load_cases(args.cases), observations)
         records.append(record)
-        (args.out / f"{name}.json").write_text(
-            json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8"
-        )
+
+    write_results(records, args.out, all_variants=args.variant == "all")
 
     print()
     print(render_table(records))
