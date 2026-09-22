@@ -95,29 +95,19 @@ async function mockList(page: Page, getItems: () => ReturnType<typeof inquiry>[]
   return requests;
 }
 
-test('처리 현황의 문의는 실제 목록·상세를 조회하고 처리 탭으로 복귀한다', async ({ page }) => {
+// 검수 중 문의는 문의 화면의 status 필터가 담당한다. 처리 현황 화면에는 문의 탭이 없다.
+test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터로 복귀한다', async ({ page }) => {
   await reviewer(page);
   const requests = await mockList(page, () => [inquiry('41', 'REVIEWING')]);
   await page.route('**/api/v1/review/inquiries/41', (route) =>
     success(route, inquiry('41', 'REVIEWING')),
   );
-  await page.route('**/api/v1/clips?*', (route) =>
-    success(route, {
-      items: [],
-      page: 0,
-      size: 10,
-      total_elements: 0,
-      total_pages: 0,
-      has_next: false,
-      run_counts: { queued: 0, running: 0, failed: 0, succeeded: 0, no_run: 0 },
-    }),
-  );
-  await page.goto('/review?view=processing');
-  await expect(page.getByRole('region', { name: '문의 처리 요약' })).toContainText('전체 1개');
+  await page.goto('/review?status=reviewing');
+  await expect(page.getByRole('button', { name: /문의 #41/ })).toBeVisible();
   await page.getByRole('button', { name: /문의 #41/ }).click();
   await expect(page.getByText(/서버 담당자/)).toBeVisible();
   await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
-  await expect(page).toHaveURL('/review?view=processing');
+  await expect(page).toHaveURL('/review?status=reviewing');
   await expect(page.getByRole('button', { name: /문의 #41/ })).toBeVisible();
   expect(requests.every((url) => url.searchParams.get('status') === 'REVIEWING')).toBe(true);
 });
