@@ -3,6 +3,7 @@ package com.npick.search.presentation;
 import jakarta.validation.constraints.Min;
 
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +15,7 @@ import com.npick.common.error.CommonErrorCode;
 import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
+import com.npick.search.application.DeleteMySearchHistoryUseCase;
 import com.npick.search.application.GetMySearchHistoryDetailUseCase;
 import com.npick.search.application.ListMySearchHistoryUseCase;
 import com.npick.search.presentation.response.SearchHistoryDetailResponse;
@@ -39,12 +41,15 @@ public class SearchHistoryController {
 
     private final ListMySearchHistoryUseCase listMySearchHistoryUseCase;
     private final GetMySearchHistoryDetailUseCase getMySearchHistoryDetailUseCase;
+    private final DeleteMySearchHistoryUseCase deleteMySearchHistoryUseCase;
 
     public SearchHistoryController(
             ListMySearchHistoryUseCase listMySearchHistoryUseCase,
-            GetMySearchHistoryDetailUseCase getMySearchHistoryDetailUseCase) {
+            GetMySearchHistoryDetailUseCase getMySearchHistoryDetailUseCase,
+            DeleteMySearchHistoryUseCase deleteMySearchHistoryUseCase) {
         this.listMySearchHistoryUseCase = listMySearchHistoryUseCase;
         this.getMySearchHistoryDetailUseCase = getMySearchHistoryDetailUseCase;
+        this.deleteMySearchHistoryUseCase = deleteMySearchHistoryUseCase;
     }
 
     @GetMapping
@@ -65,6 +70,18 @@ public class SearchHistoryController {
             @PathVariable @Min(1) long searchExecutionId, @LoginMember CurrentMember member) {
         return ApiResponse.success(SearchHistoryDetailResponse.from(
                 getMySearchHistoryDetailUseCase.detailMine(searchExecutionId, member.memberId())));
+    }
+
+    /**
+     * 기록 하나를 내 목록에서 지운다 (S15P21A501-276).
+     *
+     * <p>저장은 보존한다 — 감사 조회와 문의 상세가 같은 행을 읽으므로 화면에서만 감춘다. 같은 요청을 두 번 보내도
+     * 성공이다.
+     */
+    @DeleteMapping("/{searchExecutionId}")
+    public ApiResponse<Void> delete(@PathVariable @Min(1) long searchExecutionId, @LoginMember CurrentMember member) {
+        deleteMySearchHistoryUseCase.deleteMine(searchExecutionId, member.memberId());
+        return ApiResponse.success();
     }
 
     /**

@@ -31,14 +31,26 @@ final class SearchHistoryRows {
             """;
 
     /**
-     * 조회 대상 범위. 본인이 실행한 original 중 결과가 확정된 것만 본다. replay·running·failed 는 DB 에 보존하되
-     * 이 화면에서 제외한다(S15P21A501-185). 목록·상세·총계가 모두 이 조건을 쓴다.
+     * 소유·대상 범위에서 숨김 여부만 뺀 조건. 숨기기(S15P21A501-276)가 대상을 고를 때 쓴다 — 이미 숨긴 기록도 같은
+     * 요청으로 다시 받을 수 있어야 하므로 {@code deleted_at} 을 보지 않는다.
      */
-    static final String OWNER_SCOPE =
+    static final String OWNER_SCOPE_ANY_STATE =
             """
             se.searched_by_id = :ownerId
               AND se.execution_type = 'original'
               AND se.status IN ('succeeded', 'degraded')
+            """;
+
+    /**
+     * 조회 대상 범위. 본인이 실행한 original 중 결과가 확정된 것만 본다. replay·running·failed 는 DB 에 보존하되
+     * 이 화면에서 제외한다(S15P21A501-185). 목록·상세·총계가 모두 이 조건을 쓴다.
+     *
+     * <p>숨긴 기록도 여기서 빠진다(S15P21A501-276). 목록에서만 빼고 상세를 열어 두면 URL 로 그대로 열리므로 숨김이
+     * 아니다. 감사 조회와 신고·검수는 이 조건을 쓰지 않으므로 영향이 없다.
+     */
+    static final String OWNER_SCOPE = OWNER_SCOPE_ANY_STATE
+            + """
+              AND se.deleted_at IS NULL
             """;
 
     /**
