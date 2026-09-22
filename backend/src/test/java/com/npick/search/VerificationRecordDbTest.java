@@ -16,22 +16,30 @@ import com.npick.support.TestGraph;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * replay 실행 기록과 verification_context_json (S15P21A501-83 Task 4). {@link AbstractVerificationSearchDbTest} 를
- * 확장해 리졸버 스텁을 공유한다 — 이 테스트는 「flip 이 rank() 에 반영되는가」가 아니라 「그 결과가 -84 가 읽을 수 있는 모양으로
- * 롤백 밖에 남는가」를 검사한다.
+ * replay 실행 기록과 verification_context_json (S15P21A501-83 Task 4). {@link AbstractVerificationSearchDbTest} 를 확장해 리졸버
+ * 스텁을 공유한다 — 이 테스트는 「flip 이 rank() 에 반영되는가」가 아니라 「그 결과가 -84 가 읽을 수 있는 모양으로 롤백 밖에 남는가」를 검사한다.
  */
 class VerificationRecordDbTest extends AbstractVerificationSearchDbTest {
 
-    private static final long MEMBER_ID = 8304001L, CLIP_ID = 8304010L, RUN_ID = 8304020L,
-            SCENE_ID = 8304030L, EXEC_ID = 8304040L, RESULT_ID = 8304050L, FEEDBACK_ID = 8304060L,
+    private static final long MEMBER_ID = 8304001L,
+            CLIP_ID = 8304010L,
+            RUN_ID = 8304020L,
+            SCENE_ID = 8304030L,
+            EXEC_ID = 8304040L,
+            RESULT_ID = 8304050L,
+            FEEDBACK_ID = 8304060L,
             EVIDENCE_ID = 8304070L;
 
-    @Autowired private VerifyCorrectionCandidatesUseCase useCase;
-    @Autowired private VerificationRunPort verificationRuns; // -84 소비자
+    @Autowired
+    private VerifyCorrectionCandidatesUseCase useCase;
+
+    @Autowired
+    private VerificationRunPort verificationRuns; // -84 소비자
 
     @BeforeEach
     void seed() {
-        TestGraph.insertSearchableReportedScene(jdbc, MEMBER_ID, CLIP_ID, RUN_ID, SCENE_ID, EXEC_ID, RESULT_ID, FEEDBACK_ID);
+        TestGraph.insertSearchableReportedScene(
+                jdbc, MEMBER_ID, CLIP_ID, RUN_ID, SCENE_ID, EXEC_ID, RESULT_ID, FEEDBACK_ID);
         jdbc.update("UPDATE npick.feedback SET resolution = 'tag_correction' WHERE feedback_id = ?", FEEDBACK_ID);
         TestGraph.insertReviewerTagCandidate(jdbc, SCENE_ID, CLIP_ID, FEEDBACK_ID, EVIDENCE_ID);
         // Fix round 1(authz): verify()가 이제 담당 검수자·대기 후보 존재를 검사하므로 함께 심는다.
@@ -46,7 +54,8 @@ class VerificationRecordDbTest extends AbstractVerificationSearchDbTest {
 
         String type = jdbc.queryForObject(
                 "SELECT execution_type FROM npick.search_execution WHERE search_execution_id = ?",
-                String.class, result.executionId());
+                String.class,
+                result.executionId());
         assertThat(type).isEqualTo("replay");
 
         Optional<VerificationRun> run = verificationRuns.find(result.executionId(), FEEDBACK_ID);
@@ -62,7 +71,8 @@ class VerificationRecordDbTest extends AbstractVerificationSearchDbTest {
         long executionId = useCase.verify(FEEDBACK_ID, MEMBER_ID).executionId();
         var row = jdbc.queryForMap(
                 "SELECT status, config_version, parsed_query_json FROM npick.search_execution "
-                        + "WHERE search_execution_id = ?", executionId);
+                        + "WHERE search_execution_id = ?",
+                executionId);
         // 후보에 degraded 사유가 없는 정상 검색이므로 succeeded. finalResolution·config 는 실값으로 남는다.
         assertThat(row.get("status")).isEqualTo("succeeded");
         assertThat(row.get("config_version")).asString().isNotBlank();

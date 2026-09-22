@@ -17,8 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * {@link SceneDiff} 순수 계산 단위 테스트 (S15P21A501-83 Task 6, F-12 4).
  *
- * <p>실 파이프라인(BM25/dense/구조화)을 시드하지 않고도 진입/제외 판정과 이탈 사유 분기(제외 규칙/false-hit
- * guard/순위 이탈)를 직접 검증한다 — DbTest 는 배선만 확인한다(task-6-brief Step 1 참고).
+ * <p>실 파이프라인(BM25/dense/구조화)을 시드하지 않고도 진입/제외 판정과 이탈 사유 분기(제외 규칙/false-hit guard/순위 이탈)를 직접 검증한다 — DbTest 는 배선만
+ * 확인한다(task-6-brief Step 1 참고).
  */
 class SceneDiffTest {
 
@@ -54,7 +54,8 @@ class SceneDiffTest {
     @DisplayName("제외된 장면 사유는 approved_scene_exclusion 이다")
     void excludedSceneReasonIsApprovedExclusion() {
         SearchCandidates verified = candidatesWith(
-                List.of(), List.of(new ActiveSceneExclusionResult.ExcludedScene(SCENE_A, List.of(7001L))),
+                List.of(),
+                List.of(new ActiveSceneExclusionResult.ExcludedScene(SCENE_A, List.of(7001L))),
                 noGuardExclusions());
 
         SceneDiff.Result result = SceneDiff.of(List.of(SCENE_A), verified);
@@ -98,7 +99,8 @@ class SceneDiffTest {
     }
 
     private static SearchCandidates.ScoredScene scoredScene(long sceneId) {
-        SceneCard card = new SceneCard(sceneId, 9101L, "제목", "설명", 0, 1000, "b_roll", List.of(), null, List.of(), List.of());
+        SceneCard card =
+                new SceneCard(sceneId, 9101L, "제목", "설명", 0, 1000, "b_roll", List.of(), null, List.of(), List.of());
         return new SearchCandidates.ScoredScene(
                 sceneId,
                 card.clipId(),

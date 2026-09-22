@@ -11,7 +11,7 @@ import com.npick.search.application.query.dense.DenseSearchSettings;
  * 저장된 벡터와 모델이 어긋난 채로 검색이 도는 것을 아무도 모르게 된다. 값이 없으면 dense 설정 빈을 만들지 않고, dense 채널이 켜져 있으면 부팅을 막는다.
  */
 @ConfigurationProperties("npick.search.dense")
-public record DenseSearchProperties(String modelVersion, Integer poolSize) {
+public record DenseSearchProperties(String modelVersion, Integer poolSize, Double maxDistance) {
 
     /** 실측으로 정한 운영값이 아니라 단어 검색 pool 과 맞춘 잠정값이다 ({@code npick.search.candidate.pool-size}). */
     private static final int DEFAULT_POOL_SIZE = 200;
@@ -20,7 +20,15 @@ public record DenseSearchProperties(String modelVersion, Integer poolSize) {
         return modelVersion != null && !modelVersion.isBlank();
     }
 
+    /** 값을 안 주면 전 범위라 언제나 유효하다. 준 값만 코사인 거리 범위인지 본다 (NaN 은 어느 비교에도 걸리지 않으므로 부정으로 판정한다). */
+    public boolean hasUsableMaxDistance() {
+        return maxDistance == null || (maxDistance > 0 && maxDistance <= DenseSearchSettings.FULL_COSINE_RANGE);
+    }
+
     public DenseSearchSettings settings() {
-        return new DenseSearchSettings(modelVersion, poolSize == null ? DEFAULT_POOL_SIZE : poolSize);
+        return new DenseSearchSettings(
+                modelVersion,
+                poolSize == null ? DEFAULT_POOL_SIZE : poolSize,
+                maxDistance == null ? DenseSearchSettings.FULL_COSINE_RANGE : maxDistance);
     }
 }

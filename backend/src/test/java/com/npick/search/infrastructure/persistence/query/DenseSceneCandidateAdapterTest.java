@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.within;
 /** Fixed vectors in real PostgreSQL/pgvector and real BM25; does not claim an AI producer round trip. */
 class DenseSceneCandidateAdapterTest {
     private static final String MODEL = "dragonkue/snowflake-arctic-embed-l-v2.0-ko@" + "a".repeat(40);
-    private static final DenseSearchSettings SETTINGS = new DenseSearchSettings(MODEL, 10);
+    private static final DenseSearchSettings SETTINGS = new DenseSearchSettings(MODEL, 10, 2.0);
     private static String url;
     private Connection connection;
     private SingleConnectionDataSource source;
@@ -78,7 +78,7 @@ class DenseSceneCandidateAdapterTest {
 
     @Test
     void cosineOrderingTiesEligibilityAndRecordedSettings() {
-        var result = adapter.find(query(1, 0), new DenseSearchSettings(MODEL, 4));
+        var result = adapter.find(query(1, 0), new DenseSearchSettings(MODEL, 4, 2.0));
         assertThat(result.status()).isEqualTo(Status.AVAILABLE);
         assertThat(ids(result)).containsExactly(30L, 31L, 33L, 34L);
         assertThat(result.candidates()).extracting(c -> c.rank()).containsExactly(1, 2, 3, 4);
@@ -91,11 +91,36 @@ class DenseSceneCandidateAdapterTest {
         assertThat(result.coverage().eligible()).isEqualTo(5);
         assertThat(result.coverage().usableVectors()).isEqualTo(5);
         assertThat(result.queryModelVersion()).isEqualTo(MODEL);
-        assertThat(result.settings()).isEqualTo(new DenseSearchSettings(MODEL, 4).snapshot());
+        assertThat(result.settings()).isEqualTo(new DenseSearchSettings(MODEL, 4, 2.0).snapshot());
         assertThat(result.settings().metric()).isEqualTo("cosine");
         assertThat(result.settings().dimension()).isEqualTo(1024);
         assertThat(adapter.find(query(10, 0), SETTINGS).candidates().getLast().similarity())
                 .isEqualTo(-1);
+    }
+
+    @Test
+    void aDistanceThresholdDropsFarCandidatesWithoutMovingCoverage() {
+        // Fixture distances from (1,0): 30=0.0, 31=0.2, 33=0.2, 34=1.0, 35=2.0.
+        var result = adapter.find(query(1, 0), new DenseSearchSettings(MODEL, 10, 0.5));
+        assertThat(ids(result)).containsExactly(30L, 31L, 33L);
+        assertThat(result.status()).isEqualTo(Status.AVAILABLE);
+        // The usable CTE decides validity, not relevance: tightening the threshold must not
+        // reclassify a distant vector as broken, which would make every search degraded.
+        assertThat(result.coverage().usableVectors()).isEqualTo(5);
+        assertThat(result.coverage().unusableVectors()).isZero();
+        assertThat(result.coverage().invalidVectors()).isZero();
+        assertThat(result.settings().maxDistance()).isEqualTo(0.5);
+    }
+
+    @Test
+    void aThresholdThatExcludesEveryCandidateIsAnEmptySuccessNotADegradedChannel() {
+        jdbc.update("UPDATE npick.scene SET embedding = CAST(? AS public.vector)", literal(0, 1));
+        var result = adapter.find(query(1, 0), new DenseSearchSettings(MODEL, 10, 0.5));
+        assertThat(result.candidates()).isEmpty();
+        assertThat(result.status()).isEqualTo(Status.AVAILABLE);
+        assertThat(result.reason()).isEqualTo(Reason.NONE);
+        assertThat(result.coverage().usableVectors()).isEqualTo(5);
+        assertThat(result.coverage().invalidVectors()).isZero();
     }
 
     @Test

@@ -21,10 +21,7 @@ public class SearchHistoryDeleteService implements DeleteMySearchHistoryUseCase 
         this.softDeletePort = softDeletePort;
     }
 
-    /**
-     * 타인 소유·미존재·대상 밖(replay 등)을 구분하지 않고 같은 오류로 던진다 — 상세 조회와 같은 이유로 존재 여부를
-     * 노출하지 않는다. 이미 숨긴 기록은 오류가 아니다(포트 계약).
-     */
+    /** 타인 소유·미존재·대상 밖(replay 등)을 구분하지 않고 같은 오류로 던진다 — 상세 조회와 같은 이유로 존재 여부를 노출하지 않는다. 이미 숨긴 기록은 오류가 아니다(포트 계약). */
     @Override
     @Transactional
     public void deleteMine(long searchExecutionId, long ownerId) {

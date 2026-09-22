@@ -75,6 +75,20 @@ services:
       # 색인한 환경만 SEARCH_DENSE_MODEL_VERSION 으로 덮는다 — 색인과 어긋나면 dense 리더가 전
       # 장면을 model_mismatch 로 걸러 조용히 0 건이 되고 화면에는 아무 표시도 나지 않는다.
       SEARCH_FUSION_DENSE_WEIGHT: ${SEARCH_FUSION_DENSE_WEIGHT:-1.0}
+      # dense 관련성 하한선 (S15P21A501-278). 0.75 는 운영 질의 27개 실측에서 나온 값이다 —
+      # 「근거 없는 결과」(질의 토큰 미일치 + 태그 점수 0 + BM25 미스)의 72% 가 사라지고, 해당
+      # 영상이 없는 질의는 10 칸을 채우는 대신 정직하게 0 건이 된다.
+      #
+      # 위 DENSE_WEIGHT 와 마찬가지로 이 값은 compose 로 뜨는 모든 환경에 걸린다 — 로컬도
+      # 포함이다. 그쪽은 이미 dense 가 1.0 으로 켜져 있어 벡터 적재를 전제하므로 하한선도 같은
+      # 전제 위에 둔다. 적재가 덜 된 DB 로 띄워 dense 후보가 비는 것이 곤란하면 .env 에
+      # SEARCH_DENSE_MAX_DISTANCE=2.0 을 넣는다 — 2.0 이 코사인 거리의 전 범위이고
+      # application.yml 의 기본값이다.
+      #
+      # 값을 바꾸면 dense 스냅샷을 통해 config_version 이 함께 바뀌어 전후 비교가 성립한다.
+      # 그 대가로 진행 중인 교정 검증은 재검증이 필요하다 — ConfirmCorrectionService 의 드리프트
+      # 가드가 검증 시점 지문과 대조하기 때문이다 (F-13.4). 배포 공지에 넣는다.
+      SEARCH_DENSE_MAX_DISTANCE: ${SEARCH_DENSE_MAX_DISTANCE:-0.75}
       SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
       # local·prod 두 프로필의 변수를 모두 넘긴다. BACKEND_PROFILE 만 바꿔 고를 수 있다.
       # prod 는 기본값 없이 요구하므로 여기서 주지 않으면 기동에 실패한다.

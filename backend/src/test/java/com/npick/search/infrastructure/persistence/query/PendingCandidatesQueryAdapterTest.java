@@ -1,9 +1,9 @@
 package com.npick.search.infrastructure.persistence.query;
 
 import java.util.List;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,8 +26,8 @@ class PendingCandidatesQueryAdapterTest {
         when(rules.setParameter("fid", 7L)).thenReturn(rules);
         when(resolution.setParameter("fid", 7L)).thenReturn(resolution);
         when(tags.getResultList()).thenReturn(List.of());
-        when(rules.getResultList()).thenReturn(List.of(
-                new Object[] { 11L, null }, new Object[] { 12L, 4L }, new Object[] { 13L, null }));
+        when(rules.getResultList())
+                .thenReturn(List.of(new Object[] {11L, null}, new Object[] {12L, 4L}, new Object[] {13L, null}));
         when(resolution.getSingleResult()).thenReturn("exclude_scene");
 
         var candidates = new PendingCandidatesQueryAdapter(em).load(7L);

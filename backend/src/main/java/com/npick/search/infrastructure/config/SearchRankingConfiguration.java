@@ -52,6 +52,9 @@ public class SearchRankingConfiguration {
      *
      * <p>{@code @ConditionalOnProperty} 는 「키가 있고 {@code false} 가 아니면」 매치라 <b>빈 문자열도 통과한다.</b> 그 경우 dense 를 꺼 뒀더라도 빈 생성이
      * 시도되고 {@link DenseSearchSettings} 생성자가 부팅을 막는데, 그 메시지로는 원인이 설정 키라는 것을 알기 어렵다. 안전 여부가 아니라 안내의 문제라 여기서 먼저 거른다.
+     *
+     * <p>{@code max-distance} 도 같다. {@code model-version} 이 {@code application.yml} 에 항상 있어 이 빈은 dense 채널을 꺼 둔 배포에서도 늘
+     * 만들어지므로, 채널을 쓰지 않는 운영자가 오타 하나로 부팅 실패를 보게 된다. 어느 키가 문제인지 메시지가 말해야 한다.
      */
     @Bean
     @ConditionalOnProperty(prefix = "npick.search.dense", name = "model-version")
@@ -59,6 +62,11 @@ public class SearchRankingConfiguration {
         if (!properties.hasModelVersion()) {
             throw new IllegalStateException(
                     "npick.search.dense.model-version 이 비어 있다. " + "실제 질의 임베딩 모델 버전을 채우거나 키 자체를 제거한다");
+        }
+        if (!properties.hasUsableMaxDistance()) {
+            throw new IllegalStateException("npick.search.dense.max-distance 는 0 초과 "
+                    + DenseSearchSettings.FULL_COSINE_RANGE + " 이하여야 한다 (코사인 거리 범위). 받은 값: "
+                    + properties.maxDistance());
         }
         return properties.settings();
     }

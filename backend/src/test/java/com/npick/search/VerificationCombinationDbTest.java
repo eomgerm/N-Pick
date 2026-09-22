@@ -10,28 +10,35 @@ import com.npick.support.TestGraph;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Task 5(S15P21A501-83): 검증 규칙 집합이 실제로 「활성 − R1 + R2」 조합인지, 태그+해석 동시 교정이 최종 조합
- * 하나로 검증되는지(F-12) 확인한다.
- */
+/** Task 5(S15P21A501-83): 검증 규칙 집합이 실제로 「활성 − R1 + R2」 조합인지, 태그+해석 동시 교정이 최종 조합 하나로 검증되는지(F-12) 확인한다. */
 class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
 
     /**
-     * R1·OTHER_ACTIVE 는 {@code TestGraph.insertActivePatchRule} 로 jdbc 에 직접 커밋한 행이다 — {@code verify()} 내부
-     * 트랜잭션(교체 후보 flip → 검색 → 롤백)이 손대는 대상이 아니므로 그 롤백으로 되돌아가지 않는다. 공유 DB(NpickPostgres)에
-     * {@code active=true} 로 남으면 {@code ParseRuleRepositoryAdapter.findActivePatchParseRules()} 가 전역(질의 무관) 조회라
-     * 다음에 실행되는 다른 검증 DbTest 의 실 {@code interpret()} 까지 오염시킨다 — {@code condition_json='{}'} 는 파싱 실패로
-     * {@code SKIPPED_INCOMPATIBLE}(degraded 사유)이 되어 그 실행의 status 가 succeeded 대신 degraded 로 뒤바뀐다.
+     * R1·OTHER_ACTIVE 는 {@code TestGraph.insertActivePatchRule} 로 jdbc 에 직접 커밋한 행이다 — {@code verify()} 내부 트랜잭션(교체 후보
+     * flip → 검색 → 롤백)이 손대는 대상이 아니므로 그 롤백으로 되돌아가지 않는다. 공유 DB(NpickPostgres)에 {@code active=true} 로 남으면
+     * {@code ParseRuleRepositoryAdapter.findActivePatchParseRules()} 가 전역(질의 무관) 조회라 다음에 실행되는 다른 검증 DbTest 의 실
+     * {@code interpret()} 까지 오염시킨다 — {@code condition_json='{}'} 는 파싱 실패로 {@code SKIPPED_INCOMPATIBLE}(degraded 사유)이 되어
+     * 그 실행의 status 가 succeeded 대신 degraded 로 뒤바뀐다.
      */
     @AfterEach
     void deactivateLeakedActiveRules() {
-        jdbc.update("UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (?, ?, ?)",
-                R1, OTHER_ACTIVE, MULTI_OLD_RULE);
+        jdbc.update(
+                "UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (?, ?, ?)",
+                R1,
+                OTHER_ACTIVE,
+                MULTI_OLD_RULE);
     }
 
-    private static final long MEMBER_ID = 8305001L, CLIP_ID = 8305010L, RUN_ID = 8305020L,
-            SCENE_ID = 8305030L, EXEC_ID = 8305040L, RESULT_ID = 8305050L, FEEDBACK_ID = 8305060L,
-            R1 = 8305080L, R2 = 8305081L, OTHER_ACTIVE = 8305082L,
+    private static final long MEMBER_ID = 8305001L,
+            CLIP_ID = 8305010L,
+            RUN_ID = 8305020L,
+            SCENE_ID = 8305030L,
+            EXEC_ID = 8305040L,
+            RESULT_ID = 8305050L,
+            FEEDBACK_ID = 8305060L,
+            R1 = 8305080L,
+            R2 = 8305081L,
+            OTHER_ACTIVE = 8305082L,
             MULTI_OLD_RULE = 8305180L;
 
     @Autowired
@@ -44,7 +51,7 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
                 jdbc, MEMBER_ID, CLIP_ID, RUN_ID, SCENE_ID, EXEC_ID, RESULT_ID, FEEDBACK_ID);
         jdbc.update("UPDATE npick.feedback SET resolution = 'patch_parse' WHERE feedback_id = ?", FEEDBACK_ID);
         TestGraph.insertActivePatchRule(jdbc, FEEDBACK_ID, OTHER_ACTIVE); // 관련 없는 활성 규칙
-        TestGraph.insertActivePatchRule(jdbc, FEEDBACK_ID, R1);           // 교체 대상
+        TestGraph.insertActivePatchRule(jdbc, FEEDBACK_ID, R1); // 교체 대상
         TestGraph.insertPendingPatchRuleReplacing(jdbc, FEEDBACK_ID, R2, R1); // R2 -> R1
         // Fix round 1(authz): verify()가 이제 담당 검수자·대기 후보 존재를 검사하므로 함께 심는다.
         TestGraph.claimFeedback(jdbc, FEEDBACK_ID, MEMBER_ID);
@@ -56,22 +63,34 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
         String ruleSetJson = jdbc.queryForObject(
                 "SELECT (verification_context_json->'verification_rule_set')::text "
                         + "FROM npick.search_execution WHERE search_execution_id = ?",
-                String.class, execId);
+                String.class,
+                execId);
         // verification_rule_set 에 OTHER_ACTIVE, R2 는 있고 R1 은 없다
-        assertThat(ruleSetJson).contains(String.valueOf(OTHER_ACTIVE)).contains(String.valueOf(R2))
+        assertThat(ruleSetJson)
+                .contains(String.valueOf(OTHER_ACTIVE))
+                .contains(String.valueOf(R2))
                 .doesNotContain(String.valueOf(R1));
         // 롤백으로 공유 규칙 상태 무변경
         assertThat(jdbc.queryForObject(
-                "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, R1)).isTrue();
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, R1))
+                .isTrue();
         assertThat(jdbc.queryForObject(
-                "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, R2)).isFalse();
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, R2))
+                .isFalse();
     }
 
     @Test
     @DisplayName("태그+해석 동시 교정을 최종 조합으로 한 번에 검증한다")
     void verifiesTagAndParseTogether() {
-        TestGraph.insertSearchableReportedScene(jdbc, MEMBER_ID + 1, CLIP_ID + 1, RUN_ID + 1, SCENE_ID + 1,
-                EXEC_ID + 1, RESULT_ID + 1, FEEDBACK_ID + 1);
+        TestGraph.insertSearchableReportedScene(
+                jdbc,
+                MEMBER_ID + 1,
+                CLIP_ID + 1,
+                RUN_ID + 1,
+                SCENE_ID + 1,
+                EXEC_ID + 1,
+                RESULT_ID + 1,
+                FEEDBACK_ID + 1);
         jdbc.update("UPDATE npick.feedback SET resolution = 'patch_parse' WHERE feedback_id = ?", FEEDBACK_ID + 1);
         TestGraph.insertReviewerTagCandidate(jdbc, SCENE_ID + 1, CLIP_ID + 1, FEEDBACK_ID + 1, 8305090L);
         TestGraph.insertPendingPatchRule(jdbc, FEEDBACK_ID + 1, 8305091L);
@@ -84,7 +103,8 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
 
         Long count = jdbc.queryForObject(
                 "SELECT count(*) FROM npick.search_execution WHERE replay_of_feedback_id = ?",
-                Long.class, FEEDBACK_ID + 1);
+                Long.class,
+                FEEDBACK_ID + 1);
         assertThat(count).isEqualTo(1L); // 두 검증이 아니라 한 조합 검증
     }
 
@@ -93,8 +113,8 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
     void verifiesEveryRuleCandidate() {
         long feedbackId = FEEDBACK_ID + 2;
         long oldRule = MULTI_OLD_RULE, firstCandidate = 8305181L;
-        TestGraph.insertSearchableReportedScene(jdbc, MEMBER_ID + 2, CLIP_ID + 2, RUN_ID + 2,
-                SCENE_ID + 2, EXEC_ID + 2, RESULT_ID + 2, feedbackId);
+        TestGraph.insertSearchableReportedScene(
+                jdbc, MEMBER_ID + 2, CLIP_ID + 2, RUN_ID + 2, SCENE_ID + 2, EXEC_ID + 2, RESULT_ID + 2, feedbackId);
         jdbc.update("UPDATE npick.feedback SET resolution = 'patch_parse' WHERE feedback_id = ?", feedbackId);
         TestGraph.insertActivePatchRule(jdbc, feedbackId, oldRule);
         TestGraph.insertPendingPatchRule(jdbc, feedbackId, firstCandidate);
@@ -105,18 +125,26 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
         long execId = useCase.verify(feedbackId, MEMBER_ID + 2).executionId();
         String context = jdbc.queryForObject(
                 "SELECT verification_context_json::text FROM npick.search_execution WHERE search_execution_id = ?",
-                String.class, execId);
+                String.class,
+                execId);
         String ruleSet = jdbc.queryForObject(
                 "SELECT (verification_context_json->'verification_rule_set')::text FROM npick.search_execution "
-                        + "WHERE search_execution_id = ?", String.class, execId);
+                        + "WHERE search_execution_id = ?",
+                String.class,
+                execId);
 
-        assertThat(ruleSet).contains(String.valueOf(firstCandidate), String.valueOf(firstCandidate + 1),
+        assertThat(ruleSet)
+                .contains(
+                        String.valueOf(firstCandidate),
+                        String.valueOf(firstCandidate + 1),
                         String.valueOf(firstCandidate + 2))
                 .doesNotContain(String.valueOf(oldRule));
         assertThat(context).contains("\"candidate_rules\"");
         assertThat(jdbc.queryForObject(
-                "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, oldRule)).isTrue();
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, oldRule))
+                .isTrue();
         assertThat(jdbc.queryForObject(
-                "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, firstCandidate)).isFalse();
+                        "SELECT active FROM npick.search_rule WHERE search_rule_id = ?", Boolean.class, firstCandidate))
+                .isFalse();
     }
 }

@@ -25,8 +25,10 @@ class DeploymentSearchConfigVersionAdapter implements SearchConfigVersionSupplie
     private final SoftRankingSettings soft;
 
     DeploymentSearchConfigVersionAdapter(
-            FusionSettings fusion, LexicalSearchSettings lexical,
-            StructuredScoreSettings structured, SoftRankingSettings soft) {
+            FusionSettings fusion,
+            LexicalSearchSettings lexical,
+            StructuredScoreSettings structured,
+            SoftRankingSettings soft) {
         this.fusion = fusion;
         this.lexical = lexical;
         this.structured = structured;
