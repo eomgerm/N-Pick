@@ -6,7 +6,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
+import com.npick.common.response.StoredExplainKeywords;
 import com.npick.feedback.application.query.MyInquiryDetail;
 
 /**
@@ -86,6 +88,11 @@ public record MyInquiryDetailResponse(
         JsonNode displayName = explain.at("/display/display_name");
         if (!displayName.isTextual() && !displayName.isNull()) {
             return null;
+        }
+        // 출처를 남기지 않던 시절의 matched_keywords 를 내 검색 기록과 같은 규칙으로 맞춘다 (S15P21A501-234).
+        // 두 복원 화면이 다른 변환을 타면 같은 기록이 화면마다 다른 출처로 보인다.
+        if (explain.get("match") instanceof ObjectNode match) {
+            StoredExplainKeywords.normalize(match);
         }
         return new ResultSnapshot(
                 String.valueOf(detail.searchResultId()),

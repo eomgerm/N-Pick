@@ -39,7 +39,8 @@ class SearchHistoryHttpDbTest {
                     + " \"filmed_date\": {\"value\": null, \"verification_status\": \"unknown\"}}";
 
     private static final String MATCH =
-            "\"match\": {\"matched_keywords\": [\"서울역\"], \"match_evidence\": [{\"field\": \"ocr\","
+            "\"match\": {\"matched_keywords\": [{\"keyword\": \"서울역\", \"origin\": \"user\"}],"
+                    + " \"match_evidence\": [{\"field\": \"ocr\","
                     + " \"value\": \"서울역\", \"source\": \"keyframe_ocr\","
                     + " \"verification_status\": \"verified\"}]}";
 
@@ -239,8 +240,10 @@ class SearchHistoryHttpDbTest {
                         jsonPath("$.data.search_snapshot.results[0].scene_type").value("역사 인파"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].filmed_date.verification_status")
                         .value("unknown"))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0]")
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0].keyword")
                         .value("서울역"))
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0].origin")
+                        .value("user"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].match_evidence[0].field")
                         .value("ocr"));
     }

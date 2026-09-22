@@ -28,7 +28,8 @@ public final class SceneDiff {
         for (SearchCandidates.ScoredScene scene : verified.scenes()) {
             if (!original.contains(scene.sceneId())) {
                 var reason = new LinkedHashMap<String, Object>();
-                reason.put("match", SearchExplain.match(scene, verified.expandedTokens()));
+                // VerificationSearchService 와 같은 이유로 확장어만 넘긴다 (S15P21A501-234 에서 동작을 바꾸지 않는다).
+                reason.put("match", SearchExplain.match(scene, List.of(), verified.expandedTokens()));
                 reason.put("score", SearchExplain.score(scene));
                 entered.add(new Entered(scene.sceneId(), reason));
             }

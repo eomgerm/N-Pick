@@ -317,7 +317,8 @@ class SearchControllerTest {
                 SearchExecutionResult.DateValue.unknown(),
                 "b_roll",
                 "역사 인파",
-                List.of("서울역"),
+                List.of(new SearchExecutionResult.MatchedKeyword(
+                        "서울역", SearchExecutionResult.MatchedKeyword.ORIGIN_USER)),
                 List.of(new SearchExecutionResult.MatchEvidence("ocr", "서울역 · 설 연휴 귀성객", "keyframe_ocr", "verified")));
     }
 }

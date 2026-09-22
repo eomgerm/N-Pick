@@ -33,9 +33,10 @@ class SearchExplainTest {
     @Test
     @DisplayName("설명에서 걸리면 caption 근거를 낸다")
     void reportsCaptionEvidence() {
-        var card = SearchExplain.card(scene(cardWith("서울역 귀성 인파", List.of("서울역", "인파"))), 1, 801L, QUERY_TOKENS);
+        var card = SearchExplain.card(
+                scene(cardWith("서울역 귀성 인파", List.of("서울역", "인파"))), 1, 801L, QUERY_TOKENS, List.of());
 
-        assertThat(card.matchedKeywords()).containsExactly("서울역");
+        assertThat(card.matchedKeywords()).containsExactly(userKeyword("서울역"));
         assertThat(card.matchEvidence()).singleElement().satisfies(evidence -> {
             assertThat(evidence.field()).isEqualTo("caption");
             assertThat(evidence.value()).isEqualTo("서울역 귀성 인파");
@@ -49,12 +50,36 @@ class SearchExplainTest {
         // 검색어인 형태만 보여야 한다. 태그가 새면 사용자에게 "비/NNG" 로 뜬다.
         var queryTokens = List.of("비/NNG", "내리/VV");
         var card = SearchExplain.card(
-                scene(cardWith("비 내리는 거리", List.of("비/NNG", "내리/VV", "거리/NNG"))),
+                scene(cardWith("비 내리는 거리", List.of("비/NNG", "내리/VV", "거리/NNG"))), 1, 801L, queryTokens, List.of());
+
+        assertThat(card.matchedKeywords()).containsExactly(userKeyword("비"), userKeyword("내리"));
+    }
+
+    @Test
+    @DisplayName("확장어로 걸린 키워드는 사용자가 친 말과 구분해 싣는다")
+    void marksExpandedKeywords() {
+        // F-05·F-07: 사용자가 직접 명시한 내용과 AI 가 추정한 내용을 구분한다. 구분이 없으면 사용자는
+        // 자기가 입력하지 않은 단어 때문에 결과가 나왔다는 것을 알 수 없다.
+        var card = SearchExplain.card(
+                scene(cardWith("물에 잠긴 주택가", List.of("집중/NNG", "물/NNG"))),
                 1,
                 801L,
-                queryTokens);
+                List.of("집중/NNG"),
+                List.of("물/NNG", "잠기/VV"));
 
-        assertThat(card.matchedKeywords()).containsExactly("비", "내리");
+        assertThat(card.matchedKeywords()).containsExactly(userKeyword("집중"), expandedKeyword("물"));
+    }
+
+    @Test
+    @DisplayName("태그를 떼면 형태가 겹치는 짝은 사용자 쪽으로 분류한다")
+    void prefersUserOriginWhenFormsCollide() {
+        // 파이프라인의 겹침 제거는 품사 태그를 단 채로 하므로 비/NNG(사용자)와 비/VV(확장어)가 둘 다
+        // 여기까지 온다. 태그를 떼면 한 칩이 되는데 그것을 확장어로 표시하면 사용자가 실제로 친 말이
+        // AI 가 넓힌 말로 둔갑한다.
+        var card = SearchExplain.card(
+                scene(cardWith("비 내리는 거리", List.of("비/NNG", "비/VV"))), 1, 801L, List.of("비/NNG"), List.of("비/VV"));
+
+        assertThat(card.matchedKeywords()).containsExactly(userKeyword("비"));
     }
 
     @Test
@@ -62,7 +87,7 @@ class SearchExplainTest {
     void neverLeavesEvidenceEmpty() {
         // §5.1: match_evidence 는 1개 이상이다. dense·구조화로만 올라온 장면은 토큰 대조로
         // 되짚지 못하는데, 그렇다고 빈 배열을 내보내면 계약이 깨진다.
-        var card = SearchExplain.card(scene(cardWith("아무 관련 없는 설명", List.of("무관"))), 1, 801L, QUERY_TOKENS);
+        var card = SearchExplain.card(scene(cardWith("아무 관련 없는 설명", List.of("무관"))), 1, 801L, QUERY_TOKENS, List.of());
 
         assertThat(card.matchedKeywords()).isEmpty();
         assertThat(card.matchEvidence()).hasSize(1);
@@ -74,7 +99,11 @@ class SearchExplainTest {
         SceneCard empty =
                 new SceneCard(9301, 9101, "제목", null, 0, 1000, "b_roll", List.of(), null, List.of(), List.of());
         var card = SearchExplain.card(
-                sceneWithTags(empty, List.of(tag(TagType.SCENE_TYPE, "역사 인파", true))), 1, null, QUERY_TOKENS);
+                sceneWithTags(empty, List.of(tag(TagType.SCENE_TYPE, "역사 인파", true))),
+                1,
+                null,
+                QUERY_TOKENS,
+                List.of());
 
         assertThat(card.matchEvidence()).singleElement().satisfies(evidence -> {
             assertThat(evidence.field()).isEqualTo("tag");
@@ -89,7 +118,7 @@ class SearchExplainTest {
         SceneCard empty =
                 new SceneCard(9301, 9101, "제목", null, 0, 1000, "b_roll", List.of(), null, List.of(), List.of());
 
-        var card = SearchExplain.card(scene(empty), 1, null, QUERY_TOKENS);
+        var card = SearchExplain.card(scene(empty), 1, null, QUERY_TOKENS, List.of());
 
         assertThat(card.matchEvidence()).singleElement().satisfies(evidence -> {
             assertThat(evidence.value()).isNull();
@@ -100,7 +129,7 @@ class SearchExplainTest {
     @Test
     @DisplayName("날짜가 없으면 상태는 unknown 이다")
     void unknownWhenThereIsNoDate() {
-        var card = SearchExplain.card(scene(cardWith("설명", List.of())), 1, null, QUERY_TOKENS);
+        var card = SearchExplain.card(scene(cardWith("설명", List.of())), 1, null, QUERY_TOKENS, List.of());
 
         assertThat(card.broadcastDate().value()).isNull();
         assertThat(card.broadcastDate().verificationStatus()).isEqualTo("unknown");
@@ -117,7 +146,7 @@ class SearchExplainTest {
                         tag(TagType.BROADCAST_DATE, "2026-01-01", false),
                         tag(TagType.BROADCAST_DATE, "2026-02-14", true)));
 
-        var card = SearchExplain.card(scene, 1, null, QUERY_TOKENS);
+        var card = SearchExplain.card(scene, 1, null, QUERY_TOKENS, List.of());
 
         assertThat(card.broadcastDate().value()).isEqualTo(LocalDate.of(2026, 2, 14));
         assertThat(card.broadcastDate().verificationStatus()).isEqualTo("verified");
@@ -160,13 +189,21 @@ class SearchExplainTest {
         var scene =
                 sceneWithTags(cardWith("서울역 귀성 인파", List.of("서울역")), List.of(tag(TagType.SCENE_TYPE, "역사 인파", true)));
 
-        var card = SearchExplain.card(scene, 1, 801L, QUERY_TOKENS);
+        var card = SearchExplain.card(scene, 1, 801L, QUERY_TOKENS, List.of());
         Map<String, Object> display = SearchExplain.display(scene);
 
         assertThat(display.get("display_name")).isEqualTo(card.displayName());
         assertThat(display.get("scene_description")).isEqualTo(card.sceneDescription());
         assertThat(display.get("shot_type")).isEqualTo(card.shotType());
         assertThat(display.get("scene_type")).isEqualTo(card.sceneType());
+    }
+
+    private static SearchExecutionResult.MatchedKeyword userKeyword(String keyword) {
+        return new SearchExecutionResult.MatchedKeyword(keyword, SearchExecutionResult.MatchedKeyword.ORIGIN_USER);
+    }
+
+    private static SearchExecutionResult.MatchedKeyword expandedKeyword(String keyword) {
+        return new SearchExecutionResult.MatchedKeyword(keyword, SearchExecutionResult.MatchedKeyword.ORIGIN_EXPANDED);
     }
 
     private static SceneCard cardWith(String caption, List<String> captionTokens) {
