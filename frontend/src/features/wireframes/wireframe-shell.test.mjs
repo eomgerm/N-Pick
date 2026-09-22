@@ -56,8 +56,6 @@ registerHooks({
 });
 
 const { WireframeShell } = await import('./wireframe-shell.tsx');
-const { parseSearchResponse } = await import('./search-api-contract.ts');
-const { presentSearchResponse } = await import('./search-results-api.ts');
 
 function renderShell({ preview, state, ...params } = {}, props = {}) {
   return renderToStaticMarkup(
@@ -74,50 +72,6 @@ function renderShell({ preview, state, ...params } = {}, props = {}) {
   );
 }
 
-function renderSearchSummary(state, resolutionStatus, degradedReasons = []) {
-  const presentation = presentSearchResponse(
-    parseSearchResponse({
-      search_execution_id: '100',
-      status: degradedReasons.length ? 'degraded' : 'succeeded',
-      degraded_reasons: degradedReasons,
-      query_resolution_status: resolutionStatus,
-      has_applied_review_rule: false,
-      guard_summary: { excluded_result_count: 0, reasons: [] },
-      shortage_reasons: ['candidate_pool_exhausted'],
-      results: [],
-      has_next: false,
-    }),
-  );
-  const html = renderShell({}, { api: { state, presentation, error: null, retry() {} } });
-  const summary = html.match(/<section[^>]*aria-label="검색 요약"[\s\S]*?<\/section>/)?.[0];
-  assert.ok(summary, '검색어와 서버 해석 상태를 구분하는 요약이 있어야 한다');
-  return summary;
-}
-
-test('검색 요약은 같은 검색어도 서버의 resolved/fallback 상태대로 표시한다', () => {
-  for (const [status, reasons, expected] of [
-    ['resolved', [], '검색 해석: 정상 완료'],
-    ['resolved', ['dense_unavailable'], '검색 해석: 정상 완료'],
-    ['fallback', ['resolver_fallback'], '검색 해석: 해석을 사용할 수 없어 기본 단어 검색으로 전환'],
-  ]) {
-    const summary = renderSearchSummary('ready', status, reasons);
-    assert.ok(summary.includes(expected));
-    assert.match(summary, /<span>검색어<\/span><strong>명절 교통<\/strong>/);
-    assert.doesNotMatch(summary, /<span[^>]*>명절<\/span>|<span[^>]*>교통<\/span>/);
-  }
-});
-
-test('검색 중·실패 시 이전 응답의 해석 완료 상태를 표시하지 않는다', () => {
-  for (const [state, expected] of [
-    ['loading', '검색 해석: 확인 중'],
-    ['failed', '검색 해석: 확인하지 못함'],
-  ]) {
-    const summary = renderSearchSummary(state, 'resolved');
-    assert.ok(summary.includes(expected));
-    assert.doesNotMatch(summary, /정상 완료/);
-  }
-});
-
 test('degraded demo 세 종류는 결과 10건을 유지하며 각각의 상태를 알린다', () => {
   const cases = [
     ['degraded-resolver', '검색어 해석 일부 누락'],
@@ -131,7 +85,6 @@ test('degraded demo 세 종류는 결과 10건을 유지하며 각각의 상태�
     assert.ok((html.match(new RegExp(reason, 'g')) ?? []).length >= 2);
     assert.ok(html.includes('일부 기능 누락'));
     assert.ok(html.includes('명절 교통 검색 결과 10개'));
-    assert.ok((html.match(/송출 전 최종 확인/g) ?? []).length >= 2);
   }
 });
 

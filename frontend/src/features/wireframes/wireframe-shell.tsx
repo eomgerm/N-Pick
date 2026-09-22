@@ -1,7 +1,6 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -36,10 +35,7 @@ import {
   type SearchExecutionPresentation,
 } from '@/features/wireframes/search-execution-status';
 import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
-import {
-  getResolverLabel,
-  type SearchResultDetails,
-} from '@/features/wireframes/search-result-details';
+import { type SearchResultDetails } from '@/features/wireframes/search-result-details';
 
 export interface SearchScreenParams {
   q?: string;
@@ -176,13 +172,6 @@ export function WireframeShell({
         ? 'fallback'
         : effectiveResultDetails?.resolverStatus,
   };
-  const resolutionStatusLabel =
-    resultState === 'loading'
-      ? '확인 중'
-      : resultState === 'failed'
-        ? '확인하지 못함'
-        : getResolverLabel(details.resolverStatus);
-
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedQuery = query.trim();
@@ -336,42 +325,6 @@ export function WireframeShell({
       <div className={styles.workspace} data-state={resultState} ref={workspaceRef}>
         <main className={styles.mainContent}>
           <h1 className={styles.visuallyHidden}>뉴스 장면 검색 결과</h1>
-          <section className={styles.resolution} aria-label="검색 요약">
-            <div className={styles.resolutionIcon}>
-              <Sparkles aria-hidden="true" />
-            </div>
-            <div>
-              <span>검색어</span>
-              <strong>{submittedQuery}</strong>
-              <p className={styles.resolutionStatus} role="status">
-                검색 해석: {resolutionStatusLabel}
-              </p>
-            </div>
-            <span
-              className={styles.searchHealth}
-              data-status={searchExecution.status === 'degraded' ? 'degraded' : resultState}
-            >
-              {resultState === 'populated' || resultState === 'empty' ? (
-                searchExecution.status === 'degraded' ? (
-                  <AlertTriangle aria-hidden="true" />
-                ) : (
-                  <CheckCircle2 aria-hidden="true" />
-                )
-              ) : null}
-              {resultState === 'failed'
-                ? // 서버에 가 보지도 않은 실패를 연결 실패로 적지 않는다. 배지라 사유 전문은
-                  // 아래 패널이 싣고 여기에는 짧은 상태만 둔다.
-                  api?.validationMessage || api?.failureReason
-                  ? '검색 조건 확인 필요'
-                  : '검색 연결 실패'
-                : resultState === 'loading'
-                  ? '검색 중'
-                  : searchExecution.status === 'degraded'
-                    ? '일부 기능 누락'
-                    : '정상 검색'}
-            </span>
-          </section>
-
           <section className={styles.resultsSection} id="search-results">
             <div className={styles.resultsHeading}>
               <div>
