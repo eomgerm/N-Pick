@@ -1,5 +1,7 @@
 package com.npick.clip.presentation.response;
 
+import java.util.Locale;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import com.npick.clip.application.command.register.RegisterClipResult;
@@ -8,9 +10,13 @@ import com.npick.clip.application.command.register.RegisterClipResult;
 public record ClipRegistrationResponse(
         @JsonProperty("clip_id") String clipId,
         @JsonProperty("pipeline_run_id") String pipelineRunId,
-        String status) {
+        String status,
+        String outcome) {
     public static ClipRegistrationResponse from(RegisterClipResult result) {
         return new ClipRegistrationResponse(
-                Long.toString(result.clipId()), Long.toString(result.pipelineRunId()), result.status());
+                Long.toString(result.clipId()),
+                Long.toString(result.pipelineRunId()),
+                result.status(),
+                result.outcome().name().toLowerCase(Locale.ROOT));
     }
 }

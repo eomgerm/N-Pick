@@ -15,6 +15,7 @@ import javax.sql.DataSource;
 import org.springframework.stereotype.Component;
 
 import com.npick.clip.application.command.register.RegisterClipResult;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.error.ClipRuntimeErrorCode;
 import com.npick.clip.application.error.RegistrationDeduplicationErrorCode;
 import com.npick.clip.application.port.RegistrationDeduplicationPort;
@@ -111,18 +112,25 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
                     previousState = rows.getString("state");
                     if ("succeeded".equals(previousState)) {
                         long clipId = rows.getLong("clip_id");
-                        if (!exists(db, clipId)) {
+                        Long owner = ownerOf(db, clipId);
+                        if (owner == null) {
                             throw new BusinessException(RegistrationDeduplicationErrorCode.RESULT_DELETED);
                         }
+                        // A replay of a request that matched someone else's clip keeps reporting the duplicate.
                         var result = new RegisterClipResult(
-                                clipId, rows.getLong("pipeline_run_id"), rows.getString("result_status"));
+                                clipId,
+                                rows.getLong("pipeline_run_id"),
+                                rows.getString("result_status"),
+                                owner.longValue() == actor
+                                        ? RegistrationOutcome.CREATED
+                                        : RegistrationOutcome.DUPLICATE_OTHER);
                         recoverObservedResult(db, content, result);
                         return result;
                     }
                 }
             }
         }
-        RegisterClipResult existing = findContent(db, content);
+        RegisterClipResult existing = findContent(db, content, actor);
         if (existing != null) {
             reserve(db, actor, key, content, fingerprint);
             // Complete every unresolved alias atomically, not just the current key.
@@ -189,15 +197,24 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
         }
     }
 
-    private static RegisterClipResult findContent(Connection db, String content) throws SQLException {
+    private static RegisterClipResult findContent(Connection db, String content, long actor) throws SQLException {
         // Replay the initial registration response, not the mutable pipeline execution status.
+        // The registrant decides only how the duplicate is worded; it never narrows the match itself.
         try (var query = db.prepareStatement("""
-                SELECT c.clip_id,r.pipeline_run_id FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id
+                SELECT c.clip_id,r.pipeline_run_id,c.registered_by_id
+                FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id
                 WHERE c.content_hash=? AND c.deleted_at IS NULL AND r.processing_no=1
                 """)) {
             query.setString(1, content);
             try (var rows = query.executeQuery()) {
-                return rows.next() ? new RegisterClipResult(rows.getLong(1), rows.getLong(2), "queued") : null;
+                if (!rows.next()) return null;
+                return new RegisterClipResult(
+                        rows.getLong(1),
+                        rows.getLong(2),
+                        "queued",
+                        rows.getLong(3) == actor
+                                ? RegistrationOutcome.DUPLICATE_OWN
+                                : RegistrationOutcome.DUPLICATE_OTHER);
             }
         }
     }
@@ -224,11 +241,13 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
         }
     }
 
-    private static boolean exists(Connection db, long clipId) throws SQLException {
-        try (var query = db.prepareStatement("SELECT 1 FROM npick.clip WHERE clip_id=? AND deleted_at IS NULL")) {
+    /** Registrant of a clip that is still alive, or null when it is gone. */
+    private static Long ownerOf(Connection db, long clipId) throws SQLException {
+        try (var query =
+                db.prepareStatement("SELECT registered_by_id FROM npick.clip WHERE clip_id=? AND deleted_at IS NULL")) {
             query.setLong(1, clipId);
             try (var rows = query.executeQuery()) {
-                return rows.next();
+                return rows.next() ? rows.getLong(1) : null;
             }
         }
     }
