@@ -74,8 +74,10 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
       broadcastRange={broadcastRange}
       filmingRange={filmingRange}
       isDisabled={isNavigating}
-      onBroadcastChange={setBroadcastRange}
-      onFilmingChange={setFilmingRange}
+      onDateRangesChange={({ broadcast, filming }) => {
+        setBroadcastRange(broadcast);
+        setFilmingRange(filming);
+      }}
       onSearchHistorySelect={(historyQuery) => {
         setQuery(historyQuery);
         requestAnimationFrame(() => searchFieldRef.current?.querySelector('input')?.focus());

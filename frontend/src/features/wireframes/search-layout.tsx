@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 
 import { AppShell } from '@/components/app-shell';
-import type { DateRange } from '@/features/wireframes/date-range';
+import type { DateRange, SearchDateRanges } from '@/features/wireframes/date-range';
 import { SearchHistory } from '@/features/wireframes/search-history';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 
@@ -16,8 +16,7 @@ interface SearchLayoutProps {
   searchField?: ReactNode;
   broadcastRange: DateRange;
   filmingRange: DateRange;
-  onBroadcastChange: (value: DateRange) => void;
-  onFilmingChange: (value: DateRange) => void;
+  onDateRangesChange: (value: SearchDateRanges) => void;
   onSearchHistorySelect: (query: string) => void;
 }
 
@@ -30,8 +29,7 @@ export function SearchLayout({
   searchField,
   broadcastRange,
   filmingRange,
-  onBroadcastChange,
-  onFilmingChange,
+  onDateRangesChange,
   onSearchHistorySelect,
 }: SearchLayoutProps) {
   return (
@@ -49,8 +47,7 @@ export function SearchLayout({
         broadcastRange={broadcastRange}
         filmingRange={filmingRange}
         isDisabled={isDisabled}
-        onBroadcastChange={onBroadcastChange}
-        onFilmingChange={onFilmingChange}
+        onDateRangesChange={onDateRangesChange}
         onSearchHistorySelect={onSearchHistorySelect}
         theme={theme}
       />

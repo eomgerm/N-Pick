@@ -216,7 +216,7 @@ test('실제 검색 응답이 빈 결과여도 resolver fallback 안내와 선�
     page.getByText('해석을 사용할 수 없어 기본 단어 검색으로 전환', { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole('button', { name: '방송일 기간 선택: 2026.09.01 – 2026.09.11' }).first(),
+    page.getByRole('button', { name: /방송일 2026\.09\.01 – 2026\.09\.11/ }).first(),
   ).toBeVisible();
   await expect(page.getByText('0건', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Preview 열기/ })).toHaveCount(0);

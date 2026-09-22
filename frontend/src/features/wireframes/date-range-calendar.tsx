@@ -1,15 +1,19 @@
 'use client';
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { type KeyboardEvent, useRef, useState } from 'react';
+import { type ButtonHTMLAttributes, type KeyboardEvent, useRef, useState } from 'react';
 
-import type { DateRange } from '@/features/wireframes/date-range';
+import { Tooltip } from '@/components/tooltip';
+import { type DateRange, MIN_SELECTABLE_DATE } from '@/features/wireframes/date-range';
 import styles from '@/features/wireframes/shinhan-search.module.css';
 
 interface DateRangeCalendarProps {
   endpoint: keyof DateRange;
   initialDate: string;
+  minDate?: string;
   maxDate: string;
+  label?: string;
+  isSingleDate?: boolean;
   range: DateRange;
   onSelect: (date: string) => void;
 }
@@ -34,22 +38,38 @@ const createCalendarState = (initialDate: string): CalendarState => ({
   view: 'days',
 });
 
+function CalendarButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <Tooltip
+      content="해당 기간은 선택할 수 없어요"
+      isDisabled={!props.disabled}
+      onClickOnly
+      placement="bottom"
+    >
+      {(descriptionId) => <button {...props} aria-describedby={descriptionId} />}
+    </Tooltip>
+  );
+}
+
 /** 시작일과 종료일이 각각 탐색 위치와 보기 단계를 갖는 달력입니다. */
 export function DateRangeCalendar({
   endpoint,
   initialDate: requestedDate,
+  minDate = MIN_SELECTABLE_DATE,
   maxDate,
+  label = endpoint === 'from' ? '시작일' : '종료일',
+  isSingleDate = false,
   range,
   onSelect,
 }: DateRangeCalendarProps) {
-  const initialDate = requestedDate > maxDate ? maxDate : requestedDate;
+  const initialDate =
+    requestedDate > maxDate ? maxDate : requestedDate < minDate ? minDate : requestedDate;
   const [calendarState, setCalendarState] = useState(() => createCalendarState(initialDate));
   const currentState =
     calendarState.initialDate === initialDate ? calendarState : createCalendarState(initialDate);
   const { month, focusDate, view } = currentState;
   const calendarRef = useRef<HTMLElement>(null);
 
-  const label = endpoint === 'from' ? '시작일' : '종료일';
   const first = new Date(`${month}T00:00:00Z`);
   const year = first.getUTCFullYear();
   const monthNumber = first.getUTCMonth() + 1;
@@ -57,7 +77,8 @@ export function DateRangeCalendar({
   last.setUTCMonth(last.getUTCMonth() + 1);
   last.setUTCDate(0);
   const decade = Math.floor(year / 10) * 10;
-  const firstYear = Math.max(1, decade);
+  const minYear = Number(minDate.slice(0, 4));
+  const firstYear = Math.max(1950, decade);
   const lastYear = Math.min(9999, decade + 10);
   const period =
     view === 'days'
@@ -82,7 +103,11 @@ export function DateRangeCalendar({
   function showMonth(next: string, shouldFocus = false) {
     const selected = range[endpoint];
     const nextFocus =
-      selected && selected <= maxDate && monthStart(selected) === next ? selected : next;
+      selected && selected >= minDate && selected <= maxDate && monthStart(selected) === next
+        ? selected
+        : next < minDate
+          ? minDate
+          : next;
     updateCalendarState((state) => ({
       ...state,
       month: next,
@@ -98,7 +123,10 @@ export function DateRangeCalendar({
       next.setUTCMonth(next.getUTCMonth() + offset);
       showMonth(next.toISOString().slice(0, 10));
     } else {
-      const nextYear = Math.max(1, Math.min(9999, year + offset * (view === 'years' ? 10 : 1)));
+      const nextYear = Math.max(
+        minYear,
+        Math.min(9999, year + offset * (view === 'years' ? 10 : 1)),
+      );
       updateCalendarState((state) => ({
         ...state,
         month: yearMonth(nextYear, monthNumber),
@@ -121,7 +149,7 @@ export function DateRangeCalendar({
     date.setUTCDate(date.getUTCDate() + offsets[event.key]);
     if (date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) return;
     const candidate = date.toISOString().slice(0, 10);
-    const next = candidate > maxDate ? maxDate : candidate;
+    const next = candidate > maxDate ? maxDate : candidate < minDate ? minDate : candidate;
     updateCalendarState((state) => ({
       ...state,
       month: monthStart(next),
@@ -141,16 +169,20 @@ export function DateRangeCalendar({
         <h3>{label}</h3>
       </div>
       <div className={styles.monthNavigation}>
-        <button
+        <CalendarButton
           aria-label={`${label} 이전 ${shiftLabel}`}
           disabled={
-            view === 'days' ? month === '0001-01-01' : view === 'years' ? decade === 0 : year === 1
+            view === 'days'
+              ? month <= monthStart(minDate)
+              : view === 'years'
+                ? decade <= minYear
+                : year <= minYear
           }
           onClick={() => shiftPeriod(-1)}
           type="button"
         >
           <ChevronLeft aria-hidden="true" />
-        </button>
+        </CalendarButton>
         <button
           aria-disabled={view === 'years'}
           aria-label={`${label} ${period}${view === 'days' ? ', 월 선택' : view === 'months' ? ', 연도 선택' : ', 연도 범위'}`}
@@ -167,7 +199,7 @@ export function DateRangeCalendar({
         >
           <span aria-live="polite">{period}</span>
         </button>
-        <button
+        <CalendarButton
           aria-label={`${label} 다음 ${shiftLabel}`}
           disabled={
             view === 'days'
@@ -180,7 +212,7 @@ export function DateRangeCalendar({
           type="button"
         >
           <ChevronRight aria-hidden="true" />
-        </button>
+        </CalendarButton>
       </div>
       {view === 'days' ? (
         <div aria-label={period} className={styles.days} role="group">
@@ -196,28 +228,40 @@ export function DateRangeCalendar({
             const day = `${month.slice(0, 8)}${String(index + 1).padStart(2, '0')}`;
             const isBoundary = day === range.from || day === range.to;
             const isWithin = Boolean(
-              range.from && range.to && day >= range.from && day <= range.to,
+              !isSingleDate && range.from && range.to && day >= range.from && day <= range.to,
             );
+            const weekday = (first.getUTCDay() + index) % 7;
             return (
-              <button
-                aria-label={`${year}년 ${monthNumber}월 ${index + 1}일${day === range.from ? ', 시작일' : ''}${day === range.to ? ', 종료일' : ''}`}
+              <CalendarButton
+                aria-label={`${year}년 ${monthNumber}월 ${index + 1}일${!isSingleDate && day === range.from ? ', 시작일' : ''}${!isSingleDate && day === range.to ? ', 종료일' : ''}`}
                 aria-pressed={day === range[endpoint]}
                 className={styles.day}
                 data-boundary={isBoundary}
                 data-date={day}
+                data-range-start={isWithin && (day === range.from || index === 0 || weekday === 0)}
+                data-range-end={
+                  isWithin && (day === range.to || index === last.getUTCDate() - 1 || weekday === 6)
+                }
+                data-range-edge={
+                  isWithin && isBoundary && range.from !== range.to
+                    ? day === range.from
+                      ? 'start'
+                      : 'end'
+                    : undefined
+                }
                 data-within={isWithin}
-                disabled={day > maxDate}
+                disabled={day < minDate || day > maxDate}
                 key={day}
                 onClick={() => {
                   updateCalendarState((state) => ({ ...state, focusDate: day }));
                   onSelect(day);
                 }}
                 onKeyDown={(event) => handleDayKey(event, day)}
-                tabIndex={day === focusDate && day <= maxDate ? 0 : -1}
+                tabIndex={day === focusDate && day >= minDate && day <= maxDate ? 0 : -1}
                 type="button"
               >
                 {index + 1}
-              </button>
+              </CalendarButton>
             );
           })}
         </div>
@@ -230,22 +274,26 @@ export function DateRangeCalendar({
           {Array.from({ length: view === 'months' ? 12 : lastYear - firstYear + 1 }, (_, index) => {
             const number = view === 'months' ? index + 1 : firstYear + index;
             return (
-              <button
+              <CalendarButton
                 aria-pressed={number === (view === 'months' ? monthNumber : year)}
                 data-month={view === 'months' ? number : undefined}
                 disabled={
                   view === 'months'
-                    ? yearMonth(year, number) > maxDate
-                    : number > Number(maxDate.slice(0, 4))
+                    ? yearMonth(year, number) < monthStart(minDate) ||
+                      yearMonth(year, number) > maxDate
+                    : number < minYear || number > Number(maxDate.slice(0, 4))
                 }
                 key={number}
                 onClick={() => {
                   if (view === 'months') showMonth(yearMonth(year, number), true);
                   else {
-                    const nextMonth =
-                      number === Number(maxDate.slice(0, 4))
-                        ? Math.min(monthNumber, Number(maxDate.slice(5, 7)))
-                        : monthNumber;
+                    const nextMonth = Math.max(
+                      number === minYear ? Number(minDate.slice(5, 7)) : 1,
+                      Math.min(
+                        monthNumber,
+                        number === Number(maxDate.slice(0, 4)) ? Number(maxDate.slice(5, 7)) : 12,
+                      ),
+                    );
                     updateCalendarState((state) => ({
                       ...state,
                       month: yearMonth(number, nextMonth),
@@ -262,7 +310,7 @@ export function DateRangeCalendar({
               >
                 {number}
                 {view === 'months' ? '월' : '년'}
-              </button>
+              </CalendarButton>
             );
           })}
         </div>

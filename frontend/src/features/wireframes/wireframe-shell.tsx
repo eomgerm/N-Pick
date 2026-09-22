@@ -306,8 +306,9 @@ export function WireframeShell({
       broadcastRange={broadcastRange}
       filmingRange={filmingRange}
       isDisabled={isSearchPending}
-      onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
-      onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
+      onDateRangesChange={({ broadcast, filming }) =>
+        handleSearchNavigation(submittedQuery, broadcast, filming)
+      }
       onSearchHistorySelect={(historyQuery) => {
         setQuery(historyQuery);
         requestAnimationFrame(() => searchFieldRef.current?.querySelector('input')?.focus());

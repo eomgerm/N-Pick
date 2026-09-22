@@ -1,9 +1,10 @@
 'use client';
 
-import { ChevronLeft, History, MessageSquareText, Tv, Video } from 'lucide-react';
+import { CalendarDays, ChevronLeft, History, MessageSquareText } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
-import type { DateRange } from '@/features/wireframes/date-range';
+import { Tooltip } from '@/components/tooltip';
+import type { DateRange, SearchDateRanges } from '@/features/wireframes/date-range';
 import { DateRangePicker } from '@/features/wireframes/date-range-picker';
 import { MyInquiryHistory } from '@/features/wireframes/my-inquiry-history';
 import { MySearchHistory } from '@/features/wireframes/my-search-history';
@@ -16,8 +17,7 @@ interface SearchHistoryProps {
   broadcastRange: DateRange;
   filmingRange: DateRange;
   isDisabled?: boolean;
-  onBroadcastChange: (value: DateRange) => void;
-  onFilmingChange: (value: DateRange) => void;
+  onDateRangesChange: (value: SearchDateRanges) => void;
   onSearchHistorySelect: (query: string) => void;
   theme: WireframeTheme;
 }
@@ -27,13 +27,13 @@ export function SearchHistory({
   broadcastRange,
   filmingRange,
   isDisabled,
-  onBroadcastChange,
-  onFilmingChange,
+  onDateRangesChange,
   onSearchHistorySelect,
   theme,
 }: SearchHistoryProps) {
-  const [isNavExpanded, setIsNavExpanded] = useState(false);
-  const [activePanel, setActivePanel] = useState<HistoryKind | null>(null);
+  const [activePanel, setActivePanel] = useState<HistoryKind | 'date' | null>(null);
+  const isNavExpanded = activePanel !== null;
+  const isHistoryOpen = activePanel === 'search' || activePanel === 'inquiry';
   const [isSearchDetailOpen, setIsSearchDetailOpen] = useState(false);
   const [isInquiryDetailOpen, setIsInquiryDetailOpen] = useState(false);
   const dockRef = useRef<HTMLElement>(null);
@@ -44,14 +44,12 @@ export function SearchHistory({
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setActivePanel(null);
-        setIsNavExpanded(false);
         activeTriggerRef.current?.focus();
       }
     };
     const handleOutside = (event: PointerEvent) => {
       if (dockRef.current?.contains(event.target as Node)) return;
       setActivePanel(null);
-      setIsNavExpanded(false);
     };
     document.addEventListener('keydown', handleEscape);
     document.addEventListener('pointerdown', handleOutside);
@@ -63,7 +61,6 @@ export function SearchHistory({
 
   function closePanel() {
     setActivePanel(null);
-    setIsNavExpanded(false);
     requestAnimationFrame(() => activeTriggerRef.current?.focus());
   }
 
@@ -72,19 +69,18 @@ export function SearchHistory({
       closePanel();
       return;
     }
-    setIsNavExpanded(true);
     setActivePanel(kind);
   }
 
   return (
     <>
       <button
-        aria-hidden={!activePanel}
+        aria-hidden={!isHistoryOpen}
         aria-label="열린 정보 패널 닫기"
         className={styles.pageBackdrop}
-        data-open={Boolean(activePanel)}
+        data-open={isHistoryOpen}
         onClick={closePanel}
-        tabIndex={activePanel ? 0 : -1}
+        tabIndex={isHistoryOpen ? 0 : -1}
         type="button"
       />
       <aside
@@ -93,6 +89,10 @@ export function SearchHistory({
         data-expanded={isNavExpanded}
         data-has-range={Boolean(broadcastRange.from || filmingRange.from)}
         ref={dockRef}
+        onBlur={(event) => {
+          if (activePanel !== 'date' || !event.relatedTarget) return;
+          if (!event.currentTarget.contains(event.relatedTarget)) setActivePanel(null);
+        }}
         onClickCapture={(event) => {
           const button = (event.target as HTMLElement).closest('button');
           if (button?.classList.contains(styles.navAction)) activeTriggerRef.current = button;
@@ -100,58 +100,60 @@ export function SearchHistory({
       >
         <div className={styles.navSurface} id="search-tool-nav">
           <div className={styles.navActions}>
-            <DateRangePicker
-              isDisabled={isDisabled}
-              label="방송일"
-              navigationTrigger={{
-                className: styles.navAction,
-                icon: <Tv aria-hidden="true" />,
-                onOpen: () => {
-                  setIsNavExpanded(true);
-                  setActivePanel(null);
-                },
-              }}
-              onChange={onBroadcastChange}
-              value={broadcastRange}
-            />
-            <DateRangePicker
-              isDisabled={isDisabled}
-              label="촬영일"
-              navigationTrigger={{
-                className: styles.navAction,
-                icon: <Video aria-hidden="true" />,
-                onOpen: () => {
-                  setIsNavExpanded(true);
-                  setActivePanel(null);
-                },
-              }}
-              onChange={onFilmingChange}
-              value={filmingRange}
-            />
-            <button
-              aria-controls="search-history-panel"
-              aria-expanded={activePanel === 'search'}
-              className={styles.navAction}
-              data-active={activePanel === 'search'}
-              disabled={isDisabled}
-              onClick={() => openPanel('search')}
-              type="button"
-            >
-              <History aria-hidden="true" />
-              <span>이전 검색 기록</span>
-            </button>
-            <button
-              aria-controls="inquiry-history-panel"
-              aria-expanded={activePanel === 'inquiry'}
-              className={styles.navAction}
-              data-active={activePanel === 'inquiry'}
-              disabled={isDisabled}
-              onClick={() => openPanel('inquiry')}
-              type="button"
-            >
-              <MessageSquareText aria-hidden="true" />
-              <span>문의 사항</span>
-            </button>
+            <Tooltip content="기간 설정" isDisabled={activePanel === 'date'}>
+              {(descriptionId) => (
+                <DateRangePicker
+                  isDisabled={isDisabled}
+                  isOpen={activePanel === 'date'}
+                  triggerDescriptionId={descriptionId}
+                  navigationTrigger={{
+                    className: styles.navAction,
+                    icon: <CalendarDays aria-hidden="true" />,
+                  }}
+                  onOpenChange={(isOpen) =>
+                    setActivePanel((current) =>
+                      isOpen ? 'date' : current === 'date' ? null : current,
+                    )
+                  }
+                  onChange={onDateRangesChange}
+                  ranges={{ broadcast: broadcastRange, filming: filmingRange }}
+                />
+              )}
+            </Tooltip>
+            <Tooltip content="이전 검색 기록" isDisabled={activePanel === 'search'}>
+              {(descriptionId) => (
+                <button
+                  aria-describedby={descriptionId}
+                  aria-controls="search-history-panel"
+                  aria-expanded={activePanel === 'search'}
+                  className={styles.navAction}
+                  data-active={activePanel === 'search'}
+                  disabled={isDisabled}
+                  onClick={() => openPanel('search')}
+                  type="button"
+                >
+                  <History aria-hidden="true" />
+                  <span>이전 검색 기록</span>
+                </button>
+              )}
+            </Tooltip>
+            <Tooltip content="문의 사항" isDisabled={activePanel === 'inquiry'}>
+              {(descriptionId) => (
+                <button
+                  aria-describedby={descriptionId}
+                  aria-controls="inquiry-history-panel"
+                  aria-expanded={activePanel === 'inquiry'}
+                  className={styles.navAction}
+                  data-active={activePanel === 'inquiry'}
+                  disabled={isDisabled}
+                  onClick={() => openPanel('inquiry')}
+                  type="button"
+                >
+                  <MessageSquareText aria-hidden="true" />
+                  <span>문의 사항</span>
+                </button>
+              )}
+            </Tooltip>
           </div>
         </div>
         {(['search', 'inquiry'] as const).map((kind) => (
@@ -178,7 +180,6 @@ export function SearchHistory({
                 onDetailOpenChange={setIsSearchDetailOpen}
                 onSelect={(query) => {
                   setActivePanel(null);
-                  setIsNavExpanded(false);
                   onSearchHistorySelect(query);
                 }}
               />
