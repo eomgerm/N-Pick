@@ -14,7 +14,7 @@
 
 from dataclasses import dataclass
 
-from npick_worker.korean_tokens import analyze, prepare, tokenizer_version
+from npick_worker.korean_tokens import analyze, encode_token, prepare, tokenizer_version
 from npick_worker.query_normalization.config import (
     QueryNormalizationConfig,
     get_default_config,
@@ -74,6 +74,6 @@ def normalize(raw_query: str, config: QueryNormalizationConfig | None = None) ->
 
     return NormalizedQuery(
         normalized_query=" ".join(content),
-        search_tokens=tuple(form for form, _ in kept),
+        search_tokens=tuple(encode_token(form, tag) for form, tag in kept),
         normalization_version=tokenizer_version(settings),
     )
