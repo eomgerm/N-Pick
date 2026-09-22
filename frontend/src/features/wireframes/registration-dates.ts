@@ -2,6 +2,7 @@ import type {
   ClipSourceType,
   RegistrationFieldErrors,
 } from '@/features/wireframes/video-registration-api';
+import { seoulToday } from '@/lib/seoul-date';
 
 export interface RegistrationDates {
   sourceType: ClipSourceType;
@@ -21,17 +22,7 @@ export interface RegistrationDateBounds {
  * 등록 서비스가 보는 오늘. 서버가 Asia/Seoul 로 판정하므로 화면도 같은 날짜를 써야 한다. 기기 시간대를
  * 그대로 쓰면 KST 보다 앞선 기기에서 서버가 거부할 날짜를 통과시킨다.
  */
-export function registrationToday(): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const value = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value ?? '';
-  return `${value('year')}-${value('month')}-${value('day')}`;
-}
+export const registrationToday = seoulToday;
 
 /**
  * 날짜 피커가 아예 고를 수 없게 막는 범위. 타이핑한 값은 여전히 validateRegistrationDates 가 잡는다.
