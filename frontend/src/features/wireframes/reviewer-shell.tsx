@@ -156,7 +156,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                 <CheckCircle2 aria-hidden="true" />
                 <div>
                   <p>등록 완료</p>
-                  <h2>영상이 등록되었습니다.</h2>
+                  <h2>영상 등록 완료</h2>
                   <span>
                     {registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할
                     수 있습니다.

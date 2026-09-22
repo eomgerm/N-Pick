@@ -83,10 +83,8 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
     >
       <main className={styles.searchMain}>
         <div className={styles.searchIntro}>
-          <h1>안녕하세요.</h1>
-          <p className={styles.searchDescription}>
-            찾고 싶은 뉴스 장면을 자연스럽게 설명해 주세요.
-          </p>
+          <h1>뉴스 장면 검색</h1>
+          <p className={styles.searchDescription}>찾는 뉴스 장면을 설명해 주세요.</p>
         </div>
         <div className={styles.searchHero}>
           <SceneSearchField

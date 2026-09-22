@@ -236,7 +236,7 @@ export function ReviewerBoard({
         {board.total === 0 ? (
           <div className={styles.empty}>
             <Inbox aria-hidden="true" />
-            <h3>조건에 맞는 문의가 없어요</h3>
+            <h3>조건에 맞는 문의 없음</h3>
             <p>검색어나 상태 필터를 바꿔 보세요.</p>
             <button
               disabled={isNavigating}

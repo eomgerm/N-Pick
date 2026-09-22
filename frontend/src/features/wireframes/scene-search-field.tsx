@@ -62,9 +62,7 @@ export function SceneSearchField({
   const describedBy = classes.hint ? hintId : undefined;
   const hint = classes.hint ? (
     <p className={classes.hint} id={hintId} aria-live="polite">
-      {pasteError ||
-        (query && !isComposing ? queryError : '') ||
-        `검색어 2~500자 · ${query.length}/500`}
+      {pasteError || (query && !isComposing ? queryError : '')}
     </p>
   ) : null;
   const validationProps = {
