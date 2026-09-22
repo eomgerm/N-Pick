@@ -95,6 +95,36 @@ async function mockList(page: Page, getItems: () => ReturnType<typeof inquiry>[]
   return requests;
 }
 
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 390, height: 844 },
+]) {
+  test(`빈 문의 패널과 사이드바의 상하단이 ${viewport.width}×${viewport.height}에서 정렬된다`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await reviewer(page);
+    await mockList(page, () => []);
+    await page.goto('/review');
+    await expect(page.getByText('이 상태의 문의가 없습니다.')).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+
+    const sidebar = page.getByRole('complementary', { name: '검수 도구' });
+    const panel = page.getByRole('region', { name: '문의 목록', exact: true });
+    const sidebarBounds = (await sidebar.boundingBox())!;
+    const panelBounds = (await panel.boundingBox())!;
+    expect(panelBounds.y).toBeCloseTo(sidebarBounds.y, 0);
+    expect(panelBounds.y + panelBounds.height).toBeCloseTo(
+      sidebarBounds.y + sidebarBounds.height,
+      0,
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(viewport.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+    await page.screenshot({ path: testInfo.outputPath('empty-review.png'), fullPage: true });
+  });
+}
+
 // 검수 중 문의는 문의 화면의 status 필터가 담당한다. 처리 현황 화면에는 문의 탭이 없다.
 test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터로 복귀한다', async ({ page }) => {
   await reviewer(page);

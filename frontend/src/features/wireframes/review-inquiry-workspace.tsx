@@ -53,7 +53,7 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
       theme={theme}
       headerContent={feedbackId === null ? <InquiryListHeading data={list.data} /> : undefined}
     >
-      <main className={styles.page}>
+      <main className={`${styles.page} ${feedbackId === null ? styles.inquiryPage : ''}`}>
         {feedbackId ? (
           <InquiryDetail feedbackId={feedbackId} theme={theme} />
         ) : list.isPending ? (
