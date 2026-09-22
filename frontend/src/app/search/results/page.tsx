@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { SearchResults } from '@/features/wireframes/search-results';
+import { SearchHistoryResults } from '@/features/wireframes/search-history-result';
 
 import type { SearchScreenParams } from '@/features/wireframes/wireframe-shell';
 import { SessionBoundary } from '@/components/session-boundary';
@@ -19,9 +20,16 @@ export default async function SearchResultsPage({ searchParams }: SearchResultsP
     Object.entries(params).filter(([, value]) => typeof value === 'string'),
   ) as SearchScreenParams;
 
+  // 기록 클릭 진입: 새 검색 대신 당시 결과 스냅샷을 결과 화면으로 보여준다 (S15P21A501-262 후속).
+  const historyId = typeof params.historyId === 'string' ? params.historyId : null;
+
   return (
     <SessionBoundary member={member}>
-      <SearchResults key={JSON.stringify(queryParams)} params={queryParams} />
+      {historyId ? (
+        <SearchHistoryResults key={historyId} executionId={historyId} />
+      ) : (
+        <SearchResults key={JSON.stringify(queryParams)} params={queryParams} />
+      )}
     </SessionBoundary>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Clock3, FileSearch, History, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -23,7 +24,8 @@ interface MySearchHistoryProps {
   onSelect: (query: string) => void;
 }
 
-export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearchHistoryProps) {
+export function MySearchHistory({ theme, onDetailOpenChange }: MySearchHistoryProps) {
+  const router = useRouter();
   const { memberId } = useMember();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
@@ -107,7 +109,9 @@ export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearc
                       <button
                         className={styles.row}
                         type="button"
-                        onClick={() => onSelect(item.queryText)}
+                        onClick={() =>
+                          router.push(`/search/results?historyId=${item.searchExecutionId}`)
+                        }
                       >
                         <span className={styles.sceneIcon} aria-hidden="true">
                           <History />
