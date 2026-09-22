@@ -14,7 +14,6 @@ import {
   type TagCorrectionOperation,
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
-import type { ResolutionToggleMode } from '@/features/wireframes/review-resolution-toggle-mode';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 const tagTypeLabels: Record<ReviewTagType, string> = {
@@ -46,7 +45,6 @@ interface CandidateSubmission {
 interface ReviewInquiryTagsProps {
   inquiry: ReviewInquiryDetail;
   memberLoginId: string;
-  resolutionMode: ResolutionToggleMode;
 }
 
 function validateTagValues(values: string[], tagType: ReviewTagType): string {
@@ -61,11 +59,7 @@ function validateTagValues(values: string[], tagType: ReviewTagType): string {
   return '';
 }
 
-export function ReviewInquiryTags({
-  inquiry,
-  memberLoginId,
-  resolutionMode,
-}: ReviewInquiryTagsProps) {
+export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsProps) {
   const [tagType, setTagType] = useState<ReviewTagType>('keyword');
   const [scope, setScope] = useState<ReviewTagScope>('SCENE');
   const [tagInput, setTagInput] = useState('');
@@ -73,7 +67,9 @@ export function ReviewInquiryTags({
   const [deleteTarget, setDeleteTarget] = useState<Evidence | null>(null);
   const values = parseCommaSeparatedTags(tagInput);
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
-  const canCorrect = inquiry.status === 'reviewing' && isOwner && resolutionMode === 'correction';
+  // 재설계: correction 판정이면 태그 교정도 함께 담을 수 있다 (S15P21A501-281).
+  const canCorrect =
+    inquiry.status === 'reviewing' && isOwner && inquiry.resolution === 'correction';
   const mutation = useMutation({
     mutationFn: ({ operations }: CandidateSubmission) =>
       createTagCorrectionCandidate(inquiry.feedbackId, operations),
@@ -133,23 +129,23 @@ export function ReviewInquiryTags({
       {inquiry.evidence.length === 0 ? (
         <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
       ) : (
-        <ul className="mt-4 grid gap-2" aria-label="현재 장면과 영상의 태그">
+        <ul className="mt-4 flex flex-wrap gap-2" aria-label="현재 장면과 영상의 태그">
           {inquiry.evidence.map((evidence, index) => (
             <li
-              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-(--accent-soft) px-3 py-2 text-sm text-(--accent-strong)"
+              className="inline-flex items-center gap-2 rounded-full bg-(--accent-soft) py-1.5 pr-2 pl-3 text-sm text-(--accent-strong)"
               key={`${evidence.taggingId}-${index}`}
+              title={`${tagTypeLabels[evidence.tagType]} · 출처: ${
+                evidence.sources.map(evidenceLabel).join('·') || '기록 없음'
+              } · 검증: ${evidenceLabel(evidence.verifiedState)} · 범위: ${
+                tagScopeLabels[evidence.scope]
+              }`}
             >
-              <span>
-                <strong>{evidence.tagName}</strong>
-                <span className="mt-1 block text-xs text-(--muted)">
-                  {tagTypeLabels[evidence.tagType]} · 출처:{' '}
-                  {evidence.sources.map(evidenceLabel).join('·') || '기록 없음'} · 검증:{' '}
-                  {evidenceLabel(evidence.verifiedState)} · 범위: {tagScopeLabels[evidence.scope]}
-                </span>
-              </span>
+              <strong className="font-semibold">{evidence.tagName}</strong>
+              <span className="text-xs text-(--muted)">{tagTypeLabels[evidence.tagType]}</span>
               {canCorrect ? (
                 <button
-                  className={styles.secondaryButton}
+                  aria-label={`‘${evidence.tagName}’ 삭제 후보`}
+                  className="grid size-5 place-items-center rounded-full text-base leading-none text-(--muted) hover:text-(--danger)"
                   disabled={mutation.isPending}
                   onClick={() => {
                     resetFeedback();
@@ -157,7 +153,7 @@ export function ReviewInquiryTags({
                   }}
                   type="button"
                 >
-                  삭제 후보
+                  ×
                 </button>
               ) : null}
             </li>
@@ -278,7 +274,8 @@ export function ReviewInquiryTags({
         </div>
       ) : inquiry.status === 'reviewing' && isOwner ? (
         <p className="mt-4 text-sm text-(--muted)">
-          처리 판정을 교정으로 저장하면 태그를 추가하거나 삭제할 수 있습니다.
+          처리 판정을 태그 교정 또는 검색 해석 교정으로 저장하면 태그를 추가하거나 삭제할 수
+          있습니다.
         </p>
       ) : null}
     </section>
