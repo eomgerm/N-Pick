@@ -48,7 +48,8 @@ __all__ = [
 # 형식은 코드가 정하므로 config 해시로는 안 잡힌다 — 여기에 실어 `tokenizer_version`
 # 이 함께 바뀌게 해야 구 색인(옛 형식)과 신 질의가 다른 규칙으로 인식된다.
 #   pos1: `형태/품사` (S15P21A501, 품사 다른 동형이의 충돌 해소). 그전 판은 `형태` 만.
-_ENCODING_VERSION = "pos1"
+#   pos2: 태그를 소문자로. pos1 은 대문자 태그라 소문자로 색인하는 BM25 와 안 맞았다.
+_ENCODING_VERSION = "pos2"
 
 
 @lru_cache(maxsize=1)
@@ -135,8 +136,16 @@ def encode_token(form: str, tag: str) -> str:
     색인 측(`index_tokens`)과 질의 측(`query_normalization.normalizer`)이 각자
     문자열을 만들면 언젠가 한쪽만 바뀌어 매칭이 0 건이 된다. 그 인코딩을 여기 하나로
     둔다 — `keep_pos` 를 한 곳에 두는 것과 같은 이유다.
+
+    **소문자로 내린다.** BM25 색인(`ix_scene_bm25` 의 `pdb.whitespace`)이 텀을 소문자로
+    저장하는데 질의는 `paradedb.term_set` 으로 텀을 그대로 대조한다. Kiwi 태그가
+    대문자라 그대로 두면 색인에는 `비/nng`, 질의는 `비/NNG` 가 되어 **매칭이 영영 0 건**
+    이다. 운영에서 실제로 났던 사고다 (2026-09-22: 대문자 질의 0 건 / 소문자 40 건).
+
+    형태는 `prepare` 가 이미 내려 주지만(`KBS` -> `kbs`) 토큰 전체에 건다 — 그쪽 규칙이
+    바뀌어도 「색인에 저장되는 문자열 == 질의가 보내는 문자열」 이 유지되어야 한다.
     """
-    return f"{form}/{tag}"
+    return f"{form}/{tag}".lower()
 
 
 def index_tokens(text: str, config: "QueryNormalizationConfig | None" = None) -> tuple[str, ...]:

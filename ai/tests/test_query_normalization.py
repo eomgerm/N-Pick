@@ -94,7 +94,7 @@ def test_search_tokens_keep_order_and_stopwords() -> None:
     """
     result = normalize("태풍 영상 찾아줘")
 
-    assert result.search_tokens == ("태풍/NNG", "영상/NNG", "찾/VV")
+    assert result.search_tokens == ("태풍/nng", "영상/nng", "찾/vv")
     assert result.normalized_query == "태풍"
 
 
@@ -237,7 +237,7 @@ def test_alias_does_not_reach_search_tokens(tmp_path: Path) -> None:
     """별칭은 지문용 규칙이다. BM25 토큰에 적용하면 색인 측과 어긋난다."""
     config = _config_with_busan_alias(tmp_path)
 
-    assert normalize("부산시 침수", config).search_tokens == ("부산시/NNP", "침수/NNG")
+    assert normalize("부산시 침수", config).search_tokens == ("부산시/nnp", "침수/nng")
 
 
 # ── 동봉 사전 ────────────────────────────────────────────────────────
