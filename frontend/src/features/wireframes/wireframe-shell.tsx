@@ -64,6 +64,12 @@ interface WireframeShellProps {
     /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
     failureReason?: string;
     retry: () => void;
+    /**
+     * 같은 검색어를 다시 조회(refetch)하는 중. useInfiniteQuery 는 첫 로딩에만 isLoading 을
+     * 세우므로 재검색은 state='loading' 에 잡히지 않는다. 이 값이 없으면 재검색이 끝나도
+     * 네비게이션 잠금이 풀리지 않아 다음 검색이 막힌다 (S15P21A501-251). 더보기는 제외한다.
+     */
+    isRevalidating?: boolean;
     /** 다음 페이지(더보기)가 있으면 참. 없으면 버튼을 숨긴다 (S15P21A501-251). */
     hasMore?: boolean;
     /** 더보기 추가 조회가 도는 중. 버튼만 로딩으로 표시하고 결과 그리드는 유지한다. */
@@ -94,6 +100,7 @@ export function WireframeShell({
   const [isNavigating, startNavigation] = useTransition();
   const navigationLockRef = useRef(false);
   const hasObservedNavigationRef = useRef(false);
+  const revalidationSeenRef = useRef(false);
   const broadcastRange = readDateRange(
     initialParams.broadcastFrom,
     initialParams.broadcastTo,
@@ -126,6 +133,21 @@ export function WireframeShell({
       hasObservedNavigationRef.current = false;
     }
   }, [isSearchPending]);
+
+  useEffect(() => {
+    // 같은 검색어 재검색(refetch)은 useInfiniteQuery 가 isLoading 을 세우지 않아 isSearchPending
+    // 에 잡히지 않는다. 재검색이 시작됐다가 끝나면 네비게이션 잠금을 여기서 푼다 — 안 그러면
+    // 다음 검색이 계속 막힌다 (S15P21A501-251). isSearchPending 에 합치면 검색창이 배경
+    // 재검증마다 busy·disabled 로 깜빡이므로 잠금 해제 전용 신호로 분리한다.
+    if (api?.isRevalidating) {
+      revalidationSeenRef.current = true;
+      return;
+    }
+    if (revalidationSeenRef.current) {
+      revalidationSeenRef.current = false;
+      navigationLockRef.current = false;
+    }
+  }, [api?.isRevalidating]);
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],

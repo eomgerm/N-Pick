@@ -31,8 +31,10 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
       });
   const search = useInfiniteQuery({
     queryKey: ['scene-search', body],
-    // page 는 요청마다 pageParam 으로 싣는다. base body 에는 page 가 없어(첫 페이지=0) 하위호환이다.
-    queryFn: ({ pageParam, signal }) => searchScenes({ ...body!, page: pageParam }, signal),
+    // 첫 페이지(pageParam=0)는 page 를 싣지 않는다 — 계약상 생략이 곧 첫 페이지이고 더보기만
+    // page 를 싣는다(search-api-contract.ts:26). 0 도 실으면 첫 요청 본문이 계약과 달라진다.
+    queryFn: ({ pageParam, signal }) =>
+      searchScenes(pageParam > 0 ? { ...body!, page: pageParam } : body!, signal),
     enabled: body !== null,
     initialPageParam: 0,
     // 다음 페이지 번호 = 지금까지 받은 페이지 수(0-based). has_next 가 거짓이면 더보기를 멈춘다.
@@ -72,13 +74,20 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
         // 더보기 추가 조회(isFetchingNextPage)는 전체 화면을 loading 으로 바꾸지 않는다 — 첫 로딩만.
         // 첫 페이지가 이미 있으면 더보기 실패로 전체 화면을 failed 로 덮지 않는다 — 불러온 결과를
         // 유지하고 더보기 영역에서만 재시도한다 (S15P21A501-251 리뷰).
+        // 검색 실패는 화면을 failed 로 덮는다. 단 더보기(fetchNextPage) 실패는 예외 — 불러온
+        // 결과를 유지하고 더보기 영역에서만 재시도한다. 재검색(refetch) 실패는 react-query 가
+        // 이전 결과를 남겨도 failed 로 본다. pages.length 로 가르면(옛 코드) 재검색 실패가 남은
+        // 결과 뒤에 숨어 「정상」으로 위장된다 (S15P21A501-251 리뷰).
         state:
-          body === null || (search.isError && pages.length === 0)
+          body === null || (search.isError && !search.isFetchNextPageError)
             ? 'failed'
             : search.isLoading
               ? 'loading'
               : 'ready',
         error: search.error,
+        // 첫 로딩(isLoading)·더보기(isFetchingNextPage)를 뺀 순수 재조회. 네비게이션 잠금을
+        // 재검색 완료 시 풀어 주기 위해 shell 에 알린다 (S15P21A501-251).
+        isRevalidating: search.isFetching && !search.isLoading && !search.isFetchingNextPage,
         failureReason: rangeError || undefined,
         retry: () => {
           if (body) void search.refetch();
