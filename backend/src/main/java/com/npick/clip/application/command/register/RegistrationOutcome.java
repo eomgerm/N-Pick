@@ -2,7 +2,7 @@ package com.npick.clip.application.command.register;
 
 /** Tells a new clip apart from an existing one the deduplication returned, so the caller can say why (#283). */
 public enum RegistrationOutcome {
-    /** A clip was created, or the same idempotency key replayed this actor's own registration. */
+    /** This request created the clip. A resend of that same request replays this verdict. */
     CREATED,
     /** The same video file was already registered by this actor; that clip is returned. */
     DUPLICATE_OWN,

@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
 
@@ -116,14 +117,18 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
                         if (owner == null) {
                             throw new BusinessException(RegistrationDeduplicationErrorCode.RESULT_DELETED);
                         }
-                        // A replay of a request that matched someone else's clip keeps reporting the duplicate.
+                        // Replay the recorded verdict so a resend repeats the same notice. Rows confirmed
+                        // before that column exists fall back to the registrant of the matched clip.
+                        String recorded = rows.getString("outcome");
                         var result = new RegisterClipResult(
                                 clipId,
                                 rows.getLong("pipeline_run_id"),
                                 rows.getString("result_status"),
-                                owner.longValue() == actor
-                                        ? RegistrationOutcome.CREATED
-                                        : RegistrationOutcome.DUPLICATE_OTHER);
+                                recorded != null
+                                        ? RegistrationOutcome.valueOf(recorded.toUpperCase(Locale.ROOT))
+                                        : owner.longValue() == actor
+                                                ? RegistrationOutcome.CREATED
+                                                : RegistrationOutcome.DUPLICATE_OTHER);
                         recoverObservedResult(db, content, result);
                         return result;
                     }
@@ -185,14 +190,16 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
 
     private static void complete(Connection db, long actor, String key, RegisterClipResult result) throws SQLException {
         try (var update = db.prepareStatement("""
-                UPDATE npick.registration_request SET state='succeeded',clip_id=?,pipeline_run_id=?,result_status=?,updated_at=now()
+                UPDATE npick.registration_request
+                SET state='succeeded',clip_id=?,pipeline_run_id=?,result_status=?,outcome=?,updated_at=now()
                 WHERE actor_id=? AND key_hash=?
                 """)) {
             update.setLong(1, result.clipId());
             update.setLong(2, result.pipelineRunId());
             update.setString(3, result.status());
-            update.setLong(4, actor);
-            update.setString(5, key);
+            update.setString(4, result.outcome().name().toLowerCase(Locale.ROOT));
+            update.setLong(5, actor);
+            update.setString(6, key);
             update.executeUpdate();
         }
     }
@@ -228,7 +235,9 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
             throws SQLException {
         try (var update = db.prepareStatement("""
                 UPDATE npick.registration_request j SET state='succeeded',
-                    clip_id=c.clip_id,pipeline_run_id=r.pipeline_run_id,result_status=?,updated_at=now()
+                    clip_id=c.clip_id,pipeline_run_id=r.pipeline_run_id,result_status=?,updated_at=now(),
+                    -- Every alias resolved here attached to a clip it did not create; only the registrant differs.
+                    outcome=CASE WHEN j.actor_id=c.registered_by_id THEN 'duplicate_own' ELSE 'duplicate_other' END
                 FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id AND r.processing_no=1
                 WHERE c.clip_id=? AND r.pipeline_run_id=? AND c.content_hash=?
                     AND j.content_hash=c.content_hash AND j.state IN ('processing','unknown')
