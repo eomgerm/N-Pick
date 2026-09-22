@@ -155,12 +155,20 @@ def test_empty_asr_preserves_subtitles_and_vlm_receives_only_selected_scene_text
     assert outcome.versions.stage_version == registry._declared_version(STAGE)
     assert outcome.versions.model_version is outcome.versions.prompt_version is None
     assert outcome.output["scenes"] == [
-        {"sceneIndex": 0, "segments": [{"segmentId": "u", "overlapMs": 500}], "tokens": "원문 u"},
-        {"sceneIndex": 1, "segments": [{"segmentId": "u", "overlapMs": 500}], "tokens": "원문 u"},
+        {
+            "sceneIndex": 0,
+            "segments": [{"segmentId": "u", "overlapMs": 500}],
+            "tokens": "원문/NNG u/SL",
+        },
+        {
+            "sceneIndex": 1,
+            "segments": [{"segmentId": "u", "overlapMs": 500}],
+            "tokens": "원문/NNG u/SL",
+        },
         {
             "sceneIndex": 2,
             "segments": [{"segmentId": "cc2", "overlapMs": 500}],
-            "tokens": "원문 cc 2",
+            "tokens": "원문/NNG cc/SL 2/SN",
         },
         {"sceneIndex": 3, "segments": [], "tokens": ""},
     ]
@@ -458,9 +466,9 @@ def test_scene_tokens_cover_only_adopted_dialogue_and_declare_the_tokenizer(
     outcome = run(replace(ctx, upstream=upstream))
     scenes = {s["sceneIndex"]: s for s in outcome.output["scenes"]}
 
-    assert scenes[1]["tokens"] == "원문 u"
+    assert scenes[1]["tokens"] == "원문/NNG u/SL"
     assert "cc" not in scenes[1]["tokens"]
-    assert scenes[3]["tokens"] == "원문 gap"
+    assert scenes[3]["tokens"] == "원문/NNG gap/SL"
     # 대사가 없는 장면과 내용어가 없는 대사는 모두 빈 문자열이다 — 필드 누락이 아니다.
     empty = run(
         replace(

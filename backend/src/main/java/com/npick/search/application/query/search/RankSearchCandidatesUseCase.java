@@ -21,16 +21,30 @@ public interface RankSearchCandidatesUseCase {
      * @param finalResolution 규칙·명시 필터까지 적용한 해석. 해석 실패(fallback)면 {@code null} 이고, 그때는 BM25 만 돈다
      * @param queryEmbedding 리졸버가 준 질의 벡터. 없으면 dense 채널은 자기 사유로 unavailable 을 낸다
      * @param normalizedSearch 승인된 장면 제외를 exact 지문으로 조회하는 데 쓴다
+     * @param page 0-based 결과 페이지. 제외 적용 후 이 페이지 구간(page*10 .. +10)만 낸다
      */
     record Query(
             QueryNormalization normalization,
             QueryResolution finalResolution,
             DenseQuery queryEmbedding,
-            NormalizedSearch normalizedSearch) {
+            NormalizedSearch normalizedSearch,
+            int page) {
 
         public Query {
             Objects.requireNonNull(normalization, "normalization");
             Objects.requireNonNull(normalizedSearch, "normalizedSearch");
+            if (page < 0) {
+                throw new IllegalArgumentException("page 는 0 이상이어야 한다: " + page);
+            }
+        }
+
+        /** 페이지 미지정 = 첫 페이지 (검증 검색 등 더보기가 없는 경로). */
+        public Query(
+                QueryNormalization normalization,
+                QueryResolution finalResolution,
+                DenseQuery queryEmbedding,
+                NormalizedSearch normalizedSearch) {
+            this(normalization, finalResolution, queryEmbedding, normalizedSearch, 0);
         }
     }
 }

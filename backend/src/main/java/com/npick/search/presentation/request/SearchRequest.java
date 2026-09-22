@@ -1,6 +1,8 @@
 package com.npick.search.presentation.request;
 
 import java.time.LocalDate;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -19,7 +21,20 @@ import com.npick.search.application.query.search.ExecuteSearchQuery;
  */
 public record SearchRequest(
         @JsonProperty("query") @NotBlank @Size(min = 2, max = 500, message = "검색어는 2글자 이상 입력해 주세요") String query,
-        @JsonProperty("explicit_filters") Filters explicitFilters) {
+        @JsonProperty("explicit_filters") Filters explicitFilters,
+        @JsonProperty("page") @Min(0) @Max(10_000) Integer page) {
+
+    // 페이지 경계의 정본은 응답 has_next 다 — ActiveSceneExclusionService 가 유효 후보를 다 넘긴
+    // 페이지에서 has_next=false 와 빈 결과를 낸다(설정과 무관하게 참). 이 @Max 는 그 경계가 아니라
+    // 남용 방지 상한일 뿐이며, 어떤 현실적 pool 설정(기본 lexical 200 ∪ dense 200)보다 훨씬 커서
+    // has_next 와 충돌하지 않는다 — 상수를 pool 크기에 묶어 두면(과거 39) pool 을 올렸을 때
+    // has_next=true 인데 다음 page 가 400 이 되는 경계가 생겼다 (S15P21A501-251 리뷰 #2).
+    // 상한을 넘는 page 는 서비스가 빈 페이지·has_next=false 로 정상 처리하므로 400 을 내지 않는다.
+
+    /** page 를 지정하지 않은 요청은 첫 페이지(0)다 — 하위호환. */
+    public int pageOrDefault() {
+        return page == null ? 0 : page;
+    }
 
     /**
      * 화면에서 직접 건 날짜 필터.

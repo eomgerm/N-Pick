@@ -281,7 +281,7 @@ class SearchExecutionRecordingDbTest {
         return new SearchConfigSnapshot(
                 new FusionSettings(60, 0.1, channels, FusionSettings.WeightStatus.EXPERIMENTAL),
                 new LexicalSearchSettings("lexical/v1", 1, 1, 1, 0.3, 100),
-                new DenseSearchSettings("model@0123456789012345678901234567890123456789", 100).snapshot(),
+                new DenseSearchSettings("model@0123456789012345678901234567890123456789", 100, 2.0).snapshot(),
                 new StructuredScoreSettings(StructuredScoreSettings.WeightStatus.EXPERIMENTAL, axes),
                 new SoftRankingSettings(signals, 0.01, FusionSettings.WeightStatus.EXPERIMENTAL));
     }

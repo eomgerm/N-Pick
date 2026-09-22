@@ -43,6 +43,21 @@ class SearchExplainTest {
     }
 
     @Test
+    @DisplayName("matched_keywords 는 품사 태그를 떼고 형태만 보여준다")
+    void matchedKeywordsStripPosTag() {
+        // 색인 토큰은 `형태/품사`(예: 비/NNG)로 동형이의를 가르지만, 화면 칩에는 사람이 친
+        // 검색어인 형태만 보여야 한다. 태그가 새면 사용자에게 "비/NNG" 로 뜬다.
+        var queryTokens = List.of("비/NNG", "내리/VV");
+        var card = SearchExplain.card(
+                scene(cardWith("비 내리는 거리", List.of("비/NNG", "내리/VV", "거리/NNG"))),
+                1,
+                801L,
+                queryTokens);
+
+        assertThat(card.matchedKeywords()).containsExactly("비", "내리");
+    }
+
+    @Test
     @DisplayName("걸린 것이 없어도 근거를 비우지 않는다")
     void neverLeavesEvidenceEmpty() {
         // §5.1: match_evidence 는 1개 이상이다. dense·구조화로만 올라온 장면은 토큰 대조로

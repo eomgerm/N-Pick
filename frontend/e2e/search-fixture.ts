@@ -6,6 +6,9 @@ export const searchFixture = {
   has_applied_review_rule: false,
   guard_summary: { excluded_result_count: 0, reasons: [] },
   shortage_reasons: ['candidate_pool_exhausted'],
+  // 단일 페이지 픽스처: 더보기 없음. has_next 는 실시간 검색 응답의 필수 boolean 이다
+  // (web-api §5, search-api-contract). 빠지면 파서가 응답을 거절해 결과가 렌더되지 않는다.
+  has_next: false,
   results: [
     {
       search_result_id: '101',

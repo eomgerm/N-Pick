@@ -1,9 +1,9 @@
 package com.npick.feedback.infrastructure.persistence.query;
 
 import java.util.List;
-
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

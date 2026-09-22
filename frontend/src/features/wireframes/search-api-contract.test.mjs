@@ -187,6 +187,7 @@ function createResponse(overrides = {}) {
     guard_summary: { excluded_result_count: 0, reasons: [] },
     shortage_reasons: [],
     results: Array.from({ length: 10 }, (_, index) => createScene(index + 1)),
+    has_next: false,
     ...overrides,
   };
 }
@@ -196,6 +197,17 @@ test('검색 요청은 trim한 질의와 빈 명시 필터 객체를 분리한�
     createSearchRequestBody({ query: '  명절 교통  ', broadcast: emptyRange, filming: emptyRange }),
     { query: '명절 교통', explicit_filters: {} },
   );
+});
+
+test('실시간 검색 응답은 has_next 를 그대로 싣는다 (S15P21A501-251)', () => {
+  assert.equal(parseSearchResponse(createResponse()).hasNext, false);
+  assert.equal(parseSearchResponse(createResponse({ has_next: true })).hasNext, true);
+});
+
+test('실시간 응답에 has_next 가 없거나 불리언이 아니면 거절한다 (S15P21A501-251)', () => {
+  for (const bad of [{ has_next: undefined }, { has_next: 'yes' }, { has_next: 1 }]) {
+    assert.throws(() => parseSearchResponse(createResponse(bad)), ApiClientError);
+  }
 });
 
 test('방송일과 촬영일은 inclusive 범위를 별도 필드로 전송한다', () => {

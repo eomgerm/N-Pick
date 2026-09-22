@@ -109,7 +109,7 @@ def test_raw_text_is_kept_verbatim() -> None:
     observation = result.observations[0]
     assert observation.raw_text == "Life Style"
     # 정규화는 토큰 쪽에만 걸린다.
-    assert observation.tokens_text == "life style"
+    assert observation.tokens_text == "life/SL style/SL"
 
 
 def test_raw_text_keeps_the_engine_whitespace() -> None:
@@ -122,7 +122,7 @@ def test_raw_text_keeps_the_engine_whitespace() -> None:
     observation = result.observations[0]
     assert observation.raw_text == "  Life Style "
     # 정규화가 필요한 값들은 각자 처리하므로 공백에 흔들리지 않는다.
-    assert observation.tokens_text == "life style"
+    assert observation.tokens_text == "life/SL style/SL"
     assert observation.text_key == text_key("Life Style", observation.tokens)
 
 

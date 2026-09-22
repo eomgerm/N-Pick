@@ -13,6 +13,7 @@ import java.util.List;
  * @param degradedReasons 비어 있으면 {@code status} 는 {@code succeeded} 다 (§5.1 불변식)
  * @param resolved {@code query_resolution_status}. 거짓이면 {@code degradedReasons} 에 {@code resolver_fallback} 이 있다
  * @param shortageReasons {@code results} 가 10개 미만이면 1개 이상이다 (§5.1 불변식)
+ * @param hasNext 다음 페이지가 있으면 참. 더보기(offset)로 다음 실행을 부를 수 있다 (S15P21A501-251)
  */
 public record SearchExecutionResult(
         Long executionId,
@@ -21,7 +22,8 @@ public record SearchExecutionResult(
         boolean hasAppliedReviewRule,
         GuardSummary guardSummary,
         List<String> shortageReasons,
-        List<ResultCard> results) {
+        List<ResultCard> results,
+        boolean hasNext) {
 
     public SearchExecutionResult {
         degradedReasons = List.copyOf(degradedReasons);

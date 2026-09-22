@@ -26,6 +26,7 @@ import com.npick.tag.domain.model.EffectiveTag;
  * @param shortageReasons 10개를 못 채웠으면 1개 이상. 왜 못 채웠는지는 이 구간만 안다
  * @param expandedTokens 이 검색이 실제로 쓴 확장어 토큰. 근거 설명이 원 질의 토큰만 보면 확장어로만 걸린 장면의 {@code matched_keywords} 가 비어 「왜 나왔는지 모르는
  *     결과」가 된다
+ * @param hasNext 이 페이지 뒤로 유효한 후보가 더 있으면 참. 응답의 {@code has_next} 로 나가 더보기 버튼을 띄운다 (S15P21A501-251)
  */
 public record SearchCandidates(
         List<ScoredScene> scenes,
@@ -35,7 +36,8 @@ public record SearchCandidates(
         SearchConfigSnapshot config,
         List<SearchDegradedReason> degradedReasons,
         List<ShortageReason> shortageReasons,
-        List<String> expandedTokens) {
+        List<String> expandedTokens,
+        boolean hasNext) {
 
     public SearchCandidates {
         scenes = List.copyOf(scenes);
@@ -43,6 +45,20 @@ public record SearchCandidates(
         degradedReasons = List.copyOf(degradedReasons);
         shortageReasons = List.copyOf(shortageReasons);
         expandedTokens = expandedTokens == null ? List.of() : List.copyOf(expandedTokens);
+    }
+
+    /** 더보기 판정 없이 조립한 결과(테스트·비페이지 경로)는 다음 페이지가 없다. */
+    public SearchCandidates(
+            List<ScoredScene> scenes,
+            FuseSearchRankingQuery candidates,
+            FalseHitGuardResult guard,
+            List<ActiveSceneExclusionResult.ExcludedScene> appliedExcludes,
+            SearchConfigSnapshot config,
+            List<SearchDegradedReason> degradedReasons,
+            List<ShortageReason> shortageReasons,
+            List<String> expandedTokens) {
+        this(scenes, candidates, guard, appliedExcludes, config, degradedReasons, shortageReasons, expandedTokens,
+                false);
     }
 
     /**

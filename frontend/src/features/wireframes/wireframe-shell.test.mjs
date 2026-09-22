@@ -85,6 +85,7 @@ function renderSearchSummary(state, resolutionStatus, degradedReasons = []) {
       guard_summary: { excluded_result_count: 0, reasons: [] },
       shortage_reasons: ['candidate_pool_exhausted'],
       results: [],
+      has_next: false,
     }),
   );
   const html = renderShell({}, { api: { state, presentation, error: null, retry() {} } });

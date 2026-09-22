@@ -16,6 +16,7 @@ public record ClipSummaryResponse(
         @JsonProperty("active_pipeline_run_id") String activePipelineRunId,
         @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("updated_at") Instant updatedAt,
+        @JsonProperty("registered_by") RegistrantResponse registeredBy,
         @JsonProperty("latest_run") RunResponse latestRun,
         ProcessingProgressResponse progress) {
     public static ClipSummaryResponse from(ClipQueryResult result) {
@@ -35,8 +36,18 @@ public record ClipSummaryResponse(
                         : result.activePipelineRunId().toString(),
                 result.createdAt(),
                 result.updatedAt(),
+                RegistrantResponse.from(result.registeredBy()),
                 RunResponse.from(result.latestRun()),
                 ProcessingProgressResponse.from(progress));
+    }
+
+    /** 공개 범위는 로그인 ID 까지다. 내부 식별자 registered_by_id 는 응답에 싣지 않는다 (docs/contracts/web-api.md §6.5). */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    public record RegistrantResponse(
+            @JsonProperty("login_id") String loginId) {
+        static RegistrantResponse from(com.npick.member.application.query.MemberSummary registrant) {
+            return registrant == null ? null : new RegistrantResponse(registrant.loginId());
+        }
     }
 
     @JsonInclude(JsonInclude.Include.ALWAYS)

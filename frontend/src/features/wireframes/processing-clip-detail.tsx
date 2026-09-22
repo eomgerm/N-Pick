@@ -91,8 +91,9 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                     {displayClipTitle(clip.title)}
                   </h1>
                   <p className={styles.registrationMeta}>
-                    {clip.source_type === 'broadcast' ? '방송 영상' : '보관 영상'}
+                    {clip.source_type === 'broadcast' ? '방송 영상' : '자료 영상'}
                     <span>등록 {formatInquiryDate(clip.created_at)}</span>
+                    {clip.registered_by && <span>등록자 {clip.registered_by.login_id}</span>}
                   </p>
                 </div>
                 <button

@@ -9,10 +9,49 @@
 몇 장을 뽑을 수 있는가" 를 두 곳에서 따로 세면 한쪽이 ms 로, 다른 쪽이 프레임으로 세는
 어긋남이 생긴다.
 
-한계도 공유한다: 프레임 번호 기반이라 VFR(가변 프레임레이트) 소스에서는 실제 PTS 와
-어긋날 수 있다. 결정론은 유지되지만 정확도가 떨어지므로 샘플 클립은 CFR 을 쓴다
-(`ai/docs/scene-detection.md`).
+한계도 공유한다: 여기 있는 변환은 **명목 프레임레이트** 기반이라, 프레임 간격이 고르지
+않은 소스에서는 `frames_to_ms` 가 준 ms 와 그 프레임의 실제 PTS 가 최대 반 프레임까지
+어긋난다. 결정론은 유지되지만 정확도가 떨어진다.
+
+번호 자체는 두 단계 사이에서 어긋나지 않는다 — 둘 다 아래 `frame_number_from_pts` 로
+세므로 **같은 번호가 두 단계에서 같은 자리를 가리킨다.** 번호와 프레임이 1:1 이라는
+뜻은 아니다. 간격이 고르지 않으면 한 번호에 두 프레임이 겹칠 수 있고, 그것 역시 상류가
+보는 것과 같다. 남는 것은 그 번호를 ms 로 옮길 때의 오차뿐이다.
+
+측정 샘플이 CFR 인 것은 `ai/docs/scene-detection.md` §4.1 에 적혀 있으나, 그 문서가
+VFR 소스를 어떻게 다룰지까지 정하고 있지는 않다.
 """
+
+from fractions import Fraction
+
+
+def frame_number_from_pts(
+    pts: int,
+    time_base: "Fraction",
+    frame_rate: float,
+    start_time: int = 0,
+    stream_time_base: "Fraction | None" = None,
+) -> int:
+    """디코드한 프레임의 표시 시각(PTS)을 프레임 번호로 바꾼다.
+
+    **상류 PySceneDetect 의 `VideoStreamAv.position` 과 같은 식이다.** 그쪽이 scene 경계에
+    적는 번호이므로 여기서 다른 값을 내면 두 단계가 다른 프레임을 같은 번호로 부른다 —
+    실패가 아니라 조용히 어긋난 `keyframe.timestamp_ms` 가 된다.
+
+    디코드 순번으로 세면 안 되는 이유가 그것이다. CFR 에서만 우연히 같고, 프레임 하나가
+    반 프레임 넘게 일찍·늦게 도착하면 그 뒤로 번호가 통째로 밀린다.
+
+    `start_time` 을 빼는 것은 edit list 가 붙어 스트림 시작이 0 이 아닌 파일 때문이다.
+    그 눈금(`stream_time_base`)이 프레임 눈금과 다르면 맞춘 뒤 뺀다. 상류가
+    `_normalized_pts` 에서 하는 것과 같다.
+
+    번호가 촘촘하다는 보장은 없다. 간격이 고르지 않으면 건너뛰거나 겹치는데, 그것은 그
+    시각에 프레임이 없거나 둘이 겹쳐 있다는 **사실**이고 상류도 같은 것을 본다.
+    """
+    offset = start_time
+    if start_time and stream_time_base and stream_time_base != time_base:
+        offset = int(start_time * stream_time_base / time_base)
+    return round(float((pts - offset) * time_base) * frame_rate)
 
 
 def frames_to_ms(frame_num: int, frame_rate: float) -> int:

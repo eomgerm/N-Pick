@@ -76,25 +76,28 @@ class SubtitleParserTest {
 
     @ParameterizedTest
     @MethodSource("boundaryFiles")
-    void rejectsSubMillisecondExcessWithExactComparisonButAcceptsEqualOrWithin(
-            String format, String text, String location) {
+    void usesIntegerMsCeilingAsUpperBound(String format, String text, String location) {
         byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
-        assertThatThrownBy(() -> parser.parse(bytes, format, new BigDecimal("2.999999")))
-                .isInstanceOfSatisfying(
-                        BusinessException.class,
-                        error -> assertThat(error.errorCode().code()).isEqualTo("CLIP_400_012"))
-                .hasMessageContaining(location)
-                .hasMessageContaining("구간 [0, 3000] ms")
-                .hasMessageContaining("영상 길이 2999.999 ms")
-                .hasMessageContaining("0.001 ms 초과")
-                .hasMessageContaining("파일 전체를 거절")
-                .hasMessageNotContaining("비밀 원문");
+        // 2.999999 는 올림하면 3000 이므로 수용한다. 1ms 미만 차이는 두 길이 축의 반올림 오차일 뿐이다.
+        var sub = parser.parse(bytes, format, new BigDecimal("2.999999"));
         var exact = parser.parse(bytes, format, new BigDecimal("3.000000"));
         var within = parser.parse(bytes, format, new BigDecimal("3.000001"));
         assertThat(exact)
                 .containsExactly(
                         new SubtitleParser.Cue(1, 0, 3000, "비밀 원문"), new SubtitleParser.Cue(0, 2000, 2500, "정상"));
+        assertThat(sub).isEqualTo(exact);
         assertThat(within).isEqualTo(exact);
+        // 1ms 이상 벌어지면 반올림 오차로 설명되지 않는다. 그대로 거절하고 원문은 오류에 싣지 않는다.
+        assertThatThrownBy(() -> parser.parse(bytes, format, new BigDecimal("2.999")))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode().code()).isEqualTo("CLIP_400_012"))
+                .hasMessageContaining(location)
+                .hasMessageContaining("구간 [0, 3000] ms")
+                .hasMessageContaining("영상 길이 2999 ms의 정수 ms 상한 2999 ms")
+                .hasMessageContaining("1 ms 초과")
+                .hasMessageContaining("파일 전체를 거절")
+                .hasMessageNotContaining("비밀 원문");
     }
 
     @Test
@@ -107,8 +110,8 @@ class SubtitleParserTest {
                         "srt",
                         new BigDecimal("3601")))
                 .hasMessageContaining("시간 표기");
-        assertThatThrownBy(() -> parser.parseExtractedVtt(vtt, new BigDecimal("3600.499999")))
-                .hasMessageContaining("0.001 ms 초과");
+        assertThatThrownBy(() -> parser.parseExtractedVtt(vtt, new BigDecimal("3600.4")))
+                .hasMessageContaining("100 ms 초과");
         for (String invalid : new String[] {"1:60:00.100", "1:00:60.100", "1:00:00.1"}) {
             byte[] text = ("WEBVTT\n\n" + invalid + " --> 1:00:00.500\n한글").getBytes(StandardCharsets.UTF_8);
             assertThatThrownBy(() -> parser.parseExtractedVtt(text, new BigDecimal("7200")))
@@ -174,6 +177,56 @@ class SubtitleParserTest {
         }
         assertThatThrownBy(() -> parse("WEBVTT\n00:00.000 --> 00:01.000\nx", "vtt"))
                 .hasMessageContaining("빈 줄");
+    }
+
+    /**
+     * 큐 시각은 정수 ms 이고 ffprobe 길이는 소수 ms 다. 영상 끝까지 덮는 자막은 종료를 올릴 수밖에 없으므로 두 축을 오차 0 으로 비교하면 1ms 미만 초과로 파일 전체가 거절된다
+     * (S15P21A501-258). {@code KNA_02701} 은 영상 15181.833ms / 프레임 기반 15182ms 였다.
+     */
+    static Stream<Arguments> tailCoveringFiles() {
+        return Stream.of(
+                Arguments.of("json", json("{\"s\":15000,\"e\":15182,\"t\":\"끝까지\"}")),
+                Arguments.of("srt", "1\n00:00:15,000 --> 00:00:15,182\n끝까지"),
+                Arguments.of("vtt", "WEBVTT\n\n00:15.000 --> 00:15.182\n끝까지"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("tailCoveringFiles")
+    void acceptsCueEndAtIntegerMsCeilingOfFractionalDuration(String format, String text) {
+        assertThat(parser.parse(text.getBytes(StandardCharsets.UTF_8), format, new BigDecimal("15.181833")))
+                .containsExactly(new SubtitleParser.Cue(0, 15000, 15182, "끝까지"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("tailCoveringFiles")
+    void rejectsCueEndBeyondIntegerMsCeiling(String format, String text) {
+        byte[] beyond = text.replace("15,182", "15,183")
+                .replace("15.182", "15.183")
+                .replace("15182", "15183")
+                .getBytes(StandardCharsets.UTF_8);
+        assertThatThrownBy(() -> parser.parse(beyond, format, new BigDecimal("15.181833")))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode().code()).isEqualTo("CLIP_400_012"))
+                .hasMessageContaining("영상 길이 15181.833 ms")
+                .hasMessageContaining("정수 ms 상한 15182 ms")
+                .hasMessageContaining("1 ms 초과");
+    }
+
+    /** 허용오차가 1ms 상수 가산이 아니라 올림이라는 것을 고정한다. 정수 길이에서는 상한이 그대로다. */
+    @Test
+    void integerDurationKeepsExactUpperBound() {
+        assertThat(parse("1\n00:00:00,000 --> 00:00:03,000\n정상", "srt")).hasSize(1);
+        assertThatThrownBy(() -> parse("1\n00:00:00,000 --> 00:00:03,001\n초과", "srt"))
+                .hasMessageContaining("정수 ms 상한 3000 ms");
+    }
+
+    /** 내장 CC 추출도 같은 큐 검사를 지나므로 상한 규칙이 갈리지 않는다. */
+    @Test
+    void extractedCcSharesTheSameIntegerMsCeiling() {
+        byte[] vtt = "WEBVTT\n\n0:00:15.000 --> 0:00:15.182\n끝까지".getBytes(StandardCharsets.UTF_8);
+        assertThat(parser.parseExtractedVtt(vtt, new BigDecimal("15.181833")))
+                .containsExactly(new SubtitleParser.Cue(0, 15000, 15182, "끝까지"));
     }
 
     static String json(String segments) {

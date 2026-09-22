@@ -55,8 +55,7 @@ class CorrectionStateFingerprintDbTest {
     @DisplayName("6축 정규 문자열을 rules;tags;config;run;pending_rules;pending_tags 순서로 낸다")
     void computesSixAxes() {
         String fp = fingerprint.compute(FEEDBACK_ID);
-        assertThat(fp).matches(
-                "rules=[^;]*;tags=[^;]*;config=[^;]*;run=[^;]*;pending_rules=[^;]*;pending_tags=[^;]*");
+        assertThat(fp).matches("rules=[^;]*;tags=[^;]*;config=[^;]*;run=[^;]*;pending_rules=[^;]*;pending_tags=[^;]*");
         assertThat(fp).contains("config=search-config/v1:");
         assertThat(fp).contains("run=" + RUN_ID);
     }
@@ -102,8 +101,7 @@ class CorrectionStateFingerprintDbTest {
     }
 
     @Test
-    @DisplayName("compute(feedbackId, loaded ids) 는 pending 축을 재조회가 아니라 인자로 받은 id 에서 낸다 "
-            + "(S15P21A501-83 경합 수정)")
+    @DisplayName("compute(feedbackId, loaded ids) 는 pending 축을 재조회가 아니라 인자로 받은 id 에서 낸다 " + "(S15P21A501-83 경합 수정)")
     void overloadDerivesPendingAxesFromLoadedIdsNotReQuery() {
         long loadedOnly = 8301071L;
         long committedAfterLoad = 8301072L;
@@ -124,9 +122,15 @@ class CorrectionStateFingerprintDbTest {
     void overloadEqualsReQueryWhenLoadedIdsMatchActualPendingState() {
         // 다른 테스트가 공유 FEEDBACK_ID 에 남긴 대기 후보(순서 의존 오염)를 피하려고 이 테스트만 별도 신고를 심는다 —
         // 전체 재조회와의 완전 일치를 검사하므로 다른 테스트의 잔여 행이 섞이면 안 된다.
-        long memberId = 8301091L, clipId = 8301092L, runId = 8301093L, sceneId = 8301094L,
-                execId = 8301095L, resultId = 8301096L, feedbackId = 8301097L,
-                ruleId = 8301098L, evidenceId = 8301099L;
+        long memberId = 8301091L,
+                clipId = 8301092L,
+                runId = 8301093L,
+                sceneId = 8301094L,
+                execId = 8301095L,
+                resultId = 8301096L,
+                feedbackId = 8301097L,
+                ruleId = 8301098L,
+                evidenceId = 8301099L;
         TestGraph.insertReportedScene(jdbc, memberId, clipId, runId, sceneId, execId, resultId, feedbackId);
         TestGraph.insertPendingPatchRule(jdbc, feedbackId, ruleId);
         TestGraph.insertReviewerTagCandidate(jdbc, sceneId, clipId, feedbackId, evidenceId);

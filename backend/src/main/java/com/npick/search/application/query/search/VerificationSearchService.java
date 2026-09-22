@@ -26,18 +26,16 @@ import com.npick.search.domain.model.ParseRuleOutcome;
 /**
  * 후보 검증 자동 재검색 오케스트레이션 (S15P21A501-83, FRD F-12·§11).
  *
- * <p>같은 패키지에 두는 이유: {@link SearchRecordPayload}·{@link SearchExplain} 이 package-private 이고, 검증 검색은
- * 일반 검색과 <b>같은 기록 형태</b>를 남겨야 하므로(FRD §11) 그 변환을 재사용해야 한다.
+ * <p>같은 패키지에 두는 이유: {@link SearchRecordPayload}·{@link SearchExplain} 이 package-private 이고, 검증 검색은 일반 검색과 <b>같은 기록
+ * 형태</b>를 남겨야 하므로(FRD §11) 그 변환을 재사용해야 한다.
  *
- * <p><b>요청당 커넥션 최대 2개, 순차 사용(§8, -176)</b>: {@code REQUIRES_NEW} 실행 시작 기록,
- * 외부 롤백 트랜잭션(1, {@link #rollbackTemplate}), {@code REQUIRES_NEW} 완료 기록은 순차로 실행된다. 한 {@code verify()}
- * 호출 안에서 동시에 열리는 커넥션은 최대 1개다. 그래도 검증 동시성 상한 또는 커넥션 풀 크기는 <b>동시 요청 수 × 2</b> 이상을
- * 보수적으로 잡아 둔다. 테스트 환경({@code NpickPostgres})은 풀 크기 3 에 테스트가 직렬 실행이라 이 권장치에 걸리지 않는다.
+ * <p><b>요청당 커넥션 최대 2개, 순차 사용(§8, -176)</b>: {@code REQUIRES_NEW} 실행 시작 기록, 외부 롤백 트랜잭션(1, {@link #rollbackTemplate}),
+ * {@code REQUIRES_NEW} 완료 기록은 순차로 실행된다. 한 {@code verify()} 호출 안에서 동시에 열리는 커넥션은 최대 1개다. 그래도 검증 동시성 상한 또는 커넥션 풀 크기는 <b>동시
+ * 요청 수 × 2</b> 이상을 보수적으로 잡아 둔다. 테스트 환경({@code NpickPostgres})은 풀 크기 3 에 테스트가 직렬 실행이라 이 권장치에 걸리지 않는다.
  *
- * <p><b>AI 리졸버 호출은 롤백 트랜잭션 밖에서 먼저 끝낸다(S15P21A501-219)</b>: {@link InterpretSearchQueryUseCase#resolve} 를
- * 트랜잭션을 열기 전에 부르고, 트랜잭션 안에서는 {@link InterpretSearchQueryUseCase#interpretFromResolution} 만 부른다 — 활성
- * 규칙 조회가 flip 반영 상태를 읽어야 해서 그 부분만 트랜잭션 안에 남는다. 리졸버 응답 지연이 후보 행 잠금·커넥션 점유
- * 시간에 더해지지 않는다.
+ * <p><b>AI 리졸버 호출은 롤백 트랜잭션 밖에서 먼저 끝낸다(S15P21A501-219)</b>: {@link InterpretSearchQueryUseCase#resolve} 를 트랜잭션을 열기 전에
+ * 부르고, 트랜잭션 안에서는 {@link InterpretSearchQueryUseCase#interpretFromResolution} 만 부른다 — 활성 규칙 조회가 flip 반영 상태를 읽어야 해서 그 부분만
+ * 트랜잭션 안에 남는다. 리졸버 응답 지연이 후보 행 잠금·커넥션 점유 시간에 더해지지 않는다.
  */
 @Service
 public class VerificationSearchService implements VerifyCorrectionCandidatesUseCase {
@@ -75,11 +73,10 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
     }
 
     /**
-     * 담당 검수자·신고 상태·대기 후보 존재를 확인한다 — {@code CreateSceneExcludeCandidateService}(§6.4 장면 제외 후보)와
-     * 같은 전제·같은 포트({@link ExcludeContextPort}, feedback→search_result→search_execution 조인)를 그대로 재사용한다.
-     * 검증은 resolution 종류(tag_correction/patch_parse/exclude_scene)를 가리지 않으므로 그 형제의
-     * {@code NOT_EXCLUDE_SCENE} 같은 처리결과별 체크 대신 「대기 후보가 하나라도 있는가」를 마지막에 본다.
-     * 이 존재 확인이 끝난 뒤에야 {@link VerificationInputPort#load}를 호출하므로, 신고가 없을 때 그 어댑터의
+     * 담당 검수자·신고 상태·대기 후보 존재를 확인한다 — {@code CreateSceneExcludeCandidateService}(§6.4 장면 제외 후보)와 같은 전제·같은
+     * 포트({@link ExcludeContextPort}, feedback→search_result→search_execution 조인)를 그대로 재사용한다. 검증은 resolution
+     * 종류(tag_correction/patch_parse/exclude_scene)를 가리지 않으므로 그 형제의 {@code NOT_EXCLUDE_SCENE} 같은 처리결과별 체크 대신 「대기 후보가
+     * 하나라도 있는가」를 마지막에 본다. 이 존재 확인이 끝난 뒤에야 {@link VerificationInputPort#load}를 호출하므로, 신고가 없을 때 그 어댑터의
      * {@code getSingleResult}가 {@code NoResultException}으로 500을 내는 경로를 막는다.
      */
     @Override
@@ -106,8 +103,10 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         // 이 계산 사이에 새 후보가 커밋돼도 여기 잡히지 않으므로(의도), -84 재조회 compute(feedbackId) 는 그 새 후보를
         // 보고 값이 달라져 드리프트를 정확히 잡는다.
         List<Long> loadedPendingRuleIds = candidates.rules().stream()
-                .map(PendingCandidates.RuleCandidate::approvedRuleId).toList();
-        String baselineFingerprint = fingerprint.compute(feedbackId, loadedPendingRuleIds, candidates.tagEvidenceIds()); // flip 전 기준 상태 = flip 할 집합
+                .map(PendingCandidates.RuleCandidate::approvedRuleId)
+                .toList();
+        String baselineFingerprint = fingerprint.compute(
+                feedbackId, loadedPendingRuleIds, candidates.tagEvidenceIds()); // flip 전 기준 상태 = flip 할 집합
         long executionId = record.start(new StartSearchExecution(
                 reviewerId, StartSearchExecution.ExecutionType.REPLAY, feedbackId, input.rawQuery()));
         long startedAt = System.nanoTime();
@@ -132,13 +131,15 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
     }
 
     /**
-     * 일반 검색 {@code SearchAssemblyService.completeRecord} 와 같은 조립: 해석 단계 사유 + 후보 구간 사유를 합치고, 규칙
-     * degraded 여부까지 반영해 status 를 매핑한다. {@code verificationContext} 는 -84 {@code VerificationRunQueryAdapter} 의
-     * 엄격 계약(§10)을 채운다.
+     * 일반 검색 {@code SearchAssemblyService.completeRecord} 와 같은 조립: 해석 단계 사유 + 후보 구간 사유를 합치고, 규칙 degraded 여부까지 반영해 status
+     * 를 매핑한다. {@code verificationContext} 는 -84 {@code VerificationRunQueryAdapter} 의 엄격 계약(§10)을 채운다.
      */
     private CompleteSearchExecution completeCommand(
-            long executionId, VerificationSearchOutcome outcome, PendingCandidates candidates,
-            String baselineFingerprint, long startedAt) {
+            long executionId,
+            VerificationSearchOutcome outcome,
+            PendingCandidates candidates,
+            String baselineFingerprint,
+            long startedAt) {
         SearchCandidates result = outcome.candidates();
         InterpretedQuery interpreted = outcome.interpreted();
         List<String> queryTokens = result.expandedTokens(); // 검증 카드는 원 질의 토큰 확장을 그대로 쓴다
@@ -146,7 +147,8 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         List<ParseRuleOutcome> appliedRules = interpreted.rules().outcomes();
         List<SearchDegradedReason> degradedReasons = new ArrayList<>(interpreted.degradedReasons());
         degradedReasons.addAll(result.degradedReasons());
-        boolean ruleDegraded = appliedRules.stream().anyMatch(rule -> rule.status().degraded());
+        boolean ruleDegraded =
+                appliedRules.stream().anyMatch(rule -> rule.status().degraded());
         CompleteSearchExecution.ExecutionStatus status = degradedReasons.isEmpty() && !ruleDegraded
                 ? CompleteSearchExecution.ExecutionStatus.SUCCEEDED
                 : CompleteSearchExecution.ExecutionStatus.DEGRADED;
@@ -155,31 +157,42 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         context.put("resolution", candidates.resolution());
         context.put("approved_evidence_ids", candidates.tagEvidenceIds());
         // -84 확정 소비자는 단수 ID를 요구한다. 복수 후보 전체도 별도 필드에 기록한다.
-        PendingCandidates.RuleCandidate firstRule = candidates.rules().isEmpty() ? null : candidates.rules().get(0);
+        PendingCandidates.RuleCandidate firstRule =
+                candidates.rules().isEmpty() ? null : candidates.rules().get(0);
         context.put("approved_rule_id", firstRule == null ? null : firstRule.approvedRuleId());
         context.put("replaced_rule_id", firstRule == null ? null : firstRule.replacedRuleId());
-        context.put("candidate_rules", candidates.rules().stream().map(rule -> {
-            Map<String, Object> pair = new LinkedHashMap<>();
-            pair.put("approved_rule_id", rule.approvedRuleId());
-            pair.put("replaced_rule_id", rule.replacedRuleId());
-            return pair;
-        }).toList());
+        context.put(
+                "candidate_rules",
+                candidates.rules().stream()
+                        .map(rule -> {
+                            Map<String, Object> pair = new LinkedHashMap<>();
+                            pair.put("approved_rule_id", rule.approvedRuleId());
+                            pair.put("replaced_rule_id", rule.replacedRuleId());
+                            return pair;
+                        })
+                        .toList());
         context.put("state_fingerprint", baselineFingerprint);
         // baselineFingerprint 의 pending_rules/pending_tags 축을 그대로 낸 정확한 id 집합(S15P21A501-83) — 위
         // approved_evidence_ids/candidate_rules 와 값은 같지만, -84 가 "이 지문의 pending 축이 정확히 이 id들에서
         // 나왔다"를 필드명으로 바로 확인하도록 별도 키로 둔다. approved_evidence_ids 는 -84 VerificationRunQueryAdapter
         // 엄격 계약(양의 long 배열)을 이미 쓰므로 재사용하지 않고 새 키를 추가한다.
-        context.put("verified_candidate_ids", Map.of(
-                "rule_ids", candidates.rules().stream().map(PendingCandidates.RuleCandidate::approvedRuleId).toList(),
-                "tag_evidence_ids", candidates.tagEvidenceIds()));
+        context.put(
+                "verified_candidate_ids",
+                Map.of(
+                        "rule_ids",
+                                candidates.rules().stream()
+                                        .map(PendingCandidates.RuleCandidate::approvedRuleId)
+                                        .toList(),
+                        "tag_evidence_ids", candidates.tagEvidenceIds()));
         context.put("candidate_tag_changes", candidates.tagEvidenceIds()); // §7.2 후보 태그 변경안
         context.put("baseline_state", Map.of("state_fingerprint", baselineFingerprint)); // §7.2 기준 상태
         context.put("verification_rule_set", outcome.activeRuleSet()); // §7.2 검증 규칙 집합 (활성 − R1 + R2)
         return new CompleteSearchExecution(
                 executionId,
                 status,
-                degradedReasons, null,
-                interpreted.finalResolution(),  // 검증이 실제로 쓴 해석 — replay 행도 일반 검색과 같은 충실도
+                degradedReasons,
+                null,
+                interpreted.finalResolution(), // 검증이 실제로 쓴 해석 — replay 행도 일반 검색과 같은 충실도
                 appliedRules,
                 SearchRecordPayload.candidates(result),
                 SearchRecordPayload.filtered(result),
@@ -190,7 +203,9 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                 context);
     }
 
-    /** {@code SearchAssemblyService.resolverOutput} 과 같은 조립. AI 가 실제로 무엇을 주장했는지(raw) 와 anchor 검증 후(verified) 를 함께 남긴다. */
+    /**
+     * {@code SearchAssemblyService.resolverOutput} 과 같은 조립. AI 가 실제로 무엇을 주장했는지(raw) 와 anchor 검증 후(verified) 를 함께 남긴다.
+     */
     private RecordSearchExecutionResolution recordResolutionCommand(
             long executionId, ExecuteSearchQuery query, InterpretedQuery interpreted) {
         return new RecordSearchExecutionResolution(
@@ -218,9 +233,9 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
     }
 
     /**
-     * {@link SearchAssemblyService#abandon} 과 같은 분류 — BusinessException 은 자기 코드를, 그 외는 기본값을 남긴다.
-     * 기본값은 {@code SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED} 가 아니라 {@link VerificationErrorCode#VERIFICATION_FAILED}
-     * 다 — 그쪽은 단어 검색 전용이라 랭커 내부 오류·기록 커밋 실패 같은 검증 전반의 실패에 붙이면 사유가 틀리게 남는다(Task 4 리뷰 지적).
+     * {@link SearchAssemblyService#abandon} 과 같은 분류 — BusinessException 은 자기 코드를, 그 외는 기본값을 남긴다. 기본값은
+     * {@code SearchExecutionErrorCode.LEXICAL_SEARCH_FAILED} 가 아니라 {@link VerificationErrorCode#VERIFICATION_FAILED} 다
+     * — 그쪽은 단어 검색 전용이라 랭커 내부 오류·기록 커밋 실패 같은 검증 전반의 실패에 붙이면 사유가 틀리게 남는다(Task 4 리뷰 지적).
      */
     private String verificationErrorCode(RuntimeException failed) {
         return failed instanceof BusinessException business
@@ -233,11 +248,12 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
     }
 
     /**
-     * 롤백 트랜잭션 안에서 검색 결과와 해석을 함께 캡처한다. 검색은 롤백되지만 이 값은 트랜잭션 밖으로
-     * 나가 replay 기록에 쓰인다 — 일반 검색 기록과 같은 충실도(finalResolution·degradedReasons·
-     * rules().outcomes())를 남기기 위해 {@code SearchCandidates} 만이 아니라 {@code InterpretedQuery} 도 담는다.
+     * 롤백 트랜잭션 안에서 검색 결과와 해석을 함께 캡처한다. 검색은 롤백되지만 이 값은 트랜잭션 밖으로 나가 replay 기록에 쓰인다 — 일반 검색 기록과 같은
+     * 충실도(finalResolution·degradedReasons· rules().outcomes())를 남기기 위해 {@code SearchCandidates} 만이 아니라
+     * {@code InterpretedQuery} 도 담는다.
      */
-    record VerificationSearchOutcome(SearchCandidates candidates, InterpretedQuery interpreted, List<Long> activeRuleSet) {}
+    record VerificationSearchOutcome(
+            SearchCandidates candidates, InterpretedQuery interpreted, List<Long> activeRuleSet) {}
 
     /**
      * flip → 같은 코드로 재검색 → 캡처 → 롤백. 공유·확정 데이터는 복구된다 (FRD §11).
@@ -258,5 +274,4 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             return new VerificationSearchOutcome(result, iq, activeRuleSet);
         });
     }
-
 }

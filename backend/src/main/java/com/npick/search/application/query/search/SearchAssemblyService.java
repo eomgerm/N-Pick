@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -101,8 +100,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
     /**
      * 리졸버 호출까지만 한다 — {@link #interpret} 의 유일한 외부 HTTP 구간이자 flip 상태와 무관한 부분(S15P21A501-219).
      *
-     * <p>검증 재검색은 이 메서드를 롤백 트랜잭션 <b>밖</b>에서 부른다. 리졸버 지연이 flip 이 쥔 행 잠금·커넥션 점유
-     * 시간에 더해지지 않게 하기 위해서다.
+     * <p>검증 재검색은 이 메서드를 롤백 트랜잭션 <b>밖</b>에서 부른다. 리졸버 지연이 flip 이 쥔 행 잠금·커넥션 점유 시간에 더해지지 않게 하기 위해서다.
      */
     @Override
     public Resolution resolve(ExecuteSearchQuery query) {
@@ -117,8 +115,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
     }
 
     /**
-     * {@link #resolve} 이후 나머지 해석을 한다 — 활성 규칙 조회가 flip 반영 상태를 읽으므로(§규칙 판정) 검증 재검색은
-     * 이 메서드를 롤백 트랜잭션 <b>안</b>에서 부른다(S15P21A501-219).
+     * {@link #resolve} 이후 나머지 해석을 한다 — 활성 규칙 조회가 flip 반영 상태를 읽으므로(§규칙 판정) 검증 재검색은 이 메서드를 롤백 트랜잭션 <b>안</b>에서
+     * 부른다(S15P21A501-219).
      */
     @Override
     public InterpretedQuery interpretFromResolution(ExecuteSearchQuery query, Resolution resolution) {
@@ -174,7 +172,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                 interpreted.parseMs(),
                 degradedReasons);
 
-        SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch);
+        SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch, query.page());
         degradedReasons.addAll(candidates.degradedReasons());
 
         // 확장어도 근거 대조에 넣는다. 검색에는 쓰고 설명에는 안 쓰면 확장어로만 걸린 장면의
@@ -207,7 +205,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                 candidates.shortageReasons().stream()
                         .map(ShortageReason::wireValue)
                         .toList(),
-                cards(candidates, resultIds, queryTokens));
+                cards(candidates, resultIds, queryTokens),
+                candidates.hasNext());
     }
 
     /**
@@ -283,10 +282,13 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
      * 검색 실패가 0건의 성공 응답으로 나간다.
      */
     private SearchCandidates runPipeline(
-            QueryResolutionResult resolved, QueryResolution finalResolution, NormalizedSearch normalizedSearch) {
+            QueryResolutionResult resolved,
+            QueryResolution finalResolution,
+            NormalizedSearch normalizedSearch,
+            int page) {
         try {
             return pipeline.rank(new RankSearchCandidatesUseCase.Query(
-                    resolved.normalization(), finalResolution, resolved.queryEmbedding(), normalizedSearch));
+                    resolved.normalization(), finalResolution, resolved.queryEmbedding(), normalizedSearch, page));
         } catch (BusinessException alreadyClassified) {
             throw alreadyClassified;
         } catch (RuntimeException failed) {

@@ -205,9 +205,13 @@ test('데모와 유효하지 않은 결과 ID로는 문의를 접수할 수 없�
   }
 });
 
-test('접수 완료와 snapshot 문의 불가를 다른 상태로 표시한다', () => {
+test('접수 완료와 snapshot 저장 실패 결과를 다른 상태로 표시한다', () => {
   const submittedHtml = renderPreview({ isSubmitted: true });
-  const unavailableHtml = renderPreview({ state: 'degraded-snapshot' });
+  // snapshot 저장이 실패한 실행의 결과는 search_result_id 가 없다(web-api §5.1). 그 결과만 문의 불가다.
+  const unavailableHtml = renderPreview({
+    state: 'degraded-snapshot',
+    result: { ...results[0], searchResultId: null },
+  });
 
   assert.match(submittedHtml, /data-state="submitted"/);
   assert.ok(submittedHtml.includes('접수됨'));
@@ -219,6 +223,20 @@ test('접수 완료와 snapshot 문의 불가를 다른 상태로 표시한다',
   assert.match(unavailableHtml, /<button[^>]+aria-describedby="[^"]+"[^>]+aria-disabled="true"/);
   assert.match(unavailableHtml, /role="tooltip"/);
   assert.ok(unavailableHtml.includes('검색 기록 저장 실패'));
+});
+
+test('저장된 결과는 다른 페이지 snapshot 실패로 실행이 degraded여도 문의할 수 있다', () => {
+  // 더보기로 이어 붙인 실행 상태가 degraded-snapshot 이어도, 이 결과 자신이 저장돼
+  // search_result_id 가 있으면 문의할 수 있어야 한다 (S15P21A501-251 P1). 문의 가능 여부는
+  // 전역 실행 상태가 아니라 선택한 결과의 저장 상태로 판단한다.
+  const html = renderPreview({
+    state: 'degraded-snapshot',
+    result: { ...results[0], searchResultId: '987' },
+  });
+
+  assert.match(html, /data-state="ready"/);
+  assert.ok(!html.includes('문의 불가'));
+  assert.ok(!html.includes('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'));
 });
 
 test('이미 접수된 문의는 snapshot 상태에서도 접수 완료로만 안내한다', () => {

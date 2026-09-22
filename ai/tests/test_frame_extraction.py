@@ -4,7 +4,7 @@
 구현 모듈을 참조해 기대값을 만들면 검증이 자기 자신을 확인하는 셈이 된다.
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from scenedetect.backends.pyav import VideoStreamAv
 
+from npick_worker import frame_extraction
 from npick_worker.frame_extraction import (
     DEFAULT_CONFIG_PATH,
     ChosenFrame,
@@ -39,7 +40,7 @@ from npick_worker.frame_extraction import (
 )
 from npick_worker.frame_extraction.models import Keyframe, SceneKeyframes
 from npick_worker.media_errors import MediaUnreadableError
-from npick_worker.timecode import frames_to_ms, ms_to_frame
+from npick_worker.timecode import frame_number_from_pts, frames_to_ms, ms_to_frame
 
 MakeVideo = Callable[[str, Sequence[tuple[str, int]]], Path]
 
@@ -1241,6 +1242,214 @@ def test_profile_agrees_with_pyscenedetect_on_a_real_file(make_video: MakeVideo)
         ours = pyav_backend._profile(container).frame_rate
 
     assert ours == float(VideoStreamAv(str(video)).frame_rate)
+
+
+# ── 상류와 같은 번호로 프레임을 세는가 ────────────────────────────────
+
+#: 30fps·`time_base` 1/90000 에서 한 프레임이 0.6 프레임만큼 **늦게** 도착한 PTS 열.
+#: 그 뒤 프레임은 전부 한 칸씩 뒤로 밀린다.
+JITTERED_PTS = (0, 3000, 6000, 9000, 13800, 16800, 19800)
+
+#: 위 PTS 를 상류 규칙으로 센 번호 — `round((pts - 첫 pts) * time_base * fps)`.
+#: PySceneDetect 의 `VideoStreamAv.position` 이 쓰는 식이고(`backends/pyav.py`),
+#: `SceneManager` 가 scene 경계에 적는 것이 이 번호다(`scene_manager.py`).
+#: 4 번이 비어 있는 것이 핵심이다 — 그 시각에 프레임이 없다는 사실이고,
+#: 디코드 순번으로 세면 그 사실이 지워진 채 뒤가 전부 한 칸 어긋난다.
+JITTERED_FRAME_NUMBERS = (0, 1, 2, 3, 5, 6, 7)
+
+#: 지터가 없는 같은 길이의 열. 정상 파일에서 번호가 촘촘하다는 것을 함께 잠근다.
+STEADY_PTS = tuple(3000 * index for index in range(7))
+
+
+class _StubFrame:
+    def __init__(self, pts: int) -> None:
+        self.pts = pts
+        self.time_base = Fraction(1, 90000)
+
+
+class _DecodeStubContainer:
+    """`_decode_until` 이 읽는 것만 흉내낸 컨테이너.
+
+    PTS 를 마음대로 놓은 파일은 픽스처로 만들 수 없다 — mp4 먹서는 단조 DTS 를 요구해
+    거부하고, mkv 먹서는 PTS 를 프레임 간격 격자로 스냅해 지터를 지운다. 번호를 매기는
+    규칙 자체는 프레임의 `pts` 와 `time_base` 만 보므로 그 둘만 준다.
+    """
+
+    def __init__(
+        self,
+        *pts: int,
+        start_time: int = 0,
+        stream_time_base: Fraction | None = Fraction(1, 90000),
+    ) -> None:
+        self._frames = [_StubFrame(value) for value in pts]
+        self.streams = SimpleNamespace(
+            video=[SimpleNamespace(start_time=start_time, time_base=stream_time_base)]
+        )
+
+    def decode(self, stream: object) -> Iterator[_StubFrame]:
+        return iter(self._frames)
+
+
+@pytest.mark.parametrize(
+    ("pts", "expected"),
+    [
+        (JITTERED_PTS, JITTERED_FRAME_NUMBERS),
+        (STEADY_PTS, tuple(range(7))),
+    ],
+)
+def test_decode_numbers_frames_the_way_the_upstream_does(
+    pts: tuple[int, ...], expected: tuple[int, ...]
+) -> None:
+    """프레임 번호는 디코드 순번이 아니라 PTS 에서 온다.
+
+    두 단계가 같은 번호로 같은 프레임을 가리켜야 한다 — 상류가 scene 경계에 적은 번호를
+    이 단계가 다른 프레임에 붙이면, 실패가 아니라 **조용히 틀린 `timestamp_ms`** 가
+    나온다. `_check_frame_rate` 가 막는 것과 같은 종류의 어긋남이고 원인만 다르다.
+
+    지터가 없는 열에서 번호가 `0..N-1` 로 촘촘한 것도 함께 본다. 정상 파일의 성질이
+    바뀌면 후보를 못 재는 자리가 생긴다.
+    """
+    container = _DecodeStubContainer(*pts)
+
+    numbered = [
+        number
+        for number, _ in pyav_backend._decode_until(
+            cast("Any", container), expected[-1], frame_rate=30.0
+        )
+    ]
+
+    assert tuple(numbered) == expected
+
+
+@pytest.mark.parametrize(("pts", "expected"), [(0, 0), (3000, 1), (3400, 1), (13800, 5)])
+def test_frame_number_from_pts_follows_the_upstream_rule(pts: int, expected: int) -> None:
+    """번호 규칙은 `timecode` 하나에만 둔다. 상류 `VideoStreamAv.position` 의 식이다.
+
+    같은 계산을 두 곳에서 따로 하면 갈린다 — 프레임레이트 출처가 그래서 갈렸다
+    (S15P21A501-259). `frame_extraction` 과 `scene_detection` 이 이 함수를 함께 쓴다.
+    """
+    assert frame_number_from_pts(pts, Fraction(1, 90000), 30.0) == expected
+
+
+def test_frame_number_from_pts_rescales_the_stream_start_time() -> None:
+    """`start_time` 의 눈금이 프레임과 다르면 맞춘 뒤 뺀다.
+
+    edit list 가 붙은 파일에서 스트림과 프레임의 `time_base` 가 갈린다. 상류가 여기서
+    눈금을 맞추므로(`_normalized_pts`) 같이 맞춘다.
+
+    스트림 눈금 1/1000 의 9 틱은 프레임 눈금 1/90000 에서 810 틱이다.
+    """
+    number = frame_number_from_pts(
+        3810, Fraction(1, 90000), 30.0, start_time=9, stream_time_base=Fraction(1, 1000)
+    )
+
+    assert number == 1
+
+
+def test_decode_yields_every_frame_carrying_the_last_number() -> None:
+    """번호가 겹치면 그 번호를 가진 프레임을 **전부** 내보낸다.
+
+    `measure` 와 `write` 는 번호를 키로 하는 dict 에 last-wins 로 쌓는다. 둘의 종료
+    지점이 다르면 한쪽은 첫 번째를, 다른 쪽은 두 번째를 주인으로 삼는다 — 점수를 잰
+    프레임과 저장된 JPEG 이 예외 없이 달라진다. 끝 번호를 양쪽이 똑같이 소진해야 한다.
+
+    30fps·1/90000 에서 3000 과 3400 은 둘 다 번호 1 이다(`round(1)`·`round(1.13)`).
+    """
+    container = _DecodeStubContainer(0, 3000, 3400, 6000)
+
+    numbered = [
+        number
+        for number, _ in pyav_backend._decode_until(cast("Any", container), 1, frame_rate=30.0)
+    ]
+
+    assert numbered == [0, 1, 1]
+
+
+def test_measurement_gap_is_not_reported_as_a_truncated_media() -> None:
+    """번호가 건너뛴 것과 미디어가 잘린 것은 다른 사실이다.
+
+    프레임 번호가 PTS 에서 오므로 요청한 번호가 아예 없을 수 있다 — 그 시각에 프레임이
+    없다는 뜻이다. 이 경우까지 "미디어가 먼저 끝났다" 로 신고하면 정본에 거짓 원인이
+    남고, 영구 오류라 재시도로 걷히지도 않는다.
+    """
+    request = SceneRequest(
+        scene_index=0,
+        slots=(SlotCandidates(slot_index=0, frame_numbers=(4,)),),
+    )
+    # 4 번만 비어 있다. 뒤의 5 번을 쟀으므로 미디어가 끝난 것은 아니다.
+    measured = {
+        0: SceneMeasurement(
+            frames={
+                number: ScoredFrame(
+                    frame_number=number,
+                    timestamp_ms=frames_to_ms(number, 30.0),
+                    score=1.0,
+                    luma_std=1.0,
+                )
+                for number in (3, 5)
+            },
+            changes={},
+        )
+    }
+
+    with pytest.raises(ValueError, match="그 시각에 프레임이 없다"):
+        frame_extraction._check_measured([request], measured)
+
+
+def test_decode_subtracts_the_stream_start_time() -> None:
+    """상류는 첫 프레임의 PTS 가 아니라 `stream.start_time` 을 뺀다.
+
+    edit list 가 붙은 파일은 스트림 시작 시각이 0 이 아니고, 그때 첫 프레임 PTS 를
+    기준으로 세면 상류와 통째로 어긋난다. 배포 클립 110개 중 2개가 이 경우다.
+    """
+    container = _DecodeStubContainer(9000, 12000, 15000, start_time=9000)
+
+    numbered = [
+        number
+        for number, _ in pyav_backend._decode_until(cast("Any", container), 2, frame_rate=30.0)
+    ]
+
+    assert numbered == [0, 1, 2]
+
+
+def test_decode_tolerates_a_stream_without_a_time_base() -> None:
+    """눈금 맞추기는 스트림 `time_base` 가 있을 때만 할 수 있다.
+
+    없는데 `start_time` 이 있으면 곱셈이 `None` 을 만나 터진다. 프레임 쪽 눈금이 이미
+    있으므로 그것을 그대로 쓴다 — 맞출 상대가 없는 것이지 읽을 수 없는 미디어가 아니다.
+    """
+    container = _DecodeStubContainer(3000, 6000, start_time=3000, stream_time_base=None)
+
+    numbered = [
+        number
+        for number, _ in pyav_backend._decode_until(cast("Any", container), 1, frame_rate=30.0)
+    ]
+
+    assert numbered == [0, 1]
+
+
+def test_decode_numbering_matches_pyscenedetect_on_a_real_file(make_video: MakeVideo) -> None:
+    """식이 아니라 상류 구현과 직접 맞댄다.
+
+    위 테스트는 우리가 **옮겨 적은 식**을 잠근다. 그 식이 상류의 것과 같다는 사실은
+    상류에게 물어야 확인된다 — scenedetect 가 `position` 의 계산을 바꾸면 여기가 빨개진다.
+    """
+    video = make_video("numbering-agreement", [("bars", BLOCK_FRAMES)])
+
+    upstream = VideoStreamAv(str(video))
+    theirs = []
+    while upstream.read() is not False:
+        theirs.append(upstream.position.frame_num)
+
+    with av.open(str(video)) as container:
+        ours = [
+            number
+            for number, _ in pyav_backend._decode_until(
+                container, len(theirs), frame_rate=float(upstream.frame_rate)
+            )
+        ]
+
+    assert ours == theirs
 
 
 class _DriftedAverageRateGrabber(PyAvFrameGrabber):

@@ -37,8 +37,8 @@ public class SearchController {
     @PostMapping
     public ResponseEntity<ApiResponse<SearchResponse>> search(
             @Valid @RequestBody SearchRequest request, @LoginMember CurrentMember member) {
-        var result =
-                useCase.execute(new ExecuteSearchQuery(request.query(), request.toDateFilters(), member.memberId()));
+        var result = useCase.execute(new ExecuteSearchQuery(
+                request.query(), request.toDateFilters(), member.memberId(), request.pageOrDefault()));
         return ResponseEntity.ok(ApiResponse.success(SearchResponse.of(result)));
     }
 }

@@ -100,8 +100,20 @@ for (const role of ['editor', 'reviewer']) {
       panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }),
     ).toBeDisabled();
     await panel.getByRole('button', { name: '이전 검색 기록 페이지', exact: true }).click();
-    const row = panel.getByRole('button', { name: /^서버 검색어 100 / });
+    const row = panel.getByRole('button', { name: /^서버 검색어 100 검색 결과/ });
     await row.click();
+    const searchInput = page.getByRole('searchbox', { name: '뉴스 장면 검색어' });
+    await expect(panel).not.toBeVisible();
+    await expect(searchInput).toHaveValue('서버 검색어 100');
+    await expect(searchInput).toBeFocused();
+    expect(postSearches).toBe(0);
+
+    await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
+    const detailButton = panel.getByRole('button', {
+      name: '서버 검색어 100 검색 기록 상세 보기',
+      exact: true,
+    });
+    await detailButton.click();
     const dialog = page.getByRole('dialog', { name: '검색 기록 상세', exact: true });
     await expect(dialog.getByRole('status')).toHaveText('당시 검색 결과를 불러오는 중…');
     releaseDetail();
@@ -139,7 +151,7 @@ for (const role of ['editor', 'reviewer']) {
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
-    await expect(row).toBeFocused();
+    await expect(detailButton).toBeFocused();
     await expect(panel).toBeVisible();
     expect(postSearches).toBe(0);
   });
@@ -211,11 +223,15 @@ test('0건 검색·복원 불가·상세 404를 구분하며 현재 조건으로
   await page.goto('/search');
   await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
   const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
-  await panel.getByRole('button', { name: /^서버 검색어 100 / }).click();
+  await panel
+    .getByRole('button', { name: '서버 검색어 100 검색 기록 상세 보기', exact: true })
+    .click();
   let dialog = page.getByRole('dialog', { name: '검색 기록 상세', exact: true });
   await expect(dialog.getByText('당시 검색 결과는 0건입니다.')).toBeVisible();
   await page.keyboard.press('Escape');
-  await panel.getByRole('button', { name: /^서버 검색어 200 / }).click();
+  await panel
+    .getByRole('button', { name: '서버 검색어 200 검색 기록 상세 보기', exact: true })
+    .click();
   dialog = page.getByRole('dialog', { name: '검색 기록 상세', exact: true });
   await expect(dialog.getByRole('alert')).toContainText('검색 기록을 찾을 수 없습니다.');
   await dialog.getByRole('button', { name: '검색 기록 상세 다시 시도' }).click();
@@ -258,4 +274,55 @@ test('새 검색 뒤 패널 재열기와 새로고침은 실제 기록을 다시
   await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
   await expect(page.getByText('서버 검색어 100', { exact: true })).toBeVisible();
   expect(posts).toBe(1);
+});
+
+test('검색 기록 삭제는 확인 모달을 거치고 취소하면 그대로 남는다 (S15P21A501-277)', async ({
+  page,
+}) => {
+  let removed = false;
+  let deleteCalls = 0;
+  await page.route('**/api/v1/search/history?**', (route) =>
+    route.fulfill({
+      json: success(listPage(removed ? [item('200')] : [item('100'), item('200')])),
+    }),
+  );
+  await page.route('**/api/v1/search/history/100', (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    deleteCalls++;
+    removed = true;
+    return route.fulfill({ json: { isSuccess: true, code: 'COMM_200', message: '성공' } });
+  });
+
+  await page.goto('/search');
+  await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
+  const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
+  const remove = panel.getByRole('button', { name: '서버 검색어 100 검색 기록 삭제', exact: true });
+
+  // 버튼만 눌러서는 지워지지 않는다. 휴지통이 없으므로 확인을 거친다.
+  await remove.click();
+  const confirm = page.getByRole('dialog', { name: '검색 기록을 지울까요?', exact: true });
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByText('서버 검색어 100', { exact: true })).toBeVisible();
+  // 되돌릴 수 없는 동작이라 기본 포커스는 취소에 있다.
+  await expect(confirm.getByRole('button', { name: '취소', exact: true })).toBeFocused();
+
+  await confirm.getByRole('button', { name: '취소', exact: true }).click();
+  await expect(confirm).not.toBeVisible();
+  expect(deleteCalls).toBe(0);
+  await expect(panel.getByText('서버 검색어 100', { exact: true })).toBeVisible();
+
+  await remove.click();
+  await page
+    .getByRole('dialog', { name: '검색 기록을 지울까요?', exact: true })
+    .getByRole('button', { name: '삭제', exact: true })
+    .click();
+
+  await expect(page.getByRole('dialog', { name: '검색 기록을 지울까요?' })).not.toBeVisible();
+  await expect(panel.getByText('서버 검색어 100', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('서버 검색어 200', { exact: true })).toBeVisible();
+  expect(deleteCalls).toBe(1);
+  // 포커스를 잃으면 키보드 사용자가 목록 밖으로 튕긴다. 지운 행의 버튼은 이미 사라진 뒤다.
+  await expect(
+    panel.getByRole('region', { name: '이전 검색 기록 목록', exact: true }),
+  ).toBeFocused();
 });

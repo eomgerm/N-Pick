@@ -10,7 +10,8 @@
 | [docs/scene-detection.md](docs/scene-detection.md) | scene detection 선정 근거·설정 키·실측 후 확정 항목 |
 | [docs/frame-extraction.md](docs/frame-extraction.md) | frame extraction 선정 근거·대표 이미지 규약·인코딩 실측·설정 키 |
 | [docs/vlm-metadata.md](docs/vlm-metadata.md) | VLM 장면 metadata — 출력 계약·어휘·거부 규칙·외부 처리 게이트. **Qwen3.5-9B 선정, 4B 대체; 실측 비교는 §9.6** |
-| [docs/ocr.md](docs/ocr.md) | OCR 엔진 선정·frame 간 병합과 원본 보존·임계값 실측·설정 키 |
+| [docs/ocr.md](docs/ocr.md) | OCR 엔진 선정·frame 간 병합과 원본 보존·임계값 실측·설정 키. **화면 글자 품질과 오독은 §12** |
+| [eval/ocr/README.md](eval/ocr/README.md) | OCR 화면 글자 품질 하네스 — 재현율이 아니라 **검색으로 이어지는 정확일치**를 재고 설정 변형을 비교한다. **검출·인식 설정을 바꾸면 여기로 회귀를 잰다** |
 | [docs/entity-extraction.md](docs/entity-extraction.md) | entity 추출 — NER 선정 근거·유형 범위·근거 연결·실측과 미검증 범위 |
 | [docs/transcript-selection.md](docs/transcript-selection.md) | 자막·CC 선택 — 채택 규칙의 소유자가 4단계인 이유·예비 판정과 최종 정본·클램프가 계약인 이유·설정 키. **`min_uncovered_ms` 는 미측정(§6)** |
 | [docs/asr.md](docs/asr.md) | ASR — 엔진 경계·VAD 가 실행기 안인 이유·빈 결과/실패/미실행 구분·설정 키. **임계값과 모델 크기는 미측정(§5)** |

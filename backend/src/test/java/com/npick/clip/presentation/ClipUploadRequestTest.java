@@ -1,6 +1,7 @@
 package com.npick.clip.presentation;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -156,6 +157,61 @@ class ClipUploadRequestTest {
                 .andExpect(invalidField("filmedDateValid", "촬영일은 실제 존재하는 YYYY-MM-DD 날짜로 입력해 주세요."));
     }
 
+    @Test
+    void rejectsFilmedDateAfterToday() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("filmed_date", today().plusDays(1).toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(invalidField("filmedDateNotFuture", "촬영일은 오늘 이후 날짜로 입력할 수 없습니다."));
+        verifyNoInteractions(upload);
+    }
+
+    @Test
+    void rejectsBroadcastDateAfterToday() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", today().plusDays(1).toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(invalidField("broadcastDateNotFuture", "방송일은 오늘 이후 날짜로 입력할 수 없습니다."));
+        verifyNoInteractions(upload);
+    }
+
+    @Test
+    void rejectsBroadcastDateEarlierThanFilmedDate() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", today().minusDays(1).toString())
+                        .param("filmed_date", today().toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(invalidField("broadcastDateNotBeforeFilmedDate", "방송일은 촬영일보다 빠를 수 없습니다."));
+        verifyNoInteractions(upload);
+    }
+
+    @Test
+    void acceptsVideoFilmedAndBroadcastToday() throws Exception {
+        LocalDate today = today();
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", today.toString())
+                        .param("filmed_date", today.toString()))
+                .andExpect(status().isCreated());
+        assertThat(received.broadcastDate()).isEqualTo(today);
+        assertThat(received.filmedDate()).isEqualTo(today);
+    }
+
+    @Test
+    void reportsOnlyCalendarErrorWhenDateCannotBeParsed() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", "2026-13-01")
+                        .param("filmed_date", "2026-13-02"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.data.broadcastDateNotFuture").doesNotExist())
+                .andExpect(jsonPath("$.data.filmedDateNotFuture").doesNotExist())
+                .andExpect(jsonPath("$.data.broadcastDateNotBeforeFilmedDate").doesNotExist());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"", "   "})
     void treatsBlankOptionalFieldsAsAbsent(String blank) throws Exception {
@@ -212,6 +268,10 @@ class ClipUploadRequestTest {
             jsonPath("$.code").value("COMM_400_001").match(result);
             jsonPath("$.data." + field).value(message).match(result);
         };
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(ZoneId.of("Asia/Seoul"));
     }
 
     private MockMultipartHttpServletRequestBuilder videoRequest() {

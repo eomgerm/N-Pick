@@ -182,6 +182,19 @@ npick:
     dense:
       model-version: ${SEARCH_DENSE_MODEL_VERSION:dragonkue/snowflake-arctic-embed-l-v2.0-ko@55ec6e9358a56d56af759bc8372e970caf8c305f}
       pool-size: ${SEARCH_DENSE_POOL_SIZE:200}
+      # dense 후보의 관련성 하한선. 2.0 은 코사인 거리의 전 범위라 아무것도 거르지 않는다 —
+      # 기본값 그대로면 검색 결과는 이 설정이 없던 때와 같다. 조이는 자리는 compose.yaml 이다.
+      # 다만 「결과가 같다」이지 「기록이 같다」가 아니다. 스냅샷에 max_distance 키가 늘고
+      # 스키마가 dense-search/v2 가 되므로 값이 2.0 이어도 config_version 은 달라지고, 교정
+      # 검증 지문의 config 축이 그 값이라 진행 중인 검증은 재검증 대상이 된다 (F-13.4).
+      # 실측(S15P21A501-278, 운영 질의 27개): 거리 분포는 0.45~1.09 이고, 해당 영상이 있는
+      # 질의의 1위는 0.45~0.61, 없는 질의의 1위는 0.76~0.79, 무의미 질의는 0.83 이다.
+      # 0.75 에서 「근거 없는 결과」의 72% 가 사라진다. 근거 있는 결과는 BM25 가 계속 공급하므로
+      # 이 값으로 사라지지 않는다 — 비용은 dense 단독으로만 걸리던 후보뿐이다.
+      # 임계값 때문에 결과가 10개 미만이 되는 것은 정상이다 (F-05 「부족하면 10개 미만을 반환한다」).
+      # usable CTE 의 유효성 판정과 커버리지 집계는 이 값과 무관하다. 같이 움직이게 만들면
+      # 유사도가 낮은 장면이 invalid_vector 로 집계되어 매 검색이 PARTIAL 로 떨어진다.
+      max-distance: ${SEARCH_DENSE_MAX_DISTANCE:2.0}
 
 # PostgreSQL error details may include the failing row (script, paths, secrets).
 # API failures are reported through safe application error codes instead.
