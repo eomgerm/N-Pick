@@ -384,4 +384,5 @@ export const inquiryResolutionClasses: Record<InquiryResolution, string> = {
   deferred: 'bg-(--warning-soft)',
   tag_correction: 'bg-(--positive-soft)',
   patch_parse: 'bg-(--positive-soft)',
+  correction: 'bg-(--positive-soft)',
 };

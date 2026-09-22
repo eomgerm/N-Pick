@@ -69,6 +69,20 @@ test('목록 응답은 백엔드 대문자 상태를 프론트 상태로 정규�
   );
 });
 
+test('레거시 교정 세부 판정은 단일 교정 판정으로 정규화한다', () => {
+  for (const legacyResolution of ['tag_correction', 'patch_parse', 'exclude_scene']) {
+    const parsed = parseReviewInquiryList({
+      items: [{ ...item, resolution: legacyResolution }],
+      page: 0,
+      size: 10,
+      totalElements: 1,
+      totalPages: 1,
+      statusCounts: { open: 1, reviewing: 0, closed: 0 },
+    });
+    assert.equal(parsed.items[0].resolution, 'correction');
+  }
+});
+
 test('영상 제목이 없으면 null을 보존하고 유효한 장면 구간은 그대로 읽는다', () => {
   const parsed = parseReviewInquiryList({
     items: [{ ...item, scene: { ...scene, clipTitle: null } }],
@@ -252,6 +266,7 @@ test('문의·태그 교정 API 경로와 요청 본문을 계약대로 보낸�
   await getReviewInquiry('41');
   await claimReviewInquiry('41', 'claim-key');
   await resolveReviewInquiry('41', 'no_action', '문제 없음');
+  await resolveReviewInquiry('41', 'correction', '교정 후보 확인');
   await createTagCorrectionCandidate('41', [
     {
       action: 'APPROVE',
@@ -284,9 +299,15 @@ test('문의·태그 교정 API 경로와 요청 본문을 계약대로 보낸�
     resolution: 'no_action',
     note: '문제 없음',
   });
-  assert.ok(requests[4].input.endsWith('/api/v1/review/inquiries/41/tag-correction-candidate'));
-  assert.equal(requests[4].init.method, 'POST');
+  assert.ok(requests[4].input.endsWith('/api/v1/review/inquiries/41/resolution'));
+  assert.equal(requests[4].init.method, 'PUT');
   assert.deepEqual(JSON.parse(requests[4].init.body), {
+    resolution: 'correction',
+    note: '교정 후보 확인',
+  });
+  assert.ok(requests[5].input.endsWith('/api/v1/review/inquiries/41/tag-correction-candidate'));
+  assert.equal(requests[5].init.method, 'POST');
+  assert.deepEqual(JSON.parse(requests[5].init.body), {
     operations: [
       {
         action: 'APPROVE',

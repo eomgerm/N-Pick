@@ -68,9 +68,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
   const values = parseCommaSeparatedTags(tagInput);
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
   const canCorrect =
-    inquiry.status === 'reviewing' &&
-    isOwner &&
-    (inquiry.resolution === 'tag_correction' || inquiry.resolution === 'patch_parse');
+    inquiry.status === 'reviewing' && isOwner && inquiry.resolution === 'correction';
   const mutation = useMutation({
     mutationFn: ({ operations }: CandidateSubmission) =>
       createTagCorrectionCandidate(inquiry.feedbackId, operations),
@@ -275,8 +273,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
         </div>
       ) : inquiry.status === 'reviewing' && isOwner ? (
         <p className="mt-4 text-sm text-(--muted)">
-          처리 판정을 태그 교정 또는 검색 해석 교정으로 저장하면 태그를 추가하거나 삭제할 수
-          있습니다.
+          처리 판정을 교정으로 저장하면 태그를 추가하거나 삭제할 수 있습니다.
         </p>
       ) : null}
     </section>
