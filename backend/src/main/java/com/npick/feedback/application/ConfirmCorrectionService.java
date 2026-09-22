@@ -135,13 +135,16 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
         // 최종 승인한 교정 규칙을 신고에 기록한다. 규칙 후보가 있으면 그 id, 태그만 교정하면 NULL 이다(F-13·baseline 주석).
-        // resolution 은 세 세부 종류를 단일화한 correction 값으로 남긴다(F-09 재설계) — 검수자는 더 이상 하위 종류를
-        // 직접 고르지 않고, 실제로 무엇이 적용됐는지는 created_rule_id·tag_evidence 확정 여부로 드러난다.
+        // expectedResolution 은 CAS WHERE 조건이라 지금 저장된 값(target.resolution())을 그대로 넘겨야 매칭된다 —
+        // "correction" 을 넘기면 옛 세부 종류 값과 절대 일치하지 않아 모든 확정이 0행으로 막힌다.
+        // newResolution 은 세 세부 종류를 단일화한 correction 값으로 실제로 SET 될 값이다(F-09 재설계) — 검수자는
+        // 더 이상 하위 종류를 직접 고르지 않고, 실제로 무엇이 적용됐는지는 created_rule_id·tag_evidence 확정 여부로 드러난다.
         if (feedbackRepository.confirm(
                         command.feedbackId(),
                         command.reviewerId(),
                         command.executionId(),
                         run.approvedRuleId(),
+                        target.resolution(),
                         FeedbackResolution.CORRECTION.value(),
                         Instant.now())
                 == 0) {

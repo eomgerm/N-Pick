@@ -57,13 +57,14 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
             @Param("now") Instant now);
 
     // 교정 확정(S15P21A501-84). verified_by_execution_id·created_rule_id·closed_at 은 JPA 엔티티에 없는 컬럼이라 native 로 쓴다.
-    // resolution 은 건드리지 않는다 — 확정은 판정을 바꾸는 게 아니라 검증 실행을 연결하고 종료하는 것이다(F-13 5·6).
     // created_rule_id 는 최종 승인한 교정 규칙(patch_parse)이고 태그만 교정하면 NULL 이다(baseline 주석·F-13).
     // expected_resolution CAS 로 조회~확정 사이 판정 변경(PUT resolution)을 잡는다 — 검증한 종류와 다른 판정으로 바뀌면 0 행이라 확정이 거부된다.
+    // resolution 은 new_resolution 으로 갱신한다(S15P21A501-281) — 세 세부 종류(tag_correction/patch_parse/exclude_scene)를
+    // 확정 시점에 단일화된 correction 값으로 남긴다. WHERE 는 여전히 확정 전 값(expected_resolution)으로 CAS 를 건다.
     @Modifying
     @Query(
             value = "UPDATE feedback SET status = 'CLOSED', verified_by_execution_id = :executionId, "
-                    + "created_rule_id = :createdRuleId, closed_at = :now, updated_at = :now "
+                    + "created_rule_id = :createdRuleId, resolution = :newResolution, closed_at = :now, updated_at = :now "
                     + "WHERE feedback_id = :id AND status = 'REVIEWING' AND reviewed_by_id = :reviewerId "
                     + "AND resolution = :expectedResolution",
             nativeQuery = true)
@@ -73,5 +74,6 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
             @Param("executionId") long executionId,
             @Param("createdRuleId") Long createdRuleId,
             @Param("expectedResolution") String expectedResolution,
+            @Param("newResolution") String newResolution,
             @Param("now") Instant now);
 }
