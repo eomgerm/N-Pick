@@ -27,6 +27,11 @@ import {
   getSceneDownloadUrl,
 } from '@/features/wireframes/scene-preview-media';
 import {
+  fetchSceneDownload,
+  saveSceneDownload,
+  SceneDownloadError,
+} from '@/features/wireframes/scene-download';
+import {
   canCreateInquiry,
   type SearchExecutionPresentation,
   successfulSearchExecution,
@@ -128,6 +133,7 @@ type ScenePreviewResult = Pick<
       | 'additionalEvidence'
       | 'clipId'
       | 'clip'
+      | 'sceneId'
       | 'searchResultId'
       | 'totalSeconds'
       | 'totalDuration'
@@ -170,6 +176,12 @@ export function ScenePreviewDialog({
   searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
+  const [downloadingSceneId, setDownloadingSceneId] = useState<string | null>(null);
+  const [sceneDownloadFailure, setSceneDownloadFailure] = useState<{
+    sceneId: string;
+    message: string;
+  } | null>(null);
+  const sceneDownloadControllerRef = useRef<AbortController | null>(null);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
   const filmingStatus = result.filmedDate ? (result.filmingState ?? 'unknown') : 'unknown';
   const evidenceField = result.matchEvidence?.field ?? result.evidenceType;
@@ -187,7 +199,10 @@ export function ScenePreviewDialog({
   // (web-api §5.1, S15P21A501-251 P1). 전역 canCreateInquiry 게이트는 문구 안내에만 쓴다.
   const isInquiryUnavailable = !isSubmitted && !hasSavedResult;
   const clipDownloadUrl = getClipDownloadUrl(result.clipId);
-  const sceneDownloadUrl = clipDownloadUrl ? getSceneDownloadUrl(result.id) : null;
+  const sceneDownloadUrl = getSceneDownloadUrl(result.sceneId);
+  const isSceneDownloading = downloadingSceneId === result.sceneId;
+  const sceneDownloadError =
+    sceneDownloadFailure?.sceneId === result.sceneId ? sceneDownloadFailure?.message : null;
   useEffect(() => {
     closeButtonRef.current?.focus({ preventScroll: true });
   }, []);
@@ -203,6 +218,42 @@ export function ScenePreviewDialog({
       list.scrollTop += selectedBounds.bottom - listBounds.bottom;
     }
   }, [result.id]);
+  useEffect(() => {
+    return () => {
+      sceneDownloadControllerRef.current?.abort();
+      sceneDownloadControllerRef.current = null;
+    };
+  }, [result.sceneId]);
+
+  async function handleSceneDownload() {
+    if (!sceneDownloadUrl || !result.sceneId || sceneDownloadControllerRef.current) return;
+    const sceneId = result.sceneId;
+    const controller = new AbortController();
+    sceneDownloadControllerRef.current = controller;
+    setDownloadingSceneId(sceneId);
+    setSceneDownloadFailure(null);
+    try {
+      const download = await fetchSceneDownload(sceneDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) {
+        saveSceneDownload(download.blob, download.fileName ?? `scene-${sceneId}.mp4`);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setSceneDownloadFailure({
+          sceneId,
+          message:
+            error instanceof SceneDownloadError
+              ? error.message
+              : '장면 영상을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
+    }
+  }
   function handleSceneSelect(scene: ScenePreviewResult) {
     if (scene.id === result.id) return;
     setSelectedSceneId(scene.id);
@@ -305,11 +356,22 @@ export function ScenePreviewDialog({
             autoPlay={autoPlay}
           />
           {clipDownloadUrl || sceneDownloadUrl ? (
-            <div className={styles.previewDownloadActions} aria-label="영상 다운로드">
+            <div className={styles.previewDownloadActions} aria-label="영상 다운로드" role="group">
               {sceneDownloadUrl ? (
-                <a className={styles.previewDownloadButton} download href={sceneDownloadUrl}>
-                  <Download aria-hidden="true" /> 장면 다운로드
-                </a>
+                <button
+                  aria-busy={isSceneDownloading || undefined}
+                  className={styles.previewDownloadButton}
+                  disabled={isSceneDownloading}
+                  onClick={() => void handleSceneDownload()}
+                  type="button"
+                >
+                  {isSceneDownloading ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : (
+                    <Download aria-hidden="true" />
+                  )}
+                  {isSceneDownloading ? '장면 준비 중…' : '장면 다운로드'}
+                </button>
               ) : null}
               {clipDownloadUrl ? (
                 <a className={styles.previewDownloadButton} download href={clipDownloadUrl}>
@@ -317,6 +379,11 @@ export function ScenePreviewDialog({
                 </a>
               ) : null}
             </div>
+          ) : null}
+          {sceneDownloadError ? (
+            <p className={styles.previewDownloadError} role="alert">
+              {sceneDownloadError}
+            </p>
           ) : null}
           <SearchResultNotices
             execution={searchExecution}
