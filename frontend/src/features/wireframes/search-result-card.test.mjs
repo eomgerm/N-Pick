@@ -120,7 +120,7 @@ test('키워드 칩은 사용자가 친 말과 AI 확장어를 색상 말고 라
   assert.ok(html.includes('<span class="keywordChip" data-origin="user">서울역</span>'));
   assert.ok(
     html.includes(
-      '<span class="keywordChip" data-origin="expanded">귀성객<span class="sr-only"> (확장)</span></span>',
+      '<span class="keywordChip" data-origin="expanded">귀성객<span class="keywordChipOrigin">(확장)</span></span>',
     ),
   );
 });

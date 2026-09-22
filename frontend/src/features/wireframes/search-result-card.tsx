@@ -105,15 +105,14 @@ export function SearchResultCard({
           <span className={styles.keywordList}>
             <span>키워드</span>
             {result.matchedKeywords.map(({ keyword, origin }) => {
-              // 화면에서는 배경과 점선 테두리가 구분을 진다 (FRD 6.3 — 색상만으로 구분하지 않는다).
-              // 그 둘은 눈으로만 보이는 신호라 낭독기에는 아무것도 남지 않으므로 꼬리표를 sr-only 로 싣는다.
-              // data-origin 은 같은 사실을 스타일과 테스트가 함께 읽도록 둔 것이다.
+              // 색상만으로 구분하지 않는다 (FRD 6.3) — 사용자가 넣지 않은 말에는 라벨을 붙이고,
+              // data-origin 은 그 라벨과 같은 사실을 스타일·테스트가 함께 읽도록 둔다.
               const originLabel = getKeywordOriginLabel(origin);
               return (
                 <span className={styles.keywordChip} data-origin={origin} key={keyword}>
                   {keyword}
                   {originLabel === null ? null : (
-                    <span className="sr-only">{` (${originLabel})`}</span>
+                    <span className={styles.keywordChipOrigin}>({originLabel})</span>
                   )}
                 </span>
               );
