@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Inbox, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Inbox, RefreshCw } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -10,6 +10,7 @@ import { useMember } from '@/components/session-boundary';
 import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import { getReviewInquiries } from '@/features/wireframes/review-inquiry-api';
 import { InquiryDetail } from '@/features/wireframes/review-inquiry-detail';
+import detailStyles from '@/features/wireframes/review-inquiry-detail.module.css';
 import { InquiryList, InquiryListHeading } from '@/features/wireframes/review-inquiry-list';
 import dashboardStyles from '@/features/wireframes/review-dashboard.module.css';
 import {
@@ -48,14 +49,31 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
     );
   }, [feedbackId, list.data, page, pathname, router, searchParams]);
 
+  function handleBack() {
+    router.push(getReviewUrl(pathname, searchParams.toString(), { inquiry: null }), {
+      scroll: false,
+    });
+  }
+
   return (
     <ReviewerLayout
       theme={theme}
-      headerContent={feedbackId === null ? <InquiryListHeading data={list.data} /> : undefined}
+      headerContent={
+        feedbackId === null ? (
+          <InquiryListHeading data={list.data} />
+        ) : (
+          <section className={dashboardStyles.heading} aria-labelledby="inquiry-detail-title">
+            <h1 id="inquiry-detail-title">문의 상세</h1>
+            <button className={detailStyles.backButton} onClick={handleBack} type="button">
+              <ArrowLeft aria-hidden="true" /> 문의 목록으로
+            </button>
+          </section>
+        )
+      }
     >
       <main className={`${styles.page} ${feedbackId === null ? styles.inquiryPage : ''}`}>
         {feedbackId ? (
-          <InquiryDetail feedbackId={feedbackId} theme={theme} />
+          <InquiryDetail feedbackId={feedbackId} theme={theme} onBack={handleBack} />
         ) : list.isPending ? (
           <div
             className={`${dashboardStyles.dashboard} ${dashboardStyles.statePanel}`}

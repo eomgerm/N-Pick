@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeft,
   ArrowRight,
   Check,
   CheckCircle2,
@@ -15,7 +14,6 @@ import {
   Tags,
   UserCheck,
 } from 'lucide-react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -43,7 +41,6 @@ import {
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
 import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
-import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
@@ -52,13 +49,11 @@ import { createIdempotencyKey } from '@/lib/api/idempotency';
 interface InquiryDetailProps {
   feedbackId: string;
   theme: WireframeTheme;
+  onBack: () => void;
 }
 
-export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
+export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps) {
   const member = useMember();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const claimKey = useRef<string | null>(null);
   const detailTitleRef = useRef<HTMLHeadingElement>(null);
@@ -86,12 +81,6 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
     if (loadedFeedbackId) detailTitleRef.current?.focus({ preventScroll: true });
   }, [loadedFeedbackId]);
 
-  function back() {
-    router.push(getReviewUrl(pathname, searchParams.toString(), { inquiry: null }), {
-      scroll: false,
-    });
-  }
-
   async function recoverClaim() {
     const recovery = getClaimRecovery(claim.error);
     if (recovery.action === 'retry') {
@@ -99,7 +88,7 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
       return;
     }
     if (recovery.action === 'back') {
-      back();
+      onBack();
       return;
     }
     claim.reset();
@@ -112,9 +101,6 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
   if (detail.isPending) {
     return (
       <div className={styles.detail}>
-        <button className={styles.backButton} onClick={back} type="button">
-          <ArrowLeft aria-hidden="true" /> 문의 목록으로
-        </button>
         <div aria-busy="true" className={styles.loading} role="status">
           <span className="sr-only">문의 상세를 불러오는 중…</span>
           <div aria-hidden="true" className={styles.skeletonHeading} />
@@ -126,11 +112,8 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
   if (detail.isError) {
     return (
       <div className={styles.detail}>
-        <button className={styles.backButton} onClick={back} type="button">
-          <ArrowLeft aria-hidden="true" /> 문의 목록으로
-        </button>
         <section className={`${styles.panel} p-6 sm:p-8`}>
-          <h1 className="mb-4 text-xl font-semibold">문의 상세를 불러오지 못했어요</h1>
+          <h2 className="mb-4 text-xl font-semibold">문의 상세를 불러오지 못했어요</h2>
           <ApiErrorNotice error={detail.error} />
           <button
             className={`${styles.secondaryButton} mt-5`}
@@ -157,22 +140,13 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
 
   return (
     <div className={styles.detail}>
-      <div className={styles.toolbar}>
-        <button className={styles.backButton} onClick={back} type="button">
-          <ArrowLeft aria-hidden="true" /> 문의 목록으로
-        </button>
-        <span>
-          문의 상세 <span aria-hidden="true">/</span> #{inquiry.feedbackId}
-        </span>
-      </div>
-
       <article className={styles.workspace}>
         <header className={styles.heading}>
           <div className="min-w-0">
             <p className={styles.eyebrow}>문의 #{inquiry.feedbackId}</p>
-            <h1 ref={detailTitleRef} tabIndex={-1}>
+            <h2 ref={detailTitleRef} tabIndex={-1}>
               {clipTitle}
-            </h1>
+            </h2>
             <p className={styles.meta}>
               <span>
                 <Clock3 aria-hidden="true" /> {formatInquiryDate(inquiry.createdAt)} 접수

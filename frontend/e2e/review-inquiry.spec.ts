@@ -126,7 +126,9 @@ for (const viewport of [
 }
 
 // 검수 중 문의는 문의 화면의 status 필터가 담당한다. 처리 현황 화면에는 문의 탭이 없다.
-test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터로 복귀한다', async ({ page }) => {
+test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터로 복귀한다', async ({
+  page,
+}, testInfo) => {
   await reviewer(page);
   const requests = await mockList(page, () => [inquiry('41', 'REVIEWING')]);
   await page.route('**/api/v1/review/inquiries/41', (route) =>
@@ -136,7 +138,28 @@ test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터�
   await expect(page.getByRole('button', { name: /문의 #41/ })).toBeVisible();
   await page.getByRole('button', { name: /문의 #41/ }).click();
   await expect(page.getByText(/서버 담당자/)).toBeVisible();
-  await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
+  const header = page.getByRole('banner');
+  const title = header.getByRole('heading', { name: '문의 상세', exact: true });
+  const backButton = header.getByRole('button', { name: '문의 목록으로', exact: true });
+  await expect(page.getByRole('main').getByRole('button', { name: '문의 목록으로' })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText(/문의 상세\s*\/\s*#/)).toHaveCount(0);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(title).toBeVisible();
+    await expect(backButton).toBeInViewport();
+    const titleBounds = (await title.boundingBox())!;
+    const buttonBounds = (await backButton.boundingBox())!;
+    expect(buttonBounds.x + buttonBounds.width).toBeCloseTo(width - (width > 760 ? 32 : 14), 0);
+    expect(titleBounds.y + titleBounds.height / 2).toBeCloseTo(
+      buttonBounds.y + buttonBounds.height / 2,
+      0,
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    await page.screenshot({ path: testInfo.outputPath(`inquiry-detail-header-${width}.png`) });
+  }
+  await backButton.click();
   await expect(page).toHaveURL('/review?status=reviewing');
   await expect(page.getByRole('button', { name: /문의 #41/ })).toBeVisible();
   expect(requests.every((url) => url.searchParams.get('status') === 'REVIEWING')).toBe(true);
