@@ -36,7 +36,7 @@ import java.util.List;
  *       {@code resolver_fallback}·{@code dense_unavailable}·{@code snapshot_save_failed} 로 닫혀 있다
  *   <li><b>dense 채널은 확장어의 영향을 받지 않는다.</b> 질의 임베딩은 원문 기준이다 ({@code embed_query(raw_query)})
  *   <li>확장어에서 유래한 매칭은 사용자가 명시한 조건과 <b>구분해 표시</b>한다 (F-05·F-07). {@code matched_keywords} 는 항목마다 {@code origin}
- *       ({@code user} · {@code expanded} · {@code unknown}) 을 싣는다 (S15P21A501-234). 응답과 {@code explain_json} 이 같은 구조다
+ *       ({@code user} · {@code expanded}) 을 싣는다 (S15P21A501-234). 응답과 {@code explain_json} 이 같은 구조다
  * </ul>
  */
 public interface FindSceneCandidatesQueryPort {

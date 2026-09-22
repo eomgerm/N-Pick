@@ -97,11 +97,12 @@ public record SearchResponse(
     /**
      * 걸린 키워드 하나와 그 출처.
      *
-     * <p>{@code origin} 은 {@code user} · {@code expanded} · {@code unknown} 이다. 화면은 사용자가 친 말과 AI 가 넓힌 말을 구분해 표시한다 (F-05·F-07).
-     * {@code explain_json} 도 같은 구조를 싣는다 — 화면과 기록이 갈리면 신고·검수에서 대조가 안 된다.
+     * <p>{@code origin} 은 {@code user} 또는 {@code expanded} 다. 화면은 사용자가 친 말과 AI 가 넓힌 말을 구분해 표시한다 (F-05·F-07). 저장 기록을 복원할
+     * 때만 {@code null} 이 나온다 (§6.7). {@code explain_json} 도 같은 구조를 싣는다 — 화면과 기록이 갈리면 신고·검수에서 대조가 안 된다.
      */
     public record MatchedKeyword(
-            @JsonProperty("keyword") String keyword, @JsonProperty("origin") String origin) {
+            @JsonProperty("keyword") String keyword,
+            @JsonProperty("origin") String origin) {
 
         static MatchedKeyword of(SearchExecutionResult.MatchedKeyword matched) {
             return new MatchedKeyword(matched.keyword(), matched.origin());

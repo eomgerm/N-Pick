@@ -9,9 +9,10 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * 저장된 {@code explain_json} 의 {@code match.matched_keywords} 를 읽는 규칙.
  *
- * <p>항목은 {@code {keyword, origin}} 객체이고 {@code origin} 은 {@code user} 또는 {@code expanded} 다 (S15P21A501-234). 출처를 남기지 않던
- * 시절의 기록은 문자열이며, 복원할 때 {@code origin} 을 {@code null} 로 둔다 — <b>{@code user} 로 채우지 않는다.</b> 그 단어를 사용자가 실제로 쳤는지는 알 수
- * 없고, 모르는 것을 안다고 기록하지 않는다 (FRD §7.2). 화면은 {@code null} 을 사용자 입력어와 같은 모양으로 그린다 — 구분이 없던 시절의 기록이므로 그때 보이던 대로다.
+ * <p>항목은 {@code {keyword, origin}} 객체이고 {@code origin} 은 {@code user} 또는 {@code expanded} 다 (S15P21A501-234). 출처를 남기지
+ * 않던 시절의 기록은 문자열이며, 복원할 때 {@code origin} 을 {@code null} 로 둔다 — <b>{@code user} 로 채우지 않는다.</b> 그 단어를 사용자가 실제로 쳤는지는 알 수
+ * 없고, 모르는 것을 안다고 기록하지 않는다 (FRD §7.2). 화면은 {@code null} 을 이 구분이 생기기 전 모든 칩이 보이던 모양 그대로 그린다 — 그 기록에는 구분이 없었으므로 당시 보이던
+ * 대로다.
  *
  * <p>저장 기록을 복원하는 화면이 둘이라 (내 검색 기록·내 문의 상세) 규칙을 여기 한 곳에 둔다. 두 경로가 다른 변환을 타면 같은 기록이 화면마다 다르게 보인다.
  */

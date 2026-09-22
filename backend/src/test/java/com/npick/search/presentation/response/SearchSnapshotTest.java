@@ -376,7 +376,8 @@ class SearchSnapshotTest {
         // 안다고 적지 않는다 (FRD §7.2). 화면은 이것을 사용자 입력어와 같은 모양으로 그린다.
         SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH))));
 
-        var keyword = snapshot.payload().get("results").get(0).get("matched_keywords").get(0);
+        var keyword =
+                snapshot.payload().get("results").get(0).get("matched_keywords").get(0);
         assertThat(keyword.get("keyword").asString()).isEqualTo("서울역");
         assertThat(keyword.get("origin").isNull()).isTrue();
     }
@@ -717,7 +718,8 @@ class SearchSnapshotTest {
         assertThat(result.get("scene_type").asString()).isEqualTo("역사 인파");
         assertThat(result.get("filmed_date").get("verification_status").asString())
                 .isEqualTo("unknown");
-        assertThat(result.get("matched_keywords").get(0).get("keyword").asString()).isEqualTo("서울역");
+        assertThat(result.get("matched_keywords").get(0).get("keyword").asString())
+                .isEqualTo("서울역");
         assertThat(result.get("match_evidence").get(0).get("field").asString()).isEqualTo("ocr");
         assertThat(snapshot.representativeResult().get("display_name").asString())
                 .isEqualTo("예시 뉴스 · 서울역");

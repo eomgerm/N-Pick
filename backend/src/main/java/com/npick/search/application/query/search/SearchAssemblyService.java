@@ -385,10 +385,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
     }
 
     private List<SearchExecutionResult.ResultCard> cards(
-            SearchCandidates candidates,
-            List<Long> resultIds,
-            List<String> userTokens,
-            List<String> expandedTokens) {
+            SearchCandidates candidates, List<Long> resultIds, List<String> userTokens, List<String> expandedTokens) {
         List<SearchExecutionResult.ResultCard> cards = new ArrayList<>();
         for (int index = 0; index < candidates.scenes().size(); index++) {
             SearchCandidates.ScoredScene scene = candidates.scenes().get(index);

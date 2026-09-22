@@ -347,7 +347,8 @@ public record SearchSnapshot(
      *
      * <p>{@code value} 는 null 을 허용한다 — 설명·대사·화면 글자·태그가 모두 없고 의미 검색 유사도만으로 올라온 장면이 있고, 그때 사람이 읽을 근거가 실제로 존재하지
      * 않는다(S15P21A501-59 와 합의, §5.1). {@code field}·{@code source} ·{@code verification_status} 는 항상 문자열이다.
-     * {@code matched_keywords} 는 문자열 배열이며 비어 있어도 된다.
+     * {@code matched_keywords} 는 배열이며 비어 있어도 된다. 항목의 허용 형태는 {@link StoredExplainKeywords#isRenderable} 가 정한다 —
+     * {@code {keyword, origin}} 객체이거나 출처가 없던 시절의 문자열이고, {@code origin} 키가 아예 없는 객체는 깨진 기록이다.
      */
     private static boolean isRenderableMatch(ObjectNode match) {
         if (!(match.get("matched_keywords") instanceof ArrayNode keywords)) {
