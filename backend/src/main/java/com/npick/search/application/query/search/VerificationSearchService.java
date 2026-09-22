@@ -108,7 +108,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         String baselineFingerprint = fingerprint.compute(
                 feedbackId, loadedPendingRuleIds, candidates.tagEvidenceIds()); // flip 전 기준 상태 = flip 할 집합
         long executionId = record.start(new StartSearchExecution(
-                reviewerId, StartSearchExecution.ExecutionType.REPLAY, feedbackId, input.rawQuery()));
+                reviewerId, StartSearchExecution.ExecutionType.REPLAY, feedbackId, input.rawQuery(), null));
         long startedAt = System.nanoTime();
         try {
             // 리졸버 HTTP 는 flip 과 무관하다(S15P21A501-219) — 롤백 트랜잭션을 열기 전에 끝내 둔다.

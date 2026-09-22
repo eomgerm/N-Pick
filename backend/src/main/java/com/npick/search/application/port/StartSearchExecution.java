@@ -6,7 +6,11 @@ package com.npick.search.application.port;
  * <p>원문을 AI에 보내기 전에 이 행이 먼저 커밋되어야 한다. 리졸버 산출물은 {@link RecordSearchExecutionResolution}으로 이어서 기록한다.
  */
 public record StartSearchExecution(
-        long searchedById, ExecutionType executionType, Long replayOfFeedbackId, String rawQuery) {
+        long searchedById,
+        ExecutionType executionType,
+        Long replayOfFeedbackId,
+        String rawQuery,
+        Long parentExecutionId) {
 
     public StartSearchExecution {
         if (searchedById <= 0 || rawQuery == null || rawQuery.isBlank()) {
@@ -20,6 +24,11 @@ public record StartSearchExecution(
         }
         if (replayOfFeedbackId != null && replayOfFeedbackId <= 0) {
             throw new IllegalArgumentException("replay 원본 feedback ID는 양수여야 한다");
+        }
+        // parentExecutionId 는 더보기(offset>0) 이어보기가 첫 페이지(root) 실행을 가리키는 값이다.
+        // root 검색은 null 이다. 결과 재사용이 아니라 기록 그룹핑 힌트다 (S15P21A501-280).
+        if (parentExecutionId != null && parentExecutionId <= 0) {
+            throw new IllegalArgumentException("parent 실행 ID는 양수여야 한다");
         }
     }
 
