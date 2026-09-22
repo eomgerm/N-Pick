@@ -90,6 +90,12 @@ public record SearchSnapshot(
     /** {@code match_evidence[].verification_status} 어휘. 날짜의 {@code unknown} 은 여기 없다. */
     private static final Set<String> EVIDENCE_VERIFICATIONS = Set.of("verified", "unverified");
 
+    /** 출처를 남기지 않던 시절의 기록을 복원할 때 붙이는 값 (S15P21A501-234). */
+    private static final String ORIGIN_UNKNOWN = "unknown";
+
+    /** {@code matched_keywords[].origin} 어휘. */
+    private static final Set<String> KEYWORD_ORIGINS = Set.of("user", "expanded", ORIGIN_UNKNOWN);
+
     /** 명시 필터에서 선택 가능한 날짜 종류. 선택했으면 from·to 가 모두 필수다. */
     private static final List<String> FILTER_DATE_KEYS = List.of("broadcast_date", "filmed_date");
 
@@ -278,7 +284,7 @@ public record SearchSnapshot(
         }
         ObjectNode result = MAPPER.createObjectNode();
         result.setAll(displayObject);
-        result.setAll(matchObject);
+        result.setAll(normalizeMatchedKeywords(matchObject));
         // 컬럼을 블록 뒤에 넣어 컬럼이 이기게 한다. setAll 은 merge 가 아니라 replace 이므로 순서를 뒤집으면
         // 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지거나 대표 결과가 사라진다.
         result.put("search_result_id", String.valueOf(row.searchResultId()));
@@ -352,7 +358,7 @@ public record SearchSnapshot(
             return false;
         }
         for (JsonNode keyword : keywords) {
-            if (!isText(keyword)) {
+            if (!isRenderableKeyword(keyword)) {
                 return false;
             }
         }
@@ -381,6 +387,42 @@ public record SearchSnapshot(
      * <p>키 부재·타입 불일치·빈 문자열을 같게 다룬다 — 셋 다 「기록이 깨졌다」다. 계약이 표시 문자열을 「null 또는 비어 있지 않은 string」으로 정했으므로 빈 문자열은 유효한 과거 값이
      * 아니다.
      */
+    /** 출처를 실은 객체이거나, 출처가 없던 시절의 문자열이거나. */
+    private static boolean isRenderableKeyword(JsonNode keyword) {
+        if (isText(keyword)) {
+            return true;
+        }
+        return keyword != null
+                && keyword.isObject()
+                && isText(keyword.get("keyword"))
+                && KEYWORD_ORIGINS.contains(keyword.path("origin").asString(null));
+    }
+
+    /**
+     * 과거 기록의 문자열 항목을 {@code {keyword, origin}} 으로 맞춘다. 화면이 받는 모양을 응답과 하나로 두어, 복원 화면이 옛 기록과 새 기록을 따로 다루지 않게 한다.
+     *
+     * <p>출처는 {@code unknown} 이다 — <b>{@code user} 로 접지 않는다.</b> 구분을 남기지 않던 기록에서 AI 가 넓힌 말이 사용자가 친 말로 둔갑하면, 그건 없던 사실을
+     * 만들어 내는 것이다 (FRD §7.2, {@code parse_source} 를 {@code resolved} 로 접지 않는 것과 같은 이유).
+     */
+    private static ObjectNode normalizeMatchedKeywords(ObjectNode match) {
+        if (!(match.get("matched_keywords") instanceof ArrayNode keywords)) {
+            return match;
+        }
+        ArrayNode normalized = MAPPER.createArrayNode();
+        for (JsonNode keyword : keywords) {
+            if (keyword.isObject()) {
+                normalized.add(keyword);
+                continue;
+            }
+            ObjectNode entry = MAPPER.createObjectNode();
+            entry.put("keyword", keyword.asString(""));
+            entry.put("origin", ORIGIN_UNKNOWN);
+            normalized.add(entry);
+        }
+        match.set("matched_keywords", normalized);
+        return match;
+    }
+
     private static boolean isText(JsonNode node) {
         return node != null && node.isString() && !node.asString("").isBlank();
     }

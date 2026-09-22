@@ -370,6 +370,43 @@ class SearchSnapshotTest {
     }
 
     @Test
+    @DisplayName("출처를 남기지 않던 과거 기록은 origin unknown 으로 복원한다")
+    void restoresLegacyKeywordsAsUnknownOrigin() {
+        // 구분이 없던 기록을 user 로 접으면 AI 가 넓힌 말이 사용자가 친 말로 둔갑한다 — 없던 사실을
+        // 만들어 내지 않는다 (FRD §7.2).
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH))));
+
+        var keyword = snapshot.payload().get("results").get(0).get("matched_keywords").get(0);
+        assertThat(keyword.get("keyword").asString()).isEqualTo("서울역");
+        assertThat(keyword.get("origin").asString()).isEqualTo("unknown");
+    }
+
+    @Test
+    @DisplayName("출처를 실은 기록은 그 출처 그대로 복원한다")
+    void keepsStoredKeywordOrigin() {
+        String withOrigin = MATCH.replace(
+                "[\"서울역\"]",
+                "[{\"keyword\": \"서울역\", \"origin\": \"user\"}, {\"keyword\": \"역사\", \"origin\": \"expanded\"}]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, withOrigin))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("available");
+        var keywords = snapshot.payload().get("results").get(0).get("matched_keywords");
+        assertThat(keywords.get(0).get("origin").asString()).isEqualTo("user");
+        assertThat(keywords.get(1).get("origin").asString()).isEqualTo("expanded");
+    }
+
+    @Test
+    @DisplayName("matched_keywords 의 origin 이 어휘 밖이면 unavailable 이다")
+    void unavailableWhenKeywordOriginOutOfVocabulary() {
+        String broken = MATCH.replace("[\"서울역\"]", "[{\"keyword\": \"서울역\", \"origin\": \"guess\"}]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
     @DisplayName("start_time_ms 가 문자열이면 unavailable 이다")
     void unavailableWhenTimeNotInteger() {
         String broken = DISPLAY.replace("\"start_time_ms\": 42000", "\"start_time_ms\": \"42000\"");
@@ -668,7 +705,7 @@ class SearchSnapshotTest {
         assertThat(result.get("scene_type").asString()).isEqualTo("역사 인파");
         assertThat(result.get("filmed_date").get("verification_status").asString())
                 .isEqualTo("unknown");
-        assertThat(result.get("matched_keywords").get(0).asString()).isEqualTo("서울역");
+        assertThat(result.get("matched_keywords").get(0).get("keyword").asString()).isEqualTo("서울역");
         assertThat(result.get("match_evidence").get(0).get("field").asString()).isEqualTo("ocr");
         assertThat(snapshot.representativeResult().get("display_name").asString())
                 .isEqualTo("예시 뉴스 · 서울역");
