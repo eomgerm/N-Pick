@@ -38,4 +38,14 @@ class FeedbackResolutionTest {
         assertThat(FeedbackResolution.parse("")).isNull();
         assertThat(FeedbackResolution.parse(null)).isNull();
     }
+
+    @Test
+    @DisplayName("기존 교정타입은 correction으로 매핑된다")
+    void legacyCorrectionValuesMapToCorrection() {
+        assertThat(FeedbackResolution.fromValue("tag_correction")).isEqualTo(FeedbackResolution.CORRECTION);
+        assertThat(FeedbackResolution.fromValue("patch_parse")).isEqualTo(FeedbackResolution.CORRECTION);
+        assertThat(FeedbackResolution.fromValue("exclude_scene")).isEqualTo(FeedbackResolution.CORRECTION);
+        assertThat(FeedbackResolution.fromValue("correction")).isEqualTo(FeedbackResolution.CORRECTION);
+        assertThat(FeedbackResolution.fromValue("no_action")).isEqualTo(FeedbackResolution.NO_ACTION);
+    }
 }

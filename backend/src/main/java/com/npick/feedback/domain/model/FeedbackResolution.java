@@ -12,7 +12,10 @@ public enum FeedbackResolution {
     TAG_CORRECTION("tag_correction", false, false),
     PATCH_PARSE("patch_parse", false, false),
     EXCLUDE_SCENE("exclude_scene", false, false),
+    CORRECTION("correction", false, false),
     NO_ACTION("no_action", true, true),
+    /** @deprecated 기존 데이터 행하위 호환성을 위해 유지. 신규 저장·UI에서는 사용하지 않는다. */
+    @Deprecated
     DEFERRED("deferred", true, true);
 
     private final String value;
@@ -46,6 +49,30 @@ public enum FeedbackResolution {
             return null;
         }
         String v = raw.trim().toLowerCase(Locale.ROOT);
+        for (FeedbackResolution r : values()) {
+            if (r.value.equals(v)) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * DB 저장값을 파싱하며, 기존 교정 3종(tag_correction, patch_parse, exclude_scene)을 CORRECTION 으로 단일화한다.
+     * 모르는 값이면 null 을 돌려준다.
+     */
+    public static FeedbackResolution fromValue(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String v = value.trim().toLowerCase(Locale.ROOT);
+
+        // 기존 교정값을 CORRECTION 으로 매핑
+        if ("tag_correction".equals(v) || "patch_parse".equals(v) || "exclude_scene".equals(v)) {
+            return CORRECTION;
+        }
+
+        // 다른 값은 표준 파싱
         for (FeedbackResolution r : values()) {
             if (r.value.equals(v)) {
                 return r;
