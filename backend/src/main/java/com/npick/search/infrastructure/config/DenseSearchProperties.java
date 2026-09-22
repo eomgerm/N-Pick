@@ -20,6 +20,11 @@ public record DenseSearchProperties(String modelVersion, Integer poolSize, Doubl
         return modelVersion != null && !modelVersion.isBlank();
     }
 
+    /** 값을 안 주면 전 범위라 언제나 유효하다. 준 값만 코사인 거리 범위인지 본다 (NaN 은 어느 비교에도 걸리지 않으므로 부정으로 판정한다). */
+    public boolean hasUsableMaxDistance() {
+        return maxDistance == null || (maxDistance > 0 && maxDistance <= DenseSearchSettings.FULL_COSINE_RANGE);
+    }
+
     public DenseSearchSettings settings() {
         return new DenseSearchSettings(
                 modelVersion,

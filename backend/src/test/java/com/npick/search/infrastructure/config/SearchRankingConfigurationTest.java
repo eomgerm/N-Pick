@@ -56,12 +56,15 @@ class SearchRankingConfigurationTest {
     }
 
     @Test
-    void aMaxDistanceOutsideTheCosineRangeStopsTheApplicationFromStarting() {
-        // 0 이면 어떤 후보도 통과하지 못하고, 2 를 넘으면 필터가 아니라 오타다.
-        assertThatThrownBy(() -> configuration.denseSearchSettings(new DenseSearchProperties(MODEL, 200, 2.5)))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> configuration.denseSearchSettings(new DenseSearchProperties(MODEL, 200, 0.0)))
-                .isInstanceOf(IllegalArgumentException.class);
+    void aMaxDistanceOutsideTheCosineRangeFailsWithTheConfigurationKeyInsteadOfAValidationMessage() {
+        // 0 이면 어떤 후보도 통과하지 못하고, 2 를 넘으면 필터가 아니라 오타다. 둘 다 부팅을 막는 게 맞다.
+        // 다만 이 빈은 dense 를 꺼 뒀어도 늘 생성되므로(model-version 이 application.yml 에 항상 있다)
+        // 채널을 안 쓰는 운영자도 이 오류를 본다. 어느 키가 문제인지 메시지가 말해야 한다.
+        for (double invalid : new double[] {2.5, 0.0, -1.0, Double.NaN}) {
+            assertThatThrownBy(() -> configuration.denseSearchSettings(new DenseSearchProperties(MODEL, 200, invalid)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("npick.search.dense.max-distance");
+        }
     }
 
     @Test
