@@ -16,6 +16,12 @@
 | `search_bench.py` | `POST /search` 를 돌려 측정하고 `results/` 에 남긴다 |
 | `results/` | 측정 결과. 통과군·실패군 목록이 들어 있다 |
 
+## 현재 상태
+
+**1차 측정은 아직 돌지 않았다** (2026-09-22). 정답셋·하네스·단위테스트는 끝났고
+`results/` 는 비어 있다 — 측정용 계정 자격증명을 받지 못했다. 계정을 가진 사람이
+아래 「1차 측정」 절을 그대로 복붙하면 돈다.
+
 ## 재현
 
 ### 지표 단위 테스트
@@ -26,25 +32,63 @@
 uv run --directory ai pytest tests/test_search_eval_metrics.py
 ```
 
+### ⚠ 측정 전에 읽는다 — 이 측정은 읽기 전용이 아니다
+
+`POST /search` 는 호출할 때마다 `search_execution` 에 행을 남기고, 그 행은 **그 계정의
+「내 검색 기록」 화면에 그대로 뜬다.** 200문항이면 기록 200건이 한 번에 생긴다.
+
+- **측정 전용 계정으로 돌린다.** 본 계정으로 돌리면 그 사람의 기록이 측정 질의로 덮인다.
+- 본 계정으로 돌렸다면 검색 기록 삭제로 정리한다 — 개별 삭제 S15P21A501-276,
+  전체 삭제 S15P21A501-291.
+- **평가 QA 와 같은 날 돌리면 기록이 섞여 나중에 둘을 못 가른다.** 측정 시점을 적어 둔다
+  (결과 파일의 `params.startedAt`·`finishedAt` 에 남는다).
+- 비용: 문항마다 질의 해석 LLM 호출이 **한 번**이다. 200문항 = GMS 크레딧 200회분
+  (`gpt-4o-mini` 기준 약 580 크레딧). 알고 누른다.
+
 ### 1차 측정
 
 자격증명은 **환경변수로만** 받는다. 기본값도 예시값도 코드에 두지 않는다 — 측정자가
 직접 채운다. 계정은 `EDITOR` 또는 `REVIEWER` 면 된다(`/api/v1/search/**` 는 인증 필요).
+로그인·CSRF 는 스크립트가 처리한다. `JSESSIONID` 나 토큰을 직접 구할 필요가 없다.
 
 ```bash
-export NPICK_BASE_URL=https://<호스트>/api/v1
+export NPICK_BASE_URL=https://<호스트>/api/v1      # /api/v1 까지 적는다
 export NPICK_LOGIN_ID=<측정용 계정>
 export NPICK_PASSWORD=<비밀번호>
 
+# 1) 스모크 — 5문항으로 자격증명·CSRF·응답 모양만 30초에 확인한다.
+uv run --directory ai python eval/search/search_bench.py run \
+    --out eval/search/results/smoke.json --limit 5 --label smoke
+
+# 2) 본 측정 — 200문항.
 uv run --directory ai python eval/search/search_bench.py run \
     --out eval/search/results/baseline.json --label baseline
 ```
 
-`--limit 5` 로 연결만 먼저 확인할 수 있다. `--gold` 로 다른 골드셋을, `--k` 로 다른
-절단점을 줄 수 있지만 **k 를 바꾼 결과는 서로 비교하지 않는다** — 10 은 `POST /search`
-한 페이지의 크기다(`docs/contracts/web-api.md` §5.1).
+**무엇이 출력되는가.** 문항마다 한 줄씩 `o`(상위 10 안) / `x`(밖) 와 질의가 찍히고,
+끝에 Recall@10 · nDCG@10 · tier 별 값 · 통과군/실패군 건수가 나온다. 같은 내용이
+`--out` 파일에 `summary` · `passed` · `failed` · `cases` 로 들어간다.
 
-직렬로 돈다. 문항마다 해석 LLM 호출이 한 번씩이라 200문항이 몇 분 걸린다.
+**얼마나 걸리는가.** 직렬이다. 문항당 1~3초로 200문항이면 대략 5~10분이다.
+
+**중간에 끊기면 그냥 다시 돌린다.** 스크립트는 상태를 들고 있지 않고, 결과 파일은
+마지막에 한 번 쓴다 — 끊긴 실행은 파일을 남기지 않는다. 이미 있는 `--out` 은 덮어쓰지
+않고 거부하므로, 덮어쓰려면 `--force` 를 준다.
+
+**죽을 때는 한 줄로 죽는다.** 401/403 이면 `자격증명을 확인한다 (NPICK_LOGIN_ID ·
+NPICK_PASSWORD)`, 주소가 틀리면 `NPICK_BASE_URL 을 확인한다` 다. 스택트레이스가 뜨면
+그건 버그다.
+
+`--gold` 로 다른 골드셋을, `--k` 로 다른 절단점을 줄 수 있지만 **k 를 바꾼 결과는 서로
+비교하지 않는다** — 10 은 `POST /search` 한 페이지의 크기다(`docs/contracts/web-api.md`
+§5.1).
+
+### 어느 설정에서 나온 숫자인가
+
+첫 성공 실행의 `GET /search/executions/{id}` 를 한 번 읽어 저장 당시
+`config_version`·`search_config`·`normalization_version` 을 결과 파일의
+`params.searchConfig` 에 박는다. **이 값이 `null` 이면 그 결과는 "어느 설정이었는지
+모르는 숫자"다** — 표에 넣기 전에 확인한다.
 
 ### 두 설정 비교
 

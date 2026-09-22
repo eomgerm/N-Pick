@@ -109,13 +109,50 @@ class Client:
             return json.loads(response.read().decode("utf-8"))
 
     def login(self, login_id: str, password: str) -> None:
-        self.request("GET", "/auth/csrf")
+        """자격증명으로 세션을 연다.
+
+        **사람 말로 죽는다.** 이 스크립트를 처음 돌리는 사람은 내부를 모른다 —
+        스택트레이스 대신 무엇을 고쳐야 하는지 한 줄로 낸다. 비밀번호는 예외
+        메시지에도 싣지 않는다.
+        """
+        try:
+            self.request("GET", "/auth/csrf")
+        except urllib.error.HTTPError as exc:
+            msg = f"CSRF 준비가 HTTP {exc.code} 다. NPICK_BASE_URL 을 확인한다"
+            raise BenchError(msg) from None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            msg = f"서버에 닿지 못했다. NPICK_BASE_URL 을 확인한다 ({exc.__class__.__name__})"
+            raise BenchError(msg) from None
+
         try:
             self.request("POST", "/auth/login", {"loginId": login_id, "password": password})
         except urllib.error.HTTPError as exc:
-            # 비밀번호는 예외 메시지에도 싣지 않는다.
-            msg = f"로그인에 실패했다(HTTP {exc.code}). NPICK_LOGIN_ID·NPICK_PASSWORD 를 확인한다"
+            if exc.code in (400, 401, 403):
+                msg = "자격증명을 확인한다 (NPICK_LOGIN_ID · NPICK_PASSWORD)"
+            else:
+                msg = f"로그인이 HTTP {exc.code} 로 실패했다. 서버 상태를 확인한다"
             raise BenchError(msg) from None
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            msg = f"로그인 중 연결이 끊겼다. 다시 돌린다 ({exc.__class__.__name__})"
+            raise BenchError(msg) from None
+
+    def search_config(self, execution_id: str) -> dict[str, Any] | None:
+        """그 측정이 어느 검색 설정에서 나왔는지.
+
+        `GET /search/executions/{id}` 가 저장 당시 `search_config`·`config_version` 을
+        그대로 돌려준다(`docs/contracts/web-api.md` §5.3). 한 번만 부른다 — 나중에
+        "이 숫자가 어느 설정이었나"를 되짚을 수 있어야 한다.
+        """
+        try:
+            payload = self.request("GET", f"/search/executions/{execution_id}")
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError):
+            return None
+        data = payload.get("data") or {}
+        return {
+            "configVersion": data.get("config_version"),
+            "searchConfig": data.get("search_config"),
+            "normalizationVersion": data.get("normalization_version"),
+        }
 
 
 # ── 측정 ─────────────────────────────────────────────────────────────
@@ -130,6 +167,7 @@ class Outcome:
     degraded_reasons: tuple[str, ...]
     resolution_status: str
     error: str | None
+    execution_id: str | None = None
 
 
 def search_once(client: Client, query: str) -> Outcome:
@@ -144,12 +182,14 @@ def search_once(client: Client, query: str) -> Outcome:
         return Outcome((), "transport_error", (), "", repr(exc))
 
     data = payload.get("data") or {}
+    execution_id = data.get("search_execution_id")
     return Outcome(
         scene_ids=tuple(str(r["scene_id"]) for r in data.get("results", ())),
         status=str(data.get("status", "")),
         degraded_reasons=tuple(str(r) for r in data.get("degraded_reasons", ())),
         resolution_status=str(data.get("query_resolution_status", "")),
         error=None,
+        execution_id=str(execution_id) if execution_id else None,
     )
 
 
@@ -211,6 +251,10 @@ def run(args: argparse.Namespace) -> None:
         msg = f"환경변수를 채운다: {', '.join(missing)}"
         raise BenchError(msg)
 
+    if args.out.exists() and not args.force:
+        msg = f"이미 있는 결과다. 다른 --out 을 주거나 --force 로 덮어쓴다: {args.out}"
+        raise BenchError(msg)
+
     cases = metrics.load_gold(args.gold)
     if args.limit:
         cases = cases[: args.limit]
@@ -218,12 +262,23 @@ def run(args: argparse.Namespace) -> None:
     client = Client.open(base_url)
     client.login(login_id, password)
 
+    started = datetime.now(UTC)
+    print(
+        f"{len(cases)}문항. 이 측정은 {login_id} 계정의 검색 기록에 문항 수만큼 행을 남긴다"
+        " (README 의 경고).",
+        flush=True,
+    )
+
     results: dict[str, list[str]] = {}
     rows: dict[str, dict[str, Any]] = {}
+    config: dict[str, Any] | None = None
     for index, case in enumerate(cases, start=1):
         outcome = search_once(client, case.query)
         results[case.id] = list(outcome.scene_ids)
         rows[case.id] = _case_row(case, outcome, args.k)
+        if config is None and outcome.execution_id:
+            # 한 번만. 나중에 "이 숫자가 어느 설정에서 나왔나"를 되짚는 자리다.
+            config = client.search_config(outcome.execution_id)
         mark = "o" if rows[case.id]["rank"] else "x"
         print(f"[{index:>3}/{len(cases)}] {mark} {case.id} {case.query}", flush=True)
 
@@ -237,8 +292,12 @@ def run(args: argparse.Namespace) -> None:
             "gold": str(args.gold.name),
             "goldHash": gold_hash(args.gold),
             "cases": len(cases),
-            "ranAt": datetime.now(UTC).isoformat(timespec="seconds"),
+            "startedAt": started.isoformat(timespec="seconds"),
+            "finishedAt": datetime.now(UTC).isoformat(timespec="seconds"),
             "label": args.label,
+            # 저장 당시 설정 snapshot. 첫 성공 실행에서 한 번 읽는다. 읽지 못하면 null 이고,
+            # 그러면 이 결과는 "어느 설정이었는지 모르는 숫자"다 — 표에 넣기 전에 확인한다.
+            "searchConfig": config,
         },
         "summary": summary.to_json(),
         "passed": _listing(passed, rows),
@@ -297,6 +356,7 @@ def compare(args: argparse.Namespace) -> None:
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="검색 회귀 측정 (S15P21A501-301)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -306,6 +366,7 @@ def main() -> None:
     runner.add_argument("--k", type=int, default=metrics.DEFAULT_K)
     runner.add_argument("--limit", type=int, default=0, help="앞에서 N문항만 (연결 확인용)")
     runner.add_argument("--label", default="", help="설정 이름. 결과 파일에 남는다")
+    runner.add_argument("--force", action="store_true", help="이미 있는 --out 을 덮어쓴다")
     runner.set_defaults(func=run)
 
     comparer = sub.add_parser("compare", help="두 측정의 짝지은 유의성")
