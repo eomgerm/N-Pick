@@ -51,6 +51,9 @@ class WordSceneCandidateAdapterTest {
         try (var statement = connection.createStatement()) {
             statement.execute("SET LOCAL search_path = npick, public");
             statement.execute(resource("search/scene-candidate-fixture.sql"));
+            // 확장어 구·문서빈도 표본은 별도 파일이다. dense 후보 조회 테스트가 같은 기본 표본을
+            // 쓰면서 활성 장면 수를 절대값으로 단언하므로 그쪽 숫자를 흔들지 않는다.
+            statement.execute(resource("search/expanded-phrase-fixture.sql"));
         }
         dataSource = new SingleConnectionDataSource(connection, true);
     }
@@ -207,6 +210,85 @@ class WordSceneCandidateAdapterTest {
                 .isInstanceOf(NullPointerException.class);
     }
 
+    /**
+     * 다어절 확장어는 구 단위로 건다 (S15P21A501-302).
+     *
+     * <p>평탄화하면 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되어 짜장면 검색에 중국 경제 뉴스가 올라온다. 운영 실측 19건이었다.
+     */
+    @Test
+    void multiTokenExpandedPhraseDoesNotMatchOnOneTokenAlone() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음식")));
+
+        assertThat(sceneIds(candidates))
+                .as("'중국' 만 있는 장면과 '음식' 만 있는 장면은 후보가 아니다")
+                .doesNotContain(60L, 62L);
+    }
+
+    /** 구의 토큰을 모두 가진 장면은 후보가 된다 — 구 단위 AND 가 확장어를 통째로 죽이는 것이 아니다. */
+    @Test
+    void multiTokenExpandedPhraseMatchesSceneHavingEveryToken() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음식")));
+
+        assertThat(sceneIds(candidates)).containsExactly(61L);
+    }
+
+    /** 단일 토큰 확장어(화재→불)는 종전대로 걸린다. 구 단위 AND 는 토큰이 하나면 그 토큰 하나다. */
+    @Test
+    void singleTokenExpandedPhraseStillMatches() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("불")))))
+                .containsExactly(63L);
+    }
+
+    /** 구가 둘 이상이면 구 사이는 OR 다. 확장어 항목끼리는 서로 다른 동의어 후보이므로 함께 요구하면 안 된다. */
+    @Test
+    void phrasesAreOrredWithEachOther() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음식"), List.of("불")));
+
+        assertThat(sceneIds(candidates)).containsExactlyInAnyOrder(61L, 63L);
+    }
+
+    /** 문서빈도가 임계를 넘는 확장어 토큰은 후보 조회에서 빠진다. 표본의 '장면' 은 활성 장면 20개 중 10개(0.50)다. */
+    @Test
+    void dropsExpandedTokenAboveDocumentFrequencyCut() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.25).findByWords(List.of("짜장면"), List.of(List.of("장면")))))
+                .as("변별력이 사실상 없는 토큰은 후보를 끌어오지 못한다")
+                .isEmpty();
+        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.50).findByWords(List.of("짜장면"), List.of(List.of("장면")))))
+                .as("임계와 같은 것은 «넘는» 것이 아니다")
+                .isNotEmpty();
+    }
+
+    /**
+     * 임계 이하의 토큰은 남는다 — 정상 동의어(우천→비)가 죽지 않아야 한다.
+     *
+     * <p>경계 양쪽을 둘 다 못 박는다. 코퍼스가 자라 '비' 가 임계를 넘는 날 이 테스트가 먼저 깨져야, 우천→비 가 조용히 죽는 사고를 배포 뒤에 발견하지 않는다.
+     */
+    @Test
+    void keepsExpandedTokenAtOrBelowDocumentFrequencyCut() {
+        // 표본의 '비' 는 활성 장면 20개 중 2개(0.10)다.
+        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.10).findByWords(List.of("짜장면"), List.of(List.of("비")))))
+                .containsExactlyInAnyOrder(64L, 65L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.09).findByWords(List.of("짜장면"), List.of(List.of("비")))))
+                .as("임계 바로 위면 같은 토큰도 빠진다")
+                .isEmpty();
+    }
+
+    /** 컷은 토큰 단위다. 구에서 흔한 토큰만 빠지고 남은 토큰으로 계속 건다 — 잡토큰 하나가 정상 확장어를 통째로 죽이지 않는다. */
+    @Test
+    void cutsOnlyTheCommonTokenOutOfAPhrase() {
+        var candidates = adapter(1, 1, 1, 10, 0.25).findByWords(List.of("짜장면"), List.of(List.of("장면", "중국")));
+
+        assertThat(sceneIds(candidates)).containsExactlyInAnyOrder(60L, 61L);
+    }
+
+    /** 확장어가 전부 잘려 빈 목록이 돼도 원 질의 토큰 검색은 그대로 돈다 (S15P21A501-48 계약 9). */
+    @Test
+    void keepsSearchingOriginalTokensWhenEveryExpandedTokenIsCut() {
+        var candidates = adapter(1, 1, 1, 10, 0.01).findByWords(List.of("화재"), List.of(List.of("장면")));
+
+        assertThat(sceneIds(candidates)).containsExactlyInAnyOrder(30L, 31L, 34L);
+    }
+
     private static SceneCandidateResult onlyCandidate(List<SceneCandidateResult> candidates, long sceneId) {
         var matched = candidates.stream()
                 .filter(candidate -> candidate.sceneId() == sceneId)
@@ -216,9 +298,15 @@ class WordSceneCandidateAdapterTest {
     }
 
     private WordSceneCandidateAdapter adapter(double caption, double transcript, double ocr, int poolSize) {
+        return adapter(caption, transcript, ocr, poolSize, 1.0);
+    }
+
+    /** {@code maxDf} 1.0 은 어떤 문서빈도도 넘지 못하는 값이라 확장어를 하나도 버리지 않는다. */
+    private WordSceneCandidateAdapter adapter(
+            double caption, double transcript, double ocr, int poolSize, double maxDf) {
         return new WordSceneCandidateAdapter(
                 new NamedParameterJdbcTemplate(dataSource),
-                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, poolSize));
+                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, maxDf, poolSize));
     }
 
     private static List<Long> sceneIds(List<SceneCandidateResult> candidates) {

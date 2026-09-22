@@ -1,5 +1,6 @@
 package com.npick.search.infrastructure.ai.adapter;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 
@@ -31,7 +32,7 @@ class QueryTokenizerAdapter implements TokenizeExpandedTermsPort {
     }
 
     @Override
-    public List<String> tokenize(List<String> terms, String expectedNormalizationVersion) {
+    public List<List<String>> tokenize(List<String> terms, String expectedNormalizationVersion) {
         if (terms == null || terms.isEmpty()) {
             return List.of();
         }
@@ -60,15 +61,17 @@ class QueryTokenizerAdapter implements TokenizeExpandedTermsPort {
                         response.normalizationVersion());
                 return List.of();
             }
-            // 펼쳐서 중복을 뺀다. 확장어 목록 자체에 같은 토큰이 여러 번 나올 수 있고, 그대로
-            // 넘기면 한 토큰이 여러 절에서 가산돼 F-05 의 "같은 개체를 중복 계산하지 않는다" 를 깬다.
-            var tokens = new LinkedHashSet<String>();
+            // 항목별 묶음을 그대로 보존한다 (S15P21A501-302). 펼치면 어댑터가 확장어를 OR 로 받아
+            // 「중국 음식」이 중국 OR 음식 이 된다. 다만 같은 묶음 안의 중복 토큰과 완전히 같은
+            // 묶음은 뺀다 — 한 구가 여러 절에서 가산돼 F-05 의 "같은 개체를 중복 계산하지 않는다" 를
+            // 깨기 때문이다.
+            var phrases = new LinkedHashSet<List<String>>();
             for (List<String> perTerm : response.tokens()) {
-                if (perTerm != null) {
-                    tokens.addAll(perTerm);
-                }
+                if (perTerm == null || perTerm.isEmpty()) continue;
+                var phrase = new ArrayList<>(new LinkedHashSet<>(perTerm));
+                if (!phrase.isEmpty()) phrases.add(List.copyOf(phrase));
             }
-            return List.copyOf(tokens);
+            return List.copyOf(phrases);
         } catch (RuntimeException failed) {
             log.warn("확장어 토큰화에 실패했다. 확장어 없이 검색을 이어간다", failed);
             return List.of();

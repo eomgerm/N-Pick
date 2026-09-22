@@ -104,8 +104,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     public SearchCandidates rank(Query query) {
         List<SearchDegradedReason> degraded = new ArrayList<>();
 
-        List<String> expanded = expandedTokens(query);
-        List<SceneCandidateResult> lexical = lexical(query, expanded);
+        List<List<String>> expandedPhrases = expandedPhrases(query);
+        List<SceneCandidateResult> lexical = lexical(query, expandedPhrases);
         DenseCandidatesResult dense = dense(query, degraded);
 
         StructuredScoresResult structured = structuredScores.score(
@@ -136,7 +136,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                 fused.config(),
                 degraded,
                 shortageReasons(scenes.size(), guarded, excluded),
-                expanded,
+                flattenForEvidence(query, expandedPhrases),
                 excluded.hasMore());
     }
 
@@ -148,11 +148,11 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      *
      * <p>dense 와 달리 사유를 남기지 않는다. 끈 채널은 장애가 아니고, 설정으로 끈 것을 사용자에게 「일부 기능 누락」으로 안내하면 매 검색이 degraded 가 된다.
      */
-    private List<SceneCandidateResult> lexical(Query query, List<String> expandedTokens) {
+    private List<SceneCandidateResult> lexical(Query query, List<List<String>> expandedPhrases) {
         if (!fusionSettings.isActive(FusionChannel.LEXICAL)) {
             return List.of();
         }
-        return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedTokens);
+        return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedPhrases);
     }
 
     /**
@@ -174,14 +174,17 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     }
 
     /**
-     * 확장어를 토큰으로 바꾸고 원 질의와 겹치는 것을 뺀다.
+     * 확장어를 <b>구 단위 묶음</b>으로 토큰화한다 (S15P21A501-302).
      *
-     * <p>겹친 토큰을 그대로 넘기면 원 질의 절과 확장어 절에서 각각 가산돼 F-05 의 「같은 개체를 중복 계산하지 않는다」를 깬다. 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지르는 것도 같은 이유로
-     * 막는다 — 그래서 한 목록으로 합치지 않고 낮은 가중의 별도 절로 건다.
+     * <p>평탄화하지 않는 것이 핵심이다. 펼쳐 넘기면 어댑터의 {@code term_set} 이 확장어를 OR 로 받아 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되고, 짜장면 검색에
+     * 중국 경제 뉴스가 올라온다 (운영 실측 19건). 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지르지 않게 하는 것은 종전대로 낮은 가중의 별도 절이 맡는다.
+     *
+     * <p><b>원 질의 토큰만으로 이루어진 묶음은 뺀다.</b> 그 구는 원 질의 절이 이미 거는 것과 같아, 남기면 두 절에서 각각 가산돼 F-05 의 「같은 개체를 중복 계산하지 않는다」를 깬다. 일부만
+     * 겹치는 묶음은 <b>통째로 남긴다</b> — 구에서 토큰 하나를 빼면 {@code must} 가 그만큼 헐거워져 이 티켓이 없애려는 넓은 매칭이 되살아난다.
      *
      * <p>규칙 적용 <b>뒤</b>의 확장어를 토큰화한다. 교정으로 검수자가 넣은 값은 리졸버가 모르고, 백엔드에는 Kiwi 가 없다 (S15P21A501-205 의 창구).
      */
-    private List<String> expandedTokens(Query query) {
+    private List<List<String>> expandedPhrases(Query query) {
         if (query.finalResolution() == null
                 || query.finalResolution().expandedTerms().isEmpty()) {
             return List.of();
@@ -192,7 +195,23 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                         query.finalResolution().expandedTerms(),
                         query.normalization().normalizationVersion())
                 .stream()
+                .filter(phrase -> !queryTokens.containsAll(phrase))
+                .toList();
+    }
+
+    /**
+     * 근거 설명용으로 구 묶음을 편다. <b>{@code matched_keywords} 계약은 평탄화된 토큰 목록 그대로다</b> (web-api §5.1) — 구 단위 AND 는 후보 조회의 사정이고 응답
+     * 형태를 바꾸지 않는다 (S15P21A501-302).
+     *
+     * <p>원 질의와 겹치는 토큰은 조립이 {@code distinct} 로 합치므로 여기서 다시 뺄 필요는 없지만, 「확장어가 기여한 토큰」이라는 의미를 유지하려고 뺀다.
+     */
+    private static List<String> flattenForEvidence(Query query, List<List<String>> phrases) {
+        if (phrases.isEmpty()) return List.of();
+        Set<String> queryTokens = Set.copyOf(query.normalization().searchTokens());
+        return phrases.stream()
+                .flatMap(List::stream)
                 .filter(token -> !queryTokens.contains(token))
+                .distinct()
                 .toList();
     }
 

@@ -37,6 +37,9 @@ import java.util.List;
  *   <li><b>dense 채널은 확장어의 영향을 받지 않는다.</b> 질의 임베딩은 원문 기준이다 ({@code embed_query(raw_query)})
  *   <li>확장어에서 유래한 매칭은 사용자가 명시한 조건과 <b>구분해 표시</b>해야 한다 (F-05·F-07). 표시 방식과 {@code matched_keywords} 계약 변경 여부는
  *       조립(S15P21A501-59) 이 정한다
+ *   <li><b>확장어는 구 단위로 받고 변별력 없는 토큰은 버린다</b> (S15P21A501-302). 다어절 확장어를 평탄화하면 OR 이 되어 구의 의미가 사라지고, 활성 장면의 상당수와 맞는
+ *       상위어·기능어({@code 장면}·{@code 하}·{@code 사람})는 후보를 통째로 끌어온다. 둘 다 순위가 아니라 <b>후보 자격</b> 문제라 가중치로 고칠 수 없다 — 확장어 가중치를
+ *       낮추면 순위만 내려가고, 0 으로 두면 정상 동의어까지 죽는다. 문서빈도 컷은 {@code npick.search.candidate.expanded-term-max-df} 가 정한다
  * </ul>
  */
 public interface FindSceneCandidatesQueryPort {
@@ -52,8 +55,9 @@ public interface FindSceneCandidatesQueryPort {
      */
     /**
      * @param searchTokens 원 질의 토큰
-     * @param expandedTokens 규칙 적용 후 확장어의 토큰. <b>원 질의 토큰과 겹치는 것은 호출부가 이미 뺐다</b> — 겹친 토큰은 두 절에서 각각 가산되어 F-05 의 「같은 개체를 중복
-     *     계산하지 않는다」를 깬다. 확장어가 없거나 토큰화에 실패했으면 빈 목록이다
+     * @param expandedPhrases 규칙 적용 후 확장어의 토큰을 <b>확장어 항목별로 묶은 것</b>. 한 묶음은 한 구이고 구현은 구 안을 {@code must}, 구 사이를 OR 로 건다
+     *     (S15P21A501-302). 평탄화해서 받으면 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되어 짜장면 검색에 중국 경제 뉴스가 올라온다. <b>원 질의 토큰만으로 이루어진
+     *     묶음은 호출부가 이미 뺐다</b> — 그런 묶음은 두 절에서 각각 가산되어 F-05 의 「같은 개체를 중복 계산하지 않는다」를 깬다. 확장어가 없거나 토큰화에 실패했으면 빈 목록이다
      */
-    List<SceneCandidateResult> findByWords(List<String> searchTokens, List<String> expandedTokens);
+    List<SceneCandidateResult> findByWords(List<String> searchTokens, List<List<String>> expandedPhrases);
 }

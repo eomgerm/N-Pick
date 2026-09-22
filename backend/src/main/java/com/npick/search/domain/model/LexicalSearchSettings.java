@@ -17,6 +17,7 @@ public record LexicalSearchSettings(
         double transcriptWeight,
         double ocrWeight,
         double expandedWeight,
+        double expandedTermMaxDf,
         int poolSize) {
 
     public LexicalSearchSettings {
@@ -25,6 +26,10 @@ public record LexicalSearchSettings(
                 || !finiteNonNegative(transcriptWeight)
                 || !finiteNonNegative(ocrWeight)) {
             throw new IllegalArgumentException("Lexical field weights must be finite and nonnegative");
+        }
+        // 0 이하면 확장어가 전부 잘려 동의어 검색이 통째로 죽고, 1 을 넘으면 아무것도 거르지 않는다.
+        if (!(expandedTermMaxDf > 0 && expandedTermMaxDf <= 1.0)) {
+            throw new IllegalArgumentException("expandedTermMaxDf must be in (0..1]");
         }
         if (poolSize <= 0) throw new IllegalArgumentException("poolSize must be positive");
     }

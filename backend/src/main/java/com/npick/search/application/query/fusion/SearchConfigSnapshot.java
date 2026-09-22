@@ -94,6 +94,7 @@ public record SearchConfigSnapshot(
         value.put("transcript_weight", lexical.transcriptWeight());
         value.put("ocr_weight", lexical.ocrWeight());
         value.put("expanded_weight", lexical.expandedWeight());
+        value.put("expanded_term_max_df", lexical.expandedTermMaxDf());
         value.put("pool_size", lexical.poolSize());
         return value;
     }
