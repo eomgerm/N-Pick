@@ -248,6 +248,37 @@ test('historyBadge가 있으면 결과 그리드 위에 한 줄 배지로 뜬다
   assert.match(html, /2026-09-15 검색 기록/);
 });
 
+test('검색 기록 모드는 배지와 재검색 고지를 보여주고 제외 감사정보는 싣지 않는다', () => {
+  // 다시 검색하면 당시가 아닌 새 결과가 나온다는 것을 고지한다. 제외 수 같은 감사 정보는
+  // 일반 사용자에게 혼란이라 결과 화면에 싣지 않는다 (S15P21A501-262).
+  const html = renderShell(
+    {},
+    {
+      historyBadge: '2026-09-15 검색 기록',
+      api: {
+        state: 'ready',
+        presentation: {
+          results: [],
+          execution: { status: 'succeeded', degradedReasons: [], hasAppliedReviewRule: false },
+          details: {
+            resolverStatus: 'succeeded',
+            excludedCount: 2,
+            exclusionReasons: ['승인된 장면 제외 규칙에 해당'],
+          },
+        },
+        error: null,
+        retry() {},
+      },
+    },
+  );
+  // 기록 컨텍스트 블록만 검사한다. 결과 0개 상태 패널의 「제외된 결과」는 라이브 검색에도 있는
+  // 기존 동작이라 이 티켓 범위가 아니다.
+  const historyContext = html.match(/<div class="historyContext"[\s\S]*?<\/div>/)?.[0] ?? '';
+  assert.match(historyContext, /2026-09-15 검색 기록/);
+  assert.match(historyContext, /다시 검색하면 지금 기준으로 새로 찾은 결과/);
+  assert.doesNotMatch(historyContext, /제외된 결과/);
+});
+
 const { SearchResultState } = await import('./search-result-state.tsx');
 
 test('빈 결과의 적용 조건과 제외 수 0·미제공·유효하지 않은 값을 구분한다', () => {

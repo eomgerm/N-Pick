@@ -379,11 +379,19 @@ export function WireframeShell({
           </section>
 
           <section className={styles.resultsSection} id="search-results">
+            {/* 검색 기록(스냅샷) 모드. 같은 결과 화면이지만 라이브 검색과 다르게 — 당시 저장분임을
+                배지로 알리고, 다시 검색하면 지금 기준 새 결과가 나온다는 것을 고지한다
+                (S15P21A501-262). 제외 수 같은 감사 정보는 일반 사용자에게 오히려 혼란이라 싣지 않는다. */}
             {historyBadge ? (
-              <p className={styles.historyBadge} role="status">
-                <Clock3 aria-hidden="true" />
-                {historyBadge}
-              </p>
+              <div className={styles.historyContext} role="status">
+                <p className={styles.historyBadge}>
+                  <Clock3 aria-hidden="true" />
+                  {historyBadge}
+                </p>
+                <p className={styles.historyNotice}>
+                  저장된 당시 결과예요. 다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요.
+                </p>
+              </div>
             ) : null}
             <div className={styles.resultsHeading}>
               <div>

@@ -96,10 +96,13 @@ for (const role of ['editor', 'reviewer']) {
     await expect(panel).not.toBeVisible();
     await expect(page).toHaveURL(/\/search\/results\?historyId=105$/);
     expect(postSearches).toBe(0);
-    // role="status" 는 ARIA상 name-from-content 가 아니라서 name 필터로는 못 찾는다(다른
-    // status 인 "검색 해석: ..." 와 구분해야 하므로 hasText 로 거른다).
-    await expect(page.getByRole('status').filter({ hasText: '검색 기록' })).toHaveText(
-      '2026-08-01 검색 기록',
+    // 검색 기록(스냅샷) 모드 컨텍스트: 배지 날짜 + 재검색 고지로 라이브 검색과 구분한다
+    // (S15P21A501-262). role="status" 는 name-from-content 가 아니라 hasText 로
+    // "검색 해석: ..." status 와 구분한다.
+    const historyContext = page.getByRole('status').filter({ hasText: '검색 기록' });
+    await expect(historyContext).toContainText('2026-08-01 검색 기록');
+    await expect(historyContext).toContainText(
+      '다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요',
     );
     // 결과 화면의 검색창은 compact 변형(type 없음 → textbox)이라 진입 화면의 searchbox 와 role 이 다르다.
     await expect(page.getByRole('textbox', { name: '뉴스 장면 검색어' })).toHaveValue(
