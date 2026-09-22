@@ -59,6 +59,17 @@ HERE = Path(__file__).resolve().parent
 DEFAULT_GOLD = HERE / "gold.json"
 TIMEOUT_SECONDS = 120
 
+#: 이 코드 이상은 서버 쪽 오류다. 다만 그것만으로 "답이 없다"가 되지는 않는다 —
+#: 아래 `is_infra_failure` 참조.
+HTTP_SERVER_ERROR = 500
+
+#: 인프라 실패가 이만큼 연속되면 측정을 중단한다.
+#:
+#: 5 로 둔 근거는 2026-09-22 사고다 — 배포로 backend 가 교체되자 56번 문항부터
+#: **끝까지** 502 였다. 한두 건은 일시적 흔들림일 수 있지만 다섯 건 연속이면
+#: 서버가 내려간 것이고, 그 뒤 145건을 더 쏘아 봐야 0점만 쌓인다.
+INFRA_FAILURE_LIMIT = 5
+
 
 class BenchError(RuntimeError):
     """측정을 진행할 수 없다."""
@@ -106,7 +117,8 @@ class Client:
             msg = f"http(s) 주소가 아니다: {self.base_url}"
             raise BenchError(msg)
         with self.opener.open(req, timeout=TIMEOUT_SECONDS) as response:
-            return json.loads(response.read().decode("utf-8"))
+            payload: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+            return payload
 
     def login(self, login_id: str, password: str) -> None:
         """자격증명으로 세션을 연다.
@@ -177,6 +189,35 @@ class Outcome:
     resolution_status: str
     error: str | None
     execution_id: str | None = None
+    #: 시스템이 답을 내지 못한 실패인가. 5xx·연결 실패·타임아웃만 True 다.
+    #: `SRCH_400_101` 이나 결과 0건은 **시스템이 낸 답**이라 False 다.
+    infra_failed: bool = False
+
+
+def is_infra_failure(status_code: int, body: str) -> bool:
+    """이 실패가 **답이 없는 것**인가, 시스템이 **낸 답**인가.
+
+    2026-09-22 첫 측정에서 nginx 502 가 145건 나와 `Recall@10 0.17` 이 검색 품질처럼
+    보였다. 그 둘을 가르는 자리다.
+
+    **상태 코드만으로 가르지 않는다.** 같은 5xx 라도 두 가지가 있다.
+
+    | 응답 | 예 | 판정 |
+    | --- | --- | --- |
+    | envelope 가 있다 | `500 {"isSuccess":false,"code":"SRCH_500_001",...}` | 시스템이 낸 답 |
+    | envelope 가 없다 | `502 <html>...nginx...</html>` | 답이 없다 |
+
+    앞쪽은 서버가 그 질의를 받아 처리하려다 실패한 것이라 그 설정의 성질이다 —
+    0점이 맞다. 뒤쪽은 서버에 닿지도 못한 것이라 0점이 아니다. 4xx(`SRCH_400_101`
+    등)는 언제나 시스템이 낸 답이다.
+    """
+    if status_code < HTTP_SERVER_ERROR:
+        return False
+    try:
+        payload = json.loads(body)
+    except (json.JSONDecodeError, ValueError):
+        return True
+    return not (isinstance(payload, dict) and "code" in payload)
 
 
 def search_once(client: Client, query: str) -> Outcome:
@@ -185,10 +226,19 @@ def search_once(client: Client, query: str) -> Outcome:
         payload = client.request("POST", "/search", {"query": query, "explicit_filters": {}})
     except urllib.error.HTTPError as exc:
         # **실패한 호출도 채점한다.** 빼면 많이 실패한 설정이 좋아 보인다.
-        detail = exc.read().decode("utf-8", errors="replace")[:200]
-        return Outcome((), "http_error", (), "", f"HTTP {exc.code}: {detail}")
+        # 다만 5xx 는 "답이 없는 것" 이라 인프라 실패로 따로 센다 — 2026-09-22 첫
+        # 측정에서 배포 중 502 가 145건 나와 Recall 0.17 이 검색 품질처럼 보였다.
+        body = exc.read().decode("utf-8", errors="replace")
+        return Outcome(
+            (),
+            "http_error",
+            (),
+            "",
+            f"HTTP {exc.code}: {body[:200]}",
+            infra_failed=is_infra_failure(exc.code, body),
+        )
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        return Outcome((), "transport_error", (), "", repr(exc))
+        return Outcome((), "transport_error", (), "", repr(exc), infra_failed=True)
 
     if payload.get("isSuccess") is False:
         # 200 + isSuccess:false 도 실패다(§2.2). 결과 0건의 성공과 구분해 사유를 남긴다.
@@ -232,7 +282,9 @@ def _case_row(case: metrics.Case, outcome: Outcome, k: int) -> dict[str, Any]:
     }
 
 
-def _listing(cases: tuple[metrics.Case, ...], rows: dict[str, dict[str, Any]]) -> list[dict]:
+def _listing(
+    cases: tuple[metrics.Case, ...], rows: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
     """통과군·실패군 목록. 실패군이 다음 작업의 입력이라 질의 원문까지 담는다."""
     return [
         {
@@ -284,19 +336,43 @@ def run(args: argparse.Namespace) -> None:
 
     results: dict[str, list[str]] = {}
     rows: dict[str, dict[str, Any]] = {}
+    unanswered: list[str] = []
     config: dict[str, Any] | None = None
+    config_tried = False
+    streak = 0
+    aborted: str | None = None
+    attempted: list[metrics.Case] = []
+
     for index, case in enumerate(cases, start=1):
         outcome = search_once(client, case.query)
+        attempted.append(case)
         results[case.id] = list(outcome.scene_ids)
         rows[case.id] = _case_row(case, outcome, args.k)
-        if config is None and outcome.execution_id:
-            # 한 번만. 나중에 "이 숫자가 어느 설정에서 나왔나"를 되짚는 자리다.
+        if outcome.infra_failed:
+            unanswered.append(case.id)
+            streak += 1
+        else:
+            streak = 0
+        if config is None and not config_tried and outcome.execution_id:
+            # 한 번만 시도한다. 실패해도 다시 부르지 않는다 — 안 그러면 문항마다
+            # 재시도해 요청이 최대 문항 수만큼 더 쌓인다.
+            config_tried = True
             config = client.search_config(outcome.execution_id)
-        mark = "o" if rows[case.id]["rank"] else "x"
+        mark = "!" if outcome.infra_failed else ("o" if rows[case.id]["rank"] else "x")
         print(f"[{index:>3}/{len(cases)}] {mark} {case.id} {case.query}", flush=True)
 
-    summary = metrics.summarize(cases, results, args.k)
-    passed, failed = metrics.split(cases, results, args.k)
+        if streak >= INFRA_FAILURE_LIMIT:
+            # 서버가 내려갔다. 더 쏘아 봐야 0점만 쌓이고 검색 기록만 늘어난다.
+            aborted = f"인프라 실패 {streak}회 연속 — {index}문항에서 중단"
+            print(f"\n!! {aborted}. 서버 상태를 확인하고 다시 돌린다.", flush=True)
+            break
+
+    scored = tuple(attempted)
+    summary = metrics.summarize(scored, results, args.k, unanswered=unanswered)
+    passed, failed = metrics.split(scored, results, args.k)
+    # 인프라 실패는 실패군에서 뺀다 — 개선 목표가 아니라 다시 돌릴 대상이다.
+    infra_ids = set(unanswered)
+    failed = tuple(c for c in failed if c.id not in infra_ids)
 
     payload = {
         "params": {
@@ -304,7 +380,11 @@ def run(args: argparse.Namespace) -> None:
             "k": args.k,
             "gold": str(args.gold.name),
             "goldHash": gold_hash(args.gold),
-            "cases": len(cases),
+            "cases": len(scored),
+            "goldCases": len(cases),
+            # 중단됐으면 부분 결과다. 전체와 실측 문항 수를 같이 남긴다.
+            "partial": aborted is not None,
+            "abortedReason": aborted,
             "startedAt": started.isoformat(timespec="seconds"),
             "finishedAt": datetime.now(UTC).isoformat(timespec="seconds"),
             "label": args.label,
@@ -315,19 +395,30 @@ def run(args: argparse.Namespace) -> None:
         "summary": summary.to_json(),
         "passed": _listing(passed, rows),
         "failed": _listing(failed, rows),
-        "cases": [rows[c.id] for c in cases],
+        # 인프라 실패는 실패군이 아니다 — 개선 목표가 아니라 다시 돌릴 대상이다.
+        "unanswered": _listing(tuple(c for c in scored if c.id in infra_ids), rows),
+        "cases": [rows[c.id] for c in scored],
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     print(f"\n{args.out}")
-    print(f"  Recall@{args.k} {summary.recall:.4f}   nDCG@{args.k} {summary.ndcg:.4f}")
+    if aborted:
+        print(f"  ** 부분 결과 — 전체 {len(cases)}문항 중 {len(scored)}문항 ({aborted})")
+    print(
+        f"  전체 기준  Recall@{args.k} {summary.recall:.4f}"
+        f"   nDCG@{args.k} {summary.ndcg:.4f}   (문항 {summary.cases})"
+    )
+    print(
+        f"  응답 기준  Recall@{args.k} {summary.responded.recall:.4f}"
+        f"   nDCG@{args.k} {summary.responded.ndcg:.4f}   (문항 {summary.responded.cases})"
+    )
     for tier, scores in summary.by_tier.items():
         print(
             f"  {tier:<5} {scores.hits}/{scores.cases}"
-            f"  Recall {scores.recall:.4f}  nDCG {scores.ndcg:.4f}"
+            f"  Recall {scores.recall:.4f}  nDCG {scores.ndcg:.4f}   (전체 기준)"
         )
-    print(f"  통과군 {len(passed)} / 실패군 {len(failed)}")
+    print(f"  통과군 {len(passed)} / 실패군 {len(failed)} / 무응답 {summary.unanswered}")
 
 
 # ── 비교 ─────────────────────────────────────────────────────────────
@@ -339,7 +430,11 @@ def compare(args: argparse.Namespace) -> None:
     구간이 0 을 포함하면 "차이 없음"이 아니라 **"이 표본으로는 검출 못 함"** 이다.
     """
     import numpy as np
-    from compare import BOOTSTRAP, paired_bootstrap  # eval/embedding/compare.py
+
+    # `eval/embedding` 은 mypy_path 에 올리지 않는다 — pyproject 의 주석대로 다른
+    # 티켓(S15P21A501-175)의 하네스라 여기서 고치지 않고, 통과시키려고 override 로
+    # 약화시키지도 않는다. 그래서 이 import 하나만 국소로 무시한다.
+    from compare import BOOTSTRAP, paired_bootstrap  # type: ignore[import-not-found]
 
     runs = [json.loads(p.read_text(encoding="utf-8")) for p in args.results]
     hashes = {r["params"]["goldHash"] for r in runs}
@@ -368,8 +463,10 @@ def compare(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    # Windows 콘솔 기본 코드페이지에서 한글이 깨진다. TextIO 스텁에 reconfigure 가
+    # 없어 국소로 무시한다 — 런타임에는 TextIOWrapper 라 존재한다.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     parser = argparse.ArgumentParser(description="검색 회귀 측정 (S15P21A501-301)")
     sub = parser.add_subparsers(dest="command", required=True)
 

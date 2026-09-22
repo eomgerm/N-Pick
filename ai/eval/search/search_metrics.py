@@ -28,16 +28,34 @@ venv 의 pytest 로 검증된다(`tests/test_search_eval_metrics.py`). `eval/ocr
 (Promptagator·InPars 가 그 필터를 쓰는 곳은 **학습 데이터**다). 통과군은 회귀 감시용,
 실패군은 다음 작업의 입력으로 **둘 다 남긴다**.
 
-## 실패한 호출도 채점한다
+## 실패한 호출도 채점한다 — 그러나 "답이 없는 것"과는 가른다
 
 `results` 에 해당 문항의 키가 없으면 실패군이다. 응답이 온 문항만 세면 많이 실패한
 설정이 좋아 보인다 — `eval/query_resolver/README.md` 가 같은 함정을 적어 뒀다.
+
+**다만 두 가지를 구분한다.** 2026-09-22 첫 측정에서 200건 중 145건이 HTTP 502 로
+깨졌다(배포로 backend 가 교체된 시각과 컷오프가 일치한다). 그 실패를 0점으로 세니
+`Recall@10 0.17` 이 나왔고, 그것은 **검색 품질이 아니라 배포 사고**였다.
+
+| | 뜻 | 점수 |
+| --- | --- | --- |
+| `SRCH_400_101` · 결과 0건 · 타임아웃 아닌 오류 | 시스템이 **낸 답**이다 | 0점이 맞다 |
+| HTTP 5xx · 연결 실패 · 타임아웃 | **답이 없다** | 0점이 아니다 |
+
+그래서 `summarize()` 가 두 기준을 같이 낸다.
+
+- **전체 기준**(`recall`·`ndcg`) — 인프라 실패도 0점으로 센다. 분모가 줄면 사고가
+  지표를 올리므로 이쪽이 보수적이다.
+- **응답 기준**(`responded`) — 답이 돌아온 문항만 본다. 사고가 섞인 실행에서 검색
+  품질을 읽을 때 쓴다.
+
+**이름을 다르게 붙였다.** 한 표에 두 기준이 같은 이름으로 들어가면 반드시 섞인다.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import log2
 from pathlib import Path
@@ -180,10 +198,14 @@ class Scores:
 
 @dataclass(frozen=True, slots=True)
 class Summary:
-    """전체 평균과 tier 별 평균.
+    """전체 기준 평균, 응답 기준 평균, tier 별 평균.
 
     `Scores` 를 상속하지 않는다 — `slots=True` 프로즌 데이터클래스를 상속하면
     인자 없는 `super()` 가 깨진다. 담는 쪽이 짧다.
+
+    최상위 `cases`·`hits`·`recall`·`ndcg` 는 **전체 기준**이다(인프라 실패 포함).
+    `responded` 만 **응답 기준**이고, `by_tier` 는 전체 기준으로 둔다 — tier 까지
+    두 기준으로 쪼개면 표가 읽히지 않는다.
     """
 
     cases: int
@@ -191,13 +213,23 @@ class Summary:
     recall: float
     ndcg: float
     by_tier: dict[str, Scores]
+    #: 답이 돌아온 문항만. 인프라 실패를 분모에서 뺀다.
+    responded: Scores
+    #: 인프라 실패(5xx·연결 실패·타임아웃)로 답을 못 받은 문항 수.
+    unanswered: int = 0
 
     def to_json(self) -> dict[str, Any]:
         return {
+            "basis": (
+                "recallAt10·ndcgAt10·byTier 는 전체 기준이다 — 인프라 실패도 0점으로 센다."
+                " responded.* 만 응답 기준이고 인프라 실패를 분모에서 뺀다."
+            ),
             "cases": self.cases,
             "hits": self.hits,
             "recallAt10": round(self.recall, 4),
             "ndcgAt10": round(self.ndcg, 4),
+            "unanswered": self.unanswered,
+            "responded": self.responded.to_json(),
             "byTier": {name: scores.to_json() for name, scores in self.by_tier.items()},
         }
 
@@ -218,9 +250,17 @@ def summarize(
     cases: Iterable[Case],
     results: Mapping[str, Sequence[str]],
     k: int = DEFAULT_K,
+    unanswered: Collection[str] = (),
 ) -> Summary:
-    """전체와 tier 별 Recall@k · nDCG@k."""
+    """전체 기준·응답 기준·tier 별 Recall@k · nDCG@k.
+
+    Args:
+        unanswered: **인프라 실패로 답을 못 받은** 문항 id. 5xx·연결 실패·타임아웃만
+            여기 넣는다. `SRCH_400_101` 이나 결과 0건은 시스템이 낸 답이므로 넣지
+            않는다 — 모듈 docstring 의 표 참조.
+    """
     rows = tuple(cases)
+    missing = set(unanswered)
     overall = _scores(rows, results, k)
     by_tier: dict[str, Scores] = {
         str(tier): _scores([c for c in rows if c.tier == tier], results, k)
@@ -233,4 +273,6 @@ def summarize(
         recall=overall.recall,
         ndcg=overall.ndcg,
         by_tier=by_tier,
+        responded=_scores([c for c in rows if c.id not in missing], results, k),
+        unanswered=sum(1 for c in rows if c.id in missing),
     )
