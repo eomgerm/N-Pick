@@ -31,7 +31,7 @@ test('검색은 양쪽 화면과 직접 URL에서 길이를 검사하고 조합 
   const input = page.getByRole('searchbox', { name: '뉴스 장면 검색어' });
   await input.fill('비');
   await expect(page.getByRole('button', { name: '장면 찾기' })).toBeDisabled();
-  await expect(page.locator('#scene-search-hint')).toContainText('2자 이상');
+  await expect(page.locator('#scene-search-hint')).toHaveCount(0);
   await input.fill('화재');
   await input.dispatchEvent('compositionstart');
   await input.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
@@ -42,13 +42,14 @@ test('검색은 양쪽 화면과 직접 URL에서 길이를 검사하고 조합 
   await input.evaluate((element: HTMLInputElement) => element.setSelectionRange(500, 500));
   expect(await paste(input, '나')).toBe(false);
   await expect(input).toHaveValue('가'.repeat(500));
-  await expect(page.locator('#scene-search-hint')).toContainText('500자 이내');
+  await expect(page.locator('#scene-search-hint')).toHaveCount(0);
   await page.getByRole('button', { name: '장면 찾기' }).click();
   await expect.poll(() => searches).toBe(1);
   const resultsInput = page.getByRole('textbox', { name: '뉴스 장면 검색어' });
   await expect(resultsInput).toHaveAttribute('maxlength', '500');
   await resultsInput.fill('비');
   await expect(page.getByRole('button', { name: '검색', exact: true })).toBeDisabled();
+  await expect(page.locator('#scene-search-hint')).toHaveCount(0);
   for (const query of ['비', '가'.repeat(501)]) {
     await page.goto(`/search/results?q=${encodeURIComponent(query)}`);
     await expect(page.getByRole('heading', { name: '검색어를 확인해 주세요' })).toBeVisible();
