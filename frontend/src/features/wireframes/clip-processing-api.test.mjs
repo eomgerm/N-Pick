@@ -14,8 +14,15 @@ registerHooks({
 });
 const { getProcessingClips, getProcessingClip, parseClipSummary, parseClipDetail, parseClipPage } =
   await import('./clip-processing-api.ts');
-const { clipListPollInterval, clipDetailPollInterval, processingProgressLabel } =
-  await import('./clip-processing-view.ts');
+const {
+  clipListPollInterval,
+  clipDetailPollInterval,
+  processingProgressLabel,
+  processingAsrStatusLabel,
+  processingRefreshState,
+  processingTranscriptLabel,
+  stageStatusLabels,
+} = await import('./clip-processing-view.ts');
 
 const clip = {
   clip_id: '9223372036854775807',
@@ -211,9 +218,105 @@ test('최근 등록의 실행 없음은 1분 동안 재조회하되 오래된 �
   assert.equal(clipDetailPollInterval(null, true, createdAt, createdMs), false);
   assert.equal(clipDetailPollInterval(undefined, false, createdAt, createdMs), false);
   assert.equal(clipDetailPollInterval(null), false);
+  assert.equal(clipDetailPollInterval(null, false, createdAt, createdMs - 1), false);
+  assert.equal(clipDetailPollInterval(null, false, 'invalid', createdMs), false);
   assert.equal(clipDetailPollInterval('queued', false, createdAt, createdMs + 60_000), 5000);
   assert.equal(clipDetailPollInterval('running', false, createdAt, createdMs + 60_000), 5000);
   for (const status of ['succeeded', 'failed']) {
     assert.equal(clipDetailPollInterval(status, false, createdAt, createdMs), false);
   }
+});
+
+function asrDetail(asrStatus, stageStatus = 'pending', runStatus = 'running') {
+  return {
+    ...detail,
+    clip: { ...clip, latest_run: { ...clip.latest_run, status: runStatus } },
+    processing_details: {
+      ...detail.processing_details,
+      stages: [{ name: 'asr', status: stageStatus }],
+      transcript: { record_status: 'unavailable', asr_status: asrStatus, asr_required: false },
+    },
+  };
+}
+
+test('ASR는 대사 출처 기록 유무와 관계없이 저장 상태를 우선하며 전체 실행 상태로 덮어쓰지 않는다', () => {
+  const labels = {
+    pending: '대기',
+    running: '처리 중',
+    succeeded: '완료',
+    failed: '실패',
+    skipped: '생략',
+  };
+  for (const [status, label] of Object.entries(labels)) {
+    for (const runStatus of ['queued', 'running', 'succeeded', 'failed']) {
+      assert.equal(processingAsrStatusLabel(asrDetail(status, 'unknown', runStatus)), label);
+    }
+  }
+  assert.equal(processingAsrStatusLabel(asrDetail('failed', 'succeeded', 'succeeded')), '실패');
+  assert.equal(processingAsrStatusLabel(asrDetail('skipped', 'running', 'running')), '생략');
+  assert.equal(stageStatusLabels.running, '진행 중');
+  assert.equal(processingTranscriptLabel('succeeded'), '성공');
+  assert.equal(processingTranscriptLabel(null), '미확인');
+});
+
+test('ASR 미확인 값은 동일 실행의 ASR 단계로만 보완하고 근거가 없으면 그대로 구분한다', () => {
+  for (const status of [null, 'unknown']) {
+    assert.equal(processingAsrStatusLabel(asrDetail(status, 'pending')), '대기');
+    assert.equal(processingAsrStatusLabel(asrDetail(status, 'running')), '처리 중');
+    assert.equal(processingAsrStatusLabel(asrDetail(status, 'succeeded')), '완료');
+    assert.equal(processingAsrStatusLabel(asrDetail(status, 'failed')), '실패');
+    assert.equal(processingAsrStatusLabel(asrDetail(status, 'skipped')), '생략');
+    assert.equal(processingAsrStatusLabel(asrDetail(status, 'unknown')), '상태 정보 없음');
+  }
+  const missingTranscript = asrDetail(null, 'pending');
+  missingTranscript.processing_details.transcript = null;
+  assert.equal(processingAsrStatusLabel(missingTranscript), '대기');
+  missingTranscript.processing_details.stages = [{ name: 'ocr', status: 'running' }];
+  assert.equal(processingAsrStatusLabel(missingTranscript), '상태 정보 없음');
+  const mismatched = asrDetail('running', 'succeeded');
+  mismatched.processing_details.pipeline_run_id = '31';
+  assert.equal(processingAsrStatusLabel(mismatched), '상태 정보 없음');
+  assert.equal(processingAsrStatusLabel({ ...detail, processing_details: null }), '상태 정보 없음');
+  assert.equal(processingAsrStatusLabel(undefined), '상태 정보 없음');
+});
+
+test('자동 확인 안내는 조회 중·중단·오프라인·화면 중지 상태와 수동 복구를 구분한다', () => {
+  const state = {
+    canPoll: true,
+    hasError: false,
+    fetchStatus: 'idle',
+    isOnline: true,
+    isFocused: true,
+  };
+  assert.deepEqual(processingRefreshState(state), { mode: 'automatic', isAutomatic: true });
+  assert.deepEqual(processingRefreshState({ ...state, fetchStatus: 'fetching' }), {
+    mode: 'refreshing',
+    isAutomatic: true,
+  });
+  for (const patch of [{ fetchStatus: 'paused' }, { isOnline: false }, { isFocused: false }]) {
+    assert.deepEqual(processingRefreshState({ ...state, ...patch }), {
+      mode: 'paused',
+      isAutomatic: false,
+    });
+  }
+  assert.deepEqual(processingRefreshState({ ...state, hasError: true }), {
+    mode: 'error',
+    isAutomatic: false,
+  });
+  assert.deepEqual(processingRefreshState({ ...state, canPoll: false }), {
+    mode: 'manual',
+    isAutomatic: false,
+  });
+  assert.deepEqual(
+    processingRefreshState({ ...state, canPoll: false, fetchStatus: 'paused', isOnline: false }),
+    { mode: 'manual', isAutomatic: false },
+  );
+  assert.deepEqual(
+    processingRefreshState({ ...state, canPoll: false, hasError: true, fetchStatus: 'paused' }),
+    { mode: 'error', isAutomatic: false },
+  );
+  assert.deepEqual(processingRefreshState({ ...state, hasError: true, fetchStatus: 'fetching' }), {
+    mode: 'refreshing',
+    isAutomatic: false,
+  });
 });

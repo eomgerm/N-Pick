@@ -14,6 +14,10 @@ import {
   processingStageLabel,
 } from '@/features/wireframes/clip-processing-view';
 import { getReviewInquiries } from '@/features/wireframes/review-inquiry-api';
+import {
+  ProcessingRefreshStatus,
+  useProcessingRefreshState,
+} from '@/features/wireframes/processing-refresh-status';
 import dashboardStyles from '@/features/wireframes/review-dashboard.module.css';
 import {
   displayClipTitle,
@@ -97,6 +101,11 @@ export function ReviewerProgress({
   });
   const inquiryCounts = inquiries.data?.statusCounts;
   const videoCounts = videos.data?.run_counts;
+  const refreshState = useProcessingRefreshState({
+    canPoll: Boolean(clipListPollInterval(videoCounts, videos.isError)),
+    hasError: videos.isError,
+    fetchStatus: videos.fetchStatus,
+  });
   const inquiryTotal = inquiryCounts
     ? inquiryCounts.open + inquiryCounts.reviewing + inquiryCounts.closed
     : undefined;
@@ -217,6 +226,7 @@ export function ReviewerProgress({
             </span>
           </div>
           {videos.isPending && <p role="status">영상 현황을 불러오는 중…</p>}
+          <ProcessingRefreshStatus state={refreshState} dataUpdatedAt={videos.dataUpdatedAt} />
           {videos.isError && (
             <div className="mt-4">
               <ApiErrorNotice error={videos.error} />

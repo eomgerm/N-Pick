@@ -1,4 +1,5 @@
 import type {
+  ClipDetail,
   ClipProgress,
   ClipRunStatus,
   ProcessingRecordStatus,
@@ -106,4 +107,56 @@ const transcriptLabels: Record<string, string> = {
 };
 export function processingTranscriptLabel(value: string | null) {
   return value === null ? '미확인' : (transcriptLabels[value] ?? '상세 사유를 확인할 수 없습니다.');
+}
+
+const asrStatusLabels: Record<string, string> = {
+  pending: '대기',
+  running: '처리 중',
+  succeeded: '완료',
+  failed: '실패',
+  skipped: '생략',
+};
+
+export function processingAsrStatusLabel(detail: ClipDetail | undefined) {
+  const processing = detail?.processing_details;
+  if (!processing || processing.pipeline_run_id !== detail?.clip.latest_run?.pipeline_run_id)
+    return '상태 정보 없음';
+  const directStatus = processing.transcript?.asr_status;
+  const stageStatus = processing.stages.find((stage) => stage.name === 'asr')?.status;
+  // 대사 출처 기록의 누락은 별도로 저장된 ASR 단계 상태를 무효화하지 않는다.
+  for (const status of [directStatus, stageStatus]) {
+    if (status && Object.hasOwn(asrStatusLabels, status)) return asrStatusLabels[status];
+  }
+  return '상태 정보 없음';
+}
+
+export interface ProcessingRefreshStateInput {
+  canPoll: boolean;
+  hasError: boolean;
+  fetchStatus: 'fetching' | 'paused' | 'idle';
+  isOnline: boolean;
+  isFocused: boolean;
+}
+
+export function processingRefreshState({
+  canPoll,
+  hasError,
+  fetchStatus,
+  isOnline,
+  isFocused,
+}: ProcessingRefreshStateInput) {
+  const isAutomatic = canPoll && !hasError && isOnline && isFocused && fetchStatus !== 'paused';
+  if (fetchStatus === 'paused' && !canPoll)
+    return { mode: hasError ? 'error' : 'manual', isAutomatic: false } as const;
+  const mode =
+    fetchStatus === 'paused' || (canPoll && !hasError && (!isOnline || !isFocused))
+      ? 'paused'
+      : fetchStatus === 'fetching'
+        ? 'refreshing'
+        : hasError
+          ? 'error'
+          : isAutomatic
+            ? 'automatic'
+            : 'manual';
+  return { mode, isAutomatic } as const;
 }

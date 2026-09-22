@@ -9,12 +9,17 @@ import { getProcessingClip } from '@/features/wireframes/clip-processing-api';
 import {
   clipDetailPollInterval,
   clipRunLabels,
+  processingAsrStatusLabel,
   processingProgressLabel,
   processingRecordLabel,
   processingStageLabel,
   processingTranscriptLabel as transcriptLabel,
 } from '@/features/wireframes/clip-processing-view';
 import { ProcessingPipeline } from '@/features/wireframes/processing-pipeline';
+import {
+  ProcessingRefreshStatus,
+  useProcessingRefreshState,
+} from '@/features/wireframes/processing-refresh-status';
 import { displayClipTitle, formatInquiryDate } from '@/features/wireframes/review-inquiry-view';
 import styles from '@/features/wireframes/reviewer-progress.module.css';
 import { createApiUrl } from '@/lib/api/client';
@@ -51,6 +56,32 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
   const run = clip?.latest_run;
   const processing = data?.processing_details;
   const transcript = processing?.transcript;
+  const registrationWindow = !run && clip ? `${clipId}:${clip.created_at}` : null;
+  const registrationDeadline = !run && clip ? Date.parse(clip.created_at) + 60_000 : null;
+  const [expiredRegistrationWindow, setExpiredRegistrationWindow] = useState<string | null>(null);
+  useEffect(() => {
+    if (registrationWindow === null || registrationDeadline === null) return;
+    const timer = window.setTimeout(
+      () => setExpiredRegistrationWindow(registrationWindow),
+      Math.max(0, registrationDeadline - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [registrationWindow, registrationDeadline]);
+  const canPoll = Boolean(
+    clipDetailPollInterval(
+      run === null ? null : run?.status,
+      detail.isError,
+      clip?.created_at,
+      registrationWindow !== null && expiredRegistrationWindow === registrationWindow
+        ? registrationDeadline!
+        : detail.dataUpdatedAt,
+    ),
+  );
+  const refreshState = useProcessingRefreshState({
+    canPoll,
+    hasError: detail.isError,
+    fetchStatus: detail.fetchStatus,
+  });
 
   return (
     <div className={`${styles.page} ${styles.detailPage}`}>
@@ -105,6 +136,7 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                   상태 새로고침
                 </button>
               </div>
+              <ProcessingRefreshStatus state={refreshState} dataUpdatedAt={detail.dataUpdatedAt} />
               <div className={styles.runSummary} data-status={run?.status}>
                 <div className={styles.runState} role="status">
                   <span className={styles.stateMark} aria-hidden="true">
@@ -123,7 +155,9 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                         ? '영상 처리를 완료하지 못했습니다. 아래 처리 내역을 확인해 주세요.'
                         : clip.progress?.current_stage
                           ? processingStageLabel(clip.progress.current_stage)
-                          : processingProgressLabel(clip.progress)}
+                          : run?.status === 'queued'
+                            ? '등록된 영상의 분석 시작을 기다리고 있습니다.'
+                            : processingProgressLabel(clip.progress)}
                     </p>
                   </div>
                 </div>
@@ -133,7 +167,11 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
               </div>
               {!run && (
                 <p className={styles.contextNotice}>
-                  아직 처리 기록이 없습니다. 잠시 후 ‘상태 새로고침’으로 다시 확인해 주세요.
+                  {refreshState.isAutomatic
+                    ? '처리 기록을 확인하고 있습니다. 기록이 준비되면 자동으로 표시합니다.'
+                    : canPoll && refreshState.mode === 'paused'
+                      ? '아직 처리 기록이 없습니다. 자동 확인이 재개되면 다시 확인합니다.'
+                      : '아직 처리 기록이 없습니다. ‘상태 새로고침’으로 다시 확인해 주세요.'}
                 </p>
               )}
               <dl className={`${styles.facts} ${styles.runFacts}`}>
@@ -243,6 +281,12 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
               <summary>
                 최신 처리 시도의 대사 선택 <ChevronDown aria-hidden="true" />
               </summary>
+              <dl className={styles.facts}>
+                <div>
+                  <dt>음성 인식 상태</dt>
+                  <dd>{processingAsrStatusLabel(data)}</dd>
+                </div>
+              </dl>
               {transcript ? (
                 <>
                   {transcript.record_status !== 'legacy' && (
@@ -294,10 +338,6 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                     <div>
                       <dt>선택 사유</dt>
                       <dd>{transcriptLabel(transcript.selection_reason)}</dd>
-                    </div>
-                    <div>
-                      <dt>음성 인식 상태</dt>
-                      <dd>{transcriptLabel(transcript.asr_status)}</dd>
                     </div>
                     <div>
                       <dt>음성 인식 사유</dt>
