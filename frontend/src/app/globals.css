@@ -28,6 +28,19 @@ body {
   min-height: 100vh;
   margin: 0;
   overflow-x: clip;
+  /* 카드·요약·네비 라벨 등 비-입력 UI 텍스트의 드래그 선택을 막는다 (S15P21A501-270).
+     입력 필드는 아래에서 다시 선택 가능하게 되돌린다. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 입력 필드는 선택 가능 유지 — 값 복사·부분 수정이 막히면 안 된다. */
+input,
+textarea,
+select,
+[contenteditable]:not([contenteditable='false']) {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 button,
