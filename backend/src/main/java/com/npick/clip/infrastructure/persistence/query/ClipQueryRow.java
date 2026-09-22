@@ -14,6 +14,7 @@ public record ClipQueryRow(
         String transcriptSource,
         Boolean hasSubtitle,
         Boolean hasScript,
+        Long registeredById,
         Long runId,
         Integer processingNo,
         String status,
@@ -32,6 +33,8 @@ public record ClipQueryRow(
                 transcriptSource,
                 hasSubtitle,
                 hasScript,
+                registeredById,
+                null,
                 runId == null
                         ? null
                         : new ClipQueryResult.Run(

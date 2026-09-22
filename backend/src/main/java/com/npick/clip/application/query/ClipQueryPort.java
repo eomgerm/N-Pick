@@ -4,9 +4,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ClipQueryPort {
-    List<ClipQueryResult> findPage(int offset, int size, List<String> statuses);
+    /** registeredById 가 null 이면 등록자를 가리지 않는다. */
+    List<ClipQueryResult> findPage(int offset, int size, List<String> statuses, Long registeredById);
 
-    java.util.Map<String, Long> countByLatestRunStatus();
+    java.util.Map<String, Long> countByLatestRunStatus(Long registeredById);
 
     Optional<ClipQueryResult> findVisible(long clipId);
 }
