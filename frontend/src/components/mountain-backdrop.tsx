@@ -1,22 +1,63 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
+import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from 'react';
 
 import styles from '@/components/mountain-backdrop.module.css';
+import { routes } from '@/lib/routes';
 
 const layers = ['sky', 'mountains', 'foreground'] as const;
+const MountainBackdropSettledContext = createContext(false);
 
-/** Shared login/search decoration, independent of form and auth state. */
-export function MountainBackdrop() {
+export function useMountainBackdropSettled() {
+  return useContext(MountainBackdropSettledContext);
+}
+
+interface MountainBackdropProps {
+  children: ReactNode;
+}
+
+/** One scene for the entire document; routes only change its motion. */
+export function MountainBackdrop({ children }: MountainBackdropProps) {
+  const pathname = usePathname();
+  const isParallaxEnabled = pathname === routes.login || pathname === routes.search;
+  const hasDarkVeil = pathname === routes.review || pathname === routes.searchResults;
   const sceneRef = useRef<HTMLDivElement>(null);
-  const loadedLayers = useRef(new Set<string>());
-  const [isReady, setIsReady] = useState(false);
-  const [hasFailed, setHasFailed] = useState(false);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const isReady = status === 'ready';
 
   useEffect(() => {
     const scene = sceneRef.current;
-    if (!scene || !isReady || hasFailed) return;
+    if (!scene) return;
+    let isCurrent = true;
+    // A missing decoration must never indefinitely block the login link.
+    const timeout = window.setTimeout(() => setStatus('failed'), 8000);
+    const masks = ['mountains', 'foreground'].map((layer) => {
+      const image = new window.Image();
+      image.src = `/images/login-mountains/${layer}-mask.svg`;
+      return image;
+    });
+    const images = [...scene.querySelectorAll('img'), ...masks];
+    const settle = (nextStatus: 'ready' | 'failed') => {
+      if (!isCurrent) return;
+      window.clearTimeout(timeout);
+      setStatus(nextStatus);
+    };
+    // Include the CSS masks: decoded photographs alone do not complete the scene.
+    void Promise.all(images.map((image) => image.decode())).then(
+      () => settle('ready'),
+      () => settle('failed'),
+    );
+    return () => {
+      isCurrent = false;
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !isReady || !isParallaxEnabled) return;
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
@@ -115,47 +156,46 @@ export function MountainBackdrop() {
       document.removeEventListener('visibilitychange', handleMotionChange);
       reducedMotion.removeEventListener('change', handleMotionChange);
       finePointer.removeEventListener('change', handleMotionChange);
+      scene.style.removeProperty('--pointer-x');
+      scene.style.removeProperty('--pointer-y');
+      scene.style.removeProperty('--scroll-y');
     };
-  }, [isReady, hasFailed]);
+  }, [isReady, isParallaxEnabled]);
 
   return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-sky-200"
-      data-mountain-backdrop
-    >
-      <div className={styles.scene}>
-        <Image
-          alt=""
-          className="object-cover"
-          fill
-          preload
-          sizes="100vw"
-          src="/images/login-mountains/original.webp"
-          unoptimized
-        />
-        <div className={styles.layers} data-ready={isReady && !hasFailed} ref={sceneRef}>
-          {layers.map((layer) => (
-            <div className={`${styles.layer} ${styles[layer]}`} data-depth={layer} key={layer}>
-              <Image
-                alt=""
-                className="object-cover"
-                fill
-                onError={() => setHasFailed(true)}
-                onLoad={() => {
-                  loadedLayers.current.add(layer);
-                  if (loadedLayers.current.size === layers.length) setIsReady(true);
-                }}
-                sizes="100vw"
-                src={`/images/login-mountains/${layer}.webp`}
-                unoptimized
-                loading="eager"
-              />
-            </div>
-          ))}
+    <MountainBackdropSettledContext value={status !== 'loading'}>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-sky-200"
+        data-mountain-backdrop
+      >
+        <div className={styles.scene}>
+          <div
+            className={styles.layers}
+            data-ready={isReady}
+            data-status={status}
+            data-parallax={isParallaxEnabled}
+            data-motion={isParallaxEnabled ? 'pending' : 'static'}
+            ref={sceneRef}
+          >
+            {layers.map((layer) => (
+              <div className={`${styles.layer} ${styles[layer]}`} data-depth={layer} key={layer}>
+                <Image
+                  alt=""
+                  className="object-cover"
+                  fill
+                  preload
+                  sizes="100vw"
+                  src={`/images/login-mountains/${layer}.webp`}
+                  unoptimized
+                />
+              </div>
+            ))}
+          </div>
         </div>
+        {!hasDarkVeil && <div className={styles.veil} />}
       </div>
-      <div className={styles.veil} />
-    </div>
+      {children}
+    </MountainBackdropSettledContext>
   );
 }

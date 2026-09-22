@@ -5,9 +5,11 @@ import '@fontsource/black-han-sans/400.css';
 import { ArrowDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { type CSSProperties, useCallback, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 
 import { AppLogo } from '@/components/app-logo';
+import { useMountainBackdropSettled } from '@/components/mountain-backdrop';
 import styles from '@/features/wireframes/landing.module.css';
 import { routes } from '@/lib/routes';
 
@@ -21,12 +23,27 @@ const FLOW_LAYOUT_QUERY = '(max-width: 1000px), (max-height: 720px)';
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 export function LandingShell() {
+  const router = useRouter();
+  const isBackdropSettled = useMountainBackdropSettled();
+  const [pendingRole, setPendingRole] = useState<'editor' | 'reviewer' | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const heroRef = useRef<HTMLElement | null>(null);
   const rolesRef = useRef<HTMLElement | null>(null);
   const brandRef = useRef<HTMLDivElement | null>(null);
   const brandTargetRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (pendingRole && isBackdropSettled) {
+      router.push(`${routes.login}?role=${pendingRole}`);
+    }
+  }, [isBackdropSettled, pendingRole, router]);
+
+  function handleLoginNavigate(event: { preventDefault: () => void }, role: 'editor' | 'reviewer') {
+    if (isBackdropSettled) return;
+    event.preventDefault();
+    setPendingRole(role);
+  }
 
   // 하나의 로고를 역할 영역의 빈 자리로 옮기고, 주변 콘텐츠만 교차 페이드한다.
   useEffect(() => {
@@ -212,7 +229,12 @@ export function LandingShell() {
           </div>
 
           <div className={styles.roleList}>
-            <Link className={styles.roleCard} href={`${routes.login}?role=editor`}>
+            <Link
+              className={styles.roleCard}
+              href={`${routes.login}?role=editor`}
+              aria-busy={pendingRole === 'editor'}
+              onNavigate={(event) => handleLoginNavigate(event, 'editor')}
+            >
               <span className={styles.cardMedia}>
                 <Image
                   alt=""
@@ -225,10 +247,17 @@ export function LandingShell() {
               <span className={styles.cardBody}>
                 <strong className={styles.cardTitle}>편집 기사로 시작하기</strong>
                 <span className={styles.cardText}>필요한 뉴스 장면을 빠르게 찾아보세요.</span>
-                <span className={styles.cardCta}>편집 시작하기</span>
+                <span className={styles.cardCta}>
+                  {pendingRole === 'editor' ? '준비 중…' : '편집 시작하기'}
+                </span>
               </span>
             </Link>
-            <Link className={styles.roleCard} href={`${routes.login}?role=reviewer`}>
+            <Link
+              className={styles.roleCard}
+              href={`${routes.login}?role=reviewer`}
+              aria-busy={pendingRole === 'reviewer'}
+              onNavigate={(event) => handleLoginNavigate(event, 'reviewer')}
+            >
               <span className={styles.cardMedia}>
                 <Image
                   alt=""
@@ -241,10 +270,17 @@ export function LandingShell() {
               <span className={styles.cardBody}>
                 <strong className={styles.cardTitle}>아카이브 팀으로 시작하기</strong>
                 <span className={styles.cardText}>검수가 필요한 장면을 확인해 주세요.</span>
-                <span className={styles.cardCta}>검수 시작하기</span>
+                <span className={styles.cardCta}>
+                  {pendingRole === 'reviewer' ? '준비 중…' : '검수 시작하기'}
+                </span>
               </span>
             </Link>
           </div>
+          {pendingRole && (
+            <p className="sr-only" role="status">
+              로그인 화면을 준비하고 있어요.
+            </p>
+          )}
 
           <footer className={styles.footer}>
             <span>© N-Pick</span>

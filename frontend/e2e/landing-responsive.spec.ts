@@ -123,6 +123,10 @@ test.describe('랜딩 첫 화면', () => {
     const title = page.getByRole('heading', { name: 'N-Pick', exact: true });
     await expect(title).toHaveText('NPICK');
     await expect(title).toBeInViewport();
+    await expect(title.locator('..').locator(':scope > [aria-hidden="true"]')).toHaveCSS(
+      'position',
+      'absolute',
+    );
     for (const element of [
       title,
       page.locator('header'),
@@ -138,6 +142,37 @@ test.describe('랜딩 첫 화면', () => {
     await expect(page.locator('video')).toHaveAttribute('poster', '/media/landing-hero-poster.jpg');
     await page.screenshot({ path: testInfo.outputPath('landing-initial-hero.png') });
   });
+});
+
+test('랜딩 로고 아이콘과 N PICK은 첫 진입과 로그인 왕복 후에도 나란히 정렬된다', async ({
+  page,
+}, testInfo) => {
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 2336, height: 1489 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/landing');
+    const title = page.locator('#landing-title');
+    const icon = title.locator('..').locator(':scope > [aria-hidden="true"]');
+    for (const visit of ['initial', 'return']) {
+      await expect(icon).toHaveCSS('position', 'absolute');
+      const iconBounds = (await icon.boundingBox())!;
+      const titleBounds = (await title.boundingBox())!;
+      const letterBounds = (await title.locator('span').first().boundingBox())!;
+      expect(iconBounds.y).toBeCloseTo(titleBounds.y, 0);
+      expect(iconBounds.x + iconBounds.width).toBeLessThan(letterBounds.x);
+      await page.screenshot({ path: testInfo.outputPath(`brand-${viewport.width}-${visit}.png`) });
+      if (visit === 'initial') {
+        await showRoles(page);
+        await roleLinks(page)[0].click();
+        await expect(page).toHaveURL(/\/login\?role=editor$/);
+        await page.getByRole('link', { name: '역할 다시 선택' }).click();
+        await expect(page).toHaveURL(/\/landing$/);
+      }
+    }
+  }
 });
 
 test('넓은 화면의 역할 배경은 화면 전체 폭이며 카드와 안내가 함께 나타난다', async ({ page }) => {
