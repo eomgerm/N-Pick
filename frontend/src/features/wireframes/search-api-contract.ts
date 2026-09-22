@@ -192,13 +192,25 @@ function parseDateInformation(value: unknown, status: number): SearchDateInforma
 
 const KEYWORD_ORIGINS = ['user', 'expanded'] as const;
 
-function parseMatchedKeywords(value: unknown, status: number): SearchMatchedKeyword[] {
+/**
+ * `origin: null` 은 출처를 남기지 않던 시절의 기록을 복원할 때만 나온다 (§6.7). 실시간 응답에서 통과시키면, BE 가 출처를
+ * 못 채우는 회귀가 생겨도 오류 없이 옛 기록 모양의 칩으로 조용히 그려진다 — 확장어를 가리지 못하는 이 화면이
+ * 바로 S15P21A501-234 가 고친 증상이다. `parseMatchEvidence` 가 쓰는 것과 같은 규율이다.
+ */
+function parseMatchedKeywords(
+  value: unknown,
+  status: number,
+  isHistory: boolean,
+): SearchMatchedKeyword[] {
   if (!Array.isArray(value)) return invalidResponse(status);
   return value.map((item) => {
     const payload = readRecord(item, status);
     return {
       keyword: readNonEmptyString(payload.keyword, status),
-      origin: payload.origin === null ? null : readEnum(payload.origin, KEYWORD_ORIGINS, status),
+      origin:
+        isHistory && payload.origin === null
+          ? null
+          : readEnum(payload.origin, KEYWORD_ORIGINS, status),
     };
   });
 }
@@ -249,7 +261,7 @@ function parseScene(value: unknown, status: number, isHistory: boolean): SearchS
       status,
     ),
     sceneType: readNullableString(payload.scene_type, status),
-    matchedKeywords: parseMatchedKeywords(payload.matched_keywords, status),
+    matchedKeywords: parseMatchedKeywords(payload.matched_keywords, status, isHistory),
     matchEvidence: payload.match_evidence.map((item) =>
       parseMatchEvidence(item, status, isHistory),
     ),
