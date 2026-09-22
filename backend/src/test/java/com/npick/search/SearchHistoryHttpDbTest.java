@@ -325,14 +325,37 @@ class SearchHistoryHttpDbTest {
     void deleteIsIdempotent() throws Exception {
         seed();
 
-        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
-                .andExpect(status().isOk());
-        String first = deletedAt(9701);
+        // 이미 지운 상태를 과거 시각으로 만들어 둔다. 이 테스트는 한 트랜잭션에서 도는데 Postgres 의
+        // now() 는 transaction_timestamp() 라 트랜잭션 안에서 고정이다. 갓 지운 행으로 검사하면
+        // COALESCE 가 빠져도 두 값이 같아 단언이 통과한다 — 트랜잭션 시각과 다른 값이어야 회귀를 잡는다.
+        exec("UPDATE npick.search_execution SET deleted_at = now() - interval '1 day',"
+                + " updated_at = now() - interval '1 day' WHERE search_execution_id = 9701");
+        String deletedBefore = deletedAt(9701);
+        String updatedBefore = updatedAt(9701);
 
         mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
                 .andExpect(status().isOk());
 
-        assertThat(deletedAt(9701)).isEqualTo(first);
+        // 지운 시각이 밀리면 보존기간 판단의 기준이 흔들린다.
+        assertThat(deletedAt(9701)).isEqualTo(deletedBefore);
+        // 바뀐 것이 없는 재시도가 감사 조회에 나가는 updated_at 을 흔들지 않는다.
+        assertThat(updatedAt(9701)).isEqualTo(updatedBefore);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("처음 지울 때는 지운 시각과 갱신 시각을 남긴다 (S15P21A501-276)")
+    void firstDeleteStampsTimestamps() throws Exception {
+        seed();
+        exec("UPDATE npick.search_execution SET updated_at = now() - interval '1 day'"
+                + " WHERE search_execution_id = 9701");
+        String updatedBefore = updatedAt(9701);
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        assertThat(deletedAt(9701)).isNotNull();
+        assertThat(updatedAt(9701)).isNotEqualTo(updatedBefore);
     }
 
     @Test
@@ -369,8 +392,16 @@ class SearchHistoryHttpDbTest {
     }
 
     private String deletedAt(long executionId) {
+        return column("deleted_at", executionId);
+    }
+
+    private String updatedAt(long executionId) {
+        return column("updated_at", executionId);
+    }
+
+    private String column(String name, long executionId) {
         return jdbc.queryForObject(
-                "SELECT CAST(deleted_at AS text) FROM npick.search_execution WHERE search_execution_id = "
+                "SELECT CAST(" + name + " AS text) FROM npick.search_execution WHERE search_execution_id = "
                         + executionId,
                 String.class);
     }

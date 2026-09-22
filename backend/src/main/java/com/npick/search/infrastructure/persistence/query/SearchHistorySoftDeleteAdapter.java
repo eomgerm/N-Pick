@@ -15,6 +15,9 @@ import com.npick.search.application.port.SearchHistorySoftDeletePort;
  *
  * <p>{@code COALESCE} 로 이미 숨긴 행의 시각을 유지한다. 다시 {@code now()} 를 쓰면 재시도할 때마다 숨긴 시각이
  * 밀려 보존기간 판단의 기준이 흔들린다. 갱신 건수는 <b>존재·소유 여부</b>만 뜻하며 숨김 여부와 무관하다.
+ *
+ * <p>{@code updated_at} 도 같은 이유로 처음 숨길 때만 쓴다. 이 값은 감사 조회 응답(
+ * {@code SearchExecutionDetailResponse})에 나가므로, 아무것도 바꾸지 않은 재시도가 감사에 보이는 필드를 흔들면 안 된다.
  */
 @Repository
 public class SearchHistorySoftDeleteAdapter implements SearchHistorySoftDeletePort {
@@ -22,7 +25,8 @@ public class SearchHistorySoftDeleteAdapter implements SearchHistorySoftDeletePo
     private static final String SQL =
             """
             UPDATE search_execution se
-            SET deleted_at = COALESCE(se.deleted_at, now()), updated_at = now()
+            SET deleted_at = COALESCE(se.deleted_at, now()),
+                updated_at = CASE WHEN se.deleted_at IS NULL THEN now() ELSE se.updated_at END
             WHERE se.search_execution_id = :searchExecutionId AND
             """
                     + SearchHistoryRows.OWNER_SCOPE_ANY_STATE;
