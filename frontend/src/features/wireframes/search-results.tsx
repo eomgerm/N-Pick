@@ -84,7 +84,10 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
             : search.isLoading
               ? 'loading'
               : 'ready',
-        error: search.error,
+        // 더보기(fetchNextPage) 실패는 전역 오류 토스트로 띄우지 않는다 — 위 state 와 같은
+        // 기준으로, 불러온 결과를 유지하고 더보기 영역에서만 재시도를 안내한다. 여기서 error 를
+        // 거르지 않으면 state 만 고치고 토스트가 남아 수정이 반쪽이 된다 (S15P21A501-251 리뷰).
+        error: search.isFetchNextPageError ? undefined : search.error,
         // 첫 로딩(isLoading)·더보기(isFetchingNextPage)를 뺀 순수 재조회. 네비게이션 잠금을
         // 재검색 완료 시 풀어 주기 위해 shell 에 알린다 (S15P21A501-251).
         isRevalidating: search.isFetching && !search.isLoading && !search.isFetchingNextPage,
