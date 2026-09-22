@@ -194,6 +194,35 @@ class SearchControllerTest {
     }
 
     @Test
+    @DisplayName("더보기의 search_execution_id 를 parent 로 질의에 넘기고, 과대 숫자는 500 대신 root 로 본다 (S15P21A501-280)")
+    void passesParentExecutionIdAndTreatsOversizedAsRoot() throws Exception {
+        given(useCase.execute(any())).willReturn(succeeded());
+
+        // 정상 값은 parent 로 넘어간다.
+        mockMvc.perform(post("/api/v1/search")
+                        .with(user(EDITOR))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                                "{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":1,"
+                                        + "\"search_execution_id\":\"398021847361024\"}"))
+                .andExpect(status().isOk());
+        var captor = org.mockito.ArgumentCaptor.forClass(ExecuteSearchQuery.class);
+        verify(useCase).execute(captor.capture());
+        assertThat(captor.getValue().parentExecutionId()).isEqualTo(398021847361024L);
+
+        // Long 범위를 넘는 20자리 값은 그룹핑 힌트가 무효일 뿐 검색을 500 으로 죽이지 않는다.
+        mockMvc.perform(post("/api/v1/search")
+                        .with(user(EDITOR))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                                "{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":1,"
+                                        + "\"search_execution_id\":\"99999999999999999999\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("음수·상한 초과 page 는 400 으로 막는다 (S15P21A501-251)")
     void rejectsInvalidPage() throws Exception {
         for (String page : new String[] {"-1", "10001"}) {

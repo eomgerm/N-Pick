@@ -100,6 +100,22 @@ class SearchHistoryHttpDbTest {
 
     @Test
     @Transactional
+    @DisplayName("더보기 이어보기 실행(parent_execution_id 있음)은 기록 목록에서 root 아래로 숨는다 (S15P21A501-280)")
+    void listHidesLoadMoreContinuationExecutions() throws Exception {
+        seed();
+        // 9701 을 root 로 하는 더보기 이어보기 실행. 한 검색이라 기록엔 root(9701)만 한 줄로 보여야 한다.
+        execution(9799, 9001, "서울역 귀성 인파", "succeeded", "original", null, "2026-09-15T03:05:00Z", null, "[]");
+        exec("UPDATE npick.search_execution SET parent_execution_id = 9701 WHERE search_execution_id = 9799");
+
+        mockMvc.perform(get("/api/v1/search/history?page=0&size=10").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total_elements").value(3))
+                .andExpect(jsonPath(
+                        "$.data.items[*].search_execution_id", Matchers.not(Matchers.hasItem("9799"))));
+    }
+
+    @Test
+    @Transactional
     @DisplayName("결과 저장이 불완전한 기록은 unavailable 이고 세 필드가 null 이지만 원문·시각은 유지한다")
     void listMarksIncompleteRecordUnavailable() throws Exception {
         seed();
