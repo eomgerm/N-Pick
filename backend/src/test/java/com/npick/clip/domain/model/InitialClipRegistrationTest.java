@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.npick.clip.domain.error.ClipRegistrationErrorCode;
 import com.npick.clip.domain.model.InitialClipRegistration.PipelineDefinition;
@@ -85,6 +89,68 @@ class InitialClipRegistrationTest {
     }
 
     @Test
+    void rejectsFilmedDateAfterRegistrationDay() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.BROADCAST, null, LocalDate.of(2026, 9, 8), null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.FUTURE_FILMED_DATE));
+    }
+
+    @Test
+    void rejectsBroadcastDateAfterRegistrationDay() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.BROADCAST, LocalDate.of(2026, 9, 8), null, null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE));
+    }
+
+    /** 코드마다 가리키는 입력이 하나여야 화면이 방송일 문구를 촬영일 밑에 붙이지 않는다. */
+    @Test
+    void separatesErrorCodePerDateField() {
+        assertThat(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE.code()).isEqualTo("CLIP_400_013");
+        assertThat(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE.code())
+                .isEqualTo("CLIP_400_013");
+        assertThat(ClipRegistrationErrorCode.FUTURE_FILMED_DATE.code()).isEqualTo("CLIP_400_014");
+    }
+
+    @Test
+    void rejectsBroadcastDateEarlierThanFilmedDate() {
+        assertThatThrownBy(() -> registration(
+                        SourceType.BROADCAST,
+                        LocalDate.of(2026, 9, 5),
+                        LocalDate.of(2026, 9, 6),
+                        null,
+                        null,
+                        definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE));
+    }
+
+    @Test
+    void acceptsVideoFilmedAndBroadcastOnRegistrationDay() {
+        LocalDate today = LocalDate.of(2026, 9, 7);
+        var registration = registration(SourceType.BROADCAST, today, today, null, null, definition());
+        assertThat(registration.broadcastDate()).isEqualTo(today);
+        assertThat(registration.filmedDate()).isEqualTo(today);
+    }
+
+    /** 미래 날짜 검사를 앞에 끼워 넣어도 자료 영상의 방송일 거부는 그대로 CLIP_400_003 이어야 한다. */
+    @Test
+    void keepsArchiveBroadcastDateRejectionForFutureBroadcastDate() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.ARCHIVE, LocalDate.of(2026, 9, 8), null, null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE));
+    }
+
+    @Test
     void rejectsBroadcastDateForArchiveEvenOutsideHttpValidation() {
         assertThatThrownBy(() ->
                         registration(SourceType.ARCHIVE, LocalDate.of(2026, 9, 7), null, null, null, definition()))
@@ -92,6 +158,24 @@ class InitialClipRegistrationTest {
                         BusinessException.class,
                         error -> assertThat(error.errorCode())
                                 .isEqualTo(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"가, 50", "😀, 25"})
+    void enforcesTitleLimitInUtf16UnitsEvenOutsideHttpValidation(String character, int count) {
+        String title = character.repeat(count);
+        assertThat(titled(title).title()).isEqualTo(title);
+        assertThatThrownBy(() -> titled(title + character)).isInstanceOfSatisfying(BusinessException.class, error -> {
+            assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.TITLE_TOO_LONG);
+            assertThat(error.errorCode().message()).isEqualTo("제목은 50자 이내로 입력해 주세요.");
+        });
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    void treatsBlankOptionalTitleAsAbsent(String title) {
+        assertThat(titled(title).title()).isNull();
     }
 
     /**

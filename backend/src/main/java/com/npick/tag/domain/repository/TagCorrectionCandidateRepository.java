@@ -11,4 +11,7 @@ public interface TagCorrectionCandidateRepository {
 
     /** 태그 판단 하나를 후보로 저장하고 생성된 {@code evidence_id} 를 준다. 대상 태그·태깅이 없으면 만든다. */
     long addJudgment(ReviewerTagJudgment judgment);
+
+    /** 이 신고에서 만들어진 검수자 판단 수. 누적 개수 상한 판정에 쓴다 (S15P21A501-255). */
+    int countByFeedback(long sourceFeedbackId);
 }

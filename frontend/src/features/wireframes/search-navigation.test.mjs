@@ -25,6 +25,19 @@ const { createSearchResultsHref, isSameSearchDestination } = await import('./sea
 
 const emptyRange = { from: '', to: '' };
 
+test('검색 URL은 2~500자 경계를 지키고 초과값을 자르지 않는다', () => {
+  for (const query of ['비', '가'.repeat(501)]) {
+    assert.equal(
+      createSearchResultsHref({ query, broadcast: emptyRange, filming: emptyRange }),
+      null,
+    );
+  }
+  for (const query of ['화재', '가'.repeat(500)]) {
+    const href = createSearchResultsHref({ query, broadcast: emptyRange, filming: emptyRange });
+    assert.equal(new URL(href, 'http://localhost').searchParams.get('q'), query);
+  }
+});
+
 test('검색어를 정리하고 URL에서 안전하게 인코딩한다', () => {
   const href = createSearchResultsHref({
     query: '  명절 교통 & 서울역  ',

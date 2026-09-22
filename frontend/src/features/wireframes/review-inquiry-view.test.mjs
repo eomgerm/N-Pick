@@ -4,6 +4,9 @@ import test from 'node:test';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier.endsWith('.module.css')) {
+      return { url: 'data:text/javascript,export default {}', shortCircuit: true };
+    }
     return nextResolve(
       specifier.startsWith('@/')
         ? new URL(`../../${specifier.slice('@/'.length)}.ts`, import.meta.url).href
@@ -69,6 +72,71 @@ test('과거 근거와 적용 규칙의 내용을 보존하고 내부 필드는 
   assert.equal(evidenceLabel('SCENE'), '장면');
   assert.equal(evidenceLabel('verified'), '검증됨');
   assert.equal(evidenceLabel(null), '기록 없음');
+});
+
+test('당시 결과 표시값은 검색 화면과 같은 한국어 어휘와 시간 형식으로 표시한다', () => {
+  const snapshot = JSON.stringify({
+    guard: { exclusion_reason: null },
+    match: {
+      matched_keywords: ['국회'],
+      match_evidence: [
+        {
+          field: 'caption',
+          value: '국회 로고가 보이는 배경',
+          source: 'scene_caption',
+          verification_status: 'unverified',
+        },
+      ],
+    },
+    score: { base_score: 1.2 },
+    display: {
+      display_name: '당시 KBC 뉴스9',
+      scene_type: '국회 현장',
+      shot_type: 'interview',
+      broadcast_date: { value: '2022-04-02', verification_status: 'unverified' },
+      filmed_date: { value: null, verification_status: 'unknown' },
+      scene_description: '국회 로고가 보이는 배경 앞에서 마스크를 쓴 남성',
+      start_time_ms: 0,
+      end_time_ms: 9610,
+      resolver_output: '/srv/private',
+    },
+  });
+
+  assert.deepEqual(getSnapshotFacts(snapshot), [
+    { label: '일치 근거 · 일치 근거 1 · 항목', value: '장면 설명' },
+    { label: '일치 근거 · 일치 근거 1 · 값', value: '국회 로고가 보이는 배경' },
+    { label: '일치 근거 · 일치 근거 1 · 출처', value: 'AI 장면 설명' },
+    { label: '일치 근거 · 일치 근거 1 · 검증 상태', value: '자동 인식' },
+    { label: '클립 제목', value: '당시 KBC 뉴스9' },
+    { label: '장면 유형', value: '국회 현장' },
+    { label: '샷 유형', value: '인터뷰' },
+    { label: '방송일', value: '2022-04-02 · 자동 인식' },
+    { label: '촬영일', value: '미상 · 미상' },
+    { label: '장면 설명', value: '국회 로고가 보이는 배경 앞에서 마스크를 쓴 남성' },
+    { label: '구간', value: '00:00 – 00:09' },
+  ]);
+});
+
+test('표시값 전용 렌더러는 알 수 없는 값과 임의 키를 원문으로 노출하지 않는다', () => {
+  assert.deepEqual(
+    getSnapshotFacts(
+      JSON.stringify({
+        display: {
+          display_name: '/srv/private',
+          scene_type: '<script>alert(1)</script>',
+          scene_description: 'Bearer secret',
+          shot_type: 'legacy',
+          broadcast_date: { value: null, verification_status: 'legacy' },
+          private_path: '/srv/private',
+        },
+      }),
+    ),
+    [
+      { label: '샷 유형', value: '정보 없음' },
+      { label: '방송일', value: '미상 · 정보 없음' },
+    ],
+  );
+  assert.equal(getSnapshotFacts('{"display":{"private_path":"/srv/private"}}'), null);
 });
 
 test('근거 출처와 검수자 판단은 계약 어휘 전체를 한국어로 옮기고 어휘 밖 값은 감춘다', () => {

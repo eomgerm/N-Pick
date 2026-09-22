@@ -45,7 +45,7 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
     // 신고 장면의 태깅 + 그 장면이 속한 클립의 클립레벨 태깅(scene_id IS NULL)을 함께 조회한다.
     // 클립 태그는 장면에 상속되므로 F-09·F-10의 "당시 근거 비교"에 포함해야 한다(P2). 장면 태깅을 먼저 노출한다.
     private static final String EVIDENCE_SQL = """
-            SELECT tg.tagging_id, t.name AS tag_name,
+            SELECT tg.tagging_id, t.tag_type, t.match_value, t.name AS tag_name,
                    COALESCE(string_agg(DISTINCT te.source, ',' ORDER BY te.source), '') AS sources,
                    CASE
                        WHEN bool_or(te.verification_status = 'verified') THEN 'verified'
@@ -64,7 +64,7 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
             -- 근거 수만큼 곱해진다(S15P21A501-235). tagging 단위로 묶어 출처는 모으고 검증 상태는 verified 우선으로 하나만 낸다.
             LEFT JOIN tag_evidence te ON te.tagging_id = tg.tagging_id AND te.confirmed
             WHERE tg.scene_id = :sceneId OR (tg.scene_id IS NULL AND tg.clip_id = :clipId)
-            GROUP BY tg.tagging_id, t.name, tg.scene_id
+            GROUP BY tg.tagging_id, t.tag_type, t.match_value, t.name, tg.scene_id
             ORDER BY (tg.scene_id IS NULL), tg.tagging_id
             """;
 
@@ -140,6 +140,8 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
         String sources = (String) row.get("sources");
         return new SceneEvidence(
                 ((Number) row.get("tagging_id")).longValue(),
+                (String) row.get("tag_type"),
+                (String) row.get("match_value"),
                 (String) row.get("tag_name"),
                 sources == null || sources.isBlank() ? List.of() : List.of(sources.split(",")),
                 (String) row.get("verification_status"),

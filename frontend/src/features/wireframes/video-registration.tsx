@@ -2,9 +2,21 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { ArrowLeft, Check, FileText, Film, Plus, UploadCloud, X } from 'lucide-react';
-import { type DragEvent, type FormEvent, useEffect, useRef, useState } from 'react';
+import {
+  type DragEvent,
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import {
+  registrationDateBounds,
+  registrationToday,
+  validateRegistrationDates,
+} from '@/features/wireframes/registration-dates';
 import {
   formatFileSize,
   scriptAccept,
@@ -25,6 +37,10 @@ import {
   registerClip,
 } from '@/features/wireframes/video-registration-api';
 import styles from '@/features/wireframes/video-registration.module.css';
+import {
+  CLIP_TITLE_MAX_LENGTH,
+  rejectOversizedPaste,
+} from '@/features/wireframes/input-validation';
 
 export interface RegisteredVideo {
   id: string;
@@ -65,6 +81,9 @@ interface FileDropzoneProps {
   onFiles: (files: File[]) => void;
 }
 
+const subscribeToNothing = () => () => {};
+const getNoToday = () => '';
+
 const focusSelectors: Record<RegistrationField, string> = {
   video: '#video-file',
   sourceType: 'input[name="sourceType"]',
@@ -96,11 +115,12 @@ function FileDropzone({
     event.stopPropagation();
     dragDepth.current = 0;
     setIsDragging(false);
-    if (!isDisabled) onFiles(Array.from(event.dataTransfer.files));
+    const files = Array.from(event.dataTransfer.files);
+    if (!isDisabled && files.length > 0) onFiles(files);
   }
 
   return (
-    <>
+    <div className={styles.dropzoneGroup}>
       <label
         className={styles.dropzone}
         data-kind={kind}
@@ -147,7 +167,7 @@ function FileDropzone({
         {isVideo ? <span className={styles.chooseFile}>파일 선택</span> : null}
       </label>
       {error ? <FieldError id={`${kind}-error`}>{error}</FieldError> : null}
-    </>
+    </div>
   );
 }
 
@@ -163,16 +183,19 @@ function SelectedFileRow({
   onRemove: () => void;
 }) {
   return (
-    <div className={styles.fileRow}>
+    <li className={styles.fileRow}>
       {label === '영상 파일' ? <Film aria-hidden="true" /> : <FileText aria-hidden="true" />}
       <span>
+        <span className={styles.selectionStatus}>
+          <Check aria-hidden="true" /> 선택됨
+        </span>
         <strong>{file.name}</strong>
         <small>{formatFileSize(file.size)}</small>
       </span>
       <button aria-label={`${label} 삭제`} disabled={isDisabled} onClick={onRemove} type="button">
         <X aria-hidden="true" />
       </button>
-    </div>
+    </li>
   );
 }
 
@@ -279,6 +302,10 @@ export function VideoRegistration({
     },
   });
   const isBusy = isNavigating || mutation.isPending || isSubmissionLocked;
+  // 서버에서는 빈 값을 주고 마운트 후에 로컬 오늘로 바꾼다. 렌더 중에 오늘을 읽으면 서버·브라우저 시간대 차이로
+  // hydration 이 어긋난다.
+  const today = useSyncExternalStore(subscribeToNothing, registrationToday, getNoToday);
+  const dateBounds = registrationDateBounds({ sourceType, broadcastDate, filmedDate }, today);
 
   function scheduleErrorFocus(errors: RegistrationFieldErrors, showGlobal: boolean) {
     const firstField = Object.keys(focusSelectors).find(
@@ -297,7 +324,14 @@ export function VideoRegistration({
     retrySubmissionRef.current = null;
     setErrorPresentation(null);
     mutation.reset();
-    setFieldErrors((current) => ({ ...current, [field]: undefined }));
+    setFieldErrors((current) => ({
+      ...current,
+      [field]: undefined,
+      // 날짜 안내는 두 값의 관계로 정해진다. 한쪽을 고치면 반대쪽에 붙은 안내도 더는 사실이 아니다.
+      ...(field === 'broadcastDate' || field === 'filmedDate'
+        ? { broadcastDate: undefined, filmedDate: undefined }
+        : {}),
+    }));
   }
 
   function handleVideoFiles(files: File[]) {
@@ -305,7 +339,12 @@ export function VideoRegistration({
     setVideo(null);
     const error = validateVideoFiles(files);
     setFieldErrors((current) => ({ ...current, video: error || undefined }));
-    if (!error) setVideo(files[0]);
+    if (error) {
+      setLiveMessage(`영상 파일을 선택하지 못했습니다. ${error}`);
+      return;
+    }
+    setVideo(files[0]);
+    setLiveMessage(`영상 파일 ${files[0].name}이 선택되었습니다.`);
   }
 
   function handleSubtitleFiles(files: File[]) {
@@ -313,7 +352,12 @@ export function VideoRegistration({
     setSubtitle(null);
     const error = validateSubtitleFiles(files);
     setFieldErrors((current) => ({ ...current, subtitle: error || undefined }));
-    if (!error) setSubtitle(files[0]);
+    if (error) {
+      setLiveMessage(`자막 파일을 선택하지 못했습니다. ${error}`);
+      return;
+    }
+    setSubtitle(files[0]);
+    setLiveMessage(`자막 파일 ${files[0].name}이 선택되었습니다.`);
   }
 
   function handleScriptFiles(files: File[]) {
@@ -321,7 +365,12 @@ export function VideoRegistration({
     setScript(null);
     const error = validateScriptFiles(files);
     setFieldErrors((current) => ({ ...current, scriptText: error || undefined }));
-    if (!error) setScript(files[0]);
+    if (error) {
+      setLiveMessage(`일반 대본 파일을 선택하지 못했습니다. ${error}`);
+      return;
+    }
+    setScript(files[0]);
+    setLiveMessage(`일반 대본 파일 ${files[0].name}이 선택되었습니다.`);
   }
 
   function validateForm(): RegistrationFieldErrors {
@@ -330,7 +379,9 @@ export function VideoRegistration({
     const subtitleError = validateSubtitleFiles(subtitle ? [subtitle] : []);
     const scriptError = validateScriptFiles(script ? [script] : []);
     if (videoError) errors.video = videoError;
-    if (title.length > 500) errors.title = '제목은 500자 이내로 입력해 주세요.';
+    if (title.length > CLIP_TITLE_MAX_LENGTH)
+      errors.title = `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`;
+    Object.assign(errors, validateRegistrationDates({ sourceType, broadcastDate, filmedDate }));
     if (subtitleError) errors.subtitle = subtitleError;
     if (scriptError) errors.scriptText = scriptError;
     if (!rightsConfirmed) errors.rightsConfirmed = '등록 전 확인 내용에 체크해주세요.';
@@ -424,15 +475,18 @@ export function VideoRegistration({
             onFiles={handleVideoFiles}
           />
           {video ? (
-            <SelectedFileRow
-              file={video}
-              isDisabled={isBusy}
-              label="영상 파일"
-              onRemove={() => {
-                markEdited('video');
-                setVideo(null);
-              }}
-            />
+            <ul aria-label="선택한 영상 파일" className={styles.files}>
+              <SelectedFileRow
+                file={video}
+                isDisabled={isBusy}
+                label="영상 파일"
+                onRemove={() => {
+                  markEdited('video');
+                  setVideo(null);
+                  setLiveMessage(`영상 파일 ${video.name}이 삭제되었습니다.`);
+                }}
+              />
+            </ul>
           ) : null}
         </section>
 
@@ -444,27 +498,31 @@ export function VideoRegistration({
             <div>
               <h3>자막 파일</h3>
               <p className={styles.description} id="subtitle-desc">
-                자막 파일을 선택해주세요 (SRT/VTT 지원)
+                SRT, VTT 또는 승인된 JSON 한 개 · 10 MiB 이하
               </p>
               <FileDropzone
                 accept={subtitleAccept}
                 error={fieldErrors.subtitle ?? ''}
                 hasFile={Boolean(subtitle)}
+                hint="드래그하거나 클릭하여 선택 · SRT/VTT/JSON 1개 · 10 MiB 이하"
                 isDisabled={isBusy}
                 kind="subtitle"
                 label="자막 파일"
                 onFiles={handleSubtitleFiles}
               />
               {subtitle ? (
-                <SelectedFileRow
-                  file={subtitle}
-                  isDisabled={isBusy}
-                  label="자막 파일"
-                  onRemove={() => {
-                    markEdited('subtitle');
-                    setSubtitle(null);
-                  }}
-                />
+                <ul aria-label="선택한 자막 파일" className={styles.files}>
+                  <SelectedFileRow
+                    file={subtitle}
+                    isDisabled={isBusy}
+                    label="자막 파일"
+                    onRemove={() => {
+                      markEdited('subtitle');
+                      setSubtitle(null);
+                      setLiveMessage(`자막 파일 ${subtitle.name}이 삭제되었습니다.`);
+                    }}
+                  />
+                </ul>
               ) : null}
             </div>
             <div>
@@ -476,21 +534,25 @@ export function VideoRegistration({
                 accept={scriptAccept}
                 error={fieldErrors.scriptText ?? ''}
                 hasFile={Boolean(script)}
+                hint="드래그하거나 클릭하여 선택 · TXT 1개"
                 isDisabled={isBusy}
                 kind="script"
                 label="일반 대본 파일"
                 onFiles={handleScriptFiles}
               />
               {script ? (
-                <SelectedFileRow
-                  file={script}
-                  isDisabled={isBusy}
-                  label="일반 대본 파일"
-                  onRemove={() => {
-                    markEdited('scriptText');
-                    setScript(null);
-                  }}
-                />
+                <ul aria-label="선택한 일반 대본 파일" className={styles.files}>
+                  <SelectedFileRow
+                    file={script}
+                    isDisabled={isBusy}
+                    label="일반 대본 파일"
+                    onRemove={() => {
+                      markEdited('scriptText');
+                      setScript(null);
+                      setLiveMessage(`일반 대본 파일 ${script.name}이 삭제되었습니다.`);
+                    }}
+                  />
+                </ul>
               ) : null}
             </div>
           </div>
@@ -544,14 +606,22 @@ export function VideoRegistration({
             </fieldset>
             <label className={styles.textField}>
               <span>
-                제목 <small>선택 · 최대 500자</small>
+                제목 <small>선택 · 최대 {CLIP_TITLE_MAX_LENGTH}자</small>
               </span>
               <input
                 aria-describedby={fieldErrors.title ? 'title-error' : 'title-hint'}
                 aria-invalid={Boolean(fieldErrors.title)}
                 disabled={isBusy}
                 id="registration-title"
-                maxLength={500}
+                maxLength={CLIP_TITLE_MAX_LENGTH}
+                onPaste={(event) =>
+                  rejectOversizedPaste(event, CLIP_TITLE_MAX_LENGTH, () =>
+                    setFieldErrors((current) => ({
+                      ...current,
+                      title: `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`,
+                    })),
+                  )
+                }
                 onChange={(event) => {
                   markEdited('title');
                   setTitle(event.target.value);
@@ -560,7 +630,9 @@ export function VideoRegistration({
                 type="text"
                 value={title}
               />
-              <small id="title-hint">비워둘 경우 파일명을 제목으로 사용합니다.</small>
+              <small id="title-hint">
+                {title.length}/{CLIP_TITLE_MAX_LENGTH}자 · 비워둘 경우 파일명을 제목으로 사용합니다.
+              </small>
               {fieldErrors.title ? (
                 <FieldError id="title-error">{fieldErrors.title}</FieldError>
               ) : null}
@@ -575,6 +647,8 @@ export function VideoRegistration({
                   aria-invalid={Boolean(fieldErrors.broadcastDate)}
                   disabled={isBusy}
                   id="broadcast-date"
+                  max={dateBounds.broadcastMax}
+                  min={dateBounds.broadcastMin}
                   onChange={(event) => {
                     markEdited('broadcastDate');
                     setBroadcastDate(event.target.value);
@@ -598,6 +672,7 @@ export function VideoRegistration({
                 aria-invalid={Boolean(fieldErrors.filmedDate)}
                 disabled={isBusy}
                 id="filmed-date"
+                max={dateBounds.filmedMax}
                 onChange={(event) => {
                   markEdited('filmedDate');
                   setFilmedDate(event.target.value);
@@ -658,7 +733,11 @@ export function VideoRegistration({
 
         {errorPresentation?.showGlobal && mutation.error ? (
           <div className={styles.apiError} ref={globalErrorRef} tabIndex={-1}>
-            <ApiErrorNotice error={mutation.error} id="registration-api-error" />
+            <ApiErrorNotice
+              error={mutation.error}
+              id="registration-api-error"
+              message={errorPresentation.globalMessage}
+            />
             {errorPresentation.retryMode === 'same-request' ? (
               <div className={styles.retryAction}>
                 <p>동일한 요청으로 재시도합니다.</p>

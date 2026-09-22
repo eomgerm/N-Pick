@@ -1,6 +1,38 @@
 import { ApiClientError, fetchJson } from '@/lib/api/client';
 import type { InquiryResolution, InquiryStatus } from '@/features/wireframes/inquiry-state';
 
+export const reviewTagTypes = [
+  'person',
+  'organization',
+  'location',
+  'facility',
+  'keyword',
+  'event',
+  'season',
+  'weather',
+  'scene_type',
+  'filmed_date',
+  'broadcast_date',
+] as const;
+
+export type ReviewTagType = (typeof reviewTagTypes)[number];
+export type ReviewTagScope = 'SCENE' | 'CLIP';
+export type TagCorrectionAction = 'APPROVE' | 'REJECT' | 'WITHDRAW';
+
+export interface TagCorrectionOperation {
+  action: TagCorrectionAction;
+  scope: ReviewTagScope;
+  tagType: ReviewTagType;
+  matchValue: string;
+  displayName: string;
+}
+
+export interface TagCorrectionCandidate {
+  feedbackId: string;
+  created: number;
+  evidenceIds: string[];
+}
+
 export interface ReviewInquiryScene {
   sceneId: string;
   clipId: string;
@@ -46,10 +78,12 @@ export interface ReviewInquiryDetail extends ReviewInquiryListItem {
   };
   evidence: Array<{
     taggingId: string;
+    tagType: ReviewTagType;
+    matchValue: string;
     tagName: string;
     sources: string[];
     verifiedState: string | null;
-    scope: string;
+    scope: ReviewTagScope;
   }>;
   history: {
     reviewedById: string | null;
@@ -122,6 +156,16 @@ function resolution(value: unknown): InquiryResolution | null {
     fail();
   }
   return normalized;
+}
+
+function tagType(value: unknown): ReviewTagType {
+  if (typeof value !== 'string' || !reviewTagTypes.includes(value as ReviewTagType)) fail();
+  return value as ReviewTagType;
+}
+
+function tagScope(value: unknown): ReviewTagScope {
+  if (value !== 'SCENE' && value !== 'CLIP') fail();
+  return value;
 }
 
 function scene(value: unknown): ReviewInquiryScene {
@@ -208,10 +252,12 @@ export function parseReviewInquiryDetail(value: unknown): ReviewInquiryDetail {
       const item = record(value);
       return {
         taggingId: identifier(item.taggingId),
+        tagType: tagType(item.tagType),
+        matchValue: text(item.matchValue),
         tagName: text(item.tagName),
         sources: Array.isArray(item.sources) ? item.sources.map(text) : [],
         verifiedState: nullableText(item.verifiedState),
-        scope: text(item.scope),
+        scope: tagScope(item.scope),
       };
     }),
     history: {
@@ -222,6 +268,31 @@ export function parseReviewInquiryDetail(value: unknown): ReviewInquiryDetail {
       verifiedByExecutionId:
         history.verifiedByExecutionId == null ? null : identifier(history.verifiedByExecutionId),
     },
+  };
+}
+
+export function parseCommaSeparatedTags(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      if (!tag || seen.has(tag)) return false;
+      seen.add(tag);
+      return true;
+    });
+}
+
+export function parseTagCorrectionCandidate(value: unknown): TagCorrectionCandidate {
+  const data = record(value);
+  if (!Array.isArray(data.evidenceIds)) fail();
+  const evidenceIds = data.evidenceIds.map(identifier);
+  const created = positiveInteger(data.created);
+  if (created !== evidenceIds.length) fail();
+  return {
+    feedbackId: identifier(data.feedbackId),
+    created,
+    evidenceIds,
   };
 }
 
@@ -270,4 +341,20 @@ export async function resolveReviewInquiry(
     body: { resolution: selectedResolution, note: note.trim() || null },
     signal,
   });
+}
+
+export async function createTagCorrectionCandidate(
+  feedbackId: string,
+  operations: TagCorrectionOperation[],
+  signal?: AbortSignal,
+): Promise<TagCorrectionCandidate> {
+  identifier(feedbackId);
+  if (operations.length === 0) fail(400);
+  return parseTagCorrectionCandidate(
+    await fetchJson<unknown>(`/review/inquiries/${feedbackId}/tag-correction-candidate`, {
+      method: 'POST',
+      body: { operations },
+      signal,
+    }),
+  );
 }

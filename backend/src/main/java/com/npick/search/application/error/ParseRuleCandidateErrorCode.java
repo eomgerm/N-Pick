@@ -29,7 +29,9 @@ public enum ParseRuleCandidateErrorCode implements ErrorCode {
     /** 교체 대상이 켜져 있는 patch_parse 규칙이 아니다 (없음·비활성·다른 action). */
     REPLACES_NOT_FOUND(ErrorType.BAD_REQUEST, "SRCH_400_202", "교체 대상 규칙을 찾을 수 없다"),
     /** 원 검색에 교정 전 AI 해석(resolver_output)이 없어 후보 본문을 대조할 수 없다. */
-    RESOLVER_OUTPUT_ABSENT(ErrorType.CONFLICT, "SRCH_409_203", "원 검색에 교정할 해석 출력이 없다");
+    RESOLVER_OUTPUT_ABSENT(ErrorType.CONFLICT, "SRCH_409_203", "원 검색에 교정할 해석 출력이 없다"),
+    /** 이 신고에서 만든 해석 교정 후보가 개수 상한에 닿았다 (S15P21A501-255). */
+    CANDIDATE_LIMIT_EXCEEDED(ErrorType.CONFLICT, "SRCH_409_204", "이 신고에서 만들 수 있는 해석 교정 후보 수를 넘었다");
 
     private final ErrorType type;
     private final String code;

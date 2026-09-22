@@ -88,6 +88,9 @@
   background: var(--surface-muted);
   text-align: left;
 }
+.dropzoneGroup {
+  min-width: 0;
+}
 .dropzone[data-kind='video'] {
   flex-direction: column;
   gap: 16px;
@@ -198,6 +201,20 @@
   font-size: 10px;
   color: var(--muted);
 }
+.fileRow .selectionStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  color: var(--positive);
+  font-size: 10px;
+  font-weight: 800;
+}
+.selectionStatus svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.5;
+}
 .fileRow button {
   display: grid;
   place-items: center;
@@ -221,15 +238,15 @@
 .attachmentGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  /* 제목·설명·드롭존을 두 열이 공유하는 3행으로 두어, 설명 줄 수가 달라도 드롭존이 같은 높이에서 시작한다. */
-  grid-template-rows: auto auto auto;
+  /* 제목·설명·드롭존·선택 파일 목록을 공유해 두 첨부 열의 항목이 겹치지 않게 정렬한다. */
+  grid-template-rows: auto auto auto auto;
   column-gap: 20px;
   row-gap: 0;
 }
 .attachmentGrid > div {
   display: grid;
   grid-template-rows: subgrid;
-  grid-row: span 3;
+  grid-row: span 4;
 }
 .error {
   margin: 10px 0 0;

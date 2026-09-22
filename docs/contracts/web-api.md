@@ -36,7 +36,7 @@
 | 영상 처리 목록             | GET    | `/clips`                                    | 연결됨    | 없음                               |
 | 영상 처리 상세             | GET    | `/clips/{id}`                               | 연결됨    | 없음                               |
 | 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
-| 태그 교정 후보             | POST   | `/review/inquiries/{feedbackId}/tag-correction-candidate` | BE 구현 | 검수 교정 바인딩            |
+| 태그 교정 후보             | POST   | `/review/inquiries/{feedbackId}/tag-correction-candidate` | 연결됨  | 후보 검증·확정 바인딩       |
 | 해석 교정 후보             | POST   | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 검수 교정 바인딩            |
 | 장면 제외 후보             | POST   | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 검수 교정 바인딩            |
 | 후보 검증 재검색           | POST   | `/review/inquiries/{feedbackId}/verify`                   | BE 구현 | 검수 재검색·확정 바인딩     |
@@ -166,7 +166,7 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | ------------------------------- | ------- | ------ | ----------------------------------------------- |
 | `video`                         | file    | 필수   | 1개, 실제 영상 내용·형식·크기·길이 검사         |
 | `source_type`                   | string  | 필수   | `broadcast` 또는 `archive`                      |
-| `title`                         | string  | 선택   | 공백은 생략, 최대 500자, 아래 UTF-8 규칙        |
+| `title`                         | string  | 선택   | 공백은 생략, 최대 50자(UTF-16 길이), 아래 UTF-8 규칙 |
 | `broadcast_date`                | date    | 선택   | `broadcast`에서만 허용                          |
 | `filmed_date`                   | date    | 선택   | 두 source 모두 허용                             |
 | `subtitle`                      | file    | 선택   | 1개, UTF-8 SRT/VTT 또는 승인된 JSON             |
@@ -174,11 +174,13 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | `rights_confirmed`              | boolean | 필수   | `true`여야 등록 가능                            |
 | `external_processing_confirmed` | boolean | 조건부 | 현재 처리 설정이 외부 AI 동의를 요구하면 `true` |
 
-자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다.
+자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다. 보낸 날짜는 등록일(Asia/Seoul) 이후일 수 없고, 두 날짜를 모두 보내면 `broadcast_date`가 `filmed_date`보다 빠를 수 없다. 위반은 `COMM_400_001`의 `data.broadcastDateNotFuture`·`data.filmedDateNotFuture`·`data.broadcastDateNotBeforeFilmedDate`로 거부한다. 요청 검증을 우회한 호출에서도 같은 규칙을 `CLIP_400_013`(방송일)·`CLIP_400_014`(촬영일)로 거부한다.
+
+제목은 FE와 BE 모두 UTF-16 길이로 검사한다. 일반 한글 50자 또는 `😀` 25개는 허용하며, 한글 51자 또는 `😀` 26개는 거절한다. 50자 제한은 신규 등록 입력에 적용하고 기존 제목·검색 기록은 자르지 않는다. 기존 데이터 보존을 위해 DB의 `clip.title varchar(500)`은 유지한다.
 
 **자막 종료 시각의 상한은 영상 길이를 올림한 정수 ms다.** 자막 시각은 정수 ms만 표현할 수 있는데 검사 기준인 ffprobe `format.duration`은 소수 ms라, 두 축을 오차 0으로 비교하면 영상 끝까지 덮는 자막이 1ms 미만 초과로 거절된다. 영상 전체를 담는 가장 작은 정수 ms를 상한으로 삼는다. 그 상한을 넘으면 문제 구간·상한·초과량과 함께 파일 전체를 거절하며 시간 보정·잘라내기·부분 적용은 하지 않는다 (`CLIP_400_012`).
 
-**`title`과 `script_text`는 U+FFFD를 담고 있으면 거절한다.** UTF-8이 아닌 본문을 보내면 읽지 못한 바이트마다 U+FFFD가 남고 원래 글자는 복구할 수 없다. 각각 `CLIP_400_004`·`CLIP_400_013`이다.
+**`title`과 `script_text`는 U+FFFD를 담고 있으면 거절한다.** UTF-8이 아닌 본문을 보내면 읽지 못한 바이트마다 U+FFFD가 남고 원래 글자는 복구할 수 없다. 각각 `CLIP_400_004`·`CLIP_400_015`이다.
 
 성공 envelope의 `data`:
 
@@ -207,7 +209,8 @@ FE가 직접 처리하는 주요 오류:
 | `CLIP_400_010`                                | 외부 처리 확인             |
 | `CLIP_400_011`                                | 날짜                       |
 | `CLIP_400_012`                                | 자막 내용                  |
-| `CLIP_400_013`                                | 일반 대본 내용             |
+| `CLIP_400_013`, `CLIP_400_014`                | 날짜 값 범위               |
+| `CLIP_400_015`                                | 일반 대본 내용             |
 | `CLIP_409_001`~`CLIP_409_003`                 | 멱등 요청 상태             |
 | `CLIP_503_001`~`CLIP_503_010`                 | 검사·저장·등록 연계 실패   |
 
@@ -472,7 +475,7 @@ body는 생략하거나 다음처럼 보낸다.
 
 ### 6.4 검수 문의 상세·시작·처리 결과
 
-`GET /review/inquiries/{feedbackId}`는 문의, 장면, 당시 검색 실행 snapshot, 근거, 검수 이력을 반환한다. 현재 BE 응답의 snapshot JSON 필드(`explicitFiltersJson`, `parsedQueryJson`, `resolverOutputJson`, `appliedRulesJson`, `appliedExcludesJson`)는 JSON 문자열이다. FE는 이를 개발용 원문으로 직접 노출하지 않고 사용자용 모델로 변환한다.
+`GET /review/inquiries/{feedbackId}`는 문의, 장면, 당시 검색 실행 snapshot, 근거, 검수 이력을 반환한다. 현재 BE 응답의 snapshot JSON 필드(`explicitFiltersJson`, `parsedQueryJson`, `resolverOutputJson`, `appliedRulesJson`, `appliedExcludesJson`)는 JSON 문자열이다. FE는 이를 개발용 원문으로 직접 노출하지 않고 사용자용 모델로 변환한다. `evidence[]`는 교정 후보를 정확히 만들 수 있도록 `taggingId`, `tagType`, `matchValue`, `tagName`, `source`, `verifiedState`, `scope`를 반환한다.
 
 `POST /review/inquiries/{feedbackId}/claim`
 
@@ -545,7 +548,8 @@ body는 생략하거나 다음처럼 보낸다.
 }
 ```
 
-- `operations`는 최소 1개. 교체는 `REJECT`+`APPROVE` 두 항목으로 보낸다. `action`은 `APPROVE|REJECT|WITHDRAW`, `scope`는 `SCENE|CLIP`.
+- `operations`는 최소 1개, 한 요청에 최대 20개. 교체는 `REJECT`+`APPROVE` 두 항목으로 보낸다. `action`은 `APPROVE|REJECT|WITHDRAW`, `scope`는 `SCENE|CLIP`.
+- 한 신고에 쌓을 수 있는 검수자 판단은 누적 50개까지다. 이번 요청분을 더해 넘으면 하나도 저장하지 않고 거부한다.
 - `tagType`은 11종 어휘, `matchValue`는 서버가 정규화한다(NFKC·불가시 문자 제거). 범위는 신고 컨텍스트의 장면/클립으로만 한정되어 임의 대상을 지정할 수 없다.
 - 성공 `201` body `data`: `{ feedbackId, created, evidenceIds }`. id는 정밀도 보존을 위해 문자열(TSID)이다.
 
@@ -554,11 +558,13 @@ body는 생략하거나 다음처럼 보낸다.
 | `TAG_400_001`      | 400  | 변경안이 비어 있음                |
 | `TAG_400_002`      | 400  | 알 수 없는 태그 유형              |
 | `TAG_400_003`      | 400  | 정규화 후 빈 태그 값              |
+| `TAG_400_004`      | 400  | 한 요청의 변경안이 20개 초과      |
 | `TAG_403_001`      | 403  | 검수자 아님                       |
 | `TAG_403_002`      | 403  | 담당 검수자 아님                  |
 | `TAG_404_001`      | 404  | 신고 없음                         |
 | `TAG_409_001`      | 409  | 검수 중이 아님                    |
 | `TAG_409_002`      | 409  | 태그·해석 교정으로 처리된 신고 아님 |
+| `TAG_409_003`      | 409  | 신고당 누적 변경안 50개 초과      |
 
 `POST /review/inquiries/{feedbackId}/scene-exclude-candidate` (S15P21A501-82)
 
@@ -586,6 +592,8 @@ body는 생략하거나 다음처럼 보낸다.
 - Header: `Idempotency-Key` 필수, 공백 불가, 최대 64자.
 - Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
 - 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
+- 한 신고에서 대기 중인 후보는 10개까지다. 확정되어 활성이 된 규칙은 세지 않는다. 상한에 닿은 뒤에도 같은 키의 멱등 재요청은 기존 후보를 돌려준다.
+- 대기 후보를 버리는 API 는 없다. 상한에 닿으면 남은 후보로 검증·확정하거나 판정을 다시 내려야 한다.
 - 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`. `searchRuleId`·`feedbackId`는 정밀도 보존을 위해 문자열(TSID)이다 — §8의 신규 응답 string 규칙을 따른다(S15P21A501-202).
 
 | 오류            | HTTP | 의미                              |
@@ -598,6 +606,7 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_409_201`  | 409  | 검수 중이 아님                    |
 | `SRCH_409_202`  | 409  | 해석 교정으로 처리된 신고 아님    |
 | `SRCH_409_203`  | 409  | 원 검색에 교정할 해석 출력이 없음 |
+| `SRCH_409_204`  | 409  | 신고당 후보 10개 초과             |
 
 `POST /review/inquiries/{feedbackId}/verify` (S15P21A501-83)
 

@@ -132,22 +132,14 @@ test('읽기 실패와 인코딩 실패는 일반 대본 항목에 서로 다른
   assert.notEqual(messages[0], messages[1]);
 });
 
-// 자막·대본 거절 메시지는 어느 구간이 상한을 얼마나 넘었는지를 담는다. 전역 배너로만 띄우면
-// 고쳐야 할 입력 옆에 그 안내가 없고 포커스도 그 항목을 건너뛴다 (S15P21A501-258).
-test('자막·대본 내용 거절 코드는 각자의 입력 항목에 붙는다', () => {
-  const subtitle = new ApiClientError('api', 400, {
-    code: 'CLIP_400_012',
-    message: '구간 [0, 3000] ms의 종료 시간이 영상 길이를 초과합니다.',
-  });
+// 전역 배너로만 띄우면 고쳐야 할 입력 옆에 안내가 없고 포커스도 그 항목을 건너뛴다.
+// 자막(CLIP_400_012)은 S15P21A501-256 이 고정 문구로 덮으므로 위 별도 테스트가 맡는다.
+test('대본 UTF-8 거절 코드는 일반 대본 항목에 붙는다', () => {
   const script = new ApiClientError('api', 400, {
-    code: 'CLIP_400_013',
+    code: 'CLIP_400_015',
     message: '일반 대본을 UTF-8 로 읽지 못했습니다. 요청을 UTF-8 로 보내 주세요.',
   });
 
-  assert.equal(
-    getClipRegistrationErrorPresentation(subtitle).fieldErrors.subtitle,
-    subtitle.message,
-  );
   assert.equal(getClipRegistrationErrorPresentation(script).fieldErrors.scriptText, script.message);
 });
 
@@ -183,7 +175,7 @@ test('허용한 validation 필드의 안전한 한국어 문자열만 인라인 
     diagnostics: {
       response: {
         data: {
-          title: '제목은 500자 이내로 입력해 주세요.',
+          title: '제목은 50자 이내로 입력해 주세요.',
           video: 'C:\\server\\secret.mp4',
           unknownField: '알 수 없는 필드는 노출하지 않습니다.',
         },
@@ -191,10 +183,89 @@ test('허용한 validation 필드의 안전한 한국어 문자열만 인라인 
     },
   });
   assert.deepEqual(getClipRegistrationErrorPresentation(error), {
-    fieldErrors: { title: '제목은 500자 이내로 입력해 주세요.' },
+    fieldErrors: { title: '제목은 50자 이내로 입력해 주세요.' },
     retryMode: 'none',
     showGlobal: true,
+    globalMessage: '입력한 내용을 확인한 뒤 다시 등록해 주세요.',
   });
+});
+
+test('서버의 날짜 검증 실패를 해당 날짜 입력의 인라인 오류로 읽는다', () => {
+  const error = new ApiClientError('api', 400, {
+    code: 'COMM_400_001',
+    message: 'Request validation failed',
+    diagnostics: {
+      response: {
+        data: {
+          filmedDateNotFuture: '촬영일은 오늘 이후 날짜로 입력할 수 없습니다.',
+          broadcastDateNotBeforeFilmedDate: '방송일은 촬영일보다 빠를 수 없습니다.',
+        },
+      },
+    },
+  });
+  assert.deepEqual(getClipRegistrationErrorPresentation(error), {
+    fieldErrors: {
+      filmedDate: '촬영일은 오늘 이후 날짜로 입력할 수 없습니다.',
+      broadcastDate: '방송일은 촬영일보다 빠를 수 없습니다.',
+    },
+    retryMode: 'none',
+    showGlobal: false,
+  });
+});
+
+test('서버의 미래 방송일 거부를 방송일 입력의 인라인 오류로 읽는다', () => {
+  const error = new ApiClientError('api', 400, {
+    code: 'COMM_400_001',
+    message: 'Request validation failed',
+    diagnostics: {
+      response: {
+        data: { broadcastDateNotFuture: '방송일은 오늘 이후 날짜로 입력할 수 없습니다.' },
+      },
+    },
+  });
+  assert.deepEqual(getClipRegistrationErrorPresentation(error), {
+    fieldErrors: { broadcastDate: '방송일은 오늘 이후 날짜로 입력할 수 없습니다.' },
+    retryMode: 'none',
+    showGlobal: false,
+  });
+});
+
+// 도메인까지 내려간 날짜 오류. 코드마다 가리키는 입력이 하나여야 방송일 문구가 촬영일 밑에 붙지 않는다.
+test('날짜 업무 오류 코드는 각자의 날짜 입력에 붙는다', () => {
+  const futureBroadcast = new ApiClientError('api', 400, {
+    code: 'CLIP_400_013',
+    message: '방송일은 등록일 이후 날짜일 수 없습니다.',
+  });
+  assert.equal(
+    getClipRegistrationErrorPresentation(futureBroadcast).fieldErrors.broadcastDate,
+    futureBroadcast.message,
+  );
+
+  const futureFilmed = new ApiClientError('api', 400, {
+    code: 'CLIP_400_014',
+    message: '촬영일은 등록일 이후 날짜일 수 없습니다.',
+  });
+  assert.equal(
+    getClipRegistrationErrorPresentation(futureFilmed).fieldErrors.filmedDate,
+    futureFilmed.message,
+  );
+});
+
+test('자막 진단 문자열과 전체 용량 초과는 한국어 입력 안내로 표시한다', () => {
+  const subtitle = getClipRegistrationErrorPresentation(
+    new ApiClientError('api', 400, {
+      code: 'CLIP_400_012',
+      message: 'segments[0].e: 영상 길이 초과',
+    }),
+  );
+  assert.equal(
+    subtitle.fieldErrors.subtitle,
+    '자막 파일의 형식, 인코딩과 시간 정보를 확인해 주세요.',
+  );
+  assert.equal(subtitle.retryMode, 'none');
+  const oversized = getClipRegistrationErrorPresentation(new ApiClientError('http', 413));
+  assert.match(oversized.globalMessage, /전체 크기/);
+  assert.equal(oversized.retryMode, 'none');
 });
 
 test('403 보안 실패는 입력 변경 없이 같은 요청으로 수동 재시도한다', () => {

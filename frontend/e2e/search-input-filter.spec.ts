@@ -43,10 +43,11 @@ test('검색 오류 팝업은 자동·수동으로 닫히고 재시도 오류를
   );
   await openAsEditor(page, '/search/results?q=장면');
 
-  const notice = page.getByRole('alert').filter({ hasText: 'COMM_404' });
+  const notice = page.getByRole('alert').filter({ hasText: '요청한 항목을 찾을 수 없습니다.' });
   const retry = page.getByRole('button', { name: '같은 조건으로 다시 시도' });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText('search-error-test');
+  await expect(notice).not.toContainText('search-error-test');
+  await expect(notice).not.toContainText('COMM_404');
   await expect(notice.locator('..')).toHaveCSS('position', 'fixed');
 
   await page.clock.fastForward(5_000);
@@ -144,6 +145,52 @@ test('검색어와 방송일·촬영일을 결과 URL과 화면에 보존한다'
   ).toBeVisible();
   await expect(
     page.getByRole('button', { name: '촬영일 기간 선택: 2026.08.28 – 2026.08.29' }),
+  ).toBeVisible();
+});
+
+test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 반영한다', async ({ page }) => {
+  await openAsEditor(page, '/search');
+
+  const broadcastTrigger = page.getByRole('button', { name: /^방송일 기간 선택:/ });
+  await broadcastTrigger.click();
+  const broadcastDialog = page
+    .getByRole('dialog')
+    .filter({ has: page.getByRole('heading', { name: '방송일 기간' }) });
+  await broadcastDialog.getByRole('button', { name: '최근 1년' }).click();
+  await expect(
+    broadcastDialog.getByRole('button', { name: '시작일 2025년 9월, 월 선택', exact: true }),
+  ).toBeVisible();
+  await expect(
+    broadcastDialog.locator('[data-endpoint="from"] [data-date="2025-09-11"]'),
+  ).toHaveAttribute('tabindex', '0');
+  await broadcastDialog.getByRole('button', { name: '적용' }).click();
+  await expect(
+    page.getByRole('button', { name: '방송일 기간 선택: 2025.09.11 – 2026.09.11' }),
+  ).toBeVisible();
+
+  const filmingTrigger = page.getByRole('button', { name: /^촬영일 기간 선택:/ });
+  await filmingTrigger.click();
+  const filmingDialog = page
+    .getByRole('dialog')
+    .filter({ has: page.getByRole('heading', { name: '촬영일 기간' }) });
+  await filmingDialog.getByRole('button', { name: '최근 3년' }).click();
+  await expect(
+    filmingDialog.getByRole('button', { name: '시작일 2023년 9월, 월 선택', exact: true }),
+  ).toBeVisible();
+  await expect(
+    filmingDialog.locator('[data-endpoint="from"] [data-date="2023-09-11"]'),
+  ).toHaveAttribute('tabindex', '0');
+  await filmingDialog.getByRole('button', { name: '적용' }).click();
+  await expect(
+    page.getByRole('button', { name: '촬영일 기간 선택: 2023.09.11 – 2026.09.11' }),
+  ).toBeVisible();
+
+  await broadcastTrigger.click();
+  await broadcastDialog.getByRole('button', { name: '초기화' }).click();
+  await expect(broadcastDialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: '방송일 기간 선택: 전체 기간' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '촬영일 기간 선택: 2023.09.11 – 2026.09.11' }),
   ).toBeVisible();
 });
 

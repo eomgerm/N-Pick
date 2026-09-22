@@ -10,6 +10,7 @@ const cssModuleUrl = `data:text/javascript,${encodeURIComponent(
   'export default new Proxy({}, { get: (_, key) => String(key) });',
 )}`;
 const localFiles = {
+  '@/features/wireframes/input-validation': './input-validation.ts',
   '@/features/wireframes/scene-preview-player': './scene-preview-player.tsx',
   '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
   '@/lib/api/client': '../../lib/api/client.ts',

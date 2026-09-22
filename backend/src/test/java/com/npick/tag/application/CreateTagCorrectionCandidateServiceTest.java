@@ -237,5 +237,62 @@ class CreateTagCorrectionCandidateServiceTest {
                         BusinessException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.EMPTY_OPERATIONS));
         verify(candidateRepository, never()).addJudgment(any());
+        verify(correctionStateLock, never()).acquire();
+    }
+
+    @Test
+    @DisplayName("한 요청의 변경안이 상한(20)을 넘으면 하나도 저장하지 않고 거부한다")
+    void rejectsTooManyOperationsInOneRequest() {
+        reviewingTagCorrection();
+        assertThatThrownBy(() -> service.create(command(true, 9L, operations(21))))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode())
+                                .isEqualTo(TagCorrectionCandidateErrorCode.TOO_MANY_OPERATIONS));
+        verify(candidateRepository, never()).addJudgment(any());
+        // 요청 형태만 보는 검사라 전역 교정 상태 잠금을 잡기 전에 끝나야 한다 — 거대한 본문이 다른 교정 경로를 막지 않게.
+        verify(correctionStateLock, never()).acquire();
+    }
+
+    @Test
+    @DisplayName("상한과 같은 20개는 저장한다")
+    void acceptsOperationsAtRequestLimit() {
+        reviewingTagCorrection();
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+
+        assertThat(service.create(command(true, 9L, operations(20)))).hasSize(20);
+    }
+
+    @Test
+    @DisplayName("이미 쌓인 판단과 이번 요청을 더해 신고당 누적 상한(50)을 넘으면 거부한다")
+    void rejectsWhenAccumulatedJudgmentLimitExceeded() {
+        reviewingTagCorrection();
+        when(candidateRepository.countByFeedback(1L)).thenReturn(45);
+
+        assertThatThrownBy(() -> service.create(command(true, 9L, operations(6))))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode())
+                                .isEqualTo(TagCorrectionCandidateErrorCode.JUDGMENT_LIMIT_EXCEEDED));
+        verify(candidateRepository, never()).addJudgment(any());
+    }
+
+    @Test
+    @DisplayName("누적이 상한에 정확히 맞으면 저장한다")
+    void acceptsWhenAccumulatedJudgmentFitsLimit() {
+        reviewingTagCorrection();
+        when(candidateRepository.countByFeedback(1L)).thenReturn(45);
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+
+        assertThat(service.create(command(true, 9L, operations(5)))).hasSize(5);
+    }
+
+    private TagOperation[] operations(int count) {
+        TagOperation[] operations = new TagOperation[count];
+        for (int i = 0; i < count; i++) {
+            operations[i] =
+                    new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "장소" + i, "장소" + i);
+        }
+        return operations;
     }
 }

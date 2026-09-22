@@ -31,7 +31,7 @@ from npick_worker.frame_extraction.extractor import (
 )
 from npick_worker.frame_extraction.selector import SceneMeasurement, ScoredFrame
 from npick_worker.media_errors import MediaUnreadableError
-from npick_worker.timecode import frames_to_ms
+from npick_worker.timecode import frame_number_from_pts, frames_to_ms
 
 #: 인코더에 넘기는 픽셀 형식. JPEG 은 full-range 이므로 색 범위를 **명시적으로** 준다.
 #:
@@ -113,7 +113,7 @@ class PyAvFrameGrabber:
 
         with av.open(str(video_path)) as container:
             frame_rate = _profile(container).frame_rate
-            for frame_number, frame in _decode_until(container, max(owner)):
+            for frame_number, frame in _decode_until(container, max(owner), frame_rate):
                 scene_index = owner.get(frame_number)
                 if scene_index is None:
                     continue
@@ -149,7 +149,9 @@ class PyAvFrameGrabber:
             return {}
         written: dict[int, WrittenImage] = {}
         with av.open(str(video_path)) as container:
-            for frame_number, frame in _decode_until(container, max(targets)):
+            # `measure` 와 같은 번호를 매겨야 `targets` 의 키가 같은 프레임을 가리킨다.
+            frame_rate = _profile(container).frame_rate
+            for frame_number, frame in _decode_until(container, max(targets), frame_rate):
                 target = targets.get(frame_number)
                 if target is None:
                     continue
@@ -167,15 +169,24 @@ class PyAvFrameGrabber:
 def _profile(container: "av.container.InputContainer") -> MediaProfile:
     """열린 컨테이너에서 디코드 성질을 읽는다.
 
-    프레임레이트로 `average_rate` 를 쓴다. PySceneDetect 의 `VideoStreamAv` 가 같은 값을
-    쓰기 때문이다 — 다른 값을 쓰면 `scene_detection` 이 만든 ms 를 프레임 번호로 되돌릴
-    때 어긋나고, keyframe 이 자기 scene 밖의 프레임을 가리킬 수 있다.
+    프레임레이트로 `guessed_rate` 를 쓴다. PySceneDetect 의 `VideoStreamAv.frame_rate`
+    가 그 값이기 때문이다(scenedetect 0.7.1, `backends/pyav.py`) — 다른 값을 쓰면
+    `scene_detection` 이 만든 ms 를 프레임 번호로 되돌릴 때 어긋나고, keyframe 이 자기
+    scene 밖의 프레임을 가리킬 수 있다.
+
+    **`average_rate` 는 쓸 수 없다.** 그것은 컨테이너가 적어 둔 값이 아니라 대개
+    `프레임수 / duration` 으로 유도되는 값이라, 마지막 프레임의 지속시간을 duration 에
+    넣지 않는 먹서를 만나면 위로 밀린다. 짧은 영상일수록 크게 밀린다 — 분모가 작아서다.
+    배포에서 죽은 26.8초 클립이 정확히 그 경우다 — 간격 804 개 중 777 개가 정확히
+    1/30초이고 나머지도 한 곳(1584 ticks)을 빼면 ±1 tick 인데, `average_rate` 만
+    30.0355 였다(S15P21A501-259). ffmpeg 을 거쳐 다시 써진 파일은 duration 이 정리되므로
+    두 값이 같아지고, 그래서 주로 폰·카메라가 직접 쓴 원본에서 드러난다.
     """
     if not container.streams.video:
         msg = "비디오 스트림이 없는 파일이다"
         raise MediaUnreadableError(msg)
     stream = container.streams.video[0]
-    if stream.average_rate is None or float(stream.average_rate) <= 0:
+    if stream.guessed_rate is None or float(stream.guessed_rate) <= 0:
         msg = "프레임레이트를 읽을 수 없다"
         raise MediaUnreadableError(msg)
     width = stream.codec_context.width
@@ -183,11 +194,11 @@ def _profile(container: "av.container.InputContainer") -> MediaProfile:
     if width <= 0 or height <= 0:
         msg = f"해상도를 읽을 수 없다: {width}x{height}"
         raise MediaUnreadableError(msg)
-    return MediaProfile(frame_rate=float(stream.average_rate), width=width, height=height)
+    return MediaProfile(frame_rate=float(stream.guessed_rate), width=width, height=height)
 
 
 def _decode_until(
-    container: "av.container.InputContainer", last_frame: int
+    container: "av.container.InputContainer", last_frame: int, frame_rate: float
 ) -> Iterator[tuple[int, "av.VideoFrame"]]:
     """0번부터 `last_frame` 까지 순차 디코드한다.
 
@@ -195,13 +206,29 @@ def _decode_until(
     (`scene_detection/report.py` 의 같은 판단), 무엇보다 컨테이너의 GOP 구조에 따라
     결과가 달라지면 멱등성이 깨진다.
 
-    프레임 번호는 **디코드 순서**다. `scene_detection` 이 ms 를 만들 때 쓴 번호 체계와
-    같아야 하므로 PTS 로 바꾸지 않는다.
+    프레임 번호는 **PTS 에서 온다**(`timecode.frame_number_from_pts`). 상류가 그렇게
+    세기 때문이다 — `SceneManager` 는 `video.position` 으로 scene 경계를 적는다.
+
+    **`last_frame` 을 가진 프레임을 전부 내보내고 멈춘다.** 번호가 겹칠 수 있는데,
+    호출부 둘(`measure`·`write`)이 번호를 키로 하는 dict 에 last-wins 로 쌓으므로 한쪽만
+    첫 번째에서 멈추면 점수를 잰 프레임과 저장된 JPEG 이 예외 없이 달라진다.
     """
-    for frame_number, frame in enumerate(container.decode(container.streams.video[0])):
-        yield frame_number, frame
-        if frame_number >= last_frame:
+    stream = container.streams.video[0]
+    start_time = stream.start_time or 0
+    for frame in container.decode(stream):
+        if frame.pts is None or frame.time_base is None:
+            msg = "프레임의 표시 시각(PTS)을 읽을 수 없다"
+            raise MediaUnreadableError(msg)
+        frame_number = frame_number_from_pts(
+            frame.pts,
+            frame.time_base,
+            frame_rate,
+            start_time=start_time,
+            stream_time_base=stream.time_base,
+        )
+        if frame_number > last_frame:
             return
+        yield frame_number, frame
 
 
 def _score(frame: "av.VideoFrame", stride: int) -> tuple[float, float]:

@@ -1,5 +1,6 @@
 import { ApiClientError, fetchJson } from '@/lib/api/client';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
+import { readUserMessage } from '@/lib/api/error';
 
 export type ClipSourceType = 'broadcast' | 'archive';
 
@@ -44,6 +45,7 @@ export interface ClipRegistrationErrorPresentation {
   fieldErrors: RegistrationFieldErrors;
   retryMode: RegistrationRetryMode;
   showGlobal: boolean;
+  globalMessage?: string;
 }
 
 // 원인을 한 문구로 덮으면 "UTF-8 로 고쳤는데도 안 된다" 가 된다. 고쳐야 할 것이 파일 내용인지
@@ -146,7 +148,10 @@ const validationFieldMap: Record<string, RegistrationField> = {
   broadcastDateAllowed: 'sourceType',
   title: 'title',
   broadcastDateValid: 'broadcastDate',
+  broadcastDateNotFuture: 'broadcastDate',
+  broadcastDateNotBeforeFilmedDate: 'broadcastDate',
   filmedDateValid: 'filmedDate',
+  filmedDateNotFuture: 'filmedDate',
   subtitle: 'subtitle',
   subtitleContentPresent: 'subtitle',
   scriptText: 'scriptText',
@@ -167,22 +172,14 @@ const codeFieldMap: Record<string, RegistrationField> = {
   CLIP_400_010: 'externalProcessingConfirmed',
   CLIP_400_011: 'filmedDate',
   CLIP_400_012: 'subtitle',
-  CLIP_400_013: 'scriptText',
+  CLIP_400_013: 'broadcastDate',
+  CLIP_400_014: 'filmedDate',
+  CLIP_400_015: 'scriptText',
 };
 
 function safeFieldMessage(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const message = value.trim();
-  if (!message || message.length > 300 || !/[가-힣]/.test(message)) return undefined;
-  if (
-    /[<>{}]|https?:\/\/|[a-z]:[\\/]|(?:^|[\s(:])\/\S+|\\|\b\w*(?:Exception|Error)\b|\bat\s+[\w.$]+\(/i.test(
-      message,
-    ) ||
-    /\p{Cc}/u.test(message.replace(/[\r\n\t]/g, ''))
-  ) {
-    return undefined;
-  }
-  return message;
+  const message = readUserMessage(value);
+  return message && message.length <= 300 ? message.trim() : undefined;
 }
 
 interface ParsedValidationFields {
@@ -205,7 +202,10 @@ function validationFieldsFrom(error: ApiClientError): ParsedValidationFields {
   let hasUnmapped = false;
   for (const [serverField, value] of Object.entries(data)) {
     const field = validationFieldMap[serverField];
-    const message = safeFieldMessage(value);
+    const message =
+      typeof value === 'string' && error.requestId && value.includes(error.requestId)
+        ? undefined
+        : safeFieldMessage(value);
     if (!field || !message) {
       hasUnmapped = true;
     } else if (fields[field] === undefined) {
@@ -233,6 +233,9 @@ export function getClipRegistrationErrorPresentation(
   const codeField = codeFieldMap[error.code];
   const fieldErrors = { ...validation.fields };
   if (codeField && fieldErrors[codeField] === undefined) fieldErrors[codeField] = error.message;
+  if (error.code === 'CLIP_400_012') {
+    fieldErrors.subtitle = '자막 파일의 형식, 인코딩과 시간 정보를 확인해 주세요.';
+  }
 
   const retryMode = ['CLIP_409_001', 'CLIP_409_003'].includes(error.code)
     ? 'new-request'
@@ -248,6 +251,15 @@ export function getClipRegistrationErrorPresentation(
   return {
     fieldErrors,
     retryMode,
+    ...(validation.hasUnmapped
+      ? { globalMessage: '입력한 내용을 확인한 뒤 다시 등록해 주세요.' }
+      : {}),
+    ...(error.status === 413
+      ? {
+          globalMessage:
+            '첨부한 파일의 전체 크기가 서버 제한을 초과했습니다. 파일 크기를 줄여 다시 등록해 주세요.',
+        }
+      : {}),
     showGlobal:
       validation.hasUnmapped || Object.keys(fieldErrors).length === 0 || retryMode !== 'none',
   };

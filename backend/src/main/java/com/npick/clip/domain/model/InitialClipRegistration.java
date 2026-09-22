@@ -3,6 +3,7 @@ package com.npick.clip.domain.model;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -29,6 +30,9 @@ public record InitialClipRegistration(
         PipelineDefinition pipeline,
         Instant registeredAt) {
 
+    /** 등록자와 같은 날짜 감각으로 "오늘"을 판단한다. UTC 로 보면 한국 아침 시간대의 등록이 하루를 앞선다. */
+    private static final ZoneId REGISTRATION_ZONE = ZoneId.of("Asia/Seoul");
+
     public InitialClipRegistration {
         if (clipId <= 0 || pipelineRunId <= 0 || registeredById <= 0) {
             throw new IllegalArgumentException("서버가 생성한 영상·처리 ID와 인증된 등록자 ID가 필요합니다.");
@@ -46,7 +50,7 @@ public record InitialClipRegistration(
         title = emptyToNull(title);
         transcriptFileKey = emptyToNull(transcriptFileKey);
         scriptText = emptyToNull(scriptText);
-        if (title != null && title.length() > 500) {
+        if (title != null && title.length() > 50) {
             throw new BusinessException(ClipRegistrationErrorCode.TITLE_TOO_LONG);
         }
         // U+FFFD 는 「이 자리에 있던 바이트를 읽지 못했다」는 표식이다. UTF-8 아닌 본문(CP949 등)을 보낸 요청에서
@@ -62,6 +66,16 @@ public record InitialClipRegistration(
         }
         if (sourceType == SourceType.ARCHIVE && broadcastDate != null) {
             throw new BusinessException(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE);
+        }
+        LocalDate registeredOn = LocalDate.ofInstant(registeredAt, REGISTRATION_ZONE);
+        if (broadcastDate != null && broadcastDate.isAfter(registeredOn)) {
+            throw new BusinessException(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE);
+        }
+        if (filmedDate != null && filmedDate.isAfter(registeredOn)) {
+            throw new BusinessException(ClipRegistrationErrorCode.FUTURE_FILMED_DATE);
+        }
+        if (broadcastDate != null && filmedDate != null && broadcastDate.isBefore(filmedDate)) {
+            throw new BusinessException(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE);
         }
     }
 
