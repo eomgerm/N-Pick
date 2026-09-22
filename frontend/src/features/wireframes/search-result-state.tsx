@@ -89,18 +89,23 @@ export function SearchResultState({
       </div>
       {!isLoading ? (
         <div className={styles.stateDetails}>
+          {/* 실패했는데 검색어·기간을 아예 모르는 화면(검색 기록 스냅샷 조회 실패)은 조건을
+              단언하지 않는다 — 위 본문이 「확인할 수 없어요」인데 여기서 「전체 기간」·빈 검색어를
+              내면 화면이 스스로 모순된다. 셋 다 「확인 불가」로 맞춘다. */}
           <dl className={styles.searchConditions}>
             <div>
               <dt>검색어</dt>
-              <dd>{query}</dd>
+              <dd>{isFailed && conditionsUnknown ? '확인 불가' : query}</dd>
             </div>
             <div>
               <dt>방송일</dt>
-              <dd>{formatDateRange(broadcastRange)}</dd>
+              <dd>
+                {isFailed && conditionsUnknown ? '확인 불가' : formatDateRange(broadcastRange)}
+              </dd>
             </div>
             <div>
               <dt>촬영일</dt>
-              <dd>{formatDateRange(filmingRange)}</dd>
+              <dd>{isFailed && conditionsUnknown ? '확인 불가' : formatDateRange(filmingRange)}</dd>
             </div>
             <div>
               <dt>검색 해석</dt>
