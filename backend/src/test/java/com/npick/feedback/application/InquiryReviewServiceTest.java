@@ -18,6 +18,8 @@ import com.npick.feedback.domain.model.Feedback;
 import com.npick.feedback.domain.model.FeedbackResolution;
 import com.npick.feedback.domain.model.FeedbackStatus;
 import com.npick.feedback.domain.repository.FeedbackRepository;
+import com.npick.search.application.DiscardSearchRuleCandidatesUseCase;
+import com.npick.tag.application.DiscardTagCorrectionUseCase;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -26,6 +28,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,11 +47,23 @@ class InquiryReviewServiceTest {
     @Mock
     CorrectionStateLock correctionStateLock;
 
+    @Mock
+    DiscardTagCorrectionUseCase discardTagCorrection;
+
+    @Mock
+    DiscardSearchRuleCandidatesUseCase discardSearchRuleCandidates;
+
     InquiryReviewService service;
 
     @BeforeEach
     void setUp() {
-        service = new InquiryReviewService(listQuery, detailQuery, repository, correctionStateLock);
+        service = new InquiryReviewService(
+                listQuery,
+                detailQuery,
+                repository,
+                correctionStateLock,
+                discardTagCorrection,
+                discardSearchRuleCandidates);
     }
 
     @Test
@@ -251,6 +266,62 @@ class InquiryReviewServiceTest {
                         eq(FeedbackResolution.TAG_CORRECTION),
                         isNull(),
                         org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    @DisplayName("no_action 종료는 이 문의의 대기 태그·규칙 후보를 함께 폐기한다")
+    void noActionDiscardsPendingCandidates() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.NO_ACTION),
+                        eq("문제 없음"),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+
+        service.resolve(1L, 9L, "no_action", "문제 없음");
+
+        verify(discardTagCorrection).discardPending(1L);
+        verify(discardSearchRuleCandidates).discardPending(1L);
+    }
+
+    @Test
+    @DisplayName("대기 후보가 없는 깨끗한 문의도 no_action 종료가 정상 동작한다")
+    void noActionOnAlreadyCleanFeedbackStillResolves() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.NO_ACTION),
+                        eq("문제 없음"),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+        given(discardTagCorrection.discardPending(1L)).willReturn(0);
+        given(discardSearchRuleCandidates.discardPending(1L)).willReturn(0);
+
+        service.resolve(1L, 9L, "no_action", "문제 없음");
+
+        verify(discardTagCorrection).discardPending(1L);
+        verify(discardSearchRuleCandidates).discardPending(1L);
+    }
+
+    @Test
+    @DisplayName("교정 판정(correction 경로)은 대기 후보 폐기를 건드리지 않는다")
+    void correctionResolutionDoesNotDiscardCandidates() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.resolve(
+                        eq(1L),
+                        eq(9L),
+                        eq(FeedbackResolution.PATCH_PARSE),
+                        isNull(),
+                        org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+
+        service.resolve(1L, 9L, "patch_parse", null);
+
+        verify(discardTagCorrection, never()).discardPending(org.mockito.ArgumentMatchers.anyLong());
+        verify(discardSearchRuleCandidates, never()).discardPending(org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

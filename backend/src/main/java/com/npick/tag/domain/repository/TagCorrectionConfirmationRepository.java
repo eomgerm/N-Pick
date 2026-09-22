@@ -16,4 +16,11 @@ public interface TagCorrectionConfirmationRepository {
      * @return 새로 확정된 근거 수
      */
     int confirm(long sourceFeedbackId, Collection<Long> evidenceIds);
+
+    /**
+     * 이 신고의 대기 근거({@code confirmed=false})를 모두 폐기한다 (S15P21A501-281 no_action 종료). 확정된 근거는 건드리지 않는다.
+     *
+     * @return 폐기된 근거 수
+     */
+    int discardPending(long sourceFeedbackId);
 }
