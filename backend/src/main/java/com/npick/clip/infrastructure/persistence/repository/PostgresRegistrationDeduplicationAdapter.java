@@ -137,11 +137,24 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
         }
         RegisterClipResult existing = findContent(db, content, actor);
         if (existing != null) {
+            // This attempt may be the one that created the clip and only lost the acknowledgement; that is a
+            // confirmation of its own registration, not a duplicate. A request that finished creating records
+            // 'created', so its absence leaves this unresolved attempt as the creator. Rows confirmed before
+            // the column exists record nothing, which reads as a creation — the behaviour before #283.
+            boolean ownCreation = ("processing".equals(previousState) || "unknown".equals(previousState))
+                    && existing.outcome() == RegistrationOutcome.DUPLICATE_OWN
+                    && !creatorRecorded(db, content);
+            if (ownCreation) {
+                existing = new RegisterClipResult(
+                        existing.clipId(), existing.pipelineRunId(), existing.status(), RegistrationOutcome.CREATED);
+            }
             reserve(db, actor, key, content, fingerprint);
             // Complete every unresolved alias atomically, not just the current key.
             if (recoverObservedResult(db, content, existing) == 0) {
                 throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
             }
+            // That recovery writes a duplicate verdict for every alias it resolves; restore this one.
+            if (ownCreation) complete(db, actor, key, existing);
             return existing;
         }
         // A crashed process or lost commit acknowledgement must never trigger another write.
@@ -236,7 +249,8 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
         try (var update = db.prepareStatement("""
                 UPDATE npick.registration_request j SET state='succeeded',
                     clip_id=c.clip_id,pipeline_run_id=r.pipeline_run_id,result_status=?,updated_at=now(),
-                    -- Every alias resolved here attached to a clip it did not create; only the registrant differs.
+                    -- Verdict per alias, since one recovery resolves rows of different actors. An alias that
+                    -- created this clip itself is corrected by the caller right after.
                     outcome=CASE WHEN j.actor_id=c.registered_by_id THEN 'duplicate_own' ELSE 'duplicate_other' END
                 FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id AND r.processing_no=1
                 WHERE c.clip_id=? AND r.pipeline_run_id=? AND c.content_hash=?
@@ -257,6 +271,17 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
             query.setLong(1, clipId);
             try (var rows = query.executeQuery()) {
                 return rows.next() ? rows.getLong(1) : null;
+            }
+        }
+    }
+
+    /** Whether some request already reported creating this content, which no longer leaves an unresolved creator. */
+    private static boolean creatorRecorded(Connection db, String content) throws SQLException {
+        try (var query = db.prepareStatement(
+                "SELECT 1 FROM npick.registration_request WHERE content_hash=? AND outcome='created' LIMIT 1")) {
+            query.setString(1, content);
+            try (var rows = query.executeQuery()) {
+                return rows.next();
             }
         }
     }

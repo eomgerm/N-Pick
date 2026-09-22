@@ -280,6 +280,26 @@ class RegistrationDeduplicationIntegrationTest {
     }
 
     @Test
+    void anUnresolvedAttemptStaysADuplicateWhenAnotherRequestAlreadyReportedTheCreation() {
+        long id = IDS.incrementAndGet();
+        var created = register(id, "owner-" + id, REQUEST);
+        var own = deduplication.register("dup-" + id, 1, hash(id), REQUEST, () -> {
+            throw new AssertionError("callback");
+        });
+        assertThat(own).isEqualTo(sameClip(created, RegistrationOutcome.DUPLICATE_OWN));
+        // Push that duplicate back to unresolved: its retry must not read as the creation it never performed.
+        jdbc.update("""
+                UPDATE npick.registration_request
+                SET state='unknown',clip_id=NULL,pipeline_run_id=NULL,result_status=NULL,outcome=NULL
+                WHERE content_hash=? AND outcome='duplicate_own'
+                """, hash(id));
+        assertThat(deduplication.register("dup-" + id, 1, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback");
+                }))
+                .isEqualTo(own);
+    }
+
+    @Test
     void oneRecoveryWritesEachUnresolvedAliasItsOwnVerdict() {
         long id = IDS.incrementAndGet();
         var created = register(id, "owner-" + id, REQUEST);
@@ -502,12 +522,10 @@ class RegistrationDeduplicationIntegrationTest {
                     ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
             assertThat(media.resolve("clips/" + id + "/original")).exists();
             assertState(video.contentHash(), "unknown");
-            assertThat(deduplication
-                            .register("lost-" + id, 1, video.contentHash(), REQUEST, () -> {
-                                throw new AssertionError("callback");
-                            })
-                            .clipId())
-                    .isEqualTo(id);
+            assertThat(deduplication.register("lost-" + id, 1, video.contentHash(), REQUEST, () -> {
+                        throw new AssertionError("callback");
+                    }))
+                    .isEqualTo(new RegisterClipResult(id, id, "queued", RegistrationOutcome.CREATED));
             assertState(video.contentHash(), "succeeded");
         }
     }
