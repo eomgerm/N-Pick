@@ -26,7 +26,7 @@ export function validateSubtitleFiles(files: readonly FileInfo[]): string {
   if (files.length > 1) return '자막 파일은 하나만 선택할 수 있습니다.';
   if (files.length === 0) return '';
   const file = files[0];
-  if (file.size === 0) return '올바른 자막 파일이 아닙니다.';
+  if (file.size === 0) return '내용이 비어 있는 자막 파일은 등록할 수 없습니다.';
   if (file.size > MAX_SUBTITLE_SIZE_BYTES) return '자막 파일은 10 MiB 이하만 추가할 수 있어요.';
   if (!/\.(srt|vtt|json)$/i.test(file.name))
     return '자막 파일은 SRT, VTT 또는 승인된 JSON 형식으로 선택해 주세요.';
@@ -37,7 +37,7 @@ export function validateScriptFiles(files: readonly FileInfo[]): string {
   if (files.length > 1) return '일반 대본 파일은 하나만 선택할 수 있습니다.';
   if (files.length === 0) return '';
   const file = files[0];
-  if (file.size === 0) return '올바른 대본 파일이 아닙니다.';
+  if (file.size === 0) return '내용이 비어 있는 대본 파일은 등록할 수 없습니다.';
   if (!/\.txt$/i.test(file.name)) return '일반 대본 파일은 TXT 형식으로 선택해 주세요.';
   return '';
 }

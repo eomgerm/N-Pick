@@ -58,10 +58,10 @@ class TranscriptIntakeTest {
         assertThatThrownBy(() -> new LocalTranscriptIntakeAdapter(root, 2, new SubtitleParser())
                         .receive(subtitle(), BigDecimal.TEN, 10))
                 .hasMessageContaining("크기 제한");
-        assertThatThrownBy(() -> adapter().receive(subtitle(), new BigDecimal("1.233999"), 10))
+        assertThatThrownBy(() -> adapter().receive(subtitle(), new BigDecimal("1.233"), 10))
                 .hasMessageContaining("line 2 (cue 1).e")
-                .hasMessageContaining("영상 길이 1233.999 ms")
-                .hasMessageContaining("0.001 ms 초과");
+                .hasMessageContaining("영상 길이 1233 ms의 정수 ms 상한 1233 ms")
+                .hasMessageContaining("1 ms 초과");
         assertThat(root).isEmptyDirectory();
     }
 
