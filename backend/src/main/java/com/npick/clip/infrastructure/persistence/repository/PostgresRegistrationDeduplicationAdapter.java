@@ -9,12 +9,14 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
 
 import org.springframework.stereotype.Component;
 
 import com.npick.clip.application.command.register.RegisterClipResult;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.error.ClipRuntimeErrorCode;
 import com.npick.clip.application.error.RegistrationDeduplicationErrorCode;
 import com.npick.clip.application.port.RegistrationDeduplicationPort;
@@ -111,24 +113,52 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
                     previousState = rows.getString("state");
                     if ("succeeded".equals(previousState)) {
                         long clipId = rows.getLong("clip_id");
-                        if (!exists(db, clipId)) {
+                        Long owner = ownerOf(db, clipId);
+                        if (owner == null) {
                             throw new BusinessException(RegistrationDeduplicationErrorCode.RESULT_DELETED);
                         }
+                        // Replay the recorded verdict so a resend repeats the same notice. A row carries no
+                        // verdict when the recovery could not settle one — the registrant's row resolved before
+                        // any request reported creating this clip, which is how a creation that lost its
+                        // acknowledgement stays a creation here — or when it was confirmed before this column
+                        // existed. Both fall back to the registrant of the matched clip, so this path is the
+                        // decision for such rows and not a legacy shim.
+                        String recorded = rows.getString("outcome");
                         var result = new RegisterClipResult(
-                                clipId, rows.getLong("pipeline_run_id"), rows.getString("result_status"));
+                                clipId,
+                                rows.getLong("pipeline_run_id"),
+                                rows.getString("result_status"),
+                                recorded != null
+                                        ? RegistrationOutcome.valueOf(recorded.toUpperCase(Locale.ROOT))
+                                        : owner.longValue() == actor
+                                                ? RegistrationOutcome.CREATED
+                                                : RegistrationOutcome.DUPLICATE_OTHER);
                         recoverObservedResult(db, content, result);
                         return result;
                     }
                 }
             }
         }
-        RegisterClipResult existing = findContent(db, content);
+        RegisterClipResult existing = findContent(db, content, actor);
         if (existing != null) {
+            // This attempt may be the one that created the clip and only lost the acknowledgement; that is a
+            // confirmation of its own registration, not a duplicate. A request that finished creating records
+            // 'created', so its absence leaves this unresolved attempt as the creator. Rows confirmed before
+            // the column exists record nothing, which reads as a creation — the behaviour before #283.
+            boolean ownCreation = ("processing".equals(previousState) || "unknown".equals(previousState))
+                    && existing.outcome() == RegistrationOutcome.DUPLICATE_OWN
+                    && !creatorRecorded(db, content);
+            if (ownCreation) {
+                existing = new RegisterClipResult(
+                        existing.clipId(), existing.pipelineRunId(), existing.status(), RegistrationOutcome.CREATED);
+            }
             reserve(db, actor, key, content, fingerprint);
             // Complete every unresolved alias atomically, not just the current key.
             if (recoverObservedResult(db, content, existing) == 0) {
                 throw new BusinessException(ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
             }
+            // That recovery writes a duplicate verdict for every alias it resolves; restore this one.
+            if (ownCreation) complete(db, actor, key, existing);
             return existing;
         }
         // A crashed process or lost commit acknowledgement must never trigger another write.
@@ -177,27 +207,38 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
 
     private static void complete(Connection db, long actor, String key, RegisterClipResult result) throws SQLException {
         try (var update = db.prepareStatement("""
-                UPDATE npick.registration_request SET state='succeeded',clip_id=?,pipeline_run_id=?,result_status=?,updated_at=now()
+                UPDATE npick.registration_request
+                SET state='succeeded',clip_id=?,pipeline_run_id=?,result_status=?,outcome=?,updated_at=now()
                 WHERE actor_id=? AND key_hash=?
                 """)) {
             update.setLong(1, result.clipId());
             update.setLong(2, result.pipelineRunId());
             update.setString(3, result.status());
-            update.setLong(4, actor);
-            update.setString(5, key);
+            update.setString(4, result.outcome().name().toLowerCase(Locale.ROOT));
+            update.setLong(5, actor);
+            update.setString(6, key);
             update.executeUpdate();
         }
     }
 
-    private static RegisterClipResult findContent(Connection db, String content) throws SQLException {
+    private static RegisterClipResult findContent(Connection db, String content, long actor) throws SQLException {
         // Replay the initial registration response, not the mutable pipeline execution status.
+        // The registrant decides only how the duplicate is worded; it never narrows the match itself.
         try (var query = db.prepareStatement("""
-                SELECT c.clip_id,r.pipeline_run_id FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id
+                SELECT c.clip_id,r.pipeline_run_id,c.registered_by_id
+                FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id
                 WHERE c.content_hash=? AND c.deleted_at IS NULL AND r.processing_no=1
                 """)) {
             query.setString(1, content);
             try (var rows = query.executeQuery()) {
-                return rows.next() ? new RegisterClipResult(rows.getLong(1), rows.getLong(2), "queued") : null;
+                if (!rows.next()) return null;
+                return new RegisterClipResult(
+                        rows.getLong(1),
+                        rows.getLong(2),
+                        "queued",
+                        rows.getLong(3) == actor
+                                ? RegistrationOutcome.DUPLICATE_OWN
+                                : RegistrationOutcome.DUPLICATE_OTHER);
             }
         }
     }
@@ -211,7 +252,16 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
             throws SQLException {
         try (var update = db.prepareStatement("""
                 UPDATE npick.registration_request j SET state='succeeded',
-                    clip_id=c.clip_id,pipeline_run_id=r.pipeline_run_id,result_status=?,updated_at=now()
+                    clip_id=c.clip_id,pipeline_run_id=r.pipeline_run_id,result_status=?,updated_at=now(),
+                    -- Verdict per alias, since one recovery resolves rows of different actors. An alias of the
+                    -- registrant is only a duplicate once some request has reported creating this clip; until
+                    -- then it may be the creation that lost its acknowledgement, so leave the verdict open and
+                    -- let the replay decide. This statement never writes 'created', so the lookup is stable.
+                    outcome=CASE
+                        WHEN j.actor_id<>c.registered_by_id THEN 'duplicate_other'
+                        WHEN EXISTS (SELECT 1 FROM npick.registration_request k
+                            WHERE k.content_hash=c.content_hash AND k.outcome='created') THEN 'duplicate_own'
+                        END
                 FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id AND r.processing_no=1
                 WHERE c.clip_id=? AND r.pipeline_run_id=? AND c.content_hash=?
                     AND j.content_hash=c.content_hash AND j.state IN ('processing','unknown')
@@ -224,9 +274,22 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
         }
     }
 
-    private static boolean exists(Connection db, long clipId) throws SQLException {
-        try (var query = db.prepareStatement("SELECT 1 FROM npick.clip WHERE clip_id=? AND deleted_at IS NULL")) {
+    /** Registrant of a clip that is still alive, or null when it is gone. */
+    private static Long ownerOf(Connection db, long clipId) throws SQLException {
+        try (var query =
+                db.prepareStatement("SELECT registered_by_id FROM npick.clip WHERE clip_id=? AND deleted_at IS NULL")) {
             query.setLong(1, clipId);
+            try (var rows = query.executeQuery()) {
+                return rows.next() ? rows.getLong(1) : null;
+            }
+        }
+    }
+
+    /** Whether some request already reported creating this content, which no longer leaves an unresolved creator. */
+    private static boolean creatorRecorded(Connection db, String content) throws SQLException {
+        try (var query = db.prepareStatement(
+                "SELECT 1 FROM npick.registration_request WHERE content_hash=? AND outcome='created' LIMIT 1")) {
+            query.setString(1, content);
             try (var rows = query.executeQuery()) {
                 return rows.next();
             }
