@@ -15,7 +15,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.support.NpickPostgres;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -271,6 +274,105 @@ class SearchHistoryHttpDbTest {
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/search/history/-1").with(user(OWNER)))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("지운 기록은 목록·총계·상세에서 빠지고 나머지는 그대로다 (S15P21A501-276)")
+    void hidesDeletedRecordFromOwnerViews() throws Exception {
+        seed();
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true));
+
+        mockMvc.perform(get("/api/v1/search/history?page=0&size=10").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total_elements").value(2))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[*].search_execution_id", Matchers.not(Matchers.hasItem("9701"))));
+
+        mockMvc.perform(get("/api/v1/search/history/9701").with(user(OWNER)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SRCH_404_001"));
+
+        // 지우지 않은 기록은 영향이 없다.
+        mockMvc.perform(get("/api/v1/search/history/9702").with(user(OWNER))).andExpect(status().isOk());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("행을 지우지 않으므로 감사 조회는 지운 뒤에도 당시 기록을 낸다 (S15P21A501-276)")
+    void keepsRowForAuditAfterDelete() throws Exception {
+        seed();
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/search/executions/9701").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true));
+
+        // 결과 스냅샷도 남아 있어야 문의 상세가 당시 결과를 복원할 수 있다.
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM npick.search_result WHERE search_execution_id = 9701", Integer.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("같은 기록을 두 번 지워도 성공하고 지운 시각은 유지된다 (S15P21A501-276)")
+    void deleteIsIdempotent() throws Exception {
+        seed();
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+        String first = deletedAt(9701);
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        assertThat(deletedAt(9701)).isEqualTo(first);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("남의 기록·미존재·대상 밖은 같은 404 로 거부하고 실제로 지우지 않는다 (S15P21A501-276)")
+    void rejectsRecordsOutsideOwnScope() throws Exception {
+        seed();
+
+        // 9701 은 OWNER 소유, 9704 는 replay, 88888 은 없는 id.
+        for (String path : new String[] {"9701", "9704", "88888"}) {
+            mockMvc.perform(delete("/api/v1/search/history/" + path)
+                            .with(user(OTHER))
+                            .with(csrf()))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("SRCH_404_001"));
+        }
+        mockMvc.perform(delete("/api/v1/search/history/9704").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SRCH_404_001"));
+
+        assertThat(deletedAt(9701)).isNull();
+        assertThat(deletedAt(9704)).isNull();
+        mockMvc.perform(get("/api/v1/search/history/9701").with(user(OWNER))).andExpect(status().isOk());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("삭제도 경로 ID 가 0 이하면 400 으로 거부한다 (S15P21A501-276)")
+    void rejectsNonPositivePathIdOnDelete() throws Exception {
+        mockMvc.perform(delete("/api/v1/search/history/0").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(delete("/api/v1/search/history/-1").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    private String deletedAt(long executionId) {
+        return jdbc.queryForObject(
+                "SELECT CAST(deleted_at AS text) FROM npick.search_execution WHERE search_execution_id = "
+                        + executionId,
+                String.class);
     }
 
     private void seed() {
