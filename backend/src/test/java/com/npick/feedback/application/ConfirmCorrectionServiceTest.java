@@ -144,9 +144,29 @@ class ConfirmCorrectionServiceTest {
 
         verify(confirmExcludeScene).confirm(FEEDBACK, 6601L);
         verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
-        // 제외도 규칙이므로 created_rule_id 에 규칙 id 를 기록한다.
+        // 제외도 규칙이므로 created_rule_id 에 규칙 id 를 기록하고, resolution 은 단일화된 correction 값을 남긴다.
         verify(feedbackRepository)
-                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6601L), eq("exclude_scene"), any(Instant.class));
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6601L), eq("correction"), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("혼합 확정: 태그 근거와 장면 제외 규칙이 함께 대기 중이면 둘 다 확정하고 신고를 종료한다")
+    void confirmsMixedTagAndExcludeScene() {
+        target("REVIEWING", "exclude_scene", null);
+        verificationRun("exclude_scene", List.of(7901L), 6601L, null);
+        when(excludeValidity.targetSceneActive(6601L)).thenReturn(true);
+        when(confirmExcludeScene.confirm(FEEDBACK, 6601L)).thenReturn(1);
+        when(confirmTag.confirm(FEEDBACK, List.of(7901L))).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any()))
+                .thenReturn(1);
+
+        service.confirm(command(true));
+
+        verify(confirmTag).confirm(FEEDBACK, List.of(7901L));
+        verify(confirmExcludeScene).confirm(FEEDBACK, 6601L);
+        verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
+        verify(feedbackRepository)
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6601L), eq("correction"), any(Instant.class));
     }
 
     @Test
@@ -237,9 +257,9 @@ class ConfirmCorrectionServiceTest {
         verify(correctionStateLock).acquire(); // 확정은 서로·규칙 중단과 직렬화된다
         verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
         verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
-        // 태그만 교정하면 created_rule_id 는 NULL 이고, CAS 는 검증한 판정(tag_correction)을 예상 조건으로 건다.
+        // 태그만 교정하면 created_rule_id 는 NULL 이고, resolution 은 단일화된 correction 값을 남긴다.
         verify(feedbackRepository)
-                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), isNull(), eq("tag_correction"), any(Instant.class));
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), isNull(), eq("correction"), any(Instant.class));
     }
 
     @Test
@@ -255,9 +275,9 @@ class ConfirmCorrectionServiceTest {
 
         verify(confirmParseRule).confirm(FEEDBACK, 6602L, 6601L);
         verify(confirmTag, never()).confirm(anyLong(), any());
-        // patch_parse 는 최종 승인 규칙을 created_rule_id 에 기록한다.
+        // patch_parse 는 최종 승인 규칙을 created_rule_id 에 기록하고, resolution 은 단일화된 correction 값을 남긴다.
         verify(feedbackRepository)
-                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), eq("patch_parse"), any(Instant.class));
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), eq("correction"), any(Instant.class));
     }
 
     @Test
@@ -275,7 +295,7 @@ class ConfirmCorrectionServiceTest {
         verify(confirmParseRule).confirm(FEEDBACK, 6602L, 6601L);
         verify(confirmTag).confirm(FEEDBACK, List.of(7901L, 7902L));
         verify(feedbackRepository)
-                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), eq("patch_parse"), any(Instant.class));
+                .confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), eq(6602L), eq("correction"), any(Instant.class));
     }
 
     @Test

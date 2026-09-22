@@ -81,10 +81,12 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
         if (!FeedbackStatus.REVIEWING.name().equals(target.status())) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NOT_REVIEWING);
         }
-        boolean isCorrection = FeedbackResolution.TAG_CORRECTION.value().equals(target.resolution())
-                || FeedbackResolution.PATCH_PARSE.value().equals(target.resolution())
-                || FeedbackResolution.EXCLUDE_SCENE.value().equals(target.resolution());
-        if (!isCorrection) {
+        // 교정 판정인지는 정확한 세부 종류가 아니라 "종료 판정이 아닌가"로 가린다 — 신규 단일화 값(correction)과
+        // 기존 세 종류(tag_correction/patch_parse/exclude_scene) 를 모두 받아들이면서, no_action·deferred 처럼
+        // 그 자체로 종료되는 판정만 배제한다. fromValue() 로 세 종류를 CORRECTION 에 뭉개 비교하지 않는다 — 아래
+        // 축별 적용은 이 판정 문자열이 아니라 검증이 승인한 후보의 존재로 갈린다.
+        FeedbackResolution parsedResolution = FeedbackResolution.parse(target.resolution());
+        if (parsedResolution == null || parsedResolution.isTerminal()) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NOT_A_CORRECTION);
         }
         if (target.reviewedById() == null || target.reviewedById() != command.reviewerId()) {
@@ -102,8 +104,16 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
 
-        boolean isPatchParse = FeedbackResolution.PATCH_PARSE.value().equals(target.resolution());
-        boolean isExcludeScene = FeedbackResolution.EXCLUDE_SCENE.value().equals(target.resolution());
+        // 한 신고가 태그 근거와 규칙 후보를 함께 들고 있을 수 있다(F-09 혼합 교정) — 배타 분기가 아니라 축마다 대기 후보가
+        // "있는가"로 적용 여부를 가른다. 규칙 축은 검증 스냅샷 한 슬롯만 담을 수 있어 exclude_scene/patch_parse 둘 중
+        // 어느 쪽인지는 검증이 승인한 run.resolution() 으로 가린다 — target.resolution() 처럼 확정 사이에 바뀔 수 있는
+        // 값이 아니라, 이 실행이 검증한 시점에 고정된 스냅샷이라 안전하다(위 run.resolution()·target.resolution() 일치
+        // 검사로 이미 같음이 보장된다). 즉 "적용할지"는 후보 존재로, "어느 규칙 유스케이스인지"만 검증 스냅샷의 종류로 정한다.
+        boolean hasRuleCandidate = run.approvedRuleId() != null;
+        boolean isExcludeScene =
+                hasRuleCandidate && FeedbackResolution.EXCLUDE_SCENE.value().equals(run.resolution());
+        boolean isPatchParse = hasRuleCandidate && FeedbackResolution.PATCH_PARSE.value().equals(run.resolution());
+        boolean hasTagCandidate = !run.approvedEvidenceIds().isEmpty();
 
         // 장면 제외는 확정 직전에 대상 장면이 여전히 유효한지 다시 확인한다(F-14). 검증과 확정 사이에 재처리가 끼면 대상 장면이
         // 사라지므로, 쓰기 전에 막아 신고를 reviewing 으로 남긴다. drift(규칙·근거 변경)와 구분되는 제외 고유 게이트다.
@@ -111,8 +121,6 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
             throw new BusinessException(ConfirmCorrectionErrorCode.TARGET_SCENE_GONE);
         }
 
-        // patch_parse(태그·해석 모두 잘못, F-09)는 규칙과 태그를 함께 확정한다. tag_correction 은 태그만. exclude_scene 은 제외 규칙만.
-        // 배타 분기가 아니라, 규칙/제외 확정은 해당 판정일 때, 태그 확정은 검증이 승인한 근거가 있을 때 각각 일어난다.
         // 실제 적용 행 수가 승인 대상 수와 다르면 후보가 그대로 적용되지 않은 것이라 확정을 막는다(F-12). 검증 이후 근거·규칙이 사라진 경우다.
         if (isPatchParse
                 && confirmParseRule.confirm(command.feedbackId(), run.approvedRuleId(), run.replacedRuleId()) != 1) {
@@ -121,19 +129,20 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
         if (isExcludeScene && confirmExcludeScene.confirm(command.feedbackId(), run.approvedRuleId()) != 1) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
-        if (!run.approvedEvidenceIds().isEmpty()
+        if (hasTagCandidate
                 && confirmTag.confirm(command.feedbackId(), run.approvedEvidenceIds())
                         != run.approvedEvidenceIds().size()) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
-        // 최종 승인한 교정 규칙을 신고에 기록한다. patch_parse·exclude_scene 은 규칙 id, 태그만 교정하면 NULL 이다(F-13·baseline 주석).
-        Long createdRuleId = (isPatchParse || isExcludeScene) ? run.approvedRuleId() : null;
+        // 최종 승인한 교정 규칙을 신고에 기록한다. 규칙 후보가 있으면 그 id, 태그만 교정하면 NULL 이다(F-13·baseline 주석).
+        // resolution 은 세 세부 종류를 단일화한 correction 값으로 남긴다(F-09 재설계) — 검수자는 더 이상 하위 종류를
+        // 직접 고르지 않고, 실제로 무엇이 적용됐는지는 created_rule_id·tag_evidence 확정 여부로 드러난다.
         if (feedbackRepository.confirm(
                         command.feedbackId(),
                         command.reviewerId(),
                         command.executionId(),
-                        createdRuleId,
-                        target.resolution(),
+                        run.approvedRuleId(),
+                        FeedbackResolution.CORRECTION.value(),
                         Instant.now())
                 == 0) {
             // 전제 조회와 확정 CAS 사이 경합(다른 확정·종료). 트랜잭션을 롤백해 태그·규칙 확정을 되돌린다.
