@@ -795,6 +795,9 @@
 
 .keywordChip {
   padding: 4px 7px;
+  /* 확장어 칩만 테두리를 두르므로 기본 칩이 그 자리를 미리 잡는다. 없으면 확장어가 걸린 카드만 2px 높아져
+     결과 목록의 카드 높이가 들쭉날쭉해진다. */
+  border: 1px solid transparent;
   border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent-strong);
