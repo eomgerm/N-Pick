@@ -197,3 +197,19 @@ export async function getMySearchHistoryDetail(executionId: string, signal?: Abo
   if (result.searchExecutionId !== executionId) fail();
   return result;
 }
+
+/**
+ * 기록 하나를 내 목록에서 지운다 (S15P21A501-276 계약).
+ *
+ * 서버는 행을 지우지 않고 목록·상세에서만 감추지만, 그 사실은 화면에 드러내지 않는다 — 사용자에게는 삭제다.
+ *
+ * 404 는 이미 지워진 기록일 수 있으므로 오류로 올리지 않는다. 남의 기록·없는 id 도 같은 코드로 오는데, 어느 쪽이든
+ * 사용자가 할 수 있는 일은 목록을 다시 읽는 것뿐이라 호출부가 구분할 이유가 없다. 서버 계약 자체도 멱등이다.
+ */
+export async function deleteMySearchHistory(executionId: string, signal?: AbortSignal) {
+  try {
+    await fetchJson<unknown>(`/search/history/${id(executionId)}`, { method: 'DELETE', signal });
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.status !== 404) throw error;
+  }
+}

@@ -253,10 +253,14 @@
 .row:hover {
   background: rgb(255 255 255 / 42%);
 }
-.rowDetail {
+.rowActions {
   position: absolute;
   right: 9px;
   bottom: 7px;
+  display: inline-flex;
+  gap: 4px;
+}
+.rowAction {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -268,17 +272,82 @@
   font-size: 10px;
   font-weight: 700;
 }
-.rowDetail:hover {
+.rowAction:hover {
   background: rgb(255 255 255 / 78%);
   color: #17243b;
 }
-.rowDetail:focus-visible {
+.rowAction:focus-visible {
   outline: 3px solid #0756c6;
   outline-offset: 2px;
 }
-.rowDetail svg {
+.rowAction svg {
   width: 13px;
   height: 13px;
+}
+.rowDelete:hover {
+  background: rgb(176 32 42 / 12%);
+  color: #8c1620;
+}
+
+/* 삭제 확인. 되돌릴 수 없는 동작이라 목록 위에 모달로 띄운다 (S15P21A501-277). */
+.confirmDialog {
+  width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+}
+.confirmHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8c1620;
+}
+.confirmHeading h2 {
+  font-size: 16px;
+  font-weight: 800;
+}
+.confirmHeading svg {
+  width: 20px;
+  height: 20px;
+}
+.confirmQuery {
+  margin-top: 14px;
+  overflow: hidden;
+  color: #17243b;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.confirmDescription {
+  margin-top: 6px;
+  color: #516477;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.confirmDelete {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid #8c1620;
+  border-radius: 10px;
+  background: #b0202a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.confirmDelete:hover {
+  background: #8c1620;
+}
+.confirmDelete:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 3px;
+}
+.confirmDelete:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .thumbnail {
   position: relative;

@@ -275,3 +275,50 @@ test('새 검색 뒤 패널 재열기와 새로고침은 실제 기록을 다시
   await expect(page.getByText('서버 검색어 100', { exact: true })).toBeVisible();
   expect(posts).toBe(1);
 });
+
+test('검색 기록 삭제는 확인 모달을 거치고 취소하면 그대로 남는다 (S15P21A501-277)', async ({
+  page,
+}) => {
+  let removed = false;
+  let deleteCalls = 0;
+  await page.route('**/api/v1/search/history?**', (route) =>
+    route.fulfill({
+      json: success(listPage(removed ? [item('200')] : [item('100'), item('200')])),
+    }),
+  );
+  await page.route('**/api/v1/search/history/100', (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    deleteCalls++;
+    removed = true;
+    return route.fulfill({ json: { isSuccess: true, code: 'COMM_200', message: '성공' } });
+  });
+
+  await page.goto('/search');
+  await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
+  const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
+  const remove = panel.getByRole('button', { name: '서버 검색어 100 검색 기록 삭제', exact: true });
+
+  // 버튼만 눌러서는 지워지지 않는다. 휴지통이 없으므로 확인을 거친다.
+  await remove.click();
+  const confirm = page.getByRole('dialog', { name: '검색 기록을 지울까요?', exact: true });
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByText('서버 검색어 100', { exact: true })).toBeVisible();
+  // 되돌릴 수 없는 동작이라 기본 포커스는 취소에 있다.
+  await expect(confirm.getByRole('button', { name: '취소', exact: true })).toBeFocused();
+
+  await confirm.getByRole('button', { name: '취소', exact: true }).click();
+  await expect(confirm).not.toBeVisible();
+  expect(deleteCalls).toBe(0);
+  await expect(panel.getByText('서버 검색어 100', { exact: true })).toBeVisible();
+
+  await remove.click();
+  await page
+    .getByRole('dialog', { name: '검색 기록을 지울까요?', exact: true })
+    .getByRole('button', { name: '삭제', exact: true })
+    .click();
+
+  await expect(page.getByRole('dialog', { name: '검색 기록을 지울까요?' })).not.toBeVisible();
+  await expect(panel.getByText('서버 검색어 100', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('서버 검색어 200', { exact: true })).toBeVisible();
+  expect(deleteCalls).toBe(1);
+});
