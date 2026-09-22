@@ -164,7 +164,11 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
               <section
                 aria-label="영상 등록 결과"
                 aria-live="polite"
-                className={styles.registrationNotice}
+                className={
+                  registeredVideo.outcome === 'created'
+                    ? styles.registrationNotice
+                    : `${styles.registrationNotice} ${styles.duplicateNotice}`
+                }
                 role="status"
               >
                 {registeredVideo.outcome === 'created' ? (
