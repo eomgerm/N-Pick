@@ -12,7 +12,7 @@ import {
   resolveReviewInquiry,
   type ReviewInquiryDetail,
 } from '@/features/wireframes/review-inquiry-api';
-import styles from '@/features/wireframes/reviewer.module.css';
+import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 
 interface InquiryResolutionFormProps {
   inquiry: ReviewInquiryDetail;
@@ -51,7 +51,7 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
 
   if (!isOwner) {
     return (
-      <section className="rounded-2xl border border-(--line) bg-(--surface-muted) p-5">
+      <section className={styles.resolutionForm}>
         <h2 className="font-bold">
           {inquiry.history.reviewerLoginId
             ? '다른 아카이브 팀이 처리 중입니다.'
@@ -63,7 +63,7 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
   }
 
   return (
-    <section className="rounded-2xl border border-(--line) p-5">
+    <section className={styles.resolutionForm}>
       <h2 className="font-bold">처리 판정</h2>
       <form className="mt-4 grid gap-4" onSubmit={handleSubmit}>
         <label className="grid gap-2 text-sm font-bold">
@@ -93,6 +93,7 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
             className="rounded-xl border border-(--line) bg-(--surface) p-3 font-normal"
             disabled={mutation.isPending}
             maxLength={2000}
+            placeholder="확인한 내용과 판단 이유를 남겨 주세요."
             onChange={(event) => {
               setNote(event.target.value);
               setValidationError('');
