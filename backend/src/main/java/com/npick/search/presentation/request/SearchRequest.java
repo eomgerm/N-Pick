@@ -22,9 +22,11 @@ import com.npick.search.application.query.search.ExecuteSearchQuery;
 public record SearchRequest(
         @JsonProperty("query") @NotBlank @Size(min = 2, max = 500, message = "검색어는 2글자 이상 입력해 주세요") String query,
         @JsonProperty("explicit_filters") Filters explicitFilters,
-        @JsonProperty("page") @Min(0) @Max(20) Integer page) {
+        @JsonProperty("page") @Min(0) @Max(39) Integer page) {
 
-    // 20 = 후보 pool 200 / 페이지 크기 10. 이 위 페이지는 결과가 없다.
+    // 상한은 후보 pool 을 다 넘긴 뒤로 둔다 — 안 그러면 has_next=true 인데 다음 page 가 400 이다
+    // (S15P21A501-251 리뷰 #2). lexical 200 ∪ dense 200 = 최대 400 후보 / 페이지 크기 10 =
+    // 40 페이지(0~39)이므로 39 가 상한이다. 이 위 페이지는 어떤 pool 에도 결과가 없다.
 
     /** page 를 지정하지 않은 요청은 첫 페이지(0)다 — 하위호환. */
     public int pageOrDefault() {

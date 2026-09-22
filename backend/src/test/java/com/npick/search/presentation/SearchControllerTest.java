@@ -196,7 +196,7 @@ class SearchControllerTest {
     @Test
     @DisplayName("음수·상한 초과 page 는 400 으로 막는다 (S15P21A501-251)")
     void rejectsInvalidPage() throws Exception {
-        for (String page : new String[] {"-1", "21"}) {
+        for (String page : new String[] {"-1", "40"}) {
             mockMvc.perform(post("/api/v1/search")
                             .with(user(EDITOR))
                             .with(csrf())
