@@ -117,8 +117,12 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
                         if (owner == null) {
                             throw new BusinessException(RegistrationDeduplicationErrorCode.RESULT_DELETED);
                         }
-                        // Replay the recorded verdict so a resend repeats the same notice. Rows confirmed
-                        // before that column exists fall back to the registrant of the matched clip.
+                        // Replay the recorded verdict so a resend repeats the same notice. A row carries no
+                        // verdict when the recovery could not settle one — the registrant's row resolved before
+                        // any request reported creating this clip, which is how a creation that lost its
+                        // acknowledgement stays a creation here — or when it was confirmed before this column
+                        // existed. Both fall back to the registrant of the matched clip, so this path is the
+                        // decision for such rows and not a legacy shim.
                         String recorded = rows.getString("outcome");
                         var result = new RegisterClipResult(
                                 clipId,

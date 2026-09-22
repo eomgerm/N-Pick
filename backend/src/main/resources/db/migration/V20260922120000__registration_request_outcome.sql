@@ -10,10 +10,12 @@
 -- 그래서 확정 시점의 판정을 행에 적어 둔다. 응답 전용 표시이며 중복 판정 자체는 바꾸지 않는다
 -- (같은 영상은 등록자와 무관하게 하나의 clip 으로 모인다 — S15P21A501-68, uq_clip_content_hash_alive).
 --
--- nullable 이다. 이 컬럼 이전에 확정된 행은 값이 없고, 그 행의 재전송은 예전처럼 clip 의 등록자로
--- 판정한다. 기존 state/clip_id CHECK 와는 무관하게 더한다.
+-- nullable 이다. 값이 없는 경우는 둘이다. 이 컬럼 이전에 확정된 행, 그리고 등록자의 행이 생성 보고보다
+-- 먼저 확정돼 확정 시점에 판정할 근거가 없던 행이다. 후자는 결과를 잃은 그 생성일 수 있어 비워 두며,
+-- 두 경우 모두 재전송 때 clip 의 등록자로 판정한다. 그 폴백은 과도기 처리가 아니라 이 컬럼의 정상 경로다.
+-- 기존 state/clip_id CHECK 와는 무관하게 더한다.
 ALTER TABLE npick.registration_request ADD COLUMN outcome varchar(16)
     CHECK (outcome IN ('created', 'duplicate_own', 'duplicate_other'));
 
 COMMENT ON COLUMN npick.registration_request.outcome IS
-    '확정 당시의 등록 판정. created=이 요청이 clip 을 만듦, duplicate_own=본인이 이미 등록한 clip 을 돌려줌, duplicate_other=다른 사용자가 등록한 clip 을 돌려줌. 같은 키 재전송이 같은 안내를 재생하기 위한 응답 전용 값이다(S15P21A501-283). 이 컬럼 이전 행은 null 이다';
+    '확정 당시의 등록 판정. created=이 요청이 clip 을 만듦, duplicate_own=본인이 이미 등록한 clip 을 돌려줌, duplicate_other=다른 사용자가 등록한 clip 을 돌려줌. 같은 키 재전송이 같은 안내를 재생하기 위한 응답 전용 값이다(S15P21A501-283). null 은 확정 시점에 판정할 근거가 없었다는 뜻이며(등록자의 행이 생성 보고보다 먼저 확정된 경우, 그리고 이 컬럼 이전 행) 재전송 때 clip 의 등록자로 판정한다';
