@@ -110,7 +110,6 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
               surface: styles.searchInputSurface,
               clearButton: styles.clearButton,
               submitButton: styles.primaryButton,
-              hint: styles.searchHint,
               srOnly: styles.srOnly,
             }}
           />

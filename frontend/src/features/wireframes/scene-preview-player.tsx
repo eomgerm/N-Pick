@@ -354,11 +354,6 @@ function MediaPlayer({
                     : ''))}
           </p>
         </div>
-        <p className="mt-3 text-xs leading-relaxed [word-break:keep-all] text-[#516477]">
-          {isLooping
-            ? '선택 구간의 끝에서 시작으로 돌아가 반복 재생합니다.'
-            : '선택 구간이 끝나도 원본 영상은 계속 재생됩니다.'}
-        </p>
       </div>
     </div>
   );

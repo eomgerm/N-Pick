@@ -329,7 +329,6 @@ export function WireframeShell({
             form: styles.searchForm,
             field: styles.searchField,
             submitButton: styles.searchButton,
-            hint: styles.searchHint,
           }}
         />
       }
