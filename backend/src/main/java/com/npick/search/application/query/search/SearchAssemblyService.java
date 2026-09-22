@@ -216,13 +216,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
      */
     private long openExecution(ExecuteSearchQuery query) {
         try {
-            return record.start(
-                    new StartSearchExecution(
-                            query.memberId(),
-                            ExecutionType.NORMAL,
-                            null,
-                            query.rawQuery(),
-                            query.parentExecutionId()));
+            return record.start(new StartSearchExecution(
+                    query.memberId(), ExecutionType.NORMAL, null, query.rawQuery(), query.parentExecutionId()));
         } catch (SearchRecordingException notOpened) {
             throw new BusinessException(SearchExecutionErrorCode.EXECUTION_NOT_RECORDED, notOpened);
         }

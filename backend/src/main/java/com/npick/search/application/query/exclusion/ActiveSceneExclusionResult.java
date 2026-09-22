@@ -9,8 +9,7 @@ import java.util.List;
  * @param excludedScenes 실제 후보에서 빠진 장면과 그 판단에 사용된 활성 규칙. -60의 제외 기록 재료다
  * @param hasMore 이 페이지 뒤로 유효한 후보가 더 있으면 참. 응답의 {@code has_next} 가 된다 (S15P21A501-251)
  */
-public record ActiveSceneExclusionResult(
-        List<Long> sceneIds, List<ExcludedScene> excludedScenes, boolean hasMore) {
+public record ActiveSceneExclusionResult(List<Long> sceneIds, List<ExcludedScene> excludedScenes, boolean hasMore) {
 
     public ActiveSceneExclusionResult {
         sceneIds = List.copyOf(sceneIds);
