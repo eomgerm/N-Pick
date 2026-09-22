@@ -92,21 +92,22 @@ test('검수 규칙 demo는 정상 결과와 적용 사실만 함께 표시한�
   const html = renderShell({ state: 'review-rule' });
 
   assert.equal((html.match(/class="resultCard/g) ?? []).length, 10);
-  assert.equal((html.match(/class="cardInquiryButton"/g) ?? []).length, 0);
+  // 문의(신고)는 이제 카드마다 버튼으로 붙는다. Preview 안의 '이상해요' 버튼은 없다.
+  assert.equal((html.match(/class="cardInquiryButton"/g) ?? []).length, 10);
   assert.ok(!html.includes('이상해요'));
   assert.ok(html.includes('정상 검색'));
   assert.ok(html.includes('검수 규칙 적용'));
   assert.doesNotMatch(html, /rule[_ -]?id|condition|JSON|오류 코드/i);
 });
 
-test('snapshot 실패 Preview는 통합 경로에서도 문의를 비활성화한다', () => {
-  const html = renderShell({ preview: 'loading', state: 'degraded-snapshot' });
+test('snapshot 실패 결과 카드의 문의 버튼은 사유와 함께 비활성이다', () => {
+  const html = renderShell({ state: 'degraded-snapshot' });
 
-  assert.match(html, /data-state="unavailable"/);
-  assert.equal((html.match(/data-state="unavailable"/g) ?? []).length, 1);
-  assert.ok(html.includes('문의 불가'));
-  assert.ok(!html.includes('id="inquiry-unavailable-'));
-  assert.match(html, /<button[^>]+aria-describedby="[^"]+"[^>]+aria-disabled="true"/);
+  assert.ok(html.includes('class="cardInquiryButton"'));
+  assert.ok(html.includes('aria-disabled="true"'));
+  assert.ok(html.includes('aria-describedby="inquiry-reason-'));
+  assert.ok(html.includes('data-state="unavailable"'));
+  assert.ok(html.includes('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'));
 });
 
 test('정상 빈 결과는 임의 degraded 경고를 만들지 않는다', () => {

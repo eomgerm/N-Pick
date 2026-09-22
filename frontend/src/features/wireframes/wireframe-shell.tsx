@@ -29,6 +29,7 @@ import styles from '@/features/wireframes/wireframe.module.css';
 import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
 import {
+  canCreateInquiry,
   getDemoSearchExecution,
   getSearchExecutionAnnouncement,
   successfulSearchExecution,
@@ -281,10 +282,13 @@ export function WireframeShell({
     setIsPreviewOpen(false);
   }
 
-  function handlePreviewInquiry() {
-    if (!selectedResult?.searchResultId) return;
-    setIsPreviewOpen(false);
-    handleInquiryOpen(selectedResult.id);
+  function inquiryUnavailableReason(result: SearchResult): string | undefined {
+    const hasSavedResult =
+      typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
+    if (hasSavedResult) return undefined;
+    return canCreateInquiry(searchExecution)
+      ? '저장된 검색 결과가 아니므로 문의할 수 없습니다.'
+      : '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.';
   }
 
   return (
@@ -386,6 +390,9 @@ export function WireframeShell({
                       isSelected={isPreviewOpen && selectedResultId === result.id}
                       key={result.id}
                       onSelect={handlePreviewSelect}
+                      onInquiry={handleInquiryOpen}
+                      isInquirySubmitted={submittedInquiryIds.includes(result.searchResultId ?? '')}
+                      inquiryUnavailableReason={inquiryUnavailableReason(result)}
                     />
                   ))}
                 </div>
@@ -431,7 +438,6 @@ export function WireframeShell({
           isSubmitted={submittedInquiryIds.includes(selectedResult.searchResultId ?? '')}
           isSubmitting={isInquirySubmitting && inquiryResultId === selectedResult.id}
           searchExecution={searchExecution}
-          onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
         />
       ) : null}

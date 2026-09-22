@@ -481,6 +481,67 @@
   outline-offset: -3px;
 }
 
+/* 카드 전체를 덮는 cardSelectButton(z-index 5) 위에 얹어, 문의 클릭이 Preview 열기로 새지 않게 한다. */
+.cardInquiry {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+}
+
+.cardInquiryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  cursor: pointer;
+}
+
+.cardInquiryButton:hover:not(:disabled) {
+  background: var(--danger, #d64545);
+}
+
+.cardInquiryButton[data-state='unavailable'] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.cardInquiryButton[data-state='submitted'] {
+  background: var(--accent, #2a8a5f);
+  cursor: default;
+}
+
+.cardInquiryButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cardInquiryTooltip {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 88%);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cardInquiry:hover .cardInquiryTooltip,
+.cardInquiryButton:focus-visible ~ .cardInquiryTooltip {
+  opacity: 1;
+}
+
 .selectedCard {
   box-shadow:
     0 0 0 2px #93bff3,

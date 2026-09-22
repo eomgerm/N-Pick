@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Play } from 'lucide-react';
+import { AlertTriangle, Check, Flag, Play } from 'lucide-react';
 
 import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
 import { SceneHoverPreview } from '@/features/wireframes/scene-hover-preview';
@@ -15,6 +15,11 @@ interface SearchResultCardProps {
   position: number;
   isSelected: boolean;
   onSelect: (resultId: number) => void;
+  // 문의(신고)를 카드에서 바로 연다. 없으면(데모 등) 버튼을 그리지 않는다.
+  onInquiry?: (resultId: number) => void;
+  isInquirySubmitted?: boolean;
+  // 값이 있으면 문의 불가 사유. 버튼을 비활성으로 두고 사유를 안내한다.
+  inquiryUnavailableReason?: string;
 }
 
 function getEvidenceFieldLabel(field: SearchResult['matchEvidence']['field']) {
@@ -31,12 +36,16 @@ export function SearchResultCard({
   position,
   isSelected,
   onSelect,
+  onInquiry,
+  isInquirySubmitted = false,
+  inquiryUnavailableReason,
 }: SearchResultCardProps) {
   // Hover and focus are tracked apart so that moving the mouse off a focused card,
   // or tabbing out of a hovered one, leaves the other reason to preview standing.
   const [isHovering, setIsHovering] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const evidenceTooltipId = `${idPrefix}match-evidence-${result.id}`;
+  const inquiryReasonId = `${idPrefix}inquiry-reason-${result.id}`;
   // 실제 장면은 대표 이미지를 endpoint에서 받고, 장면 ID가 없는 데모 화면만 배경 이미지를 쓴다.
   const thumbnailUrl = getSceneThumbnailUrl(result.sceneId);
 
@@ -68,6 +77,39 @@ export function SearchResultCard({
         <span className={styles.timecode}>
           {formatMediaTime(result.sceneStart)} – {formatMediaTime(result.sceneEnd)}
         </span>
+        {onInquiry ? (
+          <span className={styles.cardInquiry}>
+            <button
+              aria-describedby={inquiryUnavailableReason ? inquiryReasonId : undefined}
+              aria-disabled={inquiryUnavailableReason ? true : undefined}
+              aria-label={`${result.title} 문의하기`}
+              className={styles.cardInquiryButton}
+              data-state={
+                isInquirySubmitted ? 'submitted' : inquiryUnavailableReason ? 'unavailable' : 'ready'
+              }
+              disabled={isInquirySubmitted}
+              onClick={(event) => {
+                // 카드 전체가 Preview 열기 버튼이므로 문의 클릭이 그쪽으로 새지 않게 막는다.
+                event.stopPropagation();
+                if (!isInquirySubmitted && !inquiryUnavailableReason) onInquiry(result.id);
+              }}
+              type="button"
+            >
+              {isInquirySubmitted ? (
+                <Check aria-hidden="true" />
+              ) : inquiryUnavailableReason ? (
+                <AlertTriangle aria-hidden="true" />
+              ) : (
+                <Flag aria-hidden="true" />
+              )}
+            </button>
+            {inquiryUnavailableReason ? (
+              <span className={styles.cardInquiryTooltip} id={inquiryReasonId} role="tooltip">
+                {inquiryUnavailableReason}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
         {isHovering || isFocused ? (
           <SceneHoverPreview
             clipId={result.clipId}
