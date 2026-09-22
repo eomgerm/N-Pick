@@ -158,17 +158,17 @@ def test_empty_asr_preserves_subtitles_and_vlm_receives_only_selected_scene_text
         {
             "sceneIndex": 0,
             "segments": [{"segmentId": "u", "overlapMs": 500}],
-            "tokens": "원문/NNG u/SL",
+            "tokens": "원문/nng u/sl",
         },
         {
             "sceneIndex": 1,
             "segments": [{"segmentId": "u", "overlapMs": 500}],
-            "tokens": "원문/NNG u/SL",
+            "tokens": "원문/nng u/sl",
         },
         {
             "sceneIndex": 2,
             "segments": [{"segmentId": "cc2", "overlapMs": 500}],
-            "tokens": "원문/NNG cc/SL 2/SN",
+            "tokens": "원문/nng cc/sl 2/sn",
         },
         {"sceneIndex": 3, "segments": [], "tokens": ""},
     ]
@@ -466,9 +466,9 @@ def test_scene_tokens_cover_only_adopted_dialogue_and_declare_the_tokenizer(
     outcome = run(replace(ctx, upstream=upstream))
     scenes = {s["sceneIndex"]: s for s in outcome.output["scenes"]}
 
-    assert scenes[1]["tokens"] == "원문/NNG u/SL"
+    assert scenes[1]["tokens"] == "원문/nng u/sl"
     assert "cc" not in scenes[1]["tokens"]
-    assert scenes[3]["tokens"] == "원문/NNG gap/SL"
+    assert scenes[3]["tokens"] == "원문/nng gap/sl"
     # 대사가 없는 장면과 내용어가 없는 대사는 모두 빈 문자열이다 — 필드 누락이 아니다.
     empty = run(
         replace(
