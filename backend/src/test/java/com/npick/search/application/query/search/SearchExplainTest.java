@@ -49,10 +49,7 @@ class SearchExplainTest {
         // 검색어인 형태만 보여야 한다. 태그가 새면 사용자에게 "비/NNG" 로 뜬다.
         var queryTokens = List.of("비/NNG", "내리/VV");
         var card = SearchExplain.card(
-                scene(cardWith("비 내리는 거리", List.of("비/NNG", "내리/VV", "거리/NNG"))),
-                1,
-                801L,
-                queryTokens);
+                scene(cardWith("비 내리는 거리", List.of("비/NNG", "내리/VV", "거리/NNG"))), 1, 801L, queryTokens);
 
         assertThat(card.matchedKeywords()).containsExactly("비", "내리");
     }

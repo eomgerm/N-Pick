@@ -201,7 +201,9 @@ nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본�
 `GET /api/v1/media/{clipId}/download`는 원본 전체를, `GET /api/v1/media/scenes/{sceneId}/download`는
 DB에 저장된 장면 경계를 MP4로 추출해 내려준다. 둘 다 로그인한 `EDITOR`·`REVIEWER`가 사용할 수 있다.
 장면 추출은 서버의 `ffmpeg` 실행 파일을 사용하며 `CLIP_MEDIA_EXTRACTION_TIMEOUT` 안에 끝나지 않으면
-`CLIP_503_012`로 실패한다. 추출된 임시 파일은 응답 전송이 끝나거나 중단되면 삭제한다.
+`CLIP_503_012`로 실패한다. `CLIP_MEDIA_MAX_CONCURRENT_EXTRACTIONS`(기본 1)가 동시 재인코딩 상한이며,
+자리가 없으면 같은 코드로 즉시 거절한다. 추출된 임시 파일은 응답 준비·전송의 모든 성공·실패 경로에서 삭제한다.
+다운로드 요청은 member ID와 clip 또는 scene ID만 INFO 로그로 남기고 파일 경로는 기록하지 않는다.
 
 ## 장면 대표 이미지
 

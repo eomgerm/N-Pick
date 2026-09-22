@@ -11,7 +11,9 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import com.npick.clip.application.error.ClipMediaErrorCode;
@@ -31,14 +33,20 @@ public final class FfmpegMediaSegmentAdapter implements MediaSegmentPort {
     private final MediaRootResolver paths;
     private final String executable;
     private final Duration timeout;
+    private final Semaphore extractionSlots;
 
     public FfmpegMediaSegmentAdapter(Path mediaRoot, String executable, Duration timeout) {
+        this(mediaRoot, executable, timeout, new Semaphore(1, true));
+    }
+
+    public FfmpegMediaSegmentAdapter(Path mediaRoot, String executable, Duration timeout, Semaphore extractionSlots) {
         if (executable == null || executable.isBlank() || timeout == null || timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("ffmpeg 실행 경로와 양수인 제한 시간이 필요합니다.");
         }
         this.paths = new MediaRootResolver(mediaRoot, FAILURES);
         this.executable = executable;
         this.timeout = timeout;
+        this.extractionSlots = Objects.requireNonNull(extractionSlots, "extractionSlots");
     }
 
     @Override
@@ -46,6 +54,17 @@ public final class FfmpegMediaSegmentAdapter implements MediaSegmentPort {
         if (startTimeMs < 0 || endTimeMs <= startTimeMs) {
             throw new BusinessException(ClipMediaErrorCode.MEDIA_EXTRACTION_FAILED);
         }
+        if (!extractionSlots.tryAcquire()) {
+            throw new BusinessException(ClipMediaErrorCode.MEDIA_EXTRACTION_FAILED);
+        }
+        try {
+            return extractWithSlot(storageKey, startTimeMs, endTimeMs);
+        } finally {
+            extractionSlots.release();
+        }
+    }
+
+    private MediaAssetPort.MediaAsset extractWithSlot(String storageKey, long startTimeMs, long endTimeMs) {
         Path input = paths.resolve(storageKey).real();
         if (!Files.isRegularFile(input, LinkOption.NOFOLLOW_LINKS)) {
             throw new BusinessException(ClipMediaErrorCode.MEDIA_FILE_MISSING);
@@ -90,10 +109,10 @@ public final class FfmpegMediaSegmentAdapter implements MediaSegmentPort {
                         "-y",
                         "-protocol_whitelist",
                         "file",
-                        "-i",
-                        input.toString(),
                         "-ss",
                         seconds(startTimeMs),
+                        "-i",
+                        input.toString(),
                         "-t",
                         seconds(endTimeMs - startTimeMs),
                         "-map",
@@ -160,8 +179,13 @@ public final class FfmpegMediaSegmentAdapter implements MediaSegmentPort {
             } catch (IOException failure) {
                 throw new BusinessException(ClipMediaErrorCode.MEDIA_READ_FAILED, failure);
             } finally {
-                deleteQuietly(file);
+                close();
             }
+        }
+
+        @Override
+        public void close() {
+            deleteQuietly(file);
         }
     }
 }

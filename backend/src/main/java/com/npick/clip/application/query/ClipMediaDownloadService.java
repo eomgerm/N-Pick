@@ -60,6 +60,16 @@ public class ClipMediaDownloadService implements DownloadClipMediaUseCase, Downl
                 asset.contentType(),
                 asset.sizeBytes(),
                 asset.internalLocation().orElse(null),
-                target -> asset.writeTo(target, 0, asset.sizeBytes()));
+                new com.npick.clip.application.query.media.ClipMediaBody() {
+                    @Override
+                    public void writeTo(java.io.OutputStream target) {
+                        asset.writeTo(target, 0, asset.sizeBytes());
+                    }
+
+                    @Override
+                    public void close() {
+                        asset.close();
+                    }
+                });
     }
 }

@@ -21,6 +21,7 @@ import com.npick.search.application.query.search.ExecuteSearchQuery;
  */
 public record SearchRequest(
         @JsonProperty("query") @NotBlank @Size(min = 2, max = 500, message = "검색어는 2글자 이상 입력해 주세요") String query,
+
         @JsonProperty("explicit_filters") Filters explicitFilters,
         @JsonProperty("page") @Min(0) @Max(10_000) Integer page) {
 

@@ -24,7 +24,8 @@ public record ClipMediaProperties(
         Path mediaRoot,
         boolean nginxAccel,
         String internalLocation,
-        @DefaultValue("2m") Duration extractionTimeout) {
+        @DefaultValue("2m") Duration extractionTimeout,
+        @DefaultValue("1") int maxConcurrentExtractions) {
 
     private static final String DEFAULT_INTERNAL_LOCATION = "/internal-media/";
 
@@ -33,6 +34,9 @@ public record ClipMediaProperties(
                 internalLocation == null || internalLocation.isBlank() ? DEFAULT_INTERNAL_LOCATION : internalLocation;
         if (extractionTimeout == null || extractionTimeout.isZero() || extractionTimeout.isNegative()) {
             throw new IllegalArgumentException("장면 추출 제한 시간은 양수여야 합니다.");
+        }
+        if (maxConcurrentExtractions < 1) {
+            throw new IllegalArgumentException("동시 장면 추출 개수는 1 이상이어야 합니다.");
         }
     }
 

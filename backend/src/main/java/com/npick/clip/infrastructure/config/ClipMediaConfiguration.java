@@ -1,5 +1,7 @@
 package com.npick.clip.infrastructure.config;
 
+import java.util.concurrent.Semaphore;
+
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,8 +25,9 @@ public class ClipMediaConfiguration {
 
     @Bean
     MediaSegmentPort mediaSegmentPort(ClipMediaProperties properties) {
+        Semaphore extractionSlots = new Semaphore(properties.maxConcurrentExtractions(), true);
         return (storageKey, startTimeMs, endTimeMs) -> new FfmpegMediaSegmentAdapter(
-                        properties.requireMediaRoot(), "ffmpeg", properties.extractionTimeout())
+                        properties.requireMediaRoot(), "ffmpeg", properties.extractionTimeout(), extractionSlots)
                 .extract(storageKey, startTimeMs, endTimeMs);
     }
 }
