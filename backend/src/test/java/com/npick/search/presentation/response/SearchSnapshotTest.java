@@ -373,7 +373,7 @@ class SearchSnapshotTest {
     @DisplayName("출처를 남기지 않던 과거 기록은 origin 을 null 로 복원한다")
     void restoresLegacyKeywordsWithoutOrigin() {
         // user 로 채우면 그 단어를 사용자가 실제로 쳤다고 기록이 주장하게 된다. 알 수 없는 것은
-        // 안다고 적지 않는다 (FRD §7.2). 화면은 이것을 사용자 입력어와 같은 모양으로 그린다.
+        // 안다고 적지 않는다 (FRD §7.2). 화면은 이것을 구분이 생기기 전 모든 칩이 보이던 모양 그대로 그린다.
         SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH))));
 
         var keyword =

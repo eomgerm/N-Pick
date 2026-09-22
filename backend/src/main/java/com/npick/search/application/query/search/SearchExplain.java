@@ -210,9 +210,8 @@ final class SearchExplain {
      * <p><b>출처 판정은 품사 태그가 붙은 채로 하고 {@link #stripPosTag} 는 그 뒤에 건다.</b> 색인 토큰이 {@code 형태/품사} 라 동형이의를 가르므로
      * (S15P21A501-279), 태그를 먼저 떼면 사용자가 친 {@code 비/NNG} 와 확장어 {@code 비/VV} 가 한 덩어리가 되어 출처를 잘못 붙인다.
      *
-     * <p><b>태그를 뗀 형태가 겹치면 사용자 쪽이 이긴다</b> (F-05 「원문에서 확인되지 않는 조건을 사용자의 명시 조건으로 표시하지 않는다」의 역방향 — 사용자가 실제로
-     * 친 말을 AI 가 넓힌 말로 표시하지 않는다). 파이프라인이 겹친 토큰을 이미 빼고 넘기지만 그 뺄셈은 태그를 단 채로 하므로, 형태만 같고 품사가 다른 짝은
-     * 여기까지 살아 온다.
+     * <p><b>태그를 뗀 형태가 겹치면 사용자 쪽이 이긴다</b> (F-05 「원문에서 확인되지 않는 조건을 사용자의 명시 조건으로 표시하지 않는다」의 역방향 — 사용자가 실제로 친 말을 AI 가 넓힌 말로
+     * 표시하지 않는다). 파이프라인이 겹친 토큰을 이미 빼고 넘기지만 그 뺄셈은 태그를 단 채로 하므로, 형태만 같고 품사가 다른 짝은 여기까지 살아 온다.
      */
     private static List<SearchExecutionResult.MatchedKeyword> matchedKeywords(
             SearchCandidates.ScoredScene scene, List<String> userTokens, List<String> expandedTokens) {

@@ -44,7 +44,7 @@ export type SearchKeywordOrigin = 'user' | 'expanded';
 
 export interface SearchMatchedKeyword {
   keyword: string;
-  /** 출처를 남기지 않던 시절에 저장된 기록을 복원할 때만 `null` 이다. 화면은 사용자 입력어와 같은 모양으로 그린다 — 그때 보이던 대로다. */
+  /** 출처를 남기지 않던 시절에 저장된 기록을 복원할 때만 `null` 이다. 화면은 이 구분이 생기기 전 모든 칩이 보이던 모양 그대로 그린다 — 그때 보이던 대로다. */
   origin: SearchKeywordOrigin | null;
 }
 

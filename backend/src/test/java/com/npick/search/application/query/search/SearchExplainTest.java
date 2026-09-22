@@ -33,7 +33,8 @@ class SearchExplainTest {
     @Test
     @DisplayName("설명에서 걸리면 caption 근거를 낸다")
     void reportsCaptionEvidence() {
-        var card = SearchExplain.card(scene(cardWith("서울역 귀성 인파", List.of("서울역", "인파"))), 1, 801L, QUERY_TOKENS, List.of());
+        var card = SearchExplain.card(
+                scene(cardWith("서울역 귀성 인파", List.of("서울역", "인파"))), 1, 801L, QUERY_TOKENS, List.of());
 
         assertThat(card.matchedKeywords()).containsExactly(userKeyword("서울역"));
         assertThat(card.matchEvidence()).singleElement().satisfies(evidence -> {
@@ -49,11 +50,7 @@ class SearchExplainTest {
         // 검색어인 형태만 보여야 한다. 태그가 새면 사용자에게 "비/NNG" 로 뜬다.
         var queryTokens = List.of("비/NNG", "내리/VV");
         var card = SearchExplain.card(
-                scene(cardWith("비 내리는 거리", List.of("비/NNG", "내리/VV", "거리/NNG"))),
-                1,
-                801L,
-                queryTokens,
-                List.of());
+                scene(cardWith("비 내리는 거리", List.of("비/NNG", "내리/VV", "거리/NNG"))), 1, 801L, queryTokens, List.of());
 
         assertThat(card.matchedKeywords()).containsExactly(userKeyword("비"), userKeyword("내리"));
     }
@@ -80,11 +77,7 @@ class SearchExplainTest {
         // 여기까지 온다. 태그를 떼면 한 칩이 되는데 그것을 확장어로 표시하면 사용자가 실제로 친 말이
         // AI 가 넓힌 말로 둔갑한다.
         var card = SearchExplain.card(
-                scene(cardWith("비 내리는 거리", List.of("비/NNG", "비/VV"))),
-                1,
-                801L,
-                List.of("비/NNG"),
-                List.of("비/VV"));
+                scene(cardWith("비 내리는 거리", List.of("비/NNG", "비/VV"))), 1, 801L, List.of("비/NNG"), List.of("비/VV"));
 
         assertThat(card.matchedKeywords()).containsExactly(userKeyword("비"));
     }
@@ -106,7 +99,11 @@ class SearchExplainTest {
         SceneCard empty =
                 new SceneCard(9301, 9101, "제목", null, 0, 1000, "b_roll", List.of(), null, List.of(), List.of());
         var card = SearchExplain.card(
-                sceneWithTags(empty, List.of(tag(TagType.SCENE_TYPE, "역사 인파", true))), 1, null, QUERY_TOKENS, List.of());
+                sceneWithTags(empty, List.of(tag(TagType.SCENE_TYPE, "역사 인파", true))),
+                1,
+                null,
+                QUERY_TOKENS,
+                List.of());
 
         assertThat(card.matchEvidence()).singleElement().satisfies(evidence -> {
             assertThat(evidence.field()).isEqualTo("tag");
@@ -206,8 +203,7 @@ class SearchExplainTest {
     }
 
     private static SearchExecutionResult.MatchedKeyword expandedKeyword(String keyword) {
-        return new SearchExecutionResult.MatchedKeyword(
-                keyword, SearchExecutionResult.MatchedKeyword.ORIGIN_EXPANDED);
+        return new SearchExecutionResult.MatchedKeyword(keyword, SearchExecutionResult.MatchedKeyword.ORIGIN_EXPANDED);
     }
 
     private static SceneCard cardWith(String caption, List<String> captionTokens) {
