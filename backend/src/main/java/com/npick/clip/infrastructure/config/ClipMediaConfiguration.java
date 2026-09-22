@@ -5,6 +5,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import com.npick.clip.application.port.MediaAssetPort;
+import com.npick.clip.application.port.MediaSegmentPort;
+import com.npick.clip.infrastructure.media.FfmpegMediaSegmentAdapter;
 import com.npick.clip.infrastructure.media.LocalMediaAssetAdapter;
 
 @Configuration(proxyBeanMethods = false)
@@ -17,5 +19,12 @@ public class ClipMediaConfiguration {
         return storageKey -> new LocalMediaAssetAdapter(
                         properties.requireMediaRoot(), properties.internalLocationPrefix())
                 .resolve(storageKey);
+    }
+
+    @Bean
+    MediaSegmentPort mediaSegmentPort(ClipMediaProperties properties) {
+        return (storageKey, startTimeMs, endTimeMs) -> new FfmpegMediaSegmentAdapter(
+                        properties.requireMediaRoot(), "ffmpeg", properties.extractionTimeout())
+                .extract(storageKey, startTimeMs, endTimeMs);
     }
 }

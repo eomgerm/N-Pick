@@ -18,7 +18,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.clip.application.error.ClipMediaErrorCode;
+import com.npick.clip.application.query.media.ClipMediaDownloadResult;
 import com.npick.clip.application.query.media.ClipMediaStreamResult;
+import com.npick.clip.application.query.media.DownloadClipMediaUseCase;
+import com.npick.clip.application.query.media.DownloadSceneMediaUseCase;
 import com.npick.clip.application.query.media.StreamClipMediaQuery;
 import com.npick.clip.application.query.media.StreamClipMediaUseCase;
 import com.npick.clip.presentation.controller.ClipMediaController;
@@ -86,6 +89,12 @@ class ClipMediaControllerTest {
     @MockitoBean
     StreamClipMediaUseCase stream;
 
+    @MockitoBean
+    DownloadClipMediaUseCase clipDownload;
+
+    @MockitoBean
+    DownloadSceneMediaUseCase sceneDownload;
+
     @BeforeEach
     void setUp() {
         org.mockito.Mockito.when(refreshLogin.register(
@@ -111,6 +120,38 @@ class ClipMediaControllerTest {
                 .andExpect(header().doesNotExist("Content-Range"))
                 .andExpect(header().doesNotExist("X-Accel-Redirect"))
                 .andExpect(content().bytes(CONTENT));
+    }
+
+    @Test
+    void downloadsTheOriginalClipAsAnAttachment() throws Exception {
+        when(clipDownload.downloadClip(42)).thenReturn(download("clip-42.mp4"));
+
+        mvc.perform(get(URL + "/download").session(login("editor")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("attachment")))
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("clip-42.mp4")))
+                .andExpect(header().string("Cache-Control", "private, no-store"))
+                .andExpect(header().string("Content-Length", String.valueOf(CONTENT.length)))
+                .andExpect(content().bytes(CONTENT));
+    }
+
+    @Test
+    void downloadsTheStoredSceneRangeAsAnAttachment() throws Exception {
+        when(sceneDownload.downloadScene(77)).thenReturn(download("scene-77.mp4"));
+
+        mvc.perform(get("/api/v1/media/scenes/77/download").session(login("reviewer")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("scene-77.mp4")))
+                .andExpect(content().bytes(CONTENT));
+    }
+
+    @Test
+    void reportsAnUnknownSceneWithoutTouchingAFilePath() throws Exception {
+        when(sceneDownload.downloadScene(77)).thenThrow(new BusinessException(ClipMediaErrorCode.SCENE_NOT_FOUND));
+
+        mvc.perform(get("/api/v1/media/scenes/77/download").session(login("editor")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CLIP_404_003"));
     }
 
     @Test
@@ -255,6 +296,16 @@ class ClipMediaControllerTest {
 
     private static ClipMediaStreamResult whole() {
         return new ClipMediaStreamResult("video/mp4", CONTENT.length, 0, CONTENT.length, false, null, target -> {
+            try {
+                target.write(CONTENT);
+            } catch (java.io.IOException failure) {
+                throw new IllegalStateException(failure);
+            }
+        });
+    }
+
+    private static ClipMediaDownloadResult download(String fileName) {
+        return new ClipMediaDownloadResult(fileName, "video/mp4", CONTENT.length, null, target -> {
             try {
                 target.write(CONTENT);
             } catch (java.io.IOException failure) {

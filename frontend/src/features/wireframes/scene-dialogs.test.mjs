@@ -98,6 +98,8 @@ test('ID 없는 데모는 미디어를 요청하거나 재생 중으로 표시�
   assert.ok(html.includes('영상 ID 또는 장면 구간을 확인할 수 없어 재생할 수 없습니다.'));
   assert.ok(!html.includes('<video'));
   assert.ok(!html.includes('재생 중'));
+  assert.ok(!html.includes('장면 다운로드'));
+  assert.ok(!html.includes('원본 클립 다운로드'));
 });
 
 const { getSceneMediaUrl, getSceneThumbnailUrl, toScenePreviewMedia, formatMediaTime } =
@@ -112,6 +114,17 @@ test('큰 clip ID를 보존하고 밀리초를 초로 변환한다', () => {
   assert.deepEqual(media, { clipId: '9007199254740993', sceneStart: 1.25, sceneEnd: 2.7 });
   assert.ok(getSceneMediaUrl(media).endsWith('/api/v1/media/9007199254740993'));
   assert.equal(formatMediaTime(3661.25), '1:01:01');
+});
+
+test('저장된 장면과 원본 클립 다운로드를 함께 제공한다', () => {
+  const html = renderPreview({
+    result: { ...results[0], id: '9007199254740994', clipId: '9007199254740993' },
+  });
+
+  assert.ok(html.includes('장면 다운로드'));
+  assert.ok(html.includes('원본 클립 다운로드'));
+  assert.ok(html.includes('/api/v1/media/scenes/9007199254740994/download'));
+  assert.ok(html.includes('/api/v1/media/9007199254740993/download'));
 });
 
 test('경로·다른 ID·비정상 구간을 media URL로 만들지 않는다', () => {

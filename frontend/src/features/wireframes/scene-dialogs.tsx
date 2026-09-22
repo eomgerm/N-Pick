@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   Film,
   Flag,
   LoaderCircle,
@@ -20,7 +21,11 @@ import {
   type InquiryResolution,
 } from '@/features/wireframes/inquiry-state';
 import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
-import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
+import {
+  formatMediaTime,
+  getClipDownloadUrl,
+  getSceneDownloadUrl,
+} from '@/features/wireframes/scene-preview-media';
 import {
   canCreateInquiry,
   type SearchExecutionPresentation,
@@ -178,6 +183,8 @@ export function ScenePreviewDialog({
     typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
   const isInquiryUnavailable =
     !isSubmitted && (!hasSavedResult || !canCreateInquiry(searchExecution));
+  const clipDownloadUrl = getClipDownloadUrl(result.clipId);
+  const sceneDownloadUrl = clipDownloadUrl ? getSceneDownloadUrl(result.id) : null;
   useEffect(() => {
     closeButtonRef.current?.focus({ preventScroll: true });
   }, []);
@@ -294,6 +301,20 @@ export function ScenePreviewDialog({
             title={result.title}
             autoPlay={autoPlay}
           />
+          {clipDownloadUrl || sceneDownloadUrl ? (
+            <div className={styles.previewDownloadActions} aria-label="영상 다운로드">
+              {sceneDownloadUrl ? (
+                <a className={styles.previewDownloadButton} download href={sceneDownloadUrl}>
+                  <Download aria-hidden="true" /> 장면 다운로드
+                </a>
+              ) : null}
+              {clipDownloadUrl ? (
+                <a className={styles.previewDownloadButton} download href={clipDownloadUrl}>
+                  <Download aria-hidden="true" /> 원본 클립 다운로드
+                </a>
+              ) : null}
+            </div>
+          ) : null}
           <SearchResultNotices
             execution={searchExecution}
             variant="preview"

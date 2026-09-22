@@ -1,8 +1,10 @@
 package com.npick.clip.infrastructure.config;
 
 import java.nio.file.Path;
+import java.time.Duration;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import com.npick.clip.application.error.ClipMediaErrorCode;
 import com.npick.common.error.BusinessException;
@@ -18,13 +20,20 @@ import com.npick.common.error.BusinessException;
  * @param internalLocation 프록시 위임 대상 접두. nginx 의 {@code location /internal-media/} 와 같아야 한다
  */
 @ConfigurationProperties("npick.clip-media")
-public record ClipMediaProperties(Path mediaRoot, boolean nginxAccel, String internalLocation) {
+public record ClipMediaProperties(
+        Path mediaRoot,
+        boolean nginxAccel,
+        String internalLocation,
+        @DefaultValue("2m") Duration extractionTimeout) {
 
     private static final String DEFAULT_INTERNAL_LOCATION = "/internal-media/";
 
     public ClipMediaProperties {
         internalLocation =
                 internalLocation == null || internalLocation.isBlank() ? DEFAULT_INTERNAL_LOCATION : internalLocation;
+        if (extractionTimeout == null || extractionTimeout.isZero() || extractionTimeout.isNegative()) {
+            throw new IllegalArgumentException("장면 추출 제한 시간은 양수여야 합니다.");
+        }
     }
 
     /** 기동은 설정 없이도 되게 하고, 재생 요청 시점에만 막는다. 등록 설정과 같은 방식이다. */

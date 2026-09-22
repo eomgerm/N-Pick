@@ -1261,6 +1261,45 @@
   min-width: 0;
 }
 
+.previewDownloadActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.previewDownloadButton {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.previewDownloadButton:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface));
+  color: var(--accent);
+}
+
+.previewDownloadButton svg {
+  width: 15px;
+  height: 15px;
+}
+
 .previewPlayer [data-preview-state='error'] > div:first-child {
   width: 100%;
   min-height: 220px;
@@ -2848,6 +2887,7 @@
 @media (prefers-reduced-motion: reduce) {
   .previewHeaderActions .iconButton,
   .previewReportButton,
+  .previewDownloadButton,
   .sceneNavigation button {
     transition: none;
   }

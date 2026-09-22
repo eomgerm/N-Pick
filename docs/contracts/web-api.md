@@ -22,6 +22,8 @@
 | 영상 등록                  | POST   | `/clips`                                    | 연결됨    | 없음                                |
 | 장면 검색                  | POST   | `/search`                                   | BE 구현   | 실제 호출·화면 바인딩               |
 | 영상 재생                  | GET    | `/media/{clipId}`                           | BE 구현   | 공통 플레이어·문의 상세·검색 카드 연결 |
+| 원본 클립 다운로드         | GET    | `/media/{clipId}/download`                  | 연결됨    | 없음                                |
+| 장면 구간 다운로드         | GET    | `/media/scenes/{sceneId}/download`          | 연결됨    | 없음                                |
 | 장면 대표 이미지           | GET    | `/scenes/{sceneId}/thumbnail`               | BE 구현   | 결과 카드·문의 큐 thumbnail 바인딩  |
 | 문의 접수                  | POST   | `/search/results/{resultId}/inquiries`      | BE 구현   | 문의 생성 바인딩                    |
 | 문의 설명 수정             | PATCH  | `/inquiries/{feedbackId}`                   | BE 구현   | 편집자 문의 기록 바인딩과 함께 연결 |
@@ -393,6 +395,22 @@ FE URL 상태와 wire 요청의 대응:
 | `CLIP_416_001`                 | 416  | 요청 byte 범위 오류        |
 | `CLIP_500_003`                 | 500  | 저장 위치 오류             |
 | `CLIP_503_010`, `CLIP_503_011` | 503  | 전송 또는 저장소 설정 실패 |
+
+#### 6.1.1 영상 다운로드
+
+- `GET /media/{clipId}/download`: 등록된 원본 클립 전체를 내려받는다.
+- `GET /media/scenes/{sceneId}/download`: DB에 저장된 장면의 `start_time_ms`부터 `end_time_ms`까지를 MP4로 추출해 내려받는다.
+- 임의 시작·종료 시각은 입력으로 받지 않는다. 사용자가 검색 결과에서 확인한 저장 장면 경계만 다운로드할 수 있다.
+- 두 응답은 `Content-Disposition: attachment`, `Cache-Control: private, no-store`와 영상 byte를 반환하며 공통 JSON envelope를 사용하지 않는다.
+- 로그인한 `EDITOR`와 `REVIEWER`가 사용할 수 있다. 삭제된 클립의 원본과 장면은 반환하지 않는다.
+
+| 오류 | HTTP | 의미 |
+| --- | --- | --- |
+| `CLIP_404_001`, `CLIP_404_002` | 404 | 클립 또는 원본 파일 없음 |
+| `CLIP_404_003` | 404 | 장면 없음 |
+| `CLIP_500_003` | 500 | 저장 위치 오류 |
+| `CLIP_503_010`, `CLIP_503_011` | 503 | 전송 또는 저장소 설정 실패 |
+| `CLIP_503_012` | 503 | 장면 구간 추출 실패 또는 시간 초과 |
 
 ### 6.2 편집자 문의 접수·수정
 
