@@ -89,6 +89,68 @@ class InitialClipRegistrationTest {
     }
 
     @Test
+    void rejectsFilmedDateAfterRegistrationDay() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.BROADCAST, null, LocalDate.of(2026, 9, 8), null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.FUTURE_FILMED_DATE));
+    }
+
+    @Test
+    void rejectsBroadcastDateAfterRegistrationDay() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.BROADCAST, LocalDate.of(2026, 9, 8), null, null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE));
+    }
+
+    /** 코드마다 가리키는 입력이 하나여야 화면이 방송일 문구를 촬영일 밑에 붙이지 않는다. */
+    @Test
+    void separatesErrorCodePerDateField() {
+        assertThat(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE.code()).isEqualTo("CLIP_400_013");
+        assertThat(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE.code())
+                .isEqualTo("CLIP_400_013");
+        assertThat(ClipRegistrationErrorCode.FUTURE_FILMED_DATE.code()).isEqualTo("CLIP_400_014");
+    }
+
+    @Test
+    void rejectsBroadcastDateEarlierThanFilmedDate() {
+        assertThatThrownBy(() -> registration(
+                        SourceType.BROADCAST,
+                        LocalDate.of(2026, 9, 5),
+                        LocalDate.of(2026, 9, 6),
+                        null,
+                        null,
+                        definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE));
+    }
+
+    @Test
+    void acceptsVideoFilmedAndBroadcastOnRegistrationDay() {
+        LocalDate today = LocalDate.of(2026, 9, 7);
+        var registration = registration(SourceType.BROADCAST, today, today, null, null, definition());
+        assertThat(registration.broadcastDate()).isEqualTo(today);
+        assertThat(registration.filmedDate()).isEqualTo(today);
+    }
+
+    /** 미래 날짜 검사를 앞에 끼워 넣어도 자료 영상의 방송일 거부는 그대로 CLIP_400_003 이어야 한다. */
+    @Test
+    void keepsArchiveBroadcastDateRejectionForFutureBroadcastDate() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.ARCHIVE, LocalDate.of(2026, 9, 8), null, null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE));
+    }
+
+    @Test
     void rejectsBroadcastDateForArchiveEvenOutsideHttpValidation() {
         assertThatThrownBy(() ->
                         registration(SourceType.ARCHIVE, LocalDate.of(2026, 9, 7), null, null, null, definition()))
@@ -133,6 +195,25 @@ class InitialClipRegistrationTest {
                         BusinessException.class,
                         error -> assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.TITLE_NOT_UTF8));
         assertThat(titled("설 연휴 교통 정보").title()).isEqualTo("설 연휴 교통 정보");
+    }
+
+    /**
+     * 226 이 제목에만 건 가드를 일반 대본에도 건다 (S15P21A501-258). 대본 컬럼은 {@code text} 라 길이로는 걸리지 않으므로, 깨진 바이트를 받으면 되돌릴 수 없는 대본이 그대로
+     * 저장되고 VLM 이 그것을 참고 자료로 읽는다.
+     */
+    @Test
+    void rejectsScriptTextThatLostBytesToAFailedDecode() {
+        byte[] cp949 = {(byte) 0xC0, (byte) 0xCE, (byte) 0xBC, (byte) 0xF6, (byte) 0xC0, (byte) 0xA7};
+        String mojibake = new String(cp949, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> registration(SourceType.BROADCAST, null, null, null, mojibake, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.SCRIPT_TEXT_NOT_UTF8));
+        assertThat(registration(SourceType.BROADCAST, null, null, null, "앵커 멘트 전문", definition())
+                        .scriptText())
+                .isEqualTo("앵커 멘트 전문");
     }
 
     @Test

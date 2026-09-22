@@ -6,12 +6,10 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { ProcessingClipDetail } from '@/features/wireframes/processing-clip-detail';
-import { InquiryDetail } from '@/features/wireframes/review-inquiry-detail';
 import { ReviewInquiryWorkspace } from '@/features/wireframes/review-inquiry-workspace';
 import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ReviewerLayout } from '@/features/wireframes/reviewer-layout';
 import { ReviewerProgress, ReviewerProgressHeading } from '@/features/wireframes/reviewer-progress';
-import type { ProgressTab } from '@/features/wireframes/reviewer-progress-state';
 import progressStyles from '@/features/wireframes/reviewer-progress.module.css';
 import {
   VideoRegistration,
@@ -38,10 +36,6 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   const isProcessing = searchParams.get('view') === 'processing';
   const isRegistration = searchParams.get('view') === 'upload';
   const clipId = searchParams.get('clip');
-  const feedbackId = searchParams.get('inquiry');
-  const rawTab = searchParams.get('tab');
-  const progressTab: ProgressTab =
-    rawTab === 'completed' || rawTab === 'uploads' ? rawTab : 'inquiries';
   const isInteractionLocked = isNavigating || isRegistrationBusy;
 
   useEffect(() => {
@@ -95,9 +89,9 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       router.push(
         getReviewUrl(pathname, searchParams.toString(), {
           view: 'processing',
-          tab: 'uploads',
+          // 칩이 걸려 있으면 방금 올린 영상(no_run)이 목록에서 빠진다.
+          clipStatus: null,
           clip: record.id,
-          inquiry: null,
           progressPage: null,
         }),
         { scroll: false },
@@ -128,7 +122,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
               <ArrowLeft aria-hidden="true" /> 처리 현황으로
             </button>
           </div>
-        ) : isProcessing && !feedbackId ? (
+        ) : isProcessing ? (
           <ReviewerProgressHeading
             isNavigating={isInteractionLocked}
             onRegistrationOpen={handleRegistrationOpen}
@@ -172,16 +166,10 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
             ) : null}
             <ProcessingClipDetail key={clipId} clipId={clipId} />
           </>
-        ) : feedbackId ? (
-          <InquiryDetail key={feedbackId} feedbackId={feedbackId} theme={theme} />
         ) : (
           <ReviewerProgress
-            activeTab={progressTab}
             isNavigating={isInteractionLocked}
-            onTabChange={(tab) =>
-              handleLocationChange({ tab: tab === 'inquiries' ? null : tab, progressPage: null })
-            }
-            onInquirySelect={(id) => handleLocationChange({ inquiry: id, clip: null })}
+            onFilterChange={handleLocationChange}
             onVideoSelect={(id) => handleLocationChange({ clip: id, inquiry: null })}
             onPageChange={(page) =>
               handleLocationChange({ progressPage: page === 1 ? null : String(page) })

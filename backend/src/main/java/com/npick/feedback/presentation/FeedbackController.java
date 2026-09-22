@@ -1,5 +1,7 @@
 package com.npick.feedback.presentation;
 
+import jakarta.validation.Valid;
+
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,7 +35,7 @@ public class FeedbackController {
     @PostMapping("/search/results/{resultId}/inquiries")
     public ApiResponse<InquiryResponse> submit(
             @PathVariable long resultId,
-            @RequestBody(required = false) CreateInquiryRequest request,
+            @RequestBody(required = false) @Valid CreateInquiryRequest request,
             @LoginMember CurrentMember member) {
         String comment = request == null ? null : request.comment();
         Feedback fb = submitInquiryUseCase.submit(resultId, member.memberId(), comment);
@@ -43,7 +45,7 @@ public class FeedbackController {
     @PatchMapping("/inquiries/{feedbackId}")
     public ApiResponse<Void> edit(
             @PathVariable long feedbackId,
-            @RequestBody UpdateInquiryRequest request,
+            @RequestBody @Valid UpdateInquiryRequest request,
             @LoginMember CurrentMember member) {
         editInquiryCommentUseCase.editComment(feedbackId, member.memberId(), request.comment());
         return ApiResponse.success();

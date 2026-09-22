@@ -9,8 +9,7 @@ import java.util.List;
  * @param tagEvidenceIds 확정 대기 태그 근거 (없으면 빈 목록)
  * @param rules 활성화 대상 규칙 R2와 각 교체 대상 R1의 쌍
  */
-public record PendingCandidates(
-        String resolution, List<Long> tagEvidenceIds, List<RuleCandidate> rules) {
+public record PendingCandidates(String resolution, List<Long> tagEvidenceIds, List<RuleCandidate> rules) {
 
     public record RuleCandidate(long approvedRuleId, Long replacedRuleId) {}
 

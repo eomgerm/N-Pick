@@ -1,5 +1,15 @@
 import type { InquiryResolution, InquiryStatus } from '@/features/wireframes/inquiry-state';
 
+import {
+  getSearchEvidenceFieldLabel,
+  getSearchEvidenceSourceLabel,
+  getSearchShotTypeLabel,
+} from '@/features/wireframes/search-result-labels';
+import {
+  getVerificationStatusLabel,
+  type VerificationStatus,
+} from '@/features/wireframes/demo-scenes';
+import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
 import { ApiClientError } from '@/lib/api/error';
 
 const filterLabels: Record<string, string> = {
@@ -89,6 +99,17 @@ export function countSnapshotEntries(value: string | null): number | null {
 }
 
 const snapshotLabels: Record<string, string> = {
+  display: '표시값',
+  display_name: '클립 제목',
+  shot_type: '샷 유형',
+  scene_type: '장면 유형',
+  broadcast_date: '방송일',
+  filmed_date: '촬영일',
+  scene_description: '장면 설명',
+  start_time_ms: '시작',
+  end_time_ms: '종료',
+  verification_status: '검증 상태',
+  match_evidence: '일치 근거',
   score: '점수',
   reason: '이유',
   explanation: '설명',
@@ -124,14 +145,6 @@ const snapshotLabels: Record<string, string> = {
 // 상태 문구는 같은 이유로 `demo-scenes.ts`의 `verificationStatusLabels`를 따른다 — 검색 화면이
 // 쓰는 말이고, F-10의 네 작업을 부르는 이름(반려·개입 해제)도 그쪽이다.
 const evidenceLabels: Record<string, string> = {
-  user_input: '사용자 입력',
-  original_metadata: '영상 원본 정보',
-  cc: '방송 자막',
-  ocr: '화면 글자 인식',
-  asr: '음성 인식',
-  vlm: 'AI 화면 분석',
-  rule: '텍스트 자동 추출',
-  reviewer_feedback: '아카이빙 팀 피드백',
   verified: '검증됨',
   unverified: '자동 인식',
   rejected: '반려됨',
@@ -145,7 +158,103 @@ const evidenceLabels: Record<string, string> = {
 
 export function evidenceLabel(value: string | null): string {
   if (!value) return '기록 없음';
+  const searchLabel = getSearchEvidenceSourceLabel(value);
+  if (searchLabel !== '정보 없음') return searchLabel;
   return evidenceLabels[value.toLowerCase()] ?? '정보 없음';
+}
+
+const unsafeSnapshotTextPattern =
+  /(?:[a-z]:[\\/]|\/(?:srv|app|home|tmp|etc)\/|<[^>]+>|Bearer\s|-----BEGIN)/i;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSafeSnapshotText(value: string): boolean {
+  return !unsafeSnapshotTextPattern.test(value);
+}
+
+function displayVerificationStatus(value: unknown): string {
+  const statuses: VerificationStatus[] = [
+    'verified',
+    'unverified',
+    'unknown',
+    'rejected',
+    'withdrawn',
+  ];
+  return typeof value === 'string' && statuses.includes(value as VerificationStatus)
+    ? getVerificationStatusLabel(value as VerificationStatus)
+    : '정보 없음';
+}
+
+function displayDateFact(label: string, value: unknown): FilterFact | null {
+  if (!isRecord(value)) return null;
+  const date =
+    value.value === null
+      ? '미상'
+      : typeof value.value === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/.test(value.value) &&
+          isSafeSnapshotText(value.value)
+        ? value.value
+        : null;
+  if (date === null) return null;
+  return {
+    label,
+    value: `${date} · ${displayVerificationStatus(value.verification_status)}`,
+  };
+}
+
+function displaySafeTextFact(
+  label: string,
+  value: unknown,
+  nullFallback: string | null = null,
+): FilterFact | null {
+  if (value === null && nullFallback !== null) {
+    return { label, value: nullFallback };
+  }
+  if (typeof value !== 'string' || !value.trim() || !isSafeSnapshotText(value)) return null;
+  return { label, value: value.trim() };
+}
+
+function getDisplayFacts(value: unknown): FilterFact[] {
+  if (!isRecord(value)) return [];
+  const facts: FilterFact[] = [];
+  const displayName = displaySafeTextFact(
+    snapshotLabels.display_name,
+    value.display_name,
+    '제목 없는 영상',
+  );
+  if (displayName) facts.push(displayName);
+  const sceneType = displaySafeTextFact(snapshotLabels.scene_type, value.scene_type, '정보 없음');
+  if (sceneType) facts.push(sceneType);
+  if (typeof value.shot_type === 'string') {
+    facts.push({ label: snapshotLabels.shot_type, value: getSearchShotTypeLabel(value.shot_type) });
+  }
+  const broadcastDate = displayDateFact(snapshotLabels.broadcast_date, value.broadcast_date);
+  if (broadcastDate) facts.push(broadcastDate);
+  const filmedDate = displayDateFact(snapshotLabels.filmed_date, value.filmed_date);
+  if (filmedDate) facts.push(filmedDate);
+  const sceneDescription = displaySafeTextFact(
+    snapshotLabels.scene_description,
+    value.scene_description,
+  );
+  if (sceneDescription) facts.push(sceneDescription);
+  const startTimeMs = value.start_time_ms;
+  const endTimeMs = value.end_time_ms;
+  if (
+    typeof startTimeMs === 'number' &&
+    typeof endTimeMs === 'number' &&
+    Number.isSafeInteger(startTimeMs) &&
+    Number.isSafeInteger(endTimeMs) &&
+    startTimeMs >= 0 &&
+    startTimeMs < endTimeMs
+  ) {
+    facts.push({
+      label: '구간',
+      value: `${formatMediaTime(startTimeMs / 1000)} – ${formatMediaTime(endTimeMs / 1000)}`,
+    });
+  }
+  return facts;
 }
 
 // Known display fields only: never render resolver output, paths, or arbitrary JSON keys.
@@ -161,7 +270,11 @@ export function getSnapshotFacts(value: string | null): FilterFact[] | null {
       } else if (item !== null && typeof item === 'object') {
         for (const [key, child] of Object.entries(item)) {
           if (Object.hasOwn(snapshotLabels, key)) {
-            visit(child, [path, snapshotLabels[key]].filter(Boolean).join(' · '), depth + 1);
+            if (key === 'display') {
+              facts.push(...getDisplayFacts(child));
+            } else {
+              visit(child, [path, snapshotLabels[key]].filter(Boolean).join(' · '), depth + 1);
+            }
           }
         }
       } else if (
@@ -169,12 +282,21 @@ export function getSnapshotFacts(value: string | null): FilterFact[] | null {
         (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')
       ) {
         const text = String(item);
-        if (
-          !/(?:[a-z]:[\\/]|\/(?:srv|app|home|tmp|etc)\/|<[^>]+>|Bearer\s|-----BEGIN)/i.test(text)
-        ) {
+        if (isSafeSnapshotText(text)) {
           facts.push({
             label: path,
-            value: typeof item === 'boolean' ? (item ? '예' : '아니요') : text,
+            value:
+              path.endsWith(snapshotLabels.field) && typeof item === 'string'
+                ? getSearchEvidenceFieldLabel(item)
+                : path.endsWith(snapshotLabels.source) && typeof item === 'string'
+                  ? evidenceLabel(item)
+                  : path.endsWith(snapshotLabels.verification_status) && typeof item === 'string'
+                    ? displayVerificationStatus(item)
+                    : typeof item === 'boolean'
+                      ? item
+                        ? '예'
+                        : '아니요'
+                      : text,
           });
         }
       }

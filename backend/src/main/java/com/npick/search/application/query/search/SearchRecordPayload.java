@@ -124,8 +124,8 @@ final class SearchRecordPayload {
     }
 
     /**
-     * rank 순 결과를 실행 기록의 {@code RankedScene} 목록으로 옮긴다. 일반 검색({@code SearchAssemblyService})과 검증 재검색
-     * (S15P21A501-83)이 같이 쓴다 — 두 경로가 다른 변환을 타면 검증 replay 행이 일반 검색보다 얕은 충실도로 남는다.
+     * rank 순 결과를 실행 기록의 {@code RankedScene} 목록으로 옮긴다. 일반 검색({@code SearchAssemblyService})과 검증 재검색 (S15P21A501-83)이 같이
+     * 쓴다 — 두 경로가 다른 변환을 타면 검증 replay 행이 일반 검색보다 얕은 충실도로 남는다.
      */
     static List<CompleteSearchExecution.RankedScene> rankedScenes(
             SearchCandidates candidates, List<String> queryTokens) {

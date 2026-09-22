@@ -26,10 +26,10 @@ import static org.mockito.Mockito.when;
 /**
  * {@code VerificationSearchService.verify} 의 인가/전제 검사 (fix round 1, S15P21A501-83).
  *
- * <p>{@code CreateSceneExcludeCandidateServiceTest} 와 같은 패턴: 실 DB 없이 포트를 모두 mock 해 가드 순서·오류 코드만
- * 검증한다. 검증은 {@link ExcludeContextPort}(형제 {@code CreateSceneExcludeCandidateService}가 쓰는 바로 그 포트)를 재사용해
- * 신고 존재·상태·담당 검수자를 확인하고, {@link PendingCandidatesPort}로 대기 후보 존재를 확인한다. 이 네 가드 중 하나라도
- * 걸리면 {@code inputPort.load}·{@code record.start} 등 뒤 단계는 전혀 호출되지 않는다.
+ * <p>{@code CreateSceneExcludeCandidateServiceTest} 와 같은 패턴: 실 DB 없이 포트를 모두 mock 해 가드 순서·오류 코드만 검증한다. 검증은
+ * {@link ExcludeContextPort}(형제 {@code CreateSceneExcludeCandidateService}가 쓰는 바로 그 포트)를 재사용해 신고 존재·상태·담당 검수자를 확인하고,
+ * {@link PendingCandidatesPort}로 대기 후보 존재를 확인한다. 이 네 가드 중 하나라도 걸리면 {@code inputPort.load}·{@code record.start} 등 뒤 단계는
+ * 전혀 호출되지 않는다.
  */
 class VerificationSearchServiceTest {
 
@@ -53,7 +53,14 @@ class VerificationSearchServiceTest {
         PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
         VerificationCandidateStatePort candidateState = mock(VerificationCandidateStatePort.class);
         service = new VerificationSearchService(
-                excludeContextPort, inputPort, candidatesPort, interpreter, ranker, record, fingerprint, txManager,
+                excludeContextPort,
+                inputPort,
+                candidatesPort,
+                interpreter,
+                ranker,
+                record,
+                fingerprint,
+                txManager,
                 candidateState);
     }
 
@@ -78,8 +85,8 @@ class VerificationSearchServiceTest {
     @DisplayName("검수 중이 아니면 409 로 거부한다")
     void rejectsNotReviewing() {
         when(excludeContextPort.find(FEEDBACK_ID))
-                .thenReturn(Optional.of(
-                        new ExcludeContext("CLOSED", "tag_correction", 9L, 300L, "fp-1", "q", "{}", "v1")));
+                .thenReturn(
+                        Optional.of(new ExcludeContext("CLOSED", "tag_correction", 9L, 300L, "fp-1", "q", "{}", "v1")));
 
         assertThatThrownBy(() -> service.verify(FEEDBACK_ID, 9L))
                 .isInstanceOfSatisfying(

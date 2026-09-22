@@ -17,7 +17,9 @@ const scene = (i: number, rank: number) => ({
   shot_type: 'b_roll',
   scene_type: null,
   matched_keywords: ['장면'],
-  match_evidence: [{ field: 'caption', value: '설명', source: 'vlm', verification_status: 'unverified' }],
+  match_evidence: [
+    { field: 'caption', value: '설명', source: 'vlm', verification_status: 'unverified' },
+  ],
 });
 
 const base = {

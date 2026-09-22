@@ -83,7 +83,7 @@ class DenseSceneCandidateAdapter implements FindDenseCandidatesQueryPort {
                            OR (exclusion_reason IS NULL AND NOT (distance >= 0 AND distance <= 2))) AS invalid_vector
                 FROM measured
             ), hits AS (
-                SELECT * FROM usable ORDER BY distance, scene_id LIMIT ?
+                SELECT * FROM usable WHERE distance <= ? ORDER BY distance, scene_id LIMIT ?
             )
             SELECT coverage.*, hits.scene_id, hits.clip_id, hits.pipeline_run_id,
                    hits.distance, hits.model_version
@@ -141,7 +141,8 @@ class DenseSceneCandidateAdapter implements FindDenseCandidatesQueryPort {
             statement.setString(1, settings.modelVersion());
             statement.setInt(2, DenseSearchSettings.DIMENSION);
             statement.setString(3, vector);
-            statement.setInt(4, settings.poolSize());
+            statement.setDouble(4, settings.maxDistance());
+            statement.setInt(5, settings.poolSize());
             try (var rows = statement.executeQuery()) {
                 var candidates = new ArrayList<Candidate>();
                 Coverage coverage = null;

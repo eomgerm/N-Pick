@@ -5,8 +5,8 @@ import jakarta.persistence.EntityManager;
 /**
  * 「내 검색 기록」조회 테스트 고정 데이터 (S15P21A501-198).
  *
- * <p>목록·상세 어댑터가 같은 기록을 보게 해 두 판정이 갈리지 않는 것을 확인할 수 있게 한다. -60 저장 구현이 아직 없어
- * 행을 직접 넣는다 — 실제 검색→기록 왕복 확인은 -59/-60 머지 후 별도로 한다.
+ * <p>목록·상세 어댑터가 같은 기록을 보게 해 두 판정이 갈리지 않는 것을 확인할 수 있게 한다. -60 저장 구현이 아직 없어 행을 직접 넣는다 — 실제 검색→기록 왕복 확인은 -59/-60 머지 후 별도로
+ * 한다.
  */
 final class SearchHistoryFixture {
 
@@ -14,8 +14,7 @@ final class SearchHistoryFixture {
     static final long OTHER = 9003L;
 
     /** 결과 저장이 온전한 실행이 이 explain_json 을 쓴다. display·match 가 있어야 복원 가능하다. */
-    static final String EXPLAIN_COMPLETE =
-            """
+    static final String EXPLAIN_COMPLETE = """
             {"score": {"base_score": 0.5},
              "match": {"matched_keywords": ["서울역"],
                        "match_evidence": [{"field": "ocr", "value": "서울역",
@@ -29,8 +28,7 @@ final class SearchHistoryFixture {
                          "broadcast_date": {"value": "2026-09-14", "verification_status": "verified"},
                          "filmed_date": {"value": null, "verification_status": "unknown"}}}""";
 
-    static final String FILTERED =
-            """
+    static final String FILTERED = """
             {"returned_count": 2, "shortage_reasons": ["candidate_pool_exhausted"],
              "guard": {"incident_guard_active": false, "verdicts": []}}""";
 
@@ -105,7 +103,7 @@ final class SearchHistoryFixture {
                 + " '{\"broadcast_date\": {\"from\": \"2026-09-01\", \"to\": \"2026-09-15\"}}'::jsonb,"
                 + " '{}'::jsonb, 'fp-" + id + "', 'v1', '" + executionType + "', "
                 + (replayOfFeedbackId == null ? "NULL" : replayOfFeedbackId) + ", '" + status + "',"
-                + ("degraded" .equals(status) ? " '[\"dense_unavailable\"]'::jsonb," : " '[]'::jsonb,")
+                + ("degraded".equals(status) ? " '[\"dense_unavailable\"]'::jsonb," : " '[]'::jsonb,")
                 + " '[]'::jsonb, '{}'::jsonb, 'cfg-v1', 'resolver', '[]'::jsonb, "
                 + (filteredJson == null ? "NULL" : "'" + filteredJson + "'::jsonb")
                 + ", '" + createdAt + "'::timestamptz, now())");

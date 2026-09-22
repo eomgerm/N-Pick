@@ -1,8 +1,8 @@
 package com.npick.search.infrastructure.persistence.query;
 
 import java.util.List;
-
 import jakarta.persistence.EntityManager;
+
 import org.springframework.stereotype.Repository;
 
 import com.npick.search.application.query.search.PendingCandidates;
@@ -26,15 +26,20 @@ class VerificationCandidateStateAdapter implements VerificationCandidateStatePor
         }
         if (!candidates.rules().isEmpty()) {
             List<Long> approvedIds = candidates.rules().stream()
-                    .map(PendingCandidates.RuleCandidate::approvedRuleId).toList();
+                    .map(PendingCandidates.RuleCandidate::approvedRuleId)
+                    .toList();
             em.createNativeQuery("UPDATE npick.search_rule SET active = true WHERE search_rule_id IN (:ids)")
-                    .setParameter("ids", approvedIds).executeUpdate();
+                    .setParameter("ids", approvedIds)
+                    .executeUpdate();
             List<Long> replacedIds = candidates.rules().stream()
                     .map(PendingCandidates.RuleCandidate::replacedRuleId)
-                    .filter(id -> id != null).distinct().toList();
+                    .filter(id -> id != null)
+                    .distinct()
+                    .toList();
             if (!replacedIds.isEmpty()) {
                 em.createNativeQuery("UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (:ids)")
-                        .setParameter("ids", replacedIds).executeUpdate();
+                        .setParameter("ids", replacedIds)
+                        .executeUpdate();
             }
         }
     }
@@ -42,9 +47,8 @@ class VerificationCandidateStateAdapter implements VerificationCandidateStatePor
     @Override
     @SuppressWarnings("unchecked")
     public List<Long> readActivePatchRuleIds() {
-        List<Number> rows = em.createNativeQuery(
-                        "SELECT search_rule_id FROM npick.search_rule "
-                                + "WHERE action = 'patch_parse' AND active = true ORDER BY search_rule_id")
+        List<Number> rows = em.createNativeQuery("SELECT search_rule_id FROM npick.search_rule "
+                        + "WHERE action = 'patch_parse' AND active = true ORDER BY search_rule_id")
                 .getResultList();
         return rows.stream().map(Number::longValue).toList();
     }

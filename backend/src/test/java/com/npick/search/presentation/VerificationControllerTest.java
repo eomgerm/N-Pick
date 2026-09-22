@@ -12,10 +12,10 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.common.config.WebConfig;
+import com.npick.common.error.BusinessException;
 import com.npick.common.error.handler.ApiErrorResponseWriter;
 import com.npick.common.error.handler.ErrorTypeHttpStatusMapper;
 import com.npick.common.error.handler.GlobalExceptionHandler;
-import com.npick.common.error.BusinessException;
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.common.security.config.SecurityConfig;
 import com.npick.common.security.config.SecurityWebMvcConfig;
@@ -38,9 +38,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * {@code POST /review/inquiries/{feedbackId}/verify} (web-api §6.4, S15P21A501-83 Task 6).
  *
- * <p>{@code SceneExcludeCandidateControllerTest}·{@code SearchControllerTest} 와 같은 패턴: {@code @WebMvcTest} +
- * 유스케이스 mock 이다. 실제 재검색 파이프라인·롤백은 {@code VerificationCombinationDbTest} 등 DB 테스트가 이미 검증했으므로
- * 여기서는 컨트롤러가 계약이 정한 응답 모양(snake_case, id 문자열)으로 옮기는지만 본다.
+ * <p>{@code SceneExcludeCandidateControllerTest}·{@code SearchControllerTest} 와 같은 패턴: {@code @WebMvcTest} + 유스케이스 mock
+ * 이다. 실제 재검색 파이프라인·롤백은 {@code VerificationCombinationDbTest} 등 DB 테스트가 이미 검증했으므로 여기서는 컨트롤러가 계약이 정한 응답 모양(snake_case, id
+ * 문자열)으로 옮기는지만 본다.
  */
 @WebMvcTest(controllers = VerificationController.class)
 @Import({
@@ -67,11 +67,12 @@ class VerificationControllerTest {
     @Test
     @DisplayName("계약이 정한 data 모양 그대로 응답한다 — 진입/제외 장면과 실행 id 는 문자열")
     void respondsWithTheContractShape() throws Exception {
-        given(useCase.verify(anyLong(), anyLong())).willReturn(new VerificationResult(
-                700L,
-                List.of(new SceneDiff.Entered(9302L, Map.of("score", Map.of("base_score", 1.2)))),
-                List.of(new SceneDiff.Dropped(9301L, "score_drop")),
-                List.of(8001L, 8002L)));
+        given(useCase.verify(anyLong(), anyLong()))
+                .willReturn(new VerificationResult(
+                        700L,
+                        List.of(new SceneDiff.Entered(9302L, Map.of("score", Map.of("base_score", 1.2)))),
+                        List.of(new SceneDiff.Dropped(9301L, "score_drop")),
+                        List.of(8001L, 8002L)));
 
         mockMvc.perform(post("/api/v1/review/inquiries/1/verify")
                         .with(user(REVIEWER))
@@ -100,8 +101,7 @@ class VerificationControllerTest {
     @Test
     @DisplayName("로그인하지 않으면 401 이다")
     void requiresLogin() throws Exception {
-        mockMvc.perform(post("/api/v1/review/inquiries/1/verify").with(csrf()))
-                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/review/inquiries/1/verify").with(csrf())).andExpect(status().isUnauthorized());
     }
 
     /*
@@ -113,7 +113,8 @@ class VerificationControllerTest {
     @Test
     @DisplayName("대상 신고가 없으면 404 다")
     void missingFeedbackReturnsNotFound() throws Exception {
-        given(useCase.verify(anyLong(), anyLong())).willThrow(new BusinessException(VerificationErrorCode.FEEDBACK_NOT_FOUND));
+        given(useCase.verify(anyLong(), anyLong()))
+                .willThrow(new BusinessException(VerificationErrorCode.FEEDBACK_NOT_FOUND));
 
         mockMvc.perform(post("/api/v1/review/inquiries/1/verify")
                         .with(user(REVIEWER))
@@ -124,7 +125,8 @@ class VerificationControllerTest {
     @Test
     @DisplayName("담당 검수자가 아니면 403 이다")
     void nonOwnerReviewerReturnsForbidden() throws Exception {
-        given(useCase.verify(anyLong(), anyLong())).willThrow(new BusinessException(VerificationErrorCode.NOT_REVIEWER));
+        given(useCase.verify(anyLong(), anyLong()))
+                .willThrow(new BusinessException(VerificationErrorCode.NOT_REVIEWER));
 
         mockMvc.perform(post("/api/v1/review/inquiries/1/verify")
                         .with(user(REVIEWER))
@@ -135,7 +137,8 @@ class VerificationControllerTest {
     @Test
     @DisplayName("검수 중이 아니면 409 다")
     void notReviewingReturnsConflict() throws Exception {
-        given(useCase.verify(anyLong(), anyLong())).willThrow(new BusinessException(VerificationErrorCode.NOT_REVIEWING));
+        given(useCase.verify(anyLong(), anyLong()))
+                .willThrow(new BusinessException(VerificationErrorCode.NOT_REVIEWING));
 
         mockMvc.perform(post("/api/v1/review/inquiries/1/verify")
                         .with(user(REVIEWER))

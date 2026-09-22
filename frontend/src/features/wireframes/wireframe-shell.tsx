@@ -308,6 +308,10 @@ export function WireframeShell({
       isDisabled={isSearchPending}
       onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
       onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
+      onSearchHistorySelect={(historyQuery) => {
+        setQuery(historyQuery);
+        requestAnimationFrame(() => searchFieldRef.current?.querySelector('input')?.focus());
+      }}
       searchField={
         <SceneSearchField
           variant="compact"

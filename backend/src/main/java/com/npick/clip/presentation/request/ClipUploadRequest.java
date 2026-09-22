@@ -2,6 +2,7 @@ package com.npick.clip.presentation.request;
 
 import java.io.InputStream;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import jakarta.validation.constraints.AssertTrue;
@@ -28,6 +29,9 @@ public record ClipUploadRequest(
         @BindParam("script_text") String scriptText,
         @BindParam("rights_confirmed") Boolean rightsConfirmed,
         @BindParam("external_processing_confirmed") Boolean externalProcessingConfirmed) {
+
+    /** 등록자와 같은 날짜 감각으로 "오늘"을 판단한다. UTC 로 보면 한국 아침 시간대의 오늘이 미래가 된다. */
+    private static final ZoneId REQUEST_ZONE = ZoneId.of("Asia/Seoul");
 
     public ClipUploadRequest {
         sourceType = emptyToNull(sourceType);
@@ -93,6 +97,33 @@ public record ClipUploadRequest(
 
     @AssertTrue(message = "자료 영상에는 방송일을 입력할 수 없습니다.") public boolean isBroadcastDateAllowed() {
         return !"archive".equals(sourceType) || broadcastDate == null;
+    }
+
+    @AssertTrue(message = "방송일은 오늘 이후 날짜로 입력할 수 없습니다.") public boolean isBroadcastDateNotFuture() {
+        return isNotFuture(broadcastDate);
+    }
+
+    @AssertTrue(message = "촬영일은 오늘 이후 날짜로 입력할 수 없습니다.") public boolean isFilmedDateNotFuture() {
+        return isNotFuture(filmedDate);
+    }
+
+    @AssertTrue(message = "방송일은 촬영일보다 빠를 수 없습니다.") public boolean isBroadcastDateNotBeforeFilmedDate() {
+        LocalDate broadcast = parseOrNull(broadcastDate);
+        LocalDate filmed = parseOrNull(filmedDate);
+        return broadcast == null || filmed == null || !broadcast.isBefore(filmed);
+    }
+
+    private static boolean isNotFuture(String date) {
+        LocalDate parsed = parseOrNull(date);
+        return parsed == null || !parsed.isAfter(LocalDate.now(REQUEST_ZONE));
+    }
+
+    /** 형식·달력 오류는 isValidDate 가 따로 보고한다. 여기서는 읽을 수 없는 값을 검사 대상에서 뺀다. */
+    private static LocalDate parseOrNull(String date) {
+        if (date == null || !isValidDate(date)) {
+            return null;
+        }
+        return LocalDate.parse(date);
     }
 
     private static boolean isValidDate(String date) {

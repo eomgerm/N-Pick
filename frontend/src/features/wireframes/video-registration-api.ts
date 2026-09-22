@@ -48,10 +48,22 @@ export interface ClipRegistrationErrorPresentation {
   globalMessage?: string;
 }
 
-class ScriptTextDecodeError extends Error {
+// 원인을 한 문구로 덮으면 "UTF-8 로 고쳤는데도 안 된다" 가 된다. 고쳐야 할 것이 파일 내용인지
+// 선택 자체인지 알려면 두 실패를 갈라야 한다 (S15P21A501-258).
+class ScriptFileError extends Error {}
+
+class ScriptTextDecodeError extends ScriptFileError {
   constructor() {
-    super('올바른 대본 파일이 아닙니다.');
+    super('대본 파일을 UTF-8 로 읽지 못했어요. UTF-8 로 저장한 TXT 파일을 선택해 주세요.');
     this.name = 'ScriptTextDecodeError';
+  }
+}
+
+/** 파일을 고른 뒤 같은 자리에 다시 저장하거나 옮기면 브라우저가 쥔 File 핸들이 무효가 된다. */
+class ScriptFileReadError extends ScriptFileError {
+  constructor() {
+    super('대본 파일을 읽지 못했어요. 파일이 바뀌었을 수 있으니 다시 선택해 주세요.');
+    this.name = 'ScriptFileReadError';
   }
 }
 
@@ -63,8 +75,14 @@ export function createClipRegistrationSubmission(
 }
 
 async function readScriptText(file: File): Promise<string> {
+  let bytes: ArrayBuffer;
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
+    bytes = await file.arrayBuffer();
+  } catch {
+    throw new ScriptFileReadError();
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
     throw new ScriptTextDecodeError();
   }
@@ -130,7 +148,10 @@ const validationFieldMap: Record<string, RegistrationField> = {
   broadcastDateAllowed: 'sourceType',
   title: 'title',
   broadcastDateValid: 'broadcastDate',
+  broadcastDateNotFuture: 'broadcastDate',
+  broadcastDateNotBeforeFilmedDate: 'broadcastDate',
   filmedDateValid: 'filmedDate',
+  filmedDateNotFuture: 'filmedDate',
   subtitle: 'subtitle',
   subtitleContentPresent: 'subtitle',
   scriptText: 'scriptText',
@@ -151,6 +172,9 @@ const codeFieldMap: Record<string, RegistrationField> = {
   CLIP_400_010: 'externalProcessingConfirmed',
   CLIP_400_011: 'filmedDate',
   CLIP_400_012: 'subtitle',
+  CLIP_400_013: 'broadcastDate',
+  CLIP_400_014: 'filmedDate',
+  CLIP_400_015: 'scriptText',
 };
 
 function safeFieldMessage(value: unknown): string | undefined {
@@ -194,7 +218,7 @@ function validationFieldsFrom(error: ApiClientError): ParsedValidationFields {
 export function getClipRegistrationErrorPresentation(
   error: unknown,
 ): ClipRegistrationErrorPresentation {
-  if (error instanceof ScriptTextDecodeError) {
+  if (error instanceof ScriptFileError) {
     return {
       fieldErrors: { scriptText: error.message },
       retryMode: 'none',

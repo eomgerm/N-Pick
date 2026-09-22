@@ -216,7 +216,7 @@ class SearchCandidatePipelineTest {
                         DenseCandidatesResult.Status.AVAILABLE,
                         DenseCandidatesResult.Reason.NONE,
                         List.of(),
-                        new DenseSearchSettings("bge-m3@" + "a".repeat(40), 200).snapshot(),
+                        new DenseSearchSettings("bge-m3@" + "a".repeat(40), 200, 2.0).snapshot(),
                         null,
                         null));
         when(tags.resolve(any()))
@@ -243,7 +243,7 @@ class SearchCandidatePipelineTest {
     private ObjectProvider<DenseSearchSettings> provider() {
         @SuppressWarnings("unchecked")
         ObjectProvider<DenseSearchSettings> provider = mock(ObjectProvider.class);
-        when(provider.getObject()).thenReturn(new DenseSearchSettings("bge-m3@" + "a".repeat(40), 200));
+        when(provider.getObject()).thenReturn(new DenseSearchSettings("bge-m3@" + "a".repeat(40), 200, 2.0));
         return provider;
     }
 

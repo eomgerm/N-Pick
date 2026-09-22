@@ -3,9 +3,8 @@ package com.npick.search.presentation.response;
 import java.time.Instant;
 import java.util.List;
 
-import tools.jackson.databind.JsonNode;
-
 import com.fasterxml.jackson.annotation.JsonProperty;
+import tools.jackson.databind.JsonNode;
 
 import com.npick.search.application.query.SearchHistoryListPage;
 import com.npick.search.application.query.SearchHistoryRecord;
@@ -14,8 +13,8 @@ import com.npick.search.application.query.SearchHistoryRecord;
  * 「내 검색 기록」목록 응답 (S15P21A501-198).
  *
  * <p>신규 계약이라 필드는 snake_case, 모든 {@code *_id} 는 십진 문자열이다(FE 가 Number 로 바꾸지 않도록). nullable
- * ({@code result_count}·{@code representative_result})은 key 를 생략하지 않고 null 로 명시한다. 기존 camelCase 응답은
- * 건드리지 않으므로 전역 전략 대신 필드별 {@link JsonProperty} 로 고정한다({@code MyInquiryListResponse} 와 같은 방식).
+ * ({@code result_count}·{@code representative_result})은 key 를 생략하지 않고 null 로 명시한다. 기존 camelCase 응답은 건드리지 않으므로 전역 전략 대신
+ * 필드별 {@link JsonProperty} 로 고정한다({@code MyInquiryListResponse} 와 같은 방식).
  *
  * <p>스냅샷 판정은 {@link SearchSnapshot} 한 곳에서만 한다 — 상세와 같은 규칙을 쓰기 위함이다.
  */

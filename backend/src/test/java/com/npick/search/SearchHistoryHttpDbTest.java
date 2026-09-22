@@ -15,7 +15,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.npick.common.security.AuthenticatedMember;
 import com.npick.support.NpickPostgres;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -75,17 +78,22 @@ class SearchHistoryHttpDbTest {
                 .andExpect(jsonPath("$.data.items[0].search_execution_id").value("9702"))
                 .andExpect(jsonPath("$.data.items[1].search_execution_id").value("9701"))
                 .andExpect(jsonPath("$.data.items[1].query_text").value("서울역 귀성 인파"))
-                .andExpect(jsonPath("$.data.items[1].explicit_filters.broadcast_date.from").value("2026-09-01"))
+                .andExpect(jsonPath("$.data.items[1].explicit_filters.broadcast_date.from")
+                        .value("2026-09-01"))
                 .andExpect(jsonPath("$.data.items[1].created_at").value("2026-09-15T03:00:00Z"))
                 .andExpect(jsonPath("$.data.items[1].status").value("succeeded"))
                 .andExpect(jsonPath("$.data.items[1].snapshot_status").value("available"))
                 .andExpect(jsonPath("$.data.items[1].result_count").value(1))
-                .andExpect(jsonPath("$.data.items[1].representative_result.search_result_id").value("9801"))
-                .andExpect(jsonPath("$.data.items[1].representative_result.scene_id").value("9301"))
-                .andExpect(jsonPath("$.data.items[1].representative_result.clip_id").value("9101"))
+                .andExpect(jsonPath("$.data.items[1].representative_result.search_result_id")
+                        .value("9801"))
+                .andExpect(jsonPath("$.data.items[1].representative_result.scene_id")
+                        .value("9301"))
+                .andExpect(jsonPath("$.data.items[1].representative_result.clip_id")
+                        .value("9101"))
                 .andExpect(jsonPath("$.data.items[1].representative_result.display_name")
                         .value("예시 뉴스 · 서울역"))
-                .andExpect(jsonPath("$.data.items[1].representative_result.rank").value(1))
+                .andExpect(
+                        jsonPath("$.data.items[1].representative_result.rank").value(1))
                 // 목록 항목에는 상세 전용 필드를 싣지 않는다.
                 .andExpect(jsonPath("$.data.items[1].search_snapshot").doesNotExist());
     }
@@ -104,7 +112,8 @@ class SearchHistoryHttpDbTest {
                 .andExpect(jsonPath("$.data.items[0].representative_result").value(Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.items[0].query_text").value("필터만 남은 질의"))
                 .andExpect(jsonPath("$.data.items[0].created_at").exists())
-                .andExpect(jsonPath("$.data.items[0].explicit_filters.broadcast_date.to").value("2026-09-15"));
+                .andExpect(jsonPath("$.data.items[0].explicit_filters.broadcast_date.to")
+                        .value("2026-09-15"));
     }
 
     @Test
@@ -141,10 +150,8 @@ class SearchHistoryHttpDbTest {
     void rejectsBadPaging() throws Exception {
         mockMvc.perform(get("/api/v1/search/history?size=101").with(user(OWNER)))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history?size=0").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history?page=-1").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?size=0").with(user(OWNER))).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?page=-1").with(user(OWNER))).andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/search/history?page=abc").with(user(OWNER)))
                 .andExpect(status().isBadRequest());
     }
@@ -157,10 +164,8 @@ class SearchHistoryHttpDbTest {
         mockMvc.perform(get("/api/v1/search/history?page=&size=").with(user(OWNER)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("COMM_400"));
-        mockMvc.perform(get("/api/v1/search/history?page=").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history?size=").with(user(OWNER)))
-                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?page=").with(user(OWNER))).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history?size=").with(user(OWNER))).andExpect(status().isBadRequest());
         mockMvc.perform(get("/api/v1/search/history?page=%20").with(user(OWNER)))
                 .andExpect(status().isBadRequest());
     }
@@ -194,26 +199,34 @@ class SearchHistoryHttpDbTest {
                 .andExpect(jsonPath("$.data.snapshot_status").value("available"))
                 .andExpect(jsonPath("$.data.result_count").value(1))
                 // 상위와 일치하며 envelope 을 중첩하지 않는다.
-                .andExpect(jsonPath("$.data.search_snapshot.search_execution_id").value("9701"))
+                .andExpect(
+                        jsonPath("$.data.search_snapshot.search_execution_id").value("9701"))
                 .andExpect(jsonPath("$.data.search_snapshot.status").value("succeeded"))
                 .andExpect(jsonPath("$.data.search_snapshot.isSuccess").doesNotExist())
                 .andExpect(jsonPath("$.data.search_snapshot.degraded_reasons").isEmpty())
-                .andExpect(jsonPath("$.data.search_snapshot.query_resolution_status").value("resolved"))
-                .andExpect(jsonPath("$.data.search_snapshot.has_applied_review_rule").value(true))
+                .andExpect(jsonPath("$.data.search_snapshot.query_resolution_status")
+                        .value("resolved"))
+                .andExpect(jsonPath("$.data.search_snapshot.has_applied_review_rule")
+                        .value(true))
                 // verdicts 중 exclusion_reason 이 있는 1건만 센다.
-                .andExpect(jsonPath("$.data.search_snapshot.guard_summary.excluded_result_count").value(1))
+                .andExpect(jsonPath("$.data.search_snapshot.guard_summary.excluded_result_count")
+                        .value(1))
                 .andExpect(jsonPath("$.data.search_snapshot.guard_summary.reasons[0]")
                         .value("explicit_date_conflict"))
-                .andExpect(jsonPath("$.data.search_snapshot.shortage_reasons[0]")
-                        .value("candidate_pool_exhausted"))
+                .andExpect(
+                        jsonPath("$.data.search_snapshot.shortage_reasons[0]").value("candidate_pool_exhausted"))
                 .andExpect(jsonPath("$.data.search_snapshot.results.length()").value(1))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].search_result_id").value("9801"))
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].search_result_id")
+                        .value("9801"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].rank").value(1))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].scene_type").value("역사 인파"))
+                .andExpect(
+                        jsonPath("$.data.search_snapshot.results[0].scene_type").value("역사 인파"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].filmed_date.verification_status")
                         .value("unknown"))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0]").value("서울역"))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].match_evidence[0].field").value("ocr"));
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0]")
+                        .value("서울역"))
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].match_evidence[0].field")
+                        .value("ocr"));
     }
 
     @Test
@@ -267,10 +280,138 @@ class SearchHistoryHttpDbTest {
     @Transactional
     @DisplayName("경로 ID 가 0 이하면 400 으로 거부한다")
     void rejectsNonPositivePathId() throws Exception {
-        mockMvc.perform(get("/api/v1/search/history/0").with(user(OWNER)))
+        mockMvc.perform(get("/api/v1/search/history/0").with(user(OWNER))).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/search/history/-1").with(user(OWNER))).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("지운 기록은 목록·총계·상세에서 빠지고 나머지는 그대로다 (S15P21A501-276)")
+    void hidesDeletedRecordFromOwnerViews() throws Exception {
+        seed();
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true));
+
+        mockMvc.perform(get("/api/v1/search/history?page=0&size=10").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total_elements").value(2))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[*].search_execution_id", Matchers.not(Matchers.hasItem("9701"))));
+
+        mockMvc.perform(get("/api/v1/search/history/9701").with(user(OWNER)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SRCH_404_001"));
+
+        // 지우지 않은 기록은 영향이 없다.
+        mockMvc.perform(get("/api/v1/search/history/9702").with(user(OWNER))).andExpect(status().isOk());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("행을 지우지 않으므로 감사 조회는 지운 뒤에도 당시 기록을 낸다 (S15P21A501-276)")
+    void keepsRowForAuditAfterDelete() throws Exception {
+        seed();
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/search/executions/9701").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true));
+
+        // 결과 스냅샷도 남아 있어야 문의 상세가 당시 결과를 복원할 수 있다.
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM npick.search_result WHERE search_execution_id = 9701", Integer.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("같은 기록을 두 번 지워도 성공하고 지운 시각은 유지된다 (S15P21A501-276)")
+    void deleteIsIdempotent() throws Exception {
+        seed();
+
+        // 이미 지운 상태를 과거 시각으로 만들어 둔다. 이 테스트는 한 트랜잭션에서 도는데 Postgres 의
+        // now() 는 transaction_timestamp() 라 트랜잭션 안에서 고정이다. 갓 지운 행으로 검사하면
+        // COALESCE 가 빠져도 두 값이 같아 단언이 통과한다 — 트랜잭션 시각과 다른 값이어야 회귀를 잡는다.
+        exec("UPDATE npick.search_execution SET deleted_at = now() - interval '1 day',"
+                + " updated_at = now() - interval '1 day' WHERE search_execution_id = 9701");
+        String deletedBefore = deletedAt(9701);
+        String updatedBefore = updatedAt(9701);
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        // 지운 시각이 밀리면 보존기간 판단의 기준이 흔들린다.
+        assertThat(deletedAt(9701)).isEqualTo(deletedBefore);
+        // 바뀐 것이 없는 재시도가 감사 조회에 나가는 updated_at 을 흔들지 않는다.
+        assertThat(updatedAt(9701)).isEqualTo(updatedBefore);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("처음 지울 때는 지운 시각과 갱신 시각을 남긴다 (S15P21A501-276)")
+    void firstDeleteStampsTimestamps() throws Exception {
+        seed();
+        exec("UPDATE npick.search_execution SET updated_at = now() - interval '1 day'"
+                + " WHERE search_execution_id = 9701");
+        String updatedBefore = updatedAt(9701);
+
+        mockMvc.perform(delete("/api/v1/search/history/9701").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        assertThat(deletedAt(9701)).isNotNull();
+        assertThat(updatedAt(9701)).isNotEqualTo(updatedBefore);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("남의 기록·미존재·대상 밖은 같은 404 로 거부하고 실제로 지우지 않는다 (S15P21A501-276)")
+    void rejectsRecordsOutsideOwnScope() throws Exception {
+        seed();
+
+        // 9701 은 OWNER 소유, 9704 는 replay, 88888 은 없는 id.
+        for (String path : new String[] {"9701", "9704", "88888"}) {
+            mockMvc.perform(delete("/api/v1/search/history/" + path)
+                            .with(user(OTHER))
+                            .with(csrf()))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("SRCH_404_001"));
+        }
+        mockMvc.perform(delete("/api/v1/search/history/9704").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SRCH_404_001"));
+
+        assertThat(deletedAt(9701)).isNull();
+        assertThat(deletedAt(9704)).isNull();
+        mockMvc.perform(get("/api/v1/search/history/9701").with(user(OWNER))).andExpect(status().isOk());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("삭제도 경로 ID 가 0 이하면 400 으로 거부한다 (S15P21A501-276)")
+    void rejectsNonPositivePathIdOnDelete() throws Exception {
+        mockMvc.perform(delete("/api/v1/search/history/0").with(user(OWNER)).with(csrf()))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/api/v1/search/history/-1").with(user(OWNER)))
+        mockMvc.perform(delete("/api/v1/search/history/-1").with(user(OWNER)).with(csrf()))
                 .andExpect(status().isBadRequest());
+    }
+
+    private String deletedAt(long executionId) {
+        return column("deleted_at", executionId);
+    }
+
+    private String updatedAt(long executionId) {
+        return column("updated_at", executionId);
+    }
+
+    private String column(String name, long executionId) {
+        return jdbc.queryForObject(
+                "SELECT CAST(" + name + " AS text) FROM npick.search_execution WHERE search_execution_id = "
+                        + executionId,
+                String.class);
     }
 
     private void seed() {
@@ -288,7 +429,15 @@ class SearchHistoryHttpDbTest {
                 + " created_at, updated_at) VALUES (9301, 9101, 9201, 42000, 49000, 'b_roll', now(), now())");
 
         // 9701 — 결과 1건, 저장 온전. applied_rules_json 에 적용 기록이 있다.
-        execution(9701, 9001, "서울역 귀성 인파", "succeeded", "original", null, "2026-09-15T03:00:00Z", FILTERED,
+        execution(
+                9701,
+                9001,
+                "서울역 귀성 인파",
+                "succeeded",
+                "original",
+                null,
+                "2026-09-15T03:00:00Z",
+                FILTERED,
                 "[{\"rule_id\": 1, \"status\": \"applied\", \"applied_order\": 1}]");
         exec("INSERT INTO npick.search_result (search_result_id, search_execution_id, scene_id, result_rank,"
                 + " explain_json) VALUES (9801, 9701, 9301, 1, '{" + DISPLAY + ", " + MATCH + "}'::jsonb)");
@@ -297,9 +446,17 @@ class SearchHistoryHttpDbTest {
         execution(9702, 9001, "필터만 남은 질의", "succeeded", "original", null, "2026-09-15T04:00:00Z", null, "[]");
 
         // 9703 — 정상 완료 0건. 불완전과 구분되어야 한다.
-        execution(9703, 9001, "결과 없는 질의", "succeeded", "original", null, "2026-09-14T03:00:00Z",
+        execution(
+                9703,
+                9001,
+                "결과 없는 질의",
+                "succeeded",
+                "original",
+                null,
+                "2026-09-14T03:00:00Z",
                 "{\"returned_count\": 0, \"shortage_reasons\": [\"candidate_pool_exhausted\"],"
-                        + " \"guard\": {\"verdicts\": []}}", "[]");
+                        + " \"guard\": {\"verdicts\": []}}",
+                "[]");
 
         // 9704 — replay. 이 화면 대상이 아니다.
         exec("INSERT INTO npick.feedback (feedback_id, search_result_id, created_by_id, status,"

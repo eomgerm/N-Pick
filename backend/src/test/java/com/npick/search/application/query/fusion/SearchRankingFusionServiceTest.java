@@ -135,7 +135,7 @@ class SearchRankingFusionServiceTest {
         var failed = DenseCandidatesResult.unavailable(
                 DenseCandidatesResult.Reason.DENSE_QUERY_FAILED,
                 new DenseQuery(new float[] {1}, MODEL),
-                new DenseSearchSettings(MODEL, 200));
+                new DenseSearchSettings(MODEL, 200, 2.0));
         var result = service(settings(1.0, 1.0, 1.0))
                 .fuse(new FuseSearchRankingQuery(
                         List.of(candidate(30)), failed, structured(List.of(scene(30, 0.6)), List.of())));
@@ -267,7 +267,7 @@ class SearchRankingFusionServiceTest {
                 DenseCandidatesResult.Status.AVAILABLE,
                 DenseCandidatesResult.Reason.NONE,
                 List.of(hits),
-                new DenseSearchSettings(MODEL, 200).snapshot(),
+                new DenseSearchSettings(MODEL, 200, 2.0).snapshot(),
                 MODEL,
                 new DenseCandidatesResult.Coverage(1, 0, 0, 1, 0, 0, 0, 0));
     }
