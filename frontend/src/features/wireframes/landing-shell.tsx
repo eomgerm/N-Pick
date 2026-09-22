@@ -6,11 +6,12 @@ import { ArrowDown } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 
 import { AppLogo } from '@/components/app-logo';
 import { useMountainBackdropSettled } from '@/components/mountain-backdrop';
 import styles from '@/features/wireframes/landing.module.css';
+import { useLandingScrollSnap } from '@/features/wireframes/use-landing-scroll-snap';
 import { routes } from '@/lib/routes';
 
 // 크로스페이드 구간에서 각 섹션이 차지하는 진행도 구간 (0~1).
@@ -32,6 +33,7 @@ export function LandingShell() {
   const brandRef = useRef<HTMLDivElement | null>(null);
   const brandTargetRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const handleScrollCue = useLandingScrollSnap(heroRef);
 
   useEffect(() => {
     if (pendingRole && isBackdropSettled) {
@@ -149,15 +151,6 @@ export function LandingShell() {
     applyMotionPreference();
     reducedMotion.addEventListener('change', applyMotionPreference);
     return () => reducedMotion.removeEventListener('change', applyMotionPreference);
-  }, []);
-
-  const handleScrollCue = useCallback(() => {
-    window.scrollTo({
-      top: heroRef.current?.offsetHeight ?? window.innerHeight,
-      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? 'instant'
-        : 'smooth',
-    });
   }, []);
 
   return (
