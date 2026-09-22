@@ -104,6 +104,7 @@ public record SearchConfigSnapshot(
         value.put("schema", dense.schema());
         value.put("model_version", dense.modelVersion());
         value.put("pool_size", dense.poolSize());
+        value.put("max_distance", dense.maxDistance());
         value.put("dimension", dense.dimension());
         value.put("metric", dense.metric());
         value.put("order", dense.order());

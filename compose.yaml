@@ -75,6 +75,12 @@ services:
       # 색인한 환경만 SEARCH_DENSE_MODEL_VERSION 으로 덮는다 — 색인과 어긋나면 dense 리더가 전
       # 장면을 model_mismatch 로 걸러 조용히 0 건이 되고 화면에는 아무 표시도 나지 않는다.
       SEARCH_FUSION_DENSE_WEIGHT: ${SEARCH_FUSION_DENSE_WEIGHT:-1.0}
+      # dense 관련성 하한선 (S15P21A501-278). application.yml 기본값 2.0 은 코사인 거리의 전
+      # 범위라 거르지 않는다 — 벡터가 적재된 배포에서만 실측값으로 조인다.
+      # 0.75 는 운영 질의 27개 실측에서 나온 값이다. 「근거 없는 결과」(질의 토큰 미일치 +
+      # 태그 점수 0 + BM25 미스)의 72% 가 사라지고, 해당 영상이 없는 질의는 정직하게 0 건이 된다.
+      # 값을 바꾸면 dense 스냅샷을 통해 config_version 이 함께 바뀌므로 전후 비교가 성립한다.
+      SEARCH_DENSE_MAX_DISTANCE: ${SEARCH_DENSE_MAX_DISTANCE:-0.75}
       SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILE:-local}
       # local·prod 두 프로필의 변수를 모두 넘긴다. BACKEND_PROFILE 만 바꿔 고를 수 있다.
       # prod 는 기본값 없이 요구하므로 여기서 주지 않으면 기동에 실패한다.
