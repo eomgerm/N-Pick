@@ -206,6 +206,26 @@
 .resetButton:hover {
   color: #2a2521;
 }
+.datePresets {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.datePresets button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid #e4ded4;
+  border-radius: 999px;
+  background: white;
+  color: #5f564e;
+  font-size: 12px;
+}
+.datePresets button:hover,
+.datePresets button[data-selected='true'] {
+  border-color: #2e2a26;
+  background: #2e2a26;
+  color: white;
+}
 .monthNavigation {
   display: flex;
   align-items: center;

@@ -6,6 +6,7 @@ function clip(id = '21', status = 'failed') {
     title: `서버 영상 ${id}`,
     source_type: 'archive',
     search_available: true,
+    registered_by: { login_id: 'arch04' },
     active_pipeline_run_id: '31',
     created_at: '2026-09-16T01:00:00Z',
     updated_at: '2026-09-16T02:00:00Z',
@@ -67,10 +68,11 @@ async function clipList(page: Page, count = 11) {
     const url = new URL(route.request().url());
     requests.push(url);
     const currentPage = Number(url.searchParams.get('page'));
-    const completed = url.searchParams.get('status') === 'succeeded';
-    const items = completed
-      ? [clip('99', 'succeeded')]
-      : Array.from({ length: count }, (_, index) => clip(String(index + 21)));
+    const status = url.searchParams.get('status');
+    const failed = Array.from({ length: count }, (_, index) => clip(String(index + 21)));
+    const succeeded = [clip('99', 'succeeded')];
+    const items =
+      status === 'succeeded' ? succeeded : status === null ? [...failed, ...succeeded] : failed;
     await success(route, {
       items: items.slice(currentPage * 10, (currentPage + 1) * 10),
       page: currentPage,
@@ -105,16 +107,25 @@ test('서버 전체 집계·필터·페이지를 사용하고 상세에서 목�
 }, testInfo) => {
   const requests = await clipList(page);
   await page.route('**/api/v1/clips/31', (route) => success(route, detail('31')));
-  await page.goto('/review?view=processing&tab=uploads');
-  await expect(page.getByRole('region', { name: '영상 등록 요약' })).toContainText('전체 12개');
-  await expect(page.getByRole('region', { name: '문의 처리 요약' })).toContainText('전체 20개');
-  await expect(page.getByRole('tabpanel').getByRole('progressbar')).toHaveCount(0);
-  await expect(page.getByRole('tabpanel')).toContainText('일부 처리 기록만 확인됨');
+  await page.goto('/review?view=processing');
+  const list = page.getByRole('region', { name: '영상 목록' });
+  const chips = page.getByRole('group', { name: '처리 상태' });
+  await expect(chips.getByRole('button')).toHaveText([
+    '전체 12',
+    '처리 중 0',
+    '확인 필요 11',
+    '처리 완료 1',
+  ]);
+  await expect(list.getByRole('progressbar')).toHaveCount(0);
+  await expect(list).toContainText('일부 처리 기록만 확인됨');
+  // 등록자는 로그인 ID 까지만 공개한다 (docs/contracts/web-api.md §6.5).
+  await expect(list).toContainText('등록자 arch04');
   await page.screenshot({ path: testInfo.outputPath('processing.png'), fullPage: true });
   await page.getByRole('button', { name: '다음 페이지' }).click();
   await expect(page).toHaveURL(/progressPage=2/);
   await page.getByRole('button', { name: '서버 영상 31 처리 상세', exact: true }).click();
   await expect(page.getByRole('heading', { name: '서버 영상 31', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: '영상 처리 상세' })).toContainText('등록자 arch04');
   await expect(
     page.getByText('이전 처리 결과로 검색을 제공하고 있습니다.', { exact: false }),
   ).toBeVisible();
@@ -128,40 +139,68 @@ test('서버 전체 집계·필터·페이지를 사용하고 상세에서 목�
   await expect(
     page.getByRole('button', { name: '서버 영상 31 처리 상세', exact: true }),
   ).toBeVisible();
-  await page.getByRole('tab', { name: '등록 완료 1', exact: true }).click();
+  await chips.getByRole('button', { name: '처리 완료 1', exact: true }).click();
+  await expect(page).toHaveURL(/clipStatus=done/);
+  // 한 페이지뿐이어도 페이지네이션은 사라지지 않는다. 문의 화면과 같은 규약.
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  await expect(pager).toBeVisible();
+  await expect(pager).toContainText('1 / 1');
+  await expect(pager.getByRole('button', { name: '이전 페이지' })).toBeDisabled();
+  await expect(pager.getByRole('button', { name: '다음 페이지' })).toBeDisabled();
   await expect(page).not.toHaveURL(/progressPage=/);
   await expect(
     page.getByRole('button', { name: '서버 영상 99 처리 상세', exact: true }),
   ).toBeVisible();
+  // 전체 칩은 status 를 아예 보내지 않고, 칩을 고르면 서버가 아는 값으로 펼쳐 보낸다.
   expect(
-    requests.some(
-      (url) =>
-        url.searchParams.get('status') === 'queued,running,failed,no_run' &&
-        url.searchParams.get('page') === '1',
-    ),
+    requests.some((url) => !url.searchParams.has('status') && url.searchParams.get('page') === '1'),
   ).toBe(true);
   expect(requests.some((url) => url.searchParams.get('status') === 'succeeded')).toBe(true);
+  expect(requests.every((url) => !url.searchParams.has('mine'))).toBe(true);
 });
 
-test('키보드로 처리 탭을 전환해도 전환 후 포커스를 유지한다', async ({ page }) => {
+test('화살표 키는 칩 포커스만 옮기고 선택은 Enter 로만 바뀐다', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clipList(page);
   await page.goto('/review?view=processing');
-  const inquiries = page.getByRole('tab', { name: '문의 처리 중 0', exact: true });
-  const uploads = page.getByRole('tab', { name: '영상 등록 중 11', exact: true });
-  const completed = page.getByRole('tab', { name: '등록 완료 1', exact: true });
-  await inquiries.focus();
-  await inquiries.press('ArrowRight');
-  await expect(uploads).toHaveAttribute('aria-selected', 'true');
-  await expect(uploads).toBeEnabled();
-  await expect(uploads).toBeFocused();
-  await uploads.press('End');
-  await expect(completed).toHaveAttribute('aria-selected', 'true');
-  await expect(completed).toBeEnabled();
-  await expect(completed).toBeFocused();
+  const chips = page.getByRole('group', { name: '처리 상태' });
+  const all = chips.getByRole('button', { name: '전체 12', exact: true });
+  const processing = chips.getByRole('button', { name: '처리 중 0', exact: true });
+  const done = chips.getByRole('button', { name: '처리 완료 1', exact: true });
+
+  await all.focus();
+  await all.press('ArrowRight');
+  await expect(processing).toBeFocused();
+  await processing.press('End');
+  await expect(done).toBeFocused();
+  // 포커스만 옮겼으므로 선택과 URL 은 그대로다 — 뒤로가기가 칩 상태를 되짚지 않는다.
+  await expect(all).toHaveAttribute('aria-pressed', 'true');
+  await expect(done).toHaveAttribute('aria-pressed', 'false');
+  await expect(page).not.toHaveURL(/clipStatus=/);
+
+  await done.press('Enter');
+  await expect(done).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).toHaveURL(/clipStatus=done/);
   await expect(
     page.getByRole('button', { name: '서버 영상 99 처리 상세', exact: true }),
   ).toBeVisible();
+});
+
+test('내 영상만 보기는 mine 을 싣고 끄면 파라미터를 지운다', async ({ page }) => {
+  const requests = await clipList(page);
+  await page.goto('/review?view=processing');
+  const mine = page.getByRole('checkbox', { name: '내 영상만 보기' });
+  // URL 이 상태의 정본이라 체크 표시는 라우팅 뒤에 따라온다. check() 의 즉시 검사와는 맞지 않는다.
+  await mine.click();
+  await expect(page).toHaveURL(/mine=true/);
+  await expect(mine).toBeChecked();
+  await expect(page.getByRole('region', { name: '영상 목록' })).toContainText('내가 등록한 영상');
+  await expect
+    .poll(() => requests.some((url) => url.searchParams.get('mine') === 'true'))
+    .toBe(true);
+  await mine.click();
+  await expect(page).not.toHaveURL(/mine=/);
+  await expect(mine).not.toBeChecked();
 });
 
 test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어 URL을 사용한다', async ({ page }) => {
@@ -177,7 +216,7 @@ test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어
     if (reads === 2) await responseReady;
     return success(route, detail('21', reads === 1 ? 'running' : 'succeeded'));
   });
-  await page.goto('/review?view=processing&tab=uploads&clip=21');
+  await page.goto('/review?view=processing&clip=21');
   const region = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   await expect(region).toContainText('진행 중');
   const refreshStatus = region.getByRole('group', { name: '영상 상태 갱신 안내' });
@@ -238,12 +277,14 @@ test('영상 API 오류를 데모로 대체하지 않고 문의 요약과 재조
     },
     { times: 1 },
   );
-  await page.goto('/review?view=processing&tab=uploads');
+  await page.goto('/review?view=processing');
   await expect(page.getByRole('main').getByRole('alert')).toContainText('영상 조회 실패');
   await expect(page.getByRole('main').getByRole('alert')).not.toContainText('CLIP_QUERY_503');
-  await expect(page.getByRole('region', { name: '문의 처리 요약' })).toContainText('전체 20개');
-  await expect(page.getByRole('region', { name: '영상 등록 요약' })).toContainText('전체 —개');
-  await expect(page.getByRole('tabpanel')).toContainText('최신 목록을 불러오지 못했습니다.');
+  // 오류·재시도 UI 는 사라진 요약 카드에서 패널 안으로 옮겼다. 칩 건수는 아직 모른다.
+  await expect(page.getByRole('group', { name: '처리 상태' })).toContainText('전체 —');
+  await expect(page.getByRole('region', { name: '영상 목록' })).toContainText(
+    '최신 목록을 불러오지 못했습니다.',
+  );
   await page.getByRole('button', { name: '영상 현황 다시 시도' }).click();
   await expect(
     page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }),
@@ -285,10 +326,13 @@ test('기록 없는 영상은 대기 또는 0단계 완료로 만들지 않는�
       run_counts: { queued: 0, running: 0, failed: 0, succeeded: 0, no_run: 1 },
     }),
   );
-  await page.goto('/review?view=processing&tab=uploads');
-  await expect(page.getByRole('tabpanel')).toContainText('처리 기록 없음');
-  await expect(page.getByRole('tabpanel')).toContainText('검색 미제공');
-  await expect(page.getByRole('tabpanel').getByRole('progressbar')).toHaveCount(0);
+  await page.goto('/review?view=processing');
+  const noRunList = page.getByRole('region', { name: '영상 목록' });
+  await expect(noRunList).toContainText('처리 기록 없음');
+  await expect(noRunList).toContainText('검색 미제공');
+  // FRD F-02 어휘. archive 는 '자료 영상'이다.
+  await expect(noRunList).toContainText('자료 영상');
+  await expect(noRunList.getByRole('progressbar')).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
@@ -345,13 +389,17 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
       run_counts: { queued: 0, running: 0, failed: 0, succeeded: 1, no_run: 0 },
     }),
   );
-  await page.goto('/review?view=upload');
+  await page.goto('/review?view=processing&clipStatus=done');
+  await page.getByRole('link', { name: '영상 등록' }).click();
+  await expect(page).toHaveURL(/view=upload/);
   await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
   await page.locator('#registration-title').fill('등록 요청 제목');
   await page.locator('#rights-confirmed').check();
   await page.locator('#external-processing-confirmed').check();
   await page.getByRole('button', { name: '등록', exact: true }).click();
-  await expect(page).toHaveURL(/view=processing&tab=uploads&clip=21/);
+  await expect(page).toHaveURL(/view=processing&clip=21/);
+  // 등록 직후에는 칩 필터를 풀어야 방금 올린 영상(no_run)이 목록에 남는다.
+  await expect(page).not.toHaveURL(/clipStatus=/);
   await expect(page.getByRole('status', { name: '영상 등록 결과' })).toContainText(
     '영상이 등록되었습니다.',
   );
@@ -374,7 +422,7 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(overview).toContainText('자동 확인이 종료되었습니다.');
   await expect(noRunNotice).toHaveCount(0);
   await page.getByRole('button', { name: '처리 현황으로', exact: true }).click();
-  await expect(page).toHaveURL(/view=processing&tab=uploads$/);
+  await expect(page).toHaveURL(/view=processing$/);
   await expect(
     page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }),
   ).toBeVisible();
@@ -468,7 +516,7 @@ test('최근 등록의 기록 없음 재조회는 1분 뒤 멈추고 수동 조�
           },
     );
   });
-  await page.goto('/review?view=processing&tab=uploads&clip=21');
+  await page.goto('/review?view=processing&clip=21');
   const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   const refresh = overview.getByRole('button', { name: '상태 새로고침', exact: true });
   await expect(overview).toContainText('처리 기록 없음');
@@ -581,9 +629,7 @@ for (const isOffline of [false, true]) {
   });
 }
 
-test('영상 목록 갱신 안내는 문의 요약과 분리하고 완료 건수 변경 뒤 자동 확인을 종료한다', async ({
-  page,
-}) => {
+test('영상 목록 갱신 안내는 완료 필터 건수 변경 뒤 자동 확인을 종료한다', async ({ page }) => {
   let reads = 0;
   await page.clock.install();
   await page.route('**/api/v1/clips?*', (route) => {
@@ -604,13 +650,13 @@ test('영상 목록 갱신 안내는 문의 요약과 분리하고 완료 건수
       },
     });
   });
-  await page.goto('/review?view=processing&tab=uploads');
-  const summary = page.getByRole('region', { name: '영상 등록 요약' });
+  await page.goto('/review?view=processing');
+  const summary = page.getByRole('region', { name: '영상 목록', exact: true });
   await expect(summary).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
-  await expect(page.getByRole('region', { name: '문의 처리 요약' })).not.toContainText('5초마다');
+  await expect(summary.getByRole('group', { name: '영상 상태 갱신 안내' })).toHaveCount(1);
   await page.clock.fastForward(5_100);
   await expect(summary).toContainText('자동 확인이 종료되었습니다.');
-  await expect(page.getByRole('tab', { name: '등록 완료 1', exact: true })).toBeVisible();
+  await expect(summary.getByRole('button', { name: '처리 완료 1', exact: true })).toBeVisible();
   await page.clock.fastForward(15_000);
   expect(reads).toBe(2);
 });
@@ -718,7 +764,7 @@ for (const width of [1440, 390, 320]) {
         },
       }),
     );
-    await page.goto('/review?view=processing&tab=uploads&clip=21');
+    await page.goto('/review?view=processing&clip=21');
     const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
     const stages = page.getByRole('region', { name: '최신 처리 단계', exact: true });
     const header = page.getByRole('banner');

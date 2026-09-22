@@ -50,6 +50,10 @@ test('실제 MP4는 장면 시작에서 재생하고 경계 이후 계속 재생
   expect(response.headers()['content-range']).toMatch(/^bytes 0-/);
   expect(response.request().headers()['range']).toMatch(/^bytes=/);
   const video = dialog.locator('video');
+  await expect(dialog.getByRole('button', { name: '구간 반복', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   await expect
     .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
     .toBeGreaterThanOrEqual(1.25);
@@ -117,6 +121,140 @@ test('원본보다 긴 장면은 0초로 대체하지 않는다', async ({ page 
   const dialog = await openPreview(page, 1000, 100000);
   await expect(dialog.getByRole('alert')).toContainText('장면 구간이 원본 영상 길이와 맞지 않아');
   await expect(dialog.getByRole('button', { name: '구간 다시 재생' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '구간 반복', exact: true })).toBeDisabled();
+});
+
+test('구간 반복은 두 번 이상 반복하고 끄면 원본을 다시 불러오지 않고 경계 이후 재생한다', async ({
+  page,
+}) => {
+  const dialog = await openPreview(page);
+  const video = dialog.locator('video');
+  const loop = dialog.getByRole('button', { name: '구간 반복', exact: true });
+  await expect(loop).toBeEnabled();
+  await video.evaluate((element: HTMLVideoElement) => {
+    element.dataset.loopStarts = '0';
+    element.dataset.reloads = '0';
+    element.addEventListener('seeked', () => {
+      if (element.currentTime >= 1.25 && element.currentTime < 1.5) {
+        element.dataset.loopStarts = String(Number(element.dataset.loopStarts) + 1);
+      }
+    });
+    element.addEventListener('emptied', () => {
+      element.dataset.reloads = String(Number(element.dataset.reloads) + 1);
+    });
+  });
+  await loop.focus();
+  await page.keyboard.press('Space');
+  await expect(loop).toHaveAttribute('aria-pressed', 'true');
+  await video.evaluate((element: HTMLVideoElement) => {
+    element.playbackRate = 2;
+    element.dataset.maxLoopTime = '0';
+    const measure = () => {
+      if (!element.isConnected || element.dataset.stopMeasuring) return;
+      if (!element.seeking) {
+        element.dataset.maxLoopTime = String(
+          Math.max(Number(element.dataset.maxLoopTime), element.currentTime),
+        );
+      }
+      requestAnimationFrame(measure);
+    };
+    requestAnimationFrame(measure);
+  });
+  await expect
+    .poll(() => video.getAttribute('data-loop-starts'), { timeout: 8_000 })
+    .toMatch(/^[2-9]\d*$/);
+  const maxLoopTime = await video.evaluate((element: HTMLVideoElement) => {
+    element.dataset.stopMeasuring = 'true';
+    element.playbackRate = 1;
+    return Number(element.dataset.maxLoopTime);
+  });
+  expect(maxLoopTime).toBeLessThan(2.7);
+  await page.screenshot({ path: test.info().outputPath('preview-loop.png') });
+  await loop.click();
+  await expect(loop).toHaveAttribute('aria-pressed', 'false');
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeGreaterThan(2.6);
+  await expect(video).toHaveAttribute('data-reloads', '0');
+  await loop.click();
+  const previousVideo = await video.elementHandle();
+  await page.keyboard.press('Escape');
+  expect(
+    await previousVideo!.evaluate(
+      (element: HTMLVideoElement) => element.paused && !element.hasAttribute('src'),
+    ),
+  ).toBe(true);
+  await page.getByRole('button', { name: '문의 장면 재생' }).click();
+  await expect(loop).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('일시 정지 중 반복을 켜도 재생하지 않으며 재생과 구간 밖 탐색 시 선택 구간으로 돌아온다', async ({
+  page,
+}) => {
+  const dialog = await openPreview(page);
+  const video = dialog.locator('video');
+  const loop = dialog.getByRole('button', { name: '구간 반복', exact: true });
+  await expect(loop).toBeEnabled();
+  await video.evaluate((element: HTMLVideoElement) => {
+    element.pause();
+    element.currentTime = 6;
+  });
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => !element.seeking))
+    .toBe(true);
+  await loop.click();
+  await expect(dialog.getByText('일시 정지', { exact: true })).toBeVisible();
+  expect(
+    await video.evaluate(
+      (element: HTMLVideoElement) => element.paused && element.currentTime === 6,
+    ),
+  ).toBe(true);
+  await video.evaluate((element: HTMLVideoElement) => {
+    element.currentTime = element.duration;
+  });
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => !element.seeking))
+    .toBe(true);
+  await expect(dialog.getByText('일시 정지', { exact: true })).toBeVisible();
+  expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(true);
+  await video.evaluate((element: HTMLVideoElement) => element.play());
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeLessThan(2.5);
+  await video.evaluate((element: HTMLVideoElement) => {
+    element.currentTime = 0;
+  });
+  await expect
+    .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeGreaterThanOrEqual(1.25);
+});
+
+test('원본 영상 끝과 OUT이 같아도 종료 후 선택 구간이 반복된다', async ({ page }) => {
+  const initialDialog = await openPreview(page);
+  await expect(initialDialog.getByRole('button', { name: '구간 다시 재생' })).toBeEnabled();
+  const duration = await initialDialog
+    .locator('video')
+    .evaluate((element: HTMLVideoElement) => element.duration);
+  // Canvas recording duration varies slightly from the nominal eight seconds.
+  const endTimeMs = Math.ceil(duration * 1000);
+  const startTimeMs = endTimeMs - 1000;
+  const dialog = await openPreview(page, startTimeMs, endTimeMs);
+  const video = dialog.locator('video');
+  const loop = dialog.getByRole('button', { name: '구간 반복', exact: true });
+  await expect(loop).toBeEnabled();
+  await video.evaluate((element: HTMLVideoElement, start) => {
+    element.dataset.loopStarts = '0';
+    element.addEventListener('seeked', () => {
+      if (element.currentTime >= start && element.currentTime < start + 0.25) {
+        element.dataset.loopStarts = String(Number(element.dataset.loopStarts) + 1);
+      }
+    });
+  }, startTimeMs / 1000);
+  await loop.click();
+  await expect
+    .poll(() => video.getAttribute('data-loop-starts'), { timeout: 8_000 })
+    .toMatch(/^[2-9]\d*$/);
+  expect(await video.evaluate((element: HTMLVideoElement) => element.paused)).toBe(false);
 });
 
 test('끝나지 않는 seek는 무한 대기하지 않고 이동 실패로 안내한다', async ({ page }) => {

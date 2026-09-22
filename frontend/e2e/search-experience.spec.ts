@@ -13,7 +13,9 @@ test('검색도 세 산 레이어가 깊이별로 움직이며 모션 감소에�
 }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => localStorage.setItem('npick:parallax-enabled', 'false'));
   await page.goto('/search');
+  await expect(page.getByRole('switch', { name: '배경 움직임' })).toHaveCount(0);
   await expect(page.locator('[data-mountain-backdrop] [data-ready]')).toHaveAttribute(
     'data-ready',
     'true',
@@ -26,11 +28,6 @@ test('검색도 세 산 레이어가 깊이별로 움직이며 모션 감소에�
   const intro = page.getByRole('heading', { name: '안녕하세요.' }).locator('..');
   await expect(intro).toHaveCSS('animation-duration', '1s');
   await expect(intro).toHaveCSS('opacity', '1');
-  for (const height of [650, 900]) {
-    await page.setViewportSize({ width: 1440, height });
-    const searchBounds = (await page.getByRole('search').boundingBox())!;
-    expect(searchBounds.y + searchBounds.height / 2).toBeCloseTo(height / 2, 0);
-  }
   const offsets = () =>
     page
       .locator('[data-depth]')
@@ -42,6 +39,11 @@ test('검색도 세 산 레이어가 깊이별로 움직이며 모션 감소에�
   const layers = await offsets();
   expect(Math.abs(layers[0])).toBeLessThan(Math.abs(layers[1]));
   expect(Math.abs(layers[1])).toBeLessThan(Math.abs(layers[2]));
+  for (const height of [650, 900]) {
+    await page.setViewportSize({ width: 1440, height });
+    const searchBounds = (await page.getByRole('search').boundingBox())!;
+    expect(searchBounds.y + searchBounds.height / 2).toBeCloseTo(height / 2, 0);
+  }
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect.poll(offsets).toEqual([0, 0, 0]);
   await expect(intro).toHaveCSS('animation-name', 'none');
@@ -228,7 +230,7 @@ test('월·연도 선택 후 왼쪽 시작일과 오른쪽 종료일을 독립�
   );
 });
 
-test('사이드바에는 적용한 기간만 표시하고 취소·초기화와 접힘 상태를 반영한다', async ({
+test('사이드바에는 적용한 기간만 표시하고 즉시 초기화와 접힘 상태를 반영한다', async ({
   page,
 }, testInfo) => {
   await page.goto('/search');
@@ -240,10 +242,6 @@ test('사이드바에는 적용한 기간만 표시하고 취소·초기화와 �
     await dialog.locator('[data-endpoint="to"] [data-date="2026-09-16"]').click();
     await expect(trigger.locator('time')).toHaveCount(0);
     await dialog.getByRole('button', { name: '적용', exact: true }).click();
-    await expect(trigger.locator('time')).toHaveText(['2026.09.01', '2026.09.16']);
-    await trigger.click();
-    await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-    await dialog.getByRole('button', { name: '취소', exact: true }).click();
     await expect(trigger.locator('time')).toHaveText(['2026.09.01', '2026.09.16']);
   }
   await page.screenshot({ path: testInfo.outputPath('selected-periods-desktop.png') });
@@ -264,7 +262,7 @@ test('사이드바에는 적용한 기간만 표시하고 취소·초기화와 �
   await broadcast.click();
   const dialog = page.getByRole('dialog', { name: '방송일 기간', exact: true });
   await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-  await dialog.getByRole('button', { name: '적용', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
   await expect(broadcast.locator('time')).toHaveCount(0);
   await expect(
     page.getByRole('button', { name: /^촬영일 기간 선택:/ }).locator('time'),
@@ -295,7 +293,7 @@ test('기간 검증·취소·초기화와 월 경계의 키보드 조작을 보�
   await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 2026.09.20 – 2026.09.20');
   await trigger.click();
   await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-  await dialog.getByRole('button', { name: '적용', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
   await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 전체 기간');
   await trigger.click();
   await start.locator('[data-date="2026-09-01"]').click();

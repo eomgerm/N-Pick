@@ -15,38 +15,48 @@ public class ClipQueryService implements GetClipsUseCase, GetClipUseCase {
     private final ClipQueryPort clips;
     private final com.npick.pipeline.application.query.GetProcessingDetailsUseCase processing;
     private final com.npick.pipeline.application.query.GetProcessingProgressUseCase progress;
+    private final com.npick.member.application.query.GetMemberSummariesUseCase members;
 
     public ClipQueryService(
             ClipQueryPort clips,
             com.npick.pipeline.application.query.GetProcessingDetailsUseCase processing,
-            com.npick.pipeline.application.query.GetProcessingProgressUseCase progress) {
+            com.npick.pipeline.application.query.GetProcessingProgressUseCase progress,
+            com.npick.member.application.query.GetMemberSummariesUseCase members) {
         this.clips = clips;
         this.processing = processing;
         this.progress = progress;
+        this.members = members;
     }
 
     // Count and page must observe the same PostgreSQL snapshot during registration/deletion.
     @Override
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public GetClipsResult getClips(int page, int size, java.util.List<String> statuses) {
+    public GetClipsResult getClips(int page, int size, java.util.List<String> statuses, Long registeredById) {
         if (statuses == null
                 || !java.util.Set.of("queued", "running", "failed", "succeeded", "no_run")
                         .containsAll(statuses)) throw new BusinessException(ClipQueryErrorCode.INVALID_STATUS);
         if (page < 0 || size < 1 || size > 100) throw new BusinessException(ClipQueryErrorCode.INVALID_PAGE);
         long offset = (long) page * size;
         if (offset > Integer.MAX_VALUE) throw new BusinessException(ClipQueryErrorCode.INVALID_PAGE);
-        var counts = clips.countByLatestRunStatus();
+        var counts = clips.countByLatestRunStatus(registeredById);
         long total = counts.entrySet().stream()
                 .filter(entry -> statuses.isEmpty() || statuses.contains(entry.getKey()))
                 .mapToLong(java.util.Map.Entry::getValue)
                 .sum();
-        var items =
-                offset >= total ? java.util.List.<ClipQueryResult>of() : clips.findPage((int) offset, size, statuses);
+        var items = offset >= total
+                ? java.util.List.<ClipQueryResult>of()
+                : clips.findPage((int) offset, size, statuses, registeredById);
         var runIds = items.stream()
                 .filter(item -> item.latestRun() != null)
                 .map(item -> item.latestRun().pipelineRunId())
                 .toList();
-        return new GetClipsResult(items, page, size, total, counts, progress.getProgress(runIds));
+        // 등록자는 페이지 전체를 한 번에 묻는다. member 모듈의 JPA 는 건드리지 않는다 (설계 정본 §14).
+        var registrants = members.findByIds(
+                items.stream().map(ClipQueryResult::registeredById).distinct().toList());
+        var named = items.stream()
+                .map(item -> item.withRegisteredBy(registrants.get(item.registeredById())))
+                .toList();
+        return new GetClipsResult(named, page, size, total, counts, progress.getProgress(runIds));
     }
 
     @Override
@@ -67,6 +77,8 @@ public class ClipQueryService implements GetClipsUseCase, GetClipUseCase {
                 clip.defaultTranscriptSource(),
                 clip.hasSubtitle(),
                 clip.hasScript(),
+                clip.registeredById(),
+                members.findByIds(java.util.List.of(clip.registeredById())).get(clip.registeredById()),
                 clip.latestRun(),
                 details);
     }

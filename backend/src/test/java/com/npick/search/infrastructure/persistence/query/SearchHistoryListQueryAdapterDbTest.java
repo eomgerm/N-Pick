@@ -50,9 +50,7 @@ class SearchHistoryListQueryAdapterDbTest {
 
         List<SearchHistoryRecord> mine = adapter.findByOwner(OWNER, 0, 20);
 
-        assertThat(mine)
-                .extracting(record -> record.item().searchExecutionId())
-                .containsExactly(9703L, 9702L, 9701L);
+        assertThat(mine).extracting(record -> record.item().searchExecutionId()).containsExactly(9703L, 9702L, 9701L);
 
         SearchHistoryRecord oldest = mine.get(2);
         assertThat(oldest.item().queryText()).isEqualTo("가장 오래된 질의");

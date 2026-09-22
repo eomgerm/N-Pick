@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CircleAlert, Film, LoaderCircle, RotateCcw } from 'lucide-react';
+import { CircleAlert, Film, LoaderCircle, Repeat2, RotateCcw } from 'lucide-react';
 
 import {
   formatMediaTime,
@@ -50,6 +50,9 @@ function MediaPlayer({
 }: ScenePreviewPlayerProps & { src: string; onRetry: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const replayRef = useRef<() => void>(() => {});
+  const normalizePlaybackRef = useRef<() => void>(() => {});
+  const isLoopingRef = useRef(false);
+  const [isLooping, setIsLooping] = useState(false);
   const [currentTime, setCurrentTime] = useState(sceneStart);
   const [duration, setDuration] = useState<number | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -63,7 +66,9 @@ function MediaPlayer({
     let isDisposed = false;
     let hasInitialized = false;
     let hasFailed = false;
+    let wasPlayingBeforeEnd = false;
     let shouldPlayAfterSeek = false;
+    let loopFrame: number | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const listeners: Array<[string, EventListener]> = [];
     function listen(name: string, handler: () => void) {
@@ -117,6 +122,25 @@ function MediaPlayer({
         fail('장면 위치로 이동하지 못했습니다. 다시 시도해 주세요.');
       }
     }
+    function normalizePlayback() {
+      if (!hasInitialized || hasFailed || !isLoopingRef.current || video.paused || video.seeking) {
+        return;
+      }
+      if (video.currentTime < sceneStart || video.currentTime >= sceneEnd) {
+        // Seeking while playing preserves playback and never queues a later resume.
+        seekStart(false);
+      }
+    }
+    function watchLoop() {
+      loopFrame = null;
+      if (!hasInitialized || hasFailed || !isLoopingRef.current || video.paused) return;
+      normalizePlayback();
+      loopFrame = requestAnimationFrame(watchLoop);
+    }
+    function syncLoopMonitor() {
+      if (loopFrame !== null) cancelAnimationFrame(loopFrame);
+      watchLoop();
+    }
     listen('loadedmetadata', () => {
       if (hasFailed) return;
       if (
@@ -130,27 +154,49 @@ function MediaPlayer({
       setDuration(video.duration);
       seekStart(autoPlay);
     });
-    listen('seeked', ready);
+    listen('seeked', () => {
+      ready();
+      normalizePlayback();
+    });
     listen('seeking', () => {
       if (hasFailed) return;
       setIsBuffering(true);
       deadline('영상 위치로 이동하지 못했습니다. 다시 시도해 주세요.');
     });
     listen('timeupdate', () => {
-      if (hasInitialized && !hasFailed) setCurrentTime(video.currentTime);
+      if (hasInitialized && !hasFailed) {
+        normalizePlayback();
+        setCurrentTime(video.currentTime);
+      }
     });
+    listen('play', normalizePlayback);
     listen('playing', () => {
       if (hasFailed) {
         video.pause();
         return;
       }
       clearTimeout(timer);
+      wasPlayingBeforeEnd = true;
       setIsPlaying(true);
       setIsBuffering(false);
       setNotice(null);
+      syncLoopMonitor();
     });
-    listen('pause', () => setIsPlaying(false));
-    listen('ended', () => setIsPlaying(false));
+    listen('pause', () => {
+      shouldPlayAfterSeek = false;
+      // Natural completion emits pause before ended; a manual pause cancels looping.
+      if (!video.ended) wasPlayingBeforeEnd = false;
+      setIsPlaying(false);
+      syncLoopMonitor();
+    });
+    listen('ended', () => {
+      const shouldRepeat = wasPlayingBeforeEnd;
+      wasPlayingBeforeEnd = false;
+      setIsPlaying(false);
+      if (hasInitialized && !hasFailed && isLoopingRef.current && shouldRepeat && video.ended) {
+        seekStart(true);
+      }
+    });
     listen('waiting', () => {
       if (!hasInitialized || hasFailed) return;
       setIsBuffering(true);
@@ -170,19 +216,29 @@ function MediaPlayer({
     replayRef.current = () => {
       if (!hasFailed) seekStart(true);
     };
+    normalizePlaybackRef.current = syncLoopMonitor;
     deadline('영상을 불러오지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.');
     video.src = src;
     video.load();
     return () => {
       isDisposed = true;
       clearTimeout(timer);
+      if (loopFrame !== null) cancelAnimationFrame(loopFrame);
       listeners.forEach(([name, handler]) => video.removeEventListener(name, handler));
       replayRef.current = () => {};
+      normalizePlaybackRef.current = () => {};
       video.pause();
       video.removeAttribute('src');
       video.load();
     };
   }, [src, sceneStart, sceneEnd, autoPlay]);
+
+  function handleLoopToggle() {
+    const nextIsLooping = !isLoopingRef.current;
+    isLoopingRef.current = nextIsLooping;
+    setIsLooping(nextIsLooping);
+    normalizePlaybackRef.current();
+  }
 
   return (
     <div
@@ -263,15 +319,28 @@ function MediaPlayer({
           </div>
         ) : null}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <button
-            className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#0756c6] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#06459d] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0756c6] active:bg-[#05377e] disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none"
-            disabled={!isReady || Boolean(error)}
-            onClick={() => replayRef.current()}
-            type="button"
-          >
-            <RotateCcw aria-hidden="true" className="size-4" />
-            구간 다시 재생
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[#0756c6] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#06459d] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0756c6] active:bg-[#05377e] disabled:cursor-not-allowed disabled:opacity-45 motion-reduce:transition-none"
+              disabled={!isReady || Boolean(error)}
+              onClick={() => replayRef.current()}
+              type="button"
+            >
+              <RotateCcw aria-hidden="true" className="size-4" />
+              구간 다시 재생
+            </button>
+            <button
+              aria-label="구간 반복"
+              aria-pressed={isLooping}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#a6bacf] bg-white/70 px-4 py-2 text-sm font-semibold text-[#344c64] transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0756c6] disabled:cursor-not-allowed disabled:opacity-45 aria-pressed:border-[#0756c6] aria-pressed:bg-[#e6f0ff] aria-pressed:text-[#0756c6] motion-reduce:transition-none"
+              disabled={!isReady || Boolean(error)}
+              onClick={handleLoopToggle}
+              type="button"
+            >
+              <Repeat2 aria-hidden="true" className="size-4" />
+              구간 반복 {isLooping ? '켜짐' : '꺼짐'}
+            </button>
+          </div>
           <p role="status" className="text-xs leading-relaxed text-[#516477]">
             {error
               ? ''
@@ -286,7 +355,9 @@ function MediaPlayer({
           </p>
         </div>
         <p className="mt-3 text-xs leading-relaxed [word-break:keep-all] text-[#516477]">
-          선택 구간이 끝나도 원본 영상은 계속 재생됩니다.
+          {isLooping
+            ? '선택 구간의 끝에서 시작으로 돌아가 반복 재생합니다.'
+            : '선택 구간이 끝나도 원본 영상은 계속 재생됩니다.'}
         </p>
       </div>
     </div>

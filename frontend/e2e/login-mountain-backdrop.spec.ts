@@ -11,7 +11,9 @@ async function offsets(page: Page) {
 }
 
 async function openLandscape(page: Page) {
+  await page.addInitScript(() => localStorage.setItem('npick:parallax-enabled', 'false'));
   await page.goto('/login?role=editor');
+  await expect(page.getByRole('switch', { name: '배경 움직임' })).toHaveCount(0);
   await expect(page.locator('[data-mountain-backdrop] [data-ready]')).toHaveAttribute(
     'data-ready',
     'true',

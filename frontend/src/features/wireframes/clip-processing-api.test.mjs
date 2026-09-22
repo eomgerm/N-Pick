@@ -173,19 +173,40 @@ test('영상 조회 계약은 활성 처리 ID 유무와 검색 제공 여부의
   }
 });
 
-test('목록은 서버 필터·0 기반 페이지·취소 신호·세션을 전달한다', async (context) => {
+test('요약은 등록자 로그인 ID 만 읽고 내부 식별자는 받지 않는다', () => {
+  const named = parseClipSummary({ ...clip, registered_by: { login_id: 'arch04' } });
+  assert.equal(named.registered_by.login_id, 'arch04');
+  assert.equal(parseClipSummary({ ...clip, registered_by: null }).registered_by, null);
+  for (const invalid of [{ login_id: 42 }, { login_id: '' }, {}]) {
+    assert.throws(() => parseClipSummary({ ...clip, registered_by: invalid }));
+  }
+});
+
+test('목록은 칩이 고른 상태와 내 영상 여부·0 기반 페이지·취소 신호·세션을 전달한다', async (context) => {
   const fetch = context.mock.method(globalThis, 'fetch', async () =>
     Response.json({ isSuccess: true, code: 'COMM_200', message: '성공', data: page }),
   );
   const controller = new AbortController();
-  await getProcessingClips(2, false, controller.signal);
-  await getProcessingClips(0, true);
-  const [active, completed] = fetch.mock.calls.map((call) => call.arguments);
-  assert.equal(new URL(active[0]).searchParams.get('status'), 'queued,running,failed,no_run');
-  assert.equal(new URL(active[0]).searchParams.get('page'), '2');
-  assert.equal(active[1].credentials, 'include');
-  assert.equal(active[1].signal, controller.signal);
-  assert.equal(new URL(completed[0]).searchParams.get('status'), 'succeeded');
+  await getProcessingClips(2, ['failed', 'no_run'], true, controller.signal);
+  const [attention] = fetch.mock.calls.map((call) => call.arguments);
+  const url = new URL(attention[0]);
+  assert.equal(url.searchParams.get('status'), 'failed,no_run');
+  assert.equal(url.searchParams.get('mine'), 'true');
+  assert.equal(url.searchParams.get('page'), '2');
+  assert.equal(url.searchParams.get('size'), '10');
+  assert.equal(attention[1].credentials, 'include');
+  assert.equal(attention[1].signal, controller.signal);
+});
+
+test('전체 칩이고 내 영상이 아니면 두 파라미터를 아예 보내지 않는다', async (context) => {
+  const fetch = context.mock.method(globalThis, 'fetch', async () =>
+    Response.json({ isSuccess: true, code: 'COMM_200', message: '성공', data: page }),
+  );
+  await getProcessingClips(0, [], false);
+  const url = new URL(fetch.mock.calls[0].arguments[0]);
+  assert.equal(url.searchParams.get('status'), null);
+  assert.equal(url.searchParams.get('mine'), null);
+  assert.equal(url.searchParams.get('page'), '0');
 });
 
 test('다른 영상 응답·조회 오류를 데모로 대체하지 않는다', async (context) => {

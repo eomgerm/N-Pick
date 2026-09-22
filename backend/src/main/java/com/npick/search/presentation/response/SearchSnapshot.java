@@ -19,26 +19,21 @@ import com.npick.search.application.query.SearchHistoryResultRow;
 /**
  * 당시 검색 결과 스냅샷의 복원 가능 판정과 조립 (S15P21A501-198).
  *
- * <p><b>목록과 상세가 이 클래스만 쓴다.</b> 계약이 「변하지 않은 기록의 목록/상세가 available 판정을 다르게 하지 않는다」를
- * 요구하므로, 판정을 두 곳에 두면 규칙이 갈라진다. 목록이 결과 전량을 싣고 다니는 이유도 이것이다. {@code explicit_filters}
- * 도 여기서 함께 낸다 — 형태 검증 결과가 판정에 들어가야 하므로 별도 경로로 빼면 다시 갈라진다(MR !126 리뷰 P2).
+ * <p><b>목록과 상세가 이 클래스만 쓴다.</b> 계약이 「변하지 않은 기록의 목록/상세가 available 판정을 다르게 하지 않는다」를 요구하므로, 판정을 두 곳에 두면 규칙이 갈라진다. 목록이 결과
+ * 전량을 싣고 다니는 이유도 이것이다. {@code explicit_filters} 도 여기서 함께 낸다 — 형태 검증 결과가 판정에 들어가야 하므로 별도 경로로 빼면 다시 갈라진다(MR !126 리뷰 P2).
  *
- * <p>복원은 저장된 JSON 을 <b>그대로 통과</b>시킨다. 필드별로 DTO 를 세워 옮겨 담지 않는다 — 현재 태그·검색으로 재계산하지
- * 않는다는 FRD §7.2 를 구조로 보장한다.
+ * <p>복원은 저장된 JSON 을 <b>그대로 통과</b>시킨다. 필드별로 DTO 를 세워 옮겨 담지 않는다 — 현재 태그·검색으로 재계산하지 않는다는 FRD §7.2 를 구조로 보장한다.
  *
- * <p>다만 <b>통과와 무검증은 다르다.</b> 값을 고치지는 않되, FE 가 카드를 그릴 수 있는 형태인지는 확인한다. object 인지만
- * 보고 통과시키면 빈 블록이 {@code available} 로 나가 FE 가 해석할 수 없는 {@code results} 를 받는다(MR !126 리뷰 P1).
- * 저장 경계(S15P21A501-60)가 내부 구조를 검증하지 않으므로 읽는 쪽이 판정한다.
+ * <p>다만 <b>통과와 무검증은 다르다.</b> 값을 고치지는 않되, FE 가 카드를 그릴 수 있는 형태인지는 확인한다. object 인지만 보고 통과시키면 빈 블록이 {@code available} 로 나가
+ * FE 가 해석할 수 없는 {@code results} 를 받는다(MR !126 리뷰 P1). 저장 경계(S15P21A501-60)가 내부 구조를 검증하지 않으므로 읽는 쪽이 판정한다.
  *
- * <p>검증 범위는 키의 존재 · 타입 · 값 불변식(어휘 소속, 빈 문자열 불허, 날짜 값과 확인 상태의 짝)이다. 넷 중 하나라도
- * 어긋나면 unavailable 이다. {@code unavailable} 로 분류하는 것은 <b>저장값을 수정하거나 현재 태그로 재계산하는 것이
- * 아니다</b> — FRD §7.2 가 금하는 것은 과거 결과를 소급 수정하는 행위이고, 복원할 수 없다고 말하는 것은 그에 해당하지
- * 않는다. 값은 그대로 두고 판정만 내린다(MR !126 리뷰 3차).
+ * <p>검증 범위는 키의 존재 · 타입 · 값 불변식(어휘 소속, 빈 문자열 불허, 날짜 값과 확인 상태의 짝)이다. 넷 중 하나라도 어긋나면 unavailable 이다. {@code unavailable} 로
+ * 분류하는 것은 <b>저장값을 수정하거나 현재 태그로 재계산하는 것이 아니다</b> — FRD §7.2 가 금하는 것은 과거 결과를 소급 수정하는 행위이고, 복원할 수 없다고 말하는 것은 그에 해당하지 않는다.
+ * 값은 그대로 두고 판정만 내린다(MR !126 리뷰 3차).
  *
- * <p>대신 <b>감수하는 위험</b>이 있다. 어휘가 나중에 확장되면 옛 값을 가진 과거 기록이 영구히 unavailable 이 된다.
- * 어휘를 넓힐 때 {@link #SHOT_TYPES} 등 이 파일의 허용 집합도 함께 넓혀야 한다. §6.6 의 {@code result_snapshot}
- * (S15P21A501-207)은 {@code display_name} 타입만 보는 더 느슨한 판정을 쓰므로 같은 {@code explain_json} 에 대해 두
- * 절의 판정이 다를 수 있다.
+ * <p>대신 <b>감수하는 위험</b>이 있다. 어휘가 나중에 확장되면 옛 값을 가진 과거 기록이 영구히 unavailable 이 된다. 어휘를 넓힐 때 {@link #SHOT_TYPES} 등 이 파일의 허용
+ * 집합도 함께 넓혀야 한다. §6.6 의 {@code result_snapshot} (S15P21A501-207)은 {@code display_name} 타입만 보는 더 느슨한 판정을 쓰므로 같은
+ * {@code explain_json} 에 대해 두 절의 판정이 다를 수 있다.
  */
 public record SearchSnapshot(
         String snapshotStatus,
@@ -53,9 +48,8 @@ public record SearchSnapshot(
     /**
      * §5.1 이 {@code degraded_reasons} 로 허용하는 공개 어휘. 저장 컬럼과 같지 않다.
      *
-     * <p>{@code degraded_reasons_json} 에는 규칙 판정이 {@code "skipped_conflict:<rule_id>"} 처럼 규칙 ID 를 붙인
-     * 문자열로도 들어간다({@code JdbcSearchExecutionRecordAdapter#degraded}). 그 값을 그대로 내면 닫힌 enum 자리에
-     * 어휘 밖 문자열이 나가 FE 파서가 깨진다.
+     * <p>{@code degraded_reasons_json} 에는 규칙 판정이 {@code "skipped_conflict:<rule_id>"} 처럼 규칙 ID 를 붙인 문자열로도
+     * 들어간다({@code JdbcSearchExecutionRecordAdapter#degraded}). 그 값을 그대로 내면 닫힌 enum 자리에 어휘 밖 문자열이 나가 FE 파서가 깨진다.
      */
     private static final Set<String> PUBLIC_DEGRADED_REASONS =
             Set.of("resolver_fallback", "dense_unavailable", "snapshot_save_failed");
@@ -82,8 +76,7 @@ public record SearchSnapshot(
     private static final List<String> REQUIRED_DISPLAY_STRINGS = List.of("shot_type");
 
     /** {@code match_evidence} 한 항목에서 항상 값이 있어야 하는 문자열. {@code value} 는 따로 본다. */
-    private static final List<String> REQUIRED_EVIDENCE_STRINGS =
-            List.of("field", "source", "verification_status");
+    private static final List<String> REQUIRED_EVIDENCE_STRINGS = List.of("field", "source", "verification_status");
 
     /** baseline {@code parse_source} 주석이 정한 저장 어휘. */
     private static final Set<String> SCHEMA_PARSE_SOURCES = Set.of("resolver", "resolver_rule", "fallback");
@@ -146,9 +139,8 @@ public record SearchSnapshot(
     /**
      * 실행 당시 명시 필터. 읽을 수 없거나 형태가 깨졌으면 null 이며 호출자가 unavailable 로 만든다.
      *
-     * <p>{@code null} 을 빈 object 나 현재 검색 화면의 필터로 보충하지 않는다. 필터 미선택({@code {}})과 「필터를 확인할
-     * 수 없다」는 다른 사실이다. 선택한 날짜 종류는 {@code from}·{@code to} 가 모두 있고 실제 달력 날짜이며
-     * {@code from <= to} 여야 한다 — 한쪽 경계만 있는 과거 미지원 형식을 정상 필터로 내보내지 않는다.
+     * <p>{@code null} 을 빈 object 나 현재 검색 화면의 필터로 보충하지 않는다. 필터 미선택({@code {}})과 「필터를 확인할 수 없다」는 다른 사실이다. 선택한 날짜 종류는
+     * {@code from}·{@code to} 가 모두 있고 실제 달력 날짜이며 {@code from <= to} 여야 한다 — 한쪽 경계만 있는 과거 미지원 형식을 정상 필터로 내보내지 않는다.
      */
     private static JsonNode validExplicitFilters(String json) {
         JsonNode filters = parseOrNull(json);
@@ -187,11 +179,9 @@ public record SearchSnapshot(
     /**
      * 저장된 기능 저하 사유 중 <b>공개 어휘에 속하는 것만</b> 추린다.
      *
-     * <p>저장 컬럼에는 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어진 사실도
-     * {@code "skipped_conflict:<rule_id>"} 형태로 들어간다. 그것은 검수 감사용 기록이고 §5.1 의 {@code degraded_reasons}
-     * 는 세 값으로 닫힌 enum 이다. 걸러내지 않으면 FE 파서가 깨진다. 건너뜀 사실 자체는
-     * {@code has_applied_review_rule} 과 {@code applied_rules_json} 에 남아 감사 경로
-     * ({@code GET /search/executions/{id}}, S15P21A501-60)로 볼 수 있다.
+     * <p>저장 컬럼에는 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어진 사실도 {@code "skipped_conflict:<rule_id>"} 형태로 들어간다. 그것은 검수 감사용 기록이고 §5.1 의
+     * {@code degraded_reasons} 는 세 값으로 닫힌 enum 이다. 걸러내지 않으면 FE 파서가 깨진다. 건너뜀 사실 자체는 {@code has_applied_review_rule} 과
+     * {@code applied_rules_json} 에 남아 감사 경로 ({@code GET /search/executions/{id}}, S15P21A501-60)로 볼 수 있다.
      */
     private static ArrayNode publicDegradedReasons(String degradedReasonsJson) {
         ArrayNode publicReasons = MAPPER.createArrayNode();
@@ -207,10 +197,9 @@ public record SearchSnapshot(
     /**
      * 응답이 낼 실행 상태. {@code search_execution.status} 를 그대로 쓰지 않는다.
      *
-     * <p>규칙 건너뜀만으로 기록이 {@code degraded} 로 닫힌 실행을 {@code POST /search} 는 {@code succeeded} 로 낸다
-     * (공개 사유가 없으므로). 저장값을 그대로 내면 <b>같은 검색이 화면마다 다른 상태로 보인다</b> — 검색 직후엔
-     * {@code succeeded}, 기록으로 다시 보면 {@code degraded}. §6.7 이 {@code search_snapshot} 을 「§5 성공 data 와 같은
-     * object」로 규정하므로 공개 사유에서 파생해 두 화면을 일치시킨다(S15P21A501-59 와 합의).
+     * <p>규칙 건너뜀만으로 기록이 {@code degraded} 로 닫힌 실행을 {@code POST /search} 는 {@code succeeded} 로 낸다 (공개 사유가 없으므로). 저장값을 그대로
+     * 내면 <b>같은 검색이 화면마다 다른 상태로 보인다</b> — 검색 직후엔 {@code succeeded}, 기록으로 다시 보면 {@code degraded}. §6.7 이
+     * {@code search_snapshot} 을 「§5 성공 data 와 같은 object」로 규정하므로 공개 사유에서 파생해 두 화면을 일치시킨다(S15P21A501-59 와 합의).
      *
      * <p>{@code failed} 는 조회 대상이 아니므로 여기 오지 않는다(범위 조건이 succeeded/degraded 만 읽는다).
      */
@@ -221,14 +210,13 @@ public record SearchSnapshot(
     /**
      * 해석이 완료됐는지 대체 검색으로 떨어졌는지. <b>공개 사유에서 파생한다.</b>
      *
-     * <p>§5.1 이 「{@code query_resolution_status=fallback} 여부는 {@code resolver_fallback} 포함 여부와 일치한다」를
-     * 요구한다. 두 값을 각자 다른 컬럼에서 뽑으면 그 불변식이 깨진다 — {@code parse_source='fallback'} 인데
-     * {@code degraded_reasons} 가 비어 있는 응답이 나갔다(MR !126 리뷰 4차). 한 출처에서 파생하면 구조로 보장된다.
+     * <p>§5.1 이 「{@code query_resolution_status=fallback} 여부는 {@code resolver_fallback} 포함 여부와 일치한다」를 요구한다. 두 값을 각자 다른
+     * 컬럼에서 뽑으면 그 불변식이 깨진다 — {@code parse_source='fallback'} 인데 {@code degraded_reasons} 가 비어 있는 응답이 나갔다(MR !126 리뷰 4차).
+     * 한 출처에서 파생하면 구조로 보장된다.
      *
-     * <p>{@code parse_source} 는 <b>검증</b>에만 남긴다. NULL 이나 스키마 밖 값이면 「어떻게 해석했는지 기록이 없다」는
-     * 뜻이라 {@code resolved} 로 접지 않고 null 을 돌려 unavailable 로 만든다. 저장값이 파생값과 어긋나도(예:
-     * {@code fallback} 인데 {@code resolver_fallback} 이 없음) 기록이 깨진 것이므로 unavailable 이다 — 어느 한쪽을
-     * 골라 내면 남은 한쪽이 말하는 사실을 지우게 된다.
+     * <p>{@code parse_source} 는 <b>검증</b>에만 남긴다. NULL 이나 스키마 밖 값이면 「어떻게 해석했는지 기록이 없다」는 뜻이라 {@code resolved} 로 접지 않고
+     * null 을 돌려 unavailable 로 만든다. 저장값이 파생값과 어긋나도(예: {@code fallback} 인데 {@code resolver_fallback} 이 없음) 기록이 깨진 것이므로
+     * unavailable 이다 — 어느 한쪽을 골라 내면 남은 한쪽이 말하는 사실을 지우게 된다.
      */
     private static String queryResolutionStatus(ArrayNode publicDegradedReasons, String parseSource) {
         // Set.of(...) 는 contains(null) 에 NPE 를 던진다. null 은 「기록 없음」이라 여기서 먼저 걸러낸다.
@@ -254,8 +242,8 @@ public record SearchSnapshot(
     /**
      * 저장된 rank 가 1 부터 연속인가. DB 제약은 양수와 실행 내 중복 없음만 보장한다.
      *
-     * <p>rank 2 부터 저장된 기록을 available 로 내면 {@code result_count > 0} 인데 {@code representative_result} 가
-     * null 인 응답이 나간다. 계약이 그 조합을 0건에만 쓰므로 FE 가 대표 결과의 존재를 건수로 판단할 수 없게 된다.
+     * <p>rank 2 부터 저장된 기록을 available 로 내면 {@code result_count > 0} 인데 {@code representative_result} 가 null 인 응답이 나간다.
+     * 계약이 그 조합을 0건에만 쓰므로 FE 가 대표 결과의 존재를 건수로 판단할 수 없게 된다.
      */
     private static boolean ranksAreConsecutive(List<SearchHistoryResultRow> rows) {
         Set<Integer> ranks = new LinkedHashSet<>();
@@ -303,13 +291,13 @@ public record SearchSnapshot(
     /**
      * 카드를 그릴 수 있는 표시 블록인가. 키의 존재 · 타입 · 값을 모두 본다.
      *
-     * <p>키만 확인하면 {@code shot_type: {}} 이나 배열인 날짜 값이 통과하고(MR !126 리뷰 2차), 타입만 확인하면
-     * {@code shot_type: "legacy"} 나 {@code value: null} + {@code verification_status: "verified"} 조합이 통과한다
-     * (리뷰 3차). 그래서 키 부재 · 타입 불일치 · 빈 문자열 · 어휘 밖 값을 모두 같게 다룬다 — 넷 다 「기록이 깨졌다」다.
+     * <p>키만 확인하면 {@code shot_type: {}} 이나 배열인 날짜 값이 통과하고(MR !126 리뷰 2차), 타입만 확인하면 {@code shot_type: "legacy"} 나
+     * {@code value: null} + {@code verification_status: "verified"} 조합이 통과한다 (리뷰 3차). 그래서 키 부재 · 타입 불일치 · 빈 문자열 · 어휘 밖
+     * 값을 모두 같게 다룬다 — 넷 다 「기록이 깨졌다」다.
      *
      * <ul>
-     *   <li>{@code display_name}·{@code scene_description}·{@code scene_type} — null 또는 비어 있지 않은 문자열.
-     *       제목 없는 클립이 실제로 있고 서버가 대체 문자열로 메우지 않는다. null 과 빈 문자열은 다른 사실이다.
+     *   <li>{@code display_name}·{@code scene_description}·{@code scene_type} — null 또는 비어 있지 않은 문자열. 제목 없는 클립이 실제로 있고
+     *       서버가 대체 문자열로 메우지 않는다. null 과 빈 문자열은 다른 사실이다.
      *   <li>{@code shot_type} — {@link #SHOT_TYPES} 의 네 값.
      *   <li>{@code start_time_ms}·{@code end_time_ms} — 정수이며 {@code 0 <= start < end}.
      *   <li>날짜 블록 — {@link #hasDateShape} 가 값과 확인 상태의 짝까지 본다.
@@ -337,9 +325,8 @@ public record SearchSnapshot(
     }
 
     /**
-     * 날짜 블록의 값 불변식. §5.1 — {@code value} 가 null 이면 {@code verification_status} 는 {@code unknown},
-     * 실제 날짜가 있으면 {@code verified}·{@code unverified} 다. 「모른다」와 「확인했다」를 섞으면 사용자가 없던
-     * 확인을 근거로 판단한다.
+     * 날짜 블록의 값 불변식. §5.1 — {@code value} 가 null 이면 {@code verification_status} 는 {@code unknown}, 실제 날짜가 있으면
+     * {@code verified}·{@code unverified} 다. 「모른다」와 「확인했다」를 섞으면 사용자가 없던 확인을 근거로 판단한다.
      */
     private static boolean hasDateShape(JsonNode date) {
         if (date == null || !date.isObject() || !isNullableText(date.get("value"))) {
@@ -356,9 +343,9 @@ public record SearchSnapshot(
     /**
      * 근거 블록이 온전한가. {@code match_evidence} 는 1개 이상이고 각 항목의 네 키가 타입까지 맞아야 한다.
      *
-     * <p>{@code value} 는 null 을 허용한다 — 설명·대사·화면 글자·태그가 모두 없고 의미 검색 유사도만으로 올라온 장면이
-     * 있고, 그때 사람이 읽을 근거가 실제로 존재하지 않는다(S15P21A501-59 와 합의, §5.1). {@code field}·{@code source}
-     * ·{@code verification_status} 는 항상 문자열이다. {@code matched_keywords} 는 문자열 배열이며 비어 있어도 된다.
+     * <p>{@code value} 는 null 을 허용한다 — 설명·대사·화면 글자·태그가 모두 없고 의미 검색 유사도만으로 올라온 장면이 있고, 그때 사람이 읽을 근거가 실제로 존재하지
+     * 않는다(S15P21A501-59 와 합의, §5.1). {@code field}·{@code source} ·{@code verification_status} 는 항상 문자열이다.
+     * {@code matched_keywords} 는 문자열 배열이며 비어 있어도 된다.
      */
     private static boolean isRenderableMatch(ObjectNode match) {
         if (!(match.get("matched_keywords") instanceof ArrayNode keywords)) {
@@ -380,7 +367,8 @@ public record SearchSnapshot(
                 return false;
             }
             if (!EVIDENCE_FIELDS.contains(item.path("field").asString(null))
-                    || !EVIDENCE_VERIFICATIONS.contains(item.path("verification_status").asString(null))) {
+                    || !EVIDENCE_VERIFICATIONS.contains(
+                            item.path("verification_status").asString(null))) {
                 return false;
             }
         }
@@ -390,8 +378,8 @@ public record SearchSnapshot(
     /**
      * 키가 있고 값이 <b>비어 있지 않은</b> 문자열인가.
      *
-     * <p>키 부재·타입 불일치·빈 문자열을 같게 다룬다 — 셋 다 「기록이 깨졌다」다. 계약이 표시 문자열을
-     * 「null 또는 비어 있지 않은 string」으로 정했으므로 빈 문자열은 유효한 과거 값이 아니다.
+     * <p>키 부재·타입 불일치·빈 문자열을 같게 다룬다 — 셋 다 「기록이 깨졌다」다. 계약이 표시 문자열을 「null 또는 비어 있지 않은 string」으로 정했으므로 빈 문자열은 유효한 과거 값이
+     * 아니다.
      */
     private static boolean isText(JsonNode node) {
         return node != null && node.isString() && !node.asString("").isBlank();
@@ -434,8 +422,8 @@ public record SearchSnapshot(
     }
 
     /**
-     * 적용된 해석 규칙이 하나라도 있는가. 저장이 {@code parse_source='resolver_rule'} 을 같은 파생식(적용 기록에
-     * {@code applied} 존재)으로 만들므로 둘은 어긋날 수 없다. 계약 문구가 「저장된 적용 기록의 boolean」이라 기록을 읽는다.
+     * 적용된 해석 규칙이 하나라도 있는가. 저장이 {@code parse_source='resolver_rule'} 을 같은 파생식(적용 기록에 {@code applied} 존재)으로 만들므로 둘은 어긋날 수
+     * 없다. 계약 문구가 「저장된 적용 기록의 boolean」이라 기록을 읽는다.
      */
     private static boolean hasAppliedRule(String appliedRulesJson) {
         for (JsonNode rule : arrayOrEmpty(appliedRulesJson)) {
@@ -450,12 +438,11 @@ public record SearchSnapshot(
      * 제외 건수와 사유. 출처가 <b>두 컬럼</b>이다. 살아남은 장면만 남는 {@code search_result} 로는 알 수 없다.
      *
      * <ul>
-     *   <li>{@code filtered_json.guard.verdicts} — false-hit guard 판정. 통과한 장면의 판정도 함께 들어오므로
-     *       {@code exclusion_reason} 이 있는 것만 센다. {@code GuardExclusionReason} 은
-     *       {@code explicit_date_conflict}·{@code approved_incident_conflict} 둘뿐이다.
-     *   <li>{@code applied_excludes_json} — 승인된 장면 제외(S15P21A501-58). 계약이 허용하는 세 번째 사유
-     *       {@code approved_scene_exclusion} 은 guard 가 내는 값이 아니라 여기서만 온다. 이 컬럼을 빼면 그 사유가
-     *       영원히 나오지 않고 건수가 {@code POST /search} 응답보다 작아진다.
+     *   <li>{@code filtered_json.guard.verdicts} — false-hit guard 판정. 통과한 장면의 판정도 함께 들어오므로 {@code exclusion_reason} 이
+     *       있는 것만 센다. {@code GuardExclusionReason} 은 {@code explicit_date_conflict}·{@code approved_incident_conflict}
+     *       둘뿐이다.
+     *   <li>{@code applied_excludes_json} — 승인된 장면 제외(S15P21A501-58). 계약이 허용하는 세 번째 사유 {@code approved_scene_exclusion}
+     *       은 guard 가 내는 값이 아니라 여기서만 온다. 이 컬럼을 빼면 그 사유가 영원히 나오지 않고 건수가 {@code POST /search} 응답보다 작아진다.
      * </ul>
      *
      * <p>같은 장면이 양쪽에 걸리면 한 번만 센다 — 제외된 <b>결과 수</b>이므로 장면 기준으로 센다.
@@ -473,7 +460,8 @@ public record SearchSnapshot(
         ArrayNode appliedExcludes = arrayOrEmpty(appliedExcludesJson);
         if (!appliedExcludes.isEmpty()) {
             reasons.add("approved_scene_exclusion");
-            appliedExcludes.forEach(exclude -> excludedScenes.add(exclude.path("scene_id").asLong()));
+            appliedExcludes.forEach(
+                    exclude -> excludedScenes.add(exclude.path("scene_id").asLong()));
         }
         ObjectNode summary = MAPPER.createObjectNode();
         summary.put("excluded_result_count", excludedScenes.size());

@@ -33,6 +33,7 @@
 | 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | 연결됨    | 없음                               |
 | 내 검색 기록 목록          | GET    | `/search/history`                           | BE 구현   | 편집자 하단 기록 시트 바인딩        |
 | 내 검색 기록 상세          | GET    | `/search/history/{searchExecutionId}`       | BE 구현   | 기록 선택 시 당시 결과 바인딩       |
+| 내 검색 기록 삭제          | DELETE | `/search/history/{searchExecutionId}`       | BE 구현   | 기록 삭제 버튼 연결                 |
 | 영상 처리 목록             | GET    | `/clips`                                    | 연결됨    | 없음                               |
 | 영상 처리 상세             | GET    | `/clips/{id}`                               | 연결됨    | 없음                               |
 | 영상 처리 재시도           | 미정   | 미정                                        | 명세 필요 | 재처리 요청 연결                    |
@@ -166,7 +167,7 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | ------------------------------- | ------- | ------ | ----------------------------------------------- |
 | `video`                         | file    | 필수   | 1개, 실제 영상 내용·형식·크기·길이 검사         |
 | `source_type`                   | string  | 필수   | `broadcast` 또는 `archive`                      |
-| `title`                         | string  | 선택   | 공백은 생략, 최대 50자(UTF-16 길이), UTF-8       |
+| `title`                         | string  | 선택   | 공백은 생략, 최대 50자(UTF-16 길이), 아래 UTF-8 규칙 |
 | `broadcast_date`                | date    | 선택   | `broadcast`에서만 허용                          |
 | `filmed_date`                   | date    | 선택   | 두 source 모두 허용                             |
 | `subtitle`                      | file    | 선택   | 1개, UTF-8 SRT/VTT 또는 승인된 JSON             |
@@ -174,9 +175,13 @@ FE는 일반 API의 `401 COMM_401`에 갱신을 한 번 시도하고, 성공하�
 | `rights_confirmed`              | boolean | 필수   | `true`여야 등록 가능                            |
 | `external_processing_confirmed` | boolean | 조건부 | 현재 처리 설정이 외부 AI 동의를 요구하면 `true` |
 
-자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다.
+자료 영상 `archive`에는 `broadcast_date`를 보내지 않는다. 날짜를 모두 생략해도 등록할 수 있다. 보낸 날짜는 등록일(Asia/Seoul) 이후일 수 없고, 두 날짜를 모두 보내면 `broadcast_date`가 `filmed_date`보다 빠를 수 없다. 위반은 `COMM_400_001`의 `data.broadcastDateNotFuture`·`data.filmedDateNotFuture`·`data.broadcastDateNotBeforeFilmedDate`로 거부한다. 요청 검증을 우회한 호출에서도 같은 규칙을 `CLIP_400_013`(방송일)·`CLIP_400_014`(촬영일)로 거부한다.
 
 제목은 FE와 BE 모두 UTF-16 길이로 검사한다. 일반 한글 50자 또는 `😀` 25개는 허용하며, 한글 51자 또는 `😀` 26개는 거절한다. 50자 제한은 신규 등록 입력에 적용하고 기존 제목·검색 기록은 자르지 않는다. 기존 데이터 보존을 위해 DB의 `clip.title varchar(500)`은 유지한다.
+
+**자막 종료 시각의 상한은 영상 길이를 올림한 정수 ms다.** 자막 시각은 정수 ms만 표현할 수 있는데 검사 기준인 ffprobe `format.duration`은 소수 ms라, 두 축을 오차 0으로 비교하면 영상 끝까지 덮는 자막이 1ms 미만 초과로 거절된다. 영상 전체를 담는 가장 작은 정수 ms를 상한으로 삼는다. 그 상한을 넘으면 문제 구간·상한·초과량과 함께 파일 전체를 거절하며 시간 보정·잘라내기·부분 적용은 하지 않는다 (`CLIP_400_012`).
+
+**`title`과 `script_text`는 U+FFFD를 담고 있으면 거절한다.** UTF-8이 아닌 본문을 보내면 읽지 못한 바이트마다 U+FFFD가 남고 원래 글자는 복구할 수 없다. 각각 `CLIP_400_004`·`CLIP_400_015`이다.
 
 성공 envelope의 `data`:
 
@@ -205,6 +210,8 @@ FE가 직접 처리하는 주요 오류:
 | `CLIP_400_010`                                | 외부 처리 확인             |
 | `CLIP_400_011`                                | 날짜                       |
 | `CLIP_400_012`                                | 자막 내용                  |
+| `CLIP_400_013`, `CLIP_400_014`                | 날짜 값 범위               |
+| `CLIP_400_015`                                | 일반 대본 내용             |
 | `CLIP_409_001`~`CLIP_409_003`                 | 멱등 요청 상태             |
 | `CLIP_503_001`~`CLIP_503_010`                 | 검사·저장·등록 연계 실패   |
 
@@ -219,8 +226,11 @@ FE URL 상태와 wire 요청의 대응:
 | `q`                            | `query`                                       |
 | `broadcastFrom`, `broadcastTo` | `explicit_filters.broadcast_date.from`, `.to` |
 | `filmingFrom`, `filmingTo`     | `explicit_filters.filmed_date.from`, `.to`    |
+| (더보기)                       | `page` (0-based, 생략 시 첫 페이지)            |
 
 선택하지 않은 날짜 종류는 key 자체를 생략한다. `from`과 `to`는 모두 포함되는 날짜다.
+
+`page`는 결과 더보기용 0-based 페이지 번호다. 첫 페이지 요청은 `page`를 생략하고(서버가 0으로 본다), 더보기가 다음 페이지를 요청할 때만 싣는다. 한 페이지는 최대 10개이며, 응답의 `has_next`가 참이면 다음 페이지가 있다(F-05 §6). 페이지마다 새 실행이며 결과 구간만 다르다 — 실행·세션 식별자가 아니라 결과 순번이므로 §7.2의 해석 캐시에 해당하지 않는다.
 
 ```json
 {
@@ -252,6 +262,7 @@ FE URL 상태와 wire 요청의 대응:
       "reasons": []
     },
     "shortage_reasons": ["candidate_pool_exhausted"],
+    "has_next": false,
     "results": [
       {
         "search_result_id": "398021847361025",
@@ -310,6 +321,7 @@ FE URL 상태와 wire 요청의 대응:
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
 - `guard_summary.excluded_result_count`가 0이면 `reasons`도 비어 있다. 허용 reason은 `explicit_date_conflict`, `approved_incident_conflict`, `approved_scene_exclusion`이다.
 - 결과가 10개 미만이면 `shortage_reasons`가 1개 이상이어야 한다. 허용 reason은 `candidate_pool_exhausted`, `guard_excluded`다.
+- `has_next`는 다음 페이지(더보기)가 있는지를 나타내는 boolean이다. 실시간 검색 응답에만 있고, 과거 기록 복원용 `search_snapshot`(§6.7)에는 없다 — 더보기는 실시간 검색 전용이므로 FE는 스냅샷에서 `has_next`를 항상 거짓으로 본다. `has_next`가 참이면 남은 유효(비제외) 후보가 한 페이지 몫을 넘어 더 있다는 뜻이다.
 - 썸네일·영상에 서버 파일 경로나 임의 URL을 싣지 않는다. ID 기반 제공 API를 사용한다 — 썸네일은 §6.8, 영상은 §6.1이며 FE가 `scene_id`·`clip_id`로 주소를 조립한다.
 
 ### 5.2 오류 경계
@@ -671,14 +683,17 @@ body는 생략하거나 다음처럼 보낸다.
 검수자 전용 `GET /clips`, `GET /clips/{id}`. 필드별 스키마는 서버 OpenAPI의 `ClipPageResponse`, `ClipSummaryResponse`, `ClipDetailResponse`, `ProcessingDetailsResponse`, `ProcessingProgressResponse`를 따른다.
 
 - 목록은 `page=0`, `size=20` 기본값이며 size는 1~100이다. `status=queued,running` 또는 반복 status 파라미터로 최신 run 상태를 OR 필터링한다. 허용값은 `queued/running/failed/succeeded/no_run`, 생략하면 전체다. `no_run`은 run이 없는 클립이다.
-- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. 한 페이지의 `items`에는 같은 `clip_id`가 중복되지 않는다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 필터·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
+- `mine=true`면 로그인한 검수자가 등록한 클립만 반환한다. 등록자는 세션에서 정하며 요청이 보낸 사용자 ID는 쓰지 않는다(§2.1). 생략·`false`면 전체다. `status`와 함께 쓸 수 있다.
+- `items[].registered_by`는 그 클립을 등록한 검수자다. 공개 범위는 `login_id` **하나뿐**이며 내부 식별자 `registered_by_id`는 어떤 응답에도 싣지 않는다. 계정이 조회되지 않으면 null이다. 상세 `GET /clips/{id}`의 `clip`에도 같은 필드가 붙는다.
+- `mine`은 권한 경계가 아니라 편의 필터다. 검수자는 `mine`을 빼면 다른 검수자가 등록한 클립까지 본다 — FRD §2의 역할 정책이 클립을 등록자별로 격리하지 않기 때문이다. 상세 `GET /clips/{id}`에는 이 필터가 없다.
+- `total_elements`, `total_pages`, `has_next`는 필터 적용 결과다. 한 페이지의 `items`에는 같은 `clip_id`가 중복되지 않는다. `run_counts`의 `queued/running/failed/succeeded/no_run`은 `status`·페이지와 무관한 전체 건수이며 논리 삭제는 제외한다. 다만 `mine=true`면 `run_counts`도 그 검수자 범위로 좁아진다 — 화면의 상태별 건수 배지가 목록과 어긋나지 않게 하기 위해서다. 최신 run은 생성 시각, 동률이면 run ID로 결정한다.
 - `items[].progress`는 해당 `latest_run`의 기록 요약이다. `current_stage`는 running 단계가 정확히 하나일 때 그 이름이며, 그 외에는 null이다. `total_steps/succeeded_steps/skipped_steps/failed_steps`는 저장된 단계 상태의 수이며 생략은 실패 수에 중복 포함하지 않는다. 필수 단계 생략으로 run 자체가 실패할 수 있다.
 - run이 없으면 progress는 null이다. 기록이 부분·미확인·지원하지 않는 버전이면 `record_status`로 구분하고 단계 수는 null이다. 이 값을 0%나 완료로 추정하지 않는다. 진행 수는 소요 시간 기반 백분율이 아니다.
 - `search_available`과 `active_pipeline_run_id`는 현재 검색 제공 결과, `latest_run`·`progress`·`processing_details`는 최신 처리 시도다. 논리 삭제를 제외하는 이 목록·상세 API에서 `search_available`은 `active_pipeline_run_id != null`과 동치다. 활성 처리 ID가 있으면 true, 없으면 false이며 최신 run 상태로 계산하지 않는다. 재처리 실패가 활성 결과를 무효화하지 않으며 검색 준비와 검수 완료는 별개다. 상세의 기본 대사 출처는 활성 결과 기준이다.
 - 처리 상세는 단계 상태·실패 사유·누락 채널·실제 채택 대사 출처를 반환한다. `automatic_retryable`은 승인된 다음 자동 시도가 대기 중인지 나타낸다. 수동 재처리 가능 여부 `retryable`은 저장된 판정이 없어 null이며 재처리 API에서 별도로 연결한다.
 - 잘못된 페이지는 `CLIP_QUERY_400`, 허용하지 않는 상태는 `CLIP_QUERY_400_001`, 없는/삭제된 클립은 `CLIP_QUERY_404`를 반환한다.
 
-FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문의 목록을 연결한다. 영상 탭은 `queued,running,failed,no_run`과 `succeeded`를 서버에서 필터링하고, `progressPage` URL로 10건 단위 페이지를 유지한다. 영상 요약은 필터·페이지와 무관한 `run_counts`, 문의 요약은 `statusCounts`를 사용한다. 상세에서 원본 영상은 §6.1 미디어 API로 재생한다. 등록 후에는 응답 ID로 상세를 다시 조회하며 로컬 처리·장면 데이터를 합성하지 않는다. 영상 목록은 전체 queued/running이 있으면, 상세는 해당 최신 run이 queued/running이면 5초마다 조회한다. 상세 응답의 `latest_run`이 null인 경우에도 `clip.created_at` 기준 등록 후 1분 동안은 5초마다 재조회한다. 그 이후에도 기록이 없으면 반복 조회를 멈추고 ‘상태 새로고침’으로 다시 확인하도록 안내한다. 완료·실패 및 조회 오류에서는 polling을 멈추며 사용자가 다시 조회할 수 있다.
+FE `/review?view=processing`은 위 목록·상세만 연결한다. 검수 중 문의는 §6.3의 문의 화면이 담당하며 이 화면에는 문의 탭이 없다. 상태 칩 4종은 서버의 다섯 상태를 접은 것으로 `clipStatus` URL 파라미터에 `processing`(=`queued,running`) · `attention`(=`failed,no_run`) · `done`(=`succeeded`)로 싣고, 전체는 파라미터를 생략한다. 「내 영상만 보기」는 `mine=true`이고, 칩·토글을 바꾸면 `progressPage`를 1로 되돌린다. 페이지네이션은 한 페이지뿐이어도 항상 표시하고 이동 가능 여부는 버튼 비활성으로 알린다(§6.3 문의 목록과 같은 규약). 칩 키가 `status`가 아닌 이유는 §6.3의 문의 목록이 같은 `/review` URL에서 `status`로 `open|reviewing|closed`를 쓰기 때문이다. 영상 등록 직후에는 `clipStatus`를 비워 새 영상이 목록에 남게 한다. 각 행에는 `registered_by.login_id`를 등록 시각 옆에 표시한다. 칩의 건수 배지는 `run_counts`를 같은 방식으로 접어 만든다. 상세에서 원본 영상은 §6.1 미디어 API로 재생한다. 등록 후에는 응답 ID로 상세를 다시 조회하며 로컬 처리·장면 데이터를 합성하지 않는다. 영상 목록은 전체 queued/running이 있으면, 상세는 해당 최신 run이 queued/running이면 5초마다 조회한다. 상세 응답의 `latest_run`이 null인 경우에도 `clip.created_at` 기준 등록 후 1분 동안은 5초마다 재조회한다. 그 이후에도 기록이 없으면 반복 조회를 멈추고 ‘상태 새로고침’으로 다시 확인하도록 안내한다. 완료·실패 및 조회 오류에서는 polling을 멈추며 사용자가 다시 조회할 수 있다.
 
 기존 처리 화면의 mock 기능 중 다음 항목은 BE 추가·확장이 필요하다. 아래는 필요한 기능과 최소 데이터이며, 새로운 경로·method는 아직 확정하지 않는다.
 
@@ -687,7 +702,7 @@ FE `/review?view=processing`은 위 목록·상세와 §6.3의 `REVIEWING` 문�
 | 수동 재처리 | 검수자 전용 command와 가능 여부·불가 사유. 대상 clip/최신 run 사전조건, 중복 요청 멱등성, 진행 중·영구 실패 거절 규칙, 기존 active run 보존, 새 pipeline run ID·상태 반환. `automatic_retryable`과 구분 | 가짜 재처리 버튼 제거. 실제 자동 재시도 이력만 표시 |
 | 영상별 장면 목록 | 대상 clip과 run을 식별하는 페이지 조회. scene ID, 순서, 시작·종료 ms, 설명, 총 건수. active/latest run 중 어느 결과인지 명시 | 고정 장면 카드·장면 수 제거. 원본 영상 재생 제공 |
 | 장면 썸네일 | scene ID 기반 byte 조회와 인증·cache 정책. 서버 내부 파일 경로 비노출 | 관련 없는 데모 이미지 대신 일반 영상 아이콘 |
-| 영상 파일 메타데이터 | 기존 상세 응답에 공개 가능한 원본 파일명·용량·길이·방송일·촬영일을 필요에 따라 추가. nullable·단위 명시. 업로더 표시는 계정 공개 범위 결정 필요 | 서버가 제공하는 제목·유형·등록 시각 표시. 요청 메모리로 누락값을 채우지 않음 |
+| 영상 파일 메타데이터 | 기존 상세 응답에 공개 가능한 원본 파일명·용량·길이·방송일·촬영일을 필요에 따라 추가. nullable·단위 명시. **업로더 표시는 결정됨 — `registered_by.login_id`까지 공개하고 실명·내부 ID는 공개하지 않는다 (S15P21A501-266)** | 서버가 제공하는 제목·유형·등록 시각·등록자 표시. 요청 메모리로 누락값을 채우지 않음 |
 | 문의 행의 추가 정보 | 기존 목록에 의견 미리보기·담당 검수자 등 실제 저장 정보 확장. 문의자·주제 노출은 도메인/권한 정책 확정 필요 | 실제 queryText·scene·createdAt·hasComment 표시 |
 
 교정 흐름의 태그·해석·장면 제외 후보 생성과 최종 확정, 규칙 사용 중단은 §6.4에 공개 API가 정의되어 있다. 이를 신규 API 요구로 분류하지 않는다. 처리 화면의 문의 상세는 기존 실제 조회·claim·resolution 화면을 재사용하고 재검색 검증·확정 흐름까지 FE에 연결되어 있으며, 후보 생성 전용 편집 UI만 별도 작업으로 남아 있다.
@@ -980,6 +995,24 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 | `SRCH_404_001`  | 404  | 본인 소유 아님·대상 밖 실행·존재하지 않음(동일 취급)         |
 | `COMM_500`      | 500  | 서버 오류                                                    |
 
+`DELETE /search/history/{searchExecutionId}` (S15P21A501-276)
+
+사용자가 자기 기록 목록에서 기록 하나를 지운다. 대상 판정은 목록·상세와 **같은 범위**다 — 본인의 `execution_type='original'` 중 저장된 `status`가 `succeeded`/`degraded`인 실행. 성공은 `200`이며 `data`는 없다.
+
+**행을 지우지 않는다.** `search_execution.deleted_at`에 시각을 남겨 목록·상세에서만 감춘다. 같은 행을 `GET /search/executions/{executionId}`(§5 감사 조회)와 신고·검수의 문의 상세가 함께 읽으므로, 물리 삭제하면 문의가 당시 결과를 잃는다. FRD §7.2도 「참조 중인 영상·장면·검색·신고·교정 기록을 지우는 하드 삭제 화면은 만들지 않는다」로 같은 원칙을 쓴다. 따라서 삭제 후에도 감사 조회와 문의 상세는 그대로 동작한다.
+
+**멱등이다.** 이미 지운 기록에 같은 요청을 보내도 `200`이며, 처음 지운 시각을 유지한다. 두 번째만 404를 내면 FE가 재시도할 수 없고, 시각을 갱신하면 보존기간 판단의 기준이 흔들린다.
+
+전체 삭제는 제공하지 않는다. 단건만 지운다.
+
+| 오류            | HTTP | 의미                                                         |
+| --------------- | ---- | ------------------------------------------------------------ |
+| `COMM_401`      | 401  | 미인증                                                       |
+| `COMM_400`      | 400  | `searchExecutionId` 형식 오류                                |
+| `COMM_400_001`  | 400  | `searchExecutionId` 범위 오류(1 미만)                        |
+| `SRCH_404_001`  | 404  | 본인 소유 아님·대상 밖 실행·존재하지 않음(동일 취급)         |
+| `COMM_500`      | 500  | 서버 오류                                                    |
+
 **저장 계약과의 관계.** 이 절은 S15P21A501-60이 소유하는 `search_execution`/`search_result` 저장 형식을 **읽기만** 한다. -60은 저장 구현과 `explain_json` 4키 계약(`score`·`match`·`guard`·`display`)까지 병합 완료다. **아직 병합되지 않은 선행은 S15P21A501-59(`POST /search` 조립)뿐이다** — 실행을 만드는 쪽이 없어 현재 검증은 고정 DB fixture로 했고, 실제 검색 실행 → 기록 조회 왕복 확인은 -59 병합 후 별도로 기록한다.
 
 읽는 쪽이 저장 형태를 **검증**하는 이유: -60의 저장 경계는 `explain_json` 내부 구조를 검사하지 않는다. 블록이 object인지만 보고 통과시키면 빈 `display`가 `available`로 나가 FE가 해석할 수 없는 `results`를 받는다. 그래서 값은 고치지 않되 아래를 확인하고, 하나라도 어긋나면 `unavailable`로 낸다.
@@ -1067,7 +1100,7 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 | 문의 상세 snapshot | BE는 여러 JSON 값을 문자열로 반환                                    | 구조화 object로 바꿀지 FE가 안전하게 parse할지 결정                                       |
 | 검색 오류          | `SRCH_` 내부 오류 일부만 존재                                        | 공개 endpoint의 4xx/5xx와 degraded 경계를 확정                                            |
 | 내 문의 기록       | §6.6으로 확정·BE 구현·FE 목록과 상세 연결 완료                       | 없음                                                                                      |
-| 내 검색 기록       | §6.7로 확정·BE 구현(조회만). FE 연결 남음                            | 저장(-60)·`explain_json` 4키 계약은 병합 완료. 남은 선행은 -59 `POST /search` 조립이며 그 뒤 실제 왕복 확인 필요 |
+| 내 검색 기록       | §6.7로 확정·BE 구현(조회·삭제). 삭제는 FE 연결 남음                  | 저장(-60)·`explain_json` 4키 계약은 병합 완료. 삭제(-276)는 논리 삭제이며 감사 조회·문의 상세는 영향받지 않는다 |
 | 처리 조회          | §6.5 실제 목록·상세·polling 연결, unknown/null 보존                    | 수동 재처리·장면 목록·썸네일 및 추가 메타데이터 계약 필요                                 |
 
 미확정 항목은 FE demo model이나 Java DTO를 복사해 새 정본으로 만들지 않는다. 합의가 끝나면 이 문서를 먼저 갱신하고 양쪽 구현과 계약 테스트를 맞춘다.

@@ -25,6 +25,10 @@ export interface ClipProgress {
   failed_steps: number | null;
 }
 
+export interface ClipRegistrant {
+  login_id: string;
+}
+
 export interface ClipSummary {
   clip_id: string;
   title: string | null;
@@ -33,6 +37,7 @@ export interface ClipSummary {
   active_pipeline_run_id: string | null;
   created_at: string;
   updated_at: string;
+  registered_by: ClipRegistrant | null;
   latest_run: ClipRun | null;
   progress: ClipProgress | null;
 }
@@ -177,6 +182,13 @@ function parseProgress(value: unknown): ClipProgress {
   } else if (counts.some((count) => count !== null)) fail();
   return result;
 }
+/** 서버는 로그인 ID 까지만 공개한다. 내부 식별자가 섞여 오면 계약 위반이므로 거부한다. */
+function parseRegistrant(value: unknown): ClipRegistrant {
+  const item = record(value);
+  const loginId = text(item.login_id);
+  if (!loginId.trim()) fail();
+  return { login_id: loginId };
+}
 export function parseClipSummary(value: unknown): ClipSummary {
   const item = record(value);
   const result: ClipSummary = {
@@ -187,6 +199,7 @@ export function parseClipSummary(value: unknown): ClipSummary {
     active_pipeline_run_id: nullable(item.active_pipeline_run_id, identifier),
     created_at: instant(item.created_at),
     updated_at: instant(item.updated_at),
+    registered_by: nullable(item.registered_by, parseRegistrant),
     latest_run: nullable(item.latest_run, parseRun),
     progress: nullable(item.progress, parseProgress),
   };
@@ -291,12 +304,16 @@ export function parseClipDetail(value: unknown): ClipDetail {
   };
 }
 
-export async function getProcessingClips(page: number, completed: boolean, signal?: AbortSignal) {
-  const query = new URLSearchParams({
-    page: String(page),
-    size: '10',
-    status: completed ? 'succeeded' : 'queued,running,failed,no_run',
-  });
+export async function getProcessingClips(
+  page: number,
+  statuses: string[],
+  mine: boolean,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({ page: String(page), size: '10' });
+  // 전체 칩과 '내 영상 아님'은 서버 기본값이라 파라미터를 싣지 않는다.
+  if (statuses.length > 0) query.set('status', statuses.join(','));
+  if (mine) query.set('mine', 'true');
   return parseClipPage(await fetchJson<unknown>('/clips', { query, signal }));
 }
 export async function getProcessingClip(clipId: string, signal?: AbortSignal) {

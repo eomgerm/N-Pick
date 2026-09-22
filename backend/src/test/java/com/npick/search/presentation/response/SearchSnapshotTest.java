@@ -3,10 +3,9 @@ package com.npick.search.presentation.response;
 import java.time.Instant;
 import java.util.List;
 
-import tools.jackson.databind.JsonNode;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
 
 import com.npick.search.application.query.SearchHistoryItem;
 import com.npick.search.application.query.SearchHistoryRecord;
@@ -17,13 +16,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 스냅샷 복원 가능 판정과 조립 (S15P21A501-198).
  *
- * <p>목록·상세가 이 클래스 하나만 쓰므로 여기 규칙이 곧 두 응답의 판정이다 — 계약의 「변하지 않은 기록의 목록/상세가
- * available 판정을 다르게 하지 않는다」를 구조로 보장한다.
+ * <p>목록·상세가 이 클래스 하나만 쓰므로 여기 규칙이 곧 두 응답의 판정이다 — 계약의 「변하지 않은 기록의 목록/상세가 available 판정을 다르게 하지 않는다」를 구조로 보장한다.
  */
 class SearchSnapshotTest {
 
-    private static final String DISPLAY =
-            """
+    private static final String DISPLAY = """
             "display": {
               "display_name": "예시 뉴스 · 서울역",
               "scene_description": "대합실 인파",
@@ -35,8 +32,7 @@ class SearchSnapshotTest {
               "filmed_date": {"value": null, "verification_status": "unknown"}
             }""";
 
-    private static final String MATCH =
-            """
+    private static final String MATCH = """
             "match": {
               "matched_keywords": ["서울역"],
               "match_evidence": [
@@ -45,8 +41,7 @@ class SearchSnapshotTest {
               ]
             }""";
 
-    private static final String FILTERED_OK =
-            """
+    private static final String FILTERED_OK = """
             {"returned_count": 1, "shortage_reasons": ["candidate_pool_exhausted"],
              "guard": {"incident_guard_active": false, "verdicts": []}}""";
 
@@ -57,8 +52,7 @@ class SearchSnapshotTest {
     void unavailableWhenDisplayLacksRequiredFields() {
         String noShotType = DISPLAY.replace("\"shot_type\": \"b_roll\",", "");
 
-        SearchSnapshot snapshot =
-                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(noShotType, MATCH))));
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(noShotType, MATCH))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
         assertThat(snapshot.payload()).isNull();
@@ -80,8 +74,7 @@ class SearchSnapshotTest {
                 "\"filmed_date\": {\"value\": null, \"verification_status\": \"unknown\"}",
                 "\"filmed_date\": {\"value\": null}");
 
-        SearchSnapshot snapshot =
-                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(brokenDate, MATCH))));
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(brokenDate, MATCH))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
     }
@@ -92,8 +85,7 @@ class SearchSnapshotTest {
         String inverted = DISPLAY.replace("\"start_time_ms\": 42000", "\"start_time_ms\": 49000")
                 .replace("\"end_time_ms\": 49000", "\"end_time_ms\": 42000");
 
-        SearchSnapshot snapshot =
-                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(inverted, MATCH))));
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(inverted, MATCH))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
     }
@@ -103,8 +95,7 @@ class SearchSnapshotTest {
     void unavailableWhenMatchEvidenceEmpty() {
         String noEvidence = "\"match\": {\"matched_keywords\": [], \"match_evidence\": []}";
 
-        SearchSnapshot snapshot =
-                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, noEvidence))));
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, noEvidence))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
     }
@@ -115,8 +106,7 @@ class SearchSnapshotTest {
         String noSource = "\"match\": {\"matched_keywords\": [\"서울역\"], \"match_evidence\":"
                 + " [{\"field\": \"ocr\", \"value\": \"서울역\", \"verification_status\": \"verified\"}]}";
 
-        SearchSnapshot snapshot =
-                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, noSource))));
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, noSource))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
     }
@@ -128,8 +118,7 @@ class SearchSnapshotTest {
                 + " [{\"field\": \"tag\", \"value\": null, \"source\": \"dense_similarity\","
                 + " \"verification_status\": \"unverified\"}]}";
 
-        SearchSnapshot snapshot =
-                SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, nullValue))));
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, nullValue))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("available");
         assertThat(snapshot.payload()
@@ -160,8 +149,7 @@ class SearchSnapshotTest {
         for (String shotType : new String[] {"anchor", "interview", "b_roll", "unknown"}) {
             String display = DISPLAY.replace("\"b_roll\"", "\"" + shotType + "\"");
 
-            SearchSnapshot snapshot =
-                    SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(display, MATCH))));
+            SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(display, MATCH))));
 
             assertThat(snapshot.snapshotStatus()).as(shotType).isEqualTo("available");
         }
@@ -333,8 +321,8 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("날짜 value 가 배열이면 unavailable 이다")
     void unavailableWhenDateValueNotStringOrNull() {
-        String broken = DISPLAY.replace(
-                "\"broadcast_date\": {\"value\": \"2026-09-14\"", "\"broadcast_date\": {\"value\": []");
+        String broken =
+                DISPLAY.replace("\"broadcast_date\": {\"value\": \"2026-09-14\"", "\"broadcast_date\": {\"value\": []");
 
         SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(broken, MATCH))));
 
@@ -396,8 +384,8 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("rank 가 1 부터 시작하지 않으면 unavailable 이다")
     void unavailableWhenRankDoesNotStartAtOne() {
-        SearchSnapshot snapshot = SearchSnapshot.from(record(
-                FILTERED_OK, resultRow(2, explain(DISPLAY, MATCH)), resultRow(3, explain(DISPLAY, MATCH))));
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                record(FILTERED_OK, resultRow(2, explain(DISPLAY, MATCH)), resultRow(3, explain(DISPLAY, MATCH))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
         assertThat(snapshot.resultCount()).isNull();
@@ -407,8 +395,8 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("rank 에 빈칸이 있으면 unavailable 이다")
     void unavailableWhenRankHasGap() {
-        SearchSnapshot snapshot = SearchSnapshot.from(record(
-                FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH)), resultRow(3, explain(DISPLAY, MATCH))));
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH)), resultRow(3, explain(DISPLAY, MATCH))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
     }
@@ -429,8 +417,8 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("rank 1..N 이 연속이면 available 이고 대표 결과는 1위다")
     void availableWhenRanksAreConsecutive() {
-        SearchSnapshot snapshot = SearchSnapshot.from(record(
-                FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH)), resultRow(2, explain(DISPLAY, MATCH))));
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH)), resultRow(2, explain(DISPLAY, MATCH))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("available");
         assertThat(snapshot.resultCount()).isEqualTo(2);
@@ -442,8 +430,8 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("명시 필터가 object 가 아니면 explicit_filters 는 null 이고 unavailable 이다")
     void unavailableWhenExplicitFiltersNotObject() {
-        SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(
-                item(FILTERED_OK, "resolver", "[]", "[]", "[]"), List.of()));
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                new SearchHistoryRecord(item(FILTERED_OK, "resolver", "[]", "[]", "[]"), List.of()));
 
         assertThat(snapshot.explicitFilters()).isNull();
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
@@ -554,8 +542,8 @@ class SearchSnapshotTest {
     @DisplayName("display 가 컬럼과 같은 key 를 담고 있어도 컬럼 값이 이긴다")
     void columnsWinOverStoredBlocks() {
         // 저장 블록이 컬럼을 덮으면 문자열 ID 규칙이 깨지고 rank 가 비정수면 대표 결과가 사라진다.
-        String colliding = DISPLAY.replace(
-                "\"display\": {", "\"display\": {\"scene_id\": 1, \"rank\": \"two\", \"clip_id\": 2,");
+        String colliding =
+                DISPLAY.replace("\"display\": {", "\"display\": {\"scene_id\": 1, \"rank\": \"two\", \"clip_id\": 2,");
 
         SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(colliding, MATCH))));
 
@@ -659,10 +647,8 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("한 행이라도 display 가 없으면 복원 불가이므로 unavailable 이다")
     void unavailableWhenAnyRowLacksDisplay() {
-        SearchSnapshot snapshot = SearchSnapshot.from(record(
-                FILTERED_OK,
-                resultRow(1, explain(DISPLAY, MATCH)),
-                resultRow(2, "{\"score\": {}}")));
+        SearchSnapshot snapshot = SearchSnapshot.from(
+                record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH)), resultRow(2, "{\"score\": {}}")));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
         assertThat(snapshot.payload()).isNull();
@@ -680,7 +666,8 @@ class SearchSnapshotTest {
         assertThat(result.get("rank").asInt()).isEqualTo(1);
         assertThat(result.get("display_name").asString()).isEqualTo("예시 뉴스 · 서울역");
         assertThat(result.get("scene_type").asString()).isEqualTo("역사 인파");
-        assertThat(result.get("filmed_date").get("verification_status").asString()).isEqualTo("unknown");
+        assertThat(result.get("filmed_date").get("verification_status").asString())
+                .isEqualTo("unknown");
         assertThat(result.get("matched_keywords").get(0).asString()).isEqualTo("서울역");
         assertThat(result.get("match_evidence").get(0).get("field").asString()).isEqualTo("ocr");
         assertThat(snapshot.representativeResult().get("display_name").asString())
@@ -695,7 +682,8 @@ class SearchSnapshotTest {
         SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(noTitle, MATCH))));
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("available");
-        assertThat(snapshot.payload().get("results").get(0).get("display_name").isNull()).isTrue();
+        assertThat(snapshot.payload().get("results").get(0).get("display_name").isNull())
+                .isTrue();
         assertThat(snapshot.representativeResult().get("display_name").isNull()).isTrue();
     }
 
@@ -709,7 +697,8 @@ class SearchSnapshotTest {
 
         assertThat(snapshot.snapshotStatus()).isEqualTo("available");
         assertThat(snapshot.representativeResult().has("scene_description")).isTrue();
-        assertThat(snapshot.representativeResult().get("scene_description").isNull()).isTrue();
+        assertThat(snapshot.representativeResult().get("scene_description").isNull())
+                .isTrue();
         assertThat(snapshot.payload().get("results").get(0).get("scene_type").isNull())
                 .isTrue();
     }
@@ -722,7 +711,8 @@ class SearchSnapshotTest {
         SearchSnapshot snapshot = SearchSnapshot.from(new SearchHistoryRecord(item, List.of()));
 
         assertThat(snapshot.payload().get("query_resolution_status").asString()).isEqualTo("resolved");
-        assertThat(snapshot.payload().get("has_applied_review_rule").asBoolean()).isTrue();
+        assertThat(snapshot.payload().get("has_applied_review_rule").asBoolean())
+                .isTrue();
     }
 
     @Test
@@ -730,13 +720,12 @@ class SearchSnapshotTest {
     void guardSummaryIncludesApprovedSceneExclusions() {
         // GuardExclusionReason 에는 explicit_date_conflict·approved_incident_conflict 둘뿐이다.
         // 승인된 장면 제외(-58)는 filtered_json 이 아니라 applied_excludes_json 에 있다.
-        String filtered =
-                """
+        String filtered = """
                 {"returned_count": 1, "shortage_reasons": ["guard_excluded"],
                  "guard": {"incident_guard_active": false, "verdicts": [
                    {"scene_id": 5, "exclusion_reason": "explicit_date_conflict"}]}}""";
-        String appliedExcludes = "[{\"scene_id\": 12, \"rule_ids\": [301, 305]}, {\"scene_id\": 13,"
-                + " \"rule_ids\": [302]}]";
+        String appliedExcludes =
+                "[{\"scene_id\": 12, \"rule_ids\": [301, 305]}, {\"scene_id\": 13," + " \"rule_ids\": [302]}]";
 
         SearchSnapshot snapshot = SearchSnapshot.from(
                 new SearchHistoryRecord(item(filtered, "resolver", "[]", appliedExcludes), List.of()));
@@ -751,8 +740,7 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("같은 장면이 guard 와 승인 제외에 모두 걸려도 제외 결과는 한 건이다")
     void guardSummaryCountsSceneOnce() {
-        String filtered =
-                """
+        String filtered = """
                 {"returned_count": 0, "shortage_reasons": ["guard_excluded"],
                  "guard": {"incident_guard_active": false, "verdicts": [
                    {"scene_id": 12, "exclusion_reason": "explicit_date_conflict"}]}}""";
@@ -781,8 +769,7 @@ class SearchSnapshotTest {
     @Test
     @DisplayName("guard_summary 는 제외된 판정만 센다 — 통과 판정은 제외 건수에 넣지 않는다")
     void guardSummaryCountsOnlyExcludedVerdicts() {
-        String filtered =
-                """
+        String filtered = """
                 {"returned_count": 1, "shortage_reasons": ["guard_excluded"],
                  "guard": {"incident_guard_active": false, "verdicts": [
                    {"scene_id": 1, "exclusion_reason": null},
@@ -793,8 +780,9 @@ class SearchSnapshotTest {
 
         var guard = snapshot.payload().get("guard_summary");
         assertThat(guard.get("excluded_result_count").asInt()).isEqualTo(2);
-        assertThat(guard.get("reasons")).singleElement().satisfies(reason ->
-                assertThat(reason.asString()).isEqualTo("explicit_date_conflict"));
+        assertThat(guard.get("reasons"))
+                .singleElement()
+                .satisfies(reason -> assertThat(reason.asString()).isEqualTo("explicit_date_conflict"));
         assertThat(snapshot.payload().get("shortage_reasons").get(0).asString()).isEqualTo("guard_excluded");
     }
 

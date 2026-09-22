@@ -176,8 +176,11 @@ export function ScenePreviewDialog({
   const inquiryUnavailableReasonId = useId();
   const hasSavedResult =
     typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
-  const isInquiryUnavailable =
-    !isSubmitted && (!hasSavedResult || !canCreateInquiry(searchExecution));
+  // 문의 가능 여부는 선택한 결과 자신의 저장 상태로 판단한다. 더보기로 이어 붙인 실행 상태가
+  // 다른 페이지의 snapshot 실패로 degraded 여도, 이 결과에 search_result_id 가 있으면 문의할 수
+  // 있다. snapshot 실패한 페이지의 결과는 id 자체가 없어 hasSavedResult 로 이미 걸러진다
+  // (web-api §5.1, S15P21A501-251 P1). 전역 canCreateInquiry 게이트는 문구 안내에만 쓴다.
+  const isInquiryUnavailable = !isSubmitted && !hasSavedResult;
   useEffect(() => {
     closeButtonRef.current?.focus({ preventScroll: true });
   }, []);

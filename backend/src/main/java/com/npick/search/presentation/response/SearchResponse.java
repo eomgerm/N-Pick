@@ -24,7 +24,8 @@ public record SearchResponse(
         @JsonProperty("has_applied_review_rule") boolean hasAppliedReviewRule,
         @JsonProperty("guard_summary") GuardSummary guardSummary,
         @JsonProperty("shortage_reasons") List<String> shortageReasons,
-        @JsonProperty("results") List<Result> results) {
+        @JsonProperty("results") List<Result> results,
+        @JsonProperty("has_next") boolean hasNext) {
 
     public static SearchResponse of(SearchExecutionResult result) {
         return new SearchResponse(
@@ -37,7 +38,8 @@ public record SearchResponse(
                         result.guardSummary().excludedResultCount(),
                         result.guardSummary().reasons()),
                 result.shortageReasons(),
-                result.results().stream().map(Result::of).toList());
+                result.results().stream().map(Result::of).toList(),
+                result.hasNext());
     }
 
     private static String id(Long value) {

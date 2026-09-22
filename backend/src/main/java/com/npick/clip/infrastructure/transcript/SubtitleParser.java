@@ -1,6 +1,7 @@
 package com.npick.clip.infrastructure.transcript;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -208,13 +209,17 @@ public final class SubtitleParser {
             throw TranscriptErrorCode.invalid(location + ".t", "빈 문자열 또는 공백뿐인 자막은 허용하지 않습니다.");
         }
         BigDecimal durationMs = duration.movePointRight(3);
-        BigDecimal excessMs = BigDecimal.valueOf(e).subtract(durationMs);
+        // 큐 시각은 정수 ms 만 표현할 수 있으므로 소수 ms 인 ffprobe 길이와 직접 비교하면, 영상 끝까지 덮는 자막이
+        // 1ms 미만 초과로 거절된다. 영상 전체를 담는 가장 작은 정수 ms 를 상한으로 삼아 큐가 사는 축에서 비교한다
+        // (S15P21A501-258). 워커의 프레임 기반 길이도 실측상 이 상한을 넘지 않는다 (ai/docs/transcript-selection.md §6).
+        BigDecimal limitMs = durationMs.setScale(0, RoundingMode.CEILING);
+        BigDecimal excessMs = BigDecimal.valueOf(e).subtract(limitMs);
         if (excessMs.signum() > 0) {
             throw TranscriptErrorCode.invalid(
                     location + ".e",
                     "구간 [" + s + ", " + e + "] ms의 종료 시간이 검사 기준 영상 길이 "
-                            + durationMs.stripTrailingZeros().toPlainString() + " ms를 "
-                            + excessMs.stripTrailingZeros().toPlainString()
+                            + durationMs.stripTrailingZeros().toPlainString() + " ms의 정수 ms 상한 "
+                            + limitMs.toPlainString() + " ms를 " + excessMs.toPlainString()
                             + " ms 초과합니다. 파일 전체를 거절하며 시간 보정·잘라내기·부분 적용은 하지 않습니다.");
         }
         return new Cue(index, s, e, t);

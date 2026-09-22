@@ -10,9 +10,7 @@ import com.npick.search.application.query.SearchHistoryListQuery;
 import com.npick.search.application.query.SearchHistoryRecord;
 import com.npick.search.domain.error.SearchErrorCode;
 
-/**
- * 「내 검색 기록」 조회 서비스 (S15P21A501-198). 본인이 실행한 검색만 읽는 읽기 전용 경로다.
- */
+/** 「내 검색 기록」 조회 서비스 (S15P21A501-198). 본인이 실행한 검색만 읽는 읽기 전용 경로다. */
 @Service
 public class SearchHistoryQueryService implements ListMySearchHistoryUseCase, GetMySearchHistoryDetailUseCase {
 

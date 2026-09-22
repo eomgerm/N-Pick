@@ -1,7 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { emptyDateRange, readDateRange, selectRangeDate, validateDateRange } from './date-range.ts';
+import {
+  createRecentYearRange,
+  emptyDateRange,
+  readDateRange,
+  selectRangeDate,
+  validateDateRange,
+} from './date-range.ts';
+
+test('최근 연도 프리셋은 기준일과 윤년 경계를 보존한다', () => {
+  assert.deepEqual(createRecentYearRange(1, '2026-09-21'), {
+    from: '2025-09-21',
+    to: '2026-09-21',
+  });
+  assert.deepEqual(createRecentYearRange(2, '2026-09-21'), {
+    from: '2024-09-21',
+    to: '2026-09-21',
+  });
+  assert.deepEqual(createRecentYearRange(3, '2024-02-29'), {
+    from: '2021-02-28',
+    to: '2024-02-29',
+  });
+});
 
 test('시작일과 종료일이 같아도 유효하다', () => {
   const range = { from: '2026-09-07', to: '2026-09-07' };

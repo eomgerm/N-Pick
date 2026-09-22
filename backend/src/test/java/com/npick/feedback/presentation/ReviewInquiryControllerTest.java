@@ -137,13 +137,7 @@ class ReviewInquiryControllerTest {
                 "{\"score\":1}",
                 new ExecutionSnapshot("query", "{\"date\":\"2026\"}", "{}", "{}", "{}", "{}"),
                 java.util.List.of(new com.npick.feedback.application.query.SceneEvidence(
-                        5L,
-                        "event",
-                        "사건명",
-                        "사건명",
-                        java.util.List.of("ocr", "vlm"),
-                        "verified",
-                        "SCENE")),
+                        5L, "event", "사건명", "사건명", java.util.List.of("ocr", "vlm"), "verified", "SCENE")),
                 new ReviewHistory(200L, "검수자01", "reviewer01", java.time.Instant.parse("2026-09-08T01:00:00Z"), null));
         given(reviewService.detail(1L)).willReturn(detail);
         mockMvc.perform(get("/api/v1/review/inquiries/1")

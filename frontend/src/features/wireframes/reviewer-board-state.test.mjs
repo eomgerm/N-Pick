@@ -52,9 +52,15 @@ test('처리·문의 전환은 상세·하위 탭을 해제하고 목록 조건�
   assert.equal(getReviewTabUrl('/review', '', 'processing'), '/review?view=processing');
 });
 
-test('처리 상세를 열고 복귀해도 선택한 하위 탭과 목록 조건이 유지된다', () => {
-  for (const tab of ['uploads', 'completed']) {
-    const original = new URLSearchParams({ view: 'processing', tab, q: '서울역', page: '2' });
+test('처리 상세를 열고 복귀해도 선택한 칩·내 영상 조건과 목록 조건이 유지된다', () => {
+  for (const clipStatus of ['processing', 'attention', 'done']) {
+    const original = new URLSearchParams({
+      view: 'processing',
+      clipStatus,
+      mine: 'true',
+      q: '서울역',
+      page: '2',
+    });
     const detail = getReviewUrl('/review', original.toString(), { clip: 'clip-1' });
     const restored = getReviewUrl('/review', detail.split('?')[1], { clip: null });
     assert.equal(restored, `/review?${original}`);

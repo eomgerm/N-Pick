@@ -3,6 +3,7 @@ package com.npick.clip.domain.model;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -28,6 +29,9 @@ public record InitialClipRegistration(
         LocalDate filmedDate,
         PipelineDefinition pipeline,
         Instant registeredAt) {
+
+    /** 등록자와 같은 날짜 감각으로 "오늘"을 판단한다. UTC 로 보면 한국 아침 시간대의 등록이 하루를 앞선다. */
+    private static final ZoneId REGISTRATION_ZONE = ZoneId.of("Asia/Seoul");
 
     public InitialClipRegistration {
         if (clipId <= 0 || pipelineRunId <= 0 || registeredById <= 0) {
@@ -55,8 +59,23 @@ public record InitialClipRegistration(
         if (title != null && title.indexOf(0xFFFD) >= 0) {
             throw new BusinessException(ClipRegistrationErrorCode.TITLE_NOT_UTF8);
         }
+        // 일반 대본도 같은 길로 들어오는 텍스트 파트다. 컬럼이 text 라 길이로도 걸리지 않아, 막지 않으면 되돌릴 수 없는
+        // 대본이 저장되고 VLM 이 그것을 참고 자료로 읽는다 (S15P21A501-258).
+        if (scriptText != null && scriptText.indexOf(0xFFFD) >= 0) {
+            throw new BusinessException(ClipRegistrationErrorCode.SCRIPT_TEXT_NOT_UTF8);
+        }
         if (sourceType == SourceType.ARCHIVE && broadcastDate != null) {
             throw new BusinessException(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE);
+        }
+        LocalDate registeredOn = LocalDate.ofInstant(registeredAt, REGISTRATION_ZONE);
+        if (broadcastDate != null && broadcastDate.isAfter(registeredOn)) {
+            throw new BusinessException(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE);
+        }
+        if (filmedDate != null && filmedDate.isAfter(registeredOn)) {
+            throw new BusinessException(ClipRegistrationErrorCode.FUTURE_FILMED_DATE);
+        }
+        if (broadcastDate != null && filmedDate != null && broadcastDate.isBefore(filmedDate)) {
+            throw new BusinessException(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE);
         }
     }
 
