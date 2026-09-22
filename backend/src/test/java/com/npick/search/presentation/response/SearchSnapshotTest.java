@@ -407,6 +407,18 @@ class SearchSnapshotTest {
     }
 
     @Test
+    @DisplayName("matched_keywords 항목에 origin 키가 없으면 unavailable 이다")
+    void unavailableWhenKeywordOriginMissing() {
+        // 깨진 기록은 예외가 아니라 unavailable 로 떨어져야 한다. origin 기본값을 null 로 두면
+        // Set.of(...).contains(null) 이 NullPointerException 을 던져 조회 자체가 500 이 된다.
+        String broken = MATCH.replace("[\"서울역\"]", "[{\"keyword\": \"서울역\"}]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
     @DisplayName("start_time_ms 가 문자열이면 unavailable 이다")
     void unavailableWhenTimeNotInteger() {
         String broken = DISPLAY.replace("\"start_time_ms\": 42000", "\"start_time_ms\": \"42000\"");

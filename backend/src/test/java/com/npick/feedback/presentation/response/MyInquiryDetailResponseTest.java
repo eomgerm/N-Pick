@@ -131,4 +131,28 @@ class MyInquiryDetailResponseTest {
         assertThat(res.snapshotStatus()).isEqualTo("unavailable");
         assertThat(res.resultSnapshot()).isNull();
     }
+    @Test
+    @DisplayName("출처 없는 과거 matched_keywords 는 내 검색 기록과 같이 origin unknown 으로 맞춘다")
+    void normalizesLegacyMatchedKeywords() {
+        // 구분이 없던 기록을 user 로 접으면 AI 가 넓힌 말이 사용자가 친 말로 둔갑한다 (FRD 7.2).
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain(
+                "{\"display\":{\"display_name\":\"KBC 뉴스9\"},\"match\":{\"matched_keywords\":[\"서울역\"]}}"));
+
+        MyInquiryDetailResponse.ResultSnapshot snap = (MyInquiryDetailResponse.ResultSnapshot) res.resultSnapshot();
+        assertThat(snap.explain().at("/match/matched_keywords/0/keyword").asString()).isEqualTo("서울역");
+        assertThat(snap.explain().at("/match/matched_keywords/0/origin").asString()).isEqualTo("unknown");
+    }
+
+    @Test
+    @DisplayName("출처를 실은 기록은 그대로 둔다")
+    void keepsStoredMatchedKeywordOrigin() {
+        MyInquiryDetailResponse res = MyInquiryDetailResponse.from(detailWithExplain(
+                "{\"display\":{\"display_name\":\"KBC 뉴스9\"},\"match\":{\"matched_keywords\":"
+                        + "[{\"keyword\":\"서울역\",\"origin\":\"user\"},{\"keyword\":\"역사\",\"origin\":\"expanded\"}]}}"));
+
+        MyInquiryDetailResponse.ResultSnapshot snap = (MyInquiryDetailResponse.ResultSnapshot) res.resultSnapshot();
+        assertThat(snap.explain().at("/match/matched_keywords/0/origin").asString()).isEqualTo("user");
+        assertThat(snap.explain().at("/match/matched_keywords/1/origin").asString()).isEqualTo("expanded");
+    }
+
 }
