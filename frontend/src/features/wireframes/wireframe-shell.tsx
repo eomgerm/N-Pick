@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock3, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -63,6 +63,13 @@ interface WireframeShellProps {
     error: unknown;
     /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
     failureReason?: string;
+    /**
+     * 실패 시 검색어·기간을 이 화면이 알고 있는지. 기본은 안다(false) — 진입 화면에서 넘어온
+     * 검색은 실패해도 요청했던 조건을 그대로 쥐고 있다. 검색 기록 스냅샷처럼 서버 응답이
+     * 와야만 조건을 알 수 있는 화면은, 그 응답 자체가 실패하면 조건도 모른다 — 「입력한
+     * 검색어와 기간은 유지돼요」가 거짓이 된다.
+     */
+    conditionsUnknown?: boolean;
     retry: () => void;
     /**
      * 같은 검색어를 다시 조회(refetch)하는 중. useInfiniteQuery 는 첫 로딩에만 isLoading 을
@@ -83,6 +90,8 @@ interface WireframeShellProps {
   initialParams?: SearchScreenParams;
   execution?: SearchExecutionPresentation;
   resultDetails?: SearchResultDetails;
+  /** 결과 그리드 위에 한 줄로 띄우는 배지(예: 검색 기록 스냅샷 날짜). 실시간 검색과 섞이지 않게 구분한다. */
+  historyBadge?: string;
 }
 
 export function WireframeShell({
@@ -92,6 +101,7 @@ export function WireframeShell({
   api,
   execution,
   resultDetails,
+  historyBadge,
 }: WireframeShellProps) {
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
@@ -308,10 +318,6 @@ export function WireframeShell({
       isDisabled={isSearchPending}
       onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
       onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
-      onSearchHistorySelect={(historyQuery) => {
-        setQuery(historyQuery);
-        requestAnimationFrame(() => searchFieldRef.current?.querySelector('input')?.focus());
-      }}
       searchField={
         <SceneSearchField
           variant="compact"
@@ -373,6 +379,12 @@ export function WireframeShell({
           </section>
 
           <section className={styles.resultsSection} id="search-results">
+            {historyBadge ? (
+              <p className={styles.historyBadge} role="status">
+                <Clock3 aria-hidden="true" />
+                {historyBadge}
+              </p>
+            ) : null}
             <div className={styles.resultsHeading}>
               <div>
                 <p>검색 결과</p>
@@ -415,6 +427,7 @@ export function WireframeShell({
                 filmingRange={filmingRange}
                 details={details}
                 reason={api?.failureReason}
+                conditionsUnknown={api?.conditionsUnknown}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }

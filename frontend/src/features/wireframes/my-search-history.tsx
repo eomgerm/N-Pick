@@ -21,10 +21,12 @@ import styles from '@/features/wireframes/search-history.module.css';
 interface MySearchHistoryProps {
   theme: WireframeTheme;
   onDetailOpenChange: (isOpen: boolean) => void;
-  onSelect: (query: string) => void;
+  /** 기록 행을 눌러 결과 화면으로 이동하기 직전에 호출한다. 패널을 열어 둔 채로 이동하면
+   *  전환이 끝날 때까지 패널이 그대로 남고, 이미 열려 있는 기록을 다시 눌러도 반응이 없어 보인다. */
+  onNavigate: () => void;
 }
 
-export function MySearchHistory({ theme, onDetailOpenChange }: MySearchHistoryProps) {
+export function MySearchHistory({ theme, onDetailOpenChange, onNavigate }: MySearchHistoryProps) {
   const router = useRouter();
   const { memberId } = useMember();
   const queryClient = useQueryClient();
@@ -109,9 +111,10 @@ export function MySearchHistory({ theme, onDetailOpenChange }: MySearchHistoryPr
                       <button
                         className={styles.row}
                         type="button"
-                        onClick={() =>
-                          router.push(`/search/results?historyId=${item.searchExecutionId}`)
-                        }
+                        onClick={() => {
+                          onNavigate();
+                          router.push(`/search/results?historyId=${item.searchExecutionId}`);
+                        }}
                       >
                         <span className={styles.sceneIcon} aria-hidden="true">
                           <History />

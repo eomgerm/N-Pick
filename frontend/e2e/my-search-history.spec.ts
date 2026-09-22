@@ -34,8 +34,13 @@ function listPage(items: unknown[], page = 0, total = items.length) {
     has_next: (page + 1) * 10 < total,
   };
 }
-function detail() {
-  return { ...item(), search_snapshot: structuredClone(searchFixture) };
+function detail(id = '100') {
+  // search_snapshot 은 searchFixture 를 그대로 쓰되, 그 자신의 search_execution_id(고정값 '100')를
+  // 요청한 기록 id로 맞춘다 — 서버 계약(parseMySearchHistoryDetail)이 둘의 일치를 요구한다.
+  return {
+    ...item(id),
+    search_snapshot: { ...structuredClone(searchFixture), search_execution_id: id },
+  };
 }
 
 for (const role of ['editor', 'reviewer']) {
@@ -100,13 +105,28 @@ for (const role of ['editor', 'reviewer']) {
       panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }),
     ).toBeDisabled();
     await panel.getByRole('button', { name: '이전 검색 기록 페이지', exact: true }).click();
-    const row = panel.getByRole('button', { name: /^서버 검색어 100 검색 결과/ });
+
+    // 기록 행을 누르면 그 자리에서 검색창만 채우던 옛 동작 대신, 당시 결과 화면(historyId)으로
+    // 이동해 스냅샷을 그대로 보여준다 — 이 MR(S15P21A501-262)이 새로 만든 동작이다.
+    // 상세(gate) 플로우가 쓰는 id 100 과 겹치지 않도록 목록의 다른 항목(105)을 쓴다.
+    await page.route('**/api/v1/search/history/105', (route) =>
+      route.fulfill({ json: success(detail('105')) }),
+    );
+    const row = panel.getByRole('button', { name: /^서버 검색어 105 검색 결과/ });
     await row.click();
-    const searchInput = page.getByRole('searchbox', { name: '뉴스 장면 검색어' });
     await expect(panel).not.toBeVisible();
-    await expect(searchInput).toHaveValue('서버 검색어 100');
-    await expect(searchInput).toBeFocused();
+    await expect(page).toHaveURL(/\/search\/results\?historyId=105$/);
     expect(postSearches).toBe(0);
+    // role="status" 는 ARIA상 name-from-content 가 아니라서 name 필터로는 못 찾는다(다른
+    // status 인 "검색 해석: ..." 와 구분해야 하므로 hasText 로 거른다).
+    await expect(page.getByRole('status').filter({ hasText: '검색 기록' })).toHaveText(
+      '2026-08-01 검색 기록',
+    );
+    // 결과 화면의 검색창은 compact 변형(type 없음 → textbox)이라 진입 화면의 searchbox 와 role 이 다르다.
+    await expect(page.getByRole('textbox', { name: '뉴스 장면 검색어' })).toHaveValue(
+      '서버 검색어 105',
+    );
+    await expect(page.getByRole('heading', { name: '관련 장면 1개', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
     const detailButton = panel.getByRole('button', {

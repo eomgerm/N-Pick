@@ -234,6 +234,20 @@ test('사유 없는 검색 실패는 기존 연결 안내와 재시도를 유지
   assert.match(html, /같은 조건으로 다시 시도/);
 });
 
+test('조건을 모르는 실패(검색 기록 스냅샷 조회 실패)는 검색어·기간이 유지된다고 말하지 않는다', () => {
+  const html = renderShell(
+    {},
+    { api: { state: 'failed', error: null, conditionsUnknown: true, retry() {} } },
+  );
+  assert.match(html, /이 화면에서는 검색어와 기간을 확인할 수 없어요\./);
+  assert.doesNotMatch(html, /입력한 검색어와 기간은 유지돼요\./);
+});
+
+test('historyBadge가 있으면 결과 그리드 위에 한 줄 배지로 뜬다', () => {
+  const html = renderShell({ state: 'empty' }, { historyBadge: '2026-09-15 검색 기록' });
+  assert.match(html, /2026-09-15 검색 기록/);
+});
+
 const { SearchResultState } = await import('./search-result-state.tsx');
 
 test('빈 결과의 적용 조건과 제외 수 0·미제공·유효하지 않은 값을 구분한다', () => {

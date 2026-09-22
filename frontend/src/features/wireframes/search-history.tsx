@@ -18,7 +18,6 @@ interface SearchHistoryProps {
   isDisabled?: boolean;
   onBroadcastChange: (value: DateRange) => void;
   onFilmingChange: (value: DateRange) => void;
-  onSearchHistorySelect: (query: string) => void;
   theme: WireframeTheme;
 }
 
@@ -29,7 +28,6 @@ export function SearchHistory({
   isDisabled,
   onBroadcastChange,
   onFilmingChange,
-  onSearchHistorySelect,
   theme,
 }: SearchHistoryProps) {
   const [isNavExpanded, setIsNavExpanded] = useState(false);
@@ -176,11 +174,7 @@ export function SearchHistory({
               <MySearchHistory
                 theme={theme}
                 onDetailOpenChange={setIsSearchDetailOpen}
-                onSelect={(query) => {
-                  setActivePanel(null);
-                  setIsNavExpanded(false);
-                  onSearchHistorySelect(query);
-                }}
+                onNavigate={closePanel}
               />
             ) : kind === 'inquiry' && activePanel === 'inquiry' ? (
               <MyInquiryHistory theme={theme} onDetailOpenChange={setIsInquiryDetailOpen} />
