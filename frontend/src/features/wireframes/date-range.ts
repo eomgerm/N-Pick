@@ -5,6 +5,8 @@ export interface DateRange {
 
 export const emptyDateRange: DateRange = { from: '', to: '' };
 
+export type RecentYearPreset = 1 | 2 | 3;
+
 export function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
@@ -18,6 +20,24 @@ export function validateDateRange(range: DateRange): string {
     return '올바른 날짜를 입력해 주세요.';
   if (range.from > range.to) return '종료일은 시작일과 같거나 이후여야 해요.';
   return '';
+}
+
+/**
+ * 기준일까지의 최근 N년을 달력 날짜 범위로 만듭니다.
+ * 윤년의 2월 29일은 대상 연도에 그 날짜가 없으면 2월의 마지막 날로 맞춥니다.
+ */
+export function createRecentYearRange(years: RecentYearPreset, to: string): DateRange {
+  if (!isCalendarDate(to)) throw new Error('최근 기간의 기준일은 올바른 날짜여야 합니다.');
+
+  const [year, month, day] = to.split('-').map(Number);
+  const fromYear = year - years;
+  const lastDayOfMonth = new Date(Date.UTC(fromYear, month, 0)).getUTCDate();
+  const fromDay = Math.min(day, lastDayOfMonth);
+
+  return {
+    from: `${fromYear}-${String(month).padStart(2, '0')}-${String(fromDay).padStart(2, '0')}`,
+    to,
+  };
 }
 
 export function selectRangeDate(range: DateRange, date: string): DateRange {

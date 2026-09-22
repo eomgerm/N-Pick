@@ -17,6 +17,21 @@ const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
 const yearMonth = (year: number, month: number) =>
   `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`;
+type CalendarView = 'days' | 'months' | 'years';
+
+interface CalendarState {
+  initialDate: string;
+  month: string;
+  focusDate: string;
+  view: CalendarView;
+}
+
+const createCalendarState = (initialDate: string): CalendarState => ({
+  initialDate,
+  month: monthStart(initialDate),
+  focusDate: initialDate,
+  view: 'days',
+});
 
 /** 시작일과 종료일이 각각 탐색 위치와 보기 단계를 갖는 달력입니다. */
 export function DateRangeCalendar({
@@ -25,10 +40,12 @@ export function DateRangeCalendar({
   range,
   onSelect,
 }: DateRangeCalendarProps) {
-  const [month, setMonth] = useState(() => monthStart(initialDate));
-  const [focusDate, setFocusDate] = useState(initialDate);
-  const [view, setView] = useState<'days' | 'months' | 'years'>('days');
+  const [calendarState, setCalendarState] = useState(() => createCalendarState(initialDate));
+  const currentState =
+    calendarState.initialDate === initialDate ? calendarState : createCalendarState(initialDate);
+  const { month, focusDate, view } = currentState;
   const calendarRef = useRef<HTMLElement>(null);
+
   const label = endpoint === 'from' ? '시작일' : '종료일';
   const first = new Date(`${month}T00:00:00Z`);
   const year = first.getUTCFullYear();
@@ -53,12 +70,21 @@ export function DateRangeCalendar({
     );
   }
 
+  function updateCalendarState(updater: (state: CalendarState) => CalendarState) {
+    setCalendarState((state) =>
+      updater(state.initialDate === initialDate ? state : createCalendarState(initialDate)),
+    );
+  }
+
   function showMonth(next: string, shouldFocus = false) {
     const selected = range[endpoint];
     const nextFocus = selected && monthStart(selected) === next ? selected : next;
-    setMonth(next);
-    setFocusDate(nextFocus);
-    setView('days');
+    updateCalendarState((state) => ({
+      ...state,
+      month: next,
+      focusDate: nextFocus,
+      view: 'days',
+    }));
     if (shouldFocus) focusDay(nextFocus);
   }
 
@@ -69,7 +95,10 @@ export function DateRangeCalendar({
       showMonth(next.toISOString().slice(0, 10));
     } else {
       const nextYear = Math.max(1, Math.min(9999, year + offset * (view === 'years' ? 10 : 1)));
-      setMonth(yearMonth(nextYear, monthNumber));
+      updateCalendarState((state) => ({
+        ...state,
+        month: yearMonth(nextYear, monthNumber),
+      }));
     }
   }
 
@@ -88,8 +117,11 @@ export function DateRangeCalendar({
     date.setUTCDate(date.getUTCDate() + offsets[event.key]);
     if (date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) return;
     const next = date.toISOString().slice(0, 10);
-    setMonth(monthStart(next));
-    setFocusDate(next);
+    updateCalendarState((state) => ({
+      ...state,
+      month: monthStart(next),
+      focusDate: next,
+    }));
     focusDay(next);
   }
 
@@ -119,7 +151,12 @@ export function DateRangeCalendar({
           aria-label={`${label} ${period}${view === 'days' ? ', 월 선택' : view === 'months' ? ', 연도 선택' : ', 연도 범위'}`}
           className={styles.periodTitle}
           onClick={() => {
-            if (view !== 'years') setView(view === 'days' ? 'months' : 'years');
+            if (view !== 'years') {
+              updateCalendarState((state) => ({
+                ...state,
+                view: view === 'days' ? 'months' : 'years',
+              }));
+            }
           }}
           type="button"
         >
@@ -166,7 +203,7 @@ export function DateRangeCalendar({
                 data-within={isWithin}
                 key={day}
                 onClick={() => {
-                  setFocusDate(day);
+                  updateCalendarState((state) => ({ ...state, focusDate: day }));
                   onSelect(day);
                 }}
                 onKeyDown={(event) => handleDayKey(event, day)}
@@ -194,8 +231,11 @@ export function DateRangeCalendar({
                 onClick={() => {
                   if (view === 'months') showMonth(yearMonth(year, number), true);
                   else {
-                    setMonth(yearMonth(number, monthNumber));
-                    setView('months');
+                    updateCalendarState((state) => ({
+                      ...state,
+                      month: yearMonth(number, monthNumber),
+                      view: 'months',
+                    }));
                     requestAnimationFrame(() =>
                       calendarRef.current
                         ?.querySelector<HTMLButtonElement>(`[data-month="${monthNumber}"]`)

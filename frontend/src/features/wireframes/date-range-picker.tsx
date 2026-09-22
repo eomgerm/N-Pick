@@ -4,9 +4,11 @@ import { CalendarDays, X } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import {
+  createRecentYearRange,
   type DateRange,
   emptyDateRange,
   formatDateRange,
+  type RecentYearPreset,
   validateDateRange,
 } from '@/features/wireframes/date-range';
 import { DateRangeCalendar } from '@/features/wireframes/date-range-calendar';
@@ -35,7 +37,8 @@ function localToday() {
 /**
  * 달력 버튼에 붙는 기간 선택 드롭다운입니다.
  * 화면을 덮는 모달 대신 트리거 아래에 작은 패널을 띄우고,
- * 바깥 클릭·Esc·포커스 이탈로 닫습니다. 값은 "적용"에서만 반영합니다.
+ * 바깥 클릭·Esc·포커스 이탈로 닫습니다. 선택 값은 "적용"에서 반영하고,
+ * 초기화는 한 번의 클릭으로 즉시 반영합니다.
  */
 export function DateRangePicker({
   label,
@@ -152,6 +155,8 @@ export function DateRangePicker({
                 onClick={() => {
                   setDraft(emptyDateRange);
                   setError('');
+                  onChange(emptyDateRange);
+                  handleClose();
                 }}
                 type="button"
               >
@@ -167,11 +172,31 @@ export function DateRangePicker({
               </button>
             </div>
           </div>
+          <div aria-label="빠른 기간 선택" className={styles.datePresets} role="group">
+            {([1, 2, 3] as const).map((years: RecentYearPreset) => {
+              const preset = createRecentYearRange(years, localToday());
+              const isSelected = draft.from === preset.from && draft.to === preset.to;
+              return (
+                <button
+                  aria-pressed={isSelected}
+                  data-selected={isSelected}
+                  key={years}
+                  onClick={() => {
+                    setDraft(preset);
+                    setError('');
+                  }}
+                  type="button"
+                >
+                  최근 {years}년
+                </button>
+              );
+            })}
+          </div>
           <div className={styles.calendarColumns}>
             {(['from', 'to'] as const).map((endpoint) => (
               <DateRangeCalendar
                 endpoint={endpoint}
-                initialDate={value[endpoint] || value.from || localToday()}
+                initialDate={draft[endpoint] || value[endpoint] || value.from || localToday()}
                 key={endpoint}
                 onSelect={(date) => {
                   setDraft((current) => ({ ...current, [endpoint]: date }));
