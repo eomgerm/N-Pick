@@ -112,7 +112,7 @@ export function SearchResultCard({
                 <span className={styles.keywordChip} data-origin={origin} key={keyword}>
                   {keyword}
                   {originLabel === null ? null : (
-                    <span className={styles.keywordChipOrigin}>{originLabel}</span>
+                    <span className={styles.keywordChipOrigin}>({originLabel})</span>
                   )}
                 </span>
               );

@@ -39,7 +39,7 @@ export function getVerificationStatusLabel(status: VerificationStatus) {
  */
 const keywordOriginLabels: Record<SearchKeywordOrigin, string | null> = {
   user: null,
-  expanded: 'AI 확장어',
+  expanded: '확장',
 };
 
 export function getKeywordOriginLabel(origin: SearchKeywordOrigin | null) {
