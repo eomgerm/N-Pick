@@ -40,13 +40,15 @@ export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearc
     mutationFn: (executionId: string) => deleteMySearchHistory(executionId),
     onSuccess: async () => {
       // 이 페이지의 마지막 항목을 지우면 남는 것이 없다. 총계가 줄어 페이지 자체가 사라지므로 한 칸 물러난다.
-      const emptiedPage = page > 0 && list.data?.items.length === 1;
+      // invalidate 보다 먼저 옮겨야 한다 — 뒤에 두면 비어 있는 현 페이지를 한 번 받아 렌더한 뒤에 물러난다.
+      if (page > 0 && list.data?.items.length === 1) setPage(page - 1);
       // 한 건을 지워도 뒷 페이지의 구성과 총계가 모두 밀리므로 이 사용자의 목록 전체를 다시 읽는다.
-      await queryClient.invalidateQueries({ queryKey: ['my-search-history', memberId] });
-      if (emptiedPage) setPage(page - 1);
+      await queryClient.invalidateQueries({ queryKey: mySearchHistoryKeys.all(memberId) });
       setPendingDelete(null);
-      // 다이얼로그는 사라진 행의 버튼으로 포커스를 돌리려 하므로(SceneDialog) 목록으로 옮겨 준다.
-      listRef.current?.focus({ preventScroll: true });
+      // 다이얼로그가 닫히고 언마운트된 뒤에 옮긴다. 모달이 열려 있는 동안은 바깥이 inert 라 focus() 가 무시되고,
+      // SceneDialog 가 되돌리려는 원래 버튼은 지워진 행과 함께 사라져 포커스가 <body> 로 떨어진다.
+      // search-history.tsx 의 closePanel() 이 같은 이유로 rAF 를 쓴다.
+      requestAnimationFrame(() => listRef.current?.focus({ preventScroll: true }));
     },
   });
 

@@ -321,4 +321,8 @@ test('검색 기록 삭제는 확인 모달을 거치고 취소하면 그대로 
   await expect(panel.getByText('서버 검색어 100', { exact: true })).toHaveCount(0);
   await expect(panel.getByText('서버 검색어 200', { exact: true })).toBeVisible();
   expect(deleteCalls).toBe(1);
+  // 포커스를 잃으면 키보드 사용자가 목록 밖으로 튕긴다. 지운 행의 버튼은 이미 사라진 뒤다.
+  await expect(
+    panel.getByRole('region', { name: '이전 검색 기록 목록', exact: true }),
+  ).toBeFocused();
 });
