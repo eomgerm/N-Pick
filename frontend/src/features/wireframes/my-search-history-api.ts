@@ -44,6 +44,8 @@ export interface MySearchHistoryDetail extends MySearchHistoryItem {
 }
 
 export const mySearchHistoryKeys = {
+  /** 이 사용자의 기록 쿼리 전체. 한 건을 지워도 뒷 페이지 구성과 총계가 밀려 목록을 통째로 다시 읽어야 한다. */
+  all: (memberId: string) => ['my-search-history', memberId] as const,
   list: (memberId: string, page: number) => ['my-search-history', memberId, 'list', page] as const,
   detail: (memberId: string, executionId: string) =>
     ['my-search-history', memberId, 'detail', executionId] as const,
@@ -196,4 +198,21 @@ export async function getMySearchHistoryDetail(executionId: string, signal?: Abo
   );
   if (result.searchExecutionId !== executionId) fail();
   return result;
+}
+
+/**
+ * 기록 하나를 내 목록에서 지운다 (S15P21A501-276 계약).
+ *
+ * 서버는 행을 지우지 않고 목록·상세에서만 감추지만, 그 사실은 화면에 드러내지 않는다 — 사용자에게는 삭제다.
+ *
+ * 404 를 오류로 올리지 않는다. 서버가 멱등이라 본인 기록을 다시 지우면 200 이고, 404 는 남의 기록이나 없는 id —
+ * 자기 목록에서 고른 항목으로는 정상적으로 나오지 않는 응답이다. 그래도 목록이 낡았을 때 닿을 수 있고, 그 경우
+ * 사용자가 할 수 있는 일은 목록을 다시 읽는 것뿐이라 호출부가 두 경우를 구분할 이유가 없다.
+ */
+export async function deleteMySearchHistory(executionId: string, signal?: AbortSignal) {
+  try {
+    await fetchJson<unknown>(`/search/history/${id(executionId)}`, { method: 'DELETE', signal });
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.status !== 404) throw error;
+  }
 }

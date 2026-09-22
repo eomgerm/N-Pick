@@ -253,10 +253,14 @@
 .row:hover {
   background: rgb(255 255 255 / 42%);
 }
-.rowDetail {
+.rowActions {
   position: absolute;
   right: 9px;
   bottom: 7px;
+  display: inline-flex;
+  gap: 4px;
+}
+.rowAction {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -268,17 +272,99 @@
   font-size: 10px;
   font-weight: 700;
 }
-.rowDetail:hover {
+.rowAction:hover {
   background: rgb(255 255 255 / 78%);
   color: #17243b;
 }
-.rowDetail:focus-visible {
+.rowAction:focus-visible {
   outline: 3px solid #0756c6;
   outline-offset: 2px;
 }
-.rowDetail svg {
+.rowAction svg {
   width: 13px;
   height: 13px;
+}
+.rowDelete:hover {
+  background: rgb(176 32 42 / 12%);
+  color: #8c1620;
+}
+
+/*
+ * 삭제 확인. 되돌릴 수 없는 동작이라 목록 위에 모달로 띄운다 (S15P21A501-277).
+ *
+ * 베이스 .dialog 와 같은 명시도로 쓰면 padding: 0 과 어느 쪽이 이길지가 스타일시트 로드 순서에 달린다. 형제인
+ * 검색 기록 상세가 .dialog[open][data-theme] 로 올려 둔 것과 같은 이유이며 같은 패턴을 쓴다.
+ *
+ * 배경과 모서리도 직접 정한다. .dialogTheme 의 --background 는 따뜻한 베이지(#efeae3)라 검색 기록 패널의
+ * 차가운 흰-파랑 계통과 어긋나고, 베이스에는 border-radius 가 없어 각진 모서리로 나간다.
+ */
+.confirmDialog[open][data-theme] {
+  width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid rgb(255 255 255 / 80%);
+  border-radius: 20px;
+  background: rgb(247 250 255 / 98%);
+  box-shadow: 0 24px 70px rgb(9 26 49 / 26%);
+  backdrop-filter: blur(20px);
+}
+.confirmDialog[open]::backdrop {
+  background: rgb(12 28 47 / 48%);
+  backdrop-filter: blur(6px);
+}
+.confirmHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8c1620;
+}
+.confirmHeading h2 {
+  font-size: 16px;
+  font-weight: 800;
+}
+.confirmHeading svg {
+  width: 20px;
+  height: 20px;
+}
+.confirmQuery {
+  margin-top: 14px;
+  overflow: hidden;
+  color: #17243b;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.confirmDescription {
+  margin-top: 6px;
+  color: #516477;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.confirmDelete {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid #8c1620;
+  border-radius: 10px;
+  background: #b0202a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.confirmDelete:hover {
+  background: #8c1620;
+}
+.confirmDelete:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 3px;
+}
+.confirmDelete:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .thumbnail {
   position: relative;
