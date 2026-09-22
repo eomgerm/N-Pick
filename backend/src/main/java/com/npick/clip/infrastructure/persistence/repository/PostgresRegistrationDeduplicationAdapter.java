@@ -249,9 +249,15 @@ public final class PostgresRegistrationDeduplicationAdapter implements Registrat
         try (var update = db.prepareStatement("""
                 UPDATE npick.registration_request j SET state='succeeded',
                     clip_id=c.clip_id,pipeline_run_id=r.pipeline_run_id,result_status=?,updated_at=now(),
-                    -- Verdict per alias, since one recovery resolves rows of different actors. An alias that
-                    -- created this clip itself is corrected by the caller right after.
-                    outcome=CASE WHEN j.actor_id=c.registered_by_id THEN 'duplicate_own' ELSE 'duplicate_other' END
+                    -- Verdict per alias, since one recovery resolves rows of different actors. An alias of the
+                    -- registrant is only a duplicate once some request has reported creating this clip; until
+                    -- then it may be the creation that lost its acknowledgement, so leave the verdict open and
+                    -- let the replay decide. This statement never writes 'created', so the lookup is stable.
+                    outcome=CASE
+                        WHEN j.actor_id<>c.registered_by_id THEN 'duplicate_other'
+                        WHEN EXISTS (SELECT 1 FROM npick.registration_request k
+                            WHERE k.content_hash=c.content_hash AND k.outcome='created') THEN 'duplicate_own'
+                        END
                 FROM npick.clip c JOIN npick.pipeline_run r ON r.clip_id=c.clip_id AND r.processing_no=1
                 WHERE c.clip_id=? AND r.pipeline_run_id=? AND c.content_hash=?
                     AND j.content_hash=c.content_hash AND j.state IN ('processing','unknown')

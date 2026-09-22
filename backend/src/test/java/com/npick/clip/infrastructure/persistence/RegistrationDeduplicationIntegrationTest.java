@@ -300,6 +300,35 @@ class RegistrationDeduplicationIntegrationTest {
     }
 
     @Test
+    void anotherActorResolvingALostCreationDoesNotBrandItADuplicate() throws Exception {
+        long id = IDS.incrementAndGet();
+        try (var video = inspection.inspect(new ByteArrayInputStream(new byte[] {61, 62, (byte) id}))) {
+            var lostAck = new RegistrationPersistenceAdapter(c -> {
+                registration.register(c);
+                throw new TransactionSystemException("private connection path");
+            });
+            error(
+                    () -> deduplication.register(
+                            "lost-" + id, 1, video.contentHash(), REQUEST, () -> stored(video, id, lostAck)),
+                    ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+            assertState(video.contentHash(), "unknown");
+            // Someone else's registration resolves that unresolved row before its owner retries.
+            assertThat(deduplication
+                            .register("bystander-" + id, 2, video.contentHash(), REQUEST, () -> {
+                                throw new AssertionError("callback");
+                            })
+                            .outcome())
+                    .isEqualTo(RegistrationOutcome.DUPLICATE_OTHER);
+            assertThat(deduplication
+                            .register("lost-" + id, 1, video.contentHash(), REQUEST, () -> {
+                                throw new AssertionError("callback");
+                            })
+                            .outcome())
+                    .isEqualTo(RegistrationOutcome.CREATED);
+        }
+    }
+
+    @Test
     void oneRecoveryWritesEachUnresolvedAliasItsOwnVerdict() {
         long id = IDS.incrementAndGet();
         var created = register(id, "owner-" + id, REQUEST);
