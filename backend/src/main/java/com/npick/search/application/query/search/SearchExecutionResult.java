@@ -101,14 +101,13 @@ public record SearchExecutionResult(
      * <p>사용자가 직접 친 말과 AI 해석기가 넓힌 확장어를 화면이 구분해 보여줘야 한다 (F-05 「사용자가 직접 명시한 내용과 AI가 추정한 내용을 구분한다」, F-07). 값만 싣고
      * 출처를 버리면 화면은 두 종류를 같은 칩으로 그릴 수밖에 없다.
      *
-     * @param origin {@code user} · {@code expanded} · {@code unknown} 중 하나. {@code unknown} 은 구분을 남기지 않던 시절의 과거 기록을 복원할 때만 나온다 —
-     *     없던 사실을 만들어 내지 않는다 (FRD §7.2)
+     * @param origin {@code user} 또는 {@code expanded}. 저장 기록을 복원할 때는 출처를 남기지 않던 시절의 항목에 한해 {@code null} 이다 — 모르는 것을 안다고
+     *     기록하지 않는다 (FRD §7.2)
      */
     public record MatchedKeyword(String keyword, String origin) {
 
         public static final String ORIGIN_USER = "user";
         public static final String ORIGIN_EXPANDED = "expanded";
-        public static final String ORIGIN_UNKNOWN = "unknown";
     }
 
     /**

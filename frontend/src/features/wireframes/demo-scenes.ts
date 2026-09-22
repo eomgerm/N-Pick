@@ -34,16 +34,16 @@ export function getVerificationStatusLabel(status: VerificationStatus) {
 /**
  * 키워드 칩에 붙는 출처 라벨. 색상만으로 구분하지 않는다 (FRD 6.3).
  *
- * `user` 에는 라벨을 붙이지 않는다 — 사용자가 친 말이 기본이고, 눈에 띄어야 하는 것은 「내가 넣지 않은 말」 쪽이다.
+ * `user` 에는 라벨을 붙이지 않는다 — 사용자가 친 말이 기본이고, 눈에 띄어야 하는 것은 「내가 넣지 않은 말」 쪽이다. 출처를 남기지 않던 시절의 기록(`null`)도 같은
+ * 이유로 라벨이 없다 — 그 기록에는 구분이 없었으니 그때 보이던 대로 그린다.
  */
 const keywordOriginLabels: Record<SearchKeywordOrigin, string | null> = {
   user: null,
   expanded: 'AI 확장어',
-  unknown: '미상',
 };
 
-export function getKeywordOriginLabel(origin: SearchKeywordOrigin) {
-  return keywordOriginLabels[origin];
+export function getKeywordOriginLabel(origin: SearchKeywordOrigin | null) {
+  return origin === null ? null : keywordOriginLabels[origin];
 }
 
 export interface SearchResult {

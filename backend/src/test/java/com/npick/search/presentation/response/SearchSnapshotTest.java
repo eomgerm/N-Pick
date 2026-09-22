@@ -370,15 +370,15 @@ class SearchSnapshotTest {
     }
 
     @Test
-    @DisplayName("출처를 남기지 않던 과거 기록은 origin unknown 으로 복원한다")
-    void restoresLegacyKeywordsAsUnknownOrigin() {
-        // 구분이 없던 기록을 user 로 접으면 AI 가 넓힌 말이 사용자가 친 말로 둔갑한다 — 없던 사실을
-        // 만들어 내지 않는다 (FRD §7.2).
+    @DisplayName("출처를 남기지 않던 과거 기록은 origin 을 null 로 복원한다")
+    void restoresLegacyKeywordsWithoutOrigin() {
+        // user 로 채우면 그 단어를 사용자가 실제로 쳤다고 기록이 주장하게 된다. 알 수 없는 것은
+        // 안다고 적지 않는다 (FRD §7.2). 화면은 이것을 사용자 입력어와 같은 모양으로 그린다.
         SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH))));
 
         var keyword = snapshot.payload().get("results").get(0).get("matched_keywords").get(0);
         assertThat(keyword.get("keyword").asString()).isEqualTo("서울역");
-        assertThat(keyword.get("origin").asString()).isEqualTo("unknown");
+        assertThat(keyword.get("origin").isNull()).isTrue();
     }
 
     @Test

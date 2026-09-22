@@ -39,16 +39,13 @@ export type SearchEvidenceStatus = Exclude<SearchInformationStatus, 'unknown'>;
 export type SearchEvidenceField = 'caption' | 'ocr' | 'transcript' | 'tag';
 export type SearchShotType = 'anchor' | 'interview' | 'b_roll' | 'unknown';
 
-/**
- * 키워드 칩이 어디서 온 말인가. `user` 는 사용자가 직접 친 말, `expanded` 는 AI 해석기가 넓힌 말이다 (F-05·F-07).
- *
- * `unknown` 은 구분을 남기지 않던 시절에 저장된 기록을 복원할 때만 온다 — 그때 사용자 입력어로 보여 주면 없던 사실을 만들어 내는 것이다 (FRD §7.2).
- */
-export type SearchKeywordOrigin = 'user' | 'expanded' | 'unknown';
+/** 키워드 칩이 어디서 온 말인가. `user` 는 사용자가 직접 친 말, `expanded` 는 AI 해석기가 넓힌 말이다 (F-05·F-07). */
+export type SearchKeywordOrigin = 'user' | 'expanded';
 
 export interface SearchMatchedKeyword {
   keyword: string;
-  origin: SearchKeywordOrigin;
+  /** 출처를 남기지 않던 시절에 저장된 기록을 복원할 때만 `null` 이다. 화면은 사용자 입력어와 같은 모양으로 그린다 — 그때 보이던 대로다. */
+  origin: SearchKeywordOrigin | null;
 }
 
 export interface SearchDateInformation {
@@ -193,7 +190,7 @@ function parseDateInformation(value: unknown, status: number): SearchDateInforma
   return { value: date, verificationStatus };
 }
 
-const KEYWORD_ORIGINS = ['user', 'expanded', 'unknown'] as const;
+const KEYWORD_ORIGINS = ['user', 'expanded'] as const;
 
 function parseMatchedKeywords(value: unknown, status: number): SearchMatchedKeyword[] {
   if (!Array.isArray(value)) return invalidResponse(status);
@@ -201,7 +198,7 @@ function parseMatchedKeywords(value: unknown, status: number): SearchMatchedKeyw
     const payload = readRecord(item, status);
     return {
       keyword: readNonEmptyString(payload.keyword, status),
-      origin: readEnum(payload.origin, KEYWORD_ORIGINS, status),
+      origin: payload.origin === null ? null : readEnum(payload.origin, KEYWORD_ORIGINS, status),
     };
   });
 }

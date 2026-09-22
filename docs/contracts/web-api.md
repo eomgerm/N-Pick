@@ -318,7 +318,7 @@ FE URL 상태와 wire 요청의 대응:
 - 날짜 `value`가 null이면 `verification_status`는 `unknown`이다. 값이 있으면 `verified` 또는 `unverified`다.
 - `status=succeeded`면 `degraded_reasons`는 비어 있다.
 - **이 `status`와 `degraded_reasons`는 기록 컬럼의 값이 아니다.** 승인된 해석 규칙이 충돌·비호환·실패로 건너뛰어지면 `search_execution.status`는 `degraded`가 되고 `degraded_reasons_json`에는 `skipped_conflict:<rule_id>` 같은 문자열이 함께 들어간다. 여기 세 값은 **사용자에게 보여 줄 수 있는 어휘만** 닫아 둔 것이라 그 사유를 실을 자리가 없고, 사용자가 받은 결과 자체는 온전하므로 응답은 `succeeded`다. 규칙별 판정은 `applied_rules_json`이 남기고 감사 화면(`GET /search/executions/{id}`)이 전량을 보여 준다. 기록을 읽는 화면이 이 두 필드를 만들 때 쓰는 파생 규칙은 「내 검색 기록」 절(S15P21A501-198)이 정한다.
-- `matched_keywords`는 **확장어로 걸린 단어를 포함하고, 항목마다 `origin`으로 출처를 구분한다** (`user`·`expanded`·`unknown`, S15P21A501-234). 검색에는 쓰고 근거에는 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 포함 쪽을 택했고, 사용자가 자기가 입력하지 않은 단어 때문에 결과가 나왔다는 것을 알 수 있어야 하므로 출처를 함께 싣는다 (F-05·F-07). 형태가 같고 품사가 다른 토큰이 겹치면 `user`가 이긴다. `unknown`은 저장 기록 복원에서만 나온다 — 응답에는 나오지 않는다.
+- `matched_keywords`는 **확장어로 걸린 단어를 포함하고, 항목마다 `origin`으로 출처를 구분한다** (`user` | `expanded`, S15P21A501-234). 검색에는 쓰고 근거에는 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 포함 쪽을 택했고, 사용자가 자기가 입력하지 않은 단어 때문에 결과가 나왔다는 것을 알 수 있어야 하므로 출처를 함께 싣는다 (F-05·F-07). 형태가 같고 품사가 다른 토큰이 겹치면 `user`가 이긴다. 이 응답의 `origin`은 항상 두 값 중 하나다 — `null`은 저장 기록 복원에서만 나온다(§6.7).
 - `status=degraded`면 `resolver_fallback`, `dense_unavailable`, `snapshot_save_failed` 중 하나 이상이다.
 - `query_resolution_status=fallback` 여부는 `resolver_fallback` 포함 여부와 일치한다.
 - `snapshot_save_failed`면 `search_execution_id`와 모든 `search_result_id`는 null이다. 이 결과로 문의할 수 없다.
@@ -771,7 +771,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 - `explicit_filters`: 검색 실행 당시 명시 filter(JSON object). 값이 없어도 빈 object `{}`이며 null이 아니다.
 - `resolution_note`, `review_started_at`, `closed_at`: 검수 처리 사유·시작·종료 시각. `OPEN` 상태면 셋 다 null이다.
 - `snapshot_status`: `"available"`(당시 결과 스냅샷 복원됨) | `"unavailable"`(문의는 조회되나 복원 가능한 스냅샷 없음). 후자는 `result_snapshot: null`이다. 판정 기준은 저장된 `explain`의 `display.display_name`이 **문자열이거나 `null`**인지다 — 검색 실행 기록(S15P21A501-60)이 표시값을 `explain.display` 하위에 저장하고 생산자(S15P21A501-59)는 nullable `clip.title`을 그대로 기록하므로, `null`(제목 없는 영상)도 유효한 과거 값으로 `available`이며 원값을 보존한다(대체 표기는 표현 계층이 정한다). `display` 블록·`display_name` 키가 없거나 문자열·null 이 아니면(미기록·불완전) `unavailable`로 응답한다.
-- `result_snapshot`: available일 때 `{ search_result_id, scene_id, rank, explain }`. `explain`은 검색 당시 표시값·점수 snapshot으로, 표시값은 `explain.display`(`display_name`·`scene_description` 등) 하위에 담긴다. **조회 시 현재 태그·장면으로 재계산하지 않는다**. 다만 `explain.match.matched_keywords`는 내 검색 기록(§6.7)과 **같은 규칙으로 맞춘다** — 출처를 남기지 않던 시절의 문자열 항목에 `origin: "unknown"`을 채워 응답과 같은 모양으로 내보낸다(S15P21A501-234). 두 복원 화면이 다른 변환을 타면 같은 기록이 화면마다 다른 출처로 보인다. 조회 오류는 unavailable로 처리하지 않고 `COMM_500`으로 응답한다.
+- `result_snapshot`: available일 때 `{ search_result_id, scene_id, rank, explain }`. `explain`은 검색 당시 표시값·점수 snapshot으로, 표시값은 `explain.display`(`display_name`·`scene_description` 등) 하위에 담긴다. **조회 시 현재 태그·장면으로 재계산하지 않는다**. 다만 `explain.match.matched_keywords`는 내 검색 기록(§6.7)과 **같은 규칙으로 맞춘다** — 출처를 남기지 않던 시절의 문자열 항목을 `origin: null`인 객체로 맞춰 응답과 같은 모양으로 내보낸다(S15P21A501-234). 두 복원 화면이 다른 변환을 타면 같은 기록이 화면마다 다른 출처로 보인다. 조회 오류는 unavailable로 처리하지 않고 `COMM_500`으로 응답한다.
 
 성공 `data` 예시(`CLOSED`·`no_action`):
 
@@ -920,7 +920,7 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 | `shortage_reasons` | `filtered_json.shortage_reasons` |
 | `results[]` | `search_result` 행 + `explain_json`의 `display`·`match` 블록 |
 
-`matched_keywords`에는 AI가 넓힌 확장어가 섞일 수 있다. 검색에 쓰고 근거에서 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 저장 쪽(S15P21A501-59)이 포함하기로 했고, 어느 것이 확장어인지는 항목의 `origin`으로 구분한다 (S15P21A501-234). **출처를 남기지 않던 시절에 저장된 기록은 문자열 배열이며, 복원할 때 `origin`을 `unknown`으로 채워 내보낸다** — `user`로 접으면 AI가 넓힌 말이 사용자가 친 말로 둔갑한다 (FRD §7.2, `parse_source`를 `resolved`로 접지 않는 것과 같은 이유). 응답과 `explain_json`은 같은 구조다.
+`matched_keywords`에는 AI가 넓힌 확장어가 섞일 수 있다. 검색에 쓰고 근거에서 빼면 확장어로만 걸린 장면이 「왜 나왔는지 모르는 결과」가 되므로 저장 쪽(S15P21A501-59)이 포함하기로 했고, 어느 것이 확장어인지는 항목의 `origin`으로 구분한다 (S15P21A501-234). **출처를 남기지 않던 시절에 저장된 기록은 문자열 배열이며, 복원할 때 `origin`을 `null`로 둔 객체로 맞춰 내보낸다** — `user`로 채우면 그 단어를 사용자가 실제로 쳤다고 기록이 주장하게 된다(FRD §7.2, `parse_source`를 `resolved`로 접지 않는 것과 같은 이유). 화면은 `null`을 사용자 입력어와 같은 모양으로 그린다. 그 기록에는 구분이 없었으므로 당시 보이던 대로다. 응답과 `explain_json`은 같은 구조다.
 
 `results[]` 한 항목은 `explain_json.display`·`explain_json.match`에 컬럼 4개(`search_result_id`·`scene_id`·`clip_id`·`rank`)를 얹은 것이다. 저장된 JSON을 **그대로 통과**시키며 필드별로 옮겨 담지 않는다. 키가 겹치면 **컬럼이 이긴다** — 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지지 않게 한다. `shot_type`은 저장값 원문을 그대로 낸다(§5.1의 4값 제약은 `POST /search` 응답에만 적용된다 — 기록을 소급 수정하지 않는다, FRD §7.2). `guard_summary`는 `explain_json.guard`가 아니다 — `search_result`에는 살아남은 장면만 남으므로 제외 건수를 알 수 없다. 출처가 두 컬럼인 이유는 `GuardExclusionReason`이 `explicit_date_conflict`·`approved_incident_conflict` 둘뿐이라서다. §5.1이 허용하는 세 번째 사유 `approved_scene_exclusion`은 guard가 내는 값이 아니라 `applied_excludes_json`(S15P21A501-58 승인 제외)에서만 온다. 한 컬럼만 읽으면 그 사유가 영원히 나오지 않고 건수가 `POST /search` 응답보다 작아진다.
 
@@ -1026,7 +1026,7 @@ S15P21A501-60이 `explicit_filters_json`을 `running`/`failed` 행 때문에 nul
 | `shot_type` | `anchor` \| `interview` \| `b_roll` \| `unknown` |
 | `start_time_ms`, `end_time_ms` | 정수이며 `0 <= start < end` |
 | `broadcast_date`, `filmed_date` | object. `value`가 `null`이면 `verification_status`는 `unknown`, 실제 달력 날짜(`YYYY-MM-DD`)면 `verified` \| `unverified` |
-| `matched_keywords` | 배열 (빈 배열 자체는 허용). 항목은 `{keyword, origin}` 객체이거나, 출처를 남기지 않던 시절의 비어 있지 않은 문자열이다. `keyword`는 비어 있지 않은 문자열, `origin`은 `user`·`expanded`·`unknown` 중 하나 |
+| `matched_keywords` | 배열 (빈 배열 자체는 허용). 항목은 `{keyword, origin}` 객체이거나, 출처를 남기지 않던 시절의 비어 있지 않은 문자열이다. `keyword`는 비어 있지 않은 문자열, `origin`은 `user`·`expanded` 중 하나이거나 `null` |
 | `match_evidence` | 1개 이상. `field`는 `caption` \| `ocr` \| `transcript` \| `tag`, `verification_status`는 `verified` \| `unverified`, `source`는 비어 있지 않은 string, `value`는 `null` 또는 비어 있지 않은 string |
 | 결과 행 전체 | `rank`가 1..N 연속이고 개수가 10 이하 |
 
