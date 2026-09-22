@@ -14,6 +14,7 @@ import {
   type TagCorrectionOperation,
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
+import type { ResolutionToggleMode } from '@/features/wireframes/review-resolution-toggle-mode';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 const tagTypeLabels: Record<ReviewTagType, string> = {
@@ -45,6 +46,7 @@ interface CandidateSubmission {
 interface ReviewInquiryTagsProps {
   inquiry: ReviewInquiryDetail;
   memberLoginId: string;
+  resolutionMode: ResolutionToggleMode;
 }
 
 function validateTagValues(values: string[], tagType: ReviewTagType): string {
@@ -59,7 +61,11 @@ function validateTagValues(values: string[], tagType: ReviewTagType): string {
   return '';
 }
 
-export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsProps) {
+export function ReviewInquiryTags({
+  inquiry,
+  memberLoginId,
+  resolutionMode,
+}: ReviewInquiryTagsProps) {
   const [tagType, setTagType] = useState<ReviewTagType>('keyword');
   const [scope, setScope] = useState<ReviewTagScope>('SCENE');
   const [tagInput, setTagInput] = useState('');
@@ -67,8 +73,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
   const [deleteTarget, setDeleteTarget] = useState<Evidence | null>(null);
   const values = parseCommaSeparatedTags(tagInput);
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
-  const canCorrect =
-    inquiry.status === 'reviewing' && isOwner && inquiry.resolution === 'correction';
+  const canCorrect = inquiry.status === 'reviewing' && isOwner && resolutionMode === 'correction';
   const mutation = useMutation({
     mutationFn: ({ operations }: CandidateSubmission) =>
       createTagCorrectionCandidate(inquiry.feedbackId, operations),
