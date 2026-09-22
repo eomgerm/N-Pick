@@ -3,6 +3,7 @@ package com.npick.search.infrastructure.persistence.query;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.Arrays;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
@@ -247,46 +248,39 @@ class WordSceneCandidateAdapterTest {
         assertThat(sceneIds(candidates)).containsExactlyInAnyOrder(61L, 63L);
     }
 
-    /** 문서빈도가 임계를 넘는 확장어 토큰은 후보 조회에서 빠진다. 표본의 '장면' 은 활성 장면 20개 중 10개(0.50)다. */
+    /** 단일 토큰 확장어(우천→비, 마운틴→산)가 캡션·대사 양쪽에서 걸린다. */
     @Test
-    void dropsExpandedTokenAboveDocumentFrequencyCut() {
-        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.25).findByWords(List.of("짜장면"), List.of(List.of("장면")))))
-                .as("변별력이 사실상 없는 토큰은 후보를 끌어오지 못한다")
-                .isEmpty();
-        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.50).findByWords(List.of("짜장면"), List.of(List.of("장면")))))
-                .as("임계와 같은 것은 «넘는» 것이 아니다")
-                .isNotEmpty();
+    void singleTokenExpandedPhraseMatchesCaptionAndTranscript() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("비")))))
+                .as("캡션에만 있는 단일 토큰")
+                .containsExactly(64L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("산")))))
+                .as("대사에만 있는 단일 토큰")
+                .containsExactly(65L);
     }
 
     /**
-     * 임계 이하의 토큰은 남는다 — 정상 동의어(우천→비)가 죽지 않아야 한다.
+     * 확장어 목록이 비어도 원 질의 토큰 검색은 그대로 돈다 (S15P21A501-48 계약 9).
      *
-     * <p>경계 양쪽을 둘 다 못 박는다. 코퍼스가 자라 '비' 가 임계를 넘는 날 이 테스트가 먼저 깨져야, 우천→비 가 조용히 죽는 사고를 배포 뒤에 발견하지 않는다.
+     * <p>쓸 수 없는 확장어가 섞여 있어도 마찬가지다. 확장어는 보조 신호이고, 한 건 때문에 검색을 끊으면 원 질의로 충분히 찾을 수 있던 결과까지 잃는다. 원 질의 토큰은 반대로 규약 위반이면 거부한다
+     * — 그쪽은 우리 토크나이저가 만든 값이다 ({@link #rejectsTokenContainingWhitespace}).
      */
     @Test
-    void keepsExpandedTokenAtOrBelowDocumentFrequencyCut() {
-        // 표본의 '비' 는 활성 장면 20개 중 2개(0.10)다.
-        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.10).findByWords(List.of("짜장면"), List.of(List.of("비")))))
-                .containsExactlyInAnyOrder(64L, 65L);
-        assertThat(sceneIds(adapter(1, 1, 1, 10, 0.09).findByWords(List.of("짜장면"), List.of(List.of("비")))))
-                .as("임계 바로 위면 같은 토큰도 빠진다")
-                .isEmpty();
-    }
+    void keepsSearchingOriginalTokensWhenExpandedPhrasesAreUnusable() {
+        var expected = List.of(30L, 31L, 34L);
 
-    /** 컷은 토큰 단위다. 구에서 흔한 토큰만 빠지고 남은 토큰으로 계속 건다 — 잡토큰 하나가 정상 확장어를 통째로 죽이지 않는다. */
-    @Test
-    void cutsOnlyTheCommonTokenOutOfAPhrase() {
-        var candidates = adapter(1, 1, 1, 10, 0.25).findByWords(List.of("짜장면"), List.of(List.of("장면", "중국")));
-
-        assertThat(sceneIds(candidates)).containsExactlyInAnyOrder(60L, 61L);
-    }
-
-    /** 확장어가 전부 잘려 빈 목록이 돼도 원 질의 토큰 검색은 그대로 돈다 (S15P21A501-48 계약 9). */
-    @Test
-    void keepsSearchingOriginalTokensWhenEveryExpandedTokenIsCut() {
-        var candidates = adapter(1, 1, 1, 10, 0.01).findByWords(List.of("화재"), List.of(List.of("장면")));
-
-        assertThat(sceneIds(candidates)).containsExactlyInAnyOrder(30L, 31L, 34L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of())))
+                .as("확장어가 없을 때")
+                .containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of(List.of()))))
+                .as("빈 구만 온 때")
+                .containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of(Arrays.asList((String) null)))))
+                .as("구 안이 null 토큰뿐인 때")
+                .containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of(List.of("중국 음식")))))
+                .as("확장어 토큰에 공백이 있어도 500 이 아니다 — 그 토큰만 버리고 이어간다")
+                .containsExactlyInAnyOrderElementsOf(expected);
     }
 
     private static SceneCandidateResult onlyCandidate(List<SceneCandidateResult> candidates, long sceneId) {
@@ -298,15 +292,9 @@ class WordSceneCandidateAdapterTest {
     }
 
     private WordSceneCandidateAdapter adapter(double caption, double transcript, double ocr, int poolSize) {
-        return adapter(caption, transcript, ocr, poolSize, 1.0);
-    }
-
-    /** {@code maxDf} 1.0 은 어떤 문서빈도도 넘지 못하는 값이라 확장어를 하나도 버리지 않는다. */
-    private WordSceneCandidateAdapter adapter(
-            double caption, double transcript, double ocr, int poolSize, double maxDf) {
         return new WordSceneCandidateAdapter(
                 new NamedParameterJdbcTemplate(dataSource),
-                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, maxDf, poolSize));
+                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, poolSize));
     }
 
     private static List<Long> sceneIds(List<SceneCandidateResult> candidates) {

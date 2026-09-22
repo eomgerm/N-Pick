@@ -303,7 +303,7 @@ class SearchCandidatePipelineTest {
     private static SearchConfigSnapshot config() {
         return new SearchConfigSnapshot(
                 lexicalOnly(),
-                new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.06, 200),
+                new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200),
                 null,
                 structuredSettings(),
                 softSettings());

@@ -44,7 +44,6 @@ public class SearchRankingConfiguration {
                 properties.transcriptWeight(),
                 properties.ocrWeight(),
                 properties.expandedWeight(),
-                properties.expandedTermMaxDf(),
                 properties.poolSize());
     }
 

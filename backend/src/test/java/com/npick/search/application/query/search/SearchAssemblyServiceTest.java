@@ -63,7 +63,7 @@ class SearchAssemblyServiceTest {
     private static final String RAW_QUERY = "설 연휴 서울역 귀성 인파";
 
     private static final LexicalSearchSettings LEXICAL =
-            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.06, 200);
+            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200);
 
     private QueryResolverPort resolver;
     private ParseRuleRepository parseRules;

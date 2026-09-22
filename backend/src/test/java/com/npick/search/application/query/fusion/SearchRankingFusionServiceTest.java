@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.within;
 class SearchRankingFusionServiceTest {
     private static final String MODEL = "arctic-ko@" + "a".repeat(40);
     private static final LexicalSearchSettings LEXICAL =
-            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.06, 200);
+            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200);
 
     @Test
     void combinesChannelRanksAndAddsTheStructuredTermWithoutAssigningAFinalRank() {
