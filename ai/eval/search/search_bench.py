@@ -125,7 +125,9 @@ class Client:
             raise BenchError(msg) from None
 
         try:
-            self.request("POST", "/auth/login", {"loginId": login_id, "password": password})
+            payload = self.request(
+                "POST", "/auth/login", {"loginId": login_id, "password": password}
+            )
         except urllib.error.HTTPError as exc:
             if exc.code in (400, 401, 403):
                 msg = "자격증명을 확인한다 (NPICK_LOGIN_ID · NPICK_PASSWORD)"
@@ -135,6 +137,13 @@ class Client:
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             msg = f"로그인 중 연결이 끊겼다. 다시 돌린다 ({exc.__class__.__name__})"
             raise BenchError(msg) from None
+
+        # **200 이어도 실패일 수 있다.** 계약이 "HTTP 실패와 isSuccess:false 중 하나라도
+        # 실패" 라고 정했다(§2.2). 여기서 안 보면 로그인이 실패한 채로 200문항을 돌려
+        # 전부 401 로 0점이 나온다.
+        if payload.get("isSuccess") is False:
+            msg = f"로그인이 거부됐다({payload.get('code')}). 자격증명을 확인한다"
+            raise BenchError(msg)
 
     def search_config(self, execution_id: str) -> dict[str, Any] | None:
         """그 측정이 어느 검색 설정에서 나왔는지.
@@ -180,6 +189,10 @@ def search_once(client: Client, query: str) -> Outcome:
         return Outcome((), "http_error", (), "", f"HTTP {exc.code}: {detail}")
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
         return Outcome((), "transport_error", (), "", repr(exc))
+
+    if payload.get("isSuccess") is False:
+        # 200 + isSuccess:false 도 실패다(§2.2). 결과 0건의 성공과 구분해 사유를 남긴다.
+        return Outcome((), str(payload.get("code") or "envelope_error"), (), "", None)
 
     data = payload.get("data") or {}
     execution_id = data.get("search_execution_id")
