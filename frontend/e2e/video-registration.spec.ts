@@ -1,0 +1,133 @@
+import { readFileSync } from 'node:fs';
+import { expect, test } from '@playwright/test';
+
+const videoBytes = readFileSync('e2e/preview-fixture.mp4');
+
+test.beforeEach(async ({ context }) => {
+  await context.addCookies([
+    { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
+  ]);
+});
+
+test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재선택·삭제를 제공한다', async ({ page }) => {
+  let uploads = 0;
+  await page.route('**/api/v1/clips', (route) => {
+    uploads++;
+    return route.fulfill({ status: 500 });
+  });
+  await page.goto('/review?view=upload');
+  const videoInput = page.locator('#video-file');
+  const videoZone = page.locator('label[data-kind="video"]');
+  await videoZone.screenshot({ path: 'test-results/video-registration-empty.png' });
+  await videoInput.setInputFiles({
+    name: '가짜.mp4',
+    mimeType: 'video/mp4',
+    buffer: Buffer.from('텍스트'),
+  });
+  await expect(page.locator('#video-error')).toContainText(
+    '파일 내용이 MP4 또는 MOV 영상 형식이 아닙니다',
+  );
+  await expect(videoZone).not.toContainText('선택됨');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await videoZone.screenshot({ path: 'test-results/video-registration-error.png' });
+  await page.locator('#rights-confirmed').check();
+  await page.locator('#external-processing-confirmed').check();
+  await page.getByRole('button', { name: '등록', exact: true }).click();
+  expect(uploads).toBe(0);
+
+  await videoInput.setInputFiles({ name: '첫번째.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(videoZone).toContainText('첫번째.mp4');
+  await expect(videoZone).toContainText('선택됨');
+  await expect(videoZone).toContainText('파일 선택');
+  await expect(page.getByRole('list', { name: '선택한 영상 파일' })).toHaveCount(0);
+  await page.locator('#registration-title').fill('유지할 제목');
+
+  const subtitle = page.locator('#subtitle-file');
+  await subtitle.setInputFiles({
+    name: '가짜.srt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('일반 텍스트'),
+  });
+  await expect(page.locator('#subtitle-error')).toContainText('올바른 자막 형식이 아닙니다');
+  await subtitle.setInputFiles({
+    name: '자막.vtt',
+    mimeType: 'text/vtt',
+    buffer: Buffer.from('WEBVTT\n\n00:00.000 --> 00:01.000\n뉴스'),
+  });
+  await expect(page.getByRole('list', { name: '선택한 자막 파일' })).toContainText('자막.vtt');
+
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['%PDF-1.7\n문서'], '위장.txt', { type: 'text/plain' }));
+    return data;
+  });
+  await page.locator('label[data-kind="script"]').dispatchEvent('drop', { dataTransfer: transfer });
+  await transfer.dispose();
+  await expect(page.locator('#script-error')).toContainText('UTF-8 TXT');
+  await page.getByRole('button', { name: '등록', exact: true }).click();
+  expect(uploads).toBe(0);
+  await page
+    .locator('#script-file')
+    .setInputFiles({ name: '대본.txt', mimeType: 'text/plain', buffer: Buffer.from('정상 대본') });
+  await expect(page.getByRole('list', { name: '선택한 일반 대본 파일' })).toContainText('대본.txt');
+
+  await videoInput.setInputFiles({
+    name: '재선택한-영상.mp4',
+    mimeType: 'video/mp4',
+    buffer: videoBytes,
+  });
+  await expect(videoZone).toContainText('재선택한-영상.mp4');
+  await expect(videoZone).not.toContainText('첫번째.mp4');
+  await expect(page.locator('#registration-title')).toHaveValue('유지할 제목');
+  await expect(page.getByRole('list', { name: '선택한 자막 파일' })).toContainText('자막.vtt');
+  await expect(page.locator('#rights-confirmed')).toBeChecked();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await videoZone.screenshot({ path: 'test-results/video-registration-selected.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await videoInput.setInputFiles({
+    name: `${'긴영상파일명'.repeat(15)}.mp4`,
+    mimeType: 'video/mp4',
+    buffer: videoBytes,
+  });
+  await expect(videoZone).toContainText('긴영상파일명');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await videoZone.screenshot({ path: 'test-results/video-registration-mobile.png' });
+  await page.getByRole('button', { name: '영상 파일 삭제', exact: true }).click();
+  await expect(videoZone).toContainText('영상 파일 추가하기');
+});
+
+test('느린 파일 검사가 제출을 막고 빠른 재선택 결과를 덮어쓰지 않는다', async ({ page }) => {
+  await page.addInitScript(() => {
+    const slice = File.prototype.slice;
+    let delayed = false;
+    File.prototype.slice = function (...args) {
+      const blob = slice.apply(this, args);
+      if (this.name === '느린영상.mp4' && !delayed) {
+        delayed = true;
+        const read = blob.arrayBuffer.bind(blob);
+        blob.arrayBuffer = () =>
+          new Promise<ArrayBuffer>((resolve) => {
+            window.addEventListener(
+              'finish-slow-file',
+              () => {
+                void read().then(resolve);
+              },
+              { once: true },
+            );
+          });
+      }
+      return blob;
+    };
+  });
+  await page.goto('/review?view=upload');
+  const input = page.locator('#video-file');
+  await input.setInputFiles({ name: '느린영상.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(page.getByRole('button', { name: '파일 확인 중…', exact: true })).toBeDisabled();
+  await input.setInputFiles({ name: '최신영상.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(page.locator('#video-selection')).toContainText('최신영상.mp4');
+  await page.evaluate(() => window.dispatchEvent(new Event('finish-slow-file')));
+  await expect(page.getByRole('button', { name: '등록', exact: true })).toBeEnabled();
+  await expect(page.locator('#video-selection')).toContainText('최신영상.mp4');
+  await expect(page.locator('#video-selection')).not.toContainText('느린영상.mp4');
+});

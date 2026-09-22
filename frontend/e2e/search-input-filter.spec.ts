@@ -267,8 +267,13 @@ test('결과 재검색은 동일 조건도 새 실행을 만들고 연속 제출
   await repeatedSearchIntercepted;
   await page.waitForTimeout(100);
   expect(repeatedSearchRequestCount).toBe(1);
-  await expect(submit).toBeDisabled();
-  await expect(page.getByRole('heading', { name: '검색 중', exact: true })).toBeVisible();
+  // S15P21A501-251 이후 동일 조건 재조회는 기존 결과를 유지합니다.
+  // 버튼 표시와 별개로 재조회 중 연속 제출은 요청을 추가로 만들면 안 됩니다.
+  await expect(submit).toBeEnabled();
+  await expect(page.getByRole('heading', { name: '관련 장면 1개' })).toBeVisible();
+  await submit.click();
+  await page.waitForTimeout(100);
+  expect(repeatedSearchRequestCount).toBe(1);
 
   const [repeatedSearchRoute] = repeatedSearchRoutes.splice(0, 1);
   if (!repeatedSearchRoute) throw new Error('Expected one repeated search request.');

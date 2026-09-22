@@ -98,7 +98,7 @@ test.describe('랜딩 반응형 배치', () => {
     }, testInfo) => {
       await page.setViewportSize(viewport);
       await page.goto('/landing');
-      await expect(page.locator('[data-intro]')).toHaveAttribute('data-intro', 'done');
+      await expect(page.getByRole('heading', { name: 'N-Pick', exact: true })).toBeVisible();
       const brand = (await page.locator('#landing-title').locator('..').boundingBox())!;
       expect(brand.x).toBeGreaterThanOrEqual(-1);
       expect(brand.x + brand.width).toBeLessThanOrEqual(viewport.width + 1);
@@ -112,9 +112,38 @@ test.describe('랜딩 반응형 배치', () => {
   }
 });
 
+test.describe('랜딩 첫 화면', () => {
+  test.use({ javaScriptEnabled: false });
+
+  test('스크립트 실행을 기다리지 않고 히어로 로고·배경·안내를 표시한다', async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/landing');
+    const title = page.getByRole('heading', { name: 'N-Pick', exact: true });
+    await expect(title).toHaveText('NPICK');
+    await expect(title).toBeInViewport();
+    for (const element of [
+      title,
+      page.locator('header'),
+      page.locator('video'),
+      page.getByRole('button', { name: 'Scroll down' }),
+    ]) {
+      expect(await visibleOpacity(element)).toBe(1);
+    }
+    for (const line of await title.locator('span').all()) {
+      await expect(line).toHaveCSS('animation-name', 'none');
+      await expect(line).toHaveCSS('clip-path', 'none');
+    }
+    await expect(page.locator('video')).toHaveAttribute('poster', '/media/landing-hero-poster.jpg');
+    await page.screenshot({ path: testInfo.outputPath('landing-initial-hero.png') });
+  });
+});
+
 test('넓은 화면의 역할 배경은 화면 전체 폭이며 카드와 안내가 함께 나타난다', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto('/landing');
+  await expect(page.locator('video')).toHaveJSProperty('paused', false);
   await page.evaluate(() =>
     window.scrollTo({ top: window.innerHeight * 0.9, behavior: 'instant' }),
   );

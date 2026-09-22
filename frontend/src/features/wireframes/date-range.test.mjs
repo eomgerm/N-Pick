@@ -29,6 +29,32 @@ test('시작일과 종료일이 같아도 유효하다', () => {
   assert.equal(validateDateRange(range), '');
 });
 
+test('오늘까지 허용하고 미래 날짜는 URL에서도 조건을 버린 이유와 함께 거부한다', () => {
+  const today = '2026-09-22';
+  assert.equal(validateDateRange({ from: today, to: today }, today), '');
+  assert.equal(validateDateRange(emptyDateRange, today), '');
+  for (const [from, to] of [
+    ['2026-09-21', '2026-09-23'],
+    ['2026-09-23', '2026-09-24'],
+  ]) {
+    const error = '시작일과 종료일은 오늘 이후 날짜로 선택할 수 없습니다.';
+    assert.equal(validateDateRange({ from, to }, today), error);
+    assert.deepEqual(readDateRange(from, to, today), { range: emptyDateRange, error });
+  }
+  assert.equal(
+    validateDateRange({ from: today, to: '2026-09-21' }, today),
+    '종료일은 시작일과 같거나 이후여야 해요.',
+  );
+  assert.equal(
+    validateDateRange({ from: today, to: '' }, today),
+    '시작일과 종료일을 모두 선택해 주세요.',
+  );
+  assert.equal(
+    validateDateRange({ from: '2026-02-30', to: today }, today),
+    '올바른 날짜를 입력해 주세요.',
+  );
+});
+
 test('역순 선택은 정렬하고 완성된 기간의 다음 클릭은 새 기간을 시작한다', () => {
   const first = selectRangeDate(emptyDateRange, '2026-09-07');
   const range = selectRangeDate(first, '2026-08-31');
