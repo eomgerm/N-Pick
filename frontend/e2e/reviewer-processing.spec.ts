@@ -441,6 +441,35 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   expect(reads).toBeGreaterThanOrEqual(2);
 });
 
+test('이미 등록된 영상은 그 사실을 알리고 내가 입력한 이름 대신 기존 등록 정보를 보여준다', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/clips', async (route) => {
+    expect(route.request().method()).toBe('POST');
+    await success(route, {
+      clip_id: '21',
+      pipeline_run_id: '32',
+      status: 'queued',
+      outcome: 'duplicate_other',
+    });
+  });
+  await page.route('**/api/v1/clips/21', (route) => success(route, detail('21', 'succeeded')));
+  await page.goto('/review?view=upload');
+  await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
+  await page.locator('#registration-title').fill('내가 붙인 제목');
+  await page.locator('#rights-confirmed').check();
+  await page.locator('#external-processing-confirmed').check();
+  await page.getByRole('button', { name: '등록', exact: true }).click();
+  await expect(page).toHaveURL(/view=processing&clip=21/);
+  const notice = page.getByRole('status', { name: '영상 등록 결과' });
+  await expect(notice).toContainText('다른 사용자가 이미 등록한 영상입니다.');
+  await expect(notice).toContainText('이번에 입력한 제목과 날짜는 저장되지 않았습니다.');
+  // 등록 성공으로 읽히는 문구와 내 로컬 파일명이 남아 있으면 남의 영상을 내 것으로 오해한다.
+  await expect(notice).not.toContainText('영상이 등록되었습니다.');
+  await expect(notice).not.toContainText('preview-fixture.mp4');
+  await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
+});
+
 test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 지원한다', async ({ page }) => {
   await page.goto('/review?view=upload');
 

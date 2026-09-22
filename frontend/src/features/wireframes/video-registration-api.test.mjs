@@ -154,6 +154,7 @@ test('성공 응답은 문자열 영상·처리 ID와 queued만 허용한다', (
       clipId: '398021840012345',
       pipelineRunId: '398021847361024',
       status: 'queued',
+      outcome: 'created',
     },
   );
   for (const response of [
@@ -165,6 +166,17 @@ test('성공 응답은 문자열 영상·처리 ID와 queued만 허용한다', (
     { clip_id: '1', pipeline_run_id: '2', status: 'running' },
   ]) {
     assert.throws(() => parseClipRegistrationResponse(response), ApiClientError);
+  }
+});
+
+test('중복 반환은 outcome으로 구분하고 알 수 없는 값은 신규 등록으로 읽는다', () => {
+  const payload = { clip_id: '21', pipeline_run_id: '32', status: 'queued' };
+  for (const outcome of ['duplicate_own', 'duplicate_other']) {
+    assert.equal(parseClipRegistrationResponse({ ...payload, outcome }).outcome, outcome);
+  }
+  // outcome 을 보내지 않는 서버와 섞여 배포돼도 기존 등록 흐름이 그대로 동작해야 한다.
+  for (const outcome of [undefined, '', 'unknown', 123]) {
+    assert.equal(parseClipRegistrationResponse({ ...payload, outcome }).outcome, 'created');
   }
 });
 
@@ -309,7 +321,12 @@ test('등록 API는 POST multipart와 멱등성 키, abort signal을 공통 clie
     signal,
   );
 
-  assert.deepEqual(result, { clipId: '11', pipelineRunId: '12', status: 'queued' });
+  assert.deepEqual(result, {
+    clipId: '11',
+    pipelineRunId: '12',
+    status: 'queued',
+    outcome: 'created',
+  });
   assert.equal(request.input, 'http://127.0.0.1:8080/api/v1/clips');
   assert.equal(request.init.method, 'POST');
   assert.equal(new Headers(request.init.headers).get('Idempotency-Key'), 'key-124');

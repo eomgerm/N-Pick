@@ -31,6 +31,7 @@ import {
 } from '@/features/wireframes/registration-files';
 import {
   type ClipRegistrationErrorPresentation,
+  type ClipRegistrationOutcome,
   type ClipRegistrationSubmission,
   type ClipSourceType,
   createClipRegistrationSubmission,
@@ -49,6 +50,8 @@ export interface RegisteredVideo {
   id: string;
   pipelineRunId: string;
   status: 'queued';
+  /** 서버가 새 clip 을 만들었는지, 이미 있던 clip 을 돌려주었는지. 등록 결과 안내 문구를 가른다. */
+  outcome: ClipRegistrationOutcome;
   title: string;
   fileName: string;
   fileSize: number;
@@ -322,6 +325,7 @@ export function VideoRegistration({
         id: result.clipId,
         pipelineRunId: result.pipelineRunId,
         status: result.status,
+        outcome: result.outcome,
         title: snapshot.title,
         fileName: snapshot.video.name,
         fileSize: snapshot.video.size,

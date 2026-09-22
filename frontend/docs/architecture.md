@@ -138,7 +138,7 @@ src/
 
 폼은 검증을 통과한 File 포함 snapshot과 UUID 멱등성 키를 함께 소유하고 `POST /api/v1/clips`를 실행합니다. 네트워크·취소·비정상 응답·5xx·처리 중/결과 확인 불가 오류의 수동 재시도는 같은 snapshot/key를 쓰되 매 시도마다 새 `FormData`를 만듭니다. 입력을 수정하거나 서버가 새 요청 키를 요구하면 snapshot/key를 폐기하며 mutation을 자동 재시도하지 않습니다. 대본 읽기부터 응답까지 폼과 `ReviewerShell` 상단 이동을 잠그고 실패 시 File을 포함한 입력을 유지합니다. 허용된 검증 필드의 안전한 문자열만 인라인 오류로 사용하고 나머지는 공통 API 오류 UI로 표시합니다.
 
-성공 응답은 문자열 `clip_id`, `pipeline_run_id`와 `queued`만 인정합니다. `ReviewerShell`은 영상 목록 캐시를 무효화하고 `view=processing&tab=uploads&clip=<clipId>`로 이동해 실제 상세 GET을 실행합니다. 새로고침에도 URL의 ID로 서버 기록을 조회하며, 처리 상태와 단계 정보를 등록 요청 메모리에서 만들지 않습니다. media decode, pipeline enqueue와 등록 결과의 영속성은 서버 책임입니다.
+성공 응답은 문자열 `clip_id`, `pipeline_run_id`와 `queued`만 인정하며, `outcome`으로 신규 등록(`created`)과 이미 있던 clip 의 반환(`duplicate_own`·`duplicate_other`)을 구분합니다. `outcome`이 없거나 아는 값이 아니면 신규 등록으로 읽어 이전 서버와 섞여 배포돼도 흐름이 끊기지 않습니다. 중복이면 `ReviewerShell`이 그 사실과 입력값이 저장되지 않았음을 알리고, 등록 결과 배너에 요청 당시의 파일명을 쓰지 않습니다 — 그 화면에 열리는 clip 은 다른 사람의 등록일 수 있어 요청 값과 서버 값을 섞으면 존재하지 않는 조합을 보여주게 됩니다. `ReviewerShell`은 영상 목록 캐시를 무효화하고 `view=processing&tab=uploads&clip=<clipId>`로 이동해 실제 상세 GET을 실행합니다. 새로고침에도 URL의 ID로 서버 기록을 조회하며, 처리 상태와 단계 정보를 등록 요청 메모리에서 만들지 않습니다. media decode, pipeline enqueue와 등록 결과의 영속성은 서버 책임입니다.
 
 처리 현황은 `view=processing`에서 `문의 처리 중` 탭을 먼저 보여주고, `tab=uploads`와 `tab=completed`로 영상 상태를 나눕니다. 문의는 서버의 REVIEWING 목록, 종료 건수는 statusCounts.closed를 사용합니다. 영상은 최신 run의 대기·진행·실패·성공·기록 없음 상태를 표시합니다. 상세에서 돌아오면 선택한 탭과 progressPage를 유지합니다. 신규 등록의 단계 수와 상태는 상세 API 응답을 따르며 시간 경과로 임의 증가하지 않습니다.
 

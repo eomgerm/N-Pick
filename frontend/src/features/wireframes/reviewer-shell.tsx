@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Info } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
@@ -16,12 +16,26 @@ import {
   VideoRegistrationHeading,
   type RegisteredVideo,
 } from '@/features/wireframes/video-registration';
+import type { ClipRegistrationOutcome } from '@/features/wireframes/video-registration-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 interface ReviewerShellProps {
   theme: WireframeTheme;
 }
+
+const registrationNotices: Record<ClipRegistrationOutcome, { label: string; heading: string }> = {
+  created: { label: '등록 완료', heading: '영상이 등록되었습니다.' },
+  duplicate_own: { label: '이미 등록된 영상', heading: '이미 등록한 영상입니다.' },
+  duplicate_other: {
+    label: '이미 등록된 영상',
+    heading: '다른 사용자가 이미 등록한 영상입니다.',
+  },
+};
+
+// 중복이면 입력한 제목·파일명이 아니라 실제로 열리는 clip 을 설명한다. 둘을 섞으면 남의 영상을 내 것으로 읽는다.
+const duplicateNoticeDetail =
+  '같은 영상 파일이 이미 등록되어 있어 아래에 기존 등록 정보를 표시합니다. 이번에 입력한 제목과 날짜는 저장되지 않았습니다.';
 
 export function ReviewerShell({ theme }: ReviewerShellProps) {
   const router = useRouter();
@@ -153,13 +167,18 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                 className={styles.registrationNotice}
                 role="status"
               >
-                <CheckCircle2 aria-hidden="true" />
+                {registeredVideo.outcome === 'created' ? (
+                  <CheckCircle2 aria-hidden="true" />
+                ) : (
+                  <Info aria-hidden="true" />
+                )}
                 <div>
-                  <p>등록 완료</p>
-                  <h2>영상이 등록되었습니다.</h2>
+                  <p>{registrationNotices[registeredVideo.outcome].label}</p>
+                  <h2>{registrationNotices[registeredVideo.outcome].heading}</h2>
                   <span>
-                    {registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할
-                    수 있습니다.
+                    {registeredVideo.outcome === 'created'
+                      ? `${registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`
+                      : duplicateNoticeDetail}
                   </span>
                 </div>
               </section>
