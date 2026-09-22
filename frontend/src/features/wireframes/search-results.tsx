@@ -31,14 +31,30 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
       });
   const search = useInfiniteQuery({
     queryKey: ['scene-search', body],
-    // 첫 페이지(pageParam=0)는 page 를 싣지 않는다 — 계약상 생략이 곧 첫 페이지이고 더보기만
-    // page 를 싣는다(search-api-contract.ts:26). 0 도 실으면 첫 요청 본문이 계약과 달라진다.
+    // 첫 페이지(page=0)는 page·search_execution_id 를 싣지 않는다 — 계약상 생략이 곧 첫 페이지다.
+    // 더보기는 page 와 함께 첫 페이지(root) 실행 id 를 실어, 서버가 「내 검색 기록」에서 이어보기
+    // 실행을 root 아래로 숨기게 한다(S15P21A501-280). 결과 재사용이 아니라 기록 그룹핑 힌트다.
     queryFn: ({ pageParam, signal }) =>
-      searchScenes(pageParam > 0 ? { ...body!, page: pageParam } : body!, signal),
+      searchScenes(
+        pageParam.page > 0
+          ? {
+              ...body!,
+              page: pageParam.page,
+              ...(pageParam.rootExecutionId
+                ? { search_execution_id: pageParam.rootExecutionId }
+                : {}),
+            }
+          : body!,
+        signal,
+      ),
     enabled: body !== null,
-    initialPageParam: 0,
-    // 다음 페이지 번호 = 지금까지 받은 페이지 수(0-based). has_next 가 거짓이면 더보기를 멈춘다.
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasNext ? allPages.length : undefined),
+    initialPageParam: { page: 0, rootExecutionId: null as string | null },
+    // 다음 페이지 번호 = 지금까지 받은 페이지 수(0-based). root 실행 id 는 첫 페이지 응답의 것을
+    // 그대로 물려 더보기 요청이 참조한다. has_next 가 거짓이면 더보기를 멈춘다.
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasNext
+        ? { page: allPages.length, rootExecutionId: allPages[0]?.searchExecutionId ?? null }
+        : undefined,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,

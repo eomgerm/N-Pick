@@ -25,6 +25,9 @@ export interface SearchRequestBody {
   explicit_filters: SearchExplicitFilters;
   // 0-based 결과 페이지. 생략하면 서버가 첫 페이지(0)로 본다. 더보기가 다음 페이지를 요청할 때만 싣는다.
   page?: number;
+  // 더보기가 가리키는 첫 페이지(root) 실행 id — 「내 검색 기록」이 한 검색을 한 줄로 보이게 하는
+  // 그룹핑 힌트다(S15P21A501-280). 첫 페이지 요청엔 싣지 않는다. 결과 재사용이 아니라 기록 링크 전용.
+  search_execution_id?: string;
 }
 
 export type SearchExecutionStatus = 'succeeded' | 'degraded';
