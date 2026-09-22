@@ -46,6 +46,7 @@ import com.npick.clip.application.command.VideoPreparationService;
 import com.npick.clip.application.command.register.RegisterClipCommand;
 import com.npick.clip.application.command.register.RegisterClipResult;
 import com.npick.clip.application.command.register.RegisterClipUseCase;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.StoreAndRegisterClipCommand;
 import com.npick.clip.application.error.ClipRuntimeErrorCode;
 import com.npick.clip.application.error.RegistrationDeduplicationErrorCode;
@@ -150,8 +151,9 @@ class RegistrationDeduplicationIntegrationTest {
         // (registration_request, pipeline_run_lease, parse_rule_comments, tag_match_value_invisible_chars,
         // search_rule_candidate, scene_exclude_candidate_unique, tag_evidence_candidate,
         // search_execution_running_snapshot, persistent_login_session, login_refresh,
-        // clip_title_failed_decode, user_input_date_evidence_verified, search_history_soft_delete).
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(13);
+        // clip_title_failed_decode, user_input_date_evidence_verified, search_history_soft_delete,
+        // search_execution_parent).
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(14);
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (var c = DriverManager.getConnection(url, user, password);
@@ -238,6 +240,40 @@ class RegistrationDeduplicationIntegrationTest {
     }
 
     @Test
+    void outcomeSeparatesNewRegistrationFromOwnAndOthersDuplicate() {
+        long id = IDS.incrementAndGet();
+        var created = register(id, "new-" + id, REQUEST);
+        assertThat(created.outcome()).isEqualTo(RegistrationOutcome.CREATED);
+        assertThat(deduplication
+                        .register("own-" + id, 1, hash(id), REQUEST, () -> {
+                            throw new AssertionError("callback");
+                        })
+                        .outcome())
+                .isEqualTo(RegistrationOutcome.DUPLICATE_OWN);
+        assertThat(deduplication
+                        .register("other-" + id, 2, hash(id), REQUEST, () -> {
+                            throw new AssertionError("callback");
+                        })
+                        .outcome())
+                .isEqualTo(RegistrationOutcome.DUPLICATE_OTHER);
+    }
+
+    @Test
+    void replayOfARequestThatMatchedAnotherActorsClipKeepsReportingTheDuplicate() {
+        long id = IDS.incrementAndGet();
+        register(id, "owner-" + id, REQUEST);
+        var duplicate = deduplication.register("replayed-" + id, 2, hash(id), REQUEST, () -> {
+            throw new AssertionError("callback");
+        });
+        assertThat(duplicate.outcome()).isEqualTo(RegistrationOutcome.DUPLICATE_OTHER);
+        // The second send of the same key replays the journal instead of matching content again.
+        assertThat(deduplication.register("replayed-" + id, 2, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback");
+                }))
+                .isEqualTo(duplicate);
+    }
+
+    @Test
     void differentKeyAndActorSameContentReturnExistingWithoutOverwrite() {
         long id = IDS.incrementAndGet();
         var first = register(id, "first-" + id, REQUEST);
@@ -245,7 +281,7 @@ class RegistrationDeduplicationIntegrationTest {
         assertThat(deduplication.register("second-" + id, 2, hash(id), changed, () -> {
                     throw new AssertionError("callback");
                 }))
-                .isEqualTo(first);
+                .isEqualTo(sameClip(first, RegistrationOutcome.DUPLICATE_OTHER));
         assertThat(jdbc.queryForMap("SELECT title,script_text,registered_by_id FROM npick.clip WHERE clip_id=?", id))
                 .containsEntry("title", "original")
                 .containsEntry("script_text", "private script")
@@ -287,7 +323,7 @@ class RegistrationDeduplicationIntegrationTest {
             assertThat(secondInstance.register("race-other-" + id, 1, hash(id), REQUEST, () -> {
                         throw new AssertionError("callback");
                     }))
-                    .isEqualTo(result);
+                    .isEqualTo(sameClip(result, RegistrationOutcome.DUPLICATE_OWN));
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.clip WHERE content_hash=?", Long.class, hash(id)))
                 .isEqualTo(1);
@@ -347,7 +383,7 @@ class RegistrationDeduplicationIntegrationTest {
         try (var video = inspection.inspect(new ByteArrayInputStream(bytes))) {
             assertThat(deduplication.register(
                             "files-other-" + id, 1, content, REQUEST, () -> stored(video, id + 1, persistence())))
-                    .isEqualTo(first);
+                    .isEqualTo(sameClip(first, RegistrationOutcome.DUPLICATE_OWN));
         }
         assertThat(media.resolve("clips/" + id + "/original")).hasBinaryContent(bytes);
         try (var paths = Files.list(media.resolve("clips"))) {
@@ -1027,6 +1063,11 @@ class RegistrationDeduplicationIntegrationTest {
     private RegisterClipResult register(long id, String key, RequestData request) {
         return deduplication.register(
                 key, 1, hash(id), request, () -> persistence().register(command(id, 1, hash(id))));
+    }
+
+    /** The same clip and run as {@code result}, returned for the given reason instead of a fresh registration. */
+    private static RegisterClipResult sameClip(RegisterClipResult result, RegistrationOutcome outcome) {
+        return new RegisterClipResult(result.clipId(), result.pipelineRunId(), result.status(), outcome);
     }
 
     private RegisterClipUseCase persistence() {
