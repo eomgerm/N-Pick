@@ -149,11 +149,9 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
   const clipTitle = displayClipTitle(inquiry.scene.clipTitle);
   const claimRecovery = claim.isError ? getClaimRecovery(claim.error) : null;
   const statusIndex = ['open', 'reviewing', 'closed'].indexOf(inquiry.status);
-  const hasCorrection =
-    inquiry.status === 'reviewing' &&
-    (inquiry.resolution === 'tag_correction' ||
-      inquiry.resolution === 'patch_parse' ||
-      inquiry.resolution === 'exclude_scene');
+  // 재설계: 처리결과가 correction 이면 태그·해석·장면제외를 한 문의에 섞어 담는다.
+  // 기존 레거시 타입값도 파서가 correction 으로 접어 준다 (S15P21A501-281).
+  const hasCorrection = inquiry.status === 'reviewing' && inquiry.resolution === 'correction';
 
   return (
     <div className={styles.detail}>
@@ -337,20 +335,17 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
                 memberLoginId={member.loginId}
               />
             ) : null}
-            {inquiry.resolution ? (
+            {/* 재설계: 검수 중에는 토글이 상태를 보여주므로 '현재 판정' 중복 카드를 없앤다.
+                종료된 문의만 처리 결과를 요약으로 남긴다 (S15P21A501-281). */}
+            {inquiry.status === 'closed' && inquiry.resolution ? (
               <section
                 className={`${styles.outcome} ${inquiryResolutionClasses[inquiry.resolution]}`}
               >
-                <h2>{inquiry.status === 'closed' ? '처리 결과' : '현재 판정'}</h2>
+                <h2>처리 결과</h2>
                 <p className="mt-2 font-semibold">{inquiryResolutionLabels[inquiry.resolution]}</p>
                 <p className="mt-2 whitespace-pre-wrap text-(--muted)">
                   {inquiry.resolutionNote || '추가 사유 없음'}
                 </p>
-                {inquiry.status === 'reviewing' ? (
-                  <p className="mt-3 text-xs">
-                    검증과 반영이 끝나기 전까지 이 문의는 검수 중입니다.
-                  </p>
-                ) : null}
               </section>
             ) : null}
             {inquiry.status === 'closed' && !inquiry.resolution ? (
@@ -398,12 +393,15 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
 
         {hasCorrection ? (
           <section className={`${styles.panel} ${styles.correction}`} aria-label="교정 후보와 검증">
-            {inquiry.resolution === 'patch_parse' ? (
+            {/* 재설계: 한 문의에 해석·장면제외 후보를 함께 담되, 큰 폼은 접어 둬 스크롤을 줄인다 (S15P21A501-281). */}
+            <details className="grid gap-3 rounded-xl border border-(--line) bg-(--surface) p-4">
+              <summary className="cursor-pointer text-sm font-bold">검색 해석 교정</summary>
               <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
-            ) : null}
-            {inquiry.resolution === 'exclude_scene' ? (
+            </details>
+            <details className="grid gap-3 rounded-xl border border-(--line) bg-(--surface) p-4">
+              <summary className="cursor-pointer text-sm font-bold">장면 제외</summary>
               <SceneExcludeCandidateForm inquiry={inquiry} />
-            ) : null}
+            </details>
             <CorrectionVerificationPanel feedbackId={inquiry.feedbackId} key={inquiry.feedbackId} />
           </section>
         ) : null}
