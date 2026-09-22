@@ -9,6 +9,7 @@ import styles from '@/features/wireframes/shinhan-search.module.css';
 interface DateRangeCalendarProps {
   endpoint: keyof DateRange;
   initialDate: string;
+  maxDate: string;
   range: DateRange;
   onSelect: (date: string) => void;
 }
@@ -36,10 +37,12 @@ const createCalendarState = (initialDate: string): CalendarState => ({
 /** 시작일과 종료일이 각각 탐색 위치와 보기 단계를 갖는 달력입니다. */
 export function DateRangeCalendar({
   endpoint,
-  initialDate,
+  initialDate: requestedDate,
+  maxDate,
   range,
   onSelect,
 }: DateRangeCalendarProps) {
+  const initialDate = requestedDate > maxDate ? maxDate : requestedDate;
   const [calendarState, setCalendarState] = useState(() => createCalendarState(initialDate));
   const currentState =
     calendarState.initialDate === initialDate ? calendarState : createCalendarState(initialDate);
@@ -78,7 +81,8 @@ export function DateRangeCalendar({
 
   function showMonth(next: string, shouldFocus = false) {
     const selected = range[endpoint];
-    const nextFocus = selected && monthStart(selected) === next ? selected : next;
+    const nextFocus =
+      selected && selected <= maxDate && monthStart(selected) === next ? selected : next;
     updateCalendarState((state) => ({
       ...state,
       month: next,
@@ -116,7 +120,8 @@ export function DateRangeCalendar({
     event.preventDefault();
     date.setUTCDate(date.getUTCDate() + offsets[event.key]);
     if (date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) return;
-    const next = date.toISOString().slice(0, 10);
+    const candidate = date.toISOString().slice(0, 10);
+    const next = candidate > maxDate ? maxDate : candidate;
     updateCalendarState((state) => ({
       ...state,
       month: monthStart(next),
@@ -166,10 +171,10 @@ export function DateRangeCalendar({
           aria-label={`${label} 다음 ${shiftLabel}`}
           disabled={
             view === 'days'
-              ? month === '9999-12-01'
+              ? month >= monthStart(maxDate)
               : view === 'years'
-                ? decade === 9990
-                : year === 9999
+                ? decade + 10 > Number(maxDate.slice(0, 4))
+                : year >= Number(maxDate.slice(0, 4))
           }
           onClick={() => shiftPeriod(1)}
           type="button"
@@ -201,13 +206,14 @@ export function DateRangeCalendar({
                 data-boundary={isBoundary}
                 data-date={day}
                 data-within={isWithin}
+                disabled={day > maxDate}
                 key={day}
                 onClick={() => {
                   updateCalendarState((state) => ({ ...state, focusDate: day }));
                   onSelect(day);
                 }}
                 onKeyDown={(event) => handleDayKey(event, day)}
-                tabIndex={day === focusDate ? 0 : -1}
+                tabIndex={day === focusDate && day <= maxDate ? 0 : -1}
                 type="button"
               >
                 {index + 1}
@@ -227,18 +233,27 @@ export function DateRangeCalendar({
               <button
                 aria-pressed={number === (view === 'months' ? monthNumber : year)}
                 data-month={view === 'months' ? number : undefined}
+                disabled={
+                  view === 'months'
+                    ? yearMonth(year, number) > maxDate
+                    : number > Number(maxDate.slice(0, 4))
+                }
                 key={number}
                 onClick={() => {
                   if (view === 'months') showMonth(yearMonth(year, number), true);
                   else {
+                    const nextMonth =
+                      number === Number(maxDate.slice(0, 4))
+                        ? Math.min(monthNumber, Number(maxDate.slice(5, 7)))
+                        : monthNumber;
                     updateCalendarState((state) => ({
                       ...state,
-                      month: yearMonth(number, monthNumber),
+                      month: yearMonth(number, nextMonth),
                       view: 'months',
                     }));
                     requestAnimationFrame(() =>
                       calendarRef.current
-                        ?.querySelector<HTMLButtonElement>(`[data-month="${monthNumber}"]`)
+                        ?.querySelector<HTMLButtonElement>(`[data-month="${nextMonth}"]`)
                         ?.focus(),
                     );
                   }

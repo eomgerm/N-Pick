@@ -83,19 +83,19 @@
   align-items: center;
   gap: 15px;
   padding: 22px;
-  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
+  border: 1px dashed color-mix(in srgb, var(--muted) 35%, var(--surface));
   border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  background: color-mix(in srgb, var(--accent-soft) 20%, var(--surface));
   text-align: left;
 }
 .dropzoneGroup {
+  position: relative;
   min-width: 0;
 }
 .dropzone[data-kind='video'] {
   flex-direction: column;
   gap: 16px;
   padding: 30px 20px;
-  background: color-mix(in srgb, var(--accent-soft) 40%, var(--surface));
   text-align: center;
 }
 .dropzone:hover,
@@ -107,9 +107,6 @@
 .dropzone:focus-within {
   outline: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
   outline-offset: 3px;
-}
-.dropzone[data-invalid='true'] {
-  border-color: var(--danger);
 }
 .fileInput {
   position: absolute;
@@ -131,7 +128,7 @@
   flex-shrink: 0;
   border-radius: 12px;
   background: var(--surface);
-  color: var(--accent-strong);
+  color: var(--muted);
 }
 .uploadIcon svg {
   width: 21px;
@@ -141,7 +138,7 @@
   width: 58px;
   height: 58px;
   border-radius: 18px;
-  background: var(--accent-soft);
+  background: var(--surface);
 }
 .dropzone[data-kind='video'] .uploadIcon svg {
   width: 30px;
@@ -156,6 +153,7 @@
 .dropCopy strong {
   font-size: 14px;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 .dropCopy > span {
   color: var(--muted);
@@ -201,7 +199,7 @@
   font-size: 10px;
   color: var(--muted);
 }
-.fileRow .selectionStatus {
+.selectionStatus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -209,6 +207,62 @@
   color: var(--positive);
   font-size: 10px;
   font-weight: 800;
+}
+.selectedVideo {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.selectedVideo strong {
+  color: var(--text);
+}
+.dropzone[data-selected='true'] {
+  border-style: solid;
+  border-color: var(--positive);
+  background: var(--positive-soft);
+}
+.dropzone[data-selected='true']:hover,
+.dropzone[data-selected='true']:focus-within,
+.dropzone[data-selected='true'][data-dragging='true'] {
+  background: color-mix(in srgb, var(--positive) 8%, var(--positive-soft));
+}
+.dropzone[data-selected='true'] .uploadIcon {
+  background: var(--positive);
+  color: var(--surface);
+}
+.dropzone[data-invalid='true'],
+.dropzone[data-invalid='true']:hover,
+.dropzone[data-invalid='true']:focus-within,
+.dropzone[data-invalid='true'][data-dragging='true'] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.dropzone[data-invalid='true'] .uploadIcon {
+  background: var(--surface);
+  color: var(--danger);
+}
+.removeVideo {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.removeVideo svg {
+  width: 15px;
+  height: 15px;
+}
+.removeVideo:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
 }
 .selectionStatus svg {
   width: 13px;
