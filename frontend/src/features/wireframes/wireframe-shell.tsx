@@ -30,7 +30,6 @@ import styles from '@/features/wireframes/wireframe.module.css';
 import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
 import {
-  canCreateInquiry,
   getDemoSearchExecution,
   getSearchExecutionAnnouncement,
   successfulSearchExecution,
@@ -208,8 +207,7 @@ export function WireframeShell({
       inquirySubmittingRef.current ||
       inquiryResultId === null ||
       !inquiryResult ||
-      !inquiryResult.searchResultId ||
-      !canCreateInquiry(searchExecution)
+      !inquiryResult.searchResultId
     ) {
       return;
     }
@@ -248,12 +246,9 @@ export function WireframeShell({
 
   function handleInquiryOpen(resultId: number) {
     const result = results.find(({ id }) => id === resultId);
-    if (
-      !result?.searchResultId ||
-      !canCreateInquiry(searchExecution) ||
-      submittedInquiryIds.includes(result.searchResultId)
-    )
-      return;
+    // 문의 가능 여부는 이 결과 자신의 저장 상태(searchResultId)로 판단한다. 더보기로 합쳐진 실행
+    // 상태가 다른 페이지 snapshot 실패로 degraded 여도 저장된 결과는 문의할 수 있다 (S15P21A501-251 P1).
+    if (!result?.searchResultId || submittedInquiryIds.includes(result.searchResultId)) return;
     setInquiryResultId(resultId);
     setInquirySubmission(null);
     setInquiryError(undefined);
@@ -276,9 +271,9 @@ export function WireframeShell({
   }
 
   function handlePreviewInquiry() {
-    if (!canCreateInquiry(searchExecution)) return;
+    if (!selectedResult?.searchResultId) return;
     setIsPreviewOpen(false);
-    if (selectedResult) handleInquiryOpen(selectedResult.id);
+    handleInquiryOpen(selectedResult.id);
   }
 
   return (
