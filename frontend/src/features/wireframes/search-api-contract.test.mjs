@@ -164,7 +164,10 @@ function createScene(rank, overrides = {}) {
     filmed_date: { value: null, verification_status: 'unknown' },
     shot_type: 'b_roll',
     scene_type: '역사 인파',
-    matched_keywords: ['서울역', '귀성객'],
+    matched_keywords: [
+      { keyword: '서울역', origin: 'user' },
+      { keyword: '귀성객', origin: 'expanded' },
+    ],
     match_evidence: [
       {
         field: 'ocr',

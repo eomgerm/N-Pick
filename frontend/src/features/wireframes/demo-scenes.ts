@@ -1,3 +1,7 @@
+import type {
+  SearchKeywordOrigin,
+  SearchMatchedKeyword,
+} from '@/features/wireframes/search-api-contract';
 import styles from '@/features/wireframes/wireframe.module.css';
 
 export type VerificationStatus = 'verified' | 'unverified' | 'unknown' | 'rejected' | 'withdrawn';
@@ -27,6 +31,21 @@ export function getVerificationStatusLabel(status: VerificationStatus) {
   return verificationStatusLabels[status];
 }
 
+/**
+ * 키워드 칩에 붙는 출처 라벨. 색상만으로 구분하지 않는다 (FRD 6.3).
+ *
+ * `user` 에는 라벨을 붙이지 않는다 — 사용자가 친 말이 기본이고, 눈에 띄어야 하는 것은 「내가 넣지 않은 말」 쪽이다.
+ */
+const keywordOriginLabels: Record<SearchKeywordOrigin, string | null> = {
+  user: null,
+  expanded: 'AI 확장어',
+  unknown: '미상',
+};
+
+export function getKeywordOriginLabel(origin: SearchKeywordOrigin) {
+  return keywordOriginLabels[origin];
+}
+
 export interface SearchResult {
   clipId?: string;
   sceneId?: string;
@@ -51,7 +70,7 @@ export interface SearchResult {
   evidenceType: 'OCR' | '화면 설명' | 'Transcript';
   evidence: string;
   matchEvidence: SearchEvidenceMatch;
-  matchedKeywords: string[];
+  matchedKeywords: SearchMatchedKeyword[];
   source: string;
   score: number;
   // 와이어프레임 데모 전용 배경 이미지다. 실제 장면은 sceneId로 대표 이미지를 받는다.
@@ -85,7 +104,10 @@ export const results: SearchResult[] = [
       source: 'Keyframe OCR',
       status: 'verified',
     },
-    matchedKeywords: ['서울역', '귀성객'],
+    matchedKeywords: [
+      { keyword: '서울역', origin: 'user' },
+      { keyword: '귀성객', origin: 'expanded' },
+    ],
     source: 'Keyframe OCR · 검증됨',
     score: 96,
     imageClass: styles.imageOne,
@@ -116,7 +138,10 @@ export const results: SearchResult[] = [
       source: 'VLM caption',
       status: 'unverified',
     },
-    matchedKeywords: ['정체', '고속도로'],
+    matchedKeywords: [
+      { keyword: '정체', origin: 'user' },
+      { keyword: '고속도로', origin: 'expanded' },
+    ],
     source: 'VLM caption · 미검증',
     score: 89,
     imageClass: styles.imageTwo,
@@ -147,7 +172,10 @@ export const results: SearchResult[] = [
       source: '방송 자막',
       status: 'unverified',
     },
-    matchedKeywords: ['귀성길', '소통 상황'],
+    matchedKeywords: [
+      { keyword: '귀성길', origin: 'user' },
+      { keyword: '소통 상황', origin: 'expanded' },
+    ],
     source: '방송 자막 · 미검증',
     score: 84,
     imageClass: styles.imageThree,
@@ -178,7 +206,10 @@ export const results: SearchResult[] = [
       source: 'Keyframe OCR',
       status: 'verified',
     },
-    matchedKeywords: ['귀성길', '정체'],
+    matchedKeywords: [
+      { keyword: '귀성길', origin: 'user' },
+      { keyword: '정체', origin: 'expanded' },
+    ],
     source: 'Keyframe OCR · 검증됨',
     score: 81,
     imageClass: styles.imageOne,
@@ -209,7 +240,10 @@ export const results: SearchResult[] = [
       source: 'VLM caption',
       status: 'unverified',
     },
-    matchedKeywords: ['휴게소', '귀성객'],
+    matchedKeywords: [
+      { keyword: '휴게소', origin: 'user' },
+      { keyword: '귀성객', origin: 'expanded' },
+    ],
     source: 'VLM caption · 미검증',
     score: 78,
     imageClass: styles.imageTwo,
@@ -240,7 +274,10 @@ export const results: SearchResult[] = [
       source: '방송 자막',
       status: 'verified',
     },
-    matchedKeywords: ['귀성객', '버스터미널'],
+    matchedKeywords: [
+      { keyword: '귀성객', origin: 'user' },
+      { keyword: '버스터미널', origin: 'expanded' },
+    ],
     source: '방송 자막 · 검증됨',
     score: 75,
     imageClass: styles.imageThree,
@@ -271,7 +308,10 @@ export const results: SearchResult[] = [
       source: 'Keyframe OCR',
       status: 'verified',
     },
-    matchedKeywords: ['경부선', '정체'],
+    matchedKeywords: [
+      { keyword: '경부선', origin: 'user' },
+      { keyword: '정체', origin: 'expanded' },
+    ],
     source: 'Keyframe OCR · 검증됨',
     score: 72,
     imageClass: styles.imageOne,
@@ -302,7 +342,10 @@ export const results: SearchResult[] = [
       source: 'VLM caption',
       status: 'unverified',
     },
-    matchedKeywords: ['명절', '고속도로'],
+    matchedKeywords: [
+      { keyword: '명절', origin: 'user' },
+      { keyword: '고속도로', origin: 'expanded' },
+    ],
     source: 'VLM caption · 미검증',
     score: 69,
     imageClass: styles.imageTwo,
@@ -333,7 +376,10 @@ export const results: SearchResult[] = [
       source: '방송 자막',
       status: 'unverified',
     },
-    matchedKeywords: ['차로 통제', '정체'],
+    matchedKeywords: [
+      { keyword: '차로 통제', origin: 'user' },
+      { keyword: '정체', origin: 'expanded' },
+    ],
     source: '방송 자막 · 미검증',
     score: 66,
     imageClass: styles.imageThree,
@@ -364,7 +410,10 @@ export const results: SearchResult[] = [
       source: 'VLM caption',
       status: 'unverified',
     },
-    matchedKeywords: ['경부고속도로', '차량 흐름'],
+    matchedKeywords: [
+      { keyword: '경부고속도로', origin: 'user' },
+      { keyword: '차량 흐름', origin: 'expanded' },
+    ],
     source: 'VLM caption · 미검증',
     score: 63,
     imageClass: styles.imageOne,

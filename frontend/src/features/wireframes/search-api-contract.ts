@@ -39,6 +39,18 @@ export type SearchEvidenceStatus = Exclude<SearchInformationStatus, 'unknown'>;
 export type SearchEvidenceField = 'caption' | 'ocr' | 'transcript' | 'tag';
 export type SearchShotType = 'anchor' | 'interview' | 'b_roll' | 'unknown';
 
+/**
+ * 키워드 칩이 어디서 온 말인가. `user` 는 사용자가 직접 친 말, `expanded` 는 AI 해석기가 넓힌 말이다 (F-05·F-07).
+ *
+ * `unknown` 은 구분을 남기지 않던 시절에 저장된 기록을 복원할 때만 온다 — 그때 사용자 입력어로 보여 주면 없던 사실을 만들어 내는 것이다 (FRD §7.2).
+ */
+export type SearchKeywordOrigin = 'user' | 'expanded' | 'unknown';
+
+export interface SearchMatchedKeyword {
+  keyword: string;
+  origin: SearchKeywordOrigin;
+}
+
 export interface SearchDateInformation {
   value: string | null;
   verificationStatus: SearchInformationStatus;
@@ -64,7 +76,7 @@ export interface SearchSceneResponse {
   filmedDate: SearchDateInformation;
   shotType: SearchShotType;
   sceneType: string | null;
-  matchedKeywords: string[];
+  matchedKeywords: SearchMatchedKeyword[];
   matchEvidence: SearchMatchEvidence[];
 }
 
@@ -168,11 +180,6 @@ function readUniqueEnumList<Value extends string>(
   return new Set(parsed).size === parsed.length ? parsed : invalidResponse(status);
 }
 
-function readStringList(value: unknown, status: number): string[] {
-  if (!Array.isArray(value)) return invalidResponse(status);
-  return value.map((item) => readNonEmptyString(item, status));
-}
-
 function parseDateInformation(value: unknown, status: number): SearchDateInformation {
   const payload = readRecord(value, status);
   const date = payload.value === null ? null : readNonEmptyString(payload.value, status);
@@ -184,6 +191,19 @@ function parseDateInformation(value: unknown, status: number): SearchDateInforma
   if ((date === null) !== (verificationStatus === 'unknown')) return invalidResponse(status);
   if (date !== null && !isCalendarDate(date)) return invalidResponse(status);
   return { value: date, verificationStatus };
+}
+
+const KEYWORD_ORIGINS = ['user', 'expanded', 'unknown'] as const;
+
+function parseMatchedKeywords(value: unknown, status: number): SearchMatchedKeyword[] {
+  if (!Array.isArray(value)) return invalidResponse(status);
+  return value.map((item) => {
+    const payload = readRecord(item, status);
+    return {
+      keyword: readNonEmptyString(payload.keyword, status),
+      origin: readEnum(payload.origin, KEYWORD_ORIGINS, status),
+    };
+  });
 }
 
 function parseMatchEvidence(
@@ -232,7 +252,7 @@ function parseScene(value: unknown, status: number, isHistory: boolean): SearchS
       status,
     ),
     sceneType: readNullableString(payload.scene_type, status),
-    matchedKeywords: readStringList(payload.matched_keywords, status),
+    matchedKeywords: parseMatchedKeywords(payload.matched_keywords, status),
     matchEvidence: payload.match_evidence.map((item) =>
       parseMatchEvidence(item, status, isHistory),
     ),

@@ -802,6 +802,20 @@
   overflow-wrap: anywhere;
 }
 
+/* 사용자가 넣지 않은 말에 붙는 라벨. 구분을 지는 것은 이 글자이고 배경은 거들기만 한다 (FRD 6.3). */
+.keywordChipOrigin {
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 900;
+  opacity: 0.85;
+}
+
+.keywordChip[data-origin='expanded'],
+.keywordChip[data-origin='unknown'] {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
 .statusBadge {
   display: inline-flex;
   align-items: center;

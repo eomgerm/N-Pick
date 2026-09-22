@@ -126,7 +126,12 @@ for (const width of [1440, 390]) {
       .context()
       .addCookies([{ name: 'JSESSIONID', value: 'e2e-editor', url: 'http://127.0.0.1:3116' }]);
     const descriptions = [shortSceneDescription, longSceneDescription, '귀성 차량 행렬'];
-    const keywordSets = [['장면'], ['서울역'], manyKeywords];
+    // 이 시나리오는 칩이 많을 때의 줄바꿈·잘림을 본다. 출처 구분은 여기서 보지 않으므로 전부 user 다.
+    const keywordSets = [
+      [{ keyword: '장면', origin: 'user' }],
+      [{ keyword: '서울역', origin: 'user' }],
+      manyKeywords.map((keyword) => ({ keyword, origin: 'user' })),
+    ];
     await page.route('**/api/v1/search', (route) =>
       route.fulfill({
         status: 200,
