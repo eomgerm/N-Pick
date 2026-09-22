@@ -1,0 +1,2024 @@
+{
+  "schema": "search-gold/v1",
+  "note": "검색 회귀 정답셋 200문항 (S15P21A501-301). 활성 장면 120개를 클립당 최대 2개까지 고정 seed 로 뽑고, 각 장면의 대표 키프레임(최소 keyframe_id) 이미지 한 장만 보고 질의를 지었다. 캡션·태그·색인 토큰·검색 결과는 질의를 다 쓸 때까지 조회하지 않았다 — 캡션을 보고 지으면 캡션 검색이 이기는 순환논증이 된다. 질의 문면은 저장소에 두어도 방송 원문을 담지 않는다. 표본 재현 SQL 과 한계는 README.md 에 있다.",
+  "policy": "정답은 장면 하나다. tier 는 결과가 아니라 키프레임만 보고 정했다 — core 는 화면에 그 장면을 특정하는 글자나 뚜렷한 사물이 있는 것, hard 는 글자가 없고 시각적 구성으로만 구분되는 B-roll 이다. consistency filtering 을 걸지 않았다: 지금 검색이 못 맞히는 질의를 빼면 개선을 잴 수 없는 셋이 된다. 통과군/실패군은 이 파일이 아니라 측정 결과가 가른다(metrics.split).",
+  "labeledBy": "Claude Opus 5 (claude-opus-5[1m]). 관찰 조건: scene 별 최소 keyframe_id 의 storage_key 이미지 1장만 보고 작성. 같은 세션에서 scene.caption·caption_tokens·tag·ocr_observation·search_execution 을 조회하지 않았다. humanReviewed 는 전부 false 다 — 사람 검수 전이다.",
+  "corpusSnapshot": {
+    "asOf": "2026-09-22",
+    "activeScenes": 1029,
+    "clips": 254,
+    "activeClips": 126,
+    "scenes": 1943,
+    "keyframes": 4785,
+    "note": "activeScenes 는 clip.deleted_at IS NULL 이고 scene.pipeline_run_id = clip.active_pipeline_run_id 인 장면이다. clips 는 삭제되지 않은 전체, activeClips 는 그중 활성 결과가 있는 것이다. 코퍼스는 계속 커지므로 이 수치보다 뒤의 측정은 분모가 다르다."
+  },
+  "sampling": {
+    "seed": "S15P21A501-301",
+    "method": "md5('S15P21A501-301:' || scene_id) 오름차순. 클립당 상위 2장면, 그 뒤 전체에서 상위 120장면. setseed 를 쓰지 않아 실행 시점·플랜과 무관하게 같은 표본이 나온다.",
+    "scenes": 120,
+    "clips": 79,
+    "keyframeRule": "장면별 최소 keyframe_id 1장 (ERD 주석의 대표 키프레임 규칙)"
+  },
+  "cases": [
+    {
+      "id": "sg-001",
+      "query": "시험 감독관 명찰",
+      "sceneId": "888824124231344760",
+      "clipId": "888816911978816226",
+      "keyframe": "runs/888816911978816227/frame_extraction/a1/s0003/kf-000010800.jpg",
+      "rationale": "목에 건 '감독관' 명찰과 링으로 묶은 종이 뭉치를 든 손 클로즈업. 시험장 감독관이다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-002",
+      "query": "감독관이 수험생 명단 넘기는 손",
+      "sceneId": "888824124231344760",
+      "clipId": "888816911978816226",
+      "keyframe": "runs/888816911978816227/frame_extraction/a1/s0003/kf-000010800.jpg",
+      "rationale": "목에 건 '감독관' 명찰과 링으로 묶은 종이 뭉치를 든 손 클로즈업. 시험장 감독관이다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-003",
+      "query": "발사대에 세워진 장거리 로켓",
+      "sceneId": "888819346826814133",
+      "clipId": "888816796799034098",
+      "keyframe": "runs/888816796799034099/frame_extraction/a1/s0002/kf-000005767.jpg",
+      "rationale": "녹색 철골 발사탑에 세워진 흰색 장거리 로켓. 글자는 없다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-004",
+      "query": "로켓 발사탑 조립 장면",
+      "sceneId": "888819346826814133",
+      "clipId": "888816796799034098",
+      "keyframe": "runs/888816796799034099/frame_extraction/a1/s0002/kf-000005767.jpg",
+      "rationale": "녹색 철골 발사탑에 세워진 흰색 장거리 로켓. 글자는 없다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-005",
+      "query": "북한군 장성 정복 클로즈업",
+      "sceneId": "888820095258419966",
+      "clipId": "888816810577322737",
+      "keyframe": "runs/888816810577322738/frame_extraction/a1/s0021/kf-000056900.jpg",
+      "rationale": "북한군 정복과 계급장을 단 장성 상반신. 배경은 잎 떨어진 가을 나무.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-006",
+      "query": "김정은 기계공장 시찰",
+      "sceneId": "890074610826130035",
+      "clipId": "890074034214187643",
+      "keyframe": "runs/890074034214187644/frame_extraction/a1/s0002/kf-000004233.jpg",
+      "rationale": "자막 '北 김정은, 태성 기계공장 시찰'. 공작기계 앞에서 작업복 남성과 대화하는 김정은.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-007",
+      "query": "북한 지도자 공장 현지지도",
+      "sceneId": "890074610826130035",
+      "clipId": "890074034214187643",
+      "keyframe": "runs/890074034214187644/frame_extraction/a1/s0002/kf-000004233.jpg",
+      "rationale": "자막 '北 김정은, 태성 기계공장 시찰'. 공작기계 앞에서 작업복 남성과 대화하는 김정은.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-008",
+      "query": "교육청 깃발",
+      "sceneId": "888823156852875876",
+      "clipId": "888816886045434592",
+      "keyframe": "runs/888816886045434593/frame_extraction/a1/s0002/kf-000004838.jpg",
+      "rationale": "교육청 깃발이 펄럭이고 교권 보호 조례 항목 자막이 얹혀 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-009",
+      "query": "교권 보호 조례 자막 화면",
+      "sceneId": "888823156852875876",
+      "clipId": "888816886045434592",
+      "keyframe": "runs/888816886045434593/frame_extraction/a1/s0002/kf-000004838.jpg",
+      "rationale": "교육청 깃발이 펄럭이고 교권 보호 조례 항목 자막이 얹혀 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-010",
+      "query": "이준석 페이스북 글 그래픽",
+      "sceneId": "890065275412722405",
+      "clipId": "890064616391094965",
+      "keyframe": "runs/890064616391094966/frame_extraction/a1/s0006/kf-000023056.jpg",
+      "rationale": "이준석 국민의힘 대표 페이스북 게시글을 재현한 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-011",
+      "query": "정치인 SNS 게시글 재현 화면",
+      "sceneId": "890065275412722405",
+      "clipId": "890064616391094965",
+      "keyframe": "runs/890064616391094966/frame_extraction/a1/s0006/kf-000023056.jpg",
+      "rationale": "이준석 국민의힘 대표 페이스북 게시글을 재현한 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-012",
+      "query": "역광 도심 도로 주행",
+      "sceneId": "890077188926386790",
+      "clipId": "890076777926537969",
+      "keyframe": "runs/890076777926537970/frame_extraction/a1/s0004/kf-000009533.jpg",
+      "rationale": "역광의 해질녘 도심 간선도로를 주행하며 찍은 차량 시점. 오른쪽에 가로수, 왼쪽에 고층 건물.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-013",
+      "query": "셀프 주유소 주유하는 사람",
+      "sceneId": "889785312490197587",
+      "clipId": "889785164536124141",
+      "keyframe": "runs/889785164536124142/frame_extraction/a1/s0023/kf-000102703.jpg",
+      "rationale": "셀프 주유기 앞에 선 사람과 'EV STATION' 간판이 붙은 주유소 전경.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-014",
+      "query": "주유소 전기차 충전소",
+      "sceneId": "889785312490197587",
+      "clipId": "889785164536124141",
+      "keyframe": "runs/889785164536124142/frame_extraction/a1/s0023/kf-000102703.jpg",
+      "rationale": "셀프 주유기 앞에 선 사람과 'EV STATION' 간판이 붙은 주유소 전경.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-015",
+      "query": "야간 거리 경비 인물 사진 인서트",
+      "sceneId": "890074155115000501",
+      "clipId": "890073968422335224",
+      "keyframe": "runs/890073968422335225/frame_extraction/a1/s0000/kf-000001800.jpg",
+      "rationale": "야간 거리 차량과 경비 인력 위에 여성 인물 사진을 인서트로 얹었다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-016",
+      "query": "스키장 스노보드 선수 인터뷰",
+      "sceneId": "888837196991914570",
+      "clipId": "888817280838492923",
+      "keyframe": "runs/888817280838492924/frame_extraction/a1/s0003/kf-000012933.jpg",
+      "rationale": "눈 덮인 스키 슬로프에서 스노보드를 세워 들고 선수와 마주 선 취재진. 뒤로 FILA 광고판.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-017",
+      "query": "눈 쌓인 슬로프 취재 현장",
+      "sceneId": "888837196991914570",
+      "clipId": "888817280838492923",
+      "keyframe": "runs/888817280838492924/frame_extraction/a1/s0003/kf-000012933.jpg",
+      "rationale": "눈 덮인 스키 슬로프에서 스노보드를 세워 들고 선수와 마주 선 취재진. 뒤로 FILA 광고판.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-018",
+      "query": "집회 시위 제재 강화 그래픽",
+      "sceneId": "890064799048839838",
+      "clipId": "890064072698298998",
+      "keyframe": "runs/890064072702493427/frame_extraction/a1/s0008/kf-000024258.jpg",
+      "rationale": "'집회·시위 요건 및 제재 강화에 대한 의견을 들려주세요' 대통령실 의견수렴 카드 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-019",
+      "query": "대통령실 국민 의견 수렴 카드",
+      "sceneId": "890064799048839838",
+      "clipId": "890064072698298998",
+      "keyframe": "runs/890064072702493427/frame_extraction/a1/s0008/kf-000024258.jpg",
+      "rationale": "'집회·시위 요건 및 제재 강화에 대한 의견을 들려주세요' 대통령실 의견수렴 카드 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-020",
+      "query": "마스크 쓰고 청사 들어서는 사람들",
+      "sceneId": "889783420372554474",
+      "clipId": "889782475911762685",
+      "keyframe": "runs/889782475911762686/frame_extraction/a1/s0001/kf-000011712.jpg",
+      "rationale": "마스크를 쓴 남녀 세 명이 겨울 나무 사이 청사 입구로 걸어 들어온다. 글자 없음.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-021",
+      "query": "겨울 법원 앞 출석 장면",
+      "sceneId": "889783420372554474",
+      "clipId": "889782475911762685",
+      "keyframe": "runs/889782475911762686/frame_extraction/a1/s0001/kf-000011712.jpg",
+      "rationale": "마스크를 쓴 남녀 세 명이 겨울 나무 사이 청사 입구로 걸어 들어온다. 글자 없음.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-022",
+      "query": "야간 로켓 발사 화염",
+      "sceneId": "890074439832744701",
+      "clipId": "890074006779245307",
+      "keyframe": "runs/890074006779245308/frame_extraction/a1/s0011/kf-000040900.jpg",
+      "rationale": "칠흑 같은 밤 발사대에서 화염을 뿜으며 솟아오르는 로켓.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-023",
+      "query": "반도체 클린룸 방진복 작업자",
+      "sceneId": "889761545234604752",
+      "clipId": "889761316292715182",
+      "keyframe": "runs/889761316292715183/frame_extraction/a1/s0025/kf-000087154.jpg",
+      "rationale": "방진복을 입은 작업자들이 늘어선 반도체 클린룸 생산라인.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-024",
+      "query": "주택가 골목 과속방지턱",
+      "sceneId": "888834774991069881",
+      "clipId": "888817215134720635",
+      "keyframe": "runs/888817215134720636/frame_extraction/a1/s0001/kf-000004800.jpg",
+      "rationale": "주택가 언덕 골목, 노랑·검정 줄무늬 과속방지턱 위에 선 남성(얼굴 모자이크). 오른쪽 아래 수어통역 원.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-025",
+      "query": "언덕 골목길에 선 사람",
+      "sceneId": "888834774991069881",
+      "clipId": "888817215134720635",
+      "keyframe": "runs/888817215134720636/frame_extraction/a1/s0001/kf-000004800.jpg",
+      "rationale": "주택가 언덕 골목, 노랑·검정 줄무늬 과속방지턱 위에 선 남성(얼굴 모자이크). 오른쪽 아래 수어통역 원.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-026",
+      "query": "마스크 쓴 정치인들 줄지어 걸어나오는 장면",
+      "sceneId": "890065157041074932",
+      "clipId": "890064601190937197",
+      "keyframe": "runs/890064601190937198/frame_extraction/a1/s0000/kf-000001735.jpg",
+      "rationale": "마스크를 쓴 정장 차림 인사 수십 명이 줄지어 걸어 나온다. 뒤로 붉은 문과 소나무.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-027",
+      "query": "일본 추모 집회 참가자 인터뷰",
+      "sceneId": "888822064664502942",
+      "clipId": "888816852952376013",
+      "keyframe": "runs/888816852952376014/frame_extraction/a1/s0005/kf-000017417.jpg",
+      "rationale": "야외 추모 집회에서 모자와 마스크를 쓴 노인 인터뷰. 자막에 '오가와 데쓰오 추모객'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-028",
+      "query": "항만 컨테이너 야적장 항공 촬영",
+      "sceneId": "889761545209438934",
+      "clipId": "889761316292715182",
+      "keyframe": "runs/889761316292715183/frame_extraction/a1/s0002/kf-000030664.jpg",
+      "rationale": "컨테이너가 빼곡한 항만 야적장을 위에서 내려다본 항공 화면. 자막 '올해 경제 성장률 3.8% 전망'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-029",
+      "query": "신도시 항공 전경",
+      "sceneId": "888818247977886418",
+      "clipId": "888816750246454011",
+      "keyframe": "runs/888816750246454012/frame_extraction/a1/s0004/kf-000012045.jpg",
+      "rationale": "하천과 다리를 낀 신도시 전경 항공. 마름모 외벽의 대형 복합건물이 가운데 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-030",
+      "query": "들판에서 드론 날리는 장면",
+      "sceneId": "890082932744696409",
+      "clipId": "890082599125561960",
+      "keyframe": "runs/890082599125561961/frame_extraction/a1/s0005/kf-000019367.jpg",
+      "rationale": "풀이 우거진 들판 흙길에서 조종기를 쥔 팔과 하늘에 떠 있는 드론.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-031",
+      "query": "빈 사무실 칸막이 자리",
+      "sceneId": "888833578544882337",
+      "clipId": "888817176807170682",
+      "keyframe": "runs/888817176807170683/frame_extraction/a1/s0001/kf-000006506.jpg",
+      "rationale": "사람이 없는 사무실. 파티션 칸막이와 검은 의자만 줄지어 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-032",
+      "query": "국회 복도 걸어가는 의원들",
+      "sceneId": "888841163826225905",
+      "clipId": "888817562020438682",
+      "keyframe": "runs/888817562020438683/frame_extraction/a1/s0009/kf-000055822.jpg",
+      "rationale": "국회 본청 복도를 마스크 쓴 정장 차림 일행이 걸어온다. 뒤쪽 벽에 정당 사무실 표지.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-033",
+      "query": "경기장 관중석 앞 시민 인터뷰",
+      "sceneId": "890066505958601370",
+      "clipId": "890064811841467127",
+      "keyframe": "runs/890064811841467128/frame_extraction/a1/s0007/kf-000018167.jpg",
+      "rationale": "헌팅캡과 머플러 차림 중년 남성이 KBS 마이크 앞에서 인터뷰. 뒤로 육상 트랙과 관중석, 행사 깃발.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-034",
+      "query": "청사 민원실 지나가는 정장 남성들",
+      "sceneId": "890065031836906129",
+      "clipId": "890064584422109873",
+      "keyframe": "runs/890064584422109874/frame_extraction/a1/s0002/kf-000006139.jpg",
+      "rationale": "마스크 쓴 정장 남성들이 '민원안내·지원' 안내판이 붙은 청사 로비를 걸어 나온다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-035",
+      "query": "일본 내각 회의 오염수 방류 결정",
+      "sceneId": "890074233204552439",
+      "clipId": "890073976668336760",
+      "keyframe": "runs/890073976668336761/frame_extraction/a1/s0002/kf-000007674.jpg",
+      "rationale": "ㄷ자로 놓인 흰 테이블의 일본 내각 회의장. 자막 '스가 총리 내각 결정 2년 4개월 만에 방류'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-036",
+      "query": "ㄷ자 테이블 각료회의 장면",
+      "sceneId": "890074233204552439",
+      "clipId": "890073976668336760",
+      "keyframe": "runs/890073976668336761/frame_extraction/a1/s0002/kf-000007674.jpg",
+      "rationale": "ㄷ자로 놓인 흰 테이블의 일본 내각 회의장. 자막 '스가 총리 내각 결정 2년 4개월 만에 방류'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-037",
+      "query": "국회 회의실 원고 읽는 의원",
+      "sceneId": "888819323082859196",
+      "clipId": "888816784975291082",
+      "keyframe": "runs/888816784975291083/frame_extraction/a1/s0003/kf-000013547.jpg",
+      "rationale": "국회 회의실에서 원고를 읽는 중년 남성. 맞은편에 노트북을 편 취재진과 사진기자.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-038",
+      "query": "태풍 방파제 높은 파도",
+      "sceneId": "890077311039353602",
+      "clipId": "890076790865965811",
+      "keyframe": "runs/890076790865965812/frame_extraction/a1/s0008/kf-000021333.jpg",
+      "rationale": "테트라포드 방파제를 넘어 하얗게 부서지는 큰 파도. 자막 '태풍 영향 큰비 온다'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-039",
+      "query": "테트라포드 넘는 파도",
+      "sceneId": "890077311039353602",
+      "clipId": "890076790865965811",
+      "keyframe": "runs/890076790865965812/frame_extraction/a1/s0008/kf-000021333.jpg",
+      "rationale": "테트라포드 방파제를 넘어 하얗게 부서지는 큰 파도. 자막 '태풍 영향 큰비 온다'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-040",
+      "query": "AR 헤드셋 착용 체험",
+      "sceneId": "890083018874729079",
+      "clipId": "890082610085278317",
+      "keyframe": "runs/890082610085278318/frame_extraction/a1/s0001/kf-000004867.jpg",
+      "rationale": "머리에 투명 디스플레이가 달린 AR 헤드셋을 쓴 여성. 흰 배경에 수어통역 원.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-041",
+      "query": "투자 사기 정산 엑셀 화면",
+      "sceneId": "888830592938631808",
+      "clipId": "888817096083595988",
+      "keyframe": "runs/888817096083595989/frame_extraction/a1/s0000/kf-000001702.jpg",
+      "rationale": "사무실 모니터에 엑셀 정산표가 띄워져 있고 손이 화면을 가리킨다. 자막 '130억대 투자 사기'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-042",
+      "query": "모니터 엑셀 장부 가리키는 손",
+      "sceneId": "888830592938631808",
+      "clipId": "888817096083595988",
+      "keyframe": "runs/888817096083595989/frame_extraction/a1/s0000/kf-000001702.jpg",
+      "rationale": "사무실 모니터에 엑셀 정산표가 띄워져 있고 손이 화면을 가리킨다. 자막 '130억대 투자 사기'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-043",
+      "query": "경찰 간부 기자회견",
+      "sceneId": "890064139920409195",
+      "clipId": "890064019271254714",
+      "keyframe": "runs/890064019271254715/frame_extraction/a1/s0009/kf-000025826.jpg",
+      "rationale": "경찰 정복에 약장을 단 간부가 파란 배경 앞 마이크 여러 대를 두고 앉아 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-044",
+      "query": "떡 먹는 입 클로즈업",
+      "sceneId": "890083177817879286",
+      "clipId": "890082642683409144",
+      "keyframe": "runs/890082642683409145/frame_extraction/a1/s0006/kf-000019533.jpg",
+      "rationale": "여성이 손으로 흰 떡 같은 음식을 입에 넣는 클로즈업.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-045",
+      "query": "노트북 화면 AI 면접 프로그램",
+      "sceneId": "888835267091981052",
+      "clipId": "888817231005967073",
+      "keyframe": "runs/888817231005967074/frame_extraction/a1/s0018/kf-000054600.jpg",
+      "rationale": "노트북 화면에 '제시되는 상황을 읽고, 실제 대화하는 것처럼 답변해주세요' 안내가 뜬 AI 면접 데모.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-046",
+      "query": "반미 샌드위치 클로즈업",
+      "sceneId": "888827838119764669",
+      "clipId": "888816995990725351",
+      "keyframe": "runs/888816995990725352/frame_extraction/a1/s0001/kf-000004633.jpg",
+      "rationale": "나무 상판 위 종이에 담긴 반미 바게트 샌드위치와 소스 종지.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-047",
+      "query": "대통령실 관계자 익명 인용 그래픽",
+      "sceneId": "890065460385723002",
+      "clipId": "890064635596812954",
+      "keyframe": "runs/890064635596812955/frame_extraction/a1/s0002/kf-000011078.jpg",
+      "rationale": "대통령실 로고와 실루엣 위에 '국정조사 하기도 전에 장관부터 자르라는 건 정치 도의 아냐' 인용 그래픽. 하단 '대통령실 고위 관계자'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-048",
+      "query": "실루엣 익명 발언 자막 화면",
+      "sceneId": "890065460385723002",
+      "clipId": "890064635596812954",
+      "keyframe": "runs/890064635596812955/frame_extraction/a1/s0002/kf-000011078.jpg",
+      "rationale": "대통령실 로고와 실루엣 위에 '국정조사 하기도 전에 장관부터 자르라는 건 정치 도의 아냐' 인용 그래픽. 하단 '대통령실 고위 관계자'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-049",
+      "query": "여객선 승선 줄 선 승객들",
+      "sceneId": "889783714925941421",
+      "clipId": "889783329632981758",
+      "keyframe": "runs/889783329632981759/frame_extraction/a1/s0031/kf-000125759.jpg",
+      "rationale": "여객선 승선장에서 짐을 든 사람들이 줄 서 있고 '덕적도행' 안내 팻말이 서 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-050",
+      "query": "섬 가는 배 타는 사람들",
+      "sceneId": "889783714925941421",
+      "clipId": "889783329632981758",
+      "keyframe": "runs/889783329632981759/frame_extraction/a1/s0031/kf-000125759.jpg",
+      "rationale": "여객선 승선장에서 짐을 든 사람들이 줄 서 있고 '덕적도행' 안내 팻말이 서 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-051",
+      "query": "CCTV 화면 차량 원형 강조",
+      "sceneId": "888831551953658613",
+      "clipId": "888817131982643948",
+      "keyframe": "runs/888817131986838177/frame_extraction/a1/s0017/kf-000061800.jpg",
+      "rationale": "거친 CCTV 화면. 흰 차 뒤쪽에 원형 강조 표시와 붉은 불빛.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-052",
+      "query": "아파트 공사 현장 옆 도로",
+      "sceneId": "888830310691332856",
+      "clipId": "888817058397774582",
+      "keyframe": "runs/888817058397774583/frame_extraction/a1/s0002/kf-000008800.jpg",
+      "rationale": "공사용 가림막이 둘러진 LH 아파트 건설 현장 옆 도로를 차들이 지난다. 신호등은 주황불.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-053",
+      "query": "뮤지컬 배우 무대 인사",
+      "sceneId": "888826716160221923",
+      "clipId": "888816972083192574",
+      "keyframe": "runs/888816972083192575/frame_extraction/a1/s0006/kf-000042976.jpg",
+      "rationale": "무대 위 반짝이 의상 배우가 마이크로 말하고 있다. 자막 '이예은 뮤지컬 시스터즈 배우'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-054",
+      "query": "영어 교재에 필기한 학생",
+      "sceneId": "890077788363731579",
+      "clipId": "890077265191416535",
+      "keyframe": "runs/890077265191416536/frame_extraction/a1/s0001/kf-000003067.jpg",
+      "rationale": "학생이 영어 교재 위에 형광펜과 한글 필기를 빼곡히 적어 놓았다. 머리카락이 화면 왼쪽을 가린다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-055",
+      "query": "형광펜으로 표시한 문제집",
+      "sceneId": "890077788363731579",
+      "clipId": "890077265191416535",
+      "keyframe": "runs/890077265191416536/frame_extraction/a1/s0001/kf-000003067.jpg",
+      "rationale": "학생이 영어 교재 위에 형광펜과 한글 필기를 빼곡히 적어 놓았다. 머리카락이 화면 왼쪽을 가린다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-056",
+      "query": "형광 조끼 입은 경찰 뒷모습",
+      "sceneId": "890082597078741622",
+      "clipId": "890082555731292887",
+      "keyframe": "runs/890082555731292888/frame_extraction/a1/s0002/kf-000010143.jpg",
+      "rationale": "'경찰 POLICE' 형광 조끼를 입은 경찰관 두 명의 뒷모습. 광장 건너편에 경찰 버스.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-057",
+      "query": "광장 경비 근무 경찰관",
+      "sceneId": "890082597078741622",
+      "clipId": "890082555731292887",
+      "keyframe": "runs/890082555731292888/frame_extraction/a1/s0002/kf-000010143.jpg",
+      "rationale": "'경찰 POLICE' 형광 조끼를 입은 경찰관 두 명의 뒷모습. 광장 건너편에 경찰 버스.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-058",
+      "query": "북한 군 간부들이 수첩에 받아적는 장면",
+      "sceneId": "890073957609419505",
+      "clipId": "890073936583373555",
+      "keyframe": "runs/890073936583373556/frame_extraction/a1/s0004/kf-000012500.jpg",
+      "rationale": "군복 간부들이 수첩에 받아적는 북한 실내 현지지도 화면 위에 정장 남성 인터뷰를 인서트로 얹었다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-059",
+      "query": "전문가 인터뷰 인서트 북한 화면",
+      "sceneId": "890073957609419505",
+      "clipId": "890073936583373555",
+      "keyframe": "runs/890073936583373556/frame_extraction/a1/s0004/kf-000012500.jpg",
+      "rationale": "군복 간부들이 수첩에 받아적는 북한 실내 현지지도 화면 위에 정장 남성 인터뷰를 인서트로 얹었다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-060",
+      "query": "머리카락 수건으로 말리는 클로즈업",
+      "sceneId": "888826096581829283",
+      "clipId": "888816947194192548",
+      "keyframe": "runs/888816947194192549/frame_extraction/a1/s0003/kf-000008133.jpg",
+      "rationale": "긴 머리카락 끝을 흰 수건으로 닦는 초근접 촬영.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-061",
+      "query": "북한 군 간부들 야외 수행",
+      "sceneId": "888820095262614242",
+      "clipId": "888816810577322737",
+      "keyframe": "runs/888816810577322738/frame_extraction/a1/s0024/kf-000064433.jpg",
+      "rationale": "낡은 화질의 북한 야외 화면. 군복 차림 간부들이 콘크리트 마당에서 한 인물을 둘러싸고 걷는다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-062",
+      "query": "오래된 화질 북한 현지지도",
+      "sceneId": "888820095262614242",
+      "clipId": "888816810577322737",
+      "keyframe": "runs/888816810577322738/frame_extraction/a1/s0024/kf-000064433.jpg",
+      "rationale": "낡은 화질의 북한 야외 화면. 군복 차림 간부들이 콘크리트 마당에서 한 인물을 둘러싸고 걷는다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-063",
+      "query": "공항 출국장 취재진에 둘러싸인 인물",
+      "sceneId": "890066219676381911",
+      "clipId": "890064760473825922",
+      "keyframe": "runs/890064760473825923/frame_extraction/a1/s0002/kf-000004933.jpg",
+      "rationale": "공항 출국장에서 취재진이 한 인물을 둘러싸고 카메라를 들이댄다. 여행 가방과 인파.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-064",
+      "query": "밤에 하늘 불빛 올려다보는 뒷모습",
+      "sceneId": "890074690736009981",
+      "clipId": "890074043458433787",
+      "keyframe": "runs/890074043458433788/frame_extraction/a1/s0002/kf-000005233.jpg",
+      "rationale": "칠흑 같은 밤, 하늘의 불빛을 올려다보는 남성의 뒷모습.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-065",
+      "query": "야간 발사 참관 장면",
+      "sceneId": "890074690736009981",
+      "clipId": "890074043458433787",
+      "keyframe": "runs/890074043458433788/frame_extraction/a1/s0002/kf-000005233.jpg",
+      "rationale": "칠흑 같은 밤, 하늘의 불빛을 올려다보는 남성의 뒷모습.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-066",
+      "query": "청와대 수석비서관 회의 발언",
+      "sceneId": "890065031836906130",
+      "clipId": "890064584422109873",
+      "keyframe": "runs/890064584422109874/frame_extraction/a1/s0003/kf-000008542.jpg",
+      "rationale": "청와대 회의실 태극기·봉황기 앞에서 발언하는 남성. 자막 '우병우 전 수석 주요 혐의 / 국정농단 방조'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-067",
+      "query": "국정농단 방조 혐의 자막 화면",
+      "sceneId": "890065031836906130",
+      "clipId": "890064584422109873",
+      "keyframe": "runs/890064584422109874/frame_extraction/a1/s0003/kf-000008542.jpg",
+      "rationale": "청와대 회의실 태극기·봉황기 앞에서 발언하는 남성. 자막 '우병우 전 수석 주요 혐의 / 국정농단 방조'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-068",
+      "query": "태블릿으로 증강현실 체험",
+      "sceneId": "890083018878923516",
+      "clipId": "890082610085278317",
+      "keyframe": "runs/890082610085278318/frame_extraction/a1/s0005/kf-000013633.jpg",
+      "rationale": "바다·모래사장 전시 배경 앞에서 태블릿을 들고 증강현실 화면을 보는 관람객.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-069",
+      "query": "전시장에서 태블릿 들고 보는 관람객",
+      "sceneId": "890083018878923516",
+      "clipId": "890082610085278317",
+      "keyframe": "runs/890082610085278318/frame_extraction/a1/s0005/kf-000013633.jpg",
+      "rationale": "바다·모래사장 전시 배경 앞에서 태블릿을 들고 증강현실 화면을 보는 관람객.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-070",
+      "query": "폭염 속 양산 쓰고 횡단보도 건너는 시민",
+      "sceneId": "890077188938969697",
+      "clipId": "890076777926537969",
+      "keyframe": "runs/890076777926537970/frame_extraction/a1/s0012/kf-000025900.jpg",
+      "rationale": "고층 빌딩 사이 넓은 횡단보도를 양산 쓴 사람들이 건넌다. 햇빛이 강하다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-071",
+      "query": "도심 대형 횡단보도 인파",
+      "sceneId": "890077188938969697",
+      "clipId": "890076777926537969",
+      "keyframe": "runs/890076777926537970/frame_extraction/a1/s0012/kf-000025900.jpg",
+      "rationale": "고층 빌딩 사이 넓은 횡단보도를 양산 쓴 사람들이 건넌다. 햇빛이 강하다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-072",
+      "query": "북한 공장 구호 현수막 앞 지시하는 김정은",
+      "sceneId": "890074610826130034",
+      "clipId": "890074034214187643",
+      "keyframe": "runs/890074034214187644/frame_extraction/a1/s0001/kf-000003500.jpg",
+      "rationale": "김정은이 손을 뻗어 지시하고 뒤 벽에 녹색 구호 현수막이 걸린 공장 내부. 자막은 태성 기계공장 시찰.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-073",
+      "query": "공장 내부 붉은 글씨 구호 현수막",
+      "sceneId": "890074610826130034",
+      "clipId": "890074034214187643",
+      "keyframe": "runs/890074034214187644/frame_extraction/a1/s0001/kf-000003500.jpg",
+      "rationale": "김정은이 손을 뻗어 지시하고 뒤 벽에 녹색 구호 현수막이 걸린 공장 내부. 자막은 태성 기계공장 시찰.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-074",
+      "query": "추석 귀성길 예보 앵커 멘트",
+      "sceneId": "889785136635613867",
+      "clipId": "889785069681939197",
+      "keyframe": "runs/889785069681939198/frame_extraction/a1/s0000/kf-000002736.jpg",
+      "rationale": "야경 그래픽 배경의 뉴스 스튜디오 앵커. 자막 '올해 추석 24일 오전·25일 오후 가장…'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-075",
+      "query": "뉴스 스튜디오 야경 배경 앵커",
+      "sceneId": "889785136635613867",
+      "clipId": "889785069681939197",
+      "keyframe": "runs/889785069681939198/frame_extraction/a1/s0000/kf-000002736.jpg",
+      "rationale": "야경 그래픽 배경의 뉴스 스튜디오 앵커. 자막 '올해 추석 24일 오전·25일 오후 가장…'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-076",
+      "query": "묘지에서 서류 주고받는 사람들",
+      "sceneId": "890077942235968185",
+      "clipId": "890077305993605874",
+      "keyframe": "runs/890077305993605875/frame_extraction/a1/s0006/kf-000014333.jpg",
+      "rationale": "낙엽 깔린 묘역에서 검은 코트 차림과 빨간 야구잠바 차림이 서류 뭉치를 주고받는다. 얼굴은 안 보인다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-077",
+      "query": "낙엽 쌓인 묘역 앞 사람들",
+      "sceneId": "890077942235968185",
+      "clipId": "890077305993605874",
+      "keyframe": "runs/890077305993605875/frame_extraction/a1/s0006/kf-000014333.jpg",
+      "rationale": "낙엽 깔린 묘역에서 검은 코트 차림과 빨간 야구잠바 차림이 서류 뭉치를 주고받는다. 얼굴은 안 보인다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-078",
+      "query": "김정은 단상 연설",
+      "sceneId": "890074531230823167",
+      "clipId": "890074023699067647",
+      "keyframe": "runs/890074023699067648/frame_extraction/a1/s0011/kf-000037367.jpg",
+      "rationale": "김일성·김정일 초상화 아래 단상에서 연설하는 김정은. 자막 '반미 전면 대결전 총결산해야'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-079",
+      "query": "봉황기 앞 마이크 앞에 앉은 대통령",
+      "sceneId": "888817522874999516",
+      "clipId": "888816726032737023",
+      "keyframe": "runs/888816726032737024/frame_extraction/a1/s0003/kf-000014248.jpg",
+      "rationale": "마스크를 쓴 백발 남성이 봉황기 앞에서 원고를 내려다보며 마이크 앞에 앉아 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-080",
+      "query": "마스크 쓰고 회의 주재하는 모습",
+      "sceneId": "888817522874999516",
+      "clipId": "888816726032737023",
+      "keyframe": "runs/888816726032737024/frame_extraction/a1/s0003/kf-000014248.jpg",
+      "rationale": "마스크를 쓴 백발 남성이 봉황기 앞에서 원고를 내려다보며 마이크 앞에 앉아 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-081",
+      "query": "관공서 앞 기자 현장 리포트",
+      "sceneId": "888818962221720318",
+      "clipId": "888816771012452978",
+      "keyframe": "runs/888816771012452979/frame_extraction/a1/s0004/kf-000030097.jpg",
+      "rationale": "KBS 마이크를 든 기자가 금빛 문양이 달린 관공서 건물 앞에서 현장 리포트를 한다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-082",
+      "query": "정부청사 앞 스탠드업",
+      "sceneId": "888818962221720318",
+      "clipId": "888816771012452978",
+      "keyframe": "runs/888816771012452979/frame_extraction/a1/s0004/kf-000030097.jpg",
+      "rationale": "KBS 마이크를 든 기자가 금빛 문양이 달린 관공서 건물 앞에서 현장 리포트를 한다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-083",
+      "query": "공항에서 캐리어 끌고 가는 정장 남성",
+      "sceneId": "890066219672187614",
+      "clipId": "890064760473825922",
+      "keyframe": "runs/890064760473825923/frame_extraction/a1/s0000/kf-000001167.jpg",
+      "rationale": "공항 출국장에서 정장 차림 남성들이 은색 캐리어를 끌고 걸어온다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-084",
+      "query": "출국장 이동하는 일행",
+      "sceneId": "890066219672187614",
+      "clipId": "890064760473825922",
+      "keyframe": "runs/890064760473825923/frame_extraction/a1/s0000/kf-000001167.jpg",
+      "rationale": "공항 출국장에서 정장 차림 남성들이 은색 캐리어를 끌고 걸어온다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-085",
+      "query": "행사 부스에서 기념품 살펴보는 사람들",
+      "sceneId": "890064931005838055",
+      "clipId": "890064155833598649",
+      "keyframe": "runs/890064155833598650/frame_extraction/a1/s0004/kf-000016633.jpg",
+      "rationale": "주황색 컨테이너 부스 안에서 자원봉사 카드를 목에 건 여성과 방문객이 범고래 인형 굿즈를 살펴본다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-086",
+      "query": "자원봉사자 있는 컨테이너 부스",
+      "sceneId": "890064931005838055",
+      "clipId": "890064155833598649",
+      "keyframe": "runs/890064155833598650/frame_extraction/a1/s0004/kf-000016633.jpg",
+      "rationale": "주황색 컨테이너 부스 안에서 자원봉사 카드를 목에 건 여성과 방문객이 범고래 인형 굿즈를 살펴본다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-087",
+      "query": "야외 천막 추모식 인파",
+      "sceneId": "888822064660308645",
+      "clipId": "888816852952376013",
+      "keyframe": "runs/888816852952376014/frame_extraction/a1/s0001/kf-000005472.jpg",
+      "rationale": "흰 천막 아래 양산과 모자를 쓴 인파가 모인 야외 추모식. 자막 '서정민 민단 도쿄본부 부단장'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-088",
+      "query": "일본 한인 추모 행사 현장",
+      "sceneId": "888822064660308645",
+      "clipId": "888816852952376013",
+      "keyframe": "runs/888816852952376014/frame_extraction/a1/s0001/kf-000005472.jpg",
+      "rationale": "흰 천막 아래 양산과 모자를 쓴 인파가 모인 야외 추모식. 자막 '서정민 민단 도쿄본부 부단장'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-089",
+      "query": "노트북 앞에 앉은 교복 학생",
+      "sceneId": "888835267091981053",
+      "clipId": "888817231005967073",
+      "keyframe": "runs/888817231005967074/frame_extraction/a1/s0019/kf-000056800.jpg",
+      "rationale": "교복 차림 학생이 노트북 화면을 보며 웃고 있다. 흰 배경.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-090",
+      "query": "학생이 화상 면접 보는 장면",
+      "sceneId": "888835267091981053",
+      "clipId": "888817231005967073",
+      "keyframe": "runs/888817231005967074/frame_extraction/a1/s0019/kf-000056800.jpg",
+      "rationale": "교복 차림 학생이 노트북 화면을 보며 웃고 있다. 흰 배경.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-091",
+      "query": "대통령실 홍보수석 브리핑 인용 그래픽",
+      "sceneId": "889700377079349977",
+      "clipId": "889700336419767038",
+      "keyframe": "runs/889700336419767039/frame_extraction/a1/s0002/kf-000010444.jpg",
+      "rationale": "대통령실 브리핑 인용 그래픽. '바이든 美 대통령 친서' 인용문과 하단 '김은혜 대통령실 홍보수석'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-092",
+      "query": "미국 대통령 친서 내용 자막",
+      "sceneId": "889700377079349977",
+      "clipId": "889700336419767038",
+      "keyframe": "runs/889700336419767039/frame_extraction/a1/s0002/kf-000010444.jpg",
+      "rationale": "대통령실 브리핑 인용 그래픽. '바이든 美 대통령 친서' 인용문과 하단 '김은혜 대통령실 홍보수석'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-093",
+      "query": "후쿠시마 원전 파손 건물",
+      "sceneId": "890074233204552438",
+      "clipId": "890073976668336760",
+      "keyframe": "runs/890073976668336761/frame_extraction/a1/s0001/kf-000004972.jpg",
+      "rationale": "철골이 앙상하게 드러난 파손된 원전 건물. 자막 '스가 총리 내각 결정 2년 4개월 만에 방류'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-094",
+      "query": "폭발로 무너진 원전 외벽",
+      "sceneId": "890074233204552438",
+      "clipId": "890073976668336760",
+      "keyframe": "runs/890073976668336761/frame_extraction/a1/s0001/kf-000004972.jpg",
+      "rationale": "철골이 앙상하게 드러난 파손된 원전 건물. 자막 '스가 총리 내각 결정 2년 4개월 만에 방류'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-095",
+      "query": "북한 지도자 공원 현지지도",
+      "sceneId": "890074392084787920",
+      "clipId": "890073997224620744",
+      "keyframe": "runs/890073997224620745/frame_extraction/a1/s0001/kf-000005333.jpg",
+      "rationale": "뒷짐 진 정장 남성이 군복 수행원들과 조성 중인 공원 옆 길을 걷는다. 뒤로 짓다 만 아파트.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-096",
+      "query": "공사 중 아파트 앞 걷는 일행",
+      "sceneId": "890074392084787920",
+      "clipId": "890073997224620744",
+      "keyframe": "runs/890073997224620745/frame_extraction/a1/s0001/kf-000005333.jpg",
+      "rationale": "뒷짐 진 정장 남성이 군복 수행원들과 조성 중인 공원 옆 길을 걷는다. 뒤로 짓다 만 아파트.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-097",
+      "query": "태풍에 쓰러진 신호등",
+      "sceneId": "888839312481411819",
+      "clipId": "888817344432529971",
+      "keyframe": "runs/888817344432529972/frame_extraction/a1/s0006/kf-000023400.jpg",
+      "rationale": "강풍에 신호등 기둥이 꺾여 주택 담장 쪽으로 넘어져 있다. 비바람이 세다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-098",
+      "query": "강풍 피해 주택가 도로",
+      "sceneId": "888839312481411819",
+      "clipId": "888817344432529971",
+      "keyframe": "runs/888817344432529972/frame_extraction/a1/s0006/kf-000023400.jpg",
+      "rationale": "강풍에 신호등 기둥이 꺾여 주택 담장 쪽으로 넘어져 있다. 비바람이 세다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-099",
+      "query": "폭우 속 주행 차량",
+      "sceneId": "888839312477217530",
+      "clipId": "888817344432529971",
+      "keyframe": "runs/888817344432529972/frame_extraction/a1/s0003/kf-000014933.jpg",
+      "rationale": "물보라가 자욱한 폭우 속 도로. 트럭과 승합차가 전조등을 켜고 달린다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-100",
+      "query": "물보라 이는 빗길 도로",
+      "sceneId": "888839312477217530",
+      "clipId": "888817344432529971",
+      "keyframe": "runs/888817344432529972/frame_extraction/a1/s0003/kf-000014933.jpg",
+      "rationale": "물보라가 자욱한 폭우 속 도로. 트럭과 승합차가 전조등을 켜고 달린다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-101",
+      "query": "지하철 광고 모니터 화면",
+      "sceneId": "888832397823140456",
+      "clipId": "888817151024784126",
+      "keyframe": "runs/888817151024784127/frame_extraction/a1/s0012/kf-000034700.jpg",
+      "rationale": "지하철 역사 광고 모니터에 곤충 전시 어린이 광고가 나오고 하단에 광고문의 전화번호가 흐른다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-102",
+      "query": "역사 디지털 사이니지 광고",
+      "sceneId": "888832397823140456",
+      "clipId": "888817151024784126",
+      "keyframe": "runs/888817151024784127/frame_extraction/a1/s0012/kf-000034700.jpg",
+      "rationale": "지하철 역사 광고 모니터에 곤충 전시 어린이 광고가 나오고 하단에 광고문의 전화번호가 흐른다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-103",
+      "query": "수석 보좌관 회의 전경",
+      "sceneId": "889695707700052734",
+      "clipId": "889695653836800762",
+      "keyframe": "runs/889695653836800763/frame_extraction/a1/s0007/kf-000036303.jpg",
+      "rationale": "넓은 회의장 전경, 벽 모니터에 '수석·보좌관 회의' 표시. 취재 카메라가 둘러싸고 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-104",
+      "query": "청와대 회의장 넓은 화면",
+      "sceneId": "889695707700052734",
+      "clipId": "889695653836800762",
+      "keyframe": "runs/889695653836800763/frame_extraction/a1/s0007/kf-000036303.jpg",
+      "rationale": "넓은 회의장 전경, 벽 모니터에 '수석·보좌관 회의' 표시. 취재 카메라가 둘러싸고 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-105",
+      "query": "우산 쓰고 걸어가는 학생",
+      "sceneId": "888840041371755220",
+      "clipId": "888817362702918357",
+      "keyframe": "runs/888817362702918358/frame_extraction/a1/s0009/kf-000060867.jpg",
+      "rationale": "체크무늬 우산을 쓴 학생이 비 내리는 골목을 걸어간다. 뒤로 빨간 우산과 승합차.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-106",
+      "query": "비 오는 골목 보행자",
+      "sceneId": "888840041371755220",
+      "clipId": "888817362702918357",
+      "keyframe": "runs/888817362702918358/frame_extraction/a1/s0009/kf-000060867.jpg",
+      "rationale": "체크무늬 우산을 쓴 학생이 비 내리는 골목을 걸어간다. 뒤로 빨간 우산과 승합차.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-107",
+      "query": "뮤지컬 커튼콜 출연진 인사",
+      "sceneId": "888826716164416230",
+      "clipId": "888816972083192574",
+      "keyframe": "runs/888816972083192575/frame_extraction/a1/s0007/kf-000044444.jpg",
+      "rationale": "금빛 커튼 무대 위에 출연진이 일렬로 서서 커튼콜을 한다. 자막은 뮤지컬 '시스터즈'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-108",
+      "query": "무대 전체 커튼콜 장면",
+      "sceneId": "888826716164416230",
+      "clipId": "888816972083192574",
+      "keyframe": "runs/888816972083192575/frame_extraction/a1/s0007/kf-000044444.jpg",
+      "rationale": "금빛 커튼 무대 위에 출연진이 일렬로 서서 커튼콜을 한다. 자막은 뮤지컬 '시스터즈'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-109",
+      "query": "실험실 흰 가운 연구원",
+      "sceneId": "890074087154692688",
+      "clipId": "890073957068354296",
+      "keyframe": "runs/890073957068354297/frame_extraction/a1/s0010/kf-000035867.jpg",
+      "rationale": "흰 가운을 입은 연구원 두 명이 기자재가 빼곡한 실험실에서 작업한다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-110",
+      "query": "연구소 실험대 작업 장면",
+      "sceneId": "890074087154692688",
+      "clipId": "890073957068354296",
+      "keyframe": "runs/890073957068354297/frame_extraction/a1/s0010/kf-000035867.jpg",
+      "rationale": "흰 가운을 입은 연구원 두 명이 기자재가 빼곡한 실험실에서 작업한다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-111",
+      "query": "교육청 청사 외관",
+      "sceneId": "888823156848681724",
+      "clipId": "888816886045434592",
+      "keyframe": "runs/888816886045434593/frame_extraction/a1/s0000/kf-000002102.jpg",
+      "rationale": "교육청 청사 건물 외관. 옥상에 '창의적 민주시민을 기르는 혁신 미래교육' 현수막.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-112",
+      "query": "국회 소통관 브리핑",
+      "sceneId": "890065460389917282",
+      "clipId": "890064635596812954",
+      "keyframe": "runs/890064635596812955/frame_extraction/a1/s0004/kf-000037404.jpg",
+      "rationale": "'대한민국 국회' 문장이 박힌 파란 배경 브리핑룸에서 붉은 넥타이 남성이 마이크 앞에 서 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-113",
+      "query": "프로축구 선수 인터뷰",
+      "sceneId": "890066120246211286",
+      "clipId": "890064741674955321",
+      "keyframe": "runs/890064741674955322/frame_extraction/a1/s0004/kf-000017300.jpg",
+      "rationale": "녹색 정원 배경에서 축구 유니폼을 입은 선수 인터뷰. 좌상단 '전남 드래곤즈', 하단 이름 자막.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-114",
+      "query": "축구단 유니폼 입은 선수 야외 인터뷰",
+      "sceneId": "890066120246211286",
+      "clipId": "890064741674955321",
+      "keyframe": "runs/890064741674955322/frame_extraction/a1/s0004/kf-000017300.jpg",
+      "rationale": "녹색 정원 배경에서 축구 유니폼을 입은 선수 인터뷰. 좌상단 '전남 드래곤즈', 하단 이름 자막.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-115",
+      "query": "도로 가드레일 옆 떨어진 안전모",
+      "sceneId": "888840041363366500",
+      "clipId": "888817362702918357",
+      "keyframe": "runs/888817362702918358/frame_extraction/a1/s0001/kf-000034400.jpg",
+      "rationale": "도로 갓길 가드레일 옆에 휘어진 금속 관과 노란 안전모, 전선이 널브러져 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-116",
+      "query": "갓길에 널린 공사 자재",
+      "sceneId": "888840041363366500",
+      "clipId": "888817362702918357",
+      "keyframe": "runs/888817362702918358/frame_extraction/a1/s0001/kf-000034400.jpg",
+      "rationale": "도로 갓길 가드레일 옆에 휘어진 금속 관과 노란 안전모, 전선이 널브러져 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-117",
+      "query": "아파트 관리소장 인터뷰",
+      "sceneId": "890076981392225016",
+      "clipId": "890076744791536325",
+      "keyframe": "runs/890076744791536326/frame_extraction/a1/s0004/kf-000017050.jpg",
+      "rationale": "아파트 지하주차장 입구 앞에서 인터뷰. 자막 '성기홍 서울시 동작구 아파트 관리소장', 상단 '물막이판 65% 미설치'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-118",
+      "query": "지하주차장 입구 앞 인터뷰",
+      "sceneId": "890076981392225016",
+      "clipId": "890076744791536325",
+      "keyframe": "runs/890076744791536326/frame_extraction/a1/s0004/kf-000017050.jpg",
+      "rationale": "아파트 지하주차장 입구 앞에서 인터뷰. 자막 '성기홍 서울시 동작구 아파트 관리소장', 상단 '물막이판 65% 미설치'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-119",
+      "query": "텅 빈 아이스링크 전경",
+      "sceneId": "890064656203428473",
+      "clipId": "890064127354274558",
+      "keyframe": "runs/890064127354274559/frame_extraction/a1/s0001/kf-000007908.jpg",
+      "rationale": "관중 없는 실내 아이스링크 전경. 좌상단에 '파라아이스하키 선택' 다큐 타이틀.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-120",
+      "query": "축구 감독 훈련장 지켜보는 모습",
+      "sceneId": "890066274147807870",
+      "clipId": "890064769692906233",
+      "keyframe": "runs/890064769692906234/frame_extraction/a1/s0004/kf-000006167.jpg",
+      "rationale": "잔디 훈련장에서 검은 티셔츠를 입은 지도자가 지켜보고 뒤로 보라·노랑 유니폼 선수들이 몸을 푼다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-121",
+      "query": "잔디 훈련장 선수단 몸풀기",
+      "sceneId": "890066274147807870",
+      "clipId": "890064769692906233",
+      "keyframe": "runs/890064769692906234/frame_extraction/a1/s0004/kf-000006167.jpg",
+      "rationale": "잔디 훈련장에서 검은 티셔츠를 입은 지도자가 지켜보고 뒤로 보라·노랑 유니폼 선수들이 몸을 푼다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-122",
+      "query": "서울경찰청 청사 입구",
+      "sceneId": "890064139912020565",
+      "clipId": "890064019271254714",
+      "keyframe": "runs/890064019271254715/frame_extraction/a1/s0005/kf-000012846.jpg",
+      "rationale": "'서울경찰청 SEOUL METROPOLITAN POLICE' 초록 전광 간판이 달린 청사 출입구.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-123",
+      "query": "국제회의 정상 기념촬영",
+      "sceneId": "889700377070961269",
+      "clipId": "889700336419767038",
+      "keyframe": "runs/889700336419767039/frame_extraction/a1/s0000/kf-000001335.jpg",
+      "rationale": "국제 회의 무대에서 각국 정상급 인사 열 명이 나란히 서서 기념촬영을 한다. 배경에 THE GLOBAL FUND 로고.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-124",
+      "query": "각국 정상 단체 사진 촬영",
+      "sceneId": "889700377070961269",
+      "clipId": "889700336419767038",
+      "keyframe": "runs/889700336419767039/frame_extraction/a1/s0000/kf-000001335.jpg",
+      "rationale": "국제 회의 무대에서 각국 정상급 인사 열 명이 나란히 서서 기념촬영을 한다. 배경에 THE GLOBAL FUND 로고.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-125",
+      "query": "김대중 오부치 공동선언 해설 그래픽",
+      "sceneId": "888821956065583741",
+      "clipId": "888816843494220532",
+      "keyframe": "runs/888816843494220533/frame_extraction/a1/s0000/kf-000011144.jpg",
+      "rationale": "영문 보고서 지면을 띄우고 '1998년 김대중-오부치 공동선언' 설명을 붙인 해설 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-126",
+      "query": "영문 보고서 인용 설명 화면",
+      "sceneId": "888821956065583741",
+      "clipId": "888816843494220532",
+      "keyframe": "runs/888816843494220533/frame_extraction/a1/s0000/kf-000011144.jpg",
+      "rationale": "영문 보고서 지면을 띄우고 '1998년 김대중-오부치 공동선언' 설명을 붙인 해설 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-127",
+      "query": "하교하는 학생들 거리",
+      "sceneId": "888836371397698266",
+      "clipId": "888817246994653877",
+      "keyframe": "runs/888817246994653878/frame_extraction/a1/s0003/kf-000016633.jpg",
+      "rationale": "상가 거리에서 가방을 멘 남학생들이 카메라를 향해 손가락 브이를 하며 지나간다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-128",
+      "query": "가방 멘 남학생 무리 골목",
+      "sceneId": "888836371397698266",
+      "clipId": "888817246994653877",
+      "keyframe": "runs/888817246994653878/frame_extraction/a1/s0003/kf-000016633.jpg",
+      "rationale": "상가 거리에서 가방을 멘 남학생들이 카메라를 향해 손가락 브이를 하며 지나간다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-129",
+      "query": "방호복 입은 의료진 병실",
+      "sceneId": "888834325256823536",
+      "clipId": "888817200693731962",
+      "keyframe": "runs/888817200693731963/frame_extraction/a1/s0000/kf-000000701.jpg",
+      "rationale": "전신 방호복과 후드를 쓴 의료진이 링거 걸이 앞에서 처치하는 격리 병실.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-130",
+      "query": "감염 격리 병상 링거",
+      "sceneId": "888834325256823536",
+      "clipId": "888817200693731962",
+      "keyframe": "runs/888817200693731963/frame_extraction/a1/s0000/kf-000000701.jpg",
+      "rationale": "전신 방호복과 후드를 쓴 의료진이 링거 걸이 앞에서 처치하는 격리 병실.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-131",
+      "query": "태풍 해안가 너울",
+      "sceneId": "890077311035159292",
+      "clipId": "890076790865965811",
+      "keyframe": "runs/890076790865965812/frame_extraction/a1/s0004/kf-000013400.jpg",
+      "rationale": "빗방울 맺힌 렌즈로 내려다본 흐린 해안. 자막 '제주도와 남해안, 너울 피해 주의'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-132",
+      "query": "빗속 해안 절벽에서 본 파도",
+      "sceneId": "890077311035159292",
+      "clipId": "890076790865965811",
+      "keyframe": "runs/890076790865965812/frame_extraction/a1/s0004/kf-000013400.jpg",
+      "rationale": "빗방울 맺힌 렌즈로 내려다본 흐린 해안. 자막 '제주도와 남해안, 너울 피해 주의'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-133",
+      "query": "저화질 옛날 영상 길거리 인물",
+      "sceneId": "888831551953658611",
+      "clipId": "888817131982643948",
+      "keyframe": "runs/888817131986838177/frame_extraction/a1/s0015/kf-000051233.jpg",
+      "rationale": "매우 거친 옛 화질 영상. 분홍 옷을 입은 인물 뒷모습과 흰 차, 노란 기둥.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-134",
+      "query": "오래된 화질 거리 장면",
+      "sceneId": "888831551953658611",
+      "clipId": "888817131982643948",
+      "keyframe": "runs/888817131986838177/frame_extraction/a1/s0015/kf-000051233.jpg",
+      "rationale": "매우 거친 옛 화질 영상. 분홍 옷을 입은 인물 뒷모습과 흰 차, 노란 기둥.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-135",
+      "query": "민방위복 입고 정부 브리핑",
+      "sceneId": "888824639266710265",
+      "clipId": "888816928491791068",
+      "keyframe": "runs/888816928491791069/frame_extraction/a1/s0016/kf-000045967.jpg",
+      "rationale": "'대한민국정부' 로고가 반복된 파란 배경 브리핑룸에서 노란 민방위복 차림 남성이 발표한다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-136",
+      "query": "북한 대회의장 주석단",
+      "sceneId": "890074531226628855",
+      "clipId": "890074023699067647",
+      "keyframe": "runs/890074023699067648/frame_extraction/a1/s0008/kf-000026067.jpg",
+      "rationale": "김일성·김정일 초상화가 걸린 대회의장 주석단과 붉은 좌석의 청중. 자막 출처 '북한 조선중앙TV'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-137",
+      "query": "조선중앙TV 회의 화면",
+      "sceneId": "890074531226628855",
+      "clipId": "890074023699067647",
+      "keyframe": "runs/890074023699067648/frame_extraction/a1/s0008/kf-000026067.jpg",
+      "rationale": "김일성·김정일 초상화가 걸린 대회의장 주석단과 붉은 좌석의 청중. 자막 출처 '북한 조선중앙TV'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-138",
+      "query": "의회 발언대에서 원고 읽는 사람",
+      "sceneId": "889737265016193750",
+      "clipId": "889737228492194465",
+      "keyframe": "runs/889737228492194466/frame_extraction/a1/s0002/kf-000015749.jpg",
+      "rationale": "마스크를 쓴 안경 남성이 의회 발언대에서 고개를 숙이고 원고를 읽는다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-139",
+      "query": "마스크 쓴 의원 본회의 발언",
+      "sceneId": "889737265016193750",
+      "clipId": "889737228492194465",
+      "keyframe": "runs/889737228492194466/frame_extraction/a1/s0002/kf-000015749.jpg",
+      "rationale": "마스크를 쓴 안경 남성이 의회 발언대에서 고개를 숙이고 원고를 읽는다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-140",
+      "query": "청와대 개방 소식 앵커 멘트",
+      "sceneId": "888841163805254388",
+      "clipId": "888817562020438682",
+      "keyframe": "runs/888817562020438683/frame_extraction/a1/s0000/kf-000001768.jpg",
+      "rationale": "지구 야경 그래픽 배경의 스튜디오 앵커. 자막 '통의동서 국정 처리…청와대 개방 약속 이행'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-141",
+      "query": "지구 그래픽 배경 뉴스 앵커",
+      "sceneId": "888841163805254388",
+      "clipId": "888817562020438682",
+      "keyframe": "runs/888817562020438683/frame_extraction/a1/s0000/kf-000001768.jpg",
+      "rationale": "지구 야경 그래픽 배경의 스튜디오 앵커. 자막 '통의동서 국정 처리…청와대 개방 약속 이행'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-142",
+      "query": "서울시교육청 입장 인용 그래픽",
+      "sceneId": "890077904252351027",
+      "clipId": "890077294555738865",
+      "keyframe": "runs/890077294555738866/frame_extraction/a1/s0000/kf-000004233.jpg",
+      "rationale": "서울특별시교육청 로고와 '유아교육법 18조…중복 지원 시 입학 취소' 인용 그래픽. 배경은 흐린 유치원 교실.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-143",
+      "query": "유치원 입학 규정 설명 화면",
+      "sceneId": "890077904252351027",
+      "clipId": "890077294555738865",
+      "keyframe": "runs/890077294555738866/frame_extraction/a1/s0000/kf-000004233.jpg",
+      "rationale": "서울특별시교육청 로고와 '유아교육법 18조…중복 지원 시 입학 취소' 인용 그래픽. 배경은 흐린 유치원 교실.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-144",
+      "query": "아시안게임 경기장 리듬체조 연습",
+      "sceneId": "890066346117870315",
+      "clipId": "890064779134284535",
+      "keyframe": "runs/890064779134284536/frame_extraction/a1/s0004/kf-000018067.jpg",
+      "rationale": "INCHEON 2014 현수막이 걸린 체육관에서 리듬체조 선수들이 매트 위에서 연습한다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-145",
+      "query": "체육관 매트 위 연습 장면",
+      "sceneId": "890066346117870315",
+      "clipId": "890064779134284535",
+      "keyframe": "runs/890064779134284536/frame_extraction/a1/s0004/kf-000018067.jpg",
+      "rationale": "INCHEON 2014 현수막이 걸린 체육관에서 리듬체조 선수들이 매트 위에서 연습한다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-146",
+      "query": "고속도로 정체 항공 촬영",
+      "sceneId": "889785136652391082",
+      "clipId": "889785069681939197",
+      "keyframe": "runs/889785069681939198/frame_extraction/a1/s0008/kf-000036303.jpg",
+      "rationale": "논밭 사이를 가르는 고속도로에 차들이 길게 늘어선 항공 촬영.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-147",
+      "query": "논 사이 고속도로 차량 행렬",
+      "sceneId": "889785136652391082",
+      "clipId": "889785069681939197",
+      "keyframe": "runs/889785069681939198/frame_extraction/a1/s0008/kf-000036303.jpg",
+      "rationale": "논밭 사이를 가르는 고속도로에 차들이 길게 늘어선 항공 촬영.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-148",
+      "query": "선수 환하게 웃는 클로즈업",
+      "sceneId": "888838138768351924",
+      "clipId": "888817306989978244",
+      "keyframe": "runs/888817306989978245/frame_extraction/a1/s0013/kf-000056067.jpg",
+      "rationale": "흰 운동복을 입은 선수가 눈을 감고 이를 드러내며 크게 웃는 클로즈업.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-149",
+      "query": "경기 후 기뻐하는 선수 표정",
+      "sceneId": "888838138768351924",
+      "clipId": "888817306989978244",
+      "keyframe": "runs/888817306989978245/frame_extraction/a1/s0013/kf-000056067.jpg",
+      "rationale": "흰 운동복을 입은 선수가 눈을 감고 이를 드러내며 크게 웃는 클로즈업.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-150",
+      "query": "야간 발사 참관하는 군 간부들",
+      "sceneId": "890074439832744699",
+      "clipId": "890074006779245307",
+      "keyframe": "runs/890074006779245308/frame_extraction/a1/s0009/kf-000033333.jpg",
+      "rationale": "어두운 야외에서 군복 간부들 사이에 검은 코트 차림 인물이 서서 한쪽을 바라본다. 손전등을 든 사람도 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-151",
+      "query": "어둠 속 군 수뇌부 도열",
+      "sceneId": "890074439832744699",
+      "clipId": "890074006779245307",
+      "keyframe": "runs/890074006779245308/frame_extraction/a1/s0009/kf-000033333.jpg",
+      "rationale": "어두운 야외에서 군복 간부들 사이에 검은 코트 차림 인물이 서서 한쪽을 바라본다. 손전등을 든 사람도 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-152",
+      "query": "모자이크 처리된 사람들 복도 이동",
+      "sceneId": "890077942240162496",
+      "clipId": "890077305993605874",
+      "keyframe": "runs/890077305993605875/frame_extraction/a1/s0009/kf-000023000.jpg",
+      "rationale": "얼굴을 모자이크한 사람들이 복도를 걸어 나간다. 가방을 메고 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-153",
+      "query": "신원 가린 관계자 이동 장면",
+      "sceneId": "890077942240162496",
+      "clipId": "890077305993605874",
+      "keyframe": "runs/890077305993605875/frame_extraction/a1/s0009/kf-000023000.jpg",
+      "rationale": "얼굴을 모자이크한 사람들이 복도를 걸어 나간다. 가방을 메고 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-154",
+      "query": "태극기 두르고 트랙 도는 선수",
+      "sceneId": "888838138755769085",
+      "clipId": "888817306989978244",
+      "keyframe": "runs/888817306989978245/frame_extraction/a1/s0001/kf-000003333.jpg",
+      "rationale": "육상 트랙에서 태극기를 두르고 웃으며 걷는 여자 선수. 배번 171.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-155",
+      "query": "육상 경기 뒤 세리머니",
+      "sceneId": "888838138755769085",
+      "clipId": "888817306989978244",
+      "keyframe": "runs/888817306989978245/frame_extraction/a1/s0001/kf-000003333.jpg",
+      "rationale": "육상 트랙에서 태극기를 두르고 웃으며 걷는 여자 선수. 배번 171.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-156",
+      "query": "호텔 연회장 기자간담회",
+      "sceneId": "890065819439116991",
+      "clipId": "890064685072823020",
+      "keyframe": "runs/890064685072823021/frame_extraction/a1/s0005/kf-000027861.jpg",
+      "rationale": "호텔 연회장에 마련된 기자간담회. 연단에 선 남성과 노트북을 편 기자들, 테이블마다 언론사 명패.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-157",
+      "query": "출입기자단 간담회 전경",
+      "sceneId": "890065819439116991",
+      "clipId": "890064685072823020",
+      "keyframe": "runs/890064685072823021/frame_extraction/a1/s0005/kf-000027861.jpg",
+      "rationale": "호텔 연회장에 마련된 기자간담회. 연단에 선 남성과 노트북을 편 기자들, 테이블마다 언론사 명패.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-158",
+      "query": "시의회 발언대 마이크 앞 의원",
+      "sceneId": "889737265007805111",
+      "clipId": "889737228492194465",
+      "keyframe": "runs/889737228492194466/frame_extraction/a1/s0000/kf-000006106.jpg",
+      "rationale": "마스크를 쓴 안경 남성이 마이크 두 대 앞에서 정면을 본다. 의회 발언대.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-159",
+      "query": "마스크 쓴 발언자 정면 컷",
+      "sceneId": "889737265007805111",
+      "clipId": "889737228492194465",
+      "keyframe": "runs/889737228492194466/frame_extraction/a1/s0000/kf-000006106.jpg",
+      "rationale": "마스크를 쓴 안경 남성이 마이크 두 대 앞에서 정면을 본다. 의회 발언대.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-160",
+      "query": "선수 다리 부상 살피는 장면",
+      "sceneId": "890064516382110289",
+      "clipId": "890064101961958065",
+      "keyframe": "runs/890064101961958066/frame_extraction/a1/s0005/kf-000044100.jpg",
+      "rationale": "형광 점퍼를 입은 사람이 파란 유니폼 선수의 허벅지를 손으로 짚어 살핀다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-161",
+      "query": "벤치에서 다리 마사지 받는 선수",
+      "sceneId": "890064516382110289",
+      "clipId": "890064101961958065",
+      "keyframe": "runs/890064101961958066/frame_extraction/a1/s0005/kf-000044100.jpg",
+      "rationale": "형광 점퍼를 입은 사람이 파란 유니폼 선수의 허벅지를 손으로 짚어 살핀다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-162",
+      "query": "코로나 임시선별검사소 안내판",
+      "sceneId": "888834325265212004",
+      "clipId": "888817200693731962",
+      "keyframe": "runs/888817200693731963/frame_extraction/a1/s0004/kf-000019520.jpg",
+      "rationale": "'코로나 19 임시선별검사소 운영시간' 안내 입간판이 천막 앞에 서 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-163",
+      "query": "손글씨 적힌 종이 들고 있는 손",
+      "sceneId": "890077693341774559",
+      "clipId": "890077238658249405",
+      "keyframe": "runs/890077238658249406/frame_extraction/a1/s0001/kf-000003233.jpg",
+      "rationale": "두꺼운 외투 차림 사람이 손으로 낙서 같은 글씨가 적힌 종이를 쥐고 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-164",
+      "query": "구겨진 메모지 클로즈업",
+      "sceneId": "890077693341774559",
+      "clipId": "890077238658249405",
+      "keyframe": "runs/890077238658249406/frame_extraction/a1/s0001/kf-000003233.jpg",
+      "rationale": "두꺼운 외투 차림 사람이 손으로 낙서 같은 글씨가 적힌 종이를 쥐고 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-165",
+      "query": "손님 없는 전통시장 통로",
+      "sceneId": "888840544948282045",
+      "clipId": "888817413617574574",
+      "keyframe": "runs/888817413617574575/frame_extraction/a1/s0000/kf-000001667.jpg",
+      "rationale": "아치형 지붕 아래 텅 빈 전통시장 통로. 자막 '전통 시장 체감 경기 지수 59.3…4월 이후 급락'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-166",
+      "query": "문틈으로 보이는 모자이크 인물",
+      "sceneId": "888826096573440704",
+      "clipId": "888816947194192548",
+      "keyframe": "runs/888816947194192549/frame_extraction/a1/s0001/kf-000004633.jpg",
+      "rationale": "반쯤 열린 문틈으로 모자이크 처리된 인물이 보이는 실내. 문손잡이가 앞에 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-167",
+      "query": "사무실 문 앞에서 찍은 실내",
+      "sceneId": "888826096573440704",
+      "clipId": "888816947194192548",
+      "keyframe": "runs/888816947194192549/frame_extraction/a1/s0001/kf-000004633.jpg",
+      "rationale": "반쯤 열린 문틈으로 모자이크 처리된 인물이 보이는 실내. 문손잡이가 앞에 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-168",
+      "query": "광화문 앞 경찰 경비",
+      "sceneId": "890082718415762173",
+      "clipId": "890082565315277492",
+      "keyframe": "runs/890082565315277493/frame_extraction/a1/s0000/kf-000000400.jpg",
+      "rationale": "광화문 현판이 보이는 전경 앞에 형광 조끼 경찰이 서 있고 화단에 태극기·성조기가 꽂혀 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-169",
+      "query": "광화문 현판 전경",
+      "sceneId": "890082718415762173",
+      "clipId": "890082565315277492",
+      "keyframe": "runs/890082565315277493/frame_extraction/a1/s0000/kf-000000400.jpg",
+      "rationale": "광화문 현판이 보이는 전경 앞에 형광 조끼 경찰이 서 있고 화단에 태극기·성조기가 꽂혀 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-170",
+      "query": "칼국수 면 집어 올리는 장면",
+      "sceneId": "888836371397698267",
+      "clipId": "888817246994653877",
+      "keyframe": "runs/888817246994653878/frame_extraction/a1/s0004/kf-000022033.jpg",
+      "rationale": "나무 상 위 커다란 그릇의 칼국수 면을 젓가락으로 집어 올린다. 노란 옷소매.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-171",
+      "query": "국수 그릇 클로즈업",
+      "sceneId": "888836371397698267",
+      "clipId": "888817246994653877",
+      "keyframe": "runs/888817246994653878/frame_extraction/a1/s0004/kf-000022033.jpg",
+      "rationale": "나무 상 위 커다란 그릇의 칼국수 면을 젓가락으로 집어 올린다. 노란 옷소매.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-172",
+      "query": "볼펜 들고 문서 들여다보는 클로즈업",
+      "sceneId": "888824124227150586",
+      "clipId": "888816911978816226",
+      "keyframe": "runs/888816911978816227/frame_extraction/a1/s0000/kf-000001833.jpg",
+      "rationale": "안경을 쓴 사람이 볼펜을 쥐고 빽빽한 인쇄물을 가까이 들여다보는 초근접 화면.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-173",
+      "query": "인쇄물 꼼꼼히 읽는 모습",
+      "sceneId": "888824124227150586",
+      "clipId": "888816911978816226",
+      "keyframe": "runs/888816911978816227/frame_extraction/a1/s0000/kf-000001833.jpg",
+      "rationale": "안경을 쓴 사람이 볼펜을 쥐고 빽빽한 인쇄물을 가까이 들여다보는 초근접 화면.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-174",
+      "query": "변호사 화상 인터뷰",
+      "sceneId": "888831314241479285",
+      "clipId": "888817118044971638",
+      "keyframe": "runs/888817118044971639/frame_extraction/a1/s0002/kf-000013981.jpg",
+      "rationale": "흰 벽 앞 화상 인터뷰. 자막 '이은의 변호사', 상단 '시청만 해도 처벌'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-175",
+      "query": "전문가 원격 인터뷰 화면",
+      "sceneId": "888831314241479285",
+      "clipId": "888817118044971638",
+      "keyframe": "runs/888817118044971639/frame_extraction/a1/s0002/kf-000013981.jpg",
+      "rationale": "흰 벽 앞 화상 인터뷰. 자막 '이은의 변호사', 상단 '시청만 해도 처벌'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-176",
+      "query": "로켓 발사탑 전경",
+      "sceneId": "888819346826814132",
+      "clipId": "888816796799034098",
+      "keyframe": "runs/888816796799034099/frame_extraction/a1/s0001/kf-000003767.jpg",
+      "rationale": "산을 배경으로 크레인이 붙은 녹색 철골 발사탑 전경. 화질이 거칠다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-177",
+      "query": "산 아래 발사대 구조물",
+      "sceneId": "888819346826814132",
+      "clipId": "888816796799034098",
+      "keyframe": "runs/888816796799034099/frame_extraction/a1/s0001/kf-000003767.jpg",
+      "rationale": "산을 배경으로 크레인이 붙은 녹색 철골 발사탑 전경. 화질이 거칠다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-178",
+      "query": "붉은 현수막 앞 대선 후보 연설",
+      "sceneId": "890065157057852072",
+      "clipId": "890064601190937197",
+      "keyframe": "runs/890064601190937198/frame_extraction/a1/s0006/kf-000015549.jpg",
+      "rationale": "붓글씨가 쓰인 붉은 현수막 앞 연단에서 연설. 연단에 '정권교체' 글자.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-179",
+      "query": "정권교체 문구 연단 연설",
+      "sceneId": "890065157057852072",
+      "clipId": "890064601190937197",
+      "keyframe": "runs/890064601190937198/frame_extraction/a1/s0006/kf-000015549.jpg",
+      "rationale": "붓글씨가 쓰인 붉은 현수막 앞 연단에서 연설. 연단에 '정권교체' 글자.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-180",
+      "query": "귀성길 소요시간 그래픽",
+      "sceneId": "889783714896581262",
+      "clipId": "889783329632981758",
+      "keyframe": "runs/889783329632981759/frame_extraction/a1/s0007/kf-000043310.jpg",
+      "rationale": "한반도 지도 위에 서울 출발 대전·광주·목포·강릉·부산 소요시간을 표시한 '귀성길, 교통량 몰릴 듯' 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-181",
+      "query": "명절 교통량 예상 지도",
+      "sceneId": "889783714896581262",
+      "clipId": "889783329632981758",
+      "keyframe": "runs/889783329632981759/frame_extraction/a1/s0007/kf-000043310.jpg",
+      "rationale": "한반도 지도 위에 서울 출발 대전·광주·목포·강릉·부산 소요시간을 표시한 '귀성길, 교통량 몰릴 듯' 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-182",
+      "query": "나무 정원 배경 축구 선수 웃는 인터뷰",
+      "sceneId": "890066120250405524",
+      "clipId": "890064741674955321",
+      "keyframe": "runs/890064741674955322/frame_extraction/a1/s0006/kf-000023067.jpg",
+      "rationale": "앞 장면과 같은 정원 배경 선수 인터뷰인데 이름 자막이 없는 구간이다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-183",
+      "query": "시험장 안내 현수막",
+      "sceneId": "888824639258321531",
+      "clipId": "888816928491791068",
+      "keyframe": "runs/888816928491791069/frame_extraction/a1/s0007/kf-000021833.jpg",
+      "rationale": "'제8시험장' 이라고 크게 적힌 흰 현수막 클로즈업.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-184",
+      "query": "담배 치주질환 위험 비교 그래픽",
+      "sceneId": "888834774999458361",
+      "clipId": "888817215134720635",
+      "keyframe": "runs/888817215134720636/frame_extraction/a1/s0007/kf-000034267.jpg",
+      "rationale": "'치주질환 발생 위험' 제목 아래 일반담배와 전자담배를 2.1배로 비교한 그래픽.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-185",
+      "query": "은행 영업점 창구 내부",
+      "sceneId": "888830911558935083",
+      "clipId": "888817107240444602",
+      "keyframe": "runs/888817107240444603/frame_extraction/a1/s0005/kf-000018151.jpg",
+      "rationale": "BNK 경남은행 영업점 창구 내부. 자막 '부동산PF 대출금 관리 업무…약 7년 동안 범행'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-186",
+      "query": "경남은행 지점 자료화면",
+      "sceneId": "888830911558935083",
+      "clipId": "888817107240444602",
+      "keyframe": "runs/888817107240444603/frame_extraction/a1/s0005/kf-000018151.jpg",
+      "rationale": "BNK 경남은행 영업점 창구 내부. 자막 '부동산PF 대출금 관리 업무…약 7년 동안 범행'.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-187",
+      "query": "외화 속 화려한 재킷 남성",
+      "sceneId": "888826337796252399",
+      "clipId": "888816956933366517",
+      "keyframe": "runs/888816956933366518/frame_extraction/a1/s0003/kf-000008800.jpg",
+      "rationale": "영화 같은 화면. 화려한 재킷을 입은 외국인 남성이 실내에서 고리를 잡고 웃는다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-188",
+      "query": "영상 속 외국인 남자 실내 장면",
+      "sceneId": "888826337796252399",
+      "clipId": "888816956933366517",
+      "keyframe": "runs/888816956933366518/frame_extraction/a1/s0003/kf-000008800.jpg",
+      "rationale": "영화 같은 화면. 화려한 재킷을 입은 외국인 남성이 실내에서 고리를 잡고 웃는다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-189",
+      "query": "들길 달려가는 아이들과 드론",
+      "sceneId": "890082932744696410",
+      "clipId": "890082599125561960",
+      "keyframe": "runs/890082599125561961/frame_extraction/a1/s0006/kf-000020533.jpg",
+      "rationale": "해질녘 들판 흙길을 아이 둘이 손을 잡고 드론을 향해 달려간다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-190",
+      "query": "해질녘 풀밭 뛰어가는 두 아이",
+      "sceneId": "890082932744696410",
+      "clipId": "890082599125561960",
+      "keyframe": "runs/890082599125561961/frame_extraction/a1/s0006/kf-000020533.jpg",
+      "rationale": "해질녘 들판 흙길을 아이 둘이 손을 잡고 드론을 향해 달려간다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-191",
+      "query": "검체 용기에 표기하는 의료진",
+      "sceneId": "888833206187156076",
+      "clipId": "888817165830677181",
+      "keyframe": "runs/888817165830677182/frame_extraction/a1/s0002/kf-000007241.jpg",
+      "rationale": "보라색 장갑을 낀 손이 검체 채취 용기에 유성펜으로 표기하고 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-192",
+      "query": "코로나 검체 채취 키트 클로즈업",
+      "sceneId": "888833206187156076",
+      "clipId": "888817165830677181",
+      "keyframe": "runs/888817165830677182/frame_extraction/a1/s0002/kf-000007241.jpg",
+      "rationale": "보라색 장갑을 낀 손이 검체 채취 용기에 유성펜으로 표기하고 있다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-193",
+      "query": "리듬체조 리본 연기",
+      "sceneId": "890066399758824036",
+      "clipId": "890064790484071015",
+      "keyframe": "runs/890064790484071016/frame_extraction/a1/s0002/kf-000010500.jpg",
+      "rationale": "리듬체조 리본 연기를 하는 선수. 뒤 광고판에 SK telecom·KOREAN AIR·2014 대회 로고.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-194",
+      "query": "국제대회 리듬체조 경기 장면",
+      "sceneId": "890066399758824036",
+      "clipId": "890064790484071015",
+      "keyframe": "runs/890064790484071016/frame_extraction/a1/s0002/kf-000010500.jpg",
+      "rationale": "리듬체조 리본 연기를 하는 선수. 뒤 광고판에 SK telecom·KOREAN AIR·2014 대회 로고.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-195",
+      "query": "삶은 달걀 살충제 잔류 그래픽",
+      "sceneId": "890083177817879285",
+      "clipId": "890082642683409144",
+      "keyframe": "runs/890082642683409145/frame_extraction/a1/s0005/kf-000016167.jpg",
+      "rationale": "반으로 자른 삶은 달걀을 쥔 손과 '평생 동안 비펜트린 36개/일' 살충제 잔류 비교 자막.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-196",
+      "query": "달걀 안전성 설명 화면",
+      "sceneId": "890083177817879285",
+      "clipId": "890082642683409144",
+      "keyframe": "runs/890082642683409145/frame_extraction/a1/s0005/kf-000016167.jpg",
+      "rationale": "반으로 자른 삶은 달걀을 쥔 손과 '평생 동안 비펜트린 36개/일' 살충제 잔류 비교 자막.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-197",
+      "query": "빨간 뚜껑 검체 용기 접사",
+      "sceneId": "888833206187156075",
+      "clipId": "888817165830677181",
+      "keyframe": "runs/888817165830677182/frame_extraction/a1/s0001/kf-000004404.jpg",
+      "rationale": "앞 장면과 같은 검체 용기 표기 클로즈업이 조금 더 당겨진 구간이다.",
+      "tier": "hard",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-198",
+      "query": "경남은행 건물 간판",
+      "sceneId": "888830911554740910",
+      "clipId": "888817107240444602",
+      "keyframe": "runs/888817107240444603/frame_extraction/a1/s0004/kf-000017251.jpg",
+      "rationale": "'BNK 경남은행' 대형 간판이 붙은 건물 외벽을 올려다본 화면.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-199",
+      "query": "대통령실 청사 전경",
+      "sceneId": "888818962221720317",
+      "clipId": "888816771012452978",
+      "keyframe": "runs/888816771012452979/frame_extraction/a1/s0003/kf-000024791.jpg",
+      "rationale": "태극 문양 대형 현수막이 걸린 청사 건물과 잔디밭 전경.",
+      "tier": "core",
+      "humanReviewed": false
+    },
+    {
+      "id": "sg-200",
+      "query": "국회 브리핑룸 마스크 쓴 발표자",
+      "sceneId": "888818016561357529",
+      "clipId": "888816739731333884",
+      "keyframe": "runs/888816739731333885/frame_extraction/a1/s0000/kf-000008342.jpg",
+      "rationale": "'대한민국 국회' 문장 배경 브리핑룸에서 마스크를 쓴 남성이 마이크 앞에 서 있다.",
+      "tier": "core",
+      "humanReviewed": false
+    }
+  ]
+}
