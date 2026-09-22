@@ -22,10 +22,14 @@ import com.npick.feedback.application.FeedbackIntakeService;
 import com.npick.feedback.domain.model.Feedback;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -89,5 +93,44 @@ class FeedbackControllerTest {
                         .contentType("application/json")
                         .content("{\"comment\":\"x\"}"))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("문의 접수는 2,000자까지 허용한다")
+    void submitAllows2000Chars() throws Exception {
+        String comment = "가".repeat(2000);
+        given(intakeService.submit(eq(7L), eq(20L), any())).willReturn(Feedback.open(7L, 20L, comment));
+        mockMvc.perform(post("/api/v1/search/results/7/inquiries")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
+                        .with(csrf())
+                        .contentType("application/json")
+                        .content("{\"comment\":\"" + comment + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("문의 접수 2,001자는 저장 전에 400으로 거절한다")
+    void submitRejects2001Chars() throws Exception {
+        String comment = "가".repeat(2001);
+        mockMvc.perform(post("/api/v1/search/results/7/inquiries")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
+                        .with(csrf())
+                        .contentType("application/json")
+                        .content("{\"comment\":\"" + comment + "\"}"))
+                .andExpect(status().isBadRequest());
+        verify(intakeService, never()).submit(anyLong(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("문의 수정 2,001자는 저장 전에 400으로 거절한다")
+    void editRejects2001Chars() throws Exception {
+        String comment = "가".repeat(2001);
+        mockMvc.perform(patch("/api/v1/inquiries/1")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
+                        .with(csrf())
+                        .contentType("application/json")
+                        .content("{\"comment\":\"" + comment + "\"}"))
+                .andExpect(status().isBadRequest());
+        verify(intakeService, never()).editComment(anyLong(), anyLong(), any());
     }
 }
