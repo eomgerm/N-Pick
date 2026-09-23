@@ -64,6 +64,30 @@ class QueryTokenizerAdapterTest {
     }
 
     @Test
+    @DisplayName("빈 토큰이 든 구는 통째로 뺀다")
+    void dropsPhraseWithBlankToken() {
+        // 토큰만 빼고 남은 것으로 must 를 걸면 구가 헐거워져 「중국 음식」이 중국 단독 매칭으로 되돌아간다.
+        // 어댑터가 아니라 여기서 거르는 이유는 근거 설명이다 — 버려진 구의 토큰이 흘러가면
+        // matched_keywords 에 origin=expanded 로 떠서 기여하지 않은 확장어 칩이 보인다 (S15P21A501-234).
+        respondWith("""
+                {"tokens": [["중국"," "], ["면","요리"]], "normalization_version": "%s"}
+                """.formatted(VERSION));
+
+        assertThat(adapter().tokenize(List.of("중국 음식", "면 요리"), VERSION)).containsExactly(List.of("면", "요리"));
+    }
+
+    @Test
+    @DisplayName("공백이 든 토큰이 있는 구도 통째로 뺀다")
+    void dropsPhraseWithWhitespaceInToken() {
+        // 공백이 있으면 DB 에서 두 토큰으로 쪼개져 구의 의미가 조용히 달라진다.
+        respondWith("""
+                {"tokens": [["중국 음식"], ["면","요리"]], "normalization_version": "%s"}
+                """.formatted(VERSION));
+
+        assertThat(adapter().tokenize(List.of("중국 음식", "면 요리"), VERSION)).containsExactly(List.of("면", "요리"));
+    }
+
+    @Test
     @DisplayName("토큰이 0개인 항목은 오류가 아니다")
     void emptyTokensAreNotAnError() {
         // resolver-api §2.3: 기호뿐인 확장어 등은 빈 배열이고 요청 전체를 깨뜨리지 않는다.

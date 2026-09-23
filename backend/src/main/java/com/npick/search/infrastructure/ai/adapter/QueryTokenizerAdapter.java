@@ -69,6 +69,7 @@ class QueryTokenizerAdapter implements TokenizeExpandedTermsPort {
             for (List<String> perTerm : response.tokens()) {
                 if (perTerm == null || perTerm.isEmpty()) continue;
                 var phrase = new ArrayList<>(new LinkedHashSet<>(perTerm));
+                if (!isUsablePhrase(phrase)) continue;
                 if (!phrase.isEmpty()) phrases.add(List.copyOf(phrase));
             }
             return List.copyOf(phrases);
@@ -76,5 +77,30 @@ class QueryTokenizerAdapter implements TokenizeExpandedTermsPort {
             log.warn("확장어 토큰화에 실패했다. 확장어 없이 검색을 이어간다", failed);
             return List.of();
         }
+    }
+
+    /**
+     * 구 하나가 후보 조회에 쓸 수 있는지 본다. 쓸 수 없는 토큰이 하나라도 있으면 <b>그 구를 통째로 버린다</b> (S15P21A501-302).
+     *
+     * <p>토큰만 빼고 남은 것으로 {@code must} 를 걸면 구가 그만큼 헐거워진다 — 「중국 음식」에서 한쪽이 빠지면 {@code 중국} 단독 매칭이 되어 이 티켓이 없애려던 넓은 매칭이 그대로
+     * 되살아난다.
+     *
+     * <p><b>거르는 자리가 여기인 이유.</b> 후보 조회 어댑터에서만 버리면 호출부의 근거 설명({@code SearchCandidatePipeline.flattenForEvidence})은 버려진 구의
+     * 토큰을 여전히 확장어로 싣는다. 그러면 실제로 후보를 만들지 않은 토큰이 {@code matched_keywords} 에 {@code origin=expanded} 로 떠서, 사용자가 자기가 치지 않은
+     * 말 때문에 결과가 나왔다고 오해한다 — S15P21A501-234 가 막으려던 바로 그 오표시다. 창구에서 걸러 두면 후보 조회와 근거 설명이 같은 구 목록을 본다.
+     */
+    private static boolean isUsablePhrase(List<String> phrase) {
+        for (String token : phrase) {
+            if (token == null || token.isBlank()) {
+                log.warn("확장어 구에 빈 토큰이 있다. 그 구 없이 검색을 이어간다");
+                return false;
+            }
+            // 공백이 있으면 DB 에서 두 토큰으로 쪼개져 구의 의미가 조용히 달라진다.
+            if (token.codePoints().anyMatch(Character::isWhitespace)) {
+                log.warn("확장어 구에 공백이 든 토큰이 있다. 그 구 없이 검색을 이어간다");
+                return false;
+            }
+        }
+        return true;
     }
 }
