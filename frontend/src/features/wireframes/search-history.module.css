@@ -210,9 +210,14 @@
 /* 제목과 전체 삭제 버튼을 한 줄에 좌우로 둔다 (S15P21A501-291). */
 .sectionHeader {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 9px;
+  padding-right: 40px;
+}
+.sectionHeader .sectionHeading {
+  margin-right: 0;
 }
 .clearAllButton {
   display: inline-flex;
@@ -594,7 +599,8 @@
   }
   .detailPanel {
     width: calc(100vw - 100% - var(--panel-gap) - 16px);
-    padding: 52px 8px 12px;
+    padding-inline: 8px;
+    padding-bottom: 12px;
   }
   .row {
     grid-template-columns: 40px minmax(0, 1fr);
