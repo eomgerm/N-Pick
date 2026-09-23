@@ -1,3 +1,9 @@
+import {
+  type ParseRuleCandidateBody,
+  type PatchOperation,
+  PARSE_RULE_SYNTAX_VERSION,
+  RESOLUTION_SCHEMA_VERSION,
+} from '@/features/wireframes/review-parse-rule-api';
 import { type Resolution } from '@/features/wireframes/reviewer-resolution-state';
 
 export type EditableAxis = 'incident_names' | 'entities' | 'locations' | 'expanded_terms';
@@ -71,4 +77,78 @@ export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
     }
   }
   return edits;
+}
+
+export function defaultType(axis: EditableAxis): string | undefined {
+  if (axis === 'locations') return 'location';
+  if (axis === 'entities') return 'organization';
+  return undefined;
+}
+
+function typeIf(axis: EditableAxis, type: string | undefined): { type?: string } {
+  return TYPED_EDITABLE.has(axis) && type ? { type } : {};
+}
+
+function body(
+  all: ParseRuleCandidateBody['condition']['all'],
+  operations: PatchOperation[],
+): ParseRuleCandidateBody {
+  return {
+    condition: {
+      syntax_version: PARSE_RULE_SYNTAX_VERSION,
+      resolution_schema_version: RESOLUTION_SCHEMA_VERSION,
+      all,
+    },
+    patch: { syntax_version: PARSE_RULE_SYNTAX_VERSION, operations },
+  };
+}
+
+export function deriveParseRules(
+  edits: ChipEdit[],
+  guard: { axis: EditableAxis; value: string } | null,
+): ParseRuleCandidateBody[] {
+  const rules: ParseRuleCandidateBody[] = [];
+  for (const edit of edits) {
+    if (edit.kind === 'remove') {
+      rules.push(
+        body(
+          [{ axis: edit.axis, op: 'has_value', value: edit.value }],
+          [{ op: 'remove_item', axis: edit.axis, value: edit.value, ...typeIf(edit.axis, edit.type) }],
+        ),
+      );
+    } else if (edit.kind === 'edit') {
+      rules.push(
+        body(
+          [{ axis: edit.axis, op: 'has_value', value: edit.from }],
+          [
+            { op: 'remove_item', axis: edit.axis, value: edit.from, ...typeIf(edit.axis, edit.type) },
+            { op: 'add_item', axis: edit.axis, value: edit.to, ...typeIf(edit.axis, edit.type) },
+          ],
+        ),
+      );
+    } else if (edit.kind === 'move') {
+      rules.push(
+        body(
+          [{ axis: edit.from, op: 'has_value', value: edit.value }],
+          [
+            { op: 'remove_item', axis: edit.from, value: edit.value, ...typeIf(edit.from, edit.type) },
+            {
+              op: 'add_item',
+              axis: edit.to,
+              value: edit.value,
+              ...typeIf(edit.to, defaultType(edit.to)),
+            },
+          ],
+        ),
+      );
+    } else if (edit.kind === 'add' && guard) {
+      rules.push(
+        body(
+          [{ axis: guard.axis, op: 'has_value', value: guard.value }],
+          [{ op: 'add_item', axis: edit.axis, value: edit.value, ...typeIf(edit.axis, edit.type ?? defaultType(edit.axis)) }],
+        ),
+      );
+    }
+  }
+  return rules;
 }

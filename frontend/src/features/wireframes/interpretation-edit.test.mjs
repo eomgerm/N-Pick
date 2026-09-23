@@ -72,3 +72,53 @@ test('삭제/수정/이동/추가를 분류한다', () => {
 test('변화 없으면 빈 배열', () => {
   assert.deepEqual(deriveEdits(ORIG, ORIG.map((c) => ({ ...c }))), []);
 });
+
+const { deriveParseRules } = await import('./interpretation-edit.ts');
+
+test('remove: 비TYPED 축은 type 없이, TYPED 축은 type 포함', () => {
+  const [term] = deriveParseRules([{ kind: 'remove', axis: 'expanded_terms', value: '나들이' }], null);
+  assert.deepEqual(term.condition.all, [{ axis: 'expanded_terms', op: 'has_value', value: '나들이' }]);
+  assert.deepEqual(term.patch.operations, [{ op: 'remove_item', axis: 'expanded_terms', value: '나들이' }]);
+
+  const [loc] = deriveParseRules(
+    [{ kind: 'remove', axis: 'locations', value: '경부고속도로', type: 'location' }],
+    null,
+  );
+  assert.deepEqual(loc.patch.operations, [
+    { op: 'remove_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+  ]);
+});
+
+test('edit: has_value(옛값) 조건 + remove 옛값 + add 새값', () => {
+  const [rule] = deriveParseRules(
+    [{ kind: 'edit', axis: 'entities', from: '한국도로공사', to: '도로공사', type: 'organization' }],
+    null,
+  );
+  assert.deepEqual(rule.condition.all, [{ axis: 'entities', op: 'has_value', value: '한국도로공사' }]);
+  assert.deepEqual(rule.patch.operations, [
+    { op: 'remove_item', axis: 'entities', value: '한국도로공사', type: 'organization' },
+    { op: 'add_item', axis: 'entities', value: '도로공사', type: 'organization' },
+  ]);
+});
+
+test('move 비TYPED→TYPED: add 에 기본 type 을 채운다', () => {
+  const [rule] = deriveParseRules(
+    [{ kind: 'move', from: 'incident_names', to: 'locations', value: '경부고속도로' }],
+    null,
+  );
+  assert.deepEqual(rule.condition.all, [{ axis: 'incident_names', op: 'has_value', value: '경부고속도로' }]);
+  assert.deepEqual(rule.patch.operations, [
+    { op: 'remove_item', axis: 'incident_names', value: '경부고속도로' },
+    { op: 'add_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+  ]);
+});
+
+test('add: guard 없으면 규칙 없음, 있으면 guard 조건', () => {
+  assert.deepEqual(deriveParseRules([{ kind: 'add', axis: 'expanded_terms', value: '나들이' }], null), []);
+  const [rule] = deriveParseRules(
+    [{ kind: 'add', axis: 'expanded_terms', value: '나들이' }],
+    { axis: 'incident_names', value: '추석' },
+  );
+  assert.deepEqual(rule.condition.all, [{ axis: 'incident_names', op: 'has_value', value: '추석' }]);
+  assert.deepEqual(rule.patch.operations, [{ op: 'add_item', axis: 'expanded_terms', value: '나들이' }]);
+});
