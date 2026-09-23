@@ -29,4 +29,12 @@ public interface SearchRuleConfirmationRepository {
      * @return 폐기된 후보 수
      */
     int discardPending(long sourceFeedbackId);
+
+    /**
+     * 이 신고의 대기 중인 해석 교정 후보({@code active=false} + {@code patch_parse})만 폐기한다 (S15P21A501-309). 검수자가 교정 흐름을 벗어나지 않고
+     * patch_parse 후보만 취소할 때 쓴다 — 같은 신고의 exclude_scene 후보는 건드리지 않는다. 켜진(활성) 규칙도 건드리지 않는다.
+     *
+     * @return 폐기된 후보 수
+     */
+    int discardPendingParse(long sourceFeedbackId);
 }

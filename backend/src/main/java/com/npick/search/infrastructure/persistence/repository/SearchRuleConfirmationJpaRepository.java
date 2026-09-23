@@ -36,4 +36,13 @@ public interface SearchRuleConfirmationJpaRepository extends JpaRepository<Searc
             value = "DELETE FROM search_rule WHERE source_feedback_id = :feedbackId AND active = false",
             nativeQuery = true)
     int discardPending(@Param("feedbackId") long feedbackId);
+
+    // 검수자가 patch_parse 후보만 취소(S15P21A501-309)한다. active=false 로 좁혀 켜진 규칙을 건드리지 않고,
+    // action='patch_parse' 로 좁혀 같은 신고의 exclude_scene 후보는 남긴다.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+            value = "DELETE FROM search_rule WHERE source_feedback_id = :feedbackId AND active = false"
+                    + " AND action = 'patch_parse'",
+            nativeQuery = true)
+    int discardPendingParse(@Param("feedbackId") long feedbackId);
 }
