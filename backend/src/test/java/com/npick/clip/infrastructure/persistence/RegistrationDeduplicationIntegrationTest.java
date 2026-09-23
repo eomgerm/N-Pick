@@ -46,6 +46,7 @@ import com.npick.clip.application.command.VideoPreparationService;
 import com.npick.clip.application.command.register.RegisterClipCommand;
 import com.npick.clip.application.command.register.RegisterClipResult;
 import com.npick.clip.application.command.register.RegisterClipUseCase;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.StoreAndRegisterClipCommand;
 import com.npick.clip.application.error.ClipRuntimeErrorCode;
 import com.npick.clip.application.error.RegistrationDeduplicationErrorCode;
@@ -146,12 +147,10 @@ class RegistrationDeduplicationIntegrationTest {
                 .cleanDisabled(true)
                 .locations("classpath:db/migration")
                 .load();
-        // baseline 이후 마이그레이션 수. 늘 때마다 같이 올린다
-        // (registration_request, pipeline_run_lease, parse_rule_comments, tag_match_value_invisible_chars,
-        // search_rule_candidate, scene_exclude_candidate_unique, tag_evidence_candidate,
-        // search_execution_running_snapshot, persistent_login_session, login_refresh,
-        // clip_title_failed_decode, user_input_date_evidence_verified, search_history_soft_delete).
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(13);
+        // baseline 하나만 적용된 상태이므로 나머지가 전부 이어서 적용돼야 한다. 개수를 적어 두면
+        // 마이그레이션이 늘 때마다 무관한 일감이 여기서 깨지므로 실제 마이그레이션 수와 대조한다.
+        int all = flyway.info().all().length;
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(all - 1);
         flyway.validate();
         assertThat(flyway.migrate().migrationsExecuted).isZero();
         try (var c = DriverManager.getConnection(url, user, password);
@@ -238,6 +237,137 @@ class RegistrationDeduplicationIntegrationTest {
     }
 
     @Test
+    void outcomeSeparatesNewRegistrationFromOwnAndOthersDuplicate() {
+        long id = IDS.incrementAndGet();
+        var created = register(id, "new-" + id, REQUEST);
+        assertThat(created.outcome()).isEqualTo(RegistrationOutcome.CREATED);
+        assertThat(deduplication
+                        .register("own-" + id, 1, hash(id), REQUEST, () -> {
+                            throw new AssertionError("callback");
+                        })
+                        .outcome())
+                .isEqualTo(RegistrationOutcome.DUPLICATE_OWN);
+        assertThat(deduplication
+                        .register("other-" + id, 2, hash(id), REQUEST, () -> {
+                            throw new AssertionError("callback");
+                        })
+                        .outcome())
+                .isEqualTo(RegistrationOutcome.DUPLICATE_OTHER);
+    }
+
+    @Test
+    void replayOfADuplicateKeepsReportingItForBothTheOwnerAndAnotherActor() {
+        long id = IDS.incrementAndGet();
+        var created = register(id, "owner-" + id, REQUEST);
+        // The second send of the same key replays the journal instead of matching content again. Without the
+        // recorded verdict the owner's replay would read as a new registration and drop the duplicate notice.
+        for (long actor : new long[] {1, 2}) {
+            var expected = actor == 1 ? RegistrationOutcome.DUPLICATE_OWN : RegistrationOutcome.DUPLICATE_OTHER;
+            var duplicate = deduplication.register("replayed-" + actor + "-" + id, actor, hash(id), REQUEST, () -> {
+                throw new AssertionError("callback");
+            });
+            assertThat(duplicate).isEqualTo(sameClip(created, expected));
+            assertThat(deduplication.register("replayed-" + actor + "-" + id, actor, hash(id), REQUEST, () -> {
+                        throw new AssertionError("callback");
+                    }))
+                    .isEqualTo(duplicate);
+        }
+        // The registering key keeps reporting the creation it actually performed.
+        assertThat(deduplication.register("owner-" + id, 1, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback");
+                }))
+                .isEqualTo(created);
+    }
+
+    @Test
+    void anUnresolvedAttemptStaysADuplicateWhenAnotherRequestAlreadyReportedTheCreation() {
+        long id = IDS.incrementAndGet();
+        var created = register(id, "owner-" + id, REQUEST);
+        var own = deduplication.register("dup-" + id, 1, hash(id), REQUEST, () -> {
+            throw new AssertionError("callback");
+        });
+        assertThat(own).isEqualTo(sameClip(created, RegistrationOutcome.DUPLICATE_OWN));
+        // Push that duplicate back to unresolved: its retry must not read as the creation it never performed.
+        jdbc.update("""
+                UPDATE npick.registration_request
+                SET state='unknown',clip_id=NULL,pipeline_run_id=NULL,result_status=NULL,outcome=NULL
+                WHERE content_hash=? AND outcome='duplicate_own'
+                """, hash(id));
+        assertThat(deduplication.register("dup-" + id, 1, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback");
+                }))
+                .isEqualTo(own);
+    }
+
+    @Test
+    void anotherActorResolvingALostCreationDoesNotBrandItADuplicate() throws Exception {
+        long id = IDS.incrementAndGet();
+        try (var video = inspection.inspect(new ByteArrayInputStream(new byte[] {61, 62, (byte) id}))) {
+            var lostAck = new RegistrationPersistenceAdapter(c -> {
+                registration.register(c);
+                throw new TransactionSystemException("private connection path");
+            });
+            error(
+                    () -> deduplication.register(
+                            "lost-" + id, 1, video.contentHash(), REQUEST, () -> stored(video, id, lostAck)),
+                    ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
+            assertState(video.contentHash(), "unknown");
+            // Someone else's registration resolves that unresolved row before its owner retries.
+            assertThat(deduplication
+                            .register("bystander-" + id, 2, video.contentHash(), REQUEST, () -> {
+                                throw new AssertionError("callback");
+                            })
+                            .outcome())
+                    .isEqualTo(RegistrationOutcome.DUPLICATE_OTHER);
+            assertThat(deduplication
+                            .register("lost-" + id, 1, video.contentHash(), REQUEST, () -> {
+                                throw new AssertionError("callback");
+                            })
+                            .outcome())
+                    .isEqualTo(RegistrationOutcome.CREATED);
+        }
+    }
+
+    @Test
+    void oneRecoveryWritesEachUnresolvedAliasItsOwnVerdict() {
+        long id = IDS.incrementAndGet();
+        var created = register(id, "owner-" + id, REQUEST);
+        // A competitor left behind before the owner's second key resolves every alias at once.
+        jdbc.update("""
+                INSERT INTO npick.registration_request(actor_id,key_hash,request_hash,content_hash,state)
+                VALUES (2,?,?,?,'processing')
+                """, hash(id + 500000), hash(id + 600000), hash(id));
+        assertThat(deduplication.register("owner-second-" + id, 1, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback");
+                }))
+                .isEqualTo(sameClip(created, RegistrationOutcome.DUPLICATE_OWN));
+        assertThat(jdbc.queryForObject(
+                        "SELECT outcome FROM npick.registration_request WHERE actor_id=2 AND key_hash=?",
+                        String.class,
+                        hash(id + 500000)))
+                .isEqualTo("duplicate_other");
+    }
+
+    @Test
+    void replayFallsBackToTheClipRegistrantWhenNoVerdictWasRecorded() {
+        long id = IDS.incrementAndGet();
+        var created = register(id, "owner-" + id, REQUEST);
+        var duplicate = deduplication.register("other-" + id, 2, hash(id), REQUEST, () -> {
+            throw new AssertionError("callback");
+        });
+        // Rows confirmed before this column existed carry no verdict.
+        jdbc.update("UPDATE npick.registration_request SET outcome=NULL WHERE content_hash=?", hash(id));
+        assertThat(deduplication.register("other-" + id, 2, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback");
+                }))
+                .isEqualTo(duplicate);
+        assertThat(deduplication.register("owner-" + id, 1, hash(id), REQUEST, () -> {
+                    throw new AssertionError("callback");
+                }))
+                .isEqualTo(created);
+    }
+
+    @Test
     void differentKeyAndActorSameContentReturnExistingWithoutOverwrite() {
         long id = IDS.incrementAndGet();
         var first = register(id, "first-" + id, REQUEST);
@@ -245,7 +375,7 @@ class RegistrationDeduplicationIntegrationTest {
         assertThat(deduplication.register("second-" + id, 2, hash(id), changed, () -> {
                     throw new AssertionError("callback");
                 }))
-                .isEqualTo(first);
+                .isEqualTo(sameClip(first, RegistrationOutcome.DUPLICATE_OTHER));
         assertThat(jdbc.queryForMap("SELECT title,script_text,registered_by_id FROM npick.clip WHERE clip_id=?", id))
                 .containsEntry("title", "original")
                 .containsEntry("script_text", "private script")
@@ -287,7 +417,7 @@ class RegistrationDeduplicationIntegrationTest {
             assertThat(secondInstance.register("race-other-" + id, 1, hash(id), REQUEST, () -> {
                         throw new AssertionError("callback");
                     }))
-                    .isEqualTo(result);
+                    .isEqualTo(sameClip(result, RegistrationOutcome.DUPLICATE_OWN));
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.clip WHERE content_hash=?", Long.class, hash(id)))
                 .isEqualTo(1);
@@ -347,7 +477,7 @@ class RegistrationDeduplicationIntegrationTest {
         try (var video = inspection.inspect(new ByteArrayInputStream(bytes))) {
             assertThat(deduplication.register(
                             "files-other-" + id, 1, content, REQUEST, () -> stored(video, id + 1, persistence())))
-                    .isEqualTo(first);
+                    .isEqualTo(sameClip(first, RegistrationOutcome.DUPLICATE_OWN));
         }
         assertThat(media.resolve("clips/" + id + "/original")).hasBinaryContent(bytes);
         try (var paths = Files.list(media.resolve("clips"))) {
@@ -421,12 +551,10 @@ class RegistrationDeduplicationIntegrationTest {
                     ClipRuntimeErrorCode.REGISTRATION_OUTCOME_UNKNOWN);
             assertThat(media.resolve("clips/" + id + "/original")).exists();
             assertState(video.contentHash(), "unknown");
-            assertThat(deduplication
-                            .register("lost-" + id, 1, video.contentHash(), REQUEST, () -> {
-                                throw new AssertionError("callback");
-                            })
-                            .clipId())
-                    .isEqualTo(id);
+            assertThat(deduplication.register("lost-" + id, 1, video.contentHash(), REQUEST, () -> {
+                        throw new AssertionError("callback");
+                    }))
+                    .isEqualTo(new RegisterClipResult(id, id, "queued", RegistrationOutcome.CREATED));
             assertState(video.contentHash(), "succeeded");
         }
     }
@@ -1027,6 +1155,11 @@ class RegistrationDeduplicationIntegrationTest {
     private RegisterClipResult register(long id, String key, RequestData request) {
         return deduplication.register(
                 key, 1, hash(id), request, () -> persistence().register(command(id, 1, hash(id))));
+    }
+
+    /** The same clip and run as {@code result}, returned for the given reason instead of a fresh registration. */
+    private static RegisterClipResult sameClip(RegisterClipResult result, RegistrationOutcome outcome) {
+        return new RegisterClipResult(result.clipId(), result.pipelineRunId(), result.status(), outcome);
     }
 
     private RegisterClipUseCase persistence() {

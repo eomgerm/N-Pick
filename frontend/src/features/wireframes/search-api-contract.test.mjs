@@ -23,7 +23,8 @@ registerHooks({
   },
 });
 
-const { createSearchRequestBody, parseSearchResponse } = await import('./search-api-contract.ts');
+const { createSearchRequestBody, parseSearchResponse, parseSearchSnapshot } =
+  await import('./search-api-contract.ts');
 const { presentSearchResponse, searchScenes } = await import('./search-results-api.ts');
 
 const emptyRange = { from: '', to: '' };
@@ -164,7 +165,10 @@ function createScene(rank, overrides = {}) {
     filmed_date: { value: null, verification_status: 'unknown' },
     shot_type: 'b_roll',
     scene_type: '역사 인파',
-    matched_keywords: ['서울역', '귀성객'],
+    matched_keywords: [
+      { keyword: '서울역', origin: 'user' },
+      { keyword: '귀성객', origin: 'expanded' },
+    ],
     match_evidence: [
       {
         field: 'ocr',
@@ -378,4 +382,17 @@ test('서로 모순되는 상태·날짜·guard 계약은 거절한다', () => {
   ]) {
     assert.throws(() => parseSearchResponse(response), ApiClientError);
   }
+});
+
+test('origin null 은 기록 복원에서만 통과하고 실시간 응답에서는 거부한다', () => {
+  // null 은 출처를 남기지 않던 시절의 기록에만 있다 (§6.7). 실시간 경로에서 통과시키면 BE 가 출처를
+  // 못 채우는 회귀가 오류 없이 옛 기록 모양의 칩으로 그려져, 확장어를 가리지 못하는 화면이 그대로
+  // 돌아온다 — S15P21A501-234 가 고친 증상이다.
+  const legacy = createResponse({
+    results: [createScene(1, { matched_keywords: [{ keyword: '서울역', origin: null }] })],
+    shortage_reasons: ['candidate_pool_exhausted'],
+  });
+
+  assert.throws(() => parseSearchResponse(legacy), ApiClientError);
+  assert.equal(parseSearchSnapshot(legacy).results[0].matchedKeywords[0].origin, null);
 });

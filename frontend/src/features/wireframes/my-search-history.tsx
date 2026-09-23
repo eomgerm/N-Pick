@@ -1,7 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Clock3, FileSearch, History, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock3, History, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -13,21 +14,21 @@ import {
   mySearchHistoryKeys,
 } from '@/features/wireframes/my-search-history-api';
 import { MySearchHistoryDeleteDialog } from '@/features/wireframes/my-search-history-delete-dialog';
-import { MySearchHistoryDetail } from '@/features/wireframes/my-search-history-detail';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/search-history.module.css';
 
 interface MySearchHistoryProps {
   theme: WireframeTheme;
-  onDetailOpenChange: (isOpen: boolean) => void;
-  onSelect: (query: string) => void;
+  /** 기록 행을 눌러 결과 화면으로 이동하기 직전에 호출한다. 패널을 열어 둔 채로 이동하면
+   *  전환이 끝날 때까지 패널이 그대로 남고, 이미 열려 있는 기록을 다시 눌러도 반응이 없어 보인다. */
+  onNavigate: () => void;
 }
 
-export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearchHistoryProps) {
+export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
+  const router = useRouter();
   const { memberId } = useMember();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<MySearchHistoryItem | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const list = useQuery({
@@ -107,7 +108,10 @@ export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearc
                       <button
                         className={styles.row}
                         type="button"
-                        onClick={() => onSelect(item.queryText)}
+                        onClick={() => {
+                          onNavigate();
+                          router.push(`/search/results?historyId=${item.searchExecutionId}`);
+                        }}
                       >
                         <span className={styles.sceneIcon} aria-hidden="true">
                           <History />
@@ -145,19 +149,6 @@ export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearc
                         </span>
                       </button>
                       <span className={styles.rowActions}>
-                        <button
-                          aria-label={`${item.queryText} 검색 기록 상세 보기`}
-                          aria-haspopup="dialog"
-                          className={styles.rowAction}
-                          onClick={() => {
-                            setSelectedId(item.searchExecutionId);
-                            onDetailOpenChange(true);
-                          }}
-                          type="button"
-                        >
-                          <FileSearch aria-hidden="true" />
-                          <span>상세</span>
-                        </button>
                         <button
                           aria-label={`${item.queryText} 검색 기록 삭제`}
                           aria-haspopup="dialog"
@@ -206,17 +197,6 @@ export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearc
           ) : null}
         </div>
       </section>
-      {selectedId ? (
-        <MySearchHistoryDetail
-          key={selectedId}
-          executionId={selectedId}
-          theme={theme}
-          onClose={() => {
-            setSelectedId(null);
-            onDetailOpenChange(false);
-          }}
-        />
-      ) : null}
       {pendingDelete ? (
         <MySearchHistoryDeleteDialog
           error={remove.error}

@@ -23,7 +23,7 @@ export const searchFixture = {
       filmed_date: { value: null, verification_status: 'unknown' },
       shot_type: 'b_roll',
       scene_type: null,
-      matched_keywords: ['장면'],
+      matched_keywords: [{ keyword: '장면', origin: 'user' }],
       match_evidence: [
         {
           field: 'caption',

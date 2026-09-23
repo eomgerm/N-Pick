@@ -25,6 +25,9 @@ export interface SearchRequestBody {
   explicit_filters: SearchExplicitFilters;
   // 0-based 결과 페이지. 생략하면 서버가 첫 페이지(0)로 본다. 더보기가 다음 페이지를 요청할 때만 싣는다.
   page?: number;
+  // 더보기가 가리키는 첫 페이지(root) 실행 id — 「내 검색 기록」이 한 검색을 한 줄로 보이게 하는
+  // 그룹핑 힌트다(S15P21A501-280). 첫 페이지 요청엔 싣지 않는다. 결과 재사용이 아니라 기록 링크 전용.
+  search_execution_id?: string;
 }
 
 export type SearchExecutionStatus = 'succeeded' | 'degraded';
@@ -38,6 +41,15 @@ export type SearchInformationStatus = 'verified' | 'unverified' | 'unknown';
 export type SearchEvidenceStatus = Exclude<SearchInformationStatus, 'unknown'>;
 export type SearchEvidenceField = 'caption' | 'ocr' | 'transcript' | 'tag';
 export type SearchShotType = 'anchor' | 'interview' | 'b_roll' | 'unknown';
+
+/** 키워드 칩이 어디서 온 말인가. `user` 는 사용자가 직접 친 말, `expanded` 는 AI 해석기가 넓힌 말이다 (F-05·F-07). */
+export type SearchKeywordOrigin = 'user' | 'expanded';
+
+export interface SearchMatchedKeyword {
+  keyword: string;
+  /** 출처를 남기지 않던 시절에 저장된 기록을 복원할 때만 `null` 이다. 화면은 이 구분이 생기기 전 모든 칩이 보이던 모양 그대로 그린다 — 그때 보이던 대로다. */
+  origin: SearchKeywordOrigin | null;
+}
 
 export interface SearchDateInformation {
   value: string | null;
@@ -64,7 +76,7 @@ export interface SearchSceneResponse {
   filmedDate: SearchDateInformation;
   shotType: SearchShotType;
   sceneType: string | null;
-  matchedKeywords: string[];
+  matchedKeywords: SearchMatchedKeyword[];
   matchEvidence: SearchMatchEvidence[];
 }
 
@@ -168,11 +180,6 @@ function readUniqueEnumList<Value extends string>(
   return new Set(parsed).size === parsed.length ? parsed : invalidResponse(status);
 }
 
-function readStringList(value: unknown, status: number): string[] {
-  if (!Array.isArray(value)) return invalidResponse(status);
-  return value.map((item) => readNonEmptyString(item, status));
-}
-
 function parseDateInformation(value: unknown, status: number): SearchDateInformation {
   const payload = readRecord(value, status);
   const date = payload.value === null ? null : readNonEmptyString(payload.value, status);
@@ -184,6 +191,31 @@ function parseDateInformation(value: unknown, status: number): SearchDateInforma
   if ((date === null) !== (verificationStatus === 'unknown')) return invalidResponse(status);
   if (date !== null && !isCalendarDate(date)) return invalidResponse(status);
   return { value: date, verificationStatus };
+}
+
+const KEYWORD_ORIGINS = ['user', 'expanded'] as const;
+
+/**
+ * `origin: null` 은 출처를 남기지 않던 시절의 기록을 복원할 때만 나온다 (§6.7). 실시간 응답에서 통과시키면, BE 가 출처를
+ * 못 채우는 회귀가 생겨도 오류 없이 옛 기록 모양의 칩으로 조용히 그려진다 — 확장어를 가리지 못하는 이 화면이
+ * 바로 S15P21A501-234 가 고친 증상이다. `parseMatchEvidence` 가 쓰는 것과 같은 규율이다.
+ */
+function parseMatchedKeywords(
+  value: unknown,
+  status: number,
+  isHistory: boolean,
+): SearchMatchedKeyword[] {
+  if (!Array.isArray(value)) return invalidResponse(status);
+  return value.map((item) => {
+    const payload = readRecord(item, status);
+    return {
+      keyword: readNonEmptyString(payload.keyword, status),
+      origin:
+        isHistory && payload.origin === null
+          ? null
+          : readEnum(payload.origin, KEYWORD_ORIGINS, status),
+    };
+  });
 }
 
 function parseMatchEvidence(
@@ -232,7 +264,7 @@ function parseScene(value: unknown, status: number, isHistory: boolean): SearchS
       status,
     ),
     sceneType: readNullableString(payload.scene_type, status),
-    matchedKeywords: readStringList(payload.matched_keywords, status),
+    matchedKeywords: parseMatchedKeywords(payload.matched_keywords, status, isHistory),
     matchEvidence: payload.match_evidence.map((item) =>
       parseMatchEvidence(item, status, isHistory),
     ),

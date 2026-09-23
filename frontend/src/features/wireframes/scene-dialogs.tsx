@@ -39,19 +39,12 @@ import {
   type SearchExecutionPresentation,
   successfulSearchExecution,
 } from '@/features/wireframes/search-execution-status';
-import {
-  SearchResultNotices,
-  SearchResultSafetyNotice,
-} from '@/features/wireframes/search-result-notices';
+import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
 import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
-import {
-  INQUIRY_COMMENT_MAX_LENGTH,
-  rejectOversizedPaste,
-  validateInquiryComment,
-} from '@/features/wireframes/input-validation';
+import { rejectOversizedPaste } from '@/features/wireframes/input-validation';
 
 interface SceneDialogProps {
   children: ReactNode;
@@ -335,58 +328,6 @@ export function ScenePreviewDialog({
           {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
         </div>
         <div className={styles.previewHeaderActions}>
-          {onInquiry ? (
-            <div className={styles.previewInquiryAction}>
-              <button
-                aria-busy={isSubmitting}
-                aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
-                aria-disabled={isInquiryUnavailable || undefined}
-                className={styles.previewReportButton}
-                data-state={
-                  isSubmitted
-                    ? 'submitted'
-                    : isSubmitting
-                      ? 'submitting'
-                      : isInquiryUnavailable
-                        ? 'unavailable'
-                        : 'ready'
-                }
-                disabled={isSubmitted || isSubmitting}
-                onClick={() => {
-                  if (!isInquiryUnavailable) onInquiry();
-                }}
-                type="button"
-              >
-                {isSubmitted ? (
-                  <Check aria-hidden="true" />
-                ) : isSubmitting ? (
-                  <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-                ) : isInquiryUnavailable ? (
-                  <AlertTriangle aria-hidden="true" />
-                ) : (
-                  <Flag aria-hidden="true" />
-                )}
-                {isSubmitted
-                  ? '접수됨'
-                  : isSubmitting
-                    ? '접수 중'
-                    : isInquiryUnavailable
-                      ? '문의 불가'
-                      : '이상해요'}
-              </button>
-              {isInquiryUnavailable ? (
-                <span
-                  className={styles.previewInquiryTooltip}
-                  id={inquiryUnavailableReasonId}
-                  role="tooltip"
-                >
-                  {!canCreateInquiry(searchExecution)
-                    ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
-                    : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
           <button
             aria-label="Preview 닫기"
             className={styles.iconButton}
@@ -451,11 +392,61 @@ export function ScenePreviewDialog({
               {sceneDownloadError ?? clipDownloadError}
             </p>
           ) : null}
-          <SearchResultNotices
-            execution={searchExecution}
-            variant="preview"
-            showSafetyNotice={false}
-          />
+          {onInquiry ? (
+            <div className={styles.previewPlayerActions}>
+              <div className={styles.previewInquiryAction}>
+                <button
+                  aria-busy={isSubmitting}
+                  aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
+                  aria-disabled={isInquiryUnavailable || undefined}
+                  className={styles.previewReportButton}
+                  data-state={
+                    isSubmitted
+                      ? 'submitted'
+                      : isSubmitting
+                        ? 'submitting'
+                        : isInquiryUnavailable
+                          ? 'unavailable'
+                          : 'ready'
+                  }
+                  disabled={isSubmitted || isSubmitting}
+                  onClick={() => {
+                    if (!isInquiryUnavailable) onInquiry();
+                  }}
+                  type="button"
+                >
+                  {isSubmitted ? (
+                    <Check aria-hidden="true" />
+                  ) : isSubmitting ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : isInquiryUnavailable ? (
+                    <AlertTriangle aria-hidden="true" />
+                  ) : (
+                    <Flag aria-hidden="true" />
+                  )}
+                  {isSubmitted
+                    ? '접수됨'
+                    : isSubmitting
+                      ? '접수 중'
+                      : isInquiryUnavailable
+                        ? '문의 불가'
+                        : '이상해요'}
+                </button>
+                {isInquiryUnavailable ? (
+                  <span
+                    className={styles.previewInquiryTooltip}
+                    id={inquiryUnavailableReasonId}
+                    role="tooltip"
+                  >
+                    {!canCreateInquiry(searchExecution)
+                      ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+                      : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
 
         <div className={styles.previewSidebar}>
@@ -568,7 +559,6 @@ export function ScenePreviewDialog({
               </div>
             ))}
           </section>
-          <SearchResultSafetyNotice variant="preview" />
         </div>
       </div>
     </SceneDialog>
@@ -582,6 +572,28 @@ export type InquiryDetails = {
   | { status: 'open' | 'reviewing' }
   | { status: 'closed'; resolution: InquiryResolution | null; resolutionSummary: string | null }
 );
+
+const INQUIRY_REASON_ETC = '기타';
+const INQUIRY_REASONS = [
+  '검색 내용과 맞지 않는 장면',
+  '장면 설명이 정확하지 않음',
+  INQUIRY_REASON_ETC,
+];
+const INQUIRY_ETC_MAX_LENGTH = 200;
+
+/** 프리셋은 선택 사항이며, 기타일 때만 선택형 상세 설명을 받는다. */
+function validateInquiry(reason: string, comment: string): string {
+  if (reason === INQUIRY_REASON_ETC) {
+    if (comment.length > INQUIRY_ETC_MAX_LENGTH) {
+      return `상세 설명은 ${INQUIRY_ETC_MAX_LENGTH}자 이내로 입력해 주세요.`;
+    }
+  }
+  return '';
+}
+
+export function buildInquiryComment(reason: string, comment: string): string {
+  return reason === INQUIRY_REASON_ETC ? comment.trim() : reason;
+}
 
 type InquiryDialogProps = {
   result: Pick<SearchResult, 'title' | 'time'> & { id: string | number; evidenceType?: string };
@@ -608,6 +620,7 @@ export function InquiryDialog({
   onClose,
 }: InquiryDialogProps) {
   const [comment, setComment] = useState(history?.comment ?? '');
+  const [reason, setReason] = useState('');
   const [commentError, setCommentError] = useState('');
   const errorId = useId();
   const hasError = error !== undefined && error !== null;
@@ -751,45 +764,61 @@ export function InquiryDialog({
         aria-busy={isSubmitting}
         onSubmit={(event) => {
           event.preventDefault();
-          const validationError = validateInquiryComment(comment);
+          const validationError = validateInquiry(reason, comment);
           setCommentError(validationError);
           if (validationError || isSubmitting) return;
-          onSubmit(comment);
+          onSubmit(buildInquiryComment(reason, comment));
         }}
       >
-        <label htmlFor="inquiry-comment">설명 (선택)</label>
-        <textarea
-          aria-describedby={
-            [
-              'inquiry-comment-limit',
-              commentError ? 'inquiry-comment-error' : null,
-              statusMessage ? 'inquiry-status-message' : null,
-              hasError ? errorId : null,
-            ]
-              .filter(Boolean)
-              .join(' ') || undefined
-          }
-          disabled={isSubmitting}
-          id="inquiry-comment"
-          maxLength={INQUIRY_COMMENT_MAX_LENGTH}
-          aria-invalid={Boolean(commentError)}
-          onChange={(event) => {
-            setComment(event.target.value);
-            setCommentError(validateInquiryComment(event.target.value));
-            onCommentChange?.();
-          }}
-          onPaste={(event) =>
-            rejectOversizedPaste(event, INQUIRY_COMMENT_MAX_LENGTH, () =>
-              setCommentError('문의 내용은 2,000자 이내로 입력해 주세요.'),
-            )
-          }
-          placeholder="무엇이 이상했는지 알려주세요. 비워두어도 접수할 수 있어요."
-          rows={4}
-          value={comment}
-        />
-        <p id="inquiry-comment-limit" className="text-sm text-(--muted)">
-          {comment.length}/2,000자
-        </p>
+        <fieldset className={styles.inquiryReasons}>
+          <legend>어떤 점이 이상한가요? (선택)</legend>
+          {INQUIRY_REASONS.map((option) => (
+            <label key={option} className={styles.inquiryReason} data-active={reason === option}>
+              <input
+                type="radio"
+                name="inquiry-reason"
+                value={option}
+                checked={reason === option}
+                disabled={isSubmitting}
+                onChange={() => {
+                  setReason(option);
+                  setCommentError('');
+                  onCommentChange?.();
+                }}
+              />
+              {option}
+            </label>
+          ))}
+        </fieldset>
+        {reason === INQUIRY_REASON_ETC ? (
+          <>
+            <label htmlFor="inquiry-comment">상세 설명 (선택)</label>
+            <textarea
+              aria-describedby={
+                [commentError ? 'inquiry-comment-error' : null, hasError ? errorId : null]
+                  .filter(Boolean)
+                  .join(' ') || undefined
+              }
+              disabled={isSubmitting}
+              id="inquiry-comment"
+              maxLength={INQUIRY_ETC_MAX_LENGTH}
+              aria-invalid={Boolean(commentError)}
+              onChange={(event) => {
+                setComment(event.target.value);
+                setCommentError(validateInquiry(reason, event.target.value));
+                onCommentChange?.();
+              }}
+              onPaste={(event) =>
+                rejectOversizedPaste(event, INQUIRY_ETC_MAX_LENGTH, () =>
+                  setCommentError(`상세 설명은 ${INQUIRY_ETC_MAX_LENGTH}자 이내로 입력해 주세요.`),
+                )
+              }
+              placeholder="직접 설명하지 않아도 접수할 수 있어요."
+              rows={3}
+              value={comment}
+            />
+          </>
+        ) : null}
         {commentError ? (
           <p id="inquiry-comment-error" role="alert" className="text-sm text-(--danger)">
             {commentError}
@@ -807,7 +836,7 @@ export function InquiryDialog({
           </button>
           <button
             className={styles.submitInquiry}
-            disabled={isSubmitting || Boolean(validateInquiryComment(comment))}
+            disabled={isSubmitting || Boolean(validateInquiry(reason, comment))}
             type="submit"
           >
             {isSubmitting ? (

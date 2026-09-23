@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 
 import com.npick.clip.application.command.register.RegisterClipResult;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipCommand;
 import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.clip.application.error.VideoPreparationErrorCode;
@@ -53,7 +54,7 @@ class ClipUploadRequestTest {
     void setup() {
         when(upload.upload(any())).thenAnswer(call -> {
             received = call.getArgument(0);
-            return new RegisterClipResult(101, 201, "queued");
+            return new RegisterClipResult(101, 201, "queued", RegistrationOutcome.CREATED);
         });
     }
 

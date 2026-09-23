@@ -23,7 +23,8 @@ public record SearchRequest(
         @JsonProperty("query") @NotBlank @Size(min = 2, max = 500, message = "검색어는 2글자 이상 입력해 주세요") String query,
 
         @JsonProperty("explicit_filters") Filters explicitFilters,
-        @JsonProperty("page") @Min(0) @Max(10_000) Integer page) {
+        @JsonProperty("page") @Min(0) @Max(10_000) Integer page,
+        @JsonProperty("search_execution_id") String searchExecutionId) {
 
     // 페이지 경계의 정본은 응답 has_next 다 — ActiveSceneExclusionService 가 유효 후보를 다 넘긴
     // 페이지에서 has_next=false 와 빈 결과를 낸다(설정과 무관하게 참). 이 @Max 는 그 경계가 아니라
@@ -35,6 +36,24 @@ public record SearchRequest(
     /** page 를 지정하지 않은 요청은 첫 페이지(0)다 — 하위호환. */
     public int pageOrDefault() {
         return page == null ? 0 : page;
+    }
+
+    /**
+     * 더보기 이어보기가 가리키는 root 실행 id — 「내 검색 기록」이 한 검색을 한 줄로 보이게 하는 그룹핑 힌트다(S15P21A501-280). 첫 페이지 검색은 싣지 않는다. 결과·해석 재사용이
+     * 아니라 기록 링크 전용이라 형식이 아니거나 없으면 null(=root 검색)로 본다 — 잘못된 힌트로 검색 자체를 막지 않는다. bigint id 는 양의 십진 문자열이다(web-api §2.3).
+     */
+    public Long parentExecutionId() {
+        // 자릿수를 제한하지 않으면 20자리 같은 값이 정규식은 통과하고 Long.valueOf 에서
+        // NumberFormatException 이 나 검색 전체가 500 이 된다(그룹핑 힌트 하나로 검색을 죽인다).
+        // 18자리까지로 좁히고, 19자리는 Long.MAX_VALUE 초과가 가능해 try/catch 로도 막는다.
+        if (searchExecutionId == null || !searchExecutionId.matches("[1-9]\\d{0,18}")) {
+            return null;
+        }
+        try {
+            return Long.valueOf(searchExecutionId);
+        } catch (NumberFormatException notAnId) {
+            return null;
+        }
     }
 
     /**

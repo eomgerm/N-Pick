@@ -35,6 +35,7 @@ final class SearchHistoryRows {
     static final String OWNER_SCOPE_ANY_STATE = """
             se.searched_by_id = :ownerId
               AND se.execution_type = 'original'
+              AND se.parent_execution_id IS NULL
               AND se.status IN ('succeeded', 'degraded')
             """;
 

@@ -49,13 +49,14 @@ registerHooks({
 const { SearchResultCard } = await import('./search-result-card.tsx');
 const { results } = await import('./demo-scenes.ts');
 
-function renderCard(result, isSelected = false, position = result.rank) {
+function renderCard(result, isSelected = false, position = result.rank, extra = {}) {
   return renderToStaticMarkup(
     createElement(SearchResultCard, {
       result,
       position,
       isSelected,
       onSelect() {},
+      ...extra,
     }),
   );
 }
@@ -68,7 +69,7 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
     '1위',
     result.title,
     '00:42 – 00:49',
-    ...result.matchedKeywords,
+    ...result.matchedKeywords.map(({ keyword }) => keyword),
     '검증됨',
     '화면 속 글자',
     '서울역, 설 연휴 귀성객',
@@ -113,6 +114,18 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
   assert.match(html, new RegExp(`aria-label="${result.imageLabel}"`));
 });
 
+test('키워드 칩은 사용자가 친 말과 AI 확장어를 색상 말고 라벨로 구분한다', () => {
+  // FRD 6.3: 색상만으로 상태를 구분하지 않는다. F-05·F-07: 사용자가 명시한 내용과 AI 가 추정한 내용을 구분한다.
+  const html = renderCard(results[0]);
+
+  assert.ok(html.includes('<span class="keywordChip" data-origin="user">서울역</span>'));
+  assert.ok(
+    html.includes(
+      '<span class="keywordChip" data-origin="expanded">귀성객<span class="keywordChipOrigin">(확장)</span></span>',
+    ),
+  );
+});
+
 test('촬영일 값이 없어도 카드에는 근거 검증 칩만 표시한다', () => {
   const html = renderCard({ ...results[0], broadcastDate: null, filmedDate: null }, true);
   assert.ok(!html.includes('촬영일'));
@@ -146,7 +159,29 @@ test('샷 유형이 unknown이면 이름과 함께 정보 없음으로 표시한
   );
 });
 
-test('결과 카드에는 이상해요 버튼을 표시하지 않고 Preview 진입점만 제공한다', () => {
+test('onInquiry 가 있으면 썸네일에 문의 버튼을 아이콘으로 렌더한다', () => {
+  const html = renderCard(results[0], false, 1, { onInquiry() {} });
+
+  assert.ok(html.includes('cardInquiryButton'));
+  assert.match(html, /data-state="ready"/);
+  assert.match(html, /aria-label="설 연휴 첫날, 서울역 귀성 인파 문의하기"/);
+  // 텍스트 없이 아이콘만. ready 상태는 비활성이 아니다.
+  assert.ok(!html.includes('이상해요'));
+  assert.ok(!html.includes('aria-disabled'));
+});
+
+test('문의 불가 사유가 있으면 버튼을 비활성으로 두고 사유를 안내한다', () => {
+  const html = renderCard(results[0], false, 1, {
+    onInquiry() {},
+    inquiryUnavailableReason: '저장된 검색 결과가 아니므로 문의할 수 없습니다.',
+  });
+
+  assert.match(html, /data-state="unavailable"/);
+  assert.ok(html.includes('aria-disabled="true"'));
+  assert.ok(html.includes('저장된 검색 결과가 아니므로 문의할 수 없습니다.'));
+});
+
+test('onInquiry 가 없으면 문의 버튼 없이 Preview 진입점만 제공한다', () => {
   const html = renderCard(results[0]);
 
   assert.ok(!html.includes('이상해요'));

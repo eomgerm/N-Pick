@@ -20,6 +20,7 @@ import com.npick.clip.application.command.StoredClipRegistrationService;
 import com.npick.clip.application.command.VideoPreparationService;
 import com.npick.clip.application.command.register.RegisterClipResult;
 import com.npick.clip.application.command.register.RegisterClipUseCase;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.clip.application.port.ClipRegistrationContextPort;
 import com.npick.clip.infrastructure.media.FfmpegVideoValidator;
@@ -101,7 +102,8 @@ class ClipUploadFlowTest {
             com.npick.clip.application.command.register.RegisterClipCommand command = call.getArgument(0);
             assertThat(command.transcriptFileKey()).isEqualTo("transcripts/101/provided.srt");
             assertThat(command.scriptText()).isEqualTo("영상 전체 참고 대본");
-            return new RegisterClipResult(command.clipId(), command.pipelineRunId(), "queued");
+            return new RegisterClipResult(
+                    command.clipId(), command.pipelineRunId(), "queued", RegistrationOutcome.CREATED);
         });
         mvc.perform(multipart("/api/v1/clips")
                         .header("Idempotency-Key", "subtitle-request")
@@ -122,7 +124,7 @@ class ClipUploadFlowTest {
         when(intake.contentHash()).thenReturn("b".repeat(64));
         when(transcripts.receive(any(), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq(101L)))
                 .thenReturn(intake);
-        org.mockito.Mockito.doReturn(new RegisterClipResult(900, 901, "queued"))
+        org.mockito.Mockito.doReturn(new RegisterClipResult(900, 901, "queued", RegistrationOutcome.CREATED))
                 .when(deduplication)
                 .register(any(), org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
         mvc.perform(multipart("/api/v1/clips")
@@ -162,7 +164,8 @@ class ClipUploadFlowTest {
             assertThat(command.filmedDate()).hasToString("2026-09-08");
             assertThat(command.storageKey()).isEqualTo("clips/101/original");
             assertThat(command.contentHash()).hasSize(64);
-            return new RegisterClipResult(command.clipId(), command.pipelineRunId(), "queued");
+            return new RegisterClipResult(
+                    command.clipId(), command.pipelineRunId(), "queued", RegistrationOutcome.CREATED);
         });
         mvc.perform(multipart("/api/v1/clips")
                         .header("Idempotency-Key", "test-key")
@@ -176,7 +179,8 @@ class ClipUploadFlowTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.clip_id").value("101"))
                 .andExpect(jsonPath("$.data.pipeline_run_id").value("201"))
-                .andExpect(jsonPath("$.data.status").value("queued"));
+                .andExpect(jsonPath("$.data.status").value("queued"))
+                .andExpect(jsonPath("$.data.outcome").value("created"));
         assertThat(Files.readAllBytes(media.resolve("clips/101/original"))).containsExactly((byte) 1, (byte) 2);
         assertThat(uploads).isEmptyDirectory();
     }
