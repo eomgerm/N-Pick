@@ -72,6 +72,11 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
                 .find(command.feedbackId())
                 .orElseThrow(() -> new BusinessException(ConfirmCorrectionErrorCode.FEEDBACK_NOT_FOUND));
 
+        // 담당 검수자 확인은 멱등-성공보다 먼저 한다 — 남의 확정을 재요청한 다른 검수자에게 조용히 200 을
+        // 주면 권한 오류가 성공으로 감춰진다. 담당자는 CLOSED 후에도 reviewed_by_id 로 남는다.
+        if (target.reviewedById() == null || target.reviewedById() != command.reviewerId()) {
+            throw new BusinessException(ConfirmCorrectionErrorCode.NOT_REVIEWER);
+        }
         // 멱등: 같은 검증 실행으로 이미 확정됐으면 재요청은 조용히 성공한다(버튼 재클릭·응답 유실 후 재시도, F-13 완료 기준).
         if (FeedbackStatus.CLOSED.name().equals(target.status())
                 && target.verifiedByExecutionId() != null
@@ -88,9 +93,6 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
         FeedbackResolution parsedResolution = FeedbackResolution.parse(target.resolution());
         if (parsedResolution == null || parsedResolution.isTerminal()) {
             throw new BusinessException(ConfirmCorrectionErrorCode.NOT_A_CORRECTION);
-        }
-        if (target.reviewedById() == null || target.reviewedById() != command.reviewerId()) {
-            throw new BusinessException(ConfirmCorrectionErrorCode.NOT_REVIEWER);
         }
 
         VerificationRun run = verificationRunPort
@@ -115,6 +117,13 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
         boolean isPatchParse =
                 hasRuleCandidate && FeedbackResolution.PATCH_PARSE.value().equals(run.approvedRuleAction());
         boolean hasTagCandidate = !run.approvedEvidenceIds().isEmpty();
+
+        // 규칙 후보가 있는데 종류(patch_parse/exclude_scene)를 못 가리면(레거시·손상 스냅샷의 approved_rule_action
+        // 누락) 규칙이 실제로 적용되지 않는다. 그대로 두면 아래 CAS 가 created_rule_id 에 그 id 를 적어 "적용 안 된
+        // 규칙을 가리키는 CLOSED 신고"가 남으므로, 조용히 기록하지 말고 재검증으로 막는다.
+        if (hasRuleCandidate && !isExcludeScene && !isPatchParse) {
+            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+        }
 
         // 장면 제외는 확정 직전에 대상 장면이 여전히 유효한지 다시 확인한다(F-14). 검증과 확정 사이에 재처리가 끼면 대상 장면이
         // 사라지므로, 쓰기 전에 막아 신고를 reviewing 으로 남긴다. drift(규칙·근거 변경)와 구분되는 제외 고유 게이트다.

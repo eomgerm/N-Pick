@@ -111,10 +111,11 @@ public class InquiryReviewService
         if (repository.resolve(feedbackId, reviewerId, resolution, normalizedNote, Instant.now()) == 0) {
             throw new FeedbackException(FeedbackErrorCode.NOT_RESOLVABLE); // 조회~갱신 사이 경합
         }
-        // no_action 은 "오류 없음"으로 되돌린 종료다 — 검수 중 만들어 뒀던 대기 후보(교정 필요로 갔다가 되돌린 경우)가 이 신고 아래
-        // confirmed=false·active=false 로 남아 있으면 나중 편집에 고아로 섞여 든다. 같은 트랜잭션(위 CAS 와 같은 correctionStateLock
-        // 범위) 안에서 지워 부분 상태가 생기지 않게 한다. deferred(폐기 예정 값)·교정 3종은 건드리지 않는다.
-        if (resolution == FeedbackResolution.NO_ACTION) {
+        // 종료 판정(no_action·deferred)은 검수 중 만들어 뒀던 대기 후보(교정 필요로 갔다가 되돌린 경우)가 이 신고
+        // 아래 confirmed=false·active=false 로 남지 않게 지운다 — 남으면 나중 편집·검증에 고아로 섞여 든다. 같은
+        // 트랜잭션(위 CAS 와 같은 correctionStateLock 범위) 안에서 지워 부분 상태를 막는다. FRD F-16: 보류도 교정
+        // 후보를 남기지 않는다. 교정(correction) 판정은 후보를 살려 두므로 건드리지 않는다.
+        if (resolution.isTerminal()) {
             discardTagCorrection.discardPending(feedbackId);
             discardSearchRuleCandidates.discardPending(feedbackId);
         }

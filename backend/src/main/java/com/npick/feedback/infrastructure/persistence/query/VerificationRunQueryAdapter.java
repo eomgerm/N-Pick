@@ -91,7 +91,12 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
                 if (!isPositiveId(id)) {
                     return null;
                 }
-                evidenceIds.add(id.asLong());
+                // 중복 id 를 그대로 두면 confirmTag 의 IN 업데이트 행수(distinct)가 size 와 어긋나 영구
+                // NEEDS_REVERIFICATION 이 된다 — 여기서 접는다.
+                long value = id.asLong();
+                if (!evidenceIds.contains(value)) {
+                    evidenceIds.add(value);
+                }
             }
         }
         Long approvedRuleId = strictOptionalId(node.get("approved_rule_id"));
