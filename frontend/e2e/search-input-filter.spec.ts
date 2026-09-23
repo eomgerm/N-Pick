@@ -1,3 +1,4 @@
+import { chooseDateBasis, openDatePicker, periodTrigger } from './date-picker-helpers';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { searchFixture } from './search-fixture';
 
@@ -14,10 +15,10 @@ async function openAsEditor(page: Page, path: string) {
 }
 
 async function applyDateRange(page: Page, label: string, from: string, to: string) {
-  await page.getByRole('button', { name: new RegExp(`^${label} 기간 선택:`) }).click();
+  await openDatePicker(page, label);
   const dialog = page
     .getByRole('dialog')
-    .filter({ has: page.getByRole('heading', { name: `${label} 기간` }) });
+    .filter({ has: page.getByRole('button', { name: '기준 선택', exact: true }) });
   if (from.startsWith('2026-08')) {
     await dialog.getByRole('button', { name: '시작일 이전 달' }).click();
     await dialog.getByRole('button', { name: '종료일 이전 달' }).click();
@@ -43,7 +44,9 @@ test('검색 오류 팝업은 자동·수동으로 닫히고 재시도 오류를
   );
   await openAsEditor(page, '/search/results?q=장면');
 
-  const notice = page.getByRole('alert').filter({ hasText: '요청한 항목을 찾을 수 없습니다.' });
+  const notice = page
+    .getByRole('alert')
+    .filter({ hasText: '검색 서비스를 잠시 이용하기 어려워요.' });
   const retry = page.getByRole('button', { name: '같은 조건으로 다시 시도' });
   await expect(notice).toBeVisible();
   await expect(notice).not.toContainText('search-error-test');
@@ -115,7 +118,7 @@ test('저장에 실패한 검색 결과 Preview는 문의 요청을 보내지 �
   await expect(reason).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('preview-tooltip-mobile.png') });
   await page.mouse.move(0, 0);
-  await preview.getByRole('complementary', { name: '송출 전 확인 안내' }).scrollIntoViewIfNeeded();
+  await preview.getByRole('region', { name: '검색 기능 누락 안내' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('preview-evidence-mobile.png') });
   expect(inquiryRequests).toEqual([]);
 });
@@ -141,21 +144,22 @@ test('검색어와 방송일·촬영일을 결과 URL과 화면에 보존한다'
     );
   });
   await expect(
-    page.getByRole('button', { name: '방송일 기간 선택: 2026.09.01 – 2026.09.03' }),
+    page.getByRole('button', { name: /방송일 2026\.09\.01 – 2026\.09\.03/ }),
   ).toBeVisible();
   await expect(
-    page.getByRole('button', { name: '촬영일 기간 선택: 2026.08.28 – 2026.08.29' }),
+    page.getByRole('button', { name: /촬영일 2026\.08\.28 – 2026\.08\.29/ }),
   ).toBeVisible();
 });
 
 test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 반영한다', async ({ page }) => {
   await openAsEditor(page, '/search');
 
-  const broadcastTrigger = page.getByRole('button', { name: /^방송일 기간 선택:/ });
+  const broadcastTrigger = page.getByRole('button', { name: /^기간 설정:/ });
   await broadcastTrigger.click();
+  await chooseDateBasis(page, '방송일');
   const broadcastDialog = page
     .getByRole('dialog')
-    .filter({ has: page.getByRole('heading', { name: '방송일 기간' }) });
+    .filter({ has: page.getByRole('button', { name: '기준 선택', exact: true }) });
   await broadcastDialog.getByRole('button', { name: '최근 1년' }).click();
   await expect(
     broadcastDialog.getByRole('button', { name: '시작일 2025년 9월, 월 선택', exact: true }),
@@ -165,14 +169,15 @@ test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 
   ).toHaveAttribute('tabindex', '0');
   await broadcastDialog.getByRole('button', { name: '적용' }).click();
   await expect(
-    page.getByRole('button', { name: '방송일 기간 선택: 2025.09.11 – 2026.09.11' }),
+    page.getByRole('button', { name: /방송일 2025\.09\.11 – 2026\.09\.11/ }),
   ).toBeVisible();
 
-  const filmingTrigger = page.getByRole('button', { name: /^촬영일 기간 선택:/ });
+  const filmingTrigger = page.getByRole('button', { name: /^기간 설정:/ });
   await filmingTrigger.click();
+  await chooseDateBasis(page, '촬영일');
   const filmingDialog = page
     .getByRole('dialog')
-    .filter({ has: page.getByRole('heading', { name: '촬영일 기간' }) });
+    .filter({ has: page.getByRole('button', { name: '기준 선택', exact: true }) });
   await filmingDialog.getByRole('button', { name: '최근 3년' }).click();
   await expect(
     filmingDialog.getByRole('button', { name: '시작일 2023년 9월, 월 선택', exact: true }),
@@ -182,15 +187,16 @@ test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 
   ).toHaveAttribute('tabindex', '0');
   await filmingDialog.getByRole('button', { name: '적용' }).click();
   await expect(
-    page.getByRole('button', { name: '촬영일 기간 선택: 2023.09.11 – 2026.09.11' }),
+    page.getByRole('button', { name: /촬영일 2023\.09\.11 – 2026\.09\.11/ }),
   ).toBeVisible();
 
   await broadcastTrigger.click();
+  await chooseDateBasis(page, '방송일');
   await broadcastDialog.getByRole('button', { name: '초기화' }).click();
   await expect(broadcastDialog).toBeVisible();
-  await expect(page.getByRole('button', { name: '방송일 기간 선택: 전체 기간' })).toBeVisible();
+  await expect(periodTrigger(page)).not.toHaveAccessibleName(/방송일/);
   await expect(
-    page.getByRole('button', { name: '촬영일 기간 선택: 2023.09.11 – 2026.09.11' }),
+    page.getByRole('button', { name: /촬영일 2023\.09\.11 – 2026\.09\.11/ }),
   ).toBeVisible();
 });
 
@@ -206,10 +212,10 @@ test('빈 검색어와 달력 날짜 선택 Enter는 검색을 시작하지 않�
   await expect(page).toHaveURL(/\/search$/);
 
   await query.fill('날짜 입력 확인');
-  await page.getByRole('button', { name: /^방송일 기간 선택:/ }).click();
+  await page.getByRole('button', { name: /^기간 설정:/ }).click();
   const dialog = page
     .getByRole('dialog')
-    .filter({ has: page.getByRole('heading', { name: '방송일 기간' }) });
+    .filter({ has: page.getByRole('button', { name: '기준 선택', exact: true }) });
   const startDate = dialog.locator('[data-endpoint="from"] [data-date="2026-09-01"]');
   await startDate.focus();
   await startDate.press('Enter');

@@ -25,7 +25,7 @@ for (const width of [1440, 390]) {
     const sidebar = page.getByRole('complementary', { name: '검색 도구', exact: true });
     await expect(sidebar).toHaveCount(1);
     await expect(
-      sidebar.getByRole('button', { name: '방송일 기간 선택: 2026.09.01 – 2026.09.03' }),
+      sidebar.getByRole('button', { name: /방송일 2026\.09\.01 – 2026\.09\.03/ }),
     ).toBeVisible();
     expect((await sidebar.boundingBox())!.x + (await sidebar.boundingBox())!.width).toBeLessThan(
       (await page.getByRole('main').boundingBox())!.x,

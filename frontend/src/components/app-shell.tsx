@@ -6,7 +6,6 @@ import type { ReactNode } from 'react';
 
 import { AppBackdrop } from '@/components/app-backdrop';
 import { AppBrand } from '@/components/app-brand';
-import { MountainBackdrop } from '@/components/mountain-backdrop';
 import { useMember } from '@/components/session-boundary';
 import { SessionControls } from '@/components/session-controls';
 import styles from '@/components/app-shell.module.css';
@@ -84,11 +83,7 @@ export function AppShell({
       className={[className, hasFloatingHeader && styles.floatingLayout].filter(Boolean).join(' ')}
       data-theme={theme}
     >
-      {isSearchEntry ? (
-        <MountainBackdrop />
-      ) : (
-        <AppBackdrop tone={backdropTone} unveiled={isBackdropUnveiled} />
-      )}
+      {!isSearchEntry && <AppBackdrop tone={backdropTone} unveiled={isBackdropUnveiled} />}
       {hasHeader && (
         <header
           className={
