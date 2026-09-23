@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { type KeyboardEvent, useRef, useState } from 'react';
+import { type DragEvent, type KeyboardEvent, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
@@ -74,6 +74,8 @@ export function ParseInterpretationEditor({
   const [chips, setChips] = useState<Chip[]>(() => seeded ?? []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetAxis, setDropTargetAxis] = useState<EditableAxis | null>(null);
   const newChipCounter = useRef(0);
   const suppressBlur = useRef(false);
 
@@ -184,17 +186,48 @@ export function ParseInterpretationEditor({
     commitEdit();
   }
 
+  function onChipDragStart(event: DragEvent<HTMLSpanElement>, chip: Chip) {
+    event.dataTransfer.setData('text/plain', chip.id);
+    event.dataTransfer.effectAllowed = 'move';
+    setDraggingId(chip.id);
+  }
+
+  function onChipDragEnd() {
+    setDraggingId(null);
+    setDropTargetAxis(null);
+  }
+
+  function onRowDragOver(event: DragEvent<HTMLDivElement>, axis: EditableAxis) {
+    event.preventDefault();
+    setDropTargetAxis(axis);
+  }
+
+  function onRowDrop(event: DragEvent<HTMLDivElement>, axis: EditableAxis) {
+    event.preventDefault();
+    const id = event.dataTransfer.getData('text/plain');
+    setDropTargetAxis(null);
+    setDraggingId(null);
+    setChips((prev) =>
+      prev.map((chip) => (chip.id === id && chip.axis !== axis ? { ...chip, axis } : chip)),
+    );
+  }
+
   const serverMessage = save.isError ? parseRuleErrorMessage(save.error) : null;
 
   return (
     <div className={styles.wrap}>
       <section className={styles.card}>
         <h3 className={styles.heading}>검색 해석 교정</h3>
-        <p className={styles.hint}>칩을 클릭해 값 수정 · ×로 삭제</p>
+        <p className={styles.hint}>칩을 클릭해 값 수정 · ×로 삭제 · 다른 항목으로 끌어 이동</p>
 
         <div className={styles.rows}>
           {EDITABLE_AXES.map((axis) => (
-            <div className={styles.row} key={axis}>
+            <div
+              className={`${styles.row} ${dropTargetAxis === axis ? styles.dropTarget : ''}`}
+              key={axis}
+              onDragOver={(event) => onRowDragOver(event, axis)}
+              onDrop={(event) => onRowDrop(event, axis)}
+            >
               <div className={styles.axis}>{resolutionAxisLabels[axis]}</div>
               <div className={styles.chips}>
                 {chips
@@ -213,9 +246,12 @@ export function ParseInterpretationEditor({
                       />
                     ) : (
                       <span
-                        className={styles.chip}
+                        className={`${styles.chip} ${draggingId === chip.id ? styles.dragging : ''}`}
+                        draggable
                         key={chip.id}
                         onClick={() => startEdit(chip)}
+                        onDragEnd={onChipDragEnd}
+                        onDragStart={(event) => onChipDragStart(event, chip)}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault();
