@@ -106,38 +106,33 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
             throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
         }
 
-        // 한 신고가 태그 근거와 규칙 후보를 함께 들고 있을 수 있다(F-09 혼합 교정) — 배타 분기가 아니라 축마다 대기 후보가
-        // "있는가"로 적용 여부를 가른다. 규칙 축은 검증 스냅샷 한 슬롯만 담을 수 있어 exclude_scene/patch_parse 둘 중
-        // 어느 쪽인지는 검증이 승인한 run.resolution() 으로 가린다 — target.resolution() 처럼 확정 사이에 바뀔 수 있는
-        // 값이 아니라, 이 실행이 검증한 시점에 고정된 스냅샷이라 안전하다(위 run.resolution()·target.resolution() 일치
-        // 검사로 이미 같음이 보장된다). 즉 "적용할지"는 후보 존재로, "어느 규칙 유스케이스인지"만 검증 스냅샷의 종류로 정한다.
-        boolean hasRuleCandidate = run.approvedRuleId() != null;
-        boolean isExcludeScene =
-                hasRuleCandidate && FeedbackResolution.EXCLUDE_SCENE.value().equals(run.approvedRuleAction());
-        boolean isPatchParse =
-                hasRuleCandidate && FeedbackResolution.PATCH_PARSE.value().equals(run.approvedRuleAction());
+        // 한 신고가 태그 근거와 여러 규칙 후보(질의교정 + 장면제외)를 함께 들고 있을 수 있다(F-09 복합 교정,
+        // S15P21A501-309) — 축마다 대기 후보가 "있는가"로 적용 여부를 가른다. 규칙은 검증 스냅샷의 candidate_rules
+        // 전체를 돌며 종류대로 확정한다. "적용할지"는 후보 존재로, "어느 규칙 유스케이스인지"만 각 규칙의 action 으로 정한다.
         boolean hasTagCandidate = !run.approvedEvidenceIds().isEmpty();
 
-        // 규칙 후보가 있는데 종류(patch_parse/exclude_scene)를 못 가리면(레거시·손상 스냅샷의 approved_rule_action
-        // 누락) 규칙이 실제로 적용되지 않는다. 그대로 두면 아래 CAS 가 created_rule_id 에 그 id 를 적어 "적용 안 된
-        // 규칙을 가리키는 CLOSED 신고"가 남으므로, 조용히 기록하지 말고 재검증으로 막는다.
-        if (hasRuleCandidate && !isExcludeScene && !isPatchParse) {
-            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
-        }
-
-        // 장면 제외는 확정 직전에 대상 장면이 여전히 유효한지 다시 확인한다(F-14). 검증과 확정 사이에 재처리가 끼면 대상 장면이
-        // 사라지므로, 쓰기 전에 막아 신고를 reviewing 으로 남긴다. drift(규칙·근거 변경)와 구분되는 제외 고유 게이트다.
-        if (isExcludeScene && !excludeValidity.targetSceneActive(run.approvedRuleId())) {
-            throw new BusinessException(ConfirmCorrectionErrorCode.TARGET_SCENE_GONE);
-        }
-
-        // 실제 적용 행 수가 승인 대상 수와 다르면 후보가 그대로 적용되지 않은 것이라 확정을 막는다(F-12). 검증 이후 근거·규칙이 사라진 경우다.
-        if (isPatchParse
-                && confirmParseRule.confirm(command.feedbackId(), run.approvedRuleId(), run.replacedRuleId()) != 1) {
-            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
-        }
-        if (isExcludeScene && confirmExcludeScene.confirm(command.feedbackId(), run.approvedRuleId()) != 1) {
-            throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+        for (VerificationRun.RuleRef rule : run.rules()) {
+            boolean isExcludeScene = FeedbackResolution.EXCLUDE_SCENE.value().equals(rule.action());
+            boolean isPatchParse = FeedbackResolution.PATCH_PARSE.value().equals(rule.action());
+            // 규칙 종류를 못 가리면(손상 스냅샷) parse 에서 걸러지지만 방어적으로 재검증으로 막는다.
+            if (!isExcludeScene && !isPatchParse) {
+                throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+            }
+            if (isExcludeScene) {
+                // 장면 제외는 확정 직전에 대상 장면이 여전히 유효한지 다시 확인한다(F-14). 재처리로 사라졌으면
+                // 쓰기 전에 막아 신고를 reviewing 으로 남긴다.
+                if (!excludeValidity.targetSceneActive(rule.approvedRuleId())) {
+                    throw new BusinessException(ConfirmCorrectionErrorCode.TARGET_SCENE_GONE);
+                }
+                if (confirmExcludeScene.confirm(command.feedbackId(), rule.approvedRuleId()) != 1) {
+                    throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+                }
+            } else if (confirmParseRule.confirm(
+                            command.feedbackId(), rule.approvedRuleId(), rule.replacedRuleId())
+                    != 1) {
+                // 실제 적용 행 수가 1 이 아니면 검증 이후 규칙이 사라진 것이라 확정을 막는다(F-12).
+                throw new BusinessException(ConfirmCorrectionErrorCode.NEEDS_REVERIFICATION);
+            }
         }
         if (hasTagCandidate
                 && confirmTag.confirm(command.feedbackId(), run.approvedEvidenceIds())
