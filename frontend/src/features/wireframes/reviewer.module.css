@@ -1641,7 +1641,9 @@
 
 .registrationNotice {
   border-color: color-mix(in srgb, var(--accent) 20%, var(--line));
-  background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface));
+  background: url('/textures/frosted-grain.svg') rgb(240 248 255 / 80%);
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
 }
 
 .metricGrid {

@@ -319,7 +319,12 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
               >
                 <h2>{inquiry.status === 'closed' ? '처리 결과' : '현재 판정'}</h2>
                 <p className="mt-2 font-semibold">{inquiryResolutionLabels[inquiry.resolution]}</p>
-                <p className="mt-2 whitespace-pre-wrap text-(--muted)">
+                <p
+                  aria-label="처리 사유"
+                  className={`${styles.outcomeNote} mt-2 whitespace-pre-wrap text-(--muted)`}
+                  role="region"
+                  tabIndex={0}
+                >
                   {inquiry.resolutionNote || '추가 사유 없음'}
                 </p>
                 {inquiry.status === 'reviewing' ? (

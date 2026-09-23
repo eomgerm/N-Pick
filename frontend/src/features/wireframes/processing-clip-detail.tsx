@@ -194,7 +194,10 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                 </div>
               </dl>
             </section>
-            <section className={`${styles.panel} ${styles.detailSection}`} aria-label="원본 영상">
+            <section
+              className={`${styles.panel} ${styles.detailSection} ${styles.mediaSection}`}
+              aria-label="원본 영상"
+            >
               <h2>원본 영상</h2>
               <video
                 key={clipId}

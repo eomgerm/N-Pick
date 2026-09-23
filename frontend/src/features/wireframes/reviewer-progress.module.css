@@ -48,7 +48,7 @@
   flex: none;
   min-height: 44px;
   padding: 10px 14px;
-  border: 1px solid rgb(225 239 246 / 30%);
+  border: 0;
   border-radius: 12px;
   color: #f3f8fc;
   font-size: 14px;
@@ -324,10 +324,16 @@
   margin: 6px 0 0;
   font-weight: 600;
 }
+.mediaSection {
+  display: flex;
+  flex-direction: column;
+}
 .media {
   display: block;
+  flex: none;
   width: 100%;
   aspect-ratio: 16 / 9;
+  margin-block: auto;
   border-radius: var(--radius-sm);
   background: #081628;
 }
@@ -341,9 +347,9 @@
 }
 .detailPage .panel {
   border-radius: 20px;
-  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+  background: url('/textures/frosted-grain.svg') rgb(240 248 255 / 80%);
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
 }
 .overview {
   display: flex;
