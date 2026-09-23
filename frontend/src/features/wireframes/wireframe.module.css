@@ -452,7 +452,6 @@
   border-left: 3px solid var(--accent);
   border-radius: 12px;
   background: var(--surface);
-  font-family: var(--font-ui);
 }
 
 .historyContext .historyBadge {
