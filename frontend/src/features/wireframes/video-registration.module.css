@@ -316,11 +316,17 @@
 .videoLayout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  align-items: start;
   gap: 28px;
+}
+/* 왼쪽 영상 영역은 오른쪽 열 높이에 맞춰 늘어난다. */
+.videoLayout > .section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .detailsColumn {
   display: grid;
+  align-content: start;
   gap: 24px;
   min-width: 0;
 }
@@ -337,13 +343,25 @@
 }
 .videoCard {
   position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
+}
+.videoCard[data-has-file='false'] > .dropzoneGroup {
+  display: flex;
+  flex: 1;
+}
+.videoCard[data-has-file='false'] .dropzone {
+  flex: 1;
+  justify-content: center;
 }
 .videoPreview {
   display: block;
+  flex: 1 1 0;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  max-height: 30vh;
+  min-height: 200px;
+  object-fit: contain;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   background: #0d1a1f;
 }
@@ -383,31 +401,18 @@
   gap: 2px;
 }
 .videoCard[data-has-file='true'] .removeVideo {
-  top: auto;
-  bottom: 14px;
+  top: 50%;
+  transform: translateY(-50%);
 }
-/* 동의는 등록 버튼 바로 옆에 둔다. 서버 오류 안내는 그 위에 전체 폭으로. */
 .submitArea {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    'error error'
-    'confirm footer';
-  align-items: end;
-  column-gap: 24px;
   margin-top: 26px;
 }
 .submitArea > .confirmations {
-  grid-area: confirm;
-  margin: 0;
-}
-.submitArea > .apiError {
-  grid-area: error;
+  margin: 0 0 20px;
 }
 .submitArea > .footer {
-  grid-area: footer;
-  padding-top: 0;
-  border-top: 0;
+  justify-content: center;
+  padding-top: 20px;
 }
 .detailsColumn[data-locked='true'],
 .confirmations[data-locked='true'] {
@@ -467,19 +472,11 @@
   color: var(--muted);
   font-size: 13px;
 }
-.sourceType span svg {
-  width: 15px;
-  height: 15px;
-  visibility: hidden;
-}
 .sourceType input:checked + span {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-strong);
   font-weight: 700;
-}
-.sourceType input:checked + span svg {
-  visibility: visible;
 }
 .sourceType input:focus-visible + span {
   outline: 3px solid color-mix(in srgb, var(--accent) 40%, white);
@@ -690,17 +687,16 @@
   .videoCard[data-has-file='true'] .dropCopy {
     flex-basis: calc(100% - 48px);
   }
-  .submitArea {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      'error'
-      'confirm'
-      'footer';
+  /* 파일 선택이 둘째 줄로 내려가므로 X 도 그 줄 가운데에 맞춘다. */
+  .videoCard[data-has-file='true'] .removeVideo {
+    top: auto;
+    bottom: 32px;
+    transform: translateY(50%);
   }
-  .submitArea > .footer {
-    margin-top: 24px;
-    padding-top: 24px;
-    border-top: 1px solid var(--line);
+  .videoPreview {
+    flex: none;
+    aspect-ratio: 16 / 9;
+    min-height: 0;
   }
   .dropzone {
     padding: 18px 14px;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -408,10 +408,7 @@ export function VideoRegistration({
                           type="radio"
                           value={value}
                         />
-                        <span>
-                          <Check aria-hidden="true" />
-                          {label}
-                        </span>
+                        <span>{label}</span>
                       </label>
                     ))}
                   </div>

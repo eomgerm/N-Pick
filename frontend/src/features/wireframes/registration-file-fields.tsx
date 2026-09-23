@@ -113,9 +113,8 @@ export function FileDropzone({
         <span className={styles.dropCopy}>
           {selectedFile ? (
             <span className={styles.selectedVideo} id={`${kind}-selection`}>
-              <span className={styles.selectionStatus}>
-                <Check aria-hidden="true" /> 선택됨
-              </span>
+              {/* 선택 상태는 초록 테두리·파일명으로 보이고, 보조기기에는 글로 알린다. */}
+              <span className={styles.srOnly}>선택됨</span>
               <strong>{selectedFile.name}</strong>
               <span>{details ?? formatFileSize(selectedFile.size)}</span>
             </span>
