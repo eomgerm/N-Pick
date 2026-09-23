@@ -180,7 +180,10 @@ export function CorrectionVerificationPanel({
               <div className="mt-3 space-y-3">
                 <ApiErrorNotice
                   error={confirmation.error}
-                  message={confirmGuidance ?? '교정 확정을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'}
+                  message={
+                    confirmGuidance ??
+                    '교정 확정을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+                  }
                 />
               </div>
             ) : null}

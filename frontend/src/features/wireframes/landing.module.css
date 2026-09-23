@@ -159,11 +159,15 @@
 .heroIcon {
   --app-logo-size: calc(0.99em + 1cap);
 
-  position: absolute;
   inset: 0 auto auto 0;
   /* 줄 간격(0.95em) + 대문자 높이 + 둥근 획 끝의 여유(0.04em). */
   font-family: 'Black Han Sans', var(--font-ui);
   font-size: clamp(42px, 8.4vw, 150px);
+}
+
+/* 공통 로고의 relative가 나중에 로드되어도 랜딩의 배치를 유지합니다. */
+.brandMotion > .heroIcon {
+  position: absolute;
 }
 
 .heroLine {

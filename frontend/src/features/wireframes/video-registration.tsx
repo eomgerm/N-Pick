@@ -12,6 +12,7 @@ import {
 } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import { RegistrationDatePicker } from '@/features/wireframes/registration-date-picker';
 import {
   registrationDateBounds,
   registrationToday,
@@ -695,52 +696,35 @@ export function VideoRegistration({
               ) : null}
             </label>
             {sourceType === 'broadcast' ? (
-              <label className={styles.dateField}>
-                <span>
-                  방송일 <small>선택</small>
-                </span>
-                <input
-                  aria-describedby={fieldErrors.broadcastDate ? 'broadcast-date-error' : undefined}
-                  aria-invalid={Boolean(fieldErrors.broadcastDate)}
-                  disabled={isBusy}
-                  id="broadcast-date"
-                  max={dateBounds.broadcastMax}
-                  min={dateBounds.broadcastMin}
-                  onChange={(event) => {
-                    markEdited('broadcastDate');
-                    setBroadcastDate(event.target.value);
-                  }}
-                  type="date"
-                  value={broadcastDate}
-                />
-                {fieldErrors.broadcastDate ? (
-                  <FieldError id="broadcast-date-error">{fieldErrors.broadcastDate}</FieldError>
-                ) : null}
-              </label>
+              <RegistrationDatePicker
+                error={fieldErrors.broadcastDate}
+                isDisabled={isBusy}
+                id="broadcast-date"
+                label="방송일"
+                maxDate={dateBounds.broadcastMax}
+                minDate={dateBounds.broadcastMin}
+                onChange={(date) => {
+                  markEdited('broadcastDate');
+                  setBroadcastDate(date);
+                }}
+                value={broadcastDate}
+              />
             ) : (
               <p className={styles.archiveDateNotice}>자료 영상에는 방송일 입력이 불가합니다.</p>
             )}
-            <label className={styles.dateField}>
-              <span>
-                촬영일 <small>선택</small>
-              </span>
-              <input
-                aria-describedby={fieldErrors.filmedDate ? 'filmed-date-error' : undefined}
-                aria-invalid={Boolean(fieldErrors.filmedDate)}
-                disabled={isBusy}
-                id="filmed-date"
-                max={dateBounds.filmedMax}
-                onChange={(event) => {
-                  markEdited('filmedDate');
-                  setFilmedDate(event.target.value);
-                }}
-                type="date"
-                value={filmedDate}
-              />
-              {fieldErrors.filmedDate ? (
-                <FieldError id="filmed-date-error">{fieldErrors.filmedDate}</FieldError>
-              ) : null}
-            </label>
+            <RegistrationDatePicker
+              error={fieldErrors.filmedDate}
+              isDisabled={isBusy}
+              id="filmed-date"
+              label="촬영일"
+              maxDate={dateBounds.filmedMax}
+              minDate={dateBounds.filmedMin}
+              onChange={(date) => {
+                markEdited('filmedDate');
+                setFilmedDate(date);
+              }}
+              value={filmedDate}
+            />
           </div>
         </section>
 

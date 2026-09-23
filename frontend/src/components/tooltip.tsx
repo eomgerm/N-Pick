@@ -58,7 +58,7 @@ export function Tooltip({
       className={styles.anchor}
       data-click-only={onClickOnly}
       onBlur={() => setIsOpen(false)}
-      onClick={() => setIsOpen(onClickOnly)}
+      onClick={() => setIsOpen(onClickOnly && !isDisabled)}
       onFocus={() => {
         if (!onClickOnly) setIsOpen(true);
       }}

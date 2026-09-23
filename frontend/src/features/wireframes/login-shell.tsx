@@ -23,7 +23,6 @@ import {
   type LoginErrorDialogContent,
 } from '@/features/wireframes/login-error';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
-import { MountainBackdrop } from '@/components/mountain-backdrop';
 import styles from '@/features/wireframes/entry.module.css';
 
 interface LoginShellProps {
@@ -163,7 +162,6 @@ export function LoginShell({ role, theme, returnTo, reason }: LoginShellProps) {
 
   return (
     <div className={`${styles.shell} ${styles.loginShell}`} data-theme={theme}>
-      <MountainBackdrop />
       <EntryHeader />
       {isLogoutNoticeVisible && (
         <div aria-atomic="true" className={styles.logoutToast} role="status">

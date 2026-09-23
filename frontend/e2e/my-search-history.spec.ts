@@ -77,6 +77,7 @@ for (const role of ['editor', 'reviewer']) {
     const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
     await expect(panel.getByRole('listitem')).toHaveCount(10);
     await expect(panel.getByText('2026. 8. 1.', { exact: true }).first()).toBeVisible();
+    await panel.screenshot({ path: test.info().outputPath('search-history-list.png') });
     await panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }).click();
     await expect(panel.getByRole('listitem')).toHaveCount(1);
     await expect(panel.getByText('서버 검색어 110', { exact: true })).toBeVisible();
@@ -282,6 +283,58 @@ test('검색 기록 삭제는 확인 모달을 거치고 취소하면 그대로 
   await expect(panel.getByText('서버 검색어 200', { exact: true })).toBeVisible();
   expect(deleteCalls).toBe(1);
   // 포커스를 잃으면 키보드 사용자가 목록 밖으로 튕긴다. 지운 행의 버튼은 이미 사라진 뒤다.
+  await expect(
+    panel.getByRole('region', { name: '이전 검색 기록 목록', exact: true }),
+  ).toBeFocused();
+});
+
+test('검색 기록 전체 삭제는 확인 모달을 거치고 목록을 모두 비운다 (S15P21A501-291)', async ({
+  page,
+}) => {
+  let cleared = false;
+  let clearCalls = 0;
+  await page.route('**/api/v1/search/history?**', (route) =>
+    route.fulfill({
+      json: success(cleared ? listPage([]) : listPage([item('100'), item('200')])),
+    }),
+  );
+  await page.route('**/api/v1/search/history', (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    clearCalls++;
+    cleared = true;
+    return route.fulfill({ json: { isSuccess: true, code: 'COMM_200', message: '성공' } });
+  });
+
+  await page.goto('/search');
+  await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
+  const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
+  await expect(panel.getByRole('listitem')).toHaveCount(2);
+
+  const clearButton = panel.getByRole('button', { name: '전체 삭제', exact: true });
+
+  // 버튼만으로는 지워지지 않는다. 여러 건이 한 번에 사라지므로 확인을 거친다.
+  await clearButton.click();
+  const confirm = page.getByRole('dialog', { name: '검색 기록을 모두 지울까요?', exact: true });
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByText(/기록 2건을 한 번에 지웁니다/)).toBeVisible();
+  // 되돌릴 수 없는 동작이라 기본 포커스는 취소에 있다.
+  await expect(confirm.getByRole('button', { name: '취소', exact: true })).toBeFocused();
+  await confirm.getByRole('button', { name: '취소', exact: true }).click();
+  await expect(confirm).not.toBeVisible();
+  expect(clearCalls).toBe(0);
+  await expect(panel.getByRole('listitem')).toHaveCount(2);
+
+  // 확인하면 목록이 비고 컬렉션에 DELETE 한 번만 나간다.
+  await clearButton.click();
+  await page
+    .getByRole('dialog', { name: '검색 기록을 모두 지울까요?', exact: true })
+    .getByRole('button', { name: '전체 삭제', exact: true })
+    .click();
+  await expect(page.getByRole('dialog', { name: '검색 기록을 모두 지울까요?' })).not.toBeVisible();
+  await expect(panel.getByText('아직 검색 기록이 없습니다.')).toBeVisible();
+  await expect(panel.getByRole('listitem')).toHaveCount(0);
+  expect(clearCalls).toBe(1);
+  // 전체 삭제 버튼은 목록이 비면 사라지므로 포커스를 목록 영역으로 되돌린다.
   await expect(
     panel.getByRole('region', { name: '이전 검색 기록 목록', exact: true }),
   ).toBeFocused();

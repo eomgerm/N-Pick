@@ -8,11 +8,13 @@ import { useRef, useState } from 'react';
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { useMember } from '@/components/session-boundary';
 import {
+  clearMySearchHistory,
   deleteMySearchHistory,
   getMySearchHistory,
   type MySearchHistoryItem,
   mySearchHistoryKeys,
 } from '@/features/wireframes/my-search-history-api';
+import { MySearchHistoryClearDialog } from '@/features/wireframes/my-search-history-clear-dialog';
 import { MySearchHistoryDeleteDialog } from '@/features/wireframes/my-search-history-delete-dialog';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/search-history.module.css';
@@ -30,6 +32,9 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<MySearchHistoryItem | null>(null);
+  // 전체 삭제 확인 모달. 열 때의 총계를 담아 둔다 — 목록 캐시가 (뒷 페이지 이동 뒤 GC 등으로) 잠깐 비어도
+  // 모달이 사라지지 않고, 안내 건수도 "열었을 때 기준"으로 고정된다.
+  const [clearCount, setClearCount] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const list = useQuery({
     queryKey: mySearchHistoryKeys.list(memberId, page),
@@ -53,20 +58,56 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
     },
   });
 
+  const clearAll = useMutation({
+    mutationFn: () => clearMySearchHistory(),
+    onSuccess: async () => {
+      // 전체를 지우면 뒷 페이지도 모두 사라지므로 첫 페이지로 되돌린다. invalidate 보다 먼저 옮겨
+      // 빈 현재 페이지를 한 번 받아 렌더하는 일을 없앤다.
+      setPage(0);
+      await queryClient.invalidateQueries({ queryKey: mySearchHistoryKeys.all(memberId) });
+      setClearCount(null);
+      // 건별 삭제와 같은 이유로 다이얼로그가 언마운트된 뒤 rAF 로 목록에 포커스를 돌린다 — 모달이 열린 동안은
+      // 바깥이 inert 라 focus() 가 무시되고, 놓치면 포커스가 <body> 로 떨어진다.
+      requestAnimationFrame(() => listRef.current?.focus({ preventScroll: true }));
+    },
+  });
+
   function closeDeleteDialog() {
     if (remove.isPending) return;
     remove.reset();
     setPendingDelete(null);
   }
 
+  function closeClearDialog() {
+    if (clearAll.isPending) return;
+    clearAll.reset();
+    setClearCount(null);
+  }
+
   return (
     <>
       <section aria-labelledby="search-history-title" className={styles.section}>
-        <h2 className={styles.sectionHeading} id="search-history-title">
-          <History aria-hidden="true" />
-          <span>이전 검색 기록</span>
-          {list.data ? <small>{list.data.totalElements}</small> : null}
-        </h2>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionHeading} id="search-history-title">
+            <History aria-hidden="true" />
+            <span>이전 검색 기록</span>
+            {list.data ? <small>{list.data.totalElements}</small> : null}
+          </h2>
+          {list.data && list.data.totalElements > 0 ? (
+            <button
+              aria-haspopup="dialog"
+              className={styles.clearAllButton}
+              onClick={() => {
+                clearAll.reset();
+                setClearCount(list.data.totalElements);
+              }}
+              type="button"
+            >
+              <Trash2 aria-hidden="true" />
+              <span>전체 삭제</span>
+            </button>
+          ) : null}
+        </div>
         <div
           aria-label="이전 검색 기록 목록"
           className={styles.listViewport}
@@ -205,6 +246,16 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
           onConfirm={() => remove.mutate(pendingDelete.searchExecutionId)}
           queryText={pendingDelete.queryText}
           theme={theme}
+        />
+      ) : null}
+      {clearCount !== null ? (
+        <MySearchHistoryClearDialog
+          error={clearAll.error}
+          isClearing={clearAll.isPending}
+          onCancel={closeClearDialog}
+          onConfirm={() => clearAll.mutate()}
+          theme={theme}
+          totalElements={clearCount}
         />
       ) : null}
     </>

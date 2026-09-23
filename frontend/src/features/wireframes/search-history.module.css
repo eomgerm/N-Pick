@@ -65,6 +65,7 @@
 .navAction {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-height: 52px;
   border-radius: 18px;
 }
@@ -82,7 +83,8 @@
 .navAction {
   width: 100%;
   gap: 0;
-  padding: 0 14px;
+  /* 접힌 버튼(52px)에서 21px 아이콘이 가운데 오도록 (52 - 21) / 2. */
+  padding: 0 15.5px;
   border: 0;
   color: #17243b;
   background: transparent;
@@ -125,6 +127,7 @@
   opacity: 1;
 }
 .navDock[data-expanded='true'] .navAction {
+  justify-content: flex-start;
   gap: 13px;
 }
 .navAction:focus-visible,
@@ -203,10 +206,61 @@
   color: #516477;
   font-size: 10px;
 }
+
+/* 제목과 전체 삭제 버튼을 한 줄에 좌우로 둔다 (S15P21A501-291). */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+}
+.clearAllButton {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin: 0 4px 13px 0;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 48%);
+  color: #516477;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.clearAllButton:hover {
+  background: rgb(176 32 42 / 12%);
+  color: #8c1620;
+}
+.clearAllButton:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 2px;
+}
+.clearAllButton svg {
+  width: 14px;
+  height: 14px;
+}
 .listViewport {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(81 100 119 / 40%) transparent;
+  scrollbar-gutter: stable;
+}
+.listViewport::-webkit-scrollbar {
+  width: 6px;
+}
+.listViewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.listViewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(81 100 119 / 40%);
+}
+.listViewport::-webkit-scrollbar-thumb:hover {
+  background: rgb(81 100 119 / 65%);
 }
 .groupLabel {
   display: flex;

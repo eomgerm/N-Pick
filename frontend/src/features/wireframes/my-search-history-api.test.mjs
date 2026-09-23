@@ -21,6 +21,7 @@ const {
   parseMySearchHistoryDetail,
   getMySearchHistory,
   getMySearchHistoryDetail,
+  clearMySearchHistory,
   mySearchHistoryKeys,
 } = await import('./my-search-history-api.ts');
 const { parseSearchResponse } = await import('./search-api-contract.ts');
@@ -220,6 +221,27 @@ test('조회는 세션과 취소 신호로 GET만 호출하고 응답 ID와 페�
     assert.match(requests[1], /\/search\/history\/100$/);
     await assert.rejects(getMySearchHistory(1, controller.signal), ApiClientError);
     await assert.rejects(getMySearchHistoryDetail('999', controller.signal), ApiClientError);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('전체 삭제는 세션과 취소 신호로 컬렉션에 DELETE 만 호출한다 (S15P21A501-291)', async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), method: init.method, signal: init.signal });
+    assert.equal(init.credentials, 'include');
+    return new Response(JSON.stringify({ isSuccess: true, code: 'COMM_200', message: '성공' }));
+  };
+  try {
+    await clearMySearchHistory(controller.signal);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'DELETE');
+    assert.equal(requests[0].signal, controller.signal);
+    // path variable 없는 컬렉션 엔드포인트여야 한다 — /{id} 로 새면 한 건만 지운다.
+    assert.match(requests[0].url, /\/search\/history$/);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -23,7 +23,9 @@ export function getSceneExcludeMessage(error: unknown): string {
     return '제외 후보를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
   }
   // 매핑 없는 코드라도 서버 평서체 원문을 그대로 노출하지 않는다 — 일반 안내로 대체한다.
-  return errorMessages[error.code] ?? '제외 후보를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
+  return (
+    errorMessages[error.code] ?? '제외 후보를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+  );
 }
 
 function parseCandidate(value: unknown): SceneExcludeCandidate {

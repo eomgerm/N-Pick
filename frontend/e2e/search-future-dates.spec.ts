@@ -1,3 +1,4 @@
+import { openDatePicker } from './date-picker-helpers';
 import { expect, test } from '@playwright/test';
 
 test.use({ timezoneId: 'Pacific/Kiritimati' });
@@ -15,8 +16,8 @@ test('두 검색 달력은 한국의 오늘까지만 클릭·키보드·월·연
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/search');
   for (const label of ['방송일', '촬영일']) {
-    await page.getByRole('button', { name: new RegExp(`^${label} 기간 선택:`) }).click();
-    const dialog = page.getByRole('dialog', { name: `${label} 기간` });
+    await openDatePicker(page, label);
+    const dialog = page.getByRole('dialog', { name: '기간 설정' });
     for (const endpoint of ['from', 'to']) {
       const calendar = dialog.locator(`[data-endpoint="${endpoint}"]`);
       const today = calendar.locator('[data-date="2026-09-22"]');
@@ -38,7 +39,7 @@ test('두 검색 달력은 한국의 오늘까지만 클릭·키보드·월·연
     }
     await dialog.getByRole('button', { name: '적용', exact: true }).click();
     await expect(
-      page.getByRole('button', { name: `${label} 기간 선택: 2026.09.22 – 2026.09.22` }),
+      page.getByRole('button', { name: new RegExp(`${label} 2026.09.22 – 2026.09.22`) }),
     ).toBeVisible();
   }
   expect(errors).toEqual([]);
@@ -59,8 +60,8 @@ for (const [label, prefix] of [
     const message = '시작일과 종료일은 오늘 이후 날짜로 선택할 수 없습니다.';
     await expect(page.getByText(message).first()).toBeVisible();
     expect(searches).toBe(0);
-    await page.getByRole('button', { name: new RegExp(`^${label} 기간 선택:`) }).click();
-    const dialog = page.getByRole('dialog', { name: `${label} 기간` });
+    await openDatePicker(page, label);
+    const dialog = page.getByRole('dialog', { name: '기간 설정' });
     await expect(dialog.locator('[data-endpoint="from"] [data-date="2026-09-22"]')).toBeFocused();
     await dialog.getByRole('button', { name: '적용', exact: true }).click();
     await expect(dialog.getByRole('alert')).toHaveText(message);
