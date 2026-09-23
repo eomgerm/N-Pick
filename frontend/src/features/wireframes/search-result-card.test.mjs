@@ -49,13 +49,14 @@ registerHooks({
 const { SearchResultCard } = await import('./search-result-card.tsx');
 const { results } = await import('./demo-scenes.ts');
 
-function renderCard(result, isSelected = false, position = result.rank) {
+function renderCard(result, isSelected = false, position = result.rank, extra = {}) {
   return renderToStaticMarkup(
     createElement(SearchResultCard, {
       result,
       position,
       isSelected,
       onSelect() {},
+      ...extra,
     }),
   );
 }
@@ -158,7 +159,29 @@ test('샷 유형이 unknown이면 이름과 함께 정보 없음으로 표시한
   );
 });
 
-test('결과 카드에는 이상해요 버튼을 표시하지 않고 Preview 진입점만 제공한다', () => {
+test('onInquiry 가 있으면 썸네일에 문의 버튼을 아이콘으로 렌더한다', () => {
+  const html = renderCard(results[0], false, 1, { onInquiry() {} });
+
+  assert.ok(html.includes('cardInquiryButton'));
+  assert.match(html, /data-state="ready"/);
+  assert.match(html, /aria-label="설 연휴 첫날, 서울역 귀성 인파 문의하기"/);
+  // 텍스트 없이 아이콘만. ready 상태는 비활성이 아니다.
+  assert.ok(!html.includes('이상해요'));
+  assert.ok(!html.includes('aria-disabled'));
+});
+
+test('문의 불가 사유가 있으면 버튼을 비활성으로 두고 사유를 안내한다', () => {
+  const html = renderCard(results[0], false, 1, {
+    onInquiry() {},
+    inquiryUnavailableReason: '저장된 검색 결과가 아니므로 문의할 수 없습니다.',
+  });
+
+  assert.match(html, /data-state="unavailable"/);
+  assert.ok(html.includes('aria-disabled="true"'));
+  assert.ok(html.includes('저장된 검색 결과가 아니므로 문의할 수 없습니다.'));
+});
+
+test('onInquiry 가 없으면 문의 버튼 없이 Preview 진입점만 제공한다', () => {
   const html = renderCard(results[0]);
 
   assert.ok(!html.includes('이상해요'));

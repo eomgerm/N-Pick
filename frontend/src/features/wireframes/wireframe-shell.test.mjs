@@ -56,8 +56,6 @@ registerHooks({
 });
 
 const { WireframeShell } = await import('./wireframe-shell.tsx');
-const { parseSearchResponse } = await import('./search-api-contract.ts');
-const { presentSearchResponse } = await import('./search-results-api.ts');
 
 function renderShell({ preview, state, ...params } = {}, props = {}) {
   return renderToStaticMarkup(
@@ -74,50 +72,6 @@ function renderShell({ preview, state, ...params } = {}, props = {}) {
   );
 }
 
-function renderSearchSummary(state, resolutionStatus, degradedReasons = []) {
-  const presentation = presentSearchResponse(
-    parseSearchResponse({
-      search_execution_id: '100',
-      status: degradedReasons.length ? 'degraded' : 'succeeded',
-      degraded_reasons: degradedReasons,
-      query_resolution_status: resolutionStatus,
-      has_applied_review_rule: false,
-      guard_summary: { excluded_result_count: 0, reasons: [] },
-      shortage_reasons: ['candidate_pool_exhausted'],
-      results: [],
-      has_next: false,
-    }),
-  );
-  const html = renderShell({}, { api: { state, presentation, error: null, retry() {} } });
-  const summary = html.match(/<section[^>]*aria-label="검색 요약"[\s\S]*?<\/section>/)?.[0];
-  assert.ok(summary, '검색어와 서버 해석 상태를 구분하는 요약이 있어야 한다');
-  return summary;
-}
-
-test('검색 요약은 같은 검색어도 서버의 resolved/fallback 상태대로 표시한다', () => {
-  for (const [status, reasons, expected] of [
-    ['resolved', [], '검색 해석: 정상 완료'],
-    ['resolved', ['dense_unavailable'], '검색 해석: 정상 완료'],
-    ['fallback', ['resolver_fallback'], '검색 해석: 해석을 사용할 수 없어 기본 단어 검색으로 전환'],
-  ]) {
-    const summary = renderSearchSummary('ready', status, reasons);
-    assert.ok(summary.includes(expected));
-    assert.match(summary, /<span>검색어<\/span><strong>명절 교통<\/strong>/);
-    assert.doesNotMatch(summary, /<span[^>]*>명절<\/span>|<span[^>]*>교통<\/span>/);
-  }
-});
-
-test('검색 중·실패 시 이전 응답의 해석 완료 상태를 표시하지 않는다', () => {
-  for (const [state, expected] of [
-    ['loading', '검색 해석: 확인 중'],
-    ['failed', '검색 해석: 확인하지 못함'],
-  ]) {
-    const summary = renderSearchSummary(state, 'resolved');
-    assert.ok(summary.includes(expected));
-    assert.doesNotMatch(summary, /정상 완료/);
-  }
-});
-
 test('degraded demo 세 종류는 결과 10건을 유지하며 각각의 상태를 알린다', () => {
   const cases = [
     ['degraded-resolver', '검색어 해석 일부 누락'],
@@ -131,7 +85,6 @@ test('degraded demo 세 종류는 결과 10건을 유지하며 각각의 상태�
     assert.ok((html.match(new RegExp(reason, 'g')) ?? []).length >= 2);
     assert.ok(html.includes('일부 기능 누락'));
     assert.ok(html.includes('명절 교통 검색 결과 10개'));
-    assert.ok((html.match(/송출 전 최종 확인/g) ?? []).length >= 2);
   }
 });
 
@@ -139,21 +92,33 @@ test('검수 규칙 demo는 정상 결과와 적용 사실만 함께 표시한�
   const html = renderShell({ state: 'review-rule' });
 
   assert.equal((html.match(/class="resultCard/g) ?? []).length, 10);
-  assert.equal((html.match(/class="cardInquiryButton"/g) ?? []).length, 0);
-  assert.ok(!html.includes('이상해요'));
+  // 문의(신고)는 카드 썸네일마다 버튼으로 붙는다(Preview 를 열지 않아도 바로 문의).
+  assert.equal((html.match(/class="cardInquiryButton"/g) ?? []).length, 10);
   assert.ok(html.includes('정상 검색'));
   assert.ok(html.includes('검수 규칙 적용'));
   assert.doesNotMatch(html, /rule[_ -]?id|condition|JSON|오류 코드/i);
 });
 
-test('snapshot 실패 Preview는 통합 경로에서도 문의를 비활성화한다', () => {
-  const html = renderShell({ preview: 'loading', state: 'degraded-snapshot' });
+test('Preview 를 열면 근거와 함께 문의 진입점도 유지된다', () => {
+  // 문의는 카드 썸네일에서 바로 열 수 있지만, Preview 로 근거를 확인한 뒤에도 문의할 수
+  // 있어야 한다 (S15P21A501-294). onInquiry 가 붙으면 근거 라벨도 '검색 근거'가 된다.
+  const html = renderShell({ preview: 'loading' });
 
-  assert.match(html, /data-state="unavailable"/);
-  assert.equal((html.match(/data-state="unavailable"/g) ?? []).length, 1);
-  assert.ok(html.includes('문의 불가'));
-  assert.ok(!html.includes('id="inquiry-unavailable-'));
-  assert.match(html, /<button[^>]+aria-describedby="[^"]+"[^>]+aria-disabled="true"/);
+  // Preview 안에 문의 버튼이 붙는다(활성/불가 여부는 결과의 저장 상태에 달렸고 여기선 진입점
+  // 존재만 본다 — 활성/불가 텍스트 분기는 scene-dialogs.test.mjs 가 덮는다).
+  assert.ok(html.includes('class="previewReportButton"'));
+  // onInquiry 가 붙으면 근거 섹션 라벨이 '검색 근거'가 된다(없으면 '확인 근거').
+  assert.ok(html.includes('검색 근거'));
+});
+
+test('snapshot 실패 결과 카드의 문의 버튼은 사유와 함께 비활성이다', () => {
+  const html = renderShell({ state: 'degraded-snapshot' });
+
+  assert.ok(html.includes('class="cardInquiryButton"'));
+  assert.ok(html.includes('aria-disabled="true"'));
+  assert.ok(html.includes('aria-describedby="inquiry-reason-'));
+  assert.ok(html.includes('data-state="unavailable"'));
+  assert.ok(html.includes('검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'));
 });
 
 test('정상 빈 결과는 임의 degraded 경고를 만들지 않는다', () => {

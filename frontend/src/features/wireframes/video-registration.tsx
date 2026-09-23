@@ -689,9 +689,7 @@ export function VideoRegistration({
                 type="text"
                 value={title}
               />
-              <small id="title-hint">
-                {title.length}/{CLIP_TITLE_MAX_LENGTH}자 · 비워둘 경우 파일명을 제목으로 사용합니다.
-              </small>
+              <small id="title-hint">비워둘 경우 파일명을 제목으로 사용합니다.</small>
               {fieldErrors.title ? (
                 <FieldError id="title-error">{fieldErrors.title}</FieldError>
               ) : null}
