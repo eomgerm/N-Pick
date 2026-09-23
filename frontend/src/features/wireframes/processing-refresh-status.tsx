@@ -2,9 +2,10 @@
 
 import { focusManager, onlineManager } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 
 import {
+  lastCheckedAt,
   processingRefreshState,
   type ProcessingRefreshStateInput,
 } from '@/features/wireframes/clip-processing-view';
@@ -37,6 +38,9 @@ const refreshLabels = {
 };
 
 export function ProcessingRefreshStatus({ state, dataUpdatedAt }: ProcessingRefreshStatusProps) {
+  const [checkedAt, setCheckedAt] = useState(dataUpdatedAt);
+  const shownAt = lastCheckedAt(checkedAt, dataUpdatedAt);
+  if (shownAt !== checkedAt) setCheckedAt(shownAt);
   return (
     // 주기적인 요청·시각 변경을 live region으로 반복 낭독하지 않는다.
     <div
@@ -53,9 +57,9 @@ export function ProcessingRefreshStatus({ state, dataUpdatedAt }: ProcessingRefr
       </div>
       <div>
         마지막 확인{' '}
-        {dataUpdatedAt > 0 ? (
-          <time dateTime={new Date(dataUpdatedAt).toISOString()}>
-            {new Date(dataUpdatedAt).toLocaleString('ko-KR', { hour12: false })}
+        {shownAt > 0 ? (
+          <time dateTime={new Date(shownAt).toISOString()}>
+            {new Date(shownAt).toLocaleString('ko-KR', { hour12: false })}
           </time>
         ) : (
           '기록 없음'

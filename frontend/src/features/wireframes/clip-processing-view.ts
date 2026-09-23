@@ -161,6 +161,11 @@ export function processingRefreshState({
   return { mode, isAutomatic } as const;
 }
 
+/** 쪽·필터가 바뀌면 새 쿼리의 `dataUpdatedAt` 은 응답 전까지 0이다. 그동안 직전 확인 시각을 유지한다. */
+export function lastCheckedAt(previous: number, dataUpdatedAt: number) {
+  return dataUpdatedAt > 0 ? dataUpdatedAt : previous;
+}
+
 /** 목록 칩. 서버가 아는 다섯 상태(`ClipQueryController` status 파라미터)를 네 묶음으로 접는다. */
 export const CLIP_FILTERS = [
   { value: 'all', label: '전체', statuses: [] },

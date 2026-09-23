@@ -12,8 +12,15 @@ registerHooks({
     );
   },
 });
-const { CLIP_FILTERS, clipFilterCounts, clipFilterStatuses, selectClipFilter, clipFilterUpdates } =
-  await import('./clip-processing-view.ts');
+const {
+  CLIP_FILTERS,
+  clipFilterCounts,
+  clipFilterStatuses,
+  selectClipFilter,
+  clipFilterUpdates,
+  lastCheckedAt,
+} = await import('./clip-processing-view.ts');
+const { QueryClient, QueryObserver } = await import('@tanstack/react-query');
 
 const runCounts = { queued: 2, running: 1, failed: 3, succeeded: 8, no_run: 4 };
 
@@ -59,4 +66,73 @@ test('칩 키는 문의 화면의 status 와 겹치지 않는다', () => {
   for (const inquiryToken of ['open', 'reviewing', 'closed']) {
     assert.equal(selectClipFilter(inquiryToken), 'all');
   }
+});
+
+// 영상 목록과 같은 queryKey·placeholderData 로 결과를 받아 화면에 보일 확인 시각을 쌓는다.
+function observeClipList() {
+  const client = new QueryClient();
+  const pendingResponses = [];
+  const listOptions = (filter, page) => ({
+    queryKey: ['processing-clips', filter, false, page, 10],
+    queryFn: () => new Promise((resolve) => pendingResponses.push(() => resolve({ page }))),
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === filter ? previous : undefined,
+  });
+  const observer = new QueryObserver(client, listOptions('all', 1));
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const shown = [];
+  let checkedAt = 0;
+  const unsubscribe = observer.subscribe((result) => {
+    checkedAt = lastCheckedAt(checkedAt, result.dataUpdatedAt);
+    shown.push(checkedAt);
+  });
+  return {
+    shown,
+    move: async (filter, page) => {
+      observer.setOptions(listOptions(filter, page));
+      await tick();
+    },
+    respond: async () => {
+      await tick();
+      pendingResponses.shift()();
+      await tick();
+    },
+    latestUpdatedAt: () => observer.getCurrentResult().dataUpdatedAt,
+    close: () => {
+      unsubscribe();
+      client.clear();
+    },
+  };
+}
+
+function shownAfterFirstCheck(shown) {
+  return shown.slice(shown.findIndex((checkedAt) => checkedAt > 0));
+}
+
+test('같은 필터에서 쪽을 넘겨도 새 응답 전까지 직전 확인 시각을 보여 준다', async () => {
+  const list = observeClipList();
+  await list.respond();
+  await list.move('all', 2);
+  await list.respond();
+  list.close();
+  assert.equal(shownAfterFirstCheck(list.shown).includes(0), false);
+  assert.equal(list.shown.at(-1), list.latestUpdatedAt());
+});
+
+test('필터를 바꿔도 새 응답 전까지 직전 확인 시각을 보여 준다', async () => {
+  const list = observeClipList();
+  await list.respond();
+  await list.move('processing', 1);
+  await list.respond();
+  list.close();
+  assert.equal(shownAfterFirstCheck(list.shown).includes(0), false);
+  assert.equal(list.shown.at(-1), list.latestUpdatedAt());
+});
+
+test('새 응답이 오면 확인 시각을 새 값으로 바꾼다', () => {
+  assert.equal(lastCheckedAt(1_000, 2_000), 2_000);
+});
+
+test('첫 응답 전에는 확인 시각이 없다', () => {
+  assert.equal(lastCheckedAt(0, 0), 0);
 });
