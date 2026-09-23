@@ -69,7 +69,9 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
             long executionId,
             Long createdRuleId,
             String expectedResolution,
+            String newResolution,
             Instant now) {
-        return jpaRepository.confirm(feedbackId, reviewerId, executionId, createdRuleId, expectedResolution, now);
+        return jpaRepository.confirm(
+                feedbackId, reviewerId, executionId, createdRuleId, expectedResolution, newResolution, now);
     }
 }

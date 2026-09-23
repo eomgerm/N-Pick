@@ -251,12 +251,16 @@ class CorrectionConfirmLifecycleDbTest {
                 .content("{\"executionId\":" + executionId + "}"));
     }
 
+    // resolution='correction' 단언은 CAS 의 WHERE(expected)/SET(new) 분리가 옳은지 실 SQL 로 증명한다 —
+    // 목 리포지토리 테스트는 이 실수(같은 값을 WHERE·SET 양쪽에 써서 0행으로 항상 막히는 버그)를 잡지 못했다(리뷰 라운드 1).
     private void assertClosedAndLinked() {
         assertThat(jdbc.queryForObject("SELECT status FROM npick.feedback WHERE feedback_id = 9901", String.class))
                 .isEqualTo("CLOSED");
         assertThat(jdbc.queryForObject(
                         "SELECT verified_by_execution_id FROM npick.feedback WHERE feedback_id = 9901", Long.class))
                 .isEqualTo(9702L);
+        assertThat(jdbc.queryForObject("SELECT resolution FROM npick.feedback WHERE feedback_id = 9901", String.class))
+                .isEqualTo("correction");
     }
 
     private void seedCommon(String resolution) {

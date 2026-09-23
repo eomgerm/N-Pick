@@ -13,6 +13,7 @@ import com.npick.search.application.error.SearchExecutionErrorCode;
 import com.npick.search.application.query.search.ExecuteSearchQuery;
 import com.npick.search.application.query.search.VerificationInput;
 import com.npick.search.application.query.search.VerificationInputPort;
+import com.npick.search.application.query.search.VerificationScene;
 
 /**
  * 신고의 원 검색 실행에서 검색어·명시 필터를 읽는다 (F-12 2: 검수자가 다시 입력하지 않는다). feedback → search_result → search_execution 경로로 원 실행을 찾는다.
@@ -58,14 +59,25 @@ class VerificationInputQueryAdapter implements VerificationInputPort {
 
     @Override
     @SuppressWarnings("unchecked")
-    public List<Long> loadOriginalResultSceneIds(long feedbackId) {
-        List<Number> rows = em.createNativeQuery("SELECT sr2.scene_id FROM npick.feedback f "
+    public List<VerificationScene> loadOriginalResultScenes(long feedbackId) {
+        List<Object[]> rows = em.createNativeQuery("SELECT sr2.scene_id, s.clip_id, c.title, s.caption, "
+                        + "s.start_time_ms, s.end_time_ms FROM npick.feedback f "
                         + "JOIN npick.search_result sr ON sr.search_result_id = f.search_result_id "
                         + "JOIN npick.search_result sr2 ON sr2.search_execution_id = sr.search_execution_id "
+                        + "JOIN npick.scene s ON s.scene_id = sr2.scene_id "
+                        + "JOIN npick.clip c ON c.clip_id = s.clip_id "
                         + "WHERE f.feedback_id = :fid ORDER BY sr2.result_rank")
                 .setParameter("fid", feedbackId)
                 .getResultList();
-        return rows.stream().map(Number::longValue).toList();
+        return rows.stream()
+                .map(row -> new VerificationScene(
+                        ((Number) row[0]).longValue(),
+                        ((Number) row[1]).longValue(),
+                        (String) row[2],
+                        (String) row[3],
+                        ((Number) row[4]).longValue(),
+                        ((Number) row[5]).longValue()))
+                .toList();
     }
 
     private LocalDate date(JsonNode node, String field, String key) {

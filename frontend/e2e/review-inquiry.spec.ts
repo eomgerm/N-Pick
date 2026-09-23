@@ -299,6 +299,33 @@ test('담당 검수자는 쉼표로 여러 태그를 추가하고 기존 태그 
   ]);
 });
 
+test('장면 제외 후보는 한 버튼에서 등록하고 취소한다', async ({ page }) => {
+  await reviewer(page);
+  const current = inquiry('41', 'REVIEWING');
+  current.resolution = 'correction';
+  current.history.reviewerLoginId = 'e2e-reviewer';
+  current.history.reviewerName = 'E2E 검수자';
+  const methods: string[] = [];
+
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
+  await page.route('**/api/v1/review/inquiries/41/scene-exclude-candidate', async (route) => {
+    methods.push(route.request().method());
+    if (route.request().method() === 'POST') {
+      await success(route, { searchRuleId: '61', feedbackId: '41', active: false });
+      return;
+    }
+    await success(route);
+  });
+
+  await page.goto('/review?inquiry=41');
+  await page.getByRole('button', { name: '이 장면 제외', exact: true }).click();
+  await expect(page.getByRole('button', { name: '제외 취소', exact: true })).toBeVisible();
+  await expect(page.getByText('제외함', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '제외 취소', exact: true }).click();
+  await expect(page.getByRole('button', { name: '이 장면 제외', exact: true })).toBeVisible();
+  expect(methods).toEqual(['POST', 'DELETE']);
+});
+
 test('연결 실패는 같은 키로 재시도하고 요청 중 중복 입력을 막으며 서버 이력을 표시한다', async ({
   page,
 }) => {

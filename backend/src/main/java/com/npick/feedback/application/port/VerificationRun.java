@@ -11,6 +11,7 @@ import java.util.List;
  * @param approvedEvidenceIds tag_correction 확정 대상 근거 (patch_parse 면 빈 목록)
  * @param approvedRuleId patch_parse 활성화 대상 규칙 (tag_correction 면 {@code null})
  * @param replacedRuleId patch_parse 교체로 비활성화할 규칙 (없으면 {@code null})
+ * @param approvedRuleAction 승인 규칙 종류 ({@code patch_parse}/{@code exclude_scene}, 규칙이 없으면 {@code null})
  * @param stateFingerprint 검증 시점 상태 지문. 확정 시점 지문과 다르면 재검증이 필요하다(F-13 4)
  */
 public record VerificationRun(
@@ -19,4 +20,5 @@ public record VerificationRun(
         List<Long> approvedEvidenceIds,
         Long approvedRuleId,
         Long replacedRuleId,
+        String approvedRuleAction,
         String stateFingerprint) {}

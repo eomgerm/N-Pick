@@ -33,7 +33,8 @@ public interface FeedbackRepository {
 
     /**
      * reviewing 상태이고 담당 검수자 본인일 때만 교정을 확정한다(CAS, S15P21A501-84, F-13). 검증 실행을 연결하고({@code verified_by_execution_id}),
-     * 최종 승인한 교정 규칙을 {@code created_rule_id} 에 기록하며(태그만 교정하면 {@code null}), 신고를 closed 로 종료한다. resolution 은 그대로 둔다.
+     * 최종 승인한 교정 규칙을 {@code created_rule_id} 에 기록하며(태그만 교정하면 {@code null}), 신고를 closed 로 종료한다. {@code expectedResolution} 은
+     * CAS WHERE 조건(현재 저장된 값)이고, {@code newResolution} 은 그 자리에 새로 쓸 값이다(S15P21A501-281 세 세부 종류의 단일화 correction 기록).
      *
      * @return 갱신된 행 수. 0 이면 이미 종료됐거나 담당이 아니거나 판정이 바뀌어 진 것이다.
      */
@@ -43,5 +44,6 @@ public interface FeedbackRepository {
             long executionId,
             Long createdRuleId,
             String expectedResolution,
+            String newResolution,
             Instant now);
 }

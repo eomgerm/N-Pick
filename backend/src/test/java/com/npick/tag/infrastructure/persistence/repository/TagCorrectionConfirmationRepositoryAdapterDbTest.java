@@ -72,6 +72,37 @@ class TagCorrectionConfirmationRepositoryAdapterDbTest {
         assertThat(confirmedFlag(7901L)).isEqualTo(false);
     }
 
+    @Test
+    @Transactional
+    @DisplayName("discardPending 은 이 신고의 미확정 근거를 지우고 확정된 근거는 남긴다 (no_action 종료, S15P21A501-281)")
+    void discardsOnlyPendingEvidenceOfThisFeedback() {
+        seed(9901L, 7901L, false);
+        // 같은 신고·같은 태깅에 이미 확정된 근거가 하나 더 있는 경우(혼재) — discardPending 이 confirmed=true 는 건드리지 않는지 본다.
+        exec("INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, confidence, verification_status,"
+                + " source_feedback_id, confirmed, created_at) VALUES (7902, 7801, 'reviewer_feedback',"
+                + " NULL, 'verified', 9901, true, now())");
+
+        int discarded = repository.discardPending(9901L);
+
+        assertThat(discarded).isEqualTo(1);
+        assertThat(existsEvidence(7901L)).isFalse();
+        assertThat(existsEvidence(7902L)).isTrue();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("대기 근거가 없는 신고는 discardPending 이 0행으로 조용히 통과한다")
+    void discardPendingIsNoopWhenNothingPending() {
+        assertThat(repository.discardPending(9902L)).isEqualTo(0);
+    }
+
+    private boolean existsEvidence(long evidenceId) {
+        return !em.createNativeQuery("SELECT 1 FROM tag_evidence WHERE evidence_id = :id")
+                .setParameter("id", evidenceId)
+                .getResultList()
+                .isEmpty();
+    }
+
     private Boolean confirmedFlag(long evidenceId) {
         return (Boolean) em.createNativeQuery("SELECT confirmed FROM tag_evidence WHERE evidence_id = :id")
                 .setParameter("id", evidenceId)

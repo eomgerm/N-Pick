@@ -11,7 +11,7 @@ import java.util.List;
  */
 public record PendingCandidates(String resolution, List<Long> tagEvidenceIds, List<RuleCandidate> rules) {
 
-    public record RuleCandidate(long approvedRuleId, Long replacedRuleId) {}
+    public record RuleCandidate(long approvedRuleId, Long replacedRuleId, String action) {}
 
     public PendingCandidates {
         tagEvidenceIds = tagEvidenceIds == null ? List.of() : List.copyOf(tagEvidenceIds);

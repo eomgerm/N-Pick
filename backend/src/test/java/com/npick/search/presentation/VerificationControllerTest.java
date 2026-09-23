@@ -25,6 +25,7 @@ import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
 import com.npick.search.application.error.VerificationErrorCode;
 import com.npick.search.application.query.search.SceneDiff;
 import com.npick.search.application.query.search.VerificationResult;
+import com.npick.search.application.query.search.VerificationScene;
 import com.npick.search.application.query.search.VerifyCorrectionCandidatesUseCase;
 
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -72,7 +73,10 @@ class VerificationControllerTest {
                         700L,
                         List.of(new SceneDiff.Entered(9302L, Map.of("score", Map.of("base_score", 1.2)))),
                         List.of(new SceneDiff.Dropped(9301L, "score_drop")),
-                        List.of(8001L, 8002L)));
+                        List.of(8001L, 8002L),
+                        Map.of(
+                                9302L, new VerificationScene(9302L, 9202L, "새 영상", "새 장면", 42000L, 49000L),
+                                9301L, new VerificationScene(9301L, 9201L, "기존 영상", "빠진 장면", 12000L, 19000L))));
 
         mockMvc.perform(post("/api/v1/review/inquiries/1/verify")
                         .with(user(REVIEWER))
@@ -82,8 +86,11 @@ class VerificationControllerTest {
                 .andExpect(jsonPath("$.data.execution_id").isString())
                 .andExpect(jsonPath("$.data.entered_scenes[0].scene_id").value("9302"))
                 .andExpect(jsonPath("$.data.entered_scenes[0].scene_id").isString())
+                .andExpect(jsonPath("$.data.entered_scenes[0].clip_id").value("9202"))
+                .andExpect(jsonPath("$.data.entered_scenes[0].start_time_ms").value(42000))
                 .andExpect(jsonPath("$.data.entered_scenes[0].reason").exists())
                 .andExpect(jsonPath("$.data.dropped_scenes[0].scene_id").value("9301"))
+                .andExpect(jsonPath("$.data.dropped_scenes[0].clip_id").value("9201"))
                 .andExpect(jsonPath("$.data.dropped_scenes[0].reason").value("score_drop"))
                 .andExpect(jsonPath("$.data.verification_rule_set[0]").value("8001"))
                 .andExpect(jsonPath("$.data.verification_rule_set[0]").isString());

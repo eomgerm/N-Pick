@@ -66,9 +66,11 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
         if (!"REVIEWING".equals(context.status())) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.NOT_REVIEWING);
         }
-        // F-09 진단표: tag_correction 과 patch_parse(태그·해석 모두 잘못) 두 경로에서 태그 변경안을 만든다. patch_parse 는 해석 규칙 후보와
-        // 함께 태그 교정 기록도 연결한다.
-        if (!"tag_correction".equals(context.resolution()) && !"patch_parse".equals(context.resolution())) {
+        // 재설계 후 검수자는 통합 판정 "correction" 하나만 저장한다(S15P21A501-281) — 태그/해석/장면제외 중 무엇을 만들지는
+        // 이제 저장된 resolution 문자열이 아니라 어느 생성 API 를 호출했는지로 정해진다. 레거시 3값(tag_correction·patch_parse·exclude_scene)
+        // 행도 그대로 통과시켜야 하므로(하위 호환) "교정류인가"만 본다. feedback.domain.model.FeedbackResolution 을 그대로 쓰면
+        // tag↔feedback 모듈 순환 의존이 생겨(ModuleBoundaryArchitectureTest) 같은 어휘를 여기서 다시 나열한다.
+        if (!isCorrectionResolution(context.resolution())) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.NOT_TAG_CORRECTION);
         }
         if (context.reviewedById() == null || context.reviewedById() != command.reviewerId()) {
@@ -115,5 +117,13 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
             throw new BusinessException(TagCorrectionCandidateErrorCode.INVALID_MATCH_VALUE);
         }
         return normalized;
+    }
+
+    // FeedbackResolution.fromValue 와 같은 어휘(레거시 3종 + 통합 "correction"). 임포트 대신 나열하는 이유는 클래스 상단 주석 참고.
+    private boolean isCorrectionResolution(String resolution) {
+        return "correction".equals(resolution)
+                || "tag_correction".equals(resolution)
+                || "patch_parse".equals(resolution)
+                || "exclude_scene".equals(resolution);
     }
 }

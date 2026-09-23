@@ -31,7 +31,7 @@ import {
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import { ReviewInquiryTags } from '@/features/wireframes/review-inquiry-tags';
-import { ParsePatchCandidateForm } from '@/features/wireframes/review-parse-patch';
+import { ParseInterpretationEditor } from '@/features/wireframes/review-interpretation-editor';
 import { CorrectionVerificationPanel } from '@/features/wireframes/review-verification';
 import {
   displayClipTitle,
@@ -40,7 +40,6 @@ import {
   formatInquiryTimecode,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
-import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
 import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
@@ -132,11 +131,7 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
   const clipTitle = displayClipTitle(inquiry.scene.clipTitle);
   const claimRecovery = claim.isError ? getClaimRecovery(claim.error) : null;
   const statusIndex = ['open', 'reviewing', 'closed'].indexOf(inquiry.status);
-  const hasCorrection =
-    inquiry.status === 'reviewing' &&
-    (inquiry.resolution === 'tag_correction' ||
-      inquiry.resolution === 'patch_parse' ||
-      inquiry.resolution === 'exclude_scene');
+  const hasCorrection = inquiry.status === 'reviewing' && inquiry.resolution === 'correction';
 
   return (
     <div className={styles.detail}>
@@ -313,20 +308,15 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
                 memberLoginId={member.loginId}
               />
             ) : null}
-            {inquiry.resolution ? (
+            {inquiry.status === 'closed' && inquiry.resolution ? (
               <section
                 className={`${styles.outcome} ${inquiryResolutionClasses[inquiry.resolution]}`}
               >
-                <h2>{inquiry.status === 'closed' ? '처리 결과' : '현재 판정'}</h2>
+                <h2>처리 결과</h2>
                 <p className="mt-2 font-semibold">{inquiryResolutionLabels[inquiry.resolution]}</p>
                 <p className="mt-2 whitespace-pre-wrap text-(--muted)">
                   {inquiry.resolutionNote || '추가 사유 없음'}
                 </p>
-                {inquiry.status === 'reviewing' ? (
-                  <p className="mt-3 text-xs">
-                    검증과 반영이 끝나기 전까지 이 문의는 검수 중입니다.
-                  </p>
-                ) : null}
               </section>
             ) : null}
             {inquiry.status === 'closed' && !inquiry.resolution ? (
@@ -374,13 +364,16 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
 
         {hasCorrection ? (
           <section className={`${styles.panel} ${styles.correction}`} aria-label="교정 후보와 검증">
-            {inquiry.resolution === 'patch_parse' ? (
-              <ParsePatchCandidateForm feedbackId={inquiry.feedbackId} />
-            ) : null}
-            {inquiry.resolution === 'exclude_scene' ? (
-              <SceneExcludeCandidateForm inquiry={inquiry} />
-            ) : null}
-            <CorrectionVerificationPanel feedbackId={inquiry.feedbackId} key={inquiry.feedbackId} />
+            <ParseInterpretationEditor
+              feedbackId={inquiry.feedbackId}
+              key={inquiry.feedbackId}
+              parsedQueryJson={inquiry.execution.parsedQueryJson}
+            />
+            <CorrectionVerificationPanel
+              feedbackId={inquiry.feedbackId}
+              key={inquiry.feedbackId}
+              theme={theme}
+            />
           </section>
         ) : null}
       </article>

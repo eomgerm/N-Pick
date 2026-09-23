@@ -86,6 +86,33 @@ class SearchRuleConfirmationRepositoryAdapterDbTest {
         assertThat(activeFlag(CANDIDATE_RULE)).isEqualTo(false);
     }
 
+    @Test
+    @Transactional
+    @DisplayName("discardPending 은 이 신고의 비활성 후보를 지우고 이미 활성인 규칙은 남긴다 (no_action 종료, S15P21A501-281)")
+    void discardsOnlyPendingCandidatesOfThisFeedback() {
+        seed();
+
+        int discarded = repository.discardPending(FEEDBACK);
+
+        assertThat(discarded).isEqualTo(1);
+        assertThat(existsRule(CANDIDATE_RULE)).isFalse();
+        assertThat(existsRule(REPLACED_RULE)).isTrue(); // active=true 라 지워지지 않는다
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("대기 후보가 없는 신고는 discardPending 이 0행으로 조용히 통과한다")
+    void discardPendingIsNoopWhenNothingPending() {
+        assertThat(repository.discardPending(8888L)).isEqualTo(0);
+    }
+
+    private boolean existsRule(long ruleId) {
+        return !em.createNativeQuery("SELECT 1 FROM search_rule WHERE search_rule_id = :id")
+                .setParameter("id", ruleId)
+                .getResultList()
+                .isEmpty();
+    }
+
     private Boolean activeFlag(long ruleId) {
         return (Boolean) em.createNativeQuery("SELECT active FROM search_rule WHERE search_rule_id = :id")
                 .setParameter("id", ruleId)

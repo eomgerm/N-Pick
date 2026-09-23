@@ -45,4 +45,14 @@ public interface SceneExcludeCandidateJpaRepository extends JpaRepository<Search
                     + "AND action = 'exclude_scene'",
             nativeQuery = true)
     List<Long> findIdsByScene(@Param("feedbackId") long sourceFeedbackId, @Param("sceneId") long targetSceneId);
+
+    // 검수자가 확정 전에 취소하는 경로(S15P21A501-281)다. active=false 로 좁혀 이미 확정되어 켜진 규칙은 건드리지 않는다
+    // (SearchRuleConfirmationJpaRepository#discardPending 과 같은 방어). action 도 exclude_scene 로 좁혀 이 포트의 책임 밖인
+    // patch_parse 후보는 건드리지 않는다.
+    @Modifying(flushAutomatically = true)
+    @Query(
+            value = "delete from search_rule where source_feedback_id = :feedbackId "
+                    + "and action = 'exclude_scene' and active = false",
+            nativeQuery = true)
+    int deleteByFeedback(@Param("feedbackId") long feedbackId);
 }
