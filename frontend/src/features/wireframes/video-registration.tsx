@@ -381,7 +381,9 @@ export function VideoRegistration({
                   className={styles.sourceType}
                   disabled={isBusy}
                 >
-                  <legend>영상 종류</legend>
+                  <legend>
+                    영상 종류 <span className={styles.required}>필수</span>
+                  </legend>
                   <div>
                     {(
                       [
