@@ -255,6 +255,7 @@ test('검색 기록 모드는 배지와 재검색 고지를 보여주고 제외 
     {},
     {
       historyBadge: '2026-09-15 검색 기록',
+      showHistoryNotice: true,
       api: {
         state: 'ready',
         presentation: {
@@ -277,6 +278,27 @@ test('검색 기록 모드는 배지와 재검색 고지를 보여주고 제외 
   assert.match(historyContext, /2026-09-15 검색 기록/);
   assert.match(historyContext, /다시 검색하면 지금 기준으로 새로 찾은 결과/);
   assert.doesNotMatch(historyContext, /제외된 결과/);
+});
+
+test('스냅샷 없는 기록은 배지만 뜨고 「저장된 당시 결과예요」 고지는 빠진다', () => {
+  // unavailable 기록도 날짜(배지)는 사실이라 뜨지만, 당시 결과가 없어 재검색 고지를 내면
+  // 바로 아래 실패 안내(「당시 결과 기록이 없어…」)와 모순된다 (S15P21A501-262).
+  const html = renderShell(
+    {},
+    {
+      historyBadge: '2026-08-01 검색 기록',
+      showHistoryNotice: false,
+      api: {
+        state: 'failed',
+        error: null,
+        failureReason: '이 검색의 당시 결과 기록이 없어 결과를 표시할 수 없어요.',
+        retry() {},
+      },
+    },
+  );
+  const historyContext = html.match(/<div class="historyContext"[\s\S]*?<\/div>/)?.[0] ?? '';
+  assert.match(historyContext, /2026-08-01 검색 기록/);
+  assert.doesNotMatch(historyContext, /저장된 당시 결과예요/);
 });
 
 const { SearchResultState } = await import('./search-result-state.tsx');

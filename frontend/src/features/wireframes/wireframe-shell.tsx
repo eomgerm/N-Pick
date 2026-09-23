@@ -92,6 +92,12 @@ interface WireframeShellProps {
   resultDetails?: SearchResultDetails;
   /** 결과 그리드 위에 한 줄로 띄우는 배지(예: 검색 기록 스냅샷 날짜). 실시간 검색과 섞이지 않게 구분한다. */
   historyBadge?: string;
+  /**
+   * 「저장된 당시 결과예요」 재검색 고지 노출 여부. 배지(날짜)와 따로 가른다 —
+   * 스냅샷이 없는(unavailable) 기록도 날짜는 사실이라 배지는 뜨지만, 당시 결과가
+   * 없으므로 「저장된 당시 결과예요」는 바로 아래 실패 안내와 모순된다 (S15P21A501-262).
+   */
+  showHistoryNotice?: boolean;
 }
 
 export function WireframeShell({
@@ -102,6 +108,7 @@ export function WireframeShell({
   execution,
   resultDetails,
   historyBadge,
+  showHistoryNotice = false,
 }: WireframeShellProps) {
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
@@ -388,9 +395,11 @@ export function WireframeShell({
                   <Clock3 aria-hidden="true" />
                   {historyBadge}
                 </p>
-                <p className={styles.historyNotice}>
-                  저장된 당시 결과예요. 다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요.
-                </p>
+                {showHistoryNotice ? (
+                  <p className={styles.historyNotice}>
+                    저장된 당시 결과예요. 다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요.
+                  </p>
+                ) : null}
               </div>
             ) : null}
             <div className={styles.resultsHeading}>

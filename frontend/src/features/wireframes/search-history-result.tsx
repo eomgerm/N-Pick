@@ -46,6 +46,9 @@ export function SearchHistoryResults({ executionId }: { executionId: string }) {
       initialQuery={detail.data?.queryText}
       initialParams={mapExplicitFiltersToInitialParams(detail.data?.explicitFilters ?? null)}
       historyBadge={detail.data ? formatHistorySnapshotBadge(detail.data.createdAt) : undefined}
+      // 배지(날짜)는 기록이 있으면 늘 사실이라 그대로 두고, 「저장된 당시 결과예요」 고지는
+      // 스냅샷이 실제로 복원됐을 때만 낸다 — unavailable 기록에선 아래 실패 안내와 모순된다.
+      showHistoryNotice={Boolean(detail.data) && !snapshotUnavailable}
       theme="shinhan"
       api={{
         presentation,
