@@ -23,5 +23,6 @@
   font-size: 12px;
   font-weight: 500;
   line-height: 1.6;
+  overflow-wrap: anywhere;
   pointer-events: none;
 }
