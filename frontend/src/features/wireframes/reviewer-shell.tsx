@@ -18,7 +18,7 @@ import {
 } from '@/features/wireframes/video-registration';
 import type { ClipRegistrationOutcome } from '@/features/wireframes/video-registration-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
-import { SuccessToast } from '@/features/wireframes/success-toast';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 interface ReviewerShellProps {
@@ -39,6 +39,7 @@ const duplicateNoticeDetail =
   '같은 영상 파일이 이미 등록되어 있어 아래에 기존 등록 정보를 표시합니다. 이번에 입력한 제목과 날짜는 저장되지 않았습니다.';
 
 export function ReviewerShell({ theme }: ReviewerShellProps) {
+  const { showSuccess } = useSuccessToast();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -97,6 +98,13 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   function handleRegister(record: RegisteredVideo) {
     registrationDetailShownRef.current = null;
     setRegisteredVideo(record);
+    // 신규 등록 성공만 일회성 토스트로 알린다. 중복 등록(duplicate_*)은 아래에 기존 등록
+    // 정보를 설명하는 안내를 계속 남긴다 (S15P21A501-303).
+    if (record.outcome === 'created') {
+      showSuccess(
+        `${registrationNotices.created.heading} · ${record.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`,
+      );
+    }
     void queryClient.invalidateQueries({ queryKey: ['processing-clips'] });
     void queryClient.invalidateQueries({ queryKey: ['processing-clip', record.id] });
     // Registration returns a real ID; the detail query owns all subsequent processing state.
@@ -179,13 +187,6 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
                 </div>
               </section>
             ) : null}
-            <SuccessToast
-              message={
-                registeredVideo?.id === clipId && registeredVideo.outcome === 'created'
-                  ? `${registrationNotices.created.heading} · ${registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`
-                  : ''
-              }
-            />
             <ProcessingClipDetail key={clipId} clipId={clipId} />
           </>
         ) : (

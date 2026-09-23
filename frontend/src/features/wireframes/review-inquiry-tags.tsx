@@ -14,7 +14,7 @@ import {
   type TagCorrectionOperation,
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
-import { SuccessToast } from '@/features/wireframes/success-toast';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 const tagTypeLabels: Record<ReviewTagType, string> = {
@@ -61,6 +61,7 @@ function validateTagValues(values: string[], tagType: ReviewTagType): string {
 }
 
 export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsProps) {
+  const { showSuccess } = useSuccessToast();
   const [tagType, setTagType] = useState<ReviewTagType>('keyword');
   const [scope, setScope] = useState<ReviewTagScope>('SCENE');
   const [tagInput, setTagInput] = useState('');
@@ -81,6 +82,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       if (submission.operations.every((operation) => operation.action === 'APPROVE')) {
         setTagInput('');
       }
+      showSuccess(`${submission.successMessage} 다음 단계에서 검증 검색과 확정이 필요합니다.`);
     },
   });
 
@@ -268,13 +270,6 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
           ) : null}
 
           {mutation.isError ? <ApiErrorNotice error={mutation.error} /> : null}
-          <SuccessToast
-            message={
-              mutation.isSuccess
-                ? `${mutation.variables.successMessage} 다음 단계에서 검증 검색과 확정이 필요합니다.`
-                : ''
-            }
-          />
         </div>
       ) : inquiry.status === 'reviewing' && isOwner ? (
         <p className="mt-4 text-sm text-(--muted)">

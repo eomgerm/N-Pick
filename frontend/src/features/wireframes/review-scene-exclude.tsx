@@ -9,7 +9,7 @@ import {
   getSceneExcludeMessage,
 } from '@/features/wireframes/review-scene-exclude-api';
 import { formatInquiryTimecode } from '@/features/wireframes/review-inquiry-view';
-import { SuccessToast } from '@/features/wireframes/success-toast';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -19,6 +19,7 @@ interface SceneExcludeCandidateFormProps {
 
 export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateFormProps) {
   const queryClient = useQueryClient();
+  const { showSuccess } = useSuccessToast();
   // 재시도는 같은 키로 보낸다. 멱등 단위는 (feedbackId, targetSceneId)다.
   const idempotencyKey = useRef<string | null>(null);
   const mutation = useMutation({
@@ -30,8 +31,10 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
         idempotencyKey.current,
       );
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] }),
+    onSuccess: () => {
+      showSuccess('제외 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
+      return queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
+    },
   });
 
   return (
@@ -59,16 +62,10 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
           </dd>
         </div>
       </dl>
-      {mutation.isPending ? (
-        <p aria-live="polite" className="mt-4 text-sm" role="status">
-          제외 후보를 저장하는 중입니다.
-        </p>
-      ) : null}
-      <SuccessToast
-        message={
-          mutation.isSuccess ? '제외 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.' : ''
-        }
-      />
+      {/* 진행 안내는 라이브 영역을 항상 마운트해 두고 텍스트만 토글한다(성공은 토스트로 분리). */}
+      <p aria-live="polite" className="mt-4 text-sm" role="status">
+        {mutation.isPending ? '제외 후보를 저장하는 중입니다.' : ''}
+      </p>
       {mutation.isError ? (
         <p className="mt-2 text-sm text-(--danger)" role="alert">
           {getSceneExcludeMessage(mutation.error)}

@@ -9,7 +9,7 @@ import { results as demoResults, type SearchResult } from '@/features/wireframes
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
-import { SuccessToast } from '@/features/wireframes/success-toast';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import { SceneSearchField } from '@/features/wireframes/scene-search-field';
 import { SearchLayout } from '@/features/wireframes/search-layout';
 import { useSearchArrival } from '@/features/wireframes/search-transition';
@@ -136,7 +136,7 @@ export function WireframeShell({
   const [inquirySubmission, setInquirySubmission] = useState<InquirySubmission | null>(null);
   const [inquiryError, setInquiryError] = useState<unknown>();
   const [isInquirySubmitting, setIsInquirySubmitting] = useState(false);
-  const [inquirySuccessNotice, setInquirySuccessNotice] = useState('');
+  const { showSuccess } = useSuccessToast();
   const inquirySubmittingRef = useRef(false);
 
   useEffect(() => {
@@ -262,7 +262,7 @@ export function WireframeShell({
           ? current
           : [...current, submission.snapshot.resultId],
       );
-      setInquirySuccessNotice(
+      showSuccess(
         `문의 #${response.inquiryId}의 접수가 확인되었습니다. 현재 상태: ${inquiryStatusLabels[response.status]}. 문의 접수 자체로 검색 결과는 변경되지 않습니다.`,
       );
       setInquirySubmission(null);
@@ -395,7 +395,6 @@ export function WireframeShell({
             {resultState === 'empty' || resultState === 'populated' ? (
               <SearchResultNotices execution={searchExecution} variant="results" />
             ) : null}
-            <SuccessToast message={inquirySuccessNotice} />
 
             {api?.validationMessage ? (
               <p role="alert" className="p-4 text-sm wrap-anywhere">

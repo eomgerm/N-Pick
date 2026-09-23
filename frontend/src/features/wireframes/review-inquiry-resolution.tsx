@@ -12,7 +12,7 @@ import {
   resolveReviewInquiry,
   type ReviewInquiryDetail,
 } from '@/features/wireframes/review-inquiry-api';
-import { SuccessToast } from '@/features/wireframes/success-toast';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 
 interface InquiryResolutionFormProps {
@@ -22,6 +22,7 @@ interface InquiryResolutionFormProps {
 
 export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolutionFormProps) {
   const queryClient = useQueryClient();
+  const { showSuccess } = useSuccessToast();
   const [resolution, setResolution] = useState<InquiryResolution>(
     inquiry.resolution ?? 'no_action',
   );
@@ -32,6 +33,9 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
   const mutation = useMutation({
     mutationFn: () => resolveReviewInquiry(inquiry.feedbackId, resolution, note),
     onSuccess: async () => {
+      // 토스트를 재조회(및 폼 remount) 전에 띄운다 — 토스트 상태는 Provider 가 쥐고 있어
+      // 폼이 다시 마운트돼도 살아남는다.
+      showSuccess('판정을 저장했습니다.');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['review-inquiries'] }),
         queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] }),
@@ -116,7 +120,6 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
           </p>
         ) : null}
         {mutation.isError ? <ApiErrorNotice error={mutation.error} /> : null}
-        <SuccessToast message={mutation.isSuccess ? '판정을 저장했습니다.' : ''} />
         <button className={styles.primaryButton} disabled={mutation.isPending} type="submit">
           {mutation.isPending ? '저장 중…' : isTerminal ? '문의 종료' : '판정 저장'}
         </button>
