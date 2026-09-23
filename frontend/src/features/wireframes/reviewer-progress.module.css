@@ -235,6 +235,7 @@
 .detailButton:hover:not(:disabled) {
   background: var(--accent-soft);
 }
+.videoRow > .videoIcon,
 .videoRow > .detailButton {
   align-self: center;
 }
