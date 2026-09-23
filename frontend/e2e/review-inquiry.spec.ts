@@ -106,7 +106,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await reviewer(page);
     await mockList(page, () => []);
-    await page.goto('/review');
+    await page.goto('/review?view=inquiries');
     await expect(
       page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
     ).toBeVisible();
