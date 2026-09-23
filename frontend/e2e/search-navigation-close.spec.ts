@@ -29,7 +29,7 @@ for (const width of [1440, 390]) {
       for (const label of ['방송일', '촬영일']) {
         const trigger = periodTrigger(page);
         const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
-        const actions = ['적용', '취소', '초기화', '닫기', 'Escape'];
+        const actions = ['적용', '닫기', 'Escape'];
         if (width > 760) actions.push('다시 클릭');
         for (const action of actions) {
           await trigger.click();
@@ -48,8 +48,8 @@ for (const width of [1440, 390]) {
               .click();
           }
           await expect(dialog).not.toBeVisible();
-          // 결과 화면의 적용·초기화는 URL 이동 중 버튼을 잠가 포커스가 해제됩니다.
-          if (path === '/search' || (action !== '적용' && action !== '초기화')) {
+          // 결과 화면의 적용은 URL 이동 중 버튼을 잠가 포커스가 해제됩니다.
+          if (path === '/search' || action !== '적용') {
             await expect(trigger).toBeFocused();
           }
           await expect(dock).toHaveAttribute('data-expanded', 'false');

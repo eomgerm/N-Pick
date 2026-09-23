@@ -82,6 +82,18 @@ public class SearchHistoryController {
     }
 
     /**
+     * 내 검색 기록을 한 번에 모두 지운다 (S15P21A501-291).
+     *
+     * <p>건별 삭제와 같은 soft delete 다 — 행은 보존하고 이 화면에서만 감춘다. 그래서 문의 상세의 「당시 검색 결과」 조회가 깨지지 않는다. 지울 기록이 없어도 성공이며(멱등), 세션에서
+     * 소유자를 정하므로 남의 기록은 대상이 아니다.
+     */
+    @DeleteMapping
+    public ApiResponse<Void> clear(@LoginMember CurrentMember member) {
+        deleteMySearchHistoryUseCase.deleteAllMine(member.memberId());
+        return ApiResponse.success();
+    }
+
+    /**
      * 생략과 빈 값을 구분해 읽는다.
      *
      * <p>{@code @RequestParam(defaultValue = ...)} 은 파라미터가 <b>빈 값일 때도</b> 기본값을 적용한다. 그래서 {@code ?page=&size=} 가 400 이

@@ -44,7 +44,9 @@ test('검색 오류 팝업은 자동·수동으로 닫히고 재시도 오류를
   );
   await openAsEditor(page, '/search/results?q=장면');
 
-  const notice = page.getByRole('alert').filter({ hasText: '요청한 항목을 찾을 수 없습니다.' });
+  const notice = page
+    .getByRole('alert')
+    .filter({ hasText: '검색 서비스를 잠시 이용하기 어려워요.' });
   const retry = page.getByRole('button', { name: '같은 조건으로 다시 시도' });
   await expect(notice).toBeVisible();
   await expect(notice).not.toContainText('search-error-test');
@@ -116,7 +118,7 @@ test('저장에 실패한 검색 결과 Preview는 문의 요청을 보내지 �
   await expect(reason).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('preview-tooltip-mobile.png') });
   await page.mouse.move(0, 0);
-  await preview.getByRole('complementary', { name: '송출 전 확인 안내' }).scrollIntoViewIfNeeded();
+  await preview.getByRole('region', { name: '검색 기능 누락 안내' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath('preview-evidence-mobile.png') });
   expect(inquiryRequests).toEqual([]);
 });
@@ -191,7 +193,7 @@ test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 
   await broadcastTrigger.click();
   await chooseDateBasis(page, '방송일');
   await broadcastDialog.getByRole('button', { name: '초기화' }).click();
-  await expect(broadcastDialog).not.toBeVisible();
+  await expect(broadcastDialog).toBeVisible();
   await expect(periodTrigger(page)).not.toHaveAccessibleName(/방송일/);
   await expect(
     page.getByRole('button', { name: /촬영일 2023\.09\.11 – 2026\.09\.11/ }),

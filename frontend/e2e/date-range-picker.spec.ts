@@ -13,7 +13,7 @@ for (const [label, prefix] of [
   ['방송일', 'broadcast'],
   ['촬영일', 'filming'],
 ]) {
-  test(`${label} 양쪽 달력의 역순 선택을 정렬하고 적용·취소·검색에 반영한다`, async ({ page }) => {
+  test(`${label} 양쪽 달력의 역순 선택을 정렬하고 적용·닫기·검색에 반영한다`, async ({ page }) => {
     const trigger = periodTrigger(page);
     await trigger.click();
     await chooseDateBasis(page, label);
@@ -43,7 +43,7 @@ for (const [label, prefix] of [
     await page.setViewportSize({ width: 390, height: 844 });
     await dialog.screenshot({ path: test.info().outputPath('connected-range-mobile.png') });
     await page.setViewportSize({ width: 1280, height: 720 });
-    await dialog.getByRole('button', { name: '취소', exact: true }).click();
+    await dialog.getByRole('button', { name: '기간 설정 닫기', exact: true }).click();
     await expect(trigger).toHaveAccessibleName(`기간 설정: ${label} 2026.08.01 – 2026.09.01`);
 
     const search = page.getByRole('search', { name: '뉴스 장면 검색' });

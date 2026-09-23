@@ -197,3 +197,38 @@ for (const width of [1440, 390]) {
     expect(badgeBounds.x + badgeBounds.width).toBeLessThanOrEqual(cardBounds.x + cardBounds.width);
   });
 }
+
+for (const width of [1440, 390]) {
+  test(`접힌 사이드바 아이콘은 버튼 가운데에 놓인다 (${width}px, S15P21A501-292)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    for (const [role, path] of [
+      ['editor', '/search'],
+      ['reviewer', '/review'],
+    ]) {
+      await page
+        .context()
+        .addCookies([{ name: 'JSESSIONID', value: `e2e-${role}`, url: 'http://127.0.0.1:3116' }]);
+      await page.goto(path);
+      const actions = page.locator('[class*="navAction"]:is(button, a)');
+      await expect(actions.first()).toBeVisible();
+      const offsets = await actions.evaluateAll((elements) =>
+        elements.map((element) => {
+          const box = element.getBoundingClientRect();
+          const icon = element.querySelector('svg')!.getBoundingClientRect();
+          return {
+            dx: icon.x + icon.width / 2 - (box.x + box.width / 2),
+            dy: icon.y + icon.height / 2 - (box.y + box.height / 2),
+          };
+        }),
+      );
+      expect(offsets.length).toBeGreaterThan(2);
+      for (const { dx, dy } of offsets) {
+        expect(Math.abs(dx), `${path} dx`).toBeLessThan(0.5);
+        expect(Math.abs(dy), `${path} dy`).toBeLessThan(0.5);
+      }
+    }
+  });
+}

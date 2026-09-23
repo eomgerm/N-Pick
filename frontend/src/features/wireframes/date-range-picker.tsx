@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, Check, ChevronDown, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft } from 'lucide-react';
 import { type ReactNode, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import {
@@ -37,7 +37,7 @@ interface DateRangePickerProps {
  * 화면을 덮는 모달 대신 트리거 아래에 작은 패널을 띄우고,
  * 열림 상태와 바깥 클릭·포커스 이탈은 부모 탐색 영역에서 관리합니다.
  * 선택 값은 "적용"에서 반영하고,
- * 초기화는 한 번의 클릭으로 즉시 반영합니다.
+ * 초기화는 패널을 연 채 한 번의 클릭으로 즉시 반영합니다.
  */
 export function DateRangePicker({
   ranges,
@@ -261,7 +261,6 @@ export function DateRangePicker({
                   setDraft(emptyDateRange);
                   setError('');
                   onChange({ ...ranges, [basis]: emptyDateRange });
-                  handleClose();
                 }}
                 type="button"
               >
@@ -273,7 +272,7 @@ export function DateRangePicker({
                 onClick={handleClose}
                 type="button"
               >
-                <X aria-hidden="true" />
+                <ChevronLeft aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -303,9 +302,6 @@ export function DateRangePicker({
             </p>
           ) : null}
           <div className={styles.popoverFooter}>
-            <button onClick={handleClose} type="button">
-              취소
-            </button>
             <button
               className={styles.primaryButton}
               onClick={() => {
