@@ -186,13 +186,15 @@ export function ParseInterpretationEditor({
   }
 
   function removeChip(id: string) {
-    resetAfterSave();
+    // 값을 담은 적 없는 새 빈 칩을 지우는 건 교정 변경이 아니다. 실제 칩(값 있음/기존)만 폐기를 유발한다.
+    const target = chips.find((chip) => chip.id === id);
+    if (target && !(target.isNew && !target.value.trim())) resetAfterSave();
     setChips((prev) => prev.filter((chip) => chip.id !== id));
     if (editingId === id) setEditingId(null);
   }
 
   function addChip(axis: EditableAxis) {
-    resetAfterSave();
+    // 빈 칩을 추가하는 것만으로는 교정 내용이 바뀌지 않는다 — 실제 값을 확정(commitEdit)할 때만 이전 후보를 폐기한다.
     newChipCounter.current += 1;
     const chip: Chip = {
       id: `new-${newChipCounter.current}`,
@@ -209,12 +211,16 @@ export function ParseInterpretationEditor({
   function commitEdit() {
     const id = editingId;
     if (id === null) return;
-    resetAfterSave();
     const value = editDraft.trim();
+    const chip = chips.find((item) => item.id === id);
+    // 값이 그대로면(포커스만 옮김·재확정) 교정 내용이 안 바뀐 것이므로 이전 후보를 폐기하지 않는다.
+    // 새 빈 칩을 빈 값으로 확정하는 것도 실제로는 아무것도 담기지 않으므로 폐기 대상이 아니다.
+    const changed = chip ? chip.value !== value : false;
+    if (changed) resetAfterSave();
     setChips((prev) =>
       value
-        ? prev.map((chip) => (chip.id === id ? { ...chip, value } : chip))
-        : prev.filter((chip) => chip.id !== id),
+        ? prev.map((item) => (item.id === id ? { ...item, value } : item))
+        : prev.filter((item) => item.id !== id),
     );
     setEditingId(null);
   }
@@ -270,11 +276,12 @@ export function ParseInterpretationEditor({
     const id = event.dataTransfer.getData('text/plain');
     setDropTargetAxis(null);
     setDraggingId(null);
+    // 같은 축에 다시 떨구거나 대상이 없으면 실제 변경이 없다 — 폐기하지 않는다.
+    const target = chips.find((chip) => chip.id === id);
+    if (!target || target.axis === axis) return;
     resetAfterSave();
     setChips((prev) =>
-      prev.map((chip) =>
-        chip.id === id && chip.axis !== axis ? { ...chip, axis, type: defaultType(axis) } : chip,
-      ),
+      prev.map((chip) => (chip.id === id ? { ...chip, axis, type: defaultType(axis) } : chip)),
     );
   }
 
@@ -396,12 +403,30 @@ export function ParseInterpretationEditor({
 
         <button
           className={styles.primaryButton}
-          disabled={save.isPending || descriptions.length === 0}
+          disabled={
+            save.isPending || discard.isPending || discard.isError || descriptions.length === 0
+          }
           onClick={() => save.mutate()}
           type="button"
         >
-          {save.isPending ? '담는 중…' : '교정 담기'}
+          {discard.isPending ? '이전 교정 폐기 중…' : save.isPending ? '담는 중…' : '교정 담기'}
         </button>
+
+        {discard.isError ? (
+          <div className={styles.errorGroup}>
+            <p className={styles.hint} role="alert">
+              이전 교정을 폐기하지 못했어요. 잠시 후 다시 시도해 주세요.
+            </p>
+            <button
+              className={styles.secondaryButton}
+              disabled={discard.isPending}
+              onClick={() => discard.mutate()}
+              type="button"
+            >
+              폐기 다시 시도
+            </button>
+          </div>
+        ) : null}
 
         {save.isError ? (
           <div className={styles.errorGroup}>
