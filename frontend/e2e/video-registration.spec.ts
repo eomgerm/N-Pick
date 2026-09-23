@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
-import { openRegistration } from './registration-helpers';
+import { openRegistration, openRegistrationWithVideo } from './registration-helpers';
 
 const videoBytes = readFileSync('e2e/preview-fixture.mp4');
 
@@ -190,6 +190,27 @@ test('재생할 수 없는 코덱이어도 안내만 하고 등록은 막지 않
   await page.locator('#rights-confirmed').check();
   await page.locator('#external-processing-confirmed').check();
   await expect(page.getByRole('button', { name: '등록', exact: true })).toBeEnabled();
+});
+
+test('자막이나 대본 하나만 골라도 두 추가 자료 칸 높이가 같다', async ({ page }) => {
+  await openRegistrationWithVideo(page);
+  const height = (kind: string) =>
+    page.locator(`label[data-kind="${kind}"]`).evaluate((e) => e.getBoundingClientRect().height);
+
+  await page.locator('#subtitle-file').setInputFiles({
+    name: '자막.srt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('1\n00:00:00,000 --> 00:00:01,000\n뉴스\n'),
+  });
+  await expect(page.locator('#subtitle-selection')).toContainText('자막.srt');
+  expect(await height('subtitle')).toBeCloseTo(await height('script'), 0);
+
+  await page.getByRole('button', { name: '자막 파일 삭제' }).click();
+  await page
+    .locator('#script-file')
+    .setInputFiles({ name: '대본.txt', mimeType: 'text/plain', buffer: Buffer.from('대본') });
+  await expect(page.locator('#script-selection')).toContainText('대본.txt');
+  expect(await height('script')).toBeCloseTo(await height('subtitle'), 0);
 });
 
 test('영상을 고른 등록 화면은 1080p 한 화면에 들어온다', async ({ page }) => {

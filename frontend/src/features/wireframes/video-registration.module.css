@@ -235,8 +235,9 @@
   right: 12px;
   transform: translateY(-50%);
 }
-/* 선택 자료는 필수 영상보다 작게 둔다. */
+/* 선택 자료는 필수 영상보다 작게 둔다. 선택 전·후 내용 높이가 달라도 옆 칸과 높이가 맞도록 최소 높이를 고정한다. */
 .attachmentGrid .dropzone {
+  min-height: 76px;
   gap: 12px;
   padding: 12px 14px;
 }
