@@ -14,6 +14,7 @@ import {
   type TagCorrectionOperation,
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
+import { SuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 const tagTypeLabels: Record<ReviewTagType, string> = {
@@ -267,11 +268,13 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
           ) : null}
 
           {mutation.isError ? <ApiErrorNotice error={mutation.error} /> : null}
-          {mutation.isSuccess ? (
-            <p className="mt-4 text-sm text-(--positive)" role="status">
-              {mutation.variables.successMessage} 다음 단계에서 검증 검색과 확정이 필요합니다.
-            </p>
-          ) : null}
+          <SuccessToast
+            message={
+              mutation.isSuccess
+                ? `${mutation.variables.successMessage} 다음 단계에서 검증 검색과 확정이 필요합니다.`
+                : ''
+            }
+          />
         </div>
       ) : inquiry.status === 'reviewing' && isOwner ? (
         <p className="mt-4 text-sm text-(--muted)">

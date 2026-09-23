@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, Info } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
@@ -18,6 +18,7 @@ import {
 } from '@/features/wireframes/video-registration';
 import type { ClipRegistrationOutcome } from '@/features/wireframes/video-registration-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
+import { SuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 interface ReviewerShellProps {
@@ -160,33 +161,31 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           />
         ) : clipId ? (
           <>
-            {registeredVideo?.id === clipId ? (
+            {/* 등록 성공(created)은 완료 사실만 알리는 일회성 피드백이라 자동 소멸 토스트로
+                띄운다. 중복 등록(duplicate_*)은 아래에 열리는 기존 등록 정보를 설명하는 안내라
+                계속 남겨 둔다 (S15P21A501-303). */}
+            {registeredVideo?.id === clipId && registeredVideo.outcome !== 'created' ? (
               <section
                 aria-label="영상 등록 결과"
                 aria-live="polite"
-                className={
-                  registeredVideo.outcome === 'created'
-                    ? styles.registrationNotice
-                    : `${styles.registrationNotice} ${styles.duplicateNotice}`
-                }
+                className={`${styles.registrationNotice} ${styles.duplicateNotice}`}
                 role="status"
               >
-                {registeredVideo.outcome === 'created' ? (
-                  <CheckCircle2 aria-hidden="true" />
-                ) : (
-                  <Info aria-hidden="true" />
-                )}
+                <Info aria-hidden="true" />
                 <div>
                   <p>{registrationNotices[registeredVideo.outcome].label}</p>
                   <h2>{registrationNotices[registeredVideo.outcome].heading}</h2>
-                  <span>
-                    {registeredVideo.outcome === 'created'
-                      ? `${registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`
-                      : duplicateNoticeDetail}
-                  </span>
+                  <span>{duplicateNoticeDetail}</span>
                 </div>
               </section>
             ) : null}
+            <SuccessToast
+              message={
+                registeredVideo?.id === clipId && registeredVideo.outcome === 'created'
+                  ? `${registrationNotices.created.heading} · ${registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`
+                  : ''
+              }
+            />
             <ProcessingClipDetail key={clipId} clipId={clipId} />
           </>
         ) : (

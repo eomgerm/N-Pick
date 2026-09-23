@@ -9,6 +9,7 @@ import {
   getSceneExcludeMessage,
 } from '@/features/wireframes/review-scene-exclude-api';
 import { formatInquiryTimecode } from '@/features/wireframes/review-inquiry-view';
+import { SuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -58,13 +59,16 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
           </dd>
         </div>
       </dl>
-      <p aria-live="polite" className="mt-4 text-sm" role="status">
-        {mutation.isPending
-          ? '제외 후보를 저장하는 중입니다.'
-          : mutation.isSuccess
-            ? '제외 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.'
-            : ''}
-      </p>
+      {mutation.isPending ? (
+        <p aria-live="polite" className="mt-4 text-sm" role="status">
+          제외 후보를 저장하는 중입니다.
+        </p>
+      ) : null}
+      <SuccessToast
+        message={
+          mutation.isSuccess ? '제외 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.' : ''
+        }
+      />
       {mutation.isError ? (
         <p className="mt-2 text-sm text-(--danger)" role="alert">
           {getSceneExcludeMessage(mutation.error)}

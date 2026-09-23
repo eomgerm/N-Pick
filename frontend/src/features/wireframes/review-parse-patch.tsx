@@ -21,6 +21,7 @@ import {
   type PatchOperation,
   type ResolutionAxis,
 } from '@/features/wireframes/review-parse-rule-api';
+import { SuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -421,13 +422,18 @@ export function ParsePatchCandidateForm({ feedbackId }: ParsePatchCandidateFormP
             {serverMessage ? <p className="text-sm">{serverMessage}</p> : null}
           </div>
         ) : null}
-        <p aria-live="polite" className="text-sm" role="status">
-          {mutation.isPending
-            ? '해석 교정 후보를 저장하고 있습니다.'
-            : mutation.isSuccess
+        {mutation.isPending ? (
+          <p aria-live="polite" className="text-sm" role="status">
+            해석 교정 후보를 저장하고 있습니다.
+          </p>
+        ) : null}
+        <SuccessToast
+          message={
+            mutation.isSuccess
               ? `해석 교정 후보를 저장했습니다. 규칙 번호 ${mutation.data.searchRuleId}, 검증 전까지 검색에 반영되지 않습니다.`
-              : ''}
-        </p>
+              : ''
+          }
+        />
         <button className={styles.primaryButton} disabled={mutation.isPending} type="submit">
           {mutation.isPending ? '저장 중…' : '해석 교정 후보 저장'}
         </button>

@@ -433,18 +433,6 @@
   font-size: 13px;
 }
 
-.inquirySuccessNotice {
-  margin: -4px 0 18px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--success) 34%, var(--line));
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--success) 9%, var(--surface));
-  color: var(--success);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.55;
-}
-
 .resultsGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

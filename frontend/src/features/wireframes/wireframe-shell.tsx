@@ -9,6 +9,7 @@ import { results as demoResults, type SearchResult } from '@/features/wireframes
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
+import { SuccessToast } from '@/features/wireframes/success-toast';
 import { SceneSearchField } from '@/features/wireframes/scene-search-field';
 import { SearchLayout } from '@/features/wireframes/search-layout';
 import { useSearchArrival } from '@/features/wireframes/search-transition';
@@ -394,11 +395,7 @@ export function WireframeShell({
             {resultState === 'empty' || resultState === 'populated' ? (
               <SearchResultNotices execution={searchExecution} variant="results" />
             ) : null}
-            {inquirySuccessNotice ? (
-              <p className={styles.inquirySuccessNotice} role="status">
-                {inquirySuccessNotice}
-              </p>
-            ) : null}
+            <SuccessToast message={inquirySuccessNotice} />
 
             {api?.validationMessage ? (
               <p role="alert" className="p-4 text-sm wrap-anywhere">

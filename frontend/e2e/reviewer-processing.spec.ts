@@ -400,13 +400,15 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(page).toHaveURL(/view=processing&clip=21/);
   // 등록 직후에는 칩 필터를 풀어야 방금 올린 영상(no_run)이 목록에 남는다.
   await expect(page).not.toHaveURL(/clipStatus=/);
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toContainText(
-    '영상이 등록되었습니다.',
+  // 등록 성공은 완료 사실만 알리는 일회성 안내라 자동 소멸 토스트로 뜬다 (S15P21A501-303).
+  const registrationToast = page.getByText(
+    /영상 등록 완료 · preview-fixture\.mp4 · 처리 대기 상태/,
   );
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toContainText(
-    'preview-fixture.mp4 · 처리 대기 상태',
-  );
+  await expect(registrationToast).toBeVisible();
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
+  // 일정 시간 뒤 자동으로 사라져 레이아웃을 계속 차지하지 않는다.
+  await page.clock.fastForward(5_100);
+  await expect(registrationToast).toHaveCount(0);
   const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   const noRunNotice = overview.getByText(
     '처리 기록을 확인하고 있습니다. 기록이 준비되면 자동으로 표시합니다.',
@@ -426,9 +428,9 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(
     page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toHaveCount(0);
+  await expect(registrationToast).toHaveCount(0);
   await page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }).click();
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toHaveCount(0);
+  await expect(registrationToast).toHaveCount(0);
   await expect(page.getByRole('region', { name: '영상 처리 상세', exact: true })).toContainText(
     '처리 완료',
   );
