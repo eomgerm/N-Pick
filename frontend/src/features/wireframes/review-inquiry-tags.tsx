@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
   createTagCorrectionCandidate,
+  discardTagCorrectionCandidate,
   reviewTagTypes,
   type ReviewInquiryDetail,
   type ReviewTagScope,
@@ -13,6 +14,7 @@ import {
   type TagCorrectionOperation,
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
+import { resolutionModeFromValue } from '@/features/wireframes/review-resolution-toggle-mode';
 import { useSuccessToast } from '@/features/wireframes/success-toast';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -65,7 +67,6 @@ interface CandidateSubmission {
   operations: TagCorrectionOperation[];
   draftId?: string;
   added?: AddedTag;
-  withdrawnAddedId?: string;
   removedTaggingId?: string;
   restoredTaggingId?: string;
 }
@@ -96,7 +97,9 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
   const seq = useRef(0);
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
   const canCorrect =
-    inquiry.status === 'reviewing' && isOwner && inquiry.resolution === 'correction';
+    inquiry.status === 'reviewing' &&
+    isOwner &&
+    resolutionModeFromValue(inquiry.resolution) === 'correction';
   const mutation = useMutation({
     mutationFn: ({ operations }: CandidateSubmission) =>
       createTagCorrectionCandidate(inquiry.feedbackId, operations, createIdempotencyKey()),
@@ -108,10 +111,6 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       if (submission.added) {
         const next = submission.added;
         setAdded((current) => [...current, next]);
-      }
-      if (submission.withdrawnAddedId) {
-        const id = submission.withdrawnAddedId;
-        setAdded((current) => current.filter((item) => item.id !== id));
       }
       if (submission.removedTaggingId) {
         const id = submission.removedTaggingId;
@@ -127,6 +126,39 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       }
       showSuccess('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
     },
+  });
+
+  // 추가 취소: 후보 하나만 지우는 서버 API 가 없어, 이 신고의 대기 태그 후보를 모두 폐기하고 남은 것만
+  // 한 번에 다시 올린다. WITHDRAW 를 더 쌓지 않으므로 서버 후보 수가 실제로 줄고 50개 상한에 걸리지
+  // 않는다 (S15P21A501-309). 폐기가 실패하면 로컬 상태를 바꾸지 않아 UI 와 서버가 어긋나지 않는다.
+  const cancelAdded = useMutation({
+    mutationFn: async (tag: AddedTag) => {
+      const nextAdded = added.filter((item) => item.id !== tag.id);
+      await discardTagCorrectionCandidate(inquiry.feedbackId);
+      const operations: TagCorrectionOperation[] = [
+        ...nextAdded.map((item) => ({
+          action: 'APPROVE' as const,
+          scope: item.scope,
+          tagType: item.tagType,
+          matchValue: item.value,
+          displayName: item.value,
+        })),
+        ...inquiry.evidence
+          .filter((evidence) => removed.has(evidence.taggingId))
+          .map((evidence) => ({
+            action: 'REJECT' as const,
+            scope: evidence.scope,
+            tagType: evidence.tagType,
+            matchValue: evidence.matchValue,
+            displayName: evidence.tagName,
+          })),
+      ];
+      if (operations.length > 0) {
+        await createTagCorrectionCandidate(inquiry.feedbackId, operations, createIdempotencyKey());
+      }
+      return nextAdded;
+    },
+    onSuccess: (nextAdded) => setAdded(nextAdded),
   });
 
   const pendingCount = drafts.length + added.length;
@@ -177,22 +209,9 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     });
   }
 
-  // 추가는 이미 APPROVE 후보를 서버에 올린 상태다. 취소하려면 같은 대상에 WITHDRAW 를 보내야
-  // 서버의 미확정 판정이 무효가 된다 — 로컬 칩만 지우면 서버에 후보가 남는다.
   function removeAdded(tag: AddedTag) {
-    mutation.reset();
-    mutation.mutate({
-      operations: [
-        {
-          action: 'WITHDRAW',
-          scope: tag.scope,
-          tagType: tag.tagType,
-          matchValue: tag.value,
-          displayName: tag.value,
-        },
-      ],
-      withdrawnAddedId: tag.id,
-    });
+    cancelAdded.reset();
+    cancelAdded.mutate(tag);
   }
 
   function markRemoved(evidence: Evidence) {
@@ -296,7 +315,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
               <button
                 aria-label={`‘${tag.value}’ 추가 취소`}
                 className={`${iconButtonClass} hover:text-(--danger)`}
-                disabled={mutation.isPending}
+                disabled={mutation.isPending || cancelAdded.isPending}
                 onClick={() => removeAdded(tag)}
                 type="button"
               >

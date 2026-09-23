@@ -367,3 +367,15 @@ export async function createTagCorrectionCandidate(
     }),
   );
 }
+
+/** 이 신고의 대기 중인 태그 교정 후보를 모두 폐기한다 (S15P21A501-309). 확정된 근거는 건드리지 않는다. */
+export async function discardTagCorrectionCandidate(
+  feedbackId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  identifier(feedbackId);
+  await fetchJson<unknown>(`/review/inquiries/${feedbackId}/tag-correction-candidate`, {
+    method: 'DELETE',
+    signal,
+  });
+}
