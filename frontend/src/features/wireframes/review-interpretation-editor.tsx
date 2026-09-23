@@ -30,6 +30,9 @@ interface ParseInterpretationEditorProps {
   parsedQueryJson: string | null;
 }
 
+const MAX_PARSE_RULE_DRAFTS = 10;
+const MAX_CHIP_VALUE_LENGTH = 20;
+
 /** 문의 당시 해석 스냅샷을 칩으로 씨딩한다. 없거나 깨졌으면 편집할 것이 없다. */
 function seedFromJson(json: string | null): Chip[] | null {
   if (!json) return null;
@@ -56,10 +59,15 @@ function computeGuard(original: Chip[]): { axis: EditableAxis; value: string } |
  * 규칙 내용으로부터 결정론적 멱등성 키를 만든다. 같은 내용은 매번 같은 키가 되어, 중간 실패 뒤
  * 재시도해도 이미 만든 후보를 새로 만들지 않고 서버가 기존 후보를 그대로 돌려준다 (SRCH_409_204 방지).
  */
-async function ruleIdempotencyKey(feedbackId: string, body: ParseRuleCandidateBody): Promise<string> {
+async function ruleIdempotencyKey(
+  feedbackId: string,
+  body: ParseRuleCandidateBody,
+): Promise<string> {
   const bytes = new TextEncoder().encode(`${feedbackId}:${JSON.stringify(body)}`);
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
-  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
+    '',
+  );
   // 서버 상한은 64자 (docs/contracts/web-api.md); 'parse:' 접두 + 48자 해시로 여유 있게 맞춘다.
   return `parse:${hex.slice(0, 48)}`;
 }
@@ -71,7 +79,7 @@ export function ParseInterpretationEditor({
   const queryClient = useQueryClient();
   const seeded = seedFromJson(parsedQueryJson);
   // 원본 스냅샷은 다시 세팅하지 않는 값이라 state 로 보존한다 (렌더 중 ref.current 를 읽지 않기 위함).
-  const [originalChips, setOriginalChips] = useState<Chip[]>(() => seeded ?? []);
+  const [originalChips] = useState<Chip[]>(() => seeded ?? []);
   const [chips, setChips] = useState<Chip[]>(() => seeded ?? []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
@@ -83,14 +91,41 @@ export function ParseInterpretationEditor({
   const guard = computeGuard(originalChips);
   const edits = deriveEdits(originalChips, chips);
   const descriptions = describeEdits(edits);
+  const descriptionGroups = [
+    { key: '추가', tone: 'add' },
+    { key: '삭제', tone: 'remove' },
+    { key: '수정', tone: 'edit' },
+  ].map((group) => ({
+    ...group,
+    items: descriptions.filter((description) => description.key === group.key),
+  }));
+  const rules = deriveParseRules(edits, guard);
+  const draftCount = rules.length + chips.filter((chip) => chip.isNew && !chip.value.trim()).length;
 
   const save = useMutation({
     mutationFn: async () => {
-      const rules = deriveParseRules(edits, guard);
       if (rules.length === 0) {
         throw new ApiClientError('api', 0, {
           code: 'CLIENT_PARSE_RULE_EMPTY',
           message: '담을 교정이 없습니다.',
+        });
+      }
+      if (rules.length > MAX_PARSE_RULE_DRAFTS) {
+        throw new ApiClientError('api', 0, {
+          code: 'CLIENT_PARSE_RULE_LIMIT',
+          message: '교정은 한 번에 10개까지 담을 수 있습니다.',
+        });
+      }
+      if (
+        edits.some((edit) => {
+          if (edit.kind === 'remove') return false;
+          const value = edit.kind === 'edit' ? edit.to : edit.value;
+          return value.length > MAX_CHIP_VALUE_LENGTH;
+        })
+      ) {
+        throw new ApiClientError('api', 0, {
+          code: 'CLIENT_PARSE_RULE_VALUE_TOO_LONG',
+          message: '교정 값은 20자 이하여야 합니다.',
         });
       }
       // 일부만 POST 되는 상황을 막기 위해, 하나라도 POST 하기 전에 전체 규칙을 먼저 검증한다.
@@ -104,16 +139,17 @@ export function ParseInterpretationEditor({
         }
       }
       for (const body of rules) {
-        await createParsePatchCandidate(feedbackId, body, await ruleIdempotencyKey(feedbackId, body));
+        await createParsePatchCandidate(
+          feedbackId,
+          body,
+          await ruleIdempotencyKey(feedbackId, body),
+        );
       }
       return rules.length;
     },
     onSuccess: () => {
-      // 담은 내용을 새 원본으로 삼는다: '바뀌는 점'이 비어 저장 버튼이 잠기고, 재클릭해도 다시 담을
-      // 편집이 없다 (isNew 도 해제해 다음 비교에서 새 칩이 아닌 일반 칩으로 취급된다).
-      const settled = chips.map((chip) => ({ ...chip, isNew: undefined }));
-      setChips(settled);
-      setOriginalChips(settled);
+      // 담은 뒤에도 편집 상태를 그대로 둔다 — '바뀌는 점'이 남아 무엇을 담았는지 계속 보인다.
+      // 재클릭해도 규칙별 결정적 idempotency key 로 서버가 같은 후보를 돌려주어 중복이 생기지 않는다.
       queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] });
     },
   });
@@ -121,9 +157,7 @@ export function ParseInterpretationEditor({
   if (!seeded) {
     return (
       <section className={styles.card}>
-        <p className={styles.emptyNotice}>
-          문의 당시 검색 해석이 없어 칩 편집을 할 수 없습니다.
-        </p>
+        <p className={styles.emptyNotice}>문의 당시 검색 해석이 없어 칩 편집을 할 수 없습니다.</p>
       </section>
     );
   }
@@ -144,7 +178,13 @@ export function ParseInterpretationEditor({
   function addChip(axis: EditableAxis) {
     if (save.isSuccess) save.reset();
     newChipCounter.current += 1;
-    const chip: Chip = { id: `new-${newChipCounter.current}`, axis, value: '', isNew: true, type: defaultType(axis) };
+    const chip: Chip = {
+      id: `new-${newChipCounter.current}`,
+      axis,
+      value: '',
+      isNew: true,
+      type: defaultType(axis),
+    };
     setChips((prev) => [...prev, chip]);
     setEditingId(chip.id);
     setEditDraft('');
@@ -249,6 +289,7 @@ export function ParseInterpretationEditor({
                         autoFocus
                         className={styles.chipInput}
                         key={chip.id}
+                        maxLength={MAX_CHIP_VALUE_LENGTH}
                         onBlur={onEditBlur}
                         onChange={(event) => setEditDraft(event.target.value)}
                         onKeyDown={onEditKeyDown}
@@ -289,9 +330,11 @@ export function ParseInterpretationEditor({
                 <button
                   aria-label={`${resolutionAxisLabels[axis]}에 항목 추가`}
                   className={styles.addButton}
-                  disabled={!guard}
+                  disabled={!guard || draftCount >= MAX_PARSE_RULE_DRAFTS}
                   onClick={() => addChip(axis)}
-                  title={guard ? undefined : '대표 항목(사건명·인물·장소)이 없어 추가할 수 없습니다.'}
+                  title={
+                    guard ? undefined : '대표 항목(사건명·인물·장소)이 없어 추가할 수 없습니다.'
+                  }
                   type="button"
                 >
                   +
@@ -313,14 +356,24 @@ export function ParseInterpretationEditor({
       >
         <div className={styles.changeHeading}>바뀌는 점</div>
         {descriptions.length > 0 ? (
-          <ul className={styles.changeList}>
-            {descriptions.map((item, index) => (
-              <li key={index}>
-                <span className={styles.changeKey}>{item.key}</span>
-                <span>{item.text}</span>
-              </li>
+          <div className={styles.changeGrid}>
+            {descriptionGroups.map((group) => (
+              <section className={styles.changeGroup} data-kind={group.tone} key={group.key}>
+                <h4 className={styles.changeGroupHeading}>
+                  {group.key} <span>{group.items.length}</span>
+                </h4>
+                {group.items.length > 0 ? (
+                  <ul className={styles.changeList}>
+                    {group.items.map((item, index) => (
+                      <li key={index}>{item.text}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className={styles.changeGroupEmpty}>없음</p>
+                )}
+              </section>
             ))}
-          </ul>
+          </div>
         ) : (
           <p className={styles.empty}>칩을 수정하면 바뀌는 점이 여기 표시됩니다.</p>
         )}
@@ -336,8 +389,13 @@ export function ParseInterpretationEditor({
 
         {save.isError ? (
           <div className={styles.errorGroup}>
-            <ApiErrorNotice error={save.error} />
-            {serverMessage ? <p className={styles.hint}>{serverMessage}</p> : null}
+            {serverMessage ? (
+              <p className={styles.hint} role="alert">
+                {serverMessage}
+              </p>
+            ) : (
+              <ApiErrorNotice error={save.error} />
+            )}
           </div>
         ) : null}
         {save.isSuccess ? (

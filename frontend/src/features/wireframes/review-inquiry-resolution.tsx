@@ -13,6 +13,7 @@ import {
   resolveReviewInquiry,
   type ReviewInquiryDetail,
 } from '@/features/wireframes/review-inquiry-api';
+import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 
 interface InquiryResolutionFormProps {
@@ -112,9 +113,10 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
           </form>
         ) : (
           <>
+            <SceneExcludeCandidateForm inquiry={inquiry} />
             <p className="text-sm text-(--muted)">
-              아래에서 태그·검색 해석·장면 제외 교정을 담고, 검증한 뒤 교정을 확정하면 문의가
-              종료됩니다.
+              장면 제외를 선택하거나 아래에서 태그·검색 해석 교정을 담고, 검증한 뒤 교정을 확정하면
+              문의가 종료됩니다.
             </p>
             {mutation.isError ? <ApiErrorNotice error={mutation.error} /> : null}
           </>

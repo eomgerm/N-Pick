@@ -1,15 +1,26 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Play, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { confirmCorrection, confirmErrorMessages } from '@/features/wireframes/review-confirm-api';
+import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
+import {
+  formatMediaTime,
+  formatSceneDuration,
+  getSceneThumbnailUrl,
+} from '@/features/wireframes/scene-preview-media';
+import { SceneThumbnail } from '@/features/wireframes/scene-thumbnail';
 import {
   verificationErrorMessages,
   verifyCorrectionCandidates,
   type DroppedReason,
   type VerificationResult,
+  type VerificationScene,
 } from '@/features/wireframes/review-verification-api';
+import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/reviewer.module.css';
 import { ApiClientError } from '@/lib/api/error';
 
@@ -21,14 +32,68 @@ const droppedReasonLabels: Record<DroppedReason, string> = {
 
 interface CorrectionVerificationPanelProps {
   feedbackId: string;
+  theme: WireframeTheme;
   onVerified?: (result: VerificationResult) => void;
+}
+
+const MAX_VISIBLE_SCENES = 2;
+
+function VerificationSceneCard({
+  scene,
+  detail,
+  tone,
+  onPlay,
+}: {
+  scene: VerificationScene;
+  detail: string;
+  tone: 'entered' | 'dropped';
+  onPlay: () => void;
+}) {
+  const title = scene.displayName ?? '제목 없는 영상';
+  const thumbnailUrl = getSceneThumbnailUrl(scene.sceneId)!;
+  return (
+    <li className="grid grid-cols-[5.5rem_minmax(0,1fr)_2rem] items-center gap-3 rounded-xl border border-(--line) p-2.5">
+      <span className="relative block aspect-video overflow-hidden rounded-lg bg-[#17243b]">
+        <SceneThumbnail alt={`${title} 대표 이미지`} src={thumbnailUrl} />
+      </span>
+      <span className="min-w-0">
+        <span
+          className={`block text-xs font-bold ${tone === 'entered' ? 'text-(--positive)' : 'text-(--danger)'}`}
+        >
+          {tone === 'entered' ? '+ 새로 포함' : '− 검색에서 빠짐'}
+        </span>
+        <strong className="mt-0.5 block truncate text-sm" title={title}>
+          {title}
+        </strong>
+        <span className="block truncate text-xs text-(--muted)" title={detail}>
+          {formatMediaTime(scene.startTimeMs / 1000)}–{formatMediaTime(scene.endTimeMs / 1000)} ·{' '}
+          {detail}
+        </span>
+      </span>
+      <button
+        aria-label={`${title} 장면 재생`}
+        className="grid size-8 place-items-center rounded-full border border-(--line) text-(--accent-strong) transition-colors hover:border-(--accent) hover:bg-(--accent-soft)"
+        onClick={onPlay}
+        title="장면 재생"
+        type="button"
+      >
+        <Play aria-hidden="true" className="size-3.5" fill="currentColor" />
+      </button>
+    </li>
+  );
 }
 
 export function CorrectionVerificationPanel({
   feedbackId,
+  theme,
   onVerified,
 }: CorrectionVerificationPanelProps) {
   const queryClient = useQueryClient();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [previewScene, setPreviewScene] = useState<{
+    scene: VerificationScene;
+    detail: string;
+  } | null>(null);
   // 같은 executionId 재요청은 서버가 멱등 성공으로 돌려주므로 재시도만 막는다.
   const confirmation = useMutation({
     mutationFn: (executionId: string) => confirmCorrection(feedbackId, executionId),
@@ -55,124 +120,212 @@ export function CorrectionVerificationPanel({
     confirmation.error instanceof ApiClientError
       ? confirmErrorMessages[confirmation.error.code]
       : undefined;
+  const visibleEntered = result?.enteredScenes.slice(0, MAX_VISIBLE_SCENES) ?? [];
+  const visibleDropped = result?.droppedScenes.slice(0, MAX_VISIBLE_SCENES) ?? [];
 
   return (
     <section
       aria-labelledby="verification-title"
       className="rounded-2xl border border-(--line) p-5"
     >
-      <h2 className="font-bold" id="verification-title">
-        교정 후보 검증 재검색
-      </h2>
-      <p className="mt-2 text-sm text-(--muted)">
-        원 신고의 검색어와 필터로 다시 검색합니다. 후보는 이 요청에만 임시로 적용되며 일반 검색은
-        바뀌지 않습니다.
-      </p>
-      <p className="mt-1 text-sm font-semibold">
-        검증 성공은 자동 승인이 아닙니다. 결과를 확인한 뒤 별도로 확정해야 반영됩니다.
-      </p>
-      <button
-        className={`${styles.primaryButton} mt-4`}
-        disabled={verification.isPending}
-        onClick={() => {
-          confirmation.reset();
-          verification.mutate();
-        }}
-        type="button"
-      >
-        {verification.isPending ? '검증 중…' : result ? '다시 검증' : '후보 검증'}
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="font-bold" id="verification-title">
+            후보 검증
+          </h2>
+          <button
+            aria-label={result ? '후보 다시 검증' : '후보 검증'}
+            className="grid size-8 place-items-center rounded-full border border-(--line) text-(--accent-strong) transition-colors hover:border-(--accent) hover:bg-(--accent-soft) disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={verification.isPending}
+            onClick={() => {
+              confirmation.reset();
+              setPreviewScene(null);
+              verification.mutate();
+            }}
+            title={result ? '다시 검증' : '후보 검증'}
+            type="button"
+          >
+            <RefreshCw
+              aria-hidden="true"
+              className={`size-3.5 ${verification.isPending ? 'motion-safe:animate-spin' : ''}`}
+            />
+          </button>
+        </div>
+        <span className="text-xs text-(--muted)">재검색으로 교정 결과를 확인한 뒤 확정하세요.</span>
+      </div>
       <p aria-live="polite" className="sr-only" role="status">
         {verification.isPending
           ? '교정 후보 검증 재검색을 진행하고 있습니다.'
           : result
-            ? `검증 재검색이 끝났습니다. 새로 들어온 장면 ${result.enteredScenes.length}개, 빠진 장면 ${result.droppedScenes.length}개입니다.`
+            ? `검증이 끝났습니다. 새로 들어온 장면 ${result.enteredScenes.length}개, 빠진 장면 ${result.droppedScenes.length}개입니다.`
             : ''}
       </p>
 
       {verification.isError ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 space-y-2">
           <ApiErrorNotice error={verification.error} />
           {guidance ? <p className="text-sm">{guidance}</p> : null}
         </div>
       ) : null}
 
       {result ? (
-        <div className="mt-4 grid gap-4">
-          <p className="text-sm text-(--muted)">검증 실행 #{result.executionId}</p>
-          <section>
-            <h3 className="text-sm font-bold">새로 들어온 장면 ({result.enteredScenes.length})</h3>
-            {result.enteredScenes.length === 0 ? (
-              <p className="mt-2 text-sm text-(--muted)">새로 들어온 장면이 없습니다.</p>
-            ) : (
-              <ul className="mt-2 flex flex-wrap gap-2 text-sm">
-                {result.enteredScenes.map(({ sceneId }) => (
-                  <li
-                    className="rounded-lg border border-(--line) bg-(--positive-soft) px-2.5 py-1"
-                    key={sceneId}
-                  >
-                    장면 {sceneId}
-                  </li>
-                ))}
+        <div className="mt-5 grid gap-4 border-t border-(--line) pt-4">
+          <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+            <div>
+              <dt className="text-xs text-(--muted)">새로 들어온 장면</dt>
+              <dd className="font-bold text-(--positive)">{result.enteredScenes.length}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-(--muted)">빠진 장면</dt>
+              <dd className="font-bold text-(--danger)">{result.droppedScenes.length}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-(--muted)">반영된 교정</dt>
+              <dd className="font-bold">{result.verificationRuleSet.length}</dd>
+            </div>
+          </dl>
+          {visibleEntered.length > 0 ? (
+            <div className="grid gap-2">
+              <ul className="grid gap-2">
+                {visibleEntered.map((scene) => {
+                  const detail = scene.matchedKeywords.length
+                    ? `일치: ${scene.matchedKeywords.slice(0, 3).join(', ')}`
+                    : '새 검색 조건과 일치';
+                  return (
+                    <VerificationSceneCard
+                      detail={detail}
+                      key={scene.sceneId}
+                      onPlay={() => setPreviewScene({ scene, detail })}
+                      scene={scene}
+                      tone="entered"
+                    />
+                  );
+                })}
               </ul>
-            )}
-          </section>
-          <section>
-            <h3 className="text-sm font-bold">빠진 장면 ({result.droppedScenes.length})</h3>
-            {result.droppedScenes.length === 0 ? (
-              <p className="mt-2 text-sm text-(--muted)">빠진 장면이 없습니다.</p>
-            ) : (
-              <ul className="mt-2 grid gap-2 text-sm">
-                {result.droppedScenes.map(({ sceneId, reason }) => (
-                  <li
-                    className="rounded-lg border border-(--line) bg-(--warning-soft) px-2.5 py-1"
-                    key={sceneId}
-                  >
-                    장면 {sceneId} · {droppedReasonLabels[reason]}
-                  </li>
-                ))}
+              {result.enteredScenes.length > visibleEntered.length ? (
+                <p className="text-xs text-(--muted)">
+                  새로 들어온 장면 외 {result.enteredScenes.length - visibleEntered.length}개
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {visibleDropped.length > 0 ? (
+            <div className="grid gap-2">
+              <ul className="grid gap-2">
+                {visibleDropped.map((scene) => {
+                  const detail = droppedReasonLabels[scene.reason];
+                  return (
+                    <VerificationSceneCard
+                      detail={detail}
+                      key={scene.sceneId}
+                      onPlay={() => setPreviewScene({ scene, detail })}
+                      scene={scene}
+                      tone="dropped"
+                    />
+                  );
+                })}
               </ul>
-            )}
-          </section>
-          <section>
-            <h3 className="text-sm font-bold">적용된 교정 ({result.verificationRuleSet.length})</h3>
-            <p className="mt-2 text-sm text-(--muted)">
-              {result.verificationRuleSet.length === 0
-                ? '이 검증에 반영된 교정이 없습니다.'
-                : `담은 교정 ${result.verificationRuleSet.length}건이 이 검증에 반영되었습니다.`}
-            </p>
-          </section>
-          <section className="border-t border-(--line) pt-4">
-            <h3 className="text-sm font-bold">교정 확정</h3>
-            <p className="mt-2 text-sm text-(--muted)">
-              이 검증 실행을 근거로 교정을 확정하고 문의를 종료합니다.
-            </p>
-            <button
-              className={`${styles.primaryButton} mt-3`}
-              disabled={confirmation.isPending || !result.executionId}
-              onClick={() => confirmation.mutate(result.executionId)}
-              type="button"
-            >
-              {confirmation.isPending ? '확정 중…' : '교정 확정'}
-            </button>
-            <p aria-live="polite" className="sr-only" role="status">
-              {confirmation.isPending
-                ? '교정 확정 요청을 처리하고 있습니다.'
-                : confirmation.isSuccess
-                  ? '교정을 확정하고 문의를 종료했습니다.'
-                  : ''}
-            </p>
-            {confirmation.isSuccess ? (
-              <p className="mt-3 text-sm text-(--positive)">교정을 확정하고 문의를 종료했습니다.</p>
-            ) : null}
-            {confirmation.isError ? (
-              <div className="mt-3 space-y-3">
-                <ApiErrorNotice error={confirmation.error} />
-                {confirmGuidance ? <p className="text-sm">{confirmGuidance}</p> : null}
-              </div>
-            ) : null}
-          </section>
+              {result.droppedScenes.length > visibleDropped.length ? (
+                <p className="text-xs text-(--muted)">
+                  빠진 장면 외 {result.droppedScenes.length - visibleDropped.length}개
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
+      ) : null}
+
+      {!result && !verification.isPending ? (
+        <p className="mt-4 text-xs text-(--muted-2)">
+          먼저 후보 검증을 실행하면 확정할 수 있습니다.
+        </p>
+      ) : null}
+      <button
+        className={`${styles.primaryButton} mt-4 w-full`}
+        disabled={!result || confirmation.isPending || !result.executionId}
+        onClick={() => setConfirmOpen(true)}
+        type="button"
+      >
+        {confirmation.isPending ? '확정 중…' : '교정 확정'}
+      </button>
+
+      {confirmation.isSuccess ? (
+        <p className="mt-4 text-sm font-semibold text-(--positive)" role="status">
+          교정을 확정하고 문의를 종료했습니다.
+        </p>
+      ) : null}
+      {confirmation.isError ? (
+        <div className="mt-4 space-y-2">
+          <ApiErrorNotice error={confirmation.error} />
+          {confirmGuidance ? <p className="text-sm">{confirmGuidance}</p> : null}
+        </div>
+      ) : null}
+
+      {confirmOpen && result ? (
+        <div
+          aria-labelledby="confirm-correction-title"
+          aria-modal="true"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setConfirmOpen(false);
+          }}
+          role="dialog"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-(--line) bg-(--surface) p-6 shadow-xl">
+            <h3 className="font-bold" id="confirm-correction-title">
+              교정을 확정할까요?
+            </h3>
+            <p className="mt-2 text-sm text-(--muted)">
+              이 검증 결과를 근거로 교정을 확정하고 문의를 종료합니다. 확정 후에는 되돌릴 수
+              없습니다.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className={styles.secondaryButton}
+                onClick={() => setConfirmOpen(false)}
+                type="button"
+              >
+                취소
+              </button>
+              <button
+                className={styles.primaryButton}
+                disabled={confirmation.isPending}
+                onClick={() => {
+                  confirmation.mutate(result.executionId);
+                  setConfirmOpen(false);
+                }}
+                type="button"
+              >
+                {confirmation.isPending ? '확정 중…' : '확정'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {previewScene ? (
+        <ScenePreviewDialog
+          autoPlay
+          contextLabel="교정 검증 결과 · 변경된 장면"
+          notice="검증 재검색에서 새로 들어오거나 빠진 장면입니다."
+          onClose={() => setPreviewScene(null)}
+          result={{
+            id: previewScene.scene.sceneId,
+            clipId: previewScene.scene.clipId,
+            title: previewScene.scene.displayName ?? '제목 없는 영상',
+            sceneStart: previewScene.scene.startTimeMs / 1000,
+            sceneEnd: previewScene.scene.endTimeMs / 1000,
+            duration: formatSceneDuration(
+              (previewScene.scene.endTimeMs - previewScene.scene.startTimeMs) / 1000,
+            ),
+            evidenceType: '검증 결과',
+            evidence: previewScene.detail,
+            source: previewScene.scene.sceneDescription ?? '장면 설명 없음',
+            imageClass: '',
+            imageLabel: '',
+          }}
+          theme={theme}
+        />
       ) : null}
     </section>
   );

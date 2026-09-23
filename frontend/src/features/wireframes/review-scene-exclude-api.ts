@@ -41,6 +41,17 @@ function parseCandidate(value: unknown): SceneExcludeCandidate {
   return { searchRuleId: data.searchRuleId, feedbackId: data.feedbackId, active: data.active };
 }
 
+/** 대기 중인 이 문의의 장면 제외 후보를 취소한다. 이미 확정(active)된 규칙은 건드리지 않는다. 200 반환. */
+export async function discardSceneExcludeCandidate(
+  feedbackId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await fetchJson<unknown>(`/review/inquiries/${feedbackId}/scene-exclude-candidate`, {
+    method: 'DELETE',
+    signal,
+  });
+}
+
 /** 신규는 201, 멱등 재생은 200. 공통 client가 둘 다 성공으로 돌려준다. */
 export async function createSceneExcludeCandidate(
   feedbackId: string,

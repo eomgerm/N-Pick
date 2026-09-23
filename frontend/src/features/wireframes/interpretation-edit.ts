@@ -93,7 +93,13 @@ export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
         fromType: before.type,
       });
     } else if (value !== before.value) {
-      edits.push({ kind: 'edit', axis: before.axis, from: before.value, to: value, type: before.type });
+      edits.push({
+        kind: 'edit',
+        axis: before.axis,
+        from: before.value,
+        to: value,
+        type: before.type,
+      });
     }
   }
   for (const chip of original) {
@@ -138,7 +144,14 @@ export function deriveParseRules(
       rules.push(
         body(
           [{ axis: edit.axis, op: 'has_value', value: edit.value }],
-          [{ op: 'remove_item', axis: edit.axis, value: edit.value, ...typeIf(edit.axis, edit.type) }],
+          [
+            {
+              op: 'remove_item',
+              axis: edit.axis,
+              value: edit.value,
+              ...typeIf(edit.axis, edit.type),
+            },
+          ],
         ),
       );
     } else if (edit.kind === 'edit') {
@@ -146,7 +159,12 @@ export function deriveParseRules(
         body(
           [{ axis: edit.axis, op: 'has_value', value: edit.from }],
           [
-            { op: 'remove_item', axis: edit.axis, value: edit.from, ...typeIf(edit.axis, edit.type) },
+            {
+              op: 'remove_item',
+              axis: edit.axis,
+              value: edit.from,
+              ...typeIf(edit.axis, edit.type),
+            },
             { op: 'add_item', axis: edit.axis, value: edit.to, ...typeIf(edit.axis, edit.type) },
           ],
         ),
@@ -175,7 +193,14 @@ export function deriveParseRules(
       rules.push(
         body(
           [{ axis: guard.axis, op: 'has_value', value: guard.value }],
-          [{ op: 'add_item', axis: edit.axis, value: edit.value, ...typeIf(edit.axis, edit.type ?? defaultType(edit.axis)) }],
+          [
+            {
+              op: 'add_item',
+              axis: edit.axis,
+              value: edit.value,
+              ...typeIf(edit.axis, edit.type ?? defaultType(edit.axis)),
+            },
+          ],
         ),
       );
     }
@@ -188,10 +213,13 @@ export function describeEdits(edits: ChipEdit[]): { key: string; text: string }[
     if (edit.kind === 'remove')
       return { key: '삭제', text: `${resolutionAxisLabels[edit.axis]}에서 ‘${edit.value}’ 제거` };
     if (edit.kind === 'edit')
-      return { key: '수정', text: `${resolutionAxisLabels[edit.axis]} ‘${edit.from}’를 ‘${edit.to}’로` };
+      return {
+        key: '수정',
+        text: `${resolutionAxisLabels[edit.axis]} ‘${edit.from}’를 ‘${edit.to}’로`,
+      };
     if (edit.kind === 'move')
       return {
-        key: '이동',
+        key: '수정',
         text: `‘${edit.fromValue}’를 ${resolutionAxisLabels[edit.from]}에서 ${resolutionAxisLabels[edit.to]}으로${
           edit.value !== edit.fromValue ? ` (‘${edit.value}’로 수정)` : ''
         }`,

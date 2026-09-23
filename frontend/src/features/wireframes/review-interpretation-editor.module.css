@@ -163,26 +163,62 @@
   text-transform: uppercase;
 }
 
+.changeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.changeGroup {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--line));
+}
+
+.changeGroupHeading {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.changeGroupHeading span {
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.changeGroup[data-kind='add'] .changeGroupHeading {
+  color: var(--positive);
+}
+
+.changeGroup[data-kind='remove'] .changeGroupHeading {
+  color: var(--danger);
+}
+
+.changeGroup[data-kind='edit'] .changeGroupHeading {
+  color: var(--accent-strong);
+}
+
 .changeList {
   display: grid;
-  gap: 10px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .changeList li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: 13px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
-.changeKey {
-  min-width: 40px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+.changeGroupEmpty {
+  margin: 0;
+  color: var(--muted-2);
+  font-size: 12px;
 }
 
 .empty {
@@ -228,4 +264,10 @@
   margin: 12px 0 0;
   color: var(--accent-strong);
   font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .changeGrid {
+    grid-template-columns: 1fr;
+  }
 }

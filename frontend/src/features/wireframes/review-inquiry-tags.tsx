@@ -1,12 +1,11 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { type FormEvent, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
   createTagCorrectionCandidate,
-  parseCommaSeparatedTags,
   reviewTagTypes,
   type ReviewInquiryDetail,
   type ReviewTagScope,
@@ -14,7 +13,6 @@ import {
   type TagCorrectionOperation,
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
-import styles from '@/features/wireframes/reviewer.module.css';
 
 const tagTypeLabels: Record<ReviewTagType, string> = {
   person: '인물',
@@ -31,15 +29,40 @@ const tagTypeLabels: Record<ReviewTagType, string> = {
 };
 
 const tagScopeLabels: Record<ReviewTagScope, string> = {
-  SCENE: '이 장면만',
+  SCENE: '이 장면',
   CLIP: '영상 전체',
 };
 
+const MAX_TAG_DRAFTS = 10;
+
+const addButtonClass =
+  'rounded-lg border border-(--line) bg-(--surface) px-3 py-1.5 text-sm font-bold text-(--accent-strong) transition-colors hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40';
+const pillClass =
+  'inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full bg-(--accent-soft) py-1.5 pr-2 pl-3 text-sm text-(--accent-strong)';
+const iconButtonClass =
+  'grid size-5 shrink-0 place-items-center rounded-full text-base leading-none text-(--muted)';
+
 type Evidence = ReviewInquiryDetail['evidence'][number];
+
+interface Draft {
+  id: string;
+  scope: ReviewTagScope;
+  tagType: ReviewTagType;
+  value: string;
+  error: string;
+}
+
+interface AddedTag {
+  id: string;
+  scope: ReviewTagScope;
+  tagType: ReviewTagType;
+  value: string;
+}
 
 interface CandidateSubmission {
   operations: TagCorrectionOperation[];
-  successMessage: string;
+  draftId?: string;
+  added?: AddedTag;
 }
 
 interface ReviewInquiryTagsProps {
@@ -47,110 +70,181 @@ interface ReviewInquiryTagsProps {
   memberLoginId: string;
 }
 
-function validateTagValues(values: string[], tagType: ReviewTagType): string {
-  if (values.length === 0) return '쉼표로 구분한 태그를 한 개 이상 입력해 주세요.';
-  if (values.some((value) => value.length > 255)) return '각 태그는 255자 이하여야 합니다.';
+function validateTagValue(value: string, tagType: ReviewTagType): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '태그 값을 입력해 주세요.';
+  if (trimmed.length > 20) return '태그는 20자 이하여야 합니다.';
   if (
     (tagType === 'filmed_date' || tagType === 'broadcast_date') &&
-    values.some((value) => !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)
   ) {
-    return '날짜 태그는 YYYY-MM-DD 형식으로 입력해 주세요.';
+    return '날짜 태그는 YYYY-MM-DD 형식이어야 합니다.';
   }
   return '';
 }
 
 export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsProps) {
-  const [tagType, setTagType] = useState<ReviewTagType>('keyword');
-  const [scope, setScope] = useState<ReviewTagScope>('SCENE');
-  const [tagInput, setTagInput] = useState('');
-  const [validationError, setValidationError] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<Evidence | null>(null);
-  const values = parseCommaSeparatedTags(tagInput);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [added, setAdded] = useState<AddedTag[]>([]);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  const seq = useRef(0);
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
-  // 재설계: correction 판정이면 태그 교정도 함께 담을 수 있다 (S15P21A501-281).
   const canCorrect =
     inquiry.status === 'reviewing' && isOwner && inquiry.resolution === 'correction';
   const mutation = useMutation({
     mutationFn: ({ operations }: CandidateSubmission) =>
       createTagCorrectionCandidate(inquiry.feedbackId, operations),
     onSuccess: (_response, submission) => {
-      setValidationError('');
-      setDeleteTarget(null);
-      if (submission.operations.every((operation) => operation.action === 'APPROVE')) {
-        setTagInput('');
+      if (submission.draftId) {
+        setDrafts((current) => current.filter((draft) => draft.id !== submission.draftId));
+      }
+      if (submission.added) {
+        const next = submission.added;
+        setAdded((current) => [...current, next]);
       }
     },
   });
 
-  function resetFeedback() {
-    setValidationError('');
+  const pendingCount = drafts.length + added.length;
+
+  function addDraft(scope: ReviewTagScope) {
+    if (pendingCount >= MAX_TAG_DRAFTS) return;
+    seq.current += 1;
+    setDrafts((current) => [
+      ...current,
+      { id: `draft-${seq.current}`, scope, tagType: 'keyword', value: '', error: '' },
+    ]);
     mutation.reset();
   }
 
-  function submitAdditions(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const error = validateTagValues(values, tagType);
+  function updateDraft(id: string, patch: Partial<Draft>) {
+    setDrafts((current) =>
+      current.map((draft) => (draft.id === id ? { ...draft, ...patch, error: '' } : draft)),
+    );
+    mutation.reset();
+  }
+
+  function removeDraft(id: string) {
+    setDrafts((current) => current.filter((draft) => draft.id !== id));
+  }
+
+  // ✓: 검증 후보를 만들고, 편집 칩을 일반 태그와 같은 형태의 칩으로 남긴다.
+  function submitDraft(draft: Draft) {
+    const error = validateTagValue(draft.value, draft.tagType);
     if (error) {
-      setValidationError(error);
+      setDrafts((current) =>
+        current.map((item) => (item.id === draft.id ? { ...item, error } : item)),
+      );
       return;
     }
-    setValidationError('');
+    const value = draft.value.trim();
     mutation.mutate({
-      operations: values.map((value) => ({
-        action: 'APPROVE',
-        scope,
-        tagType,
-        matchValue: value,
-        displayName: value,
-      })),
-      successMessage: `${values.length}개 태그를 검증 후보로 저장했습니다.`,
+      operations: [
+        {
+          action: 'APPROVE',
+          scope: draft.scope,
+          tagType: draft.tagType,
+          matchValue: value,
+          displayName: value,
+        },
+      ],
+      draftId: draft.id,
+      added: { id: draft.id, scope: draft.scope, tagType: draft.tagType, value },
     });
   }
 
-  function submitDeletion() {
-    if (!deleteTarget) return;
+  function removeAdded(id: string) {
+    setAdded((current) => current.filter((item) => item.id !== id));
+  }
+
+  function markRemoved(evidence: Evidence) {
+    mutation.reset();
+    setRemoved((current) => new Set(current).add(evidence.taggingId));
     mutation.mutate({
       operations: [
         {
           action: 'REJECT',
-          scope: deleteTarget.scope,
-          tagType: deleteTarget.tagType,
-          matchValue: deleteTarget.matchValue,
-          displayName: deleteTarget.tagName,
+          scope: evidence.scope,
+          tagType: evidence.tagType,
+          matchValue: evidence.matchValue,
+          displayName: evidence.tagName,
         },
       ],
-      successMessage: `'${deleteTarget.tagName}' 삭제 후보를 저장했습니다.`,
     });
   }
 
+  function restoreRemoved(evidence: Evidence) {
+    mutation.reset();
+    setRemoved((current) => {
+      const next = new Set(current);
+      next.delete(evidence.taggingId);
+      return next;
+    });
+    mutation.mutate({
+      operations: [
+        {
+          action: 'APPROVE',
+          scope: evidence.scope,
+          tagType: evidence.tagType,
+          matchValue: evidence.matchValue,
+          displayName: evidence.tagName,
+        },
+      ],
+    });
+  }
+
+  const activeTags = inquiry.evidence.filter((evidence) => !removed.has(evidence.taggingId));
+  const removedTags = inquiry.evidence.filter((evidence) => removed.has(evidence.taggingId));
+  const hasTop = activeTags.length > 0 || added.length > 0 || drafts.length > 0;
+
   return (
     <section className="rounded-2xl border border-(--line) p-5">
-      <h3 className="font-bold">현재 태그</h3>
-      {inquiry.evidence.length === 0 ? (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-bold">태그 교정</h3>
+        {canCorrect ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={addButtonClass}
+              disabled={mutation.isPending || pendingCount >= MAX_TAG_DRAFTS}
+              onClick={() => addDraft('SCENE')}
+              type="button"
+            >
+              + 이 장면
+            </button>
+            <button
+              className={addButtonClass}
+              disabled={mutation.isPending || pendingCount >= MAX_TAG_DRAFTS}
+              onClick={() => addDraft('CLIP')}
+              type="button"
+            >
+              + 영상 전체
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {!hasTop ? (
         <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
       ) : (
-        <ul className="mt-4 flex flex-wrap gap-2" aria-label="현재 장면과 영상의 태그">
-          {inquiry.evidence.map((evidence, index) => (
+        <ul className="mt-4 grid gap-2" aria-label="현재 장면과 영상의 태그">
+          {activeTags.map((evidence, index) => (
             <li
-              className="inline-flex items-center gap-2 rounded-full bg-(--accent-soft) py-1.5 pr-2 pl-3 text-sm text-(--accent-strong)"
+              className={pillClass}
               key={`${evidence.taggingId}-${index}`}
-              title={`${tagTypeLabels[evidence.tagType]} · 출처: ${
-                evidence.sources.map(evidenceLabel).join('·') || '기록 없음'
-              } · 검증: ${evidenceLabel(evidence.verifiedState)} · 범위: ${
-                tagScopeLabels[evidence.scope]
-              }`}
+              title={`출처: ${evidence.sources.map(evidenceLabel).join('·') || '기록 없음'} · 검증: ${evidenceLabel(
+                evidence.verifiedState,
+              )} · 범위: ${tagScopeLabels[evidence.scope]}`}
             >
-              <strong className="font-semibold">{evidence.tagName}</strong>
-              <span className="text-xs text-(--muted)">{tagTypeLabels[evidence.tagType]}</span>
+              <strong className="truncate font-semibold">{evidence.tagName}</strong>
+              <span className="shrink-0 text-xs text-(--muted)">
+                {tagTypeLabels[evidence.tagType]}
+              </span>
               {canCorrect ? (
                 <button
                   aria-label={`‘${evidence.tagName}’ 삭제 후보`}
-                  className="grid size-5 place-items-center rounded-full text-base leading-none text-(--muted) hover:text-(--danger)"
+                  className={`${iconButtonClass} hover:text-(--danger)`}
                   disabled={mutation.isPending}
-                  onClick={() => {
-                    resetFeedback();
-                    setDeleteTarget(evidence);
-                  }}
+                  onClick={() => markRemoved(evidence)}
                   type="button"
                 >
                   ×
@@ -158,125 +252,138 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
               ) : null}
             </li>
           ))}
+
+          {added.map((tag) => (
+            <li className={pillClass} key={tag.id}>
+              <strong className="truncate font-semibold">{tag.value}</strong>
+              <span className="shrink-0 text-xs text-(--muted)">
+                {tagTypeLabels[tag.tagType]} · {tagScopeLabels[tag.scope]}
+              </span>
+              <button
+                aria-label={`‘${tag.value}’ 추가 취소`}
+                className={`${iconButtonClass} hover:text-(--danger)`}
+                disabled={mutation.isPending}
+                onClick={() => removeAdded(tag.id)}
+                type="button"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+
+          {canCorrect
+            ? drafts.map((draft) => (
+                <li
+                  className={`${pillClass} border border-dashed border-(--accent) bg-(--accent-soft)`}
+                  key={draft.id}
+                >
+                  <span className="shrink-0 text-xs font-bold text-(--accent-strong)">
+                    {tagScopeLabels[draft.scope]}
+                  </span>
+                  <select
+                    aria-label="태그 유형"
+                    className="bg-transparent text-xs font-bold text-(--accent-strong) outline-none"
+                    disabled={mutation.isPending}
+                    onChange={(event) =>
+                      updateDraft(draft.id, { tagType: event.target.value as ReviewTagType })
+                    }
+                    value={draft.tagType}
+                  >
+                    {reviewTagTypes.map((value) => (
+                      <option key={value} value={value}>
+                        {tagTypeLabels[value]}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    aria-label="태그 값"
+                    autoFocus
+                    className="w-24 bg-transparent text-sm font-semibold text-(--accent-strong) outline-none placeholder:text-(--muted)"
+                    disabled={mutation.isPending}
+                    maxLength={20}
+                    onChange={(event) => updateDraft(draft.id, { value: event.target.value })}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        submitDraft(draft);
+                      }
+                      if (event.key === 'Escape') removeDraft(draft.id);
+                    }}
+                    placeholder={
+                      draft.tagType === 'filmed_date' || draft.tagType === 'broadcast_date'
+                        ? '2026-09-21'
+                        : '값 입력'
+                    }
+                    value={draft.value}
+                  />
+                  <button
+                    aria-label="태그 추가 확정"
+                    className={`${iconButtonClass} hover:text-(--positive)`}
+                    disabled={mutation.isPending}
+                    onClick={() => submitDraft(draft)}
+                    type="button"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    aria-label="태그 추가 취소"
+                    className={`${iconButtonClass} hover:text-(--danger)`}
+                    disabled={mutation.isPending}
+                    onClick={() => removeDraft(draft.id)}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))
+            : null}
         </ul>
       )}
 
-      {canCorrect ? (
+      {removedTags.length > 0 ? (
         <div className="mt-5 border-t border-(--line) pt-5">
-          <h4 className="font-bold">태그 추가</h4>
-          <p className="mt-1 text-sm text-(--muted)">
-            쉼표로 여러 태그를 구분하면 한 번에 각각의 검증 후보를 만듭니다.
-          </p>
-          <form className="mt-4 grid gap-4" onSubmit={submitAdditions}>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm font-bold">
-                태그 유형
-                <select
-                  className="rounded-xl border border-(--line) bg-(--surface) p-3 font-normal"
-                  disabled={mutation.isPending}
-                  onChange={(event) => {
-                    setTagType(event.target.value as ReviewTagType);
-                    resetFeedback();
-                  }}
-                  value={tagType}
-                >
-                  {reviewTagTypes.map((value) => (
-                    <option key={value} value={value}>
-                      {tagTypeLabels[value]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="grid gap-2 text-sm font-bold">
-                적용 범위
-                <select
-                  className="rounded-xl border border-(--line) bg-(--surface) p-3 font-normal"
-                  disabled={mutation.isPending}
-                  onChange={(event) => {
-                    setScope(event.target.value as ReviewTagScope);
-                    resetFeedback();
-                  }}
-                  value={scope}
-                >
-                  <option value="SCENE">이 장면만</option>
-                  <option value="CLIP">영상 전체</option>
-                </select>
-              </label>
-            </div>
-            <label className="grid gap-2 text-sm font-bold">
-              태그 값 (쉼표로 구분)
-              <input
-                aria-describedby={validationError ? 'tag-values-error' : 'tag-values-help'}
-                aria-invalid={Boolean(validationError)}
-                className="rounded-xl border border-(--line) bg-(--surface) p-3 font-normal"
-                disabled={mutation.isPending}
-                onChange={(event) => {
-                  setTagInput(event.target.value);
-                  resetFeedback();
-                }}
-                placeholder={
-                  tagType === 'filmed_date' || tagType === 'broadcast_date'
-                    ? '2026-09-21, 2026-09-22'
-                    : '서울, 부산, 광주'
-                }
-                value={tagInput}
-              />
-              <span className="text-xs font-normal text-(--muted)" id="tag-values-help">
-                {values.length > 0
-                  ? `${values.length}개 후보: ${values.join(' · ')}`
-                  : '입력 대기 중'}
-              </span>
-            </label>
-            {validationError ? (
-              <p className="text-sm text-(--danger)" id="tag-values-error" role="alert">
-                {validationError}
-              </p>
-            ) : null}
-            <button className={styles.primaryButton} disabled={mutation.isPending} type="submit">
-              {mutation.isPending ? '후보 저장 중…' : `${values.length || 0}개 추가 후보 만들기`}
-            </button>
-          </form>
-
-          {deleteTarget ? (
-            <div className="mt-4 rounded-2xl border border-(--line) bg-(--warning-soft) p-4">
-              <strong>‘{deleteTarget.tagName}’ 태그를 삭제 후보로 만들까요?</strong>
-              <p className="mt-1 text-sm text-(--muted)">
-                {tagScopeLabels[deleteTarget.scope]} 범위에서 반려합니다. 검증과 확정 전까지 현재
-                태그는 바뀌지 않습니다.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
+          <h4 className="text-sm font-bold text-(--muted)">삭제 후보</h4>
+          <ul className="mt-3 grid gap-2">
+            {removedTags.map((evidence, index) => (
+              <li
+                className="inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full border border-dashed border-(--line) py-1.5 pr-2 pl-3 text-sm text-(--muted) line-through"
+                key={`removed-${evidence.taggingId}-${index}`}
+              >
+                <strong className="truncate font-semibold">{evidence.tagName}</strong>
+                <span className="shrink-0 text-xs no-underline">
+                  {tagTypeLabels[evidence.tagType]}
+                </span>
                 <button
-                  className={styles.primaryButton}
+                  aria-label={`‘${evidence.tagName}’ 삭제 취소`}
+                  className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
                   disabled={mutation.isPending}
-                  onClick={submitDeletion}
+                  onClick={() => restoreRemoved(evidence)}
                   type="button"
                 >
-                  {mutation.isPending ? '후보 저장 중…' : '삭제 후보 저장'}
+                  +
                 </button>
-                <button
-                  className={styles.secondaryButton}
-                  disabled={mutation.isPending}
-                  onClick={() => setDeleteTarget(null)}
-                  type="button"
-                >
-                  취소
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {mutation.isError ? <ApiErrorNotice error={mutation.error} /> : null}
-          {mutation.isSuccess ? (
-            <p className="mt-4 text-sm text-(--positive)" role="status">
-              {mutation.variables.successMessage} 다음 단계에서 검증 검색과 확정이 필요합니다.
-            </p>
-          ) : null}
+              </li>
+            ))}
+          </ul>
         </div>
-      ) : inquiry.status === 'reviewing' && isOwner ? (
-        <p className="mt-4 text-sm text-(--muted)">
-          처리 판정을 태그 교정 또는 검색 해석 교정으로 저장하면 태그를 추가하거나 삭제할 수
-          있습니다.
-        </p>
+      ) : null}
+
+      {drafts.some((draft) => draft.error) ? (
+        <ul className="mt-2 grid gap-1">
+          {drafts
+            .filter((draft) => draft.error)
+            .map((draft) => (
+              <li className="text-sm text-(--danger)" key={draft.id} role="alert">
+                {draft.error}
+              </li>
+            ))}
+        </ul>
+      ) : null}
+
+      {mutation.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={mutation.error} />
+        </div>
       ) : null}
     </section>
   );

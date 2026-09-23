@@ -42,7 +42,6 @@ import {
   formatInquiryTimecode,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
-import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
 import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
 import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
@@ -393,20 +392,16 @@ export function InquiryDetail({ feedbackId, theme }: InquiryDetailProps) {
 
         {hasCorrection ? (
           <section className={`${styles.panel} ${styles.correction}`} aria-label="교정 후보와 검증">
-            {/* 재설계: 한 문의에 해석·장면제외 후보를 함께 담되, 큰 폼은 접어 둬 스크롤을 줄인다 (S15P21A501-281). */}
-            <details className="grid gap-3 rounded-xl border border-(--line) bg-(--surface) p-4">
-              <summary className="cursor-pointer text-sm font-bold">검색 해석 교정</summary>
-              <ParseInterpretationEditor
-                feedbackId={inquiry.feedbackId}
-                key={inquiry.feedbackId}
-                parsedQueryJson={inquiry.execution.parsedQueryJson}
-              />
-            </details>
-            <details className="grid gap-3 rounded-xl border border-(--line) bg-(--surface) p-4">
-              <summary className="cursor-pointer text-sm font-bold">장면 제외</summary>
-              <SceneExcludeCandidateForm inquiry={inquiry} />
-            </details>
-            <CorrectionVerificationPanel feedbackId={inquiry.feedbackId} key={inquiry.feedbackId} />
+            <ParseInterpretationEditor
+              feedbackId={inquiry.feedbackId}
+              key={inquiry.feedbackId}
+              parsedQueryJson={inquiry.execution.parsedQueryJson}
+            />
+            <CorrectionVerificationPanel
+              feedbackId={inquiry.feedbackId}
+              key={inquiry.feedbackId}
+              theme={theme}
+            />
           </section>
         ) : null}
       </article>
