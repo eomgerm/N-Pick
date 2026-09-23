@@ -71,6 +71,7 @@ test('삭제/수정/이동/추가를 분류한다', () => {
       value: '경부고속도로',
       fromValue: '경부고속도로',
       type: 'location',
+      fromType: 'location',
     },
     { kind: 'remove', axis: 'incident_names', value: '추석', type: undefined },
   ]);
@@ -93,6 +94,7 @@ test('이동 + 값 수정이 함께 일어나면 move 1건에 fromValue(옛값)/
       value: '경부고속도로 휴게소',
       fromValue: '경부고속도로',
       type: 'location',
+      fromType: 'location',
     },
   ]);
 });
@@ -141,7 +143,7 @@ test('move 비TYPED→TYPED: add 에 기본 type 을 채운다', () => {
   ]);
 });
 
-test('move + 수정: 조건/remove 는 옛값(fromValue), add 는 새값(value) 기준', () => {
+test('move + 수정: 조건/remove 는 옛값(fromValue)·원본 type(fromType), add 는 새값(value)·목적지 type 기준', () => {
   const [rule] = deriveParseRules(
     [
       {
@@ -150,7 +152,8 @@ test('move + 수정: 조건/remove 는 옛값(fromValue), add 는 새값(value) 
         to: 'entities',
         value: '경부고속도로 휴게소',
         fromValue: '경부고속도로',
-        type: 'location',
+        type: 'organization',
+        fromType: 'location',
       },
     ],
     null,
@@ -160,6 +163,59 @@ test('move + 수정: 조건/remove 는 옛값(fromValue), add 는 새값(value) 
     { op: 'remove_item', axis: 'locations', value: '경부고속도로', type: 'location' },
     { op: 'add_item', axis: 'entities', value: '경부고속도로 휴게소', type: 'organization' },
   ]);
+});
+
+const { validateParseRuleBody } = await import('./review-parse-rule-api.ts');
+
+test('move locations→entities(typed→typed, 드롭 핸들러 재현): remove 는 원본 type 을 키로 쓰고 검증을 통과한다', () => {
+  // onRowDrop 은 옮겨진 칩의 type 을 목적지 기본 type 으로 덮어쓴다 (FIX 3) — 그 결과를 그대로 재현한다.
+  const current = ORIG.map((chip) =>
+    chip.id === 'locations#0' ? { ...chip, axis: 'entities', type: 'organization' } : { ...chip },
+  );
+  const edits = deriveEdits(ORIG, current);
+  assert.deepEqual(edits, [
+    {
+      kind: 'move',
+      from: 'locations',
+      to: 'entities',
+      value: '경부고속도로',
+      fromValue: '경부고속도로',
+      type: 'organization',
+      fromType: 'location',
+    },
+  ]);
+
+  const [rule] = deriveParseRules(edits, null);
+  assert.deepEqual(rule.patch.operations, [
+    { op: 'remove_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+    { op: 'add_item', axis: 'entities', value: '경부고속도로', type: 'organization' },
+  ]);
+  assert.equal(validateParseRuleBody(rule), null);
+});
+
+test('move entities→incident_names(typed→비TYPED, 드롭 핸들러 재현): remove 는 원본 type 유지, add 는 type 없이 검증을 통과한다', () => {
+  const current = ORIG.map((chip) =>
+    chip.id === 'entities#0' ? { ...chip, axis: 'incident_names', type: undefined } : { ...chip },
+  );
+  const edits = deriveEdits(ORIG, current);
+  assert.deepEqual(edits, [
+    {
+      kind: 'move',
+      from: 'entities',
+      to: 'incident_names',
+      value: '한국도로공사',
+      fromValue: '한국도로공사',
+      type: undefined,
+      fromType: 'organization',
+    },
+  ]);
+
+  const [rule] = deriveParseRules(edits, null);
+  assert.deepEqual(rule.patch.operations, [
+    { op: 'remove_item', axis: 'entities', value: '한국도로공사', type: 'organization' },
+    { op: 'add_item', axis: 'incident_names', value: '한국도로공사' },
+  ]);
+  assert.equal(validateParseRuleBody(rule), null);
 });
 
 test('add: guard 없으면 규칙 없음, 있으면 guard 조건', () => {

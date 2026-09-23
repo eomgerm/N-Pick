@@ -54,7 +54,15 @@ export function seedChips(resolution: Resolution): Chip[] {
 export type ChipEdit =
   | { kind: 'remove'; axis: EditableAxis; value: string; type?: string }
   | { kind: 'edit'; axis: EditableAxis; from: string; to: string; type?: string }
-  | { kind: 'move'; from: EditableAxis; to: EditableAxis; value: string; fromValue: string; type?: string }
+  | {
+      kind: 'move';
+      from: EditableAxis;
+      to: EditableAxis;
+      value: string;
+      fromValue: string;
+      type?: string;
+      fromType?: string;
+    }
   | { kind: 'add'; axis: EditableAxis; value: string; type?: string };
 
 export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
@@ -82,6 +90,7 @@ export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
         value,
         fromValue: before.value,
         type: chip.type,
+        fromType: before.type,
       });
     } else if (value !== before.value) {
       edits.push({ kind: 'edit', axis: before.axis, from: before.value, to: value, type: before.type });
@@ -147,7 +156,12 @@ export function deriveParseRules(
         body(
           [{ axis: edit.from, op: 'has_value', value: edit.fromValue }],
           [
-            { op: 'remove_item', axis: edit.from, value: edit.fromValue, ...typeIf(edit.from, edit.type) },
+            {
+              op: 'remove_item',
+              axis: edit.from,
+              value: edit.fromValue,
+              ...typeIf(edit.from, edit.fromType),
+            },
             {
               op: 'add_item',
               axis: edit.to,
