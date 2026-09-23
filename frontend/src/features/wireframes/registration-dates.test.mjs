@@ -60,6 +60,27 @@ test('날짜를 모두 비우면 검사하지 않는다', () => {
   });
 });
 
+test('직접 입력한 잘못된 형식·존재하지 않는 날짜를 거부하고 달력 범위에는 사용하지 않는다', () => {
+  for (const date of ['2026-02-30', '2026-09', '날짜 아님']) {
+    assert.deepEqual(
+      validateRegistrationDates(dates({ broadcastDate: date, filmedDate: date }), TODAY),
+      {
+        broadcastDate: '방송일을 YYYY-MM-DD 형식의 올바른 날짜로 입력해 주세요.',
+        filmedDate: '촬영일을 YYYY-MM-DD 형식의 올바른 날짜로 입력해 주세요.',
+      },
+    );
+    assert.deepEqual(
+      registrationDateBounds(dates({ broadcastDate: date, filmedDate: date }), TODAY),
+      {
+        broadcastMin: '1950-01-01',
+        broadcastMax: TODAY,
+        filmedMin: '1950-01-01',
+        filmedMax: TODAY,
+      },
+    );
+  }
+});
+
 // 한쪽 날짜를 고치면 반대쪽에 붙어 있던 안내는 더는 사실이 아니다. 두 키를 항상 내보내야
 // 호출부의 이전 오류를 덮어쓴다.
 test('통과한 날짜의 오류 키도 비워서 내보낸다', () => {
@@ -86,8 +107,9 @@ test('마운트 전에는 날짜 입력 범위를 내보내지 않는다', () =>
 test('날짜 선택 범위의 위 끝은 오늘이다', () => {
   assert.deepEqual(registrationDateBounds(dates(), TODAY), {
     broadcastMax: TODAY,
-    broadcastMin: undefined,
+    broadcastMin: '1950-01-01',
     filmedMax: TODAY,
+    filmedMin: '1950-01-01',
   });
 });
 
@@ -96,14 +118,16 @@ test('촬영일을 고르면 그날부터만 방송일로 고를 수 있다', ()
     broadcastMax: TODAY,
     broadcastMin: '2026-09-07',
     filmedMax: TODAY,
+    filmedMin: '1950-01-01',
   });
 });
 
 test('방송일을 먼저 고르면 그날까지만 촬영일로 고를 수 있다', () => {
   assert.deepEqual(registrationDateBounds(dates({ broadcastDate: '2026-09-07' }), TODAY), {
     broadcastMax: TODAY,
-    broadcastMin: undefined,
+    broadcastMin: '1950-01-01',
     filmedMax: '2026-09-07',
+    filmedMin: '1950-01-01',
   });
 });
 
@@ -111,8 +135,9 @@ test('방송일을 먼저 고르면 그날까지만 촬영일로 고를 수 있�
 test('미래 촬영일은 방송일의 아래 끝으로 쓰지 않는다', () => {
   assert.deepEqual(registrationDateBounds(dates({ filmedDate: '2026-09-22' }), TODAY), {
     broadcastMax: TODAY,
-    broadcastMin: undefined,
+    broadcastMin: '1950-01-01',
     filmedMax: TODAY,
+    filmedMin: '1950-01-01',
   });
 });
 
@@ -122,7 +147,7 @@ test('자료 영상에서는 방송일 범위를 내보내지 않고 촬영일�
       dates({ sourceType: 'archive', broadcastDate: '2026-09-07', filmedDate: '2026-09-08' }),
       TODAY,
     ),
-    { broadcastMax: undefined, broadcastMin: undefined, filmedMax: TODAY },
+    { broadcastMax: undefined, broadcastMin: undefined, filmedMax: TODAY, filmedMin: '1950-01-01' },
   );
 });
 
@@ -145,4 +170,36 @@ test('오늘 기준값을 생략하면 Asia/Seoul 날짜로 검사한다', () =>
     broadcastDate: undefined,
     filmedDate: '촬영일은 오늘 이후 날짜로 입력할 수 없습니다.',
   });
+});
+
+test('1950년 이전은 거부하고 경계일을 허용한다', () => {
+  assert.deepEqual(
+    validateRegistrationDates(
+      dates({ broadcastDate: '1949-12-31', filmedDate: '1949-12-31' }),
+      TODAY,
+    ),
+    {
+      broadcastDate: '방송일은 1950년 1월 1일 이전 날짜로 입력할 수 없습니다.',
+      filmedDate: '촬영일은 1950년 1월 1일 이전 날짜로 입력할 수 없습니다.',
+    },
+  );
+  assert.deepEqual(
+    validateRegistrationDates(
+      dates({ broadcastDate: '1950-01-01', filmedDate: '1950-01-01' }),
+      TODAY,
+    ),
+    {
+      broadcastDate: undefined,
+      filmedDate: undefined,
+    },
+  );
+  assert.deepEqual(
+    registrationDateBounds(dates({ broadcastDate: '1949-12-31', filmedDate: '1949-12-31' }), TODAY),
+    {
+      broadcastMax: TODAY,
+      broadcastMin: '1950-01-01',
+      filmedMax: TODAY,
+      filmedMin: '1950-01-01',
+    },
+  );
 });

@@ -13,7 +13,27 @@ registerHooks({
   },
 });
 
-const { formatMediaTime, formatSceneDuration } = await import('./scene-preview-media.ts');
+const { formatMediaTime, formatSceneDuration, getClipDownloadUrl, getSceneDownloadUrl } =
+  await import('./scene-preview-media.ts');
+
+test('클립과 저장된 장면 다운로드 endpoint를 ID로만 조립한다', () => {
+  assert.ok(
+    getClipDownloadUrl('9007199254740993').endsWith('/api/v1/media/9007199254740993/download'),
+  );
+  assert.ok(
+    getSceneDownloadUrl('9007199254740994').endsWith(
+      '/api/v1/media/scenes/9007199254740994/download',
+    ),
+  );
+  assert.ok(getSceneDownloadUrl(42).endsWith('/api/v1/media/scenes/42/download'));
+});
+
+test('경로나 비정상 ID는 다운로드 URL로 만들지 않는다', () => {
+  for (const id of [undefined, null, '', '0', '../21', '1.5', 'https://example.com/21']) {
+    assert.equal(getClipDownloadUrl(id), null);
+    assert.equal(getSceneDownloadUrl(id), null);
+  }
+});
 
 test('구간 길이를 소수점 없는 초로 표시한다', () => {
   assert.equal(formatSceneDuration(12.345), '12초');

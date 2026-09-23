@@ -74,8 +74,10 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
       broadcastRange={broadcastRange}
       filmingRange={filmingRange}
       isDisabled={isNavigating}
-      onBroadcastChange={setBroadcastRange}
-      onFilmingChange={setFilmingRange}
+      onDateRangesChange={({ broadcast, filming }) => {
+        setBroadcastRange(broadcast);
+        setFilmingRange(filming);
+      }}
     >
       <main className={styles.searchMain}>
         <div className={styles.searchIntro}>
@@ -102,7 +104,6 @@ export function SearchEntryShell({ theme }: SearchEntryShellProps) {
               surface: styles.searchInputSurface,
               clearButton: styles.clearButton,
               submitButton: styles.primaryButton,
-              hint: styles.searchHint,
               srOnly: styles.srOnly,
             }}
           />

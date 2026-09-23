@@ -417,6 +417,88 @@ class SearchHistoryHttpDbTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    @Transactional
+    @DisplayName("전체 삭제는 내 가시 기록을 모두 감추되 행은 보존한다 (S15P21A501-291)")
+    void clearHidesAllOwnerVisibleRecordsButKeepsRows() throws Exception {
+        seed();
+
+        mockMvc.perform(delete("/api/v1/search/history").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true));
+
+        // 목록·총계에서 전부 빠진다 (9701·9702·9703 이 가시 대상이었다).
+        mockMvc.perform(get("/api/v1/search/history?page=0&size=10").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total_elements").value(0))
+                .andExpect(jsonPath("$.data.items.length()").value(0));
+
+        // 행과 결과 스냅샷은 남아 감사 조회·문의 상세가 당시 결과를 잃지 않는다.
+        mockMvc.perform(get("/api/v1/search/executions/9701").with(user(OWNER)))
+                .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM npick.search_result WHERE search_execution_id = 9701", Integer.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("지울 기록이 없어도 전체 삭제는 성공한다 (S15P21A501-291)")
+    void clearIsIdempotentWhenNothingToClear() throws Exception {
+        seed();
+
+        mockMvc.perform(delete("/api/v1/search/history").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+        // 이미 비운 뒤 다시 보내도 성공이다.
+        mockMvc.perform(delete("/api/v1/search/history").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true));
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("전체 삭제는 내 기록만 건드리고 남의 기록은 그대로 둔다 (S15P21A501-291)")
+    void clearOnlyAffectsOwnRecords() throws Exception {
+        seed();
+
+        // OTHER 가 비워도 OWNER 의 기록은 영향이 없다.
+        mockMvc.perform(delete("/api/v1/search/history").with(user(OTHER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        assertThat(deletedAt(9701)).isNull();
+        assertThat(deletedAt(9702)).isNull();
+        assertThat(deletedAt(9703)).isNull();
+        mockMvc.perform(get("/api/v1/search/history?page=0&size=10").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total_elements").value(3));
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("전체 삭제는 이미 숨긴 기록의 지운 시각을 밀지 않는다 (S15P21A501-291)")
+    void clearPreservesAlreadyHiddenTimestamps() throws Exception {
+        seed();
+        // 9701 을 과거 시각으로 미리 숨겨 둔다. 트랜잭션 시각과 달라야 회귀를 잡는다.
+        exec("UPDATE npick.search_execution SET deleted_at = now() - interval '1 day',"
+                + " updated_at = now() - interval '1 day' WHERE search_execution_id = 9701");
+        String deletedBefore = deletedAt(9701);
+
+        mockMvc.perform(delete("/api/v1/search/history").with(user(OWNER)).with(csrf()))
+                .andExpect(status().isOk());
+
+        // 이미 숨긴 9701 은 시각이 유지되고, 남은 9702·9703 은 새로 숨는다.
+        assertThat(deletedAt(9701)).isEqualTo(deletedBefore);
+        assertThat(deletedAt(9702)).isNotNull();
+        assertThat(deletedAt(9703)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("세션이 없으면 전체 삭제도 401 이다 (S15P21A501-291)")
+    void clearRequiresSession() throws Exception {
+        mockMvc.perform(delete("/api/v1/search/history").with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
     private String deletedAt(long executionId) {
         return column("deleted_at", executionId);
     }

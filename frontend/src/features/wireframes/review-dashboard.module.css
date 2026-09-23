@@ -118,6 +118,9 @@
 }
 
 .panel {
+  display: flex;
+  min-height: var(--inquiry-panel-height, auto);
+  flex-direction: column;
   padding: 28px 30px 20px;
 }
 
@@ -417,7 +420,12 @@
 }
 
 .statePanel {
-  min-height: 340px;
+  min-height: var(--inquiry-panel-height, 340px);
+}
+
+.empty {
+  flex: 1;
+  padding-block: 24px;
 }
 
 .empty > svg,
@@ -545,6 +553,10 @@
   .empty,
   .statePanel {
     padding: 40px 18px;
+  }
+
+  .empty {
+    padding-block: 16px;
   }
 }
 

@@ -99,7 +99,11 @@ export function SearchResultCard({
               aria-label={`${result.title} 문의하기`}
               className={styles.cardInquiryButton}
               data-state={
-                isInquirySubmitted ? 'submitted' : inquiryUnavailableReason ? 'unavailable' : 'ready'
+                isInquirySubmitted
+                  ? 'submitted'
+                  : inquiryUnavailableReason
+                    ? 'unavailable'
+                    : 'ready'
               }
               disabled={isInquirySubmitted}
               onClick={(event) => {

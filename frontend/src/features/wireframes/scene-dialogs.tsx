@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   Film,
   Flag,
   LoaderCircle,
@@ -20,7 +21,19 @@ import {
   type InquiryResolution,
 } from '@/features/wireframes/inquiry-state';
 import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
-import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
+import {
+  formatMediaTime,
+  getClipDownloadUrl,
+  getSceneDownloadUrl,
+} from '@/features/wireframes/scene-preview-media';
+import {
+  checkClipDownload,
+  ClipDownloadError,
+  fetchSceneDownload,
+  saveSceneDownload,
+  SceneDownloadError,
+  startClipDownload,
+} from '@/features/wireframes/scene-download';
 import {
   canCreateInquiry,
   type SearchExecutionPresentation,
@@ -116,6 +129,7 @@ type ScenePreviewResult = Pick<
       | 'additionalEvidence'
       | 'clipId'
       | 'clip'
+      | 'sceneId'
       | 'searchResultId'
       | 'totalSeconds'
       | 'totalDuration'
@@ -158,6 +172,18 @@ export function ScenePreviewDialog({
   searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
+  const [downloadingSceneId, setDownloadingSceneId] = useState<string | null>(null);
+  const [sceneDownloadFailure, setSceneDownloadFailure] = useState<{
+    sceneId: string;
+    message: string;
+  } | null>(null);
+  const sceneDownloadControllerRef = useRef<AbortController | null>(null);
+  const [checkingClipId, setCheckingClipId] = useState<string | null>(null);
+  const [clipDownloadFailure, setClipDownloadFailure] = useState<{
+    clipId: string;
+    message: string;
+  } | null>(null);
+  const clipDownloadControllerRef = useRef<AbortController | null>(null);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
   const filmingStatus = result.filmedDate ? (result.filmingState ?? 'unknown') : 'unknown';
   const evidenceField = result.matchEvidence?.field ?? result.evidenceType;
@@ -174,6 +200,14 @@ export function ScenePreviewDialog({
   // 있다. snapshot 실패한 페이지의 결과는 id 자체가 없어 hasSavedResult 로 이미 걸러진다
   // (web-api §5.1, S15P21A501-251 P1). 전역 canCreateInquiry 게이트는 문구 안내에만 쓴다.
   const isInquiryUnavailable = !isSubmitted && !hasSavedResult;
+  const clipDownloadUrl = getClipDownloadUrl(result.clipId);
+  const sceneDownloadUrl = getSceneDownloadUrl(result.sceneId);
+  const isSceneDownloading = downloadingSceneId === result.sceneId;
+  const sceneDownloadError =
+    sceneDownloadFailure?.sceneId === result.sceneId ? sceneDownloadFailure?.message : null;
+  const isClipDownloadChecking = checkingClipId === result.clipId;
+  const clipDownloadError =
+    clipDownloadFailure?.clipId === result.clipId ? clipDownloadFailure?.message : null;
   useEffect(() => {
     closeButtonRef.current?.focus({ preventScroll: true });
   }, []);
@@ -189,6 +223,85 @@ export function ScenePreviewDialog({
       list.scrollTop += selectedBounds.bottom - listBounds.bottom;
     }
   }, [result.id]);
+  useEffect(() => {
+    return () => {
+      const controller = sceneDownloadControllerRef.current;
+      controller?.abort();
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
+    };
+  }, [result.sceneId]);
+  useEffect(() => {
+    return () => {
+      const controller = clipDownloadControllerRef.current;
+      controller?.abort();
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
+      }
+    };
+  }, [result.clipId]);
+
+  async function handleSceneDownload() {
+    if (!sceneDownloadUrl || !result.sceneId || sceneDownloadControllerRef.current) return;
+    const sceneId = result.sceneId;
+    const controller = new AbortController();
+    sceneDownloadControllerRef.current = controller;
+    setDownloadingSceneId(sceneId);
+    setSceneDownloadFailure(null);
+    setClipDownloadFailure(null);
+    try {
+      const download = await fetchSceneDownload(sceneDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) {
+        saveSceneDownload(download.blob, download.fileName ?? `scene-${sceneId}.mp4`);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setSceneDownloadFailure({
+          sceneId,
+          message:
+            error instanceof SceneDownloadError
+              ? error.message
+              : '장면 영상을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
+    }
+  }
+  async function handleClipDownload() {
+    if (!clipDownloadUrl || !result.clipId || clipDownloadControllerRef.current) return;
+    const clipId = result.clipId;
+    const controller = new AbortController();
+    clipDownloadControllerRef.current = controller;
+    setCheckingClipId(clipId);
+    setClipDownloadFailure(null);
+    setSceneDownloadFailure(null);
+    try {
+      await checkClipDownload(clipDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) startClipDownload(clipDownloadUrl);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setClipDownloadFailure({
+          clipId,
+          message:
+            error instanceof ClipDownloadError
+              ? error.message
+              : '원본 클립을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
+      }
+    }
+  }
   function handleSceneSelect(scene: ScenePreviewResult) {
     if (scene.id === result.id) return;
     setSelectedSceneId(scene.id);
@@ -238,6 +351,47 @@ export function ScenePreviewDialog({
             title={result.title}
             autoPlay={autoPlay}
           />
+          {clipDownloadUrl || sceneDownloadUrl ? (
+            <div className={styles.previewDownloadActions} aria-label="영상 다운로드" role="group">
+              {sceneDownloadUrl ? (
+                <button
+                  aria-busy={isSceneDownloading || undefined}
+                  className={styles.previewDownloadButton}
+                  disabled={isSceneDownloading}
+                  onClick={() => void handleSceneDownload()}
+                  type="button"
+                >
+                  {isSceneDownloading ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : (
+                    <Download aria-hidden="true" />
+                  )}
+                  {isSceneDownloading ? '장면 준비 중…' : '장면 다운로드'}
+                </button>
+              ) : null}
+              {clipDownloadUrl ? (
+                <button
+                  aria-busy={isClipDownloadChecking || undefined}
+                  className={styles.previewDownloadButton}
+                  disabled={isClipDownloadChecking}
+                  onClick={() => void handleClipDownload()}
+                  type="button"
+                >
+                  {isClipDownloadChecking ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : (
+                    <Download aria-hidden="true" />
+                  )}
+                  {isClipDownloadChecking ? '원본 확인 중…' : '원본 클립 다운로드'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {sceneDownloadError || clipDownloadError ? (
+            <p className={styles.previewDownloadError} role="alert">
+              {sceneDownloadError ?? clipDownloadError}
+            </p>
+          ) : null}
           {onInquiry ? (
             <div className={styles.previewPlayerActions}>
               <div className={styles.previewInquiryAction}>

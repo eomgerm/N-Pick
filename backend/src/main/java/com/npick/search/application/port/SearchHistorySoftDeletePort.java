@@ -16,4 +16,14 @@ public interface SearchHistorySoftDeletePort {
      * @return 숨겼거나 이미 숨겨져 있으면 {@code true}. 없거나 남의 기록이거나 이 화면 대상이 아니면 {@code false}
      */
     boolean hideOwned(long searchExecutionId, long ownerId);
+
+    /**
+     * 본인의 가시 기록을 한 번에 모두 숨긴다 (S15P21A501-291).
+     *
+     * <p>아직 보이는 기록({@code deleted_at IS NULL})만 대상이라, 이미 숨긴 기록의 지운 시각은 건드리지 않는다. 지울 기록이 없어도 오류가 아니다 — 빈 목록에서 다시
+     * 비워도 {@code 0} 을 돌려주고 호출부는 성공으로 다룬다.
+     *
+     * @return 이번에 새로 숨긴 기록 수
+     */
+    int hideAllOwned(long ownerId);
 }

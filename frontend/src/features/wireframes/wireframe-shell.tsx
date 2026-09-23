@@ -328,8 +328,9 @@ export function WireframeShell({
       broadcastRange={broadcastRange}
       filmingRange={filmingRange}
       isDisabled={isSearchPending}
-      onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
-      onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
+      onDateRangesChange={({ broadcast, filming }) =>
+        handleSearchNavigation(submittedQuery, broadcast, filming)
+      }
       searchField={
         <SceneSearchField
           variant="compact"
@@ -346,7 +347,6 @@ export function WireframeShell({
             form: styles.searchForm,
             field: styles.searchField,
             submitButton: styles.searchButton,
-            hint: styles.searchHint,
           }}
         />
       }

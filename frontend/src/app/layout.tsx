@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
+import { MountainBackdrop } from '@/components/mountain-backdrop';
 import { QueryProvider } from '@/components/query-provider';
 import { SuccessToastProvider } from '@/features/wireframes/success-toast';
 
@@ -24,9 +25,11 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html className={pretendard.variable} data-scroll-behavior="smooth" lang="ko">
       <body>
-        <QueryProvider>
-          <SuccessToastProvider>{children}</SuccessToastProvider>
-        </QueryProvider>
+        <MountainBackdrop>
+          <QueryProvider>
+            <SuccessToastProvider>{children}</SuccessToastProvider>
+          </QueryProvider>
+        </MountainBackdrop>
       </body>
     </html>
   );
