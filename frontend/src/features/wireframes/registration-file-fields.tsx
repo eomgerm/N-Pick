@@ -77,6 +77,19 @@ export function FileDropzone({
           event.dataTransfer.dropEffect = isDisabled ? 'none' : 'copy';
         }}
         onDrop={handleDrop}
+        onClick={(event) => {
+          // 영상을 고른 뒤에는 파일명·정보를 눌러도 파일 창이 열리지 않고 `파일 선택`으로만 연다.
+          // label 이 input 에 보내는 활성화 click 도 여기로 버블링되므로 input 대상은 막지 않는다.
+          const target = event.target as Element;
+          if (
+            isVideo &&
+            selectedFile &&
+            target.tagName !== 'INPUT' &&
+            !target.closest('[data-choose]')
+          ) {
+            event.preventDefault();
+          }
+        }}
       >
         <input
           accept={accept}
@@ -129,7 +142,11 @@ export function FileDropzone({
           )}
           {hint ? <span id={`${kind}-hint`}>{hint}</span> : null}
         </span>
-        {isVideo ? <span className={styles.chooseFile}>파일 선택</span> : null}
+        {isVideo ? (
+          <span className={styles.chooseFile} data-choose>
+            파일 선택
+          </span>
+        ) : null}
       </label>
       {selectedFile && onRemove ? (
         <button

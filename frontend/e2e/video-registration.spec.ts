@@ -120,6 +120,26 @@ test('영상을 고르고 다시 골라도 키보드 포커스가 파일 선택�
   await expect(input).toBeFocused();
 });
 
+test('영상을 고른 뒤에는 파일 선택 버튼으로만 파일 창이 열린다', async ({ page }) => {
+  await openRegistration(page);
+  await page
+    .locator('#video-file')
+    .setInputFiles({ name: '뉴스.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(page.locator('#video-selection')).toContainText('뉴스.mp4');
+
+  let choosers = 0;
+  page.on('filechooser', () => choosers++);
+  // 파일명 위를 실제 좌표로 누른다. 투명한 파일 input 이 덮고 있으면 여기서 파일 창이 열린다.
+  const name = await page.locator('#video-selection strong').boundingBox();
+  await page.mouse.click(name!.x + 10, name!.y + name!.height / 2);
+  await page.waitForTimeout(500);
+  expect(choosers).toBe(0);
+
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('[data-kind="video"]').getByText('파일 선택', { exact: true }).click();
+  await chooser;
+});
+
 test('영상을 고르기 전에도 취소로 등록 화면을 떠날 수 있다', async ({ page }) => {
   await openRegistration(page);
   await page.getByRole('button', { name: '취소', exact: true }).click();

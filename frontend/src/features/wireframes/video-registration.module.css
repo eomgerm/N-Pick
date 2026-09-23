@@ -378,9 +378,20 @@
   flex-direction: row;
   gap: 12px;
   padding: 12px 56px 12px 14px;
-  border-top: 0;
+  border: 0;
+  cursor: default;
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   text-align: left;
+}
+/* 파일 input 이 줄 전체를 덮지 않게 해 `파일 선택`으로만 연다. 키보드 포커스 표시는 유지한다. */
+.videoCard[data-has-file='true'] .fileInput {
+  pointer-events: none;
+}
+.videoCard[data-has-file='true'] .dropzone:focus-within:not(:has(:focus-visible)) {
+  outline: none;
+}
+.videoCard[data-has-file='true'] .chooseFile {
+  cursor: pointer;
 }
 .videoCard[data-has-file='true'] .dropzone[data-kind='video'] .uploadIcon {
   width: 36px;
@@ -541,26 +552,23 @@
 }
 .confirmBox {
   display: grid;
-  gap: 10px;
-  padding: 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  gap: 8px;
 }
 .confirmations label {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: var(--surface);
+  gap: 10px;
   color: var(--text);
   font-size: 12px;
   line-height: 1.7;
+  cursor: pointer;
 }
-.confirmations label[data-invalid='true'] {
-  border-color: var(--danger);
+.confirmations label[data-invalid='true'] > span {
+  color: var(--danger);
+}
+/* 오류 문구는 체크박스(17px) + 간격(10px) 뒤 설명 글과 같은 선에서 시작한다. */
+.confirmBox .error {
+  margin: -4px 0 4px 27px;
 }
 .confirmations input {
   width: 17px;
