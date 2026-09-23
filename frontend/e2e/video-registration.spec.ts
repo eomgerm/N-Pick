@@ -32,6 +32,10 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
     '파일 내용이 MP4 또는 MOV 영상 형식이 아닙니다',
   );
   await expect(videoZone).not.toContainText('선택됨');
+  // 오류 문구는 드롭존 옆이 아니라 아래에 놓인다.
+  const zoneBox = await videoZone.boundingBox();
+  const errorBox = await page.locator('#video-error').boundingBox();
+  expect(errorBox!.y).toBeGreaterThanOrEqual(zoneBox!.y + zoneBox!.height);
   await page.evaluate(() => window.scrollTo(0, 0));
   await videoZone.screenshot({ path: 'test-results/video-registration-error.png' });
   // 영상을 고르기 전에는 나머지 입력과 등록 버튼을 조작할 수 없다.
@@ -211,6 +215,26 @@ test('자막이나 대본 하나만 골라도 두 추가 자료 칸 높이가 �
     .setInputFiles({ name: '대본.txt', mimeType: 'text/plain', buffer: Buffer.from('대본') });
   await expect(page.locator('#script-selection')).toContainText('대본.txt');
   expect(await height('script')).toBeCloseTo(await height('subtitle'), 0);
+});
+
+test('오른쪽에 오류가 생겨도 왼쪽 영상 영역은 움직이지 않는다', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await openRegistrationWithVideo(page);
+  const bottom = (selector: string) =>
+    page.locator(selector).evaluate((e) => Math.round(e.getBoundingClientRect().bottom));
+  const video = '[aria-labelledby="video-label"]';
+  const details = '[aria-labelledby="supplement-label"]';
+
+  // 오류가 없을 때는 두 열의 아래 끝이 맞는다.
+  const before = await bottom(video);
+  expect(Math.abs(before - (await bottom(details)))).toBeLessThanOrEqual(1);
+
+  await page
+    .locator('#subtitle-file')
+    .setInputFiles({ name: '가짜.srt', mimeType: 'text/plain', buffer: Buffer.from('자막 아님') });
+  await expect(page.locator('#subtitle-error')).toBeVisible();
+  expect(await bottom(details)).toBeGreaterThan(before);
+  expect(await bottom(video)).toBe(before);
 });
 
 test('영상을 고른 등록 화면은 1080p 한 화면에 들어온다', async ({ page }) => {

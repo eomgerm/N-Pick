@@ -250,9 +250,10 @@
 .videoLayout {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: start;
   gap: 28px;
 }
-/* 왼쪽 영상 영역은 오른쪽 열 높이에 맞춰 늘어난다. */
+/* 두 열은 서로 늘려주지 않는다. 오른쪽에 오류 문구가 생겨도 왼쪽 영상 영역은 그대로 있다. */
 .videoLayout > .section {
   display: flex;
   flex-direction: column;
@@ -275,16 +276,19 @@
 .videoLayout .textField {
   grid-column: 1 / -1;
 }
+/* 오른쪽 열(오류 없을 때 465px)과 아래 끝이 맞는 높이. 오른쪽 구성이 바뀌면 e2e
+   '오른쪽에 오류가 생겨도 왼쪽 영상 영역은 움직이지 않는다' 가 어긋남을 잡는다. */
 .videoCard {
   position: relative;
   display: flex;
-  flex: 1;
   flex-direction: column;
+  height: 391px;
   min-width: 0;
 }
 .videoCard[data-has-file='false'] > .dropzoneGroup {
   display: flex;
   flex: 1;
+  flex-direction: column;
 }
 .videoCard[data-has-file='false'] .dropzone {
   flex: 1;
@@ -633,6 +637,12 @@
     top: auto;
     bottom: 32px;
     transform: translateY(50%);
+  }
+  .videoCard {
+    height: auto;
+  }
+  .videoCard[data-has-file='false'] .dropzone {
+    min-height: 220px;
   }
   .videoPreview {
     flex: none;
