@@ -28,6 +28,16 @@ public class SearchHistorySoftDeleteAdapter implements SearchHistorySoftDeletePo
             WHERE se.search_execution_id = :searchExecutionId AND
             """ + SearchHistoryRows.OWNER_SCOPE_ANY_STATE;
 
+    /**
+     * 전체 삭제(S15P21A501-291)는 이미 숨긴 행을 조건으로 걸러 낸다({@code deleted_at IS NULL}). 그래서 건별과 달리 COALESCE·CASE 가 필요 없다 —
+     * 대상은 항상 아직 보이는 행이라 {@code now()} 를 그대로 써도 이미 숨긴 기록의 시각을 밀지 않는다.
+     */
+    private static final String CLEAR_SQL = """
+            UPDATE search_execution se
+            SET deleted_at = now(), updated_at = now()
+            WHERE se.deleted_at IS NULL AND
+            """ + SearchHistoryRows.OWNER_SCOPE_ANY_STATE;
+
     private final EntityManager entityManager;
 
     SearchHistorySoftDeleteAdapter(EntityManager entityManager) {
@@ -42,5 +52,13 @@ public class SearchHistorySoftDeleteAdapter implements SearchHistorySoftDeletePo
                         .setParameter("ownerId", ownerId)
                         .executeUpdate()
                 > 0;
+    }
+
+    @Override
+    public int hideAllOwned(long ownerId) {
+        return entityManager
+                .createNativeQuery(CLEAR_SQL)
+                .setParameter("ownerId", ownerId)
+                .executeUpdate();
     }
 }
