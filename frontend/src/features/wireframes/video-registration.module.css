@@ -2,22 +2,6 @@
   width: 100%;
   margin: 0;
 }
-.heading .backButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  border: 0;
-  padding: 8px 0;
-  background: transparent;
-  color: #d4e4dd;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.backButton svg {
-  width: 15px;
-  height: 15px;
-}
 .heading {
   display: flex;
   align-items: center;

@@ -1,7 +1,6 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -67,11 +66,6 @@ interface VideoRegistrationProps {
   onRegister: (video: RegisteredVideo) => void;
 }
 
-interface VideoRegistrationHeadingProps {
-  isDisabled: boolean;
-  onBack: () => void;
-}
-
 const subscribeToNothing = () => () => {};
 const getNoToday = () => '';
 
@@ -87,7 +81,7 @@ const focusSelectors: Record<RegistrationField, string> = {
   externalProcessingConfirmed: '#external-processing-confirmed',
 };
 
-export function VideoRegistrationHeading({ isDisabled, onBack }: VideoRegistrationHeadingProps) {
+export function VideoRegistrationHeading() {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -100,9 +94,6 @@ export function VideoRegistrationHeading({ isDisabled, onBack }: VideoRegistrati
       <h1 ref={headingRef} tabIndex={-1}>
         영상 등록
       </h1>
-      <button className={styles.backButton} disabled={isDisabled} onClick={onBack} type="button">
-        <ArrowLeft aria-hidden="true" /> 문의 목록으로
-      </button>
     </div>
   );
 }
