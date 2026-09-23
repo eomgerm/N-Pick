@@ -86,16 +86,18 @@
 }
 
 .chipRemove {
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 16px;
   height: 16px;
+  padding: 0;
   border: none;
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent-strong) 12%, transparent);
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1;
+  font-size: 14px;
+  line-height: 0;
   cursor: pointer;
 }
 
