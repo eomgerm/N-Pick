@@ -2,10 +2,19 @@ import { ApiClientError, fetchJson } from '@/lib/api/client';
 
 export type DroppedReason = 'approved_scene_exclusion' | 'false_hit_guard' | 'score_drop';
 
+export interface VerificationScene {
+  sceneId: string;
+  clipId: string;
+  displayName: string | null;
+  sceneDescription: string | null;
+  startTimeMs: number;
+  endTimeMs: number;
+}
+
 export interface VerificationResult {
   executionId: string;
-  enteredScenes: Array<{ sceneId: string; reason: unknown }>;
-  droppedScenes: Array<{ sceneId: string; reason: DroppedReason }>;
+  enteredScenes: Array<VerificationScene & { matchedKeywords: string[] }>;
+  droppedScenes: Array<VerificationScene & { reason: DroppedReason }>;
   verificationRuleSet: string[];
 }
 
@@ -36,6 +45,40 @@ function list(value: unknown): unknown[] {
   return value;
 }
 
+function nullableText(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !value.trim()) fail();
+  return value;
+}
+
+function integer(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) fail();
+  return value;
+}
+
+function scene(value: Record<string, unknown>): VerificationScene {
+  const startTimeMs = integer(value.start_time_ms);
+  const endTimeMs = integer(value.end_time_ms);
+  if (endTimeMs <= startTimeMs) fail();
+  return {
+    sceneId: identifier(value.scene_id),
+    clipId: identifier(value.clip_id),
+    displayName: nullableText(value.display_name),
+    sceneDescription: nullableText(value.scene_description),
+    startTimeMs,
+    endTimeMs,
+  };
+}
+
+function enteredKeywords(value: unknown): string[] {
+  const reason = record(value);
+  const match = record(reason.match);
+  return list(match.matched_keywords).map((keyword) => {
+    if (typeof keyword !== 'string' || !keyword.trim()) fail();
+    return keyword;
+  });
+}
+
 function droppedReason(value: unknown): DroppedReason {
   if (value !== 'approved_scene_exclusion' && value !== 'false_hit_guard' && value !== 'score_drop')
     fail();
@@ -47,12 +90,12 @@ export function parseVerificationResult(value: unknown): VerificationResult {
   return {
     executionId: identifier(data.execution_id),
     enteredScenes: list(data.entered_scenes).map((item) => {
-      const scene = record(item);
-      return { sceneId: identifier(scene.scene_id), reason: scene.reason };
+      const entered = record(item);
+      return { ...scene(entered), matchedKeywords: enteredKeywords(entered.reason) };
     }),
     droppedScenes: list(data.dropped_scenes).map((item) => {
-      const scene = record(item);
-      return { sceneId: identifier(scene.scene_id), reason: droppedReason(scene.reason) };
+      const dropped = record(item);
+      return { ...scene(dropped), reason: droppedReason(dropped.reason) };
     }),
     verificationRuleSet: list(data.verification_rule_set).map(identifier),
   };

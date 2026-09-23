@@ -24,13 +24,28 @@ const contractResponse = {
   entered_scenes: [
     {
       scene_id: '9302',
+      clip_id: '9202',
+      display_name: '제주 뉴스',
+      scene_description: '제주 해안 풍경',
+      start_time_ms: 42000,
+      end_time_ms: 49000,
       reason: {
         match: { matched_keywords: ['제주도'], match_evidence: [] },
         score: { base_score: 1.2 },
       },
     },
   ],
-  dropped_scenes: [{ scene_id: '9301', reason: 'approved_scene_exclusion' }],
+  dropped_scenes: [
+    {
+      scene_id: '9301',
+      clip_id: '9201',
+      display_name: '서울 뉴스',
+      scene_description: '서울역 대합실',
+      start_time_ms: 12000,
+      end_time_ms: 19000,
+      reason: 'approved_scene_exclusion',
+    },
+  ],
   verification_rule_set: ['8001', '8002'],
 };
 
@@ -41,13 +56,25 @@ test('snake_case 응답을 camelCase 로 바꾸고 ID 는 문자열로 보존한
     enteredScenes: [
       {
         sceneId: '9302',
-        reason: {
-          match: { matched_keywords: ['제주도'], match_evidence: [] },
-          score: { base_score: 1.2 },
-        },
+        clipId: '9202',
+        displayName: '제주 뉴스',
+        sceneDescription: '제주 해안 풍경',
+        startTimeMs: 42000,
+        endTimeMs: 49000,
+        matchedKeywords: ['제주도'],
       },
     ],
-    droppedScenes: [{ sceneId: '9301', reason: 'approved_scene_exclusion' }],
+    droppedScenes: [
+      {
+        sceneId: '9301',
+        clipId: '9201',
+        displayName: '서울 뉴스',
+        sceneDescription: '서울역 대합실',
+        startTimeMs: 12000,
+        endTimeMs: 19000,
+        reason: 'approved_scene_exclusion',
+      },
+    ],
     verificationRuleSet: ['8001', '8002'],
   });
   assert.equal(typeof result.executionId, 'string');
@@ -69,7 +96,10 @@ test('들어온 장면도 빠진 장면도 없는 응답은 정상이다', () =>
 
 test('계약에 없는 제외 사유와 숫자 ID 는 안전하지 않은 응답으로 거절한다', () => {
   for (const invalid of [
-    { ...contractResponse, dropped_scenes: [{ scene_id: '9301', reason: 'unknown_reason' }] },
+    {
+      ...contractResponse,
+      dropped_scenes: [{ ...contractResponse.dropped_scenes[0], reason: 'unknown_reason' }],
+    },
     { ...contractResponse, execution_id: 9702 },
     { ...contractResponse, verification_rule_set: [8001] },
     { ...contractResponse, entered_scenes: {} },
@@ -82,9 +112,9 @@ test('세 가지 제외 사유를 모두 읽는다', () => {
   const result = parseVerificationResult({
     ...contractResponse,
     dropped_scenes: [
-      { scene_id: '1', reason: 'approved_scene_exclusion' },
-      { scene_id: '2', reason: 'false_hit_guard' },
-      { scene_id: '3', reason: 'score_drop' },
+      { ...contractResponse.dropped_scenes[0], scene_id: '1', reason: 'approved_scene_exclusion' },
+      { ...contractResponse.dropped_scenes[0], scene_id: '2', reason: 'false_hit_guard' },
+      { ...contractResponse.dropped_scenes[0], scene_id: '3', reason: 'score_drop' },
     ],
   });
   assert.deepEqual(

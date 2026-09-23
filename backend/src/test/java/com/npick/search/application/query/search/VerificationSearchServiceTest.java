@@ -177,7 +177,7 @@ class VerificationSearchServiceTest {
         when(candidatesPort.load(FEEDBACK_ID)).thenReturn(candidates);
         when(inputPort.load(FEEDBACK_ID))
                 .thenReturn(new VerificationInput("설 연휴 서울역", ExecuteSearchQuery.DateFilters.none()));
-        when(inputPort.loadOriginalResultSceneIds(FEEDBACK_ID)).thenReturn(List.of());
+        when(inputPort.loadOriginalResultScenes(FEEDBACK_ID)).thenReturn(List.of());
         when(record.start(any())).thenReturn(900L);
 
         QueryResolutionResult resolved = resolvedResult();

@@ -629,17 +629,17 @@ body는 생략하거나 다음처럼 보낸다.
 {
   "execution_id": "9702",
   "entered_scenes": [
-    { "scene_id": "9302", "reason": { "match": { "matched_keywords": ["제주도"], "match_evidence": [] }, "score": { "base_score": 1.2 } } }
+    { "scene_id": "9302", "clip_id": "9202", "display_name": "제주 뉴스", "scene_description": "제주 해안 풍경", "start_time_ms": 42000, "end_time_ms": 49000, "reason": { "match": { "matched_keywords": ["제주도"], "match_evidence": [] }, "score": { "base_score": 1.2 } } }
   ],
   "dropped_scenes": [
-    { "scene_id": "9301", "reason": "approved_scene_exclusion" }
+    { "scene_id": "9301", "clip_id": "9201", "display_name": "서울 뉴스", "scene_description": "서울역 대합실", "start_time_ms": 12000, "end_time_ms": 19000, "reason": "approved_scene_exclusion" }
   ],
   "verification_rule_set": ["8001", "8002"]
 }
 ```
 
 - `execution_id`는 이 검증 재검색이 남긴 replay 실행 ID다(정밀도 보존을 위해 문자열). 확정(`/confirm`, S15P21A501-84)이 이 값을 근거로 받는다.
-- `entered_scenes`는 원 결과에 없다가 검증 결과에 새로 들어온 장면과 그 이유(`match`·`score` 근거, `SearchExplain`과 같은 모양)다. `dropped_scenes`는 원 결과에 있다가 검증 결과에서 빠진 장면과 사유 문자열이다: `approved_scene_exclusion`(제외 규칙에 걸림) · `false_hit_guard`(F-06 판정에 걸림) · `score_drop`(그 외 순위·컷오프 이탈).
+- `entered_scenes`는 원 결과에 없다가 검증 결과에 새로 들어온 장면과 그 이유(`match`·`score` 근거, `SearchExplain`과 같은 모양)다. `dropped_scenes`는 원 결과에 있다가 검증 결과에서 빠진 장면과 사유 문자열이다: `approved_scene_exclusion`(제외 규칙에 걸림) · `false_hit_guard`(F-06 판정에 걸림) · `score_drop`(그 외 순위·컷오프 이탈). 두 목록의 `clip_id`·`start_time_ms`·`end_time_ms`는 변경된 장면 재생에 쓰고, nullable `display_name`·`scene_description`은 간결한 결과 카드에 쓴다.
 - `verification_rule_set`은 이번 검증이 실제로 적용한 patch_parse 규칙 ID 집합(활성 − R1 + R2)이다. 문자열 배열이다.
 - **검증 성공이 자동 승인이 아니다(F-12 5).** 이 응답을 받아도 태그·규칙은 확정되지 않는다 — 검수자가 결과를 확인하고 별도로 `/confirm`을 호출해야 한다. 변경안을 다시 수정하면 다시 검증해야 한다.
 
