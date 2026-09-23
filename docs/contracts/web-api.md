@@ -43,6 +43,9 @@
 | 태그 교정 후보             | POST   | `/review/inquiries/{feedbackId}/tag-correction-candidate` | 연결됨  | 후보 검증·확정 바인딩       |
 | 해석 교정 후보             | POST   | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 검수 교정 바인딩            |
 | 장면 제외 후보             | POST   | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 검수 교정 바인딩            |
+| 태그 교정 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/tag-correction-candidate` | BE 구현 | 후보 취소 바인딩            |
+| 해석 교정 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 후보 취소 바인딩            |
+| 장면 제외 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 후보 취소 바인딩            |
 | 후보 검증 재검색           | POST   | `/review/inquiries/{feedbackId}/verify`                   | BE 구현 | 검수 재검색·확정 바인딩     |
 | 교정 확정                  | POST   | `/review/inquiries/{feedbackId}/confirm`                  | BE 구현 | 검수 재검색·확정 바인딩     |
 | 검색 규칙 사용 중단         | PATCH  | `/review/search-rules/{ruleId}`             | BE 구현   | 검수 규칙 관리 바인딩               |
@@ -534,18 +537,18 @@ body는 생략하거나 다음처럼 보낸다.
 
 ```json
 {
-  "resolution": "exclude_scene",
-  "note": "이 검색 조건에서 장면을 제외해야 합니다."
+  "resolution": "correction",
+  "note": "이 검색 조건에서 태그·해석·장면 제외를 교정해야 합니다."
 }
 ```
 
-| `resolution`     | 결과                                    |
-| ---------------- | --------------------------------------- |
-| `tag_correction` | 교정 후보 단계로 이동, `REVIEWING` 유지 |
-| `patch_parse`    | 교정 후보 단계로 이동, `REVIEWING` 유지 |
-| `exclude_scene`  | 교정 후보 단계로 이동, `REVIEWING` 유지 |
-| `no_action`      | `note` 필수, `CLOSED` 종료              |
-| `deferred`       | `note` 필수, `CLOSED` 종료              |
+| `resolution` | 결과                                    |
+| ------------ | --------------------------------------- |
+| `correction` | 교정 후보 단계로 이동, `REVIEWING` 유지 |
+| `no_action`  | `note` 필수, `CLOSED` 종료              |
+| `deferred`   | `note` 필수, `CLOSED` 종료              |
+
+교정은 태그 교정·해석(질의) 교정·장면 제외를 하나 또는 여럿 섞어 한 번의 확정으로 처리하므로 정본 처리 결과는 `correction` 하나다(F-09 혼합 교정, S15P21A501-281). 레거시 세부 종류(`tag_correction`/`patch_parse`/`exclude_scene`)도 하위호환으로 받되 `correction`이 정본이다.
 
 `note`는 최대 2000자다. 성공 body에는 `data`가 없다.
 
@@ -585,7 +588,7 @@ body는 생략하거나 다음처럼 보낸다.
 
 `POST /review/inquiries/{feedbackId}/tag-correction-candidate` (S15P21A501-160)
 
-검수 중(`REVIEWING`)이고 처리 결과가 `tag_correction` 또는 `patch_parse`(태그·해석 모두 잘못, F-09)인 신고에서, 담당 검수자가 태그 변경안 목록을 후보로 저장한다. 저장 근거는 `confirmed=false`로 대기하며 확정(-84) 전까지 검색·해석에 반영되지 않는다.
+검수 중(`REVIEWING`)이고 처리 결과가 교정(`correction`, 또는 레거시 교정 종류)인 신고에서, 담당 검수자가 태그 변경안 목록을 후보로 저장한다. 생성은 더 이상 특정 세부 종류가 일치할 것을 요구하지 않는다 — 하나의 교정 처리 결과 아래에서 태그·해석·장면 제외 후보를 섞어 함께 만들 수 있다(F-09/281). 저장 근거는 `confirmed=false`로 대기하며 확정(-84) 전까지 검색·해석에 반영되지 않는다.
 
 ```json
 {
@@ -613,9 +616,13 @@ body는 생략하거나 다음처럼 보낸다.
 | `TAG_409_002`      | 409  | 태그·해석 교정으로 처리된 신고 아님 |
 | `TAG_409_003`      | 409  | 신고당 누적 변경안 50개 초과      |
 
+`DELETE /review/inquiries/{feedbackId}/tag-correction-candidate` (S15P21A501-309)
+
+담당 검수자가 확정 전 대기 중인 태그 교정 후보를 취소한다. 가드는 검수자 role·`REVIEWING`·담당 검수자다. 이미 확정된(`confirmed=true`) 근거는 건드리지 않는다. 성공은 body 없는 `200`이다.
+
 `POST /review/inquiries/{feedbackId}/scene-exclude-candidate` (S15P21A501-82)
 
-검수 중(`REVIEWING`)이고 처리 결과가 `exclude_scene`인 신고에서, 담당 검수자가 신고 장면의 제외 후보를 저장한다. 후보는 `search_rule`에 `active=false`로 대기하며 검증(-83)·확정(-85) 전까지 검색에 반영되지 않는다.
+검수 중(`REVIEWING`)이고 처리 결과가 교정(`correction`, 또는 레거시 교정 종류)인 신고에서, 담당 검수자가 신고 장면의 제외 후보를 저장한다. 생성은 더 이상 특정 세부 종류가 일치할 것을 요구하지 않는다 — 하나의 교정 처리 결과 아래에서 태그·해석·장면 제외 후보를 섞어 함께 만들 수 있다(F-09/281). 후보는 `search_rule`에 `active=false`로 대기하며 검증(-83)·확정(-85) 전까지 검색에 반영되지 않는다.
 
 - Header: `Idempotency-Key` 필수, 공백 불가.
 - Body: `{ "targetSceneId": "9301" }` — 정수 또는 양의 정수 문자열. 신고 컨텍스트의 장면과 같아야 한다.
@@ -632,15 +639,19 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_409_211`  | 409  | 검수 중이 아님                          |
 | `SRCH_409_212`  | 409  | 장면 제외로 처리된 신고 아님            |
 
+`DELETE /review/inquiries/{feedbackId}/scene-exclude-candidate` (S15P21A501-281)
+
+담당 검수자가 확정 전 대기 중인 장면 제외 후보를 취소한다. 가드는 검수자 role·`REVIEWING`·담당 검수자다. 성공은 body 없는 `200`이다.
+
 `POST /review/inquiries/{feedbackId}/parse-patch-candidate` (S15P21A501-81)
 
-검수 중(`REVIEWING`)이고 처리 결과가 `patch_parse`(해석 교정, F-09)인 신고에서, 담당 검수자가 AI 원본 해석에 대한 조건·패치 규칙을 후보로 저장한다(F-11). 후보는 `search_rule`에 `active=false`로 대기하며 검증·확정(F-12~F-13) 전까지 검색·해석에 반영되지 않는다.
+검수 중(`REVIEWING`)이고 처리 결과가 교정(`correction`, 또는 레거시 교정 종류)인 신고에서, 담당 검수자가 AI 원본 해석에 대한 조건·패치 규칙을 후보로 저장한다(F-11). 생성은 더 이상 특정 세부 종류가 일치할 것을 요구하지 않는다 — 하나의 교정 처리 결과 아래에서 태그·해석·장면 제외 후보를 섞어 함께 만들 수 있다(F-09/281). 후보는 `search_rule`에 `active=false`로 대기하며 검증·확정(F-12~F-13) 전까지 검색·해석에 반영되지 않는다.
 
 - Header: `Idempotency-Key` 필수, 공백 불가, 최대 64자.
 - Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
 - 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
 - 한 신고에서 대기 중인 후보는 10개까지다. 확정되어 활성이 된 규칙은 세지 않는다. 상한에 닿은 뒤에도 같은 키의 멱등 재요청은 기존 후보를 돌려준다.
-- 대기 후보를 버리는 API 는 없다. 상한에 닿으면 남은 후보로 검증·확정하거나 판정을 다시 내려야 한다.
+- 대기 중인 해석 후보는 아래 `DELETE /review/inquiries/{feedbackId}/parse-patch-candidate`로 취소한다. 상한에 닿으면 대기 후보를 취소하거나 남은 후보로 검증·확정하거나 판정을 다시 내려야 한다.
 - 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`. `searchRuleId`·`feedbackId`는 정밀도 보존을 위해 문자열(TSID)이다 — §8의 신규 응답 string 규칙을 따른다(S15P21A501-202).
 
 | 오류            | HTTP | 의미                              |
@@ -654,6 +665,10 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_409_202`  | 409  | 해석 교정으로 처리된 신고 아님    |
 | `SRCH_409_203`  | 409  | 원 검색에 교정할 해석 출력이 없음 |
 | `SRCH_409_204`  | 409  | 신고당 후보 10개 초과             |
+
+`DELETE /review/inquiries/{feedbackId}/parse-patch-candidate` (S15P21A501-309)
+
+담당 검수자가 대기 중인 해석(`patch_parse`) 후보만 취소한다 — 같은 신고의 장면 제외 후보는 남긴다. 가드는 검수자 role·`REVIEWING`·담당 검수자로 같다. 이미 확정된 규칙은 건드리지 않는다. 성공은 body 없는 `200`이다.
 
 `POST /review/inquiries/{feedbackId}/verify` (S15P21A501-83)
 
@@ -677,7 +692,7 @@ body는 생략하거나 다음처럼 보낸다.
 ```
 
 - `execution_id`는 이 검증 재검색이 남긴 replay 실행 ID다(정밀도 보존을 위해 문자열). 확정(`/confirm`, S15P21A501-84)이 이 값을 근거로 받는다.
-- `entered_scenes`는 원 결과에 없다가 검증 결과에 새로 들어온 장면과 그 이유(`match`·`score` 근거, `SearchExplain`과 같은 모양)다. `dropped_scenes`는 원 결과에 있다가 검증 결과에서 빠진 장면과 사유 문자열이다: `approved_scene_exclusion`(제외 규칙에 걸림) · `false_hit_guard`(F-06 판정에 걸림) · `score_drop`(그 외 순위·컷오프 이탈). 두 목록의 `clip_id`·`start_time_ms`·`end_time_ms`는 변경된 장면 재생에 쓰고, nullable `display_name`·`scene_description`은 간결한 결과 카드에 쓴다.
+- `entered_scenes`는 대조군(후보 미적용)에는 없다가 실험군(후보 적용) 결과에 새로 들어온 장면과 그 이유(`match`·`score` 근거, `SearchExplain`과 같은 모양)다. `dropped_scenes`는 대조군에는 있다가 실험군 결과에서 빠진 장면과 사유 문자열이다: `approved_scene_exclusion`(제외 규칙에 걸림) · `false_hit_guard`(F-06 판정에 걸림) · `score_drop`(그 외 순위·컷오프 이탈). 이 diff는 같은 롤백 트랜잭션 안에서 후보를 뺀 검색(대조군)과 넣은 검색(실험군)을 나란히 돌려 비교한 것이라 후보의 순효과만 반영하며, 원래 저장된 결과 행과 비교하지 않는다 — 저장 결과와 비교하면 재처리·코퍼스 변화 같은 후보와 무관한 drift가 섞인다. 두 목록의 `clip_id`·`start_time_ms`·`end_time_ms`는 변경된 장면 재생에 쓰고, nullable `display_name`·`scene_description`은 간결한 결과 카드에 쓴다.
 - `verification_rule_set`은 이번 검증이 실제로 적용한 patch_parse 규칙 ID 집합(활성 − R1 + R2)이다. 문자열 배열이다.
 - **검증 성공이 자동 승인이 아니다(F-12 5).** 이 응답을 받아도 태그·규칙은 확정되지 않는다 — 검수자가 결과를 확인하고 별도로 `/confirm`을 호출해야 한다. 변경안을 다시 수정하면 다시 검증해야 한다.
 
@@ -703,8 +718,8 @@ body는 생략하거나 다음처럼 보낸다.
 ```
 
 - `executionId`는 이 신고의 성공한 재검색(replay) 실행이어야 한다 — 다른 신고·일반 검색 실행은 근거로 쓸 수 없다.
-- `tag_correction`은 태그 근거만, `patch_parse`(태그·해석 모두 잘못)는 규칙과 태그를 함께 확정한다(F-09). `exclude_scene`은 제외 규칙을 활성화한다.
-- **`exclude_scene`은 확정 직전에 대상 장면 유효성을 재확인한다(F-14).** 재처리로 대상 장면이 사라졌으면 `CONFIRM_409_004`로 승격을 중단하고 신고는 `reviewing`을 유지한다 — 구 장면 제외를 새 장면에 자동 적용하지 않는다.
+- 확정은 검증 실행에 실린 두 축을 함께 적용한다 — `correction` 실행이 태그 근거와 규칙 후보를 모두 담고 있으면 태그 근거 확정과 규칙 활성화·교체를 함께 처리하고, 신고의 처리 결과는 `correction`으로 기록한다(F-09). 장면 제외 후보가 함께 실려 있으면 제외 규칙도 활성화한다.
+- **장면 제외 후보는 확정 직전에 대상 장면 유효성을 재확인한다(F-14).** 재처리로 대상 장면이 사라졌으면 `CONFIRM_409_004`로 승격을 중단하고 신고는 `reviewing`을 유지한다 — 구 장면 제외를 새 장면에 자동 적용하지 않는다.
 - 검증 이후 관련 상태가 바뀌면(drift) `CONFIRM_409_003`으로 거부하고 재검증을 요구한다. 같은 검증 실행으로 이미 확정된 신고의 재요청은 성공으로 간주한다(멱등).
 - 성공은 body 없는 `200`(색인 갱신이 필요한 구성의 반영 상태 구분은 색인 도입 시 더한다).
 
@@ -793,7 +808,7 @@ FE의 기존 `문의 사항` 패널은 이 목록·상세 API에 연결되어 �
 }
 ```
 
-- `comment`·`resolution`은 nullable이며 key를 생략하지 않고 null로 명시한다. `status`는 `OPEN`/`REVIEWING`/`CLOSED`, `resolution`은 처리 전이면 null, 처리됐으면 §6.4 표의 다섯 값(`tag_correction`/`patch_parse`/`exclude_scene`/`no_action`/`deferred`) 중 하나다.
+- `comment`·`resolution`은 nullable이며 key를 생략하지 않고 null로 명시한다. `status`는 `OPEN`/`REVIEWING`/`CLOSED`, `resolution`은 처리 전이면 null, 처리됐으면 §6.4 표의 정본 값(`correction`/`no_action`/`deferred`) 중 하나이며 레거시 세부 종류(`tag_correction`/`patch_parse`/`exclude_scene`)도 하위호환으로 나올 수 있다.
 
 | 오류           | HTTP | 의미                               |
 | -------------- | ---- | ---------------------------------- |
