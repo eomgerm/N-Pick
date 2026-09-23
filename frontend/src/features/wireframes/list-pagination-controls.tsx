@@ -141,6 +141,7 @@ interface PageSizeSelectProps {
 }
 
 // 문구는 KRDS 목록 패턴의 「목록 표시 개수」를 따른다. 옵션 문구가 스스로 설명되므로 라벨은 화면에 숨긴다.
+// 잠금은 PageNumbers 와 같은 이유로 aria-disabled 다. 값이 제어되므로 막힌 선택은 그대로 되돌아간다.
 export function PageSizeSelect({
   pageSize,
   isDisabled = false,
@@ -153,10 +154,12 @@ export function PageSizeSelect({
         목록 표시 개수
       </label>
       <select
+        aria-disabled={isDisabled || undefined}
         className={styles.sizeSelect}
-        disabled={isDisabled}
         id={id}
-        onChange={(event) => onPageSizeChange(Number(event.target.value))}
+        onChange={(event) => {
+          if (!isDisabled) onPageSizeChange(Number(event.target.value));
+        }}
         value={pageSize}
       >
         {PAGE_SIZE_OPTIONS.map((size) => (

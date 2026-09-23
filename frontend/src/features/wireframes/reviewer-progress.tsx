@@ -127,14 +127,25 @@ export function ReviewerProgress({
   useEffect(() => {
     const updates: Record<string, string | null> = {};
     if (rawPageSize !== null && rawPageSize !== String(pageSize)) updates.progressSize = null;
-    if (totalPages !== undefined && !videos.isError) {
+    // 앞 쪽을 대신 보여 주는 동안의 총 쪽수는 옛 값이다. 그 값으로 새 쪽을 잘라 내지 않는다.
+    if (totalPages !== undefined && !videos.isError && !videos.isPlaceholderData) {
       const normalizedPage = normalizeInquiryPage(page, totalPages);
       if (normalizedPage !== page)
         updates.progressPage = normalizedPage === 1 ? null : String(normalizedPage);
     }
     if (Object.keys(updates).length === 0) return;
     router.replace(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
-  }, [videos.isError, page, pageSize, pathname, rawPageSize, router, searchParams, totalPages]);
+  }, [
+    videos.isError,
+    videos.isPlaceholderData,
+    page,
+    pageSize,
+    pathname,
+    rawPageSize,
+    router,
+    searchParams,
+    totalPages,
+  ]);
 
   function handleFilterKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
     if (isNavigating) return;
@@ -249,7 +260,7 @@ export function ReviewerProgress({
             {filter !== 'all' && <p>다른 상태를 선택하면 등록된 영상을 확인할 수 있어요.</p>}
           </div>
         ) : (
-          <ul className={styles.list}>
+          <ul aria-busy={videos.isPlaceholderData || undefined} className={styles.list}>
             {videos.data?.items.map((video) => (
               <li key={video.clip_id} className={styles.videoRow}>
                 <span className={styles.videoIcon}>
@@ -311,7 +322,7 @@ export function ReviewerProgress({
         )}
 
         {!videos.isError && (
-          <nav aria-label="영상 목록 페이지" className={styles.pagination}>
+          <nav aria-label="영상 목록 페이지" className={dashboardStyles.pagination}>
             {/* 처리 중 영상이 있으면 5초마다 다시 읽는다. isFetching 으로 막으면 그때마다 포커스가 빠진다. */}
             <PageNumbers
               isDisabled={isNavigating || totalPages === undefined}

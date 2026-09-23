@@ -957,10 +957,71 @@ test('다음 쪽을 읽는 동안에도 번호와 포커스를 유지하고 번�
   // 응답이 1.5초 늦게 온다. 그동안 총 쪽수를 잃으면 번호가 1 하나로 줄고 누른 버튼이 사라진다.
   await expect(pager.getByRole('button', { name: '5페이지' })).toBeVisible();
   await expect(pager.getByRole('button', { name: '2페이지' })).toBeFocused();
+  // 앞 쪽 행을 보여 주는 동안은 새 쪽이 아님을 알린다.
+  await expect(page.getByRole('region', { name: '영상 목록' }).getByRole('list')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
   await expect.poll(() => requests.length).toBeGreaterThan(1);
   const pageInput = pager.getByRole('textbox', { name: '이동할 페이지 번호' });
   await pageInput.fill('4');
   await pageInput.press('Enter');
   await expect(page).toHaveURL(/progressPage=4$/);
   await expect(pageInput).toBeFocused();
+});
+
+test('목록 표시 개수를 바꿔도 셀렉트에 포커스가 남는다', async ({ page }) => {
+  await pollingClipList(page);
+  await page.goto('/review?view=processing');
+  const select = page.getByRole('combobox', { name: '목록 표시 개수' });
+  // 제목이 마운트될 때 포커스를 가져가므로 목록이 뜬 뒤에 둔다.
+  // selectOption 은 포커스를 옮기지 않는다. 키보드 사용자처럼 먼저 포커스를 둔다.
+  await expect(page.getByRole('heading', { name: '영상 처리 현황' })).toBeFocused();
+  await select.focus();
+  await select.selectOption('20');
+  await expect(page).toHaveURL(/progressSize=20/);
+  await expect(page.getByRole('region', { name: '영상 목록' }).getByRole('listitem')).toHaveCount(
+    20,
+  );
+  await expect(select).toBeFocused();
+});
+
+test('앞 쪽의 옛 총 쪽수로 새 쪽을 잘라 내지 않는다', async ({ page }) => {
+  // 캐시를 비우려면 쓰지 않는 쿼리의 gcTime(5분)을 넘겨야 한다.
+  await page.clock.install();
+  let count = 45;
+  await page.route('**/api/v1/clips?*', async (route) => {
+    const url = new URL(route.request().url());
+    const currentPage = Number(url.searchParams.get('page'));
+    const items = Array.from({ length: count }, (_, index) => clip(String(index + 21)));
+    await success(route, {
+      items: items.slice(currentPage * 10, (currentPage + 1) * 10),
+      page: currentPage,
+      size: 10,
+      total_elements: items.length,
+      total_pages: Math.ceil(items.length / 10),
+      has_next: (currentPage + 1) * 10 < items.length,
+      run_counts: { queued: 0, running: 0, failed: count, succeeded: 0, no_run: 0 },
+    });
+  });
+  await page.goto('/review?view=processing&progressPage=4');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  await expect(pager.getByRole('button', { name: '4페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  // 1쪽을 읽는 사이 영상이 줄어 3쪽이 된다. 4쪽 캐시는 시간이 지나 사라진다.
+  count = 25;
+  await pager.getByRole('button', { name: '1페이지' }).click();
+  await expect(pager.getByRole('button', { name: '3페이지' })).toBeVisible();
+  await expect(pager.getByRole('button', { name: '4페이지' })).toHaveCount(0);
+  await page.clock.fastForward('06:00');
+  // 다시 늘어난 뒤 뒤로 가 4쪽을 연다. 4쪽 응답 전의 1쪽 총계(3쪽)로 잘라 내면 안 된다.
+  count = 45;
+  await page.goBack();
+  await expect(pager.getByRole('button', { name: '4페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page).toHaveURL(/progressPage=4$/);
 });

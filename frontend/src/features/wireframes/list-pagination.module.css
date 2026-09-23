@@ -13,7 +13,8 @@
 }
 .pageNumbers button:disabled,
 .pageNumbers button[aria-disabled='true'],
-.jump [aria-disabled='true'] {
+.jump [aria-disabled='true'],
+.sizeSelect[aria-disabled='true'] {
   cursor: not-allowed;
   opacity: 0.45;
 }
@@ -56,7 +57,10 @@
   color: var(--text);
   font-size: 12px;
 }
+/* 옆의 번호 버튼(review-dashboard.module.css `.pagination button`)과 높이·모서리를 맞춘다. */
 .jumpInput {
+  min-height: 44px;
+  border-radius: 12px;
   width: 52px;
   padding: 0 8px;
   text-align: center;
