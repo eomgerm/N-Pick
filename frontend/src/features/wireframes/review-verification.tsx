@@ -135,21 +135,12 @@ export function CorrectionVerificationPanel({
             )}
           </section>
           <section>
-            <h3 className="text-sm font-bold">적용된 규칙 ({result.verificationRuleSet.length})</h3>
-            {result.verificationRuleSet.length === 0 ? (
-              <p className="mt-2 text-sm text-(--muted)">적용된 해석 규칙이 없습니다.</p>
-            ) : (
-              <ul className="mt-2 flex flex-wrap gap-2 text-sm">
-                {result.verificationRuleSet.map((ruleId) => (
-                  <li
-                    className="rounded-lg border border-(--line) bg-(--surface-muted) px-2.5 py-1"
-                    key={ruleId}
-                  >
-                    규칙 {ruleId}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <h3 className="text-sm font-bold">적용된 교정 ({result.verificationRuleSet.length})</h3>
+            <p className="mt-2 text-sm text-(--muted)">
+              {result.verificationRuleSet.length === 0
+                ? '이 검증에 반영된 교정이 없습니다.'
+                : `담은 교정 ${result.verificationRuleSet.length}건이 이 검증에 반영되었습니다.`}
+            </p>
           </section>
           <section className="border-t border-(--line) pt-4">
             <h3 className="text-sm font-bold">교정 확정</h3>
