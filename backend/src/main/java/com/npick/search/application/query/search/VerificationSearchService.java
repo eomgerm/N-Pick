@@ -142,7 +142,9 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             long startedAt) {
         SearchCandidates result = outcome.candidates();
         InterpretedQuery interpreted = outcome.interpreted();
-        List<String> queryTokens = result.expandedTokens(); // 검증 카드는 원 질의 토큰 확장을 그대로 쓴다
+        // 검증 카드는 지금까지 쓰던 토큰 목록을 그대로 쓴다 — 이 경로가 넘기는 값은 확장어뿐이므로 출처도 전부 expanded 다.
+        // 원 질의 토큰이 이 경로의 matched_keywords 에 들어가지 않는 것은 S15P21A501-234 이전부터의 동작이며, 이 티켓에서 바꾸지 않는다.
+        List<String> expandedTokens = result.expandedTokens();
 
         List<ParseRuleOutcome> appliedRules = interpreted.rules().outcomes();
         List<SearchDegradedReason> degradedReasons = new ArrayList<>(interpreted.degradedReasons());
@@ -197,7 +199,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                 SearchRecordPayload.candidates(result),
                 SearchRecordPayload.filtered(result),
                 SearchRecordPayload.appliedExcludes(result),
-                SearchRecordPayload.rankedScenes(result, queryTokens),
+                SearchRecordPayload.rankedScenes(result, List.of(), expandedTokens),
                 result.config(),
                 elapsedMs(startedAt),
                 context);

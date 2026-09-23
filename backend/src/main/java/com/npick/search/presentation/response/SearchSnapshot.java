@@ -12,6 +12,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import com.npick.common.response.StoredExplainKeywords;
 import com.npick.search.application.query.SearchHistoryItem;
 import com.npick.search.application.query.SearchHistoryRecord;
 import com.npick.search.application.query.SearchHistoryResultRow;
@@ -278,6 +279,7 @@ public record SearchSnapshot(
         }
         ObjectNode result = MAPPER.createObjectNode();
         result.setAll(displayObject);
+        StoredExplainKeywords.normalize(matchObject);
         result.setAll(matchObject);
         // 컬럼을 블록 뒤에 넣어 컬럼이 이기게 한다. setAll 은 merge 가 아니라 replace 이므로 순서를 뒤집으면
         // 저장 블록이 ID·순위를 덮어써 문자열 ID 규칙이 깨지거나 대표 결과가 사라진다.
@@ -345,14 +347,15 @@ public record SearchSnapshot(
      *
      * <p>{@code value} 는 null 을 허용한다 — 설명·대사·화면 글자·태그가 모두 없고 의미 검색 유사도만으로 올라온 장면이 있고, 그때 사람이 읽을 근거가 실제로 존재하지
      * 않는다(S15P21A501-59 와 합의, §5.1). {@code field}·{@code source} ·{@code verification_status} 는 항상 문자열이다.
-     * {@code matched_keywords} 는 문자열 배열이며 비어 있어도 된다.
+     * {@code matched_keywords} 는 배열이며 비어 있어도 된다. 항목의 허용 형태는 {@link StoredExplainKeywords#isRenderable} 가 정한다 —
+     * {@code {keyword, origin}} 객체이거나 출처가 없던 시절의 문자열이고, {@code origin} 키가 아예 없는 객체는 깨진 기록이다.
      */
     private static boolean isRenderableMatch(ObjectNode match) {
         if (!(match.get("matched_keywords") instanceof ArrayNode keywords)) {
             return false;
         }
         for (JsonNode keyword : keywords) {
-            if (!isText(keyword)) {
+            if (!StoredExplainKeywords.isRenderable(keyword)) {
                 return false;
             }
         }

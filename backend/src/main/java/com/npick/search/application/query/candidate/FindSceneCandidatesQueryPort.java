@@ -35,8 +35,8 @@ import java.util.List;
  *   <li><b>확장어가 없거나 토큰화가 실패해도 degraded 가 아니다.</b> 확장어 없이 이어간다 — 응답 계약의 {@code degraded_reasons} 어휘가
  *       {@code resolver_fallback}·{@code dense_unavailable}·{@code snapshot_save_failed} 로 닫혀 있다
  *   <li><b>dense 채널은 확장어의 영향을 받지 않는다.</b> 질의 임베딩은 원문 기준이다 ({@code embed_query(raw_query)})
- *   <li>확장어에서 유래한 매칭은 사용자가 명시한 조건과 <b>구분해 표시</b>해야 한다 (F-05·F-07). 표시 방식과 {@code matched_keywords} 계약 변경 여부는
- *       조립(S15P21A501-59) 이 정한다
+ *   <li>확장어에서 유래한 매칭은 사용자가 명시한 조건과 <b>구분해 표시</b>한다 (F-05·F-07). {@code matched_keywords} 는 항목마다 {@code origin}
+ *       ({@code user} · {@code expanded}) 을 싣는다 (S15P21A501-234). 응답과 {@code explain_json} 이 같은 구조다
  *   <li><b>확장어는 구 단위로 받는다</b> (S15P21A501-302). 다어절 확장어를 평탄화하면 OR 이 되어 구의 의미가 사라진다 — 「중국 음식」이 {@code 중국} OR {@code 음식}
  *       이 되어 짜장면 검색에 중국 경제 뉴스가 올라온다. 순위가 아니라 <b>후보 자격</b> 문제라 가중치로 고칠 수 없다 — 확장어 가중치를 낮추면 순위만 내려가고, 0 으로 두면 정상 동의어까지
  *       죽는다. 다어절 동의어를 토큰별 OR 로 푸는 것은 Lucene/ES·Solr·Vespa 가 모두 고장으로 규정한 것이며, 이 포트의 {@code must} 는 ES 의

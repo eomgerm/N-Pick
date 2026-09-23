@@ -58,6 +58,7 @@ public record SearchExecutionResult(
      * @param searchResultId 기록이 저장됐을 때만. {@code null} 이면 이 결과로 신고할 수 없다
      * @param rank 배열 위치와 같은 1부터 시작하는 연속 정수 (§5.1 불변식)
      * @param displayName {@code clip.title}. 없을 수 있고, 대체 표기는 화면이 정한다
+     * @param matchedKeywords 걸린 키워드와 그 출처. 사용자가 친 말과 AI 가 넓힌 말을 구분한다 (F-05·F-07)
      * @param matchEvidence 1개 이상이다 (§5.1 불변식)
      */
     public record ResultCard(
@@ -73,7 +74,7 @@ public record SearchExecutionResult(
             DateValue filmedDate,
             String shotType,
             String sceneType,
-            List<String> matchedKeywords,
+            List<MatchedKeyword> matchedKeywords,
             List<MatchEvidence> matchEvidence) {
 
         public ResultCard {
@@ -92,6 +93,21 @@ public record SearchExecutionResult(
         public static DateValue unknown() {
             return new DateValue(null, "unknown");
         }
+    }
+
+    /**
+     * 걸린 키워드 하나와 그 출처.
+     *
+     * <p>사용자가 직접 친 말과 AI 해석기가 넓힌 확장어를 화면이 구분해 보여줘야 한다 (F-05 「사용자가 직접 명시한 내용과 AI가 추정한 내용을 구분한다」, F-07). 값만 싣고 출처를 버리면
+     * 화면은 두 종류를 같은 칩으로 그릴 수밖에 없다.
+     *
+     * @param origin {@code user} 또는 {@code expanded}. 저장 기록을 복원할 때는 출처를 남기지 않던 시절의 항목에 한해 {@code null} 이다 — 모르는 것을 안다고
+     *     기록하지 않는다 (FRD §7.2)
+     */
+    public record MatchedKeyword(String keyword, String origin) {
+
+        public static final String ORIGIN_USER = "user";
+        public static final String ORIGIN_EXPANDED = "expanded";
     }
 
     /**

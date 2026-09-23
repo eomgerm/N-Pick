@@ -126,7 +126,16 @@ for (const width of [1440, 390]) {
       .context()
       .addCookies([{ name: 'JSESSIONID', value: 'e2e-editor', url: 'http://127.0.0.1:3116' }]);
     const descriptions = [shortSceneDescription, longSceneDescription, '귀성 차량 행렬'];
-    const keywordSets = [['장면'], ['서울역'], manyKeywords];
+    // 카드 높이 불변식을 지키려면 테두리가 붙는 확장어 칩이 실제로 섞여야 한다 — 전부 user 로 두면
+    // 테두리가 높이를 밀어 올리는 회귀를 이 테스트가 놓친다 (S15P21A501-234).
+    const keywordSets = [
+      [{ keyword: '장면', origin: 'user' }],
+      [{ keyword: '서울역', origin: 'expanded' }],
+      manyKeywords.map((keyword, index) => ({
+        keyword,
+        origin: index % 2 === 0 ? 'user' : 'expanded',
+      })),
+    ];
     await page.route('**/api/v1/search', (route) =>
       route.fulfill({
         status: 200,
@@ -170,10 +179,15 @@ for (const width of [1440, 390]) {
 
     await expect(
       page.getByRole('button', { name: `2위 ${longSceneDescription} Preview 열기` }),
-    ).toHaveAttribute('title', `${longSceneDescription}\n키워드: 서울역`);
+    ).toHaveAttribute('title', `${longSceneDescription}\n키워드: 서울역(확장)`);
     await expect(
       page.getByRole('button', { name: '3위 귀성 차량 행렬 Preview 열기' }),
-    ).toHaveAttribute('title', `귀성 차량 행렬\n키워드: ${manyKeywords.join(', ')}`);
+    ).toHaveAttribute(
+      'title',
+      `귀성 차량 행렬\n키워드: ${manyKeywords
+        .map((keyword, index) => (index % 2 === 0 ? keyword : `${keyword}(확장)`))
+        .join(', ')}`,
+    );
 
     const crowdedCard = cards.nth(2);
     const badge = crowdedCard.getByText('자동 인식', { exact: true });
