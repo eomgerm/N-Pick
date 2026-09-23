@@ -282,6 +282,16 @@ export function WireframeShell({
     setIsPreviewOpen(false);
   }
 
+  // 문의(신고) 진입점은 결과 카드 썸네일에 있지만, Preview 를 열어 근거를 확인한 뒤에도
+  // 바로 문의할 수 있어야 한다 (S15P21A501-294). Preview 를 닫고 문의 다이얼로그를 연다
+  // — 두 다이얼로그가 겹치지 않게 한다. 문의 가능 여부는 handleInquiryOpen 이 결과 자신의
+  // 저장 상태로 판단하므로 여기서 또 거르지 않는다.
+  function handlePreviewInquiry() {
+    if (!selectedResult) return;
+    setIsPreviewOpen(false);
+    handleInquiryOpen(selectedResult.id);
+  }
+
   function inquiryUnavailableReason(result: SearchResult): string | undefined {
     const hasSavedResult =
       typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
@@ -438,6 +448,7 @@ export function WireframeShell({
           isSubmitted={submittedInquiryIds.includes(selectedResult.searchResultId ?? '')}
           isSubmitting={isInquirySubmitting && inquiryResultId === selectedResult.id}
           searchExecution={searchExecution}
+          onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
         />
       ) : null}

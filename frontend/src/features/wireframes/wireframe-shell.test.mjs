@@ -92,12 +92,23 @@ test('검수 규칙 demo는 정상 결과와 적용 사실만 함께 표시한�
   const html = renderShell({ state: 'review-rule' });
 
   assert.equal((html.match(/class="resultCard/g) ?? []).length, 10);
-  // 문의(신고)는 이제 카드마다 버튼으로 붙는다. Preview 안의 '이상해요' 버튼은 없다.
+  // 문의(신고)는 카드 썸네일마다 버튼으로 붙는다(Preview 를 열지 않아도 바로 문의).
   assert.equal((html.match(/class="cardInquiryButton"/g) ?? []).length, 10);
-  assert.ok(!html.includes('이상해요'));
   assert.ok(html.includes('정상 검색'));
   assert.ok(html.includes('검수 규칙 적용'));
   assert.doesNotMatch(html, /rule[_ -]?id|condition|JSON|오류 코드/i);
+});
+
+test('Preview 를 열면 근거와 함께 문의 진입점도 유지된다', () => {
+  // 문의는 카드 썸네일에서 바로 열 수 있지만, Preview 로 근거를 확인한 뒤에도 문의할 수
+  // 있어야 한다 (S15P21A501-294). onInquiry 가 붙으면 근거 라벨도 '검색 근거'가 된다.
+  const html = renderShell({ preview: 'loading' });
+
+  // Preview 안에 문의 버튼이 붙는다(활성/불가 여부는 결과의 저장 상태에 달렸고 여기선 진입점
+  // 존재만 본다 — 활성/불가 텍스트 분기는 scene-dialogs.test.mjs 가 덮는다).
+  assert.ok(html.includes('class="previewReportButton"'));
+  // onInquiry 가 붙으면 근거 섹션 라벨이 '검색 근거'가 된다(없으면 '확인 근거').
+  assert.ok(html.includes('검색 근거'));
 });
 
 test('snapshot 실패 결과 카드의 문의 버튼은 사유와 함께 비활성이다', () => {
