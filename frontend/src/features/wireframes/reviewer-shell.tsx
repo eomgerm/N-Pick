@@ -152,7 +152,6 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
               registrationBusyRef.current = isBusy;
               setIsRegistrationBusy(isBusy);
             }}
-            onCancel={() => handleTabChange('inquiries')}
             onRegister={handleRegister}
           />
         ) : clipId ? (

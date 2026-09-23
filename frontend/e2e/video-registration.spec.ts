@@ -144,12 +144,6 @@ test('영상을 고른 뒤에는 파일 선택 버튼으로만 파일 창이 열
   await chooser;
 });
 
-test('영상을 고르기 전에도 취소로 등록 화면을 떠날 수 있다', async ({ page }) => {
-  await openRegistration(page);
-  await page.getByRole('button', { name: '취소', exact: true }).click();
-  await expect(page).not.toHaveURL(/view=upload/);
-});
-
 test('선택한 영상을 등록 전에 브라우저에서 재생해 확인한다', async ({ page }) => {
   await openRegistration(page);
   const input = page.locator('#video-file');

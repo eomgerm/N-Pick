@@ -573,7 +573,6 @@
   display: flex;
   gap: 10px;
 }
-.cancelButton,
 .submitButton {
   min-height: 44px;
   min-width: 94px;
@@ -584,9 +583,6 @@
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
-}
-.cancelButton {
-  color: var(--muted);
 }
 .submitButton {
   border-color: var(--accent-strong);

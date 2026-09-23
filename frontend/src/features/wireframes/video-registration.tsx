@@ -62,7 +62,6 @@ export interface RegisteredVideo {
 interface VideoRegistrationProps {
   isNavigating: boolean;
   onBusyChange: (isBusy: boolean) => void;
-  onCancel: () => void;
   onRegister: (video: RegisteredVideo) => void;
 }
 
@@ -101,7 +100,6 @@ export function VideoRegistrationHeading() {
 export function VideoRegistration({
   isNavigating,
   onBusyChange,
-  onCancel,
   onRegister,
 }: VideoRegistrationProps) {
   const [video, setVideo] = useState<File | null>(null);
@@ -523,7 +521,7 @@ export function VideoRegistration({
         </div>
 
         <div className={styles.submitArea}>
-          {/* 취소는 영상을 고르기 전에도 누를 수 있게 동의만 잠근다. */}
+          {/* 영상을 고르기 전에는 동의를 잠그고, 등록 버튼은 비활성으로 둔다. */}
           <fieldset
             className={styles.confirmations}
             data-locked={isLocked}
@@ -603,14 +601,6 @@ export function VideoRegistration({
 
           <footer className={styles.footer}>
             <div>
-              <button
-                className={styles.cancelButton}
-                disabled={isBusy}
-                onClick={onCancel}
-                type="button"
-              >
-                취소
-              </button>
               <button
                 className={styles.submitButton}
                 disabled={isBusy || isCheckingFiles || isLocked}
