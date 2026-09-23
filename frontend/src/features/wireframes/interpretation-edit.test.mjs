@@ -64,8 +64,36 @@ test('삭제/수정/이동/추가를 분류한다', () => {
   assert.deepEqual(edits.sort((a, b) => a.kind.localeCompare(b.kind)), [
     { kind: 'add', axis: 'expanded_terms', value: '나들이', type: undefined },
     { kind: 'edit', axis: 'entities', from: '한국도로공사', to: '도로공사', type: 'organization' },
-    { kind: 'move', from: 'locations', to: 'entities', value: '경부고속도로', type: 'location' },
+    {
+      kind: 'move',
+      from: 'locations',
+      to: 'entities',
+      value: '경부고속도로',
+      fromValue: '경부고속도로',
+      type: 'location',
+    },
     { kind: 'remove', axis: 'incident_names', value: '추석', type: undefined },
+  ]);
+});
+
+test('이동 + 값 수정이 함께 일어나면 move 1건에 fromValue(옛값)/value(새값)가 함께 담긴다', () => {
+  const current = [
+    // locations#0 을 인물·기관으로 이동하면서 값도 함께 수정 (id 는 그대로)
+    { id: 'locations#0', axis: 'entities', value: '경부고속도로 휴게소', type: 'location' },
+    { id: 'entities#0', axis: 'entities', value: '한국도로공사', type: 'organization' },
+    { id: 'incident_names#0', axis: 'incident_names', value: '추석' },
+    { id: 'expanded_terms#0', axis: 'expanded_terms', value: '귀성 차량' },
+  ];
+  const edits = deriveEdits(ORIG, current);
+  assert.deepEqual(edits, [
+    {
+      kind: 'move',
+      from: 'locations',
+      to: 'entities',
+      value: '경부고속도로 휴게소',
+      fromValue: '경부고속도로',
+      type: 'location',
+    },
   ]);
 });
 
@@ -103,13 +131,34 @@ test('edit: has_value(옛값) 조건 + remove 옛값 + add 새값', () => {
 
 test('move 비TYPED→TYPED: add 에 기본 type 을 채운다', () => {
   const [rule] = deriveParseRules(
-    [{ kind: 'move', from: 'incident_names', to: 'locations', value: '경부고속도로' }],
+    [{ kind: 'move', from: 'incident_names', to: 'locations', value: '경부고속도로', fromValue: '경부고속도로' }],
     null,
   );
   assert.deepEqual(rule.condition.all, [{ axis: 'incident_names', op: 'has_value', value: '경부고속도로' }]);
   assert.deepEqual(rule.patch.operations, [
     { op: 'remove_item', axis: 'incident_names', value: '경부고속도로' },
     { op: 'add_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+  ]);
+});
+
+test('move + 수정: 조건/remove 는 옛값(fromValue), add 는 새값(value) 기준', () => {
+  const [rule] = deriveParseRules(
+    [
+      {
+        kind: 'move',
+        from: 'locations',
+        to: 'entities',
+        value: '경부고속도로 휴게소',
+        fromValue: '경부고속도로',
+        type: 'location',
+      },
+    ],
+    null,
+  );
+  assert.deepEqual(rule.condition.all, [{ axis: 'locations', op: 'has_value', value: '경부고속도로' }]);
+  assert.deepEqual(rule.patch.operations, [
+    { op: 'remove_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+    { op: 'add_item', axis: 'entities', value: '경부고속도로 휴게소', type: 'organization' },
   ]);
 });
 
@@ -127,7 +176,7 @@ const { describeEdits } = await import('./interpretation-edit.ts');
 
 test('편집을 사람 문장으로 요약한다', () => {
   const out = describeEdits([
-    { kind: 'move', from: 'locations', to: 'entities', value: '경부고속도로' },
+    { kind: 'move', from: 'locations', to: 'entities', value: '경부고속도로', fromValue: '경부고속도로' },
     { kind: 'add', axis: 'expanded_terms', value: '나들이' },
     { kind: 'remove', axis: 'incident_names', value: '추석' },
     { kind: 'edit', axis: 'entities', from: '한국도로공사', to: '도로공사' },
@@ -137,5 +186,23 @@ test('편집을 사람 문장으로 요약한다', () => {
     { key: '추가', text: '검색 의미어에 \u2018나들이\u2019' },
     { key: '삭제', text: '사건명에서 \u2018추석\u2019 제거' },
     { key: '수정', text: '인물·기관 \u2018한국도로공사\u2019를 \u2018도로공사\u2019로' },
+  ]);
+});
+
+test('편집 요약: 이동 + 수정이 함께면 이동 문장에 수정 사실을 덧붙인다', () => {
+  const out = describeEdits([
+    {
+      kind: 'move',
+      from: 'locations',
+      to: 'entities',
+      value: '경부고속도로 휴게소',
+      fromValue: '경부고속도로',
+    },
+  ]);
+  assert.deepEqual(out, [
+    {
+      key: '이동',
+      text: '‘경부고속도로’를 장소·시설에서 인물·기관으로 (‘경부고속도로 휴게소’로 수정)',
+    },
   ]);
 });

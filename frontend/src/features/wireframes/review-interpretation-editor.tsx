@@ -5,6 +5,7 @@ import { type DragEvent, type KeyboardEvent, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
+  defaultType,
   deriveEdits,
   deriveParseRules,
   describeEdits,
@@ -92,6 +93,7 @@ export function ParseInterpretationEditor({
           message: '담을 교정이 없습니다.',
         });
       }
+      // 일부만 POST 되는 상황을 막기 위해, 하나라도 POST 하기 전에 전체 규칙을 먼저 검증한다.
       for (const body of rules) {
         const problem = validateParseRuleBody(body);
         if (problem) {
@@ -100,6 +102,8 @@ export function ParseInterpretationEditor({
             message: problem,
           });
         }
+      }
+      for (const body of rules) {
         await createParsePatchCandidate(feedbackId, body, await ruleIdempotencyKey(feedbackId, body));
       }
       return rules.length;
@@ -132,13 +136,15 @@ export function ParseInterpretationEditor({
   }
 
   function removeChip(id: string) {
+    if (save.isSuccess) save.reset();
     setChips((prev) => prev.filter((chip) => chip.id !== id));
     if (editingId === id) setEditingId(null);
   }
 
   function addChip(axis: EditableAxis) {
+    if (save.isSuccess) save.reset();
     newChipCounter.current += 1;
-    const chip: Chip = { id: `new-${newChipCounter.current}`, axis, value: '', isNew: true };
+    const chip: Chip = { id: `new-${newChipCounter.current}`, axis, value: '', isNew: true, type: defaultType(axis) };
     setChips((prev) => [...prev, chip]);
     setEditingId(chip.id);
     setEditDraft('');
@@ -147,6 +153,7 @@ export function ParseInterpretationEditor({
   function commitEdit() {
     const id = editingId;
     if (id === null) return;
+    if (save.isSuccess) save.reset();
     const value = editDraft.trim();
     setChips((prev) =>
       value
@@ -207,8 +214,11 @@ export function ParseInterpretationEditor({
     const id = event.dataTransfer.getData('text/plain');
     setDropTargetAxis(null);
     setDraggingId(null);
+    if (save.isSuccess) save.reset();
     setChips((prev) =>
-      prev.map((chip) => (chip.id === id && chip.axis !== axis ? { ...chip, axis } : chip)),
+      prev.map((chip) =>
+        chip.id === id && chip.axis !== axis ? { ...chip, axis, type: defaultType(axis) } : chip,
+      ),
     );
   }
 

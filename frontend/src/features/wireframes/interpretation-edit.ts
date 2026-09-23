@@ -31,13 +31,21 @@ export function seedChips(resolution: Resolution): Chip[] {
   const chips: Chip[] = [];
   for (const axis of EDITABLE_AXES) {
     if (axis === 'expanded_terms') {
-      resolution.expanded_terms.forEach((value, index) =>
-        chips.push({ id: `${axis}#${index}`, axis, value }),
-      );
+      resolution.expanded_terms
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .forEach((value, index) => chips.push({ id: `${axis}#${index}`, axis, value }));
     } else {
-      resolution[axis].forEach((item, index) =>
-        chips.push({ id: `${axis}#${index}`, axis, value: item.value, type: item.type, origin: item.origin }),
-      );
+      resolution[axis]
+        .filter((item) => typeof item.value === 'string' && item.value.length > 0)
+        .forEach((item, index) =>
+          chips.push({
+            id: `${axis}#${index}`,
+            axis,
+            value: item.value,
+            type: TYPED_EDITABLE.has(axis) ? (item.type ?? defaultType(axis)) : item.type,
+            origin: item.origin,
+          }),
+        );
     }
   }
   return chips;
@@ -46,7 +54,7 @@ export function seedChips(resolution: Resolution): Chip[] {
 export type ChipEdit =
   | { kind: 'remove'; axis: EditableAxis; value: string; type?: string }
   | { kind: 'edit'; axis: EditableAxis; from: string; to: string; type?: string }
-  | { kind: 'move'; from: EditableAxis; to: EditableAxis; value: string; type?: string }
+  | { kind: 'move'; from: EditableAxis; to: EditableAxis; value: string; fromValue: string; type?: string }
   | { kind: 'add'; axis: EditableAxis; value: string; type?: string };
 
 export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
@@ -67,7 +75,14 @@ export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
       continue;
     }
     if (chip.axis !== before.axis) {
-      edits.push({ kind: 'move', from: before.axis, to: chip.axis, value, type: chip.type });
+      edits.push({
+        kind: 'move',
+        from: before.axis,
+        to: chip.axis,
+        value,
+        fromValue: before.value,
+        type: chip.type,
+      });
     } else if (value !== before.value) {
       edits.push({ kind: 'edit', axis: before.axis, from: before.value, to: value, type: before.type });
     }
@@ -130,9 +145,9 @@ export function deriveParseRules(
     } else if (edit.kind === 'move') {
       rules.push(
         body(
-          [{ axis: edit.from, op: 'has_value', value: edit.value }],
+          [{ axis: edit.from, op: 'has_value', value: edit.fromValue }],
           [
-            { op: 'remove_item', axis: edit.from, value: edit.value, ...typeIf(edit.from, edit.type) },
+            { op: 'remove_item', axis: edit.from, value: edit.fromValue, ...typeIf(edit.from, edit.type) },
             {
               op: 'add_item',
               axis: edit.to,
@@ -163,7 +178,9 @@ export function describeEdits(edits: ChipEdit[]): { key: string; text: string }[
     if (edit.kind === 'move')
       return {
         key: '이동',
-        text: `‘${edit.value}’를 ${resolutionAxisLabels[edit.from]}에서 ${resolutionAxisLabels[edit.to]}으로`,
+        text: `‘${edit.fromValue}’를 ${resolutionAxisLabels[edit.from]}에서 ${resolutionAxisLabels[edit.to]}으로${
+          edit.value !== edit.fromValue ? ` (‘${edit.value}’로 수정)` : ''
+        }`,
       };
     return { key: '추가', text: `${resolutionAxisLabels[edit.axis]}에 ‘${edit.value}’` };
   });
