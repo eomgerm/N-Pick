@@ -122,6 +122,7 @@
 .columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  grid-auto-rows: 1fr;
   align-items: stretch;
   gap: 22px;
 }
@@ -154,6 +155,25 @@
 .evidence,
 .correction {
   padding: 28px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  contain: size;
+}
+
+.actions > * {
+  flex-shrink: 0;
+}
+
+.resolutionForm,
+.outcomeNote {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(81 100 119 / 40%) transparent;
+  scrollbar-gutter: stable;
+  overscroll-behavior-y: contain;
 }
 
 .sectionHeading {
@@ -384,7 +404,7 @@
 }
 
 .history {
-  margin-bottom: 24px;
+  margin-bottom: 0;
 }
 
 .history h3 {
@@ -415,8 +435,12 @@
 }
 
 .resolutionForm {
+  flex: 1;
+  min-height: 0;
+  margin-top: 24px;
   padding-top: 22px;
   border-top: 1px solid var(--line);
+  overflow-y: auto;
 }
 
 .resolutionForm h2 {
@@ -425,12 +449,26 @@
 }
 
 .outcome {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
   margin-top: 24px;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: 14px;
   font-size: 13px;
   line-height: 1.65;
+}
+
+.outcome > * {
+  flex-shrink: 0;
+}
+
+.outcome .outcomeNote {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .outcome h2 {
@@ -536,7 +574,8 @@
   max-width: 100%;
 }
 
-.detail :is(button, a, input, select, textarea, summary):focus-visible {
+.detail :is(button, a, input, select, textarea, summary):focus-visible,
+.outcomeNote:focus-visible {
   outline: 3px solid #407fbc;
   outline-offset: 3px;
 }

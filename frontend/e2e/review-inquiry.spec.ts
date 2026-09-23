@@ -128,6 +128,54 @@ for (const viewport of [
   });
 }
 
+for (const width of [1440, 1024, 390]) {
+  test(`긴 처리 사유가 ${width}px에서 문의 패널 높이를 늘리지 않고 스크롤된다`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await reviewer(page);
+    await page.route('**/api/v1/review/inquiries/41', (route) =>
+      success(route, {
+        ...inquiry('41', 'CLOSED'),
+        resolution: 'no_action',
+        resolutionNote: '검색어와 장면을 대조했으며 추가 수정이 필요하지 않습니다.\n'.repeat(100),
+      }),
+    );
+    await page.goto('/review?inquiry=41');
+    const note = page.getByRole('region', { name: '처리 사유', exact: true });
+    await expect(note).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+
+    const context = page.getByRole('region', { name: '문의 내용', exact: true }).locator('..');
+    const scene = page.getByRole('region', { name: '문의 장면', exact: true });
+    const actions = page.getByRole('complementary', { name: '문의 검수' });
+    const contextBounds = (await context.boundingBox())!;
+    const sceneBounds = (await scene.boundingBox())!;
+    const actionsBounds = (await actions.boundingBox())!;
+    expect(actionsBounds.height).toBeCloseTo(contextBounds.height, 0);
+    expect(sceneBounds.y + sceneBounds.height).toBeCloseTo(
+      contextBounds.y + contextBounds.height,
+      0,
+    );
+    expect(await note.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+      true,
+    );
+    expect(await note.evaluate((element) => element.clientHeight)).toBeGreaterThan(40);
+    await note.focus();
+    const resultHeading = page.getByRole('heading', { name: '처리 결과', exact: true });
+    const headingOffsetBefore =
+      (await resultHeading.boundingBox())!.y - (await actions.boundingBox())!.y;
+    await note.press('PageDown');
+    await expect.poll(() => note.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    expect((await resultHeading.boundingBox())!.y - (await actions.boundingBox())!.y).toBeCloseTo(
+      headingOffsetBefore,
+      0,
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    await page.screenshot({ path: testInfo.outputPath('inquiry-note-scroll.png'), fullPage: true });
+  });
+}
+
 // 검수 중 문의는 문의 화면의 status 필터가 담당한다. 처리 현황 화면에는 문의 탭이 없다.
 test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터로 복귀한다', async ({
   page,
