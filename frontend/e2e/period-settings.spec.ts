@@ -90,6 +90,21 @@ async function clickUnavailable(page: Page, button: Locator) {
   await expect(page.getByRole('tooltip')).toHaveCount(0);
 }
 
+test('마지막 달로 정상 이동하면 툴팁이 열리지 않고 비활성 버튼을 다시 눌러야 표시한다', async ({
+  page,
+}) => {
+  await page.goto('/search');
+  const dialog = await openDatePicker(page);
+  const start = dialog.locator('[data-endpoint="from"]');
+  await start.getByRole('button', { name: '시작일 이전 달', exact: true }).click();
+  const next = start.getByRole('button', { name: '시작일 다음 달', exact: true });
+  await expect(next).toBeEnabled();
+  await next.click();
+  await expect(next).toBeDisabled();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await clickUnavailable(page, next);
+});
+
 test('미래 일·월·연도와 1950년 이전 탐색을 막고 클릭 시 이유를 표시한다', async ({ page }) => {
   await page.goto('/search');
   const dialog = await openDatePicker(page);
