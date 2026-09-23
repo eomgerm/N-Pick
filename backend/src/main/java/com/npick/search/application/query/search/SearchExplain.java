@@ -262,8 +262,8 @@ final class SearchExplain {
     }
 
     /**
-     * 색인 토큰은 {@code 형태/품사}(예: {@code 비/NNG}) 라 동형이의를 가른다. 화면 칩에는 사람이 친 검색어인 형태만 보인다. 형태소는 기호(S*)를
-     * 색인에서 걸러 {@code /} 가 형태에 들어오지 않으므로 마지막 {@code /} 앞이 형태다. 옛 형식(형태만)이나 태그 없는 값은 그대로 둔다.
+     * 색인 토큰은 {@code 형태/품사}(예: {@code 비/NNG}) 라 동형이의를 가른다. 화면 칩에는 사람이 친 검색어인 형태만 보인다. 형태소는 기호(S*)를 색인에서 걸러 {@code /} 가
+     * 형태에 들어오지 않으므로 마지막 {@code /} 앞이 형태다. 옛 형식(형태만)이나 태그 없는 값은 그대로 둔다.
      */
     private static String stripPosTag(String token) {
         int slash = token.lastIndexOf('/');

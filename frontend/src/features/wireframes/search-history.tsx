@@ -18,7 +18,6 @@ interface SearchHistoryProps {
   isDisabled?: boolean;
   onBroadcastChange: (value: DateRange) => void;
   onFilmingChange: (value: DateRange) => void;
-  onSearchHistorySelect: (query: string) => void;
   theme: WireframeTheme;
 }
 
@@ -29,18 +28,16 @@ export function SearchHistory({
   isDisabled,
   onBroadcastChange,
   onFilmingChange,
-  onSearchHistorySelect,
   theme,
 }: SearchHistoryProps) {
   const [isNavExpanded, setIsNavExpanded] = useState(false);
   const [activePanel, setActivePanel] = useState<HistoryKind | null>(null);
-  const [isSearchDetailOpen, setIsSearchDetailOpen] = useState(false);
   const [isInquiryDetailOpen, setIsInquiryDetailOpen] = useState(false);
   const dockRef = useRef<HTMLElement>(null);
   const activeTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    if (!isNavExpanded || isSearchDetailOpen || isInquiryDetailOpen) return;
+    if (!isNavExpanded || isInquiryDetailOpen) return;
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setActivePanel(null);
@@ -59,7 +56,7 @@ export function SearchHistory({
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('pointerdown', handleOutside);
     };
-  }, [isNavExpanded, isSearchDetailOpen, isInquiryDetailOpen]);
+  }, [isNavExpanded, isInquiryDetailOpen]);
 
   function closePanel() {
     setActivePanel(null);
@@ -173,15 +170,7 @@ export function SearchHistory({
               <ChevronLeft aria-hidden="true" />
             </button>
             {kind === 'search' && activePanel === 'search' ? (
-              <MySearchHistory
-                theme={theme}
-                onDetailOpenChange={setIsSearchDetailOpen}
-                onSelect={(query) => {
-                  setActivePanel(null);
-                  setIsNavExpanded(false);
-                  onSearchHistorySelect(query);
-                }}
-              />
+              <MySearchHistory theme={theme} onNavigate={closePanel} />
             ) : kind === 'inquiry' && activePanel === 'inquiry' ? (
               <MyInquiryHistory theme={theme} onDetailOpenChange={setIsInquiryDetailOpen} />
             ) : null}
