@@ -95,8 +95,7 @@
   overflow: hidden;
   border-radius: 26px;
 }
-.page .detailButton,
-.page .pagination button {
+.page .detailButton {
   font-size: 14px;
   font-weight: 600;
 }
@@ -107,6 +106,10 @@
   list-style: none;
   margin: 0;
   padding: 0;
+}
+/* 다음 쪽이 올 때까지 앞 쪽 행을 보여 주는 동안 흐리게 둔다. */
+.list[aria-busy='true'] {
+  opacity: 0.6;
 }
 .list > li + li {
   border-top: 1px solid var(--line);
@@ -264,22 +267,6 @@
   margin: 0;
   font-size: 12px;
   color: var(--muted);
-}
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 20px;
-  padding: 20px 0;
-  font-size: 12px;
-}
-.pagination button {
-  min-height: 44px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
 }
 .detailSection {
   padding: 28px;

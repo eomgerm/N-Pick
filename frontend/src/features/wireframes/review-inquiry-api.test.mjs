@@ -69,6 +69,25 @@ test('목록 응답은 백엔드 대문자 상태를 프론트 상태로 정규�
   );
 });
 
+test('목록은 고른 표시 개수를 size 로 보내고 다른 크기의 응답은 받지 않는다', async (context) => {
+  const list = (size) => ({
+    items: [item],
+    page: 0,
+    size,
+    totalElements: 1,
+    totalPages: 1,
+    statusCounts: { open: 1, reviewing: 0, closed: 0 },
+  });
+  let data = list(20);
+  const fetch = context.mock.method(globalThis, 'fetch', async () =>
+    Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data }),
+  );
+  await getReviewInquiries(0, 20);
+  assert.equal(new URL(fetch.mock.calls[0].arguments[0]).searchParams.get('size'), '20');
+  data = list(10);
+  await assert.rejects(getReviewInquiries(0, 20));
+});
+
 test('영상 제목이 없으면 null을 보존하고 유효한 장면 구간은 그대로 읽는다', () => {
   const parsed = parseReviewInquiryList({
     items: [{ ...item, scene: { ...scene, clipTitle: null } }],
@@ -248,7 +267,7 @@ test('문의·태그 교정 API 경로와 요청 본문을 계약대로 보낸�
     return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data });
   });
 
-  await getReviewInquiries(1, 'open');
+  await getReviewInquiries(1, 10, 'open');
   await getReviewInquiry('41');
   await claimReviewInquiry('41', 'claim-key');
   await resolveReviewInquiry('41', 'no_action', '문제 없음');

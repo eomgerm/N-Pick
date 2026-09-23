@@ -459,7 +459,8 @@
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.historyButton {
+.historyButton,
+.pagination button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -472,15 +473,18 @@
   color: #17243b;
   font-size: 12px;
 }
-.historyButton:focus-visible {
+.historyButton:focus-visible,
+.pagination button:focus-visible {
   outline: 3px solid #0756c6;
   outline-offset: 3px;
 }
-.historyButton:disabled {
+.historyButton:disabled,
+.pagination button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
-.historyButton svg {
+.historyButton svg,
+.pagination button svg {
   width: 18px;
   height: 18px;
 }

@@ -306,15 +306,18 @@ export function parseClipDetail(value: unknown): ClipDetail {
 
 export async function getProcessingClips(
   page: number,
+  size: number,
   statuses: string[],
   mine: boolean,
   signal?: AbortSignal,
 ) {
-  const query = new URLSearchParams({ page: String(page), size: '10' });
+  const query = new URLSearchParams({ page: String(page), size: String(size) });
   // 전체 칩과 '내 영상 아님'은 서버 기본값이라 파라미터를 싣지 않는다.
   if (statuses.length > 0) query.set('status', statuses.join(','));
   if (mine) query.set('mine', 'true');
-  return parseClipPage(await fetchJson<unknown>('/clips', { query, signal }));
+  const result = parseClipPage(await fetchJson<unknown>('/clips', { query, signal }));
+  if (result.size !== size) fail();
+  return result;
 }
 export async function getProcessingClip(clipId: string, signal?: AbortSignal) {
   identifier(clipId);
