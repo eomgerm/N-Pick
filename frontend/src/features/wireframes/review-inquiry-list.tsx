@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowUpRight, Film, Inbox, Plus } from 'lucide-react';
+import { ArrowRight, Inbox, MessageSquareText, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef } from 'react';
@@ -145,7 +145,7 @@ export function InquiryList({ data, currentStatus, pageSize }: InquiryListProps)
                   type="button"
                 >
                   <span aria-hidden="true" className={boardStyles.thumbnail}>
-                    <Film />
+                    <MessageSquareText />
                   </span>
                   <span className={boardStyles.rowCopy}>
                     <span className={boardStyles.rowMeta}>
@@ -169,7 +169,9 @@ export function InquiryList({ data, currentStatus, pageSize }: InquiryListProps)
                       {inquiryStatusLabels[item.status]}
                     </span>
                     <span className={boardStyles.date}>{formatInquiryDate(item.createdAt)}</span>
-                    <ArrowUpRight aria-hidden="true" />
+                    <span className={boardStyles.detailCue}>
+                      상세 보기 <ArrowRight aria-hidden="true" />
+                    </span>
                   </span>
                 </button>
               </li>
