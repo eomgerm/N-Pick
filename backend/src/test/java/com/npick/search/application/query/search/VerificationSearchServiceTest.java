@@ -173,7 +173,9 @@ class VerificationSearchServiceTest {
         // 그 합집합을 그대로 flip·기록·지문 계산에 쓰는지, 한쪽 축만 골라내지 않는지를 잠근다.
         when(excludeContextPort.find(FEEDBACK_ID)).thenReturn(Optional.of(reviewingContext(9L)));
         PendingCandidates candidates = new PendingCandidates(
-                "exclude_scene", List.of(501L), List.of(new PendingCandidates.RuleCandidate(601L, null)));
+                "correction",
+                List.of(501L),
+                List.of(new PendingCandidates.RuleCandidate(601L, null, "exclude_scene")));
         when(candidatesPort.load(FEEDBACK_ID)).thenReturn(candidates);
         when(inputPort.load(FEEDBACK_ID))
                 .thenReturn(new VerificationInput("설 연휴 서울역", ExecuteSearchQuery.DateFilters.none()));
@@ -204,6 +206,7 @@ class VerificationSearchServiceTest {
         verify(record).complete(completeCaptor.capture());
         Map<String, Object> context = completeCaptor.getValue().verificationContext();
         assertThat(context.get("approved_evidence_ids")).isEqualTo(List.of(501L));
+        assertThat(context.get("approved_rule_action")).isEqualTo("exclude_scene");
         Map<String, Object> verifiedIds = (Map<String, Object>) context.get("verified_candidate_ids");
         assertThat((List<Long>) verifiedIds.get("rule_ids")).containsExactly(601L);
         assertThat((List<Long>) verifiedIds.get("tag_evidence_ids")).containsExactly(501L);

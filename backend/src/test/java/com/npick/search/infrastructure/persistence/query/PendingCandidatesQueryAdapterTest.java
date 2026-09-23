@@ -27,12 +27,18 @@ class PendingCandidatesQueryAdapterTest {
         when(resolution.setParameter("fid", 7L)).thenReturn(resolution);
         when(tags.getResultList()).thenReturn(List.of());
         when(rules.getResultList())
-                .thenReturn(List.of(new Object[] {11L, null}, new Object[] {12L, 4L}, new Object[] {13L, null}));
+                .thenReturn(List.of(
+                        new Object[] {11L, null, "exclude_scene"},
+                        new Object[] {12L, 4L, "patch_parse"},
+                        new Object[] {13L, null, "patch_parse"}));
         when(resolution.getSingleResult()).thenReturn("exclude_scene");
 
         var candidates = new PendingCandidatesQueryAdapter(em).load(7L);
 
         assertThat(candidates.rules()).extracting(r -> r.approvedRuleId()).containsExactly(11L, 12L, 13L);
         assertThat(candidates.rules()).extracting(r -> r.replacedRuleId()).containsExactly(null, 4L, null);
+        assertThat(candidates.rules())
+                .extracting(r -> r.action())
+                .containsExactly("exclude_scene", "patch_parse", "patch_parse");
     }
 }

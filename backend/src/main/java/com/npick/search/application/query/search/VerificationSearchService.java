@@ -176,6 +176,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                 candidates.rules().isEmpty() ? null : candidates.rules().get(0);
         context.put("approved_rule_id", firstRule == null ? null : firstRule.approvedRuleId());
         context.put("replaced_rule_id", firstRule == null ? null : firstRule.replacedRuleId());
+        context.put("approved_rule_action", firstRule == null ? null : firstRule.action());
         context.put(
                 "candidate_rules",
                 candidates.rules().stream()
@@ -183,6 +184,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                             Map<String, Object> pair = new LinkedHashMap<>();
                             pair.put("approved_rule_id", rule.approvedRuleId());
                             pair.put("replaced_rule_id", rule.replacedRuleId());
+                            pair.put("action", rule.action());
                             return pair;
                         })
                         .toList());

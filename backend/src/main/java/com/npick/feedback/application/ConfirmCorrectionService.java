@@ -111,8 +111,9 @@ public class ConfirmCorrectionService implements ConfirmCorrectionUseCase {
         // 검사로 이미 같음이 보장된다). 즉 "적용할지"는 후보 존재로, "어느 규칙 유스케이스인지"만 검증 스냅샷의 종류로 정한다.
         boolean hasRuleCandidate = run.approvedRuleId() != null;
         boolean isExcludeScene =
-                hasRuleCandidate && FeedbackResolution.EXCLUDE_SCENE.value().equals(run.resolution());
-        boolean isPatchParse = hasRuleCandidate && FeedbackResolution.PATCH_PARSE.value().equals(run.resolution());
+                hasRuleCandidate && FeedbackResolution.EXCLUDE_SCENE.value().equals(run.approvedRuleAction());
+        boolean isPatchParse =
+                hasRuleCandidate && FeedbackResolution.PATCH_PARSE.value().equals(run.approvedRuleAction());
         boolean hasTagCandidate = !run.approvedEvidenceIds().isEmpty();
 
         // 장면 제외는 확정 직전에 대상 장면이 여전히 유효한지 다시 확인한다(F-14). 검증과 확정 사이에 재처리가 끼면 대상 장면이

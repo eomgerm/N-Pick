@@ -32,14 +32,16 @@ class PendingCandidatesQueryAdapter implements PendingCandidatesPort {
         List<Long> tagEvidenceIds = tagRows.stream().map(Number::longValue).toList();
 
         List<Object[]> ruleRows = em.createNativeQuery(
-                        "SELECT sr.search_rule_id, sr.replaces_rule_id FROM npick.search_rule sr "
+                        "SELECT sr.search_rule_id, sr.replaces_rule_id, sr.action FROM npick.search_rule sr "
                                 + "WHERE sr.source_feedback_id = :fid AND sr.active = false ORDER BY sr.search_rule_id")
                 .setParameter("fid", feedbackId)
                 .getResultList();
 
         List<PendingCandidates.RuleCandidate> rules = ruleRows.stream()
                 .map(rule -> new PendingCandidates.RuleCandidate(
-                        ((Number) rule[0]).longValue(), rule[1] == null ? null : ((Number) rule[1]).longValue()))
+                        ((Number) rule[0]).longValue(),
+                        rule[1] == null ? null : ((Number) rule[1]).longValue(),
+                        (String) rule[2]))
                 .toList();
 
         String resolution =

@@ -84,9 +84,15 @@ class ConfirmCorrectionServiceTest {
     }
 
     private void verificationRun(String resolution, List<Long> evidenceIds, Long ruleId, Long replacedId) {
+        String ruleAction = ruleId == null ? null : resolution;
+        verificationRun(resolution, evidenceIds, ruleId, replacedId, ruleAction);
+    }
+
+    private void verificationRun(
+            String resolution, List<Long> evidenceIds, Long ruleId, Long replacedId, String ruleAction) {
         when(verificationRunPort.find(EXECUTION, FEEDBACK))
-                .thenReturn(Optional.of(
-                        new VerificationRun(EXECUTION, resolution, evidenceIds, ruleId, replacedId, FINGERPRINT)));
+                .thenReturn(Optional.of(new VerificationRun(
+                        EXECUTION, resolution, evidenceIds, ruleId, replacedId, ruleAction, FINGERPRINT)));
         when(currentStatePort.currentFingerprint(FEEDBACK)).thenReturn(FINGERPRINT);
     }
 
@@ -332,6 +338,46 @@ class ConfirmCorrectionServiceTest {
                         eq("patch_parse"),
                         eq("correction"),
                         any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("통합 교정 판정은 검증한 규칙 action에 따라 해석 규칙을 확정한다")
+    void confirmsParseRuleForUnifiedCorrection() {
+        target("REVIEWING", "correction", null);
+        verificationRun("correction", List.of(), 6602L, 6601L, "patch_parse");
+        when(confirmParseRule.confirm(FEEDBACK, 6602L, 6601L)).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any(), any()))
+                .thenReturn(1);
+
+        service.confirm(command(true));
+
+        verify(confirmParseRule).confirm(FEEDBACK, 6602L, 6601L);
+        verify(confirmExcludeScene, never()).confirm(anyLong(), anyLong());
+        verify(feedbackRepository)
+                .confirm(
+                        eq(FEEDBACK),
+                        eq(REVIEWER),
+                        eq(EXECUTION),
+                        eq(6602L),
+                        eq("correction"),
+                        eq("correction"),
+                        any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("통합 교정 판정은 검증한 규칙 action에 따라 장면 제외를 확정한다")
+    void confirmsExcludeSceneForUnifiedCorrection() {
+        target("REVIEWING", "correction", null);
+        verificationRun("correction", List.of(), 6602L, null, "exclude_scene");
+        when(excludeValidity.targetSceneActive(6602L)).thenReturn(true);
+        when(confirmExcludeScene.confirm(FEEDBACK, 6602L)).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any(), any()))
+                .thenReturn(1);
+
+        service.confirm(command(true));
+
+        verify(confirmExcludeScene).confirm(FEEDBACK, 6602L);
+        verify(confirmParseRule, never()).confirm(anyLong(), anyLong(), any());
     }
 
     @Test
