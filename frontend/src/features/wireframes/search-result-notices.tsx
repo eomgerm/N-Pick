@@ -9,17 +9,12 @@ import styles from '@/features/wireframes/wireframe.module.css';
 interface SearchResultNoticesProps {
   execution: SearchExecutionPresentation;
   variant: 'results' | 'preview';
-  showSafetyNotice?: boolean;
 }
 
-export function SearchResultNotices({
-  execution,
-  variant,
-  showSafetyNotice = true,
-}: SearchResultNoticesProps) {
+export function SearchResultNotices({ execution, variant }: SearchResultNoticesProps) {
   const reasonNotices = getDegradedReasonNotices(execution.degradedReasons);
 
-  if (execution.status !== 'degraded' && !execution.hasAppliedReviewRule && !showSafetyNotice) {
+  if (execution.status !== 'degraded' && !execution.hasAppliedReviewRule) {
     return null;
   }
 
@@ -54,24 +49,6 @@ export function SearchResultNotices({
           </div>
         </div>
       ) : null}
-
-      {showSafetyNotice ? <SearchResultSafetyNotice variant={variant} /> : null}
     </div>
-  );
-}
-
-export function SearchResultSafetyNotice({ variant }: Pick<SearchResultNoticesProps, 'variant'>) {
-  return (
-    <aside
-      aria-label="송출 전 확인 안내"
-      className={styles.resultSafetyNotice}
-      data-variant={variant}
-    >
-      <AlertTriangle aria-hidden="true" />
-      <p>
-        <strong>송출 전 최종 확인</strong>
-        내용·최신성·권리·사용 적합성을 확인하세요.
-      </p>
-    </aside>
   );
 }

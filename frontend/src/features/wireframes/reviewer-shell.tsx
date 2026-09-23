@@ -25,7 +25,7 @@ interface ReviewerShellProps {
 }
 
 const registrationNotices: Record<ClipRegistrationOutcome, { label: string; heading: string }> = {
-  created: { label: '등록 완료', heading: '영상이 등록되었습니다.' },
+  created: { label: '등록 완료', heading: '영상 등록 완료' },
   duplicate_own: { label: '이미 등록된 영상', heading: '이미 등록한 영상입니다.' },
   duplicate_other: {
     label: '이미 등록된 영상',
