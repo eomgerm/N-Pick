@@ -549,8 +549,14 @@ export function VideoRegistration({
           </div>
         </div>
 
-        <div className={styles.submitArea} data-locked={isLocked} inert={isLocked}>
-          <fieldset className={styles.confirmations} disabled={isBusy}>
+        <div className={styles.submitArea}>
+          {/* 취소는 영상을 고르기 전에도 누를 수 있게 동의만 잠근다. */}
+          <fieldset
+            className={styles.confirmations}
+            data-locked={isLocked}
+            disabled={isBusy}
+            inert={isLocked}
+          >
             <legend>등록 전 확인</legend>
             <div className={styles.confirmBox}>
               <label data-invalid={Boolean(fieldErrors.rightsConfirmed)}>
@@ -634,7 +640,7 @@ export function VideoRegistration({
               </button>
               <button
                 className={styles.submitButton}
-                disabled={isBusy || isCheckingFiles}
+                disabled={isBusy || isCheckingFiles || isLocked}
                 type="submit"
               >
                 {isBusy

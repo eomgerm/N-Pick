@@ -13,6 +13,7 @@ const localFiles = {
   '@/features/wireframes/input-validation': './input-validation.ts',
   '@/features/wireframes/scene-preview-player': './scene-preview-player.tsx',
   '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
+  '@/features/wireframes/media-time': './media-time.ts',
   '@/lib/api/client': '../../lib/api/client.ts',
   '@/lib/api/log': '../../lib/api/log.ts',
   '@/lib/api/error': '../../lib/api/error.ts',

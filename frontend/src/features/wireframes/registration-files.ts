@@ -1,4 +1,4 @@
-import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
+import { formatMediaTime } from '@/features/wireframes/media-time';
 
 type FileInfo = Pick<File, 'name' | 'size' | 'type'>;
 

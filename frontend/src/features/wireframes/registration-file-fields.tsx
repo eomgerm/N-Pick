@@ -223,55 +223,53 @@ export function VideoFileField({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
-  const dropzone = (
-    <FileDropzone
-      accept={videoAccept}
-      details={
-        file
-          ? formatVideoDetails({
-              size: file.size,
-              duration: current?.duration,
-              width: current?.width,
-              height: current?.height,
-            })
-          : undefined
-      }
-      error={error}
-      hasFile={Boolean(file)}
-      hint={file ? undefined : '드래그하거나 클릭하여 선택 · 영상 1개'}
-      isDisabled={isDisabled}
-      isChecking={isChecking}
-      kind="video"
-      label="영상 파일"
-      onFiles={onFiles}
-      selectedFile={file}
-      onRemove={onRemove}
-    />
-  );
-  if (!file) return dropzone;
-
   return (
-    <div className={styles.videoCard}>
-      {/* 파일 선택 label 밖에 둬야 재생 컨트롤을 눌러도 파일 대화상자가 열리지 않는다. */}
-      <video
-        aria-label="선택한 영상 미리보기"
-        className={styles.videoPreview}
-        controls
-        onError={() => setLoaded({ file, isUnplayable: true })}
-        onLoadedMetadata={(event) => {
-          const { duration, videoWidth, videoHeight } = event.currentTarget;
-          setLoaded({ file, duration, width: videoWidth, height: videoHeight });
-        }}
-        playsInline
-        preload="metadata"
-        ref={videoRef}
-      />
+    // 파일 유무와 관계없이 같은 wrapper 를 둬야 파일 input 이 다시 만들어지지 않고 포커스가 남는다.
+    <div className={styles.videoCard} data-has-file={Boolean(file)}>
+      {file ? (
+        // 파일 선택 label 밖에 둬야 재생 컨트롤을 눌러도 파일 대화상자가 열리지 않는다.
+        <video
+          aria-label="선택한 영상 미리보기"
+          className={styles.videoPreview}
+          controls
+          onError={() => setLoaded({ file, isUnplayable: true })}
+          onLoadedMetadata={(event) => {
+            const { duration, videoWidth, videoHeight } = event.currentTarget;
+            setLoaded({ file, duration, width: videoWidth, height: videoHeight });
+          }}
+          playsInline
+          preload="metadata"
+          ref={videoRef}
+        />
+      ) : null}
       {current?.isUnplayable ? (
         <p className={styles.previewNotice} role="status">
           이 브라우저에서는 미리보기를 재생할 수 없어요. 등록은 그대로 할 수 있어요.
         </p>
       ) : null}
-      {dropzone}
+      <FileDropzone
+        accept={videoAccept}
+        details={
+          file
+            ? formatVideoDetails({
+                size: file.size,
+                duration: current?.duration,
+                width: current?.width,
+                height: current?.height,
+              })
+            : undefined
+        }
+        error={error}
+        hasFile={Boolean(file)}
+        hint={file ? undefined : '드래그하거나 클릭하여 선택 · 영상 1개'}
+        isDisabled={isDisabled}
+        isChecking={isChecking}
+        kind="video"
+        label="영상 파일"
+        onFiles={onFiles}
+        selectedFile={file}
+        onRemove={onRemove}
+      />
     </div>
   );
 }

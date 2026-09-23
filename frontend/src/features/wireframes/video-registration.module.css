@@ -356,7 +356,7 @@
   line-height: 1.6;
 }
 /* 선택 뒤의 파일 선택 영역은 미리보기 아래 한 줄 정보로 접는다. */
-.videoCard .dropzone[data-kind='video'] {
+.videoCard[data-has-file='true'] .dropzone[data-kind='video'] {
   flex-direction: row;
   gap: 12px;
   padding: 12px 56px 12px 14px;
@@ -364,25 +364,25 @@
   border-radius: 0 0 var(--radius-md) var(--radius-md);
   text-align: left;
 }
-.videoCard .dropzone[data-kind='video'] .uploadIcon {
+.videoCard[data-has-file='true'] .dropzone[data-kind='video'] .uploadIcon {
   width: 36px;
   height: 36px;
   flex-shrink: 0;
 }
-.videoCard .dropzone[data-kind='video'] .uploadIcon svg {
+.videoCard[data-has-file='true'] .dropzone[data-kind='video'] .uploadIcon svg {
   width: 18px;
   height: 18px;
 }
-.videoCard .dropCopy {
+.videoCard[data-has-file='true'] .dropCopy {
   flex: 1;
   gap: 2px;
   min-width: 0;
 }
-.videoCard .selectedVideo {
+.videoCard[data-has-file='true'] .selectedVideo {
   justify-items: start;
   gap: 2px;
 }
-.videoCard .removeVideo {
+.videoCard[data-has-file='true'] .removeVideo {
   top: auto;
   bottom: 14px;
 }
@@ -410,7 +410,7 @@
   border-top: 0;
 }
 .detailsColumn[data-locked='true'],
-.submitArea[data-locked='true'] {
+.confirmations[data-locked='true'] {
   opacity: 0.5;
 }
 .error {
@@ -684,10 +684,10 @@
   .videoLayout .metadata {
     grid-template-columns: 1fr;
   }
-  .videoCard .dropzone[data-kind='video'] {
+  .videoCard[data-has-file='true'] .dropzone[data-kind='video'] {
     flex-wrap: wrap;
   }
-  .videoCard .dropCopy {
+  .videoCard[data-has-file='true'] .dropCopy {
     flex-basis: calc(100% - 48px);
   }
   .submitArea {

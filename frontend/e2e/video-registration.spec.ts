@@ -37,7 +37,7 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
   // 영상을 고르기 전에는 나머지 입력과 등록 버튼을 조작할 수 없다.
   expect(await isInert('#registration-title')).toBe(true);
   expect(await isInert('#rights-confirmed')).toBe(true);
-  expect(await isInert('button[type="submit"]')).toBe(true);
+  await expect(page.getByRole('button', { name: '등록', exact: true })).toBeDisabled();
   expect(uploads).toBe(0);
 
   await videoInput.setInputFiles({ name: '첫번째.mp4', mimeType: 'video/mp4', buffer: videoBytes });
@@ -106,6 +106,24 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
   // 영상을 지워 다시 잠겨도 입력한 값은 남는다.
   expect(await isInert('#registration-title')).toBe(true);
   await expect(page.locator('#registration-title')).toHaveValue('유지할 제목');
+});
+
+test('영상을 고르고 다시 골라도 키보드 포커스가 파일 선택에 남는다', async ({ page }) => {
+  await openRegistration(page);
+  const input = page.locator('#video-file');
+  await input.focus();
+  await input.setInputFiles({ name: '첫번째.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(page.locator('#video-selection')).toContainText('첫번째.mp4');
+  await expect(input).toBeFocused();
+  await input.setInputFiles({ name: '두번째.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(page.locator('#video-selection')).toContainText('두번째.mp4');
+  await expect(input).toBeFocused();
+});
+
+test('영상을 고르기 전에도 취소로 등록 화면을 떠날 수 있다', async ({ page }) => {
+  await openRegistration(page);
+  await page.getByRole('button', { name: '취소', exact: true }).click();
+  await expect(page).not.toHaveURL(/view=upload/);
 });
 
 test('선택한 영상을 등록 전에 브라우저에서 재생해 확인한다', async ({ page }) => {
