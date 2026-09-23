@@ -79,12 +79,13 @@ async function mockList(page: Page, getItems: () => ReturnType<typeof inquiry>[]
     const status = url.searchParams.get('status');
     const filtered = items.filter((item) => !status || item.status === status);
     const currentPage = Number(url.searchParams.get('page'));
+    const size = Number(url.searchParams.get('size'));
     await success(route, {
-      items: filtered.slice(currentPage * 10, (currentPage + 1) * 10),
+      items: filtered.slice(currentPage * size, (currentPage + 1) * size),
       page: currentPage,
-      size: 10,
+      size,
       totalElements: filtered.length,
-      totalPages: Math.ceil(filtered.length / 10),
+      totalPages: Math.ceil(filtered.length / size),
       statusCounts: {
         open: items.filter((item) => item.status === 'OPEN').length,
         reviewing: items.filter((item) => item.status === 'REVIEWING').length,
@@ -329,14 +330,14 @@ test('페이지·상태 필터와 상세 복귀는 URL 조건과 브라우저 �
   await page.goto('/review?keep=1');
   const pagination = page.getByRole('navigation', { name: '문의 목록 페이지' });
   await expect(page.getByRole('list', { name: '문의 목록' }).getByRole('listitem')).toHaveCount(10);
-  await expect(pagination.getByRole('button', { name: '이전' })).toBeDisabled();
-  await pagination.getByRole('button', { name: '다음' }).click();
+  await expect(pagination.getByRole('button', { name: '이전 페이지' })).toBeDisabled();
+  await pagination.getByRole('button', { name: '다음 페이지' }).click();
   await expect(page).toHaveURL(/keep=1&page=2$/);
   await page.getByRole('button', { name: /문의 #51/ }).click();
   await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
   await expect(page).toHaveURL(/keep=1&page=2$/);
   await expect(page.getByRole('button', { name: /문의 #51/ })).toBeVisible();
-  await pagination.getByRole('button', { name: '이전' }).click();
+  await pagination.getByRole('button', { name: '이전 페이지' }).click();
   await expect(page).toHaveURL(/\/review\?keep=1$/);
   await page.goBack();
   await expect(page).toHaveURL(/keep=1&page=2$/);
@@ -353,6 +354,45 @@ test('페이지·상태 필터와 상세 복귀는 URL 조건과 브라우저 �
   await expect(page.getByRole('button', { name: /문의 #99/ })).toBeVisible();
 });
 
+test('번호 이동은 범위 밖 입력을 안내하고 목록 표시 개수는 URL 에 남기며 첫 페이지로 돌아간다', async ({
+  page,
+}) => {
+  await reviewer(page);
+  const requests = await mockList(page, () =>
+    Array.from({ length: 45 }, (_, index) => inquiry(String(41 + index))),
+  );
+  await page.goto('/review?keep=1');
+  const pagination = page.getByRole('navigation', { name: '문의 목록 페이지' });
+  const pageInput = pagination.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await pageInput.fill('9');
+  await pagination.getByRole('button', { name: '이동', exact: true }).click();
+  await expect(pagination.getByRole('alert')).toHaveText('1~5 사이의 페이지 번호를 입력해 주세요.');
+  await expect(pageInput).toHaveAttribute('aria-invalid', 'true');
+  await expect(page).toHaveURL(/\/review\?keep=1$/);
+  await pageInput.fill('4');
+  await pageInput.press('Enter');
+  await expect(page).toHaveURL(/keep=1&page=4$/);
+  await expect(pagination.getByRole('button', { name: '4페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await page.getByRole('combobox', { name: '목록 표시 개수' }).selectOption('20');
+  await expect(page).toHaveURL(/keep=1&size=20$/);
+  await expect(page.getByRole('list', { name: '문의 목록' }).getByRole('listitem')).toHaveCount(20);
+  expect(requests.at(-1)?.searchParams.get('size')).toBe('20');
+  expect(requests.at(-1)?.searchParams.get('page')).toBe('0');
+  await expect(pagination.getByRole('button', { name: '3페이지' })).toBeVisible();
+  await expect(pagination.getByRole('button', { name: '4페이지' })).toHaveCount(0);
+});
+
+test('허용하지 않는 목록 표시 개수는 URL 에서 걷어 낸다', async ({ page }) => {
+  await reviewer(page);
+  await mockList(page, () => Array.from({ length: 45 }, (_, index) => inquiry(String(41 + index))));
+  await page.goto('/review?size=30&keep=1');
+  await expect(page).toHaveURL(/\/review\?keep=1$/);
+  await expect(page.getByRole('combobox', { name: '목록 표시 개수' })).toHaveValue('10');
+});
+
 test('범위 초과 페이지는 마지막 페이지로 보정하고 빈 목록은 첫 페이지로 복귀한다', async ({
   page,
 }) => {
@@ -361,12 +401,12 @@ test('범위 초과 페이지는 마지막 페이지로 보정하고 빈 목록�
   await page.goto('/review?status=open&page=99&keep=1');
   await expect(page).toHaveURL(/status=open&page=3&keep=1$/);
   await expect(page.getByRole('list', { name: '문의 목록' }).getByRole('listitem')).toHaveCount(3);
-  await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
   await page.goto('/review?status=closed&page=99&keep=1');
   await expect(page).toHaveURL(/status=closed&keep=1$/);
   await expect(page.getByText('이 상태의 문의가 없습니다.')).toBeVisible();
-  await expect(page.getByRole('button', { name: '이전', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '이전 페이지', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
 });
 
 for (const snapshot of [

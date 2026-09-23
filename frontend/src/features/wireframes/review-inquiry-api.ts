@@ -298,12 +298,18 @@ export function parseTagCorrectionCandidate(value: unknown): TagCorrectionCandid
 
 export async function getReviewInquiries(
   page: number,
+  size: number,
   selectedStatus?: InquiryStatus,
   signal?: AbortSignal,
 ): Promise<ReviewInquiryList> {
-  const query = new URLSearchParams({ page: String(page), size: '10' });
+  const query = new URLSearchParams({ page: String(page), size: String(size) });
   if (selectedStatus) query.set('status', selectedStatus.toUpperCase());
-  return parseReviewInquiryList(await fetchJson<unknown>('/review/inquiries', { query, signal }));
+  const result = parseReviewInquiryList(
+    await fetchJson<unknown>('/review/inquiries', { query, signal }),
+  );
+  // 서버는 size 를 1~100 으로 정규화한다. 고른 크기와 다르면 페이지 계산이 어긋나므로 받지 않는다.
+  if (result.size !== size) fail();
+  return result;
 }
 
 export async function getReviewInquiry(

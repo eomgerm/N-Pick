@@ -85,6 +85,28 @@ async function clipList(page: Page, count = 11) {
   });
   return requests;
 }
+// 처리 중인 영상이 있어 5초마다 다시 읽는 목록. size 를 따르고, 첫 응답 뒤로는 늦게 답해 조회 중 상태를 붙잡는다.
+async function pollingClipList(page: Page, count = 45) {
+  const requests: URL[] = [];
+  await page.route('**/api/v1/clips?*', async (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    if (requests.length > 1) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const currentPage = Number(url.searchParams.get('page'));
+    const size = Number(url.searchParams.get('size'));
+    const items = Array.from({ length: count }, (_, index) => clip(String(index + 21), 'running'));
+    await success(route, {
+      items: items.slice(currentPage * size, (currentPage + 1) * size),
+      page: currentPage,
+      size,
+      total_elements: items.length,
+      total_pages: Math.ceil(items.length / size),
+      has_next: (currentPage + 1) * size < items.length,
+      run_counts: { queued: 0, running: count, failed: 0, succeeded: 0, no_run: 0 },
+    });
+  });
+  return requests;
+}
 test.beforeEach(async ({ page }) => {
   await page.context().addCookies([
     { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
@@ -144,7 +166,10 @@ test('서버 전체 집계·필터·페이지를 사용하고 상세에서 목�
   // 한 페이지뿐이어도 페이지네이션은 사라지지 않는다. 문의 화면과 같은 규약.
   const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
   await expect(pager).toBeVisible();
-  await expect(pager).toContainText('1 / 1');
+  await expect(pager.getByRole('button', { name: '1페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
   await expect(pager.getByRole('button', { name: '이전 페이지' })).toBeDisabled();
   await expect(pager.getByRole('button', { name: '다음 페이지' })).toBeDisabled();
   await expect(page).not.toHaveURL(/progressPage=/);
@@ -882,3 +907,60 @@ for (const width of [1440, 390, 320]) {
     }
   });
 }
+
+test('자동 재조회 중에도 번호 입력은 포커스를 잃지 않고 목록 표시 개수를 따른다', async ({
+  page,
+}) => {
+  const requests = await pollingClipList(page);
+  await page.goto('/review?view=processing&progressSize=20');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  const pageInput = pager.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await expect(pager.getByRole('button', { name: '3페이지' })).toBeVisible();
+  expect(requests[0].searchParams.get('size')).toBe('20');
+  await pageInput.fill('2');
+  await expect.poll(() => requests.length, { timeout: 10_000 }).toBeGreaterThan(1);
+  await expect(pageInput).toBeEnabled();
+  await expect(pageInput).toBeFocused();
+  await pageInput.press('Enter');
+  await expect(page).toHaveURL(/progressSize=20&progressPage=2$/);
+});
+
+test('범위 밖 안내는 필터를 바꾸면 지워진다', async ({ page }) => {
+  await pollingClipList(page);
+  await page.goto('/review?view=processing');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  const pageInput = pager.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await pageInput.fill('9');
+  await pageInput.press('Enter');
+  await expect(pager.getByRole('alert')).toHaveText('1~5 사이의 페이지 번호를 입력해 주세요.');
+  await page.getByRole('checkbox', { name: '내 영상만 보기' }).click();
+  await expect(page).toHaveURL(/mine=true/);
+  await expect(pager.getByRole('alert')).toHaveCount(0);
+  await expect(pageInput).toHaveValue('');
+  await expect(pageInput).not.toHaveAttribute('aria-invalid', 'true');
+});
+
+test('허용하지 않는 목록 표시 개수는 URL 에서 걷어 낸다', async ({ page }) => {
+  await pollingClipList(page);
+  await page.goto('/review?view=processing&progressSize=30');
+  await expect(page).not.toHaveURL(/progressSize=/);
+  await expect(page.getByRole('combobox', { name: '목록 표시 개수' })).toHaveValue('10');
+});
+
+test('다음 쪽을 읽는 동안에도 번호와 포커스를 유지하고 번호 이동 뒤에도 입력칸에 머문다', async ({
+  page,
+}) => {
+  const requests = await pollingClipList(page);
+  await page.goto('/review?view=processing');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  await pager.getByRole('button', { name: '2페이지' }).click();
+  // 응답이 1.5초 늦게 온다. 그동안 총 쪽수를 잃으면 번호가 1 하나로 줄고 누른 버튼이 사라진다.
+  await expect(pager.getByRole('button', { name: '5페이지' })).toBeVisible();
+  await expect(pager.getByRole('button', { name: '2페이지' })).toBeFocused();
+  await expect.poll(() => requests.length).toBeGreaterThan(1);
+  const pageInput = pager.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await pageInput.fill('4');
+  await pageInput.press('Enter');
+  await expect(page).toHaveURL(/progressPage=4$/);
+  await expect(pageInput).toBeFocused();
+});

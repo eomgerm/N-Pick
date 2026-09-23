@@ -6,6 +6,12 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
 import { inquiryStatusLabels, type InquiryStatus } from '@/features/wireframes/inquiry-state';
+import { DEFAULT_PAGE_SIZE } from '@/features/wireframes/list-pagination';
+import {
+  PageJump,
+  PageNumbers,
+  PageSizeSelect,
+} from '@/features/wireframes/list-pagination-controls';
 import type { ReviewInquiryList } from '@/features/wireframes/review-inquiry-api';
 import {
   displayClipTitle,
@@ -25,6 +31,7 @@ const filters: Array<{ value: 'all' | InquiryStatus; label: string }> = [
 interface InquiryListProps {
   data: ReviewInquiryList;
   currentStatus?: InquiryStatus;
+  pageSize: number;
 }
 
 interface InquiryListHeadingProps {
@@ -61,7 +68,7 @@ export function InquiryListHeading({ data }: InquiryListHeadingProps) {
   );
 }
 
-export function InquiryList({ data, currentStatus }: InquiryListProps) {
+export function InquiryList({ data, currentStatus, pageSize }: InquiryListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -78,6 +85,10 @@ export function InquiryList({ data, currentStatus }: InquiryListProps) {
 
   function move(updates: Record<string, string | null>) {
     router.push(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
+  }
+
+  function handlePageChange(page: number) {
+    move({ page: page === 1 ? null : String(page) });
   }
 
   return (
@@ -110,7 +121,12 @@ export function InquiryList({ data, currentStatus }: InquiryListProps) {
           <p aria-live="polite" role="status">
             총 <strong>{data.totalElements}</strong>개의 문의
           </p>
-          <span>페이지 {currentPage} · 10개씩</span>
+          <PageSizeSelect
+            pageSize={pageSize}
+            onPageSizeChange={(size) =>
+              move({ size: size === DEFAULT_PAGE_SIZE ? null : String(size), page: null })
+            }
+          />
         </div>
 
         {data.items.length === 0 ? (
@@ -162,23 +178,17 @@ export function InquiryList({ data, currentStatus }: InquiryListProps) {
         )}
 
         <nav aria-label="문의 목록 페이지" className={boardStyles.pagination}>
-          <button
-            disabled={currentPage <= 1}
-            onClick={() => move({ page: currentPage === 2 ? null : String(currentPage - 1) })}
-            type="button"
-          >
-            이전
-          </button>
-          <span>
-            {currentPage} / {Math.max(data.totalPages, 1)}
-          </span>
-          <button
-            disabled={data.totalPages === 0 || currentPage >= data.totalPages}
-            onClick={() => move({ page: String(currentPage + 1) })}
-            type="button"
-          >
-            다음
-          </button>
+          <PageNumbers
+            page={currentPage}
+            totalPages={data.totalPages}
+            onPageChange={handlePageChange}
+          />
+          <PageJump
+            // 목록 조건이 바뀌면 입력과 범위 밖 안내를 비운다.
+            key={`${currentStatus ?? 'all'}|${pageSize}`}
+            totalPages={data.totalPages}
+            onPageChange={handlePageChange}
+          />
         </nav>
       </section>
     </div>

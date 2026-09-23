@@ -1,0 +1,82 @@
+.pageNumbers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.pageNumbers button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.pageNumbers button:disabled,
+.pageNumbers button[aria-disabled='true'],
+.jump [aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.pageNumbers svg {
+  width: 16px;
+  height: 16px;
+}
+/* 현재 쪽은 색만이 아니라 굵기·테두리로도 구분한다. 화면별 `.page .pagination button` 굵기보다 앞서야 한다. */
+.pageNumbers .pageButton[aria-current='page'] {
+  box-shadow: inset 0 0 0 2px currentColor;
+  font-weight: 700;
+}
+/* 좁은 패널에서도 9칸이 한 줄에 들어가게 줄인다. */
+.pageNumbers[data-compact] {
+  gap: 2px;
+}
+.pageNumbers[data-compact] button {
+  min-width: 32px;
+  padding-inline: 6px;
+}
+.ellipsis {
+  min-width: 20px;
+  text-align: center;
+}
+
+/* 번호 이동·개수 선택은 검수자 화면에서만 쓴다. reviewer.module.css 의 토큰을 따른다. */
+.jump {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+}
+.jumpInput,
+.sizeSelect {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.jumpInput {
+  width: 52px;
+  padding: 0 8px;
+  text-align: center;
+}
+.jumpInput[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.sizeSelect {
+  padding: 0 8px;
+}
+.jumpInput:focus-visible,
+.sizeSelect:focus-visible {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+/* 문서 흐름 안에 둬서 패널 밖으로 튀어나오거나 좁은 폭에서 잘리지 않게 한다. */
+.jumpError {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  text-align: center;
+}

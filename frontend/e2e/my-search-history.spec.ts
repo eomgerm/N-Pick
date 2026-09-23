@@ -93,13 +93,11 @@ for (const role of ['editor', 'reviewer']) {
     const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
     await expect(panel.getByRole('listitem')).toHaveCount(10);
     await expect(panel.getByText('2026. 8. 1.', { exact: true }).first()).toBeVisible();
-    await panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }).click();
+    await panel.getByRole('button', { name: '다음 페이지', exact: true }).click();
     await expect(panel.getByRole('listitem')).toHaveCount(1);
     await expect(panel.getByText('서버 검색어 110', { exact: true })).toBeVisible();
-    await expect(
-      panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }),
-    ).toBeDisabled();
-    await panel.getByRole('button', { name: '이전 검색 기록 페이지', exact: true }).click();
+    await expect(panel.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
+    await panel.getByRole('button', { name: '이전 페이지', exact: true }).click();
     const row = panel.getByRole('button', { name: /^서버 검색어 100 검색 결과/ });
     await row.click();
     const searchInput = page.getByRole('searchbox', { name: '뉴스 장면 검색어' });

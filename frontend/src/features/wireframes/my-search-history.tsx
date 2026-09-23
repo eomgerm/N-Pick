@@ -1,11 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Clock3, FileSearch, History, Trash2 } from 'lucide-react';
+import { Clock3, FileSearch, History, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { useMember } from '@/components/session-boundary';
+import { PageNumbers } from '@/features/wireframes/list-pagination-controls';
 import {
   deleteMySearchHistory,
   getMySearchHistory,
@@ -178,33 +179,19 @@ export function MySearchHistory({ theme, onDetailOpenChange, onSelect }: MySearc
               )}
             </>
           ) : null}
-          {page > 0 || (list.data?.hasNext ?? false) ? (
-            <nav aria-label="검색 기록 페이지" className={styles.pagination}>
-              <button
-                aria-label="이전 검색 기록 페이지"
-                className={styles.historyButton}
-                disabled={list.isFetching || page === 0}
-                onClick={() => setPage(page - 1)}
-                type="button"
-              >
-                <ChevronLeft aria-hidden="true" />
-              </button>
-              <span>
-                {page + 1} 페이지
-                {list.data && page < list.data.totalPages ? ` / ${list.data.totalPages}` : ''}
-              </span>
-              <button
-                aria-label="다음 검색 기록 페이지"
-                className={styles.historyButton}
-                disabled={list.isFetching || !list.data?.hasNext}
-                onClick={() => setPage(page + 1)}
-                type="button"
-              >
-                <ChevronRight aria-hidden="true" />
-              </button>
-            </nav>
-          ) : null}
         </div>
+        {page > 0 || (list.data?.hasNext ?? false) ? (
+          // 목록이 길어도 스크롤 없이 닿도록 스크롤 영역 밖에 둔다.
+          <nav aria-label="검색 기록 페이지" className={styles.pagination}>
+            <PageNumbers
+              isCompact
+              isDisabled={list.isFetching}
+              page={page + 1}
+              totalPages={list.data?.totalPages ?? page + 1}
+              onPageChange={(next) => setPage(next - 1)}
+            />
+          </nav>
+        ) : null}
       </section>
       {selectedId ? (
         <MySearchHistoryDetail

@@ -84,11 +84,11 @@ test('문의 패널은 실제 목록·페이지와 상세의 최신 처리 결�
   expect(requests[0]).not.toContain('member');
   await expect(panel.getByText('서버 영상 제목', { exact: true }).first()).toBeVisible();
   await expect(panel.getByText('2026. 8. 1.', { exact: true }).first()).toBeVisible();
-  await panel.getByRole('button', { name: '다음 문의 페이지' }).click();
+  await panel.getByRole('button', { name: '다음 페이지' }).click();
   await expect(panel.getByRole('listitem')).toHaveCount(1);
   await expect(panel.getByText('서버 문의 11', { exact: true })).toBeVisible();
-  await expect(panel.getByRole('button', { name: '다음 문의 페이지' })).toBeDisabled();
-  await panel.getByRole('button', { name: '이전 문의 페이지' }).click();
+  await expect(panel.getByRole('button', { name: '다음 페이지' })).toBeDisabled();
+  await panel.getByRole('button', { name: '이전 페이지' }).click();
   const row = panel.getByRole('button', { name: /^서버 문의 1 서버 영상 제목/ });
   await row.click();
   const dialog = page.getByRole('dialog', { name: '문의 상세', exact: true });
