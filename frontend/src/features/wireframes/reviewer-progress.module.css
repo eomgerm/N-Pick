@@ -353,6 +353,9 @@
 }
 .detailPage .panel {
   border-radius: 20px;
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
 }
 .overview {
   display: flex;
