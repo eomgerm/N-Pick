@@ -37,6 +37,10 @@ import java.util.List;
  *   <li><b>dense 채널은 확장어의 영향을 받지 않는다.</b> 질의 임베딩은 원문 기준이다 ({@code embed_query(raw_query)})
  *   <li>확장어에서 유래한 매칭은 사용자가 명시한 조건과 <b>구분해 표시</b>한다 (F-05·F-07). {@code matched_keywords} 는 항목마다 {@code origin}
  *       ({@code user} · {@code expanded}) 을 싣는다 (S15P21A501-234). 응답과 {@code explain_json} 이 같은 구조다
+ *   <li><b>확장어는 구 단위로 받는다</b> (S15P21A501-302). 다어절 확장어를 평탄화하면 OR 이 되어 구의 의미가 사라진다 — 「중국 음식」이 {@code 중국} OR {@code 음식}
+ *       이 되어 짜장면 검색에 중국 경제 뉴스가 올라온다. 순위가 아니라 <b>후보 자격</b> 문제라 가중치로 고칠 수 없다 — 확장어 가중치를 낮추면 순위만 내려가고, 0 으로 두면 정상 동의어까지
+ *       죽는다. 다어절 동의어를 토큰별 OR 로 푸는 것은 Lucene/ES·Solr·Vespa 가 모두 고장으로 규정한 것이며, 이 포트의 {@code must} 는 ES 의
+ *       {@code auto_generate_synonyms_phrase_query=false} 에 해당한다 (업계 기본값은 phrase 다)
  * </ul>
  */
 public interface FindSceneCandidatesQueryPort {
@@ -52,8 +56,9 @@ public interface FindSceneCandidatesQueryPort {
      */
     /**
      * @param searchTokens 원 질의 토큰
-     * @param expandedTokens 규칙 적용 후 확장어의 토큰. <b>원 질의 토큰과 겹치는 것은 호출부가 이미 뺐다</b> — 겹친 토큰은 두 절에서 각각 가산되어 F-05 의 「같은 개체를 중복
-     *     계산하지 않는다」를 깬다. 확장어가 없거나 토큰화에 실패했으면 빈 목록이다
+     * @param expandedPhrases 규칙 적용 후 확장어의 토큰을 <b>확장어 항목별로 묶은 것</b>. 한 묶음은 한 구이고 구현은 구 안을 {@code must}, 구 사이를 OR 로 건다
+     *     (S15P21A501-302). 평탄화해서 받으면 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되어 짜장면 검색에 중국 경제 뉴스가 올라온다. <b>원 질의 토큰만으로 이루어진
+     *     묶음은 호출부가 이미 뺐다</b> — 그런 묶음은 두 절에서 각각 가산되어 F-05 의 「같은 개체를 중복 계산하지 않는다」를 깬다. 확장어가 없거나 토큰화에 실패했으면 빈 목록이다
      */
-    List<SceneCandidateResult> findByWords(List<String> searchTokens, List<String> expandedTokens);
+    List<SceneCandidateResult> findByWords(List<String> searchTokens, List<List<String>> expandedPhrases);
 }

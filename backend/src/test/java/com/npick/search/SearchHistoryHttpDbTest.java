@@ -111,8 +111,7 @@ class SearchHistoryHttpDbTest {
         mockMvc.perform(get("/api/v1/search/history?page=0&size=10").with(user(OWNER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total_elements").value(3))
-                .andExpect(jsonPath(
-                        "$.data.items[*].search_execution_id", Matchers.not(Matchers.hasItem("9799"))));
+                .andExpect(jsonPath("$.data.items[*].search_execution_id", Matchers.not(Matchers.hasItem("9799"))));
     }
 
     @Test
