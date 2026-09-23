@@ -134,7 +134,7 @@ pipeline {
         JENKINS_CONTAINER = 'jenkins'
       }
       when {
-        expression { env.PIPELINE_MODE == 'MR' }
+        expression { PIPELINE_MODE == 'MR' }
       }
       parallel {
         stage('Backend') {

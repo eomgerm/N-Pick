@@ -1,12 +1,13 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Clock3, Film, MessageSquareText, X } from 'lucide-react';
+import { Clock3, Film, MessageSquareText, X } from 'lucide-react';
 import { useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { useMember } from '@/components/session-boundary';
 import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
+import { PageNumbers } from '@/features/wireframes/list-pagination-controls';
 import { getMyInquiries, getMyInquiry, myInquiryKeys } from '@/features/wireframes/my-inquiry-api';
 import { resolveInquiryResultTitle } from '@/features/wireframes/my-inquiry-view';
 import {
@@ -113,34 +114,20 @@ export function MyInquiryHistory({ theme, onDetailOpenChange }: MyInquiryHistory
                   ))}
                 </ul>
               )}
-              {list.data.totalPages > 1 || page > 0 ? (
-                <nav aria-label="문의 기록 페이지" className={styles.pagination}>
-                  <button
-                    aria-label="이전 문의 페이지"
-                    className={styles.historyButton}
-                    disabled={list.isFetching || page === 0}
-                    onClick={() => setPage(page - 1)}
-                    type="button"
-                  >
-                    <ChevronLeft aria-hidden="true" />
-                  </button>
-                  <span>
-                    {page + 1} / {list.data.totalPages}
-                  </span>
-                  <button
-                    aria-label="다음 문의 페이지"
-                    className={styles.historyButton}
-                    disabled={list.isFetching || !list.data.hasNext}
-                    onClick={() => setPage(page + 1)}
-                    type="button"
-                  >
-                    <ChevronRight aria-hidden="true" />
-                  </button>
-                </nav>
-              ) : null}
             </>
           ) : null}
         </div>
+        {page > 0 || (list.data?.hasNext ?? false) ? (
+          <nav aria-label="문의 기록 페이지" className={styles.pagination}>
+            <PageNumbers
+              isCompact
+              isDisabled={list.isFetching}
+              page={page + 1}
+              totalPages={list.data?.totalPages ?? page + 1}
+              onPageChange={(next) => setPage(next - 1)}
+            />
+          </nav>
+        ) : null}
       </section>
       {selectedId ? (
         <MyInquiryDetailDialog

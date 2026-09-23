@@ -16,6 +16,8 @@ interface SearchResultStateProps {
   details?: SearchResultDetails;
   /** 서버 왕복이 아닌 이유로 실패했을 때 그 설명. 있으면 다시 시도가 같은 결과를 낸다. */
   reason?: string;
+  /** 실패 시 이 화면이 검색어·기간을 알고 있는지. true면 「입력한 검색어와 기간은 유지돼요」를 말하지 않는다. */
+  conditionsUnknown?: boolean;
   onReset: () => void;
   onRetry: () => void;
 }
@@ -27,6 +29,7 @@ export function SearchResultState({
   filmingRange,
   details,
   reason,
+  conditionsUnknown,
   onReset,
   onRetry,
 }: SearchResultStateProps) {
@@ -59,6 +62,13 @@ export function SearchResultState({
             // 「기간은 유지돼요」를 붙이지 않는다. 쓸 수 없는 기간은 접혀서 아래 조건에
             // 「전체 기간」으로 나오므로 유지됐다는 말과 화면이 어긋난다.
             reason
+          ) : isFailed && conditionsUnknown ? (
+            // 검색 기록 스냅샷처럼 서버 응답이 와야 검색어·기간을 알 수 있는 화면은, 그 응답
+            // 자체가 실패하면 조건도 모른다 — 「유지돼요」라 하면 거짓이다.
+            <>
+              일시적인 연결 문제로 이 기록을 불러오지 못했어요.
+              <br />이 화면에서는 검색어와 기간을 확인할 수 없어요.
+            </>
           ) : isFailed ? (
             <>
               일시적인 연결 문제로 검색을 완료하지 못했어요.
@@ -79,18 +89,23 @@ export function SearchResultState({
       </div>
       {!isLoading ? (
         <div className={styles.stateDetails}>
+          {/* 실패했는데 검색어·기간을 아예 모르는 화면(검색 기록 스냅샷 조회 실패)은 조건을
+              단언하지 않는다 — 위 본문이 「확인할 수 없어요」인데 여기서 「전체 기간」·빈 검색어를
+              내면 화면이 스스로 모순된다. 셋 다 「확인 불가」로 맞춘다. */}
           <dl className={styles.searchConditions}>
             <div>
               <dt>검색어</dt>
-              <dd>{query}</dd>
+              <dd>{isFailed && conditionsUnknown ? '확인 불가' : query}</dd>
             </div>
             <div>
               <dt>방송일</dt>
-              <dd>{formatDateRange(broadcastRange)}</dd>
+              <dd>
+                {isFailed && conditionsUnknown ? '확인 불가' : formatDateRange(broadcastRange)}
+              </dd>
             </div>
             <div>
               <dt>촬영일</dt>
-              <dd>{formatDateRange(filmingRange)}</dd>
+              <dd>{isFailed && conditionsUnknown ? '확인 불가' : formatDateRange(filmingRange)}</dd>
             </div>
             <div>
               <dt>검색 해석</dt>

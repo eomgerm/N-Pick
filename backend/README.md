@@ -163,6 +163,7 @@ java -jar build/libs/npick-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 | `CLIP_MEDIA_ROOT` | `NPICK_MEDIA_ROOT` | 재생·썸네일 오버라이드. 보통 쓰지 않는다 |
 | `CLIP_MEDIA_NGINX_ACCEL` | `false` | `true` 면 재생 바이트 전송을 nginx 에 위임한다 |
 | `CLIP_MEDIA_INTERNAL_LOCATION` | `/internal-media/` | 위임 대상 location. nginx 설정과 같아야 한다 |
+| `CLIP_MEDIA_EXTRACTION_TIMEOUT` | `2m` | 장면 다운로드 ffmpeg 추출 최대 시간 |
 
 prod 프로파일은 `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` / `CORS_ALLOWED_ORIGINS` 를 쓰며
 넷 다 기본값이 없다.
@@ -194,6 +195,15 @@ nginx 는 compose 의 `proxy` 프로필 뒤에 있으므로 compose 도 기본�
 첫 프레임 예산의 서버 몫(NFR-PERF-002)은 `com.npick` DEBUG 로그의
 `preview first-byte ... elapsedMs=` 로 측정한다. 요청 진입부터 본문 첫 바이트 직전까지, 즉 clip
 조회·경로 해석·Range 검증까지이며 전송 시간과 클라이언트 디코딩은 포함하지 않는다.
+
+## 영상 다운로드 (S15P21A501-269)
+
+`GET /api/v1/media/{clipId}/download`는 원본 전체를, `GET /api/v1/media/scenes/{sceneId}/download`는
+DB에 저장된 장면 경계를 MP4로 추출해 내려준다. 둘 다 로그인한 `EDITOR`·`REVIEWER`가 사용할 수 있다.
+장면 추출은 서버의 `ffmpeg` 실행 파일을 사용하며 `CLIP_MEDIA_EXTRACTION_TIMEOUT` 안에 끝나지 않으면
+`CLIP_503_012`로 실패한다. `CLIP_MEDIA_MAX_CONCURRENT_EXTRACTIONS`(기본 1)가 동시 재인코딩 상한이며,
+자리가 없으면 같은 코드로 즉시 거절한다. 추출된 임시 파일은 응답 준비·전송의 모든 성공·실패 경로에서 삭제한다.
+다운로드 요청은 member ID와 clip 또는 scene ID만 INFO 로그로 남기고 파일 경로는 기록하지 않는다.
 
 ## 장면 대표 이미지
 

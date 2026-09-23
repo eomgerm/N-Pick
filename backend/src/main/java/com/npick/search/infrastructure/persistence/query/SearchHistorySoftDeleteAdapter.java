@@ -28,6 +28,18 @@ public class SearchHistorySoftDeleteAdapter implements SearchHistorySoftDeletePo
             WHERE se.search_execution_id = :searchExecutionId AND
             """ + SearchHistoryRows.OWNER_SCOPE_ANY_STATE;
 
+    /**
+     * 전체 삭제(S15P21A501-291)의 대상은 「목록에 보이는 것」과 정확히 같아야 한다. 그래서 목록·상세가 쓰는 {@link SearchHistoryRows#OWNER_SCOPE}(소유·대상 범위
+     * <b>+ {@code deleted_at IS NULL}</b>)를 그대로 쓴다 — 조건을 손으로 복제하면 「보이는데 안 지워지는」 행이 생길 수 있다.
+     *
+     * <p>이미 숨긴 행이 조건에서 빠지므로 건별과 달리 COALESCE·CASE 가 필요 없다. 대상은 항상 아직 보이는 행이라 {@code now()} 를 그대로 써도 이미 숨긴 기록의 시각을 밀지 않는다.
+     */
+    private static final String CLEAR_SQL = """
+            UPDATE search_execution se
+            SET deleted_at = now(), updated_at = now()
+            WHERE
+            """ + SearchHistoryRows.OWNER_SCOPE;
+
     private final EntityManager entityManager;
 
     SearchHistorySoftDeleteAdapter(EntityManager entityManager) {
@@ -42,5 +54,13 @@ public class SearchHistorySoftDeleteAdapter implements SearchHistorySoftDeletePo
                         .setParameter("ownerId", ownerId)
                         .executeUpdate()
                 > 0;
+    }
+
+    @Override
+    public int hideAllOwned(long ownerId) {
+        return entityManager
+                .createNativeQuery(CLEAR_SQL)
+                .setParameter("ownerId", ownerId)
+                .executeUpdate();
     }
 }

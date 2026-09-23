@@ -166,6 +166,18 @@
   padding: 24px 32px 64px 124px;
 }
 
+.page.inquiryPage {
+  --inquiry-panel-height: calc(
+    100dvh - var(--layout-top-inset) - var(--nav-collapsed-width) - var(--nav-top-gap) - 64px
+  );
+}
+
+.page.inquiryPage,
+.page.processingPage {
+  padding-top: calc(var(--nav-top-gap) - 14px);
+  padding-bottom: 64px;
+}
+
 .hero {
   display: flex;
   align-items: flex-end;
@@ -1967,4 +1979,16 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* 중복 안내는 등록 완료와 같은 틀을 쓰되 색으로도 구분한다. 문구를 읽지 않고 훑는 사용자가
+   성공 배너로 오해하면 이 안내의 목적이 사라진다. */
+.duplicateNotice {
+  border-color: color-mix(in srgb, var(--warning) 32%, var(--line));
+  background: var(--warning-soft);
+}
+
+.duplicateNotice > svg,
+.duplicateNotice > div > p {
+  color: var(--warning);
 }

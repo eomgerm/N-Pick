@@ -14,6 +14,7 @@ import {
   type ReviewInquiryDetail,
 } from '@/features/wireframes/review-inquiry-api';
 import { SceneExcludeCandidateForm } from '@/features/wireframes/review-scene-exclude';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 
 interface InquiryResolutionFormProps {
@@ -23,6 +24,7 @@ interface InquiryResolutionFormProps {
 
 export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolutionFormProps) {
   const queryClient = useQueryClient();
+  const { showSuccess } = useSuccessToast();
   const persisted = inquiry.resolution;
   const [mode, setMode] = useState<ResolutionToggleMode>(
     persisted === 'correction' ? 'correction' : 'no_action',
@@ -35,6 +37,7 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
     mutationFn: (resolution: InquiryResolution) =>
       resolveReviewInquiry(inquiry.feedbackId, resolution, note),
     onSuccess: async () => {
+      showSuccess('판정을 저장했습니다.');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['review-inquiries'] }),
         queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] }),

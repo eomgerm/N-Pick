@@ -216,3 +216,13 @@ export async function deleteMySearchHistory(executionId: string, signal?: AbortS
     if (!(error instanceof ApiClientError) || error.status !== 404) throw error;
   }
 }
+
+/**
+ * 내 검색 기록을 한 번에 모두 지운다 (S15P21A501-291 계약).
+ *
+ * 건별 삭제와 같은 soft delete 라 행은 보존되고 목록·총계에서만 빠진다. 컬렉션 대상이라 서버는 지울 것이 없어도 200 이므로
+ * 건별과 달리 404 를 다룰 필요가 없다. 되돌릴 수단은 없으니 호출부가 확인 단계를 먼저 거친다.
+ */
+export async function clearMySearchHistory(signal?: AbortSignal) {
+  await fetchJson<unknown>('/search/history', { method: 'DELETE', signal });
+}

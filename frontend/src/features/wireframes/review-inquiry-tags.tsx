@@ -13,6 +13,7 @@ import {
   type TagCorrectionOperation,
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 
 const tagTypeLabels: Record<ReviewTagType, string> = {
   person: '인물',
@@ -84,6 +85,7 @@ function validateTagValue(value: string, tagType: ReviewTagType): string {
 }
 
 export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsProps) {
+  const { showSuccess } = useSuccessToast();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [added, setAdded] = useState<AddedTag[]>([]);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -102,6 +104,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
         const next = submission.added;
         setAdded((current) => [...current, next]);
       }
+      showSuccess('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
     },
   });
 

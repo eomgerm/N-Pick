@@ -21,6 +21,7 @@ import com.npick.search.application.query.search.ExecuteSearchQuery;
  */
 public record SearchRequest(
         @JsonProperty("query") @NotBlank @Size(min = 2, max = 500, message = "검색어는 2글자 이상 입력해 주세요") String query,
+
         @JsonProperty("explicit_filters") Filters explicitFilters,
         @JsonProperty("page") @Min(0) @Max(10_000) Integer page,
         @JsonProperty("search_execution_id") String searchExecutionId) {
@@ -38,10 +39,8 @@ public record SearchRequest(
     }
 
     /**
-     * 더보기 이어보기가 가리키는 root 실행 id — 「내 검색 기록」이 한 검색을 한 줄로 보이게 하는
-     * 그룹핑 힌트다(S15P21A501-280). 첫 페이지 검색은 싣지 않는다. 결과·해석 재사용이 아니라
-     * 기록 링크 전용이라 형식이 아니거나 없으면 null(=root 검색)로 본다 — 잘못된 힌트로 검색
-     * 자체를 막지 않는다. bigint id 는 양의 십진 문자열이다(web-api §2.3).
+     * 더보기 이어보기가 가리키는 root 실행 id — 「내 검색 기록」이 한 검색을 한 줄로 보이게 하는 그룹핑 힌트다(S15P21A501-280). 첫 페이지 검색은 싣지 않는다. 결과·해석 재사용이
+     * 아니라 기록 링크 전용이라 형식이 아니거나 없으면 null(=root 검색)로 본다 — 잘못된 힌트로 검색 자체를 막지 않는다. bigint id 는 양의 십진 문자열이다(web-api §2.3).
      */
     public Long parentExecutionId() {
         // 자릿수를 제한하지 않으면 20자리 같은 값이 정규식은 통과하고 Long.valueOf 에서

@@ -29,6 +29,15 @@ test('시작일과 종료일이 같아도 유효하다', () => {
   assert.equal(validateDateRange(range), '');
 });
 
+test('1950년 1월 1일부터 허용하고 이전 날짜는 URL에서도 거부한다', () => {
+  assert.equal(validateDateRange({ from: '1950-01-01', to: '1950-01-01' }), '');
+  const error = '1950년 1월 1일 이전 날짜는 선택할 수 없습니다.';
+  for (const to of ['1949-12-31', '1950-01-01']) {
+    assert.equal(validateDateRange({ from: '1949-12-31', to }), error);
+    assert.deepEqual(readDateRange('1949-12-31', to), { range: emptyDateRange, error });
+  }
+});
+
 test('오늘까지 허용하고 미래 날짜는 URL에서도 조건을 버린 이유와 함께 거부한다', () => {
   const today = '2026-09-22';
   assert.equal(validateDateRange({ from: today, to: today }, today), '');

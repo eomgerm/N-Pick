@@ -34,14 +34,19 @@ function listPage(items: unknown[], page = 0, total = items.length) {
     has_next: (page + 1) * 10 < total,
   };
 }
-function detail() {
-  return { ...item(), search_snapshot: structuredClone(searchFixture) };
+function detail(id = '100') {
+  // search_snapshot 은 searchFixture 를 그대로 쓰되, 그 자신의 search_execution_id(고정값 '100')를
+  // 요청한 기록 id로 맞춘다 — 서버 계약(parseMySearchHistoryDetail)이 둘의 일치를 요구한다.
+  return {
+    ...item(id),
+    search_snapshot: { ...structuredClone(searchFixture), search_execution_id: id },
+  };
 }
 
 for (const role of ['editor', 'reviewer']) {
-  test(`${role} 검색 기록은 서버 목록·페이지·당시 결과를 조회하고 Preview에서 돌아온다`, async ({
+  test(`${role} 검색 기록은 서버 목록·페이지를 조회하고 당시 결과 화면으로 이동한다`, async ({
     page,
-  }, testInfo) => {
+  }) => {
     await page
       .context()
       .addCookies([{ name: 'JSESSIONID', value: `e2e-${role}`, url: 'http://127.0.0.1:3116' }]);
@@ -66,93 +71,48 @@ for (const role of ['editor', 'reviewer']) {
         ),
       });
     });
-    let releaseDetail!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      releaseDetail = resolve;
-    });
-    await page.route('**/api/v1/search/history/100', async (route) => {
-      await gate;
-      const data = detail();
-      data.status = 'degraded';
-      data.search_snapshot.status = 'degraded';
-      data.search_snapshot.degraded_reasons = ['resolver_fallback'];
-      data.search_snapshot.query_resolution_status = 'fallback';
-      data.search_snapshot.results.push({
-        ...structuredClone(searchFixture.results[0]),
-        search_result_id: '102',
-        scene_id: '32',
-        rank: 2,
-        scene_description: '당시 두 번째 장면',
-      });
-      data.result_count = 2;
-      await route.fulfill({ json: success(data) });
-    });
     await page.goto('/search');
     expect(listReads).toBe(0);
     await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
     const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
     await expect(panel.getByRole('listitem')).toHaveCount(10);
     await expect(panel.getByText('2026. 8. 1.', { exact: true }).first()).toBeVisible();
-    await panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }).click();
+    await panel.screenshot({ path: test.info().outputPath('search-history-list.png') });
+    await panel.getByRole('button', { name: '다음 페이지', exact: true }).click();
     await expect(panel.getByRole('listitem')).toHaveCount(1);
     await expect(panel.getByText('서버 검색어 110', { exact: true })).toBeVisible();
-    await expect(
-      panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }),
-    ).toBeDisabled();
-    await panel.getByRole('button', { name: '이전 검색 기록 페이지', exact: true }).click();
-    const row = panel.getByRole('button', { name: /^서버 검색어 100 검색 결과/ });
+    await expect(panel.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
+    await panel.getByRole('button', { name: '이전 페이지', exact: true }).click();
+
+    // 기록 행을 누르면 그 자리에서 검색창만 채우던 옛 동작 대신, 당시 결과 화면(historyId)으로
+    // 이동해 스냅샷을 그대로 보여준다 — 이 MR(S15P21A501-262)이 새로 만든 동작이다.
+    // 상세(gate) 플로우가 쓰는 id 100 과 겹치지 않도록 목록의 다른 항목(105)을 쓴다.
+    await page.route('**/api/v1/search/history/105', (route) =>
+      route.fulfill({ json: success(detail('105')) }),
+    );
+    const row = panel.getByRole('button', { name: /^서버 검색어 105 검색 결과/ });
     await row.click();
-    const searchInput = page.getByRole('searchbox', { name: '뉴스 장면 검색어' });
     await expect(panel).not.toBeVisible();
-    await expect(searchInput).toHaveValue('서버 검색어 100');
-    await expect(searchInput).toBeFocused();
+    await expect(page).toHaveURL(/\/search\/results\?historyId=105$/);
     expect(postSearches).toBe(0);
+    // 검색 기록(스냅샷) 모드 컨텍스트: 배지 날짜 + 재검색 고지로 라이브 검색과 구분한다
+    // (S15P21A501-262). role="status" 는 name-from-content 가 아니라 hasText 로
+    // "검색 해석: ..." status 와 구분한다.
+    const historyContext = page.getByRole('status').filter({ hasText: '검색 기록' });
+    await expect(historyContext).toContainText('2026-08-01 검색 기록');
+    await expect(historyContext).toContainText(
+      '다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요',
+    );
+    // 결과 화면의 검색창은 compact 변형(type 없음 → textbox)이라 진입 화면의 searchbox 와 role 이 다르다.
+    await expect(page.getByRole('textbox', { name: '뉴스 장면 검색어' })).toHaveValue(
+      '서버 검색어 105',
+    );
+    await expect(page.getByRole('heading', { name: '관련 장면 1개', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
-    const detailButton = panel.getByRole('button', {
-      name: '서버 검색어 100 검색 기록 상세 보기',
-      exact: true,
-    });
-    await detailButton.click();
-    const dialog = page.getByRole('dialog', { name: '검색 기록 상세', exact: true });
-    await expect(dialog.getByRole('status')).toHaveText('당시 검색 결과를 불러오는 중…');
-    releaseDetail();
-    await expect(dialog.getByRole('article')).toHaveCount(2);
-    await expect(dialog.getByText('서버 검색어 100', { exact: true })).toBeVisible();
-    await expect(dialog.getByText('검색어 해석 일부 누락', { exact: true })).toBeVisible();
-    await expect(dialog.getByText(/2026\.08\.01.*2026\.08\.10/)).toBeVisible();
-    const conditions = dialog.getByRole('complementary', { name: '당시 검색 조건' });
-    await expect(conditions).toBeVisible();
-    await conditions.getByText('검색 처리 정보', { exact: true }).click();
-    await expect(conditions.getByText('제외된 결과', { exact: true })).toBeVisible();
-    await conditions.getByText('검색 처리 정보', { exact: true }).click();
-    const cards = dialog.getByRole('article');
-    await expect(cards.first()).toBeInViewport({ ratio: 1 });
-    expect((await cards.first().boundingBox())!.x).toBeGreaterThan(
-      (await conditions.boundingBox())!.x,
-    );
-    await page.screenshot({ path: testInfo.outputPath('search-history-desktop.png') });
-    const previewButton = dialog.getByRole('button', {
-      name: '1위 실제 응답 장면 Preview 열기',
-      exact: true,
-    });
-    await previewButton.click();
-    const preview = page.getByRole('dialog', { name: '실제 응답 장면', exact: true });
-    await expect(preview).toBeVisible();
-    await expect(preview.getByText('검색 당시 저장된 결과와 근거입니다.')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(preview).not.toBeVisible();
-    await expect(previewButton).toBeFocused();
-    await page.setViewportSize({ width: 390, height: 844 });
-    await dialog.getByRole('heading', { name: '검색 조건', exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ path: testInfo.outputPath('search-history-mobile.png') });
-    const bounds = (await dialog.boundingBox())!;
-    expect(bounds.x).toBeGreaterThanOrEqual(0);
-    expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
-    await page.keyboard.press('Escape');
-    await expect(dialog).not.toBeVisible();
-    await expect(detailButton).toBeFocused();
-    await expect(panel).toBeVisible();
+    await expect(
+      panel.getByRole('button', { name: /검색 기록 상세 보기/, exact: true }),
+    ).toHaveCount(0);
     expect(postSearches).toBe(0);
   });
 }
@@ -190,7 +150,7 @@ test('목록 로딩·오류·빈 기록을 구분하고 재시도한다', async 
   await expect(panel.getByRole('listitem')).toHaveCount(0);
 });
 
-test('0건 검색·복원 불가·상세 404를 구분하며 현재 조건으로 채우지 않는다', async ({ page }) => {
+test('0건 검색·복원 불가·기록 404를 결과 화면에서 구분한다', async ({ page }) => {
   const zero = { ...item('100'), result_count: 0, representative_result: null };
   const missing = {
     ...item('200'),
@@ -222,26 +182,25 @@ test('0건 검색·복원 불가·상세 404를 구분하며 현재 조건으로
   );
   await page.goto('/search');
   await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
-  const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
-  await panel
-    .getByRole('button', { name: '서버 검색어 100 검색 기록 상세 보기', exact: true })
-    .click();
-  let dialog = page.getByRole('dialog', { name: '검색 기록 상세', exact: true });
-  await expect(dialog.getByText('당시 검색 결과는 0건입니다.')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await panel
-    .getByRole('button', { name: '서버 검색어 200 검색 기록 상세 보기', exact: true })
-    .click();
-  dialog = page.getByRole('dialog', { name: '검색 기록 상세', exact: true });
-  await expect(dialog.getByRole('alert')).toContainText('검색 기록을 찾을 수 없습니다.');
-  await dialog.getByRole('button', { name: '검색 기록 상세 다시 시도' }).click();
-  await expect(dialog.getByText('당시 검색 조건을 확인할 수 없습니다.')).toBeVisible();
+  let panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
+  await panel.getByRole('button', { name: /^서버 검색어 100 검색 결과/ }).click();
+  await expect(page).toHaveURL(/\/search\/results\?historyId=100$/);
+  await expect(page.getByRole('heading', { name: '관련 장면 0개', exact: true })).toBeVisible();
+  await expect(page.getByText('조건에 맞는 장면이 없어요', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
+  panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
+  await panel.getByText('서버 검색어 200', { exact: true }).click();
+  await expect(page.getByText('이 검색 기록을 찾을 수 없어요.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '같은 조건으로 다시 시도', exact: true }).click();
   await expect(
-    dialog.getByText(
-      '당시 검색 결과를 복원할 수 없습니다. 저장된 결과 기록이 없거나 불완전합니다.',
-    ),
+    page
+      .locator('#search-results')
+      .getByText('이 검색의 당시 결과 기록이 없어 결과를 표시할 수 없어요.', {
+        exact: true,
+      }),
   ).toBeVisible();
-  await expect(dialog.getByRole('article')).toHaveCount(0);
+  await expect(page.getByRole('article')).toHaveCount(0);
 });
 
 test('새 검색 뒤 패널 재열기와 새로고침은 실제 기록을 다시 조회한다', async ({ page }) => {
@@ -322,6 +281,58 @@ test('검색 기록 삭제는 확인 모달을 거치고 취소하면 그대로 
   await expect(panel.getByText('서버 검색어 200', { exact: true })).toBeVisible();
   expect(deleteCalls).toBe(1);
   // 포커스를 잃으면 키보드 사용자가 목록 밖으로 튕긴다. 지운 행의 버튼은 이미 사라진 뒤다.
+  await expect(
+    panel.getByRole('region', { name: '이전 검색 기록 목록', exact: true }),
+  ).toBeFocused();
+});
+
+test('검색 기록 전체 삭제는 확인 모달을 거치고 목록을 모두 비운다 (S15P21A501-291)', async ({
+  page,
+}) => {
+  let cleared = false;
+  let clearCalls = 0;
+  await page.route('**/api/v1/search/history?**', (route) =>
+    route.fulfill({
+      json: success(cleared ? listPage([]) : listPage([item('100'), item('200')])),
+    }),
+  );
+  await page.route('**/api/v1/search/history', (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback();
+    clearCalls++;
+    cleared = true;
+    return route.fulfill({ json: { isSuccess: true, code: 'COMM_200', message: '성공' } });
+  });
+
+  await page.goto('/search');
+  await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
+  const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
+  await expect(panel.getByRole('listitem')).toHaveCount(2);
+
+  const clearButton = panel.getByRole('button', { name: '전체 삭제', exact: true });
+
+  // 버튼만으로는 지워지지 않는다. 여러 건이 한 번에 사라지므로 확인을 거친다.
+  await clearButton.click();
+  const confirm = page.getByRole('dialog', { name: '검색 기록을 모두 지울까요?', exact: true });
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByText(/기록 2건을 한 번에 지웁니다/)).toBeVisible();
+  // 되돌릴 수 없는 동작이라 기본 포커스는 취소에 있다.
+  await expect(confirm.getByRole('button', { name: '취소', exact: true })).toBeFocused();
+  await confirm.getByRole('button', { name: '취소', exact: true }).click();
+  await expect(confirm).not.toBeVisible();
+  expect(clearCalls).toBe(0);
+  await expect(panel.getByRole('listitem')).toHaveCount(2);
+
+  // 확인하면 목록이 비고 컬렉션에 DELETE 한 번만 나간다.
+  await clearButton.click();
+  await page
+    .getByRole('dialog', { name: '검색 기록을 모두 지울까요?', exact: true })
+    .getByRole('button', { name: '전체 삭제', exact: true })
+    .click();
+  await expect(page.getByRole('dialog', { name: '검색 기록을 모두 지울까요?' })).not.toBeVisible();
+  await expect(panel.getByText('아직 검색 기록이 없습니다.')).toBeVisible();
+  await expect(panel.getByRole('listitem')).toHaveCount(0);
+  expect(clearCalls).toBe(1);
+  // 전체 삭제 버튼은 목록이 비면 사라지므로 포커스를 목록 영역으로 되돌린다.
   await expect(
     panel.getByRole('region', { name: '이전 검색 기록 목록', exact: true }),
   ).toBeFocused();

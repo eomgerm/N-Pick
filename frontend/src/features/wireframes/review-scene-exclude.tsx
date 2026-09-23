@@ -9,6 +9,7 @@ import {
   discardSceneExcludeCandidate,
   getSceneExcludeMessage,
 } from '@/features/wireframes/review-scene-exclude-api';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -20,6 +21,7 @@ interface SceneExcludeCandidateFormProps {
 // 등록은 후보 생성(POST), 취소는 후보 폐기(DELETE). 검증·확정 전까지 자유롭게 되돌린다.
 export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateFormProps) {
   const queryClient = useQueryClient();
+  const { showSuccess } = useSuccessToast();
   const [excluded, setExcluded] = useState(false);
   const idempotencyKey = useRef<string | null>(null);
 
@@ -34,6 +36,7 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
     },
     onSuccess: () => {
       setExcluded(true);
+      showSuccess('제외 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
       queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
     },
   });
@@ -43,6 +46,7 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
     onSuccess: () => {
       setExcluded(false);
       idempotencyKey.current = null;
+      showSuccess('장면 제외 후보를 취소했습니다.');
       queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
     },
   });

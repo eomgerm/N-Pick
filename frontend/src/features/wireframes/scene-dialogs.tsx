@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   Film,
   Flag,
   LoaderCircle,
@@ -20,25 +21,30 @@ import {
   type InquiryResolution,
 } from '@/features/wireframes/inquiry-state';
 import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
-import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
+import {
+  formatMediaTime,
+  getClipDownloadUrl,
+  getSceneDownloadUrl,
+} from '@/features/wireframes/scene-preview-media';
+import {
+  checkClipDownload,
+  ClipDownloadError,
+  fetchSceneDownload,
+  saveSceneDownload,
+  SceneDownloadError,
+  startClipDownload,
+} from '@/features/wireframes/scene-download';
 import {
   canCreateInquiry,
   type SearchExecutionPresentation,
   successfulSearchExecution,
 } from '@/features/wireframes/search-execution-status';
-import {
-  SearchResultNotices,
-  SearchResultSafetyNotice,
-} from '@/features/wireframes/search-result-notices';
+import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
 import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
-import {
-  INQUIRY_COMMENT_MAX_LENGTH,
-  rejectOversizedPaste,
-  validateInquiryComment,
-} from '@/features/wireframes/input-validation';
+import { rejectOversizedPaste } from '@/features/wireframes/input-validation';
 
 interface SceneDialogProps {
   children: ReactNode;
@@ -123,6 +129,7 @@ type ScenePreviewResult = Pick<
       | 'additionalEvidence'
       | 'clipId'
       | 'clip'
+      | 'sceneId'
       | 'searchResultId'
       | 'totalSeconds'
       | 'totalDuration'
@@ -165,6 +172,18 @@ export function ScenePreviewDialog({
   searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
+  const [downloadingSceneId, setDownloadingSceneId] = useState<string | null>(null);
+  const [sceneDownloadFailure, setSceneDownloadFailure] = useState<{
+    sceneId: string;
+    message: string;
+  } | null>(null);
+  const sceneDownloadControllerRef = useRef<AbortController | null>(null);
+  const [checkingClipId, setCheckingClipId] = useState<string | null>(null);
+  const [clipDownloadFailure, setClipDownloadFailure] = useState<{
+    clipId: string;
+    message: string;
+  } | null>(null);
+  const clipDownloadControllerRef = useRef<AbortController | null>(null);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
   const filmingStatus = result.filmedDate ? (result.filmingState ?? 'unknown') : 'unknown';
   const evidenceField = result.matchEvidence?.field ?? result.evidenceType;
@@ -181,6 +200,14 @@ export function ScenePreviewDialog({
   // 있다. snapshot 실패한 페이지의 결과는 id 자체가 없어 hasSavedResult 로 이미 걸러진다
   // (web-api §5.1, S15P21A501-251 P1). 전역 canCreateInquiry 게이트는 문구 안내에만 쓴다.
   const isInquiryUnavailable = !isSubmitted && !hasSavedResult;
+  const clipDownloadUrl = getClipDownloadUrl(result.clipId);
+  const sceneDownloadUrl = getSceneDownloadUrl(result.sceneId);
+  const isSceneDownloading = downloadingSceneId === result.sceneId;
+  const sceneDownloadError =
+    sceneDownloadFailure?.sceneId === result.sceneId ? sceneDownloadFailure?.message : null;
+  const isClipDownloadChecking = checkingClipId === result.clipId;
+  const clipDownloadError =
+    clipDownloadFailure?.clipId === result.clipId ? clipDownloadFailure?.message : null;
   useEffect(() => {
     closeButtonRef.current?.focus({ preventScroll: true });
   }, []);
@@ -196,6 +223,85 @@ export function ScenePreviewDialog({
       list.scrollTop += selectedBounds.bottom - listBounds.bottom;
     }
   }, [result.id]);
+  useEffect(() => {
+    return () => {
+      const controller = sceneDownloadControllerRef.current;
+      controller?.abort();
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
+    };
+  }, [result.sceneId]);
+  useEffect(() => {
+    return () => {
+      const controller = clipDownloadControllerRef.current;
+      controller?.abort();
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
+      }
+    };
+  }, [result.clipId]);
+
+  async function handleSceneDownload() {
+    if (!sceneDownloadUrl || !result.sceneId || sceneDownloadControllerRef.current) return;
+    const sceneId = result.sceneId;
+    const controller = new AbortController();
+    sceneDownloadControllerRef.current = controller;
+    setDownloadingSceneId(sceneId);
+    setSceneDownloadFailure(null);
+    setClipDownloadFailure(null);
+    try {
+      const download = await fetchSceneDownload(sceneDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) {
+        saveSceneDownload(download.blob, download.fileName ?? `scene-${sceneId}.mp4`);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setSceneDownloadFailure({
+          sceneId,
+          message:
+            error instanceof SceneDownloadError
+              ? error.message
+              : '장면 영상을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
+    }
+  }
+  async function handleClipDownload() {
+    if (!clipDownloadUrl || !result.clipId || clipDownloadControllerRef.current) return;
+    const clipId = result.clipId;
+    const controller = new AbortController();
+    clipDownloadControllerRef.current = controller;
+    setCheckingClipId(clipId);
+    setClipDownloadFailure(null);
+    setSceneDownloadFailure(null);
+    try {
+      await checkClipDownload(clipDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) startClipDownload(clipDownloadUrl);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setClipDownloadFailure({
+          clipId,
+          message:
+            error instanceof ClipDownloadError
+              ? error.message
+              : '원본 클립을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
+      }
+    }
+  }
   function handleSceneSelect(scene: ScenePreviewResult) {
     if (scene.id === result.id) return;
     setSelectedSceneId(scene.id);
@@ -222,58 +328,6 @@ export function ScenePreviewDialog({
           {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
         </div>
         <div className={styles.previewHeaderActions}>
-          {onInquiry ? (
-            <div className={styles.previewInquiryAction}>
-              <button
-                aria-busy={isSubmitting}
-                aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
-                aria-disabled={isInquiryUnavailable || undefined}
-                className={styles.previewReportButton}
-                data-state={
-                  isSubmitted
-                    ? 'submitted'
-                    : isSubmitting
-                      ? 'submitting'
-                      : isInquiryUnavailable
-                        ? 'unavailable'
-                        : 'ready'
-                }
-                disabled={isSubmitted || isSubmitting}
-                onClick={() => {
-                  if (!isInquiryUnavailable) onInquiry();
-                }}
-                type="button"
-              >
-                {isSubmitted ? (
-                  <Check aria-hidden="true" />
-                ) : isSubmitting ? (
-                  <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-                ) : isInquiryUnavailable ? (
-                  <AlertTriangle aria-hidden="true" />
-                ) : (
-                  <Flag aria-hidden="true" />
-                )}
-                {isSubmitted
-                  ? '접수됨'
-                  : isSubmitting
-                    ? '접수 중'
-                    : isInquiryUnavailable
-                      ? '문의 불가'
-                      : '이상해요'}
-              </button>
-              {isInquiryUnavailable ? (
-                <span
-                  className={styles.previewInquiryTooltip}
-                  id={inquiryUnavailableReasonId}
-                  role="tooltip"
-                >
-                  {!canCreateInquiry(searchExecution)
-                    ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
-                    : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
           <button
             aria-label="Preview 닫기"
             className={styles.iconButton}
@@ -297,11 +351,102 @@ export function ScenePreviewDialog({
             title={result.title}
             autoPlay={autoPlay}
           />
-          <SearchResultNotices
-            execution={searchExecution}
-            variant="preview"
-            showSafetyNotice={false}
-          />
+          {clipDownloadUrl || sceneDownloadUrl ? (
+            <div className={styles.previewDownloadActions} aria-label="영상 다운로드" role="group">
+              {sceneDownloadUrl ? (
+                <button
+                  aria-busy={isSceneDownloading || undefined}
+                  className={styles.previewDownloadButton}
+                  disabled={isSceneDownloading}
+                  onClick={() => void handleSceneDownload()}
+                  type="button"
+                >
+                  {isSceneDownloading ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : (
+                    <Download aria-hidden="true" />
+                  )}
+                  {isSceneDownloading ? '장면 준비 중…' : '장면 다운로드'}
+                </button>
+              ) : null}
+              {clipDownloadUrl ? (
+                <button
+                  aria-busy={isClipDownloadChecking || undefined}
+                  className={styles.previewDownloadButton}
+                  disabled={isClipDownloadChecking}
+                  onClick={() => void handleClipDownload()}
+                  type="button"
+                >
+                  {isClipDownloadChecking ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : (
+                    <Download aria-hidden="true" />
+                  )}
+                  {isClipDownloadChecking ? '원본 확인 중…' : '원본 클립 다운로드'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {sceneDownloadError || clipDownloadError ? (
+            <p className={styles.previewDownloadError} role="alert">
+              {sceneDownloadError ?? clipDownloadError}
+            </p>
+          ) : null}
+          {onInquiry ? (
+            <div className={styles.previewPlayerActions}>
+              <div className={styles.previewInquiryAction}>
+                <button
+                  aria-busy={isSubmitting}
+                  aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
+                  aria-disabled={isInquiryUnavailable || undefined}
+                  className={styles.previewReportButton}
+                  data-state={
+                    isSubmitted
+                      ? 'submitted'
+                      : isSubmitting
+                        ? 'submitting'
+                        : isInquiryUnavailable
+                          ? 'unavailable'
+                          : 'ready'
+                  }
+                  disabled={isSubmitted || isSubmitting}
+                  onClick={() => {
+                    if (!isInquiryUnavailable) onInquiry();
+                  }}
+                  type="button"
+                >
+                  {isSubmitted ? (
+                    <Check aria-hidden="true" />
+                  ) : isSubmitting ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : isInquiryUnavailable ? (
+                    <AlertTriangle aria-hidden="true" />
+                  ) : (
+                    <Flag aria-hidden="true" />
+                  )}
+                  {isSubmitted
+                    ? '접수됨'
+                    : isSubmitting
+                      ? '접수 중'
+                      : isInquiryUnavailable
+                        ? '문의 불가'
+                        : '이상해요'}
+                </button>
+                {isInquiryUnavailable ? (
+                  <span
+                    className={styles.previewInquiryTooltip}
+                    id={inquiryUnavailableReasonId}
+                    role="tooltip"
+                  >
+                    {!canCreateInquiry(searchExecution)
+                      ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+                      : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
 
         <div className={styles.previewSidebar}>
@@ -414,7 +559,6 @@ export function ScenePreviewDialog({
               </div>
             ))}
           </section>
-          <SearchResultSafetyNotice variant="preview" />
         </div>
       </div>
     </SceneDialog>
@@ -428,6 +572,28 @@ export type InquiryDetails = {
   | { status: 'open' | 'reviewing' }
   | { status: 'closed'; resolution: InquiryResolution | null; resolutionSummary: string | null }
 );
+
+const INQUIRY_REASON_ETC = '기타';
+const INQUIRY_REASONS = [
+  '검색 내용과 맞지 않는 장면',
+  '장면 설명이 정확하지 않음',
+  INQUIRY_REASON_ETC,
+];
+const INQUIRY_ETC_MAX_LENGTH = 200;
+
+/** 프리셋은 선택 사항이며, 기타일 때만 선택형 상세 설명을 받는다. */
+function validateInquiry(reason: string, comment: string): string {
+  if (reason === INQUIRY_REASON_ETC) {
+    if (comment.length > INQUIRY_ETC_MAX_LENGTH) {
+      return `상세 설명은 ${INQUIRY_ETC_MAX_LENGTH}자 이내로 입력해 주세요.`;
+    }
+  }
+  return '';
+}
+
+export function buildInquiryComment(reason: string, comment: string): string {
+  return reason === INQUIRY_REASON_ETC ? comment.trim() : reason;
+}
 
 type InquiryDialogProps = {
   result: Pick<SearchResult, 'title' | 'time'> & { id: string | number; evidenceType?: string };
@@ -454,6 +620,7 @@ export function InquiryDialog({
   onClose,
 }: InquiryDialogProps) {
   const [comment, setComment] = useState(history?.comment ?? '');
+  const [reason, setReason] = useState('');
   const [commentError, setCommentError] = useState('');
   const errorId = useId();
   const hasError = error !== undefined && error !== null;
@@ -597,45 +764,61 @@ export function InquiryDialog({
         aria-busy={isSubmitting}
         onSubmit={(event) => {
           event.preventDefault();
-          const validationError = validateInquiryComment(comment);
+          const validationError = validateInquiry(reason, comment);
           setCommentError(validationError);
           if (validationError || isSubmitting) return;
-          onSubmit(comment);
+          onSubmit(buildInquiryComment(reason, comment));
         }}
       >
-        <label htmlFor="inquiry-comment">설명 (선택)</label>
-        <textarea
-          aria-describedby={
-            [
-              'inquiry-comment-limit',
-              commentError ? 'inquiry-comment-error' : null,
-              statusMessage ? 'inquiry-status-message' : null,
-              hasError ? errorId : null,
-            ]
-              .filter(Boolean)
-              .join(' ') || undefined
-          }
-          disabled={isSubmitting}
-          id="inquiry-comment"
-          maxLength={INQUIRY_COMMENT_MAX_LENGTH}
-          aria-invalid={Boolean(commentError)}
-          onChange={(event) => {
-            setComment(event.target.value);
-            setCommentError(validateInquiryComment(event.target.value));
-            onCommentChange?.();
-          }}
-          onPaste={(event) =>
-            rejectOversizedPaste(event, INQUIRY_COMMENT_MAX_LENGTH, () =>
-              setCommentError('문의 내용은 2,000자 이내로 입력해 주세요.'),
-            )
-          }
-          placeholder="무엇이 이상했는지 알려주세요. 비워두어도 접수할 수 있어요."
-          rows={4}
-          value={comment}
-        />
-        <p id="inquiry-comment-limit" className="text-sm text-(--muted)">
-          {comment.length}/2,000자
-        </p>
+        <fieldset className={styles.inquiryReasons}>
+          <legend>어떤 점이 이상한가요? (선택)</legend>
+          {INQUIRY_REASONS.map((option) => (
+            <label key={option} className={styles.inquiryReason} data-active={reason === option}>
+              <input
+                type="radio"
+                name="inquiry-reason"
+                value={option}
+                checked={reason === option}
+                disabled={isSubmitting}
+                onChange={() => {
+                  setReason(option);
+                  setCommentError('');
+                  onCommentChange?.();
+                }}
+              />
+              {option}
+            </label>
+          ))}
+        </fieldset>
+        {reason === INQUIRY_REASON_ETC ? (
+          <>
+            <label htmlFor="inquiry-comment">상세 설명 (선택)</label>
+            <textarea
+              aria-describedby={
+                [commentError ? 'inquiry-comment-error' : null, hasError ? errorId : null]
+                  .filter(Boolean)
+                  .join(' ') || undefined
+              }
+              disabled={isSubmitting}
+              id="inquiry-comment"
+              maxLength={INQUIRY_ETC_MAX_LENGTH}
+              aria-invalid={Boolean(commentError)}
+              onChange={(event) => {
+                setComment(event.target.value);
+                setCommentError(validateInquiry(reason, event.target.value));
+                onCommentChange?.();
+              }}
+              onPaste={(event) =>
+                rejectOversizedPaste(event, INQUIRY_ETC_MAX_LENGTH, () =>
+                  setCommentError(`상세 설명은 ${INQUIRY_ETC_MAX_LENGTH}자 이내로 입력해 주세요.`),
+                )
+              }
+              placeholder="직접 설명하지 않아도 접수할 수 있어요."
+              rows={3}
+              value={comment}
+            />
+          </>
+        ) : null}
         {commentError ? (
           <p id="inquiry-comment-error" role="alert" className="text-sm text-(--danger)">
             {commentError}
@@ -653,7 +836,7 @@ export function InquiryDialog({
           </button>
           <button
             className={styles.submitInquiry}
-            disabled={isSubmitting || Boolean(validateInquiryComment(comment))}
+            disabled={isSubmitting || Boolean(validateInquiry(reason, comment))}
             type="submit"
           >
             {isSubmitting ? (

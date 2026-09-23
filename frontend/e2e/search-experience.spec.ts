@@ -1,4 +1,5 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { chooseDateBasis, openDatePicker, periodTrigger } from './date-picker-helpers';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -25,7 +26,7 @@ test('검색도 세 산 레이어가 깊이별로 움직이며 모션 감소에�
     'backdrop-filter',
     /blur\(/,
   );
-  const intro = page.getByRole('heading', { name: '안녕하세요.' }).locator('..');
+  const intro = page.getByRole('heading', { name: '뉴스 장면 검색', exact: true }).locator('..');
   await expect(intro).toHaveCSS('animation-duration', '1s');
   await expect(intro).toHaveCSS('opacity', '1');
   const offsets = () =>
@@ -176,8 +177,8 @@ test('월·연도 선택 후 왼쪽 시작일과 오른쪽 종료일을 독립�
   page,
 }, testInfo) => {
   await page.goto('/search');
-  await page.getByRole('button', { name: /^방송일 기간 선택:/ }).click();
-  const dialog = page.getByRole('dialog', { name: '방송일 기간', exact: true });
+  await page.getByRole('button', { name: /^기간 설정:/ }).click();
+  const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
   await expect(dialog).toHaveCSS('background-image', /frosted-grain\.svg/);
   await expect(dialog).toHaveCSS('backdrop-filter', /blur\(/);
   await expect(dialog.getByRole('button', { name: '초기화', exact: true })).toHaveCSS(
@@ -215,11 +216,9 @@ test('월·연도 선택 후 왼쪽 시작일과 오른쪽 종료일을 독립�
   await page.screenshot({ path: testInfo.outputPath('date-range-desktop.png') });
   await dialog.getByRole('button', { name: '적용', exact: true }).click();
   await expect(
-    page.getByRole('button', { name: '방송일 기간 선택: 2024.02.29 – 2024.03.02', exact: true }),
+    page.getByRole('button', { name: /방송일 2024\.02\.29 – 2024\.03\.02/, exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: '촬영일 기간 선택: 전체 기간', exact: true }),
-  ).toBeVisible();
+  await expect(periodTrigger(page)).not.toHaveAccessibleName(/촬영일/);
   await page.getByRole('searchbox').fill('날짜 범위 검색');
   await page.getByRole('button', { name: '장면 찾기', exact: true }).click();
   await expect(page).toHaveURL(
@@ -235,67 +234,131 @@ test('사이드바에는 적용한 기간만 표시하고 즉시 초기화와 �
 }, testInfo) => {
   await page.goto('/search');
   for (const label of ['방송일', '촬영일']) {
-    const trigger = page.getByRole('button', { name: new RegExp(`^${label} 기간 선택:`) });
+    const trigger = periodTrigger(page);
     await trigger.click();
-    const dialog = page.getByRole('dialog', { name: `${label} 기간`, exact: true });
+    await chooseDateBasis(page, label);
+    const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
     await dialog.locator('[data-endpoint="from"] [data-date="2026-09-01"]').click();
     await dialog.locator('[data-endpoint="to"] [data-date="2026-09-16"]').click();
-    await expect(trigger.locator('time')).toHaveCount(0);
+    await expect(trigger).not.toHaveAccessibleName(new RegExp(label));
     await dialog.getByRole('button', { name: '적용', exact: true }).click();
-    await expect(trigger.locator('time')).toHaveText(['2026.09.01', '2026.09.16']);
+    await expect(trigger).toHaveAccessibleName(new RegExp(`${label} 2026.09.01 – 2026.09.16`));
   }
   await page.screenshot({ path: testInfo.outputPath('selected-periods-desktop.png') });
   await page.getByRole('searchbox').click();
-  const broadcast = page.getByRole('button', { name: /^방송일 기간 선택:/ });
+  const broadcast = page.getByRole('button', { name: /^기간 설정:/ });
   await expect(broadcast.locator('> span')).toHaveCSS('opacity', '0');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
   const dock = page.getByRole('complementary', { name: '검색 도구', exact: true });
   await expect(dock).toHaveCSS('width', '168px');
   const right = (await dock.boundingBox())!.x + (await dock.boundingBox())!.width;
-  for (const date of await dock.locator('button time').all()) {
+  for (const date of await dock.locator('button small > span').all()) {
     const box = (await date.boundingBox())!;
     expect(box.x + box.width).toBeLessThan(right);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.screenshot({ path: testInfo.outputPath('selected-periods-mobile.png') });
   await broadcast.click();
-  const dialog = page.getByRole('dialog', { name: '방송일 기간', exact: true });
+  await chooseDateBasis(page, '방송일');
+  const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
   await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await expect(broadcast.locator('time')).toHaveCount(0);
-  await expect(
-    page.getByRole('button', { name: /^촬영일 기간 선택:/ }).locator('time'),
-  ).toHaveCount(2);
+  await expect(dialog).toBeVisible();
+  await expect(broadcast).not.toHaveAccessibleName(/방송일/);
+  await expect(broadcast).toHaveAccessibleName(/촬영일 2026.09.01 – 2026.09.16/);
 });
 
-test('기간 검증·취소·초기화와 월 경계의 키보드 조작을 보존한다', async ({ page }) => {
+test.describe('기간 패널 닫기와 사이드바 접힘 (S15P21A501-292)', () => {
+  async function openBroadcast(page: Page) {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.clock.setFixedTime(new Date('2026-09-22T03:00:00Z'));
+    await page.goto('/search');
+    const dock = page.getByRole('complementary', { name: '검색 도구', exact: true });
+    const trigger = dock.getByRole('button', { name: /^기간 설정:/ });
+    const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+    await expect(dock).toHaveCSS('width', '224px');
+    return { dock, trigger, dialog };
+  }
+
+  test('< 는 기록 패널처럼 날짜와 사이드바를 함께 닫는다', async ({ page }) => {
+    const { dock, trigger, dialog } = await openBroadcast(page);
+    const close = dialog.getByRole('button', { name: '기간 설정 닫기' });
+    await expect(close.locator('svg')).toHaveClass(/lucide-chevron-left/);
+    await close.click();
+    await expect(dialog).not.toBeVisible();
+    await expect(dock).toHaveCSS('width', '72px');
+    await expect(trigger).toBeFocused();
+  });
+
+  test('트리거를 다시 누르면 날짜와 사이드바를 함께 닫는다', async ({ page }) => {
+    const { dock, trigger, dialog } = await openBroadcast(page);
+    await trigger.click();
+    await expect(dialog).not.toBeVisible();
+    await expect(dock).toHaveCSS('width', '72px');
+  });
+
+  test('적용하면 기간을 반영하고 날짜와 사이드바를 함께 닫는다', async ({ page }) => {
+    const { dock, trigger, dialog } = await openBroadcast(page);
+    await dialog.locator('[data-endpoint="from"] [data-date="2026-09-01"]').click();
+    await dialog.locator('[data-endpoint="to"] [data-date="2026-09-16"]').click();
+    await dialog.getByRole('button', { name: '적용', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+    await expect(dock).toHaveCSS('width', '72px');
+    await expect(trigger).toHaveAccessibleName('기간 설정: 방송일 2026.09.01 – 2026.09.16');
+  });
+
+  test('초기화는 기간만 비우고 날짜 패널과 사이드바를 그대로 둔다', async ({ page }) => {
+    const { dock, trigger, dialog } = await openBroadcast(page);
+    await dialog.locator('[data-endpoint="from"] [data-date="2026-09-01"]').click();
+    await dialog.locator('[data-endpoint="to"] [data-date="2026-09-16"]').click();
+    await dialog.getByRole('button', { name: '적용', exact: true }).click();
+    await trigger.click();
+    await dialog.getByRole('button', { name: '초기화', exact: true }).click();
+    await expect(trigger).toHaveAccessibleName('기간 설정: 전체 기간');
+    await expect(dialog).toBeVisible();
+    await expect(dock).toHaveCSS('width', '224px');
+  });
+
+  test('취소 버튼은 없다', async ({ page }) => {
+    const { dialog } = await openBroadcast(page);
+    await expect(dialog.getByRole('button', { name: '취소', exact: true })).toHaveCount(0);
+  });
+});
+
+test('기간 검증·닫기·초기화와 월 경계의 키보드 조작을 보존한다', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-09-22T03:00:00Z'));
   await page.goto('/search');
-  const trigger = page.getByRole('button', { name: /^촬영일 기간 선택:/ });
+  const trigger = page.getByRole('button', { name: /^기간 설정:/ });
   await trigger.click();
-  const dialog = page.getByRole('dialog', { name: '촬영일 기간', exact: true });
+  await chooseDateBasis(page, '촬영일');
+  const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
   const start = dialog.locator('[data-endpoint="from"]');
   const end = dialog.locator('[data-endpoint="to"]');
   await start.locator('[data-date="2026-09-20"]').click();
   await end.locator('[data-date="2026-09-10"]').click();
   await dialog.getByRole('button', { name: '적용', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toHaveText('종료일은 시작일과 같거나 이후여야 해요.');
-  await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 전체 기간');
-  await end.locator('[data-date="2026-09-20"]').click();
-  await dialog.getByRole('button', { name: '적용', exact: true }).click();
-  await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 2026.09.20 – 2026.09.20');
+  await expect(dialog).not.toBeVisible();
+  await expect(trigger).toHaveAccessibleName('기간 설정: 촬영일 2026.09.10 – 2026.09.20');
   await trigger.click();
+  await chooseDateBasis(page, '촬영일');
+  await start.locator('[data-date="2026-09-20"]').click();
+  await dialog.getByRole('button', { name: '적용', exact: true }).click();
+  await expect(trigger).toHaveAccessibleName('기간 설정: 촬영일 2026.09.20 – 2026.09.20');
+  await trigger.click();
+  await chooseDateBasis(page, '촬영일');
   await start.locator('[data-date="2026-09-01"]').focus();
   await page.keyboard.press('ArrowLeft');
   await expect(start.locator('[data-date="2026-08-31"]')).toBeFocused();
   await page.keyboard.press('Enter');
-  await dialog.getByRole('button', { name: '취소', exact: true }).click();
-  await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 2026.09.20 – 2026.09.20');
+  await dialog.getByRole('button', { name: '기간 설정 닫기', exact: true }).click();
+  await expect(trigger).toHaveAccessibleName('기간 설정: 촬영일 2026.09.20 – 2026.09.20');
   await trigger.click();
+  await chooseDateBasis(page, '촬영일');
   await dialog.getByRole('button', { name: '초기화', exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await expect(trigger).toHaveAccessibleName('촬영일 기간 선택: 전체 기간');
-  await trigger.click();
+  await expect(dialog).toBeVisible();
+  await expect(trigger).toHaveAccessibleName('기간 설정: 전체 기간');
   await start.locator('[data-date="2026-09-01"]').click();
   await dialog.getByRole('button', { name: '적용', exact: true }).click();
   await expect(dialog.getByRole('alert')).toHaveText('시작일과 종료일을 모두 선택해 주세요.');
@@ -317,15 +380,15 @@ test('모바일도 좌우 달력과 패널 높이를 유지하며 가로로 넘�
   const searchBounds = (await page.getByRole('search').boundingBox())!;
   expect(searchBounds.y + searchBounds.height / 2).toBeCloseTo(844 / 2, 0);
   await page.screenshot({ path: testInfo.outputPath('search-mobile.png') });
-  await page.getByRole('button', { name: /^방송일 기간 선택:/ }).click();
-  const dialog = page.getByRole('dialog', { name: '방송일 기간', exact: true });
+  await page.getByRole('button', { name: /^기간 설정:/ }).click();
+  const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
   const startBounds = (await dialog.locator('[data-endpoint="from"]').boundingBox())!;
   const endBounds = (await dialog.locator('[data-endpoint="to"]').boundingBox())!;
   expect(startBounds.y).toEqual(endBounds.y);
   expect(startBounds.x + startBounds.width).toBeLessThan(endBounds.x);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   await page.screenshot({ path: testInfo.outputPath('date-range-mobile.png') });
-  await dialog.getByRole('button', { name: '방송일 기간 선택 닫기' }).click();
+  await dialog.getByRole('button', { name: '기간 설정 닫기' }).click();
   await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
   const panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
   expect((await panel.boundingBox())!.height).toBe(
@@ -353,8 +416,8 @@ test('결과 화면의 공통 날짜 선택기도 모바일 안에 표시하고 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/search/results?q=날짜');
   for (const label of ['방송일', '촬영일']) {
-    await page.getByRole('button', { name: new RegExp(`^${label} 기간 선택:`) }).click();
-    const dialog = page.getByRole('dialog', { name: `${label} 기간`, exact: true });
+    await openDatePicker(page, label);
+    const dialog = page.getByRole('dialog', { name: '기간 설정', exact: true });
     const bounds = (await dialog.boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(0);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);

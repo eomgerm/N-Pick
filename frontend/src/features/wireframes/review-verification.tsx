@@ -162,9 +162,11 @@ export function CorrectionVerificationPanel({
       </p>
 
       {verification.isError ? (
-        <div className="mt-4 space-y-2">
-          <ApiErrorNotice error={verification.error} />
-          {guidance ? <p className="text-sm">{guidance}</p> : null}
+        <div className="mt-4 space-y-3">
+          <ApiErrorNotice
+            error={verification.error}
+            message={guidance ?? '검증 재검색을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'}
+          />
         </div>
       ) : null}
 
@@ -189,7 +191,10 @@ export function CorrectionVerificationPanel({
               <ul className="grid gap-2">
                 {visibleEntered.map((scene) => {
                   const detail = scene.matchedKeywords.length
-                    ? `일치: ${scene.matchedKeywords.slice(0, 3).join(', ')}`
+                    ? `일치: ${scene.matchedKeywords
+                        .slice(0, 3)
+                        .map(({ keyword }) => keyword)
+                        .join(', ')}`
                     : '새 검색 조건과 일치';
                   return (
                     <VerificationSceneCard
@@ -255,9 +260,13 @@ export function CorrectionVerificationPanel({
         </p>
       ) : null}
       {confirmation.isError ? (
-        <div className="mt-4 space-y-2">
-          <ApiErrorNotice error={confirmation.error} />
-          {confirmGuidance ? <p className="text-sm">{confirmGuidance}</p> : null}
+        <div className="mt-4 space-y-3">
+          <ApiErrorNotice
+            error={confirmation.error}
+            message={
+              confirmGuidance ?? '교정 확정을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+            }
+          />
         </div>
       ) : null}
 

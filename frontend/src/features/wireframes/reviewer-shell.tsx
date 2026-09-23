@@ -1,13 +1,19 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { ProcessingClipDetail } from '@/features/wireframes/processing-clip-detail';
 import { ReviewInquiryWorkspace } from '@/features/wireframes/review-inquiry-workspace';
-import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { ReviewOverview } from '@/features/wireframes/review-overview';
+import {
+  getReviewTabUrl,
+  getReviewUrl,
+  selectReviewView,
+  type ReviewTab,
+} from '@/features/wireframes/reviewer-board-state';
 import { ReviewerLayout } from '@/features/wireframes/reviewer-layout';
 import { ReviewerProgress, ReviewerProgressHeading } from '@/features/wireframes/reviewer-progress';
 import progressStyles from '@/features/wireframes/reviewer-progress.module.css';
@@ -16,14 +22,30 @@ import {
   VideoRegistrationHeading,
   type RegisteredVideo,
 } from '@/features/wireframes/video-registration';
+import type { ClipRegistrationOutcome } from '@/features/wireframes/video-registration-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 interface ReviewerShellProps {
   theme: WireframeTheme;
 }
 
+const registrationNotices: Record<ClipRegistrationOutcome, { label: string; heading: string }> = {
+  created: { label: '등록 완료', heading: '영상 등록 완료' },
+  duplicate_own: { label: '이미 등록된 영상', heading: '이미 등록한 영상입니다.' },
+  duplicate_other: {
+    label: '이미 등록된 영상',
+    heading: '다른 사용자가 이미 등록한 영상입니다.',
+  },
+};
+
+// 중복이면 입력한 제목·파일명이 아니라 실제로 열리는 clip 을 설명한다. 둘을 섞으면 남의 영상을 내 것으로 읽는다.
+const duplicateNoticeDetail =
+  '같은 영상 파일이 이미 등록되어 있어 아래에 기존 등록 정보를 표시합니다. 이번에 입력한 제목과 날짜는 저장되지 않았습니다.';
+
 export function ReviewerShell({ theme }: ReviewerShellProps) {
+  const { showSuccess } = useSuccessToast();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -33,8 +55,9 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   const [registeredVideo, setRegisteredVideo] = useState<RegisteredVideo | null>(null);
   const registrationDetailShownRef = useRef<string | null>(null);
   const registrationBusyRef = useRef(false);
-  const isProcessing = searchParams.get('view') === 'processing';
-  const isRegistration = searchParams.get('view') === 'upload';
+  const view = selectReviewView(searchParams);
+  const isProcessing = view === 'processing';
+  const isRegistration = view === 'upload';
   const clipId = searchParams.get('clip');
   const isInteractionLocked = isNavigating || isRegistrationBusy;
 
@@ -62,7 +85,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       router.push(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
     });
   }
-  function handleTabChange(tab: 'inquiries' | 'processing') {
+  function handleTabChange(tab: ReviewTab) {
     if (registrationBusyRef.current) return;
     startNavigation(() => {
       router.push(getReviewTabUrl(pathname, searchParams.toString(), tab), { scroll: false });
@@ -82,6 +105,13 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   function handleRegister(record: RegisteredVideo) {
     registrationDetailShownRef.current = null;
     setRegisteredVideo(record);
+    // 신규 등록 성공만 일회성 토스트로 알린다. 중복 등록(duplicate_*)은 아래에 기존 등록
+    // 정보를 설명하는 안내를 계속 남긴다 (S15P21A501-303).
+    if (record.outcome === 'created') {
+      showSuccess(
+        `${registrationNotices.created.heading} · ${record.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`,
+      );
+    }
     void queryClient.invalidateQueries({ queryKey: ['processing-clips'] });
     void queryClient.invalidateQueries({ queryKey: ['processing-clip', record.id] });
     // Registration returns a real ID; the detail query owns all subsequent processing state.
@@ -99,7 +129,8 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     });
   }
 
-  if (!isProcessing && !isRegistration) return <ReviewInquiryWorkspace theme={theme} />;
+  if (view === 'overview') return <ReviewOverview theme={theme} />;
+  if (view === 'inquiries') return <ReviewInquiryWorkspace theme={theme} />;
 
   return (
     <ReviewerLayout
@@ -133,7 +164,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       onTabChange={handleTabChange}
       onRegistrationOpen={handleRegistrationOpen}
     >
-      <main className={styles.page}>
+      <main className={`${styles.page} ${isProcessing && !clipId ? styles.processingPage : ''}`}>
         {isRegistration ? (
           <VideoRegistration
             isNavigating={isNavigating}
@@ -146,21 +177,21 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           />
         ) : clipId ? (
           <>
-            {registeredVideo?.id === clipId ? (
+            {/* 등록 성공(created)은 완료 사실만 알리는 일회성 피드백이라 자동 소멸 토스트로
+                띄운다. 중복 등록(duplicate_*)은 아래에 열리는 기존 등록 정보를 설명하는 안내라
+                계속 남겨 둔다 (S15P21A501-303). */}
+            {registeredVideo?.id === clipId && registeredVideo.outcome !== 'created' ? (
               <section
                 aria-label="영상 등록 결과"
                 aria-live="polite"
-                className={styles.registrationNotice}
+                className={`${styles.registrationNotice} ${styles.duplicateNotice}`}
                 role="status"
               >
-                <CheckCircle2 aria-hidden="true" />
+                <Info aria-hidden="true" />
                 <div>
-                  <p>등록 완료</p>
-                  <h2>영상이 등록되었습니다.</h2>
-                  <span>
-                    {registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할
-                    수 있습니다.
-                  </span>
+                  <p>{registrationNotices[registeredVideo.outcome].label}</p>
+                  <h2>{registrationNotices[registeredVideo.outcome].heading}</h2>
+                  <span>{duplicateNoticeDetail}</span>
                 </div>
               </section>
             ) : null}

@@ -114,12 +114,13 @@ class SearchCandidatePipelineTest {
     }
 
     @Test
-    @DisplayName("확장어를 토큰화해 원 질의와 겹치지 않는 것만 넘긴다")
-    void passesExpandedTokensWithoutOverlap() {
-        // expanded_terms 는 동의어 검색의 유일한 경로다. 겹친 토큰을 그대로 넘기면 원 질의 절과
-        // 확장어 절에서 각각 가산돼 F-05 의 "같은 개체를 중복 계산하지 않는다" 를 깬다.
+    @DisplayName("확장어를 구 묶음 그대로 넘긴다")
+    void passesExpandedPhrasesAsGroups() {
+        // S15P21A501-302: 펼쳐 넘기면 후보 조회가 확장어를 OR 로 받아 「중국 음식」이 중국 OR 음식 이
+        // 된다. 일부만 겹치는 구는 통째로 남긴다 — 토큰을 하나 빼면 must 가 그만큼 헐거워진다.
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
-        when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1")).thenReturn(List.of("집중호우", "질의"));
+        when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1"))
+                .thenReturn(List.of(List.of("집중호우", "질의"), List.of("호우")));
         when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
         givenRankingOf();
 
@@ -127,7 +128,40 @@ class SearchCandidatePipelineTest {
 
         var captor = org.mockito.ArgumentCaptor.forClass(List.class);
         verify(lexical).findByWords(anyList(), captor.capture());
-        assertThat(captor.getValue()).containsExactly("집중호우");
+        assertThat(captor.getValue()).containsExactly(List.of("집중호우", "질의"), List.of("호우"));
+    }
+
+    @Test
+    @DisplayName("원 질의 토큰만으로 이루어진 구는 넘기지 않는다")
+    void dropsPhrasesFullyCoveredByQueryTokens() {
+        // 그 구는 원 질의 절이 이미 거는 것과 같아, 남기면 두 절에서 각각 가산돼 F-05 의
+        // "같은 개체를 중복 계산하지 않는다" 를 깬다.
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1")).thenReturn(List.of(List.of("질의"), List.of("호우")));
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        pipeline.rank(queryWithExpandedTerms());
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(lexical).findByWords(anyList(), captor.capture());
+        assertThat(captor.getValue()).containsExactly(List.of("호우"));
+    }
+
+    @Test
+    @DisplayName("근거 설명용 확장어 토큰은 평탄화된 형태를 그대로 유지한다")
+    void keepsEvidenceTokensFlattened() {
+        // matched_keywords 계약은 문자열 배열이다 (web-api §5.1). 구 단위 AND 는 후보 조회의
+        // 사정이고 응답 형태를 바꾸지 않는다.
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1"))
+                .thenReturn(List.of(List.of("집중호우", "질의"), List.of("호우")));
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        SearchCandidates result = pipeline.rank(queryWithExpandedTerms());
+
+        assertThat(result.expandedTokens()).containsExactly("집중호우", "호우");
     }
 
     @Test

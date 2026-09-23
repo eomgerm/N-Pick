@@ -5,7 +5,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 
@@ -175,16 +174,21 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
         SearchCandidates candidates = runPipeline(resolved, finalResolution, normalizedSearch, query.page());
         degradedReasons.addAll(candidates.degradedReasons());
 
-        // 확장어도 근거 대조에 넣는다. 검색에는 쓰고 설명에는 안 쓰면 확장어로만 걸린 장면의
-        // matched_keywords 가 비어 「왜 나왔는지 모르는 결과」가 된다. 응답은 어느 것이 확장어였는지
-        // 구분하지 않는다 — 계약에 그 표기가 아직 없다 (web-api §5.1).
-        List<String> queryTokens = Stream.concat(
-                        resolved.normalization().searchTokens().stream(), candidates.expandedTokens().stream())
-                .distinct()
-                .toList();
+        // 두 출처를 합치지 않고 끝까지 따로 들고 간다. 확장어도 근거 대조에는 넣되 (빼면 확장어로만 걸린
+        // 장면의 matched_keywords 가 비어 「왜 나왔는지 모르는 결과」가 된다), 어느 것이 확장어였는지는
+        // matched_keywords 의 origin 으로 구분해 싣는다 (web-api §5.1, F-05·F-07).
+        List<String> userTokens = resolved.normalization().searchTokens();
+        List<String> expandedTokens = candidates.expandedTokens();
         List<Long> resultIds = snapshotRecorded
                 ? completeRecord(
-                        executionId, candidates, rules, finalResolution, degradedReasons, queryTokens, startedAt)
+                        executionId,
+                        candidates,
+                        rules,
+                        finalResolution,
+                        degradedReasons,
+                        userTokens,
+                        expandedTokens,
+                        startedAt)
                 // 해석 스냅샷이 없으면 어댑터가 완료를 거부한다. 그래도 complete 를 부르면 두 번째
                 // 실패가 또 삼켜지고 행이 영영 running 으로 남는다. 바로 닫는다.
                 : abandonUnrecorded(executionId, startedAt);
@@ -205,7 +209,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                 candidates.shortageReasons().stream()
                         .map(ShortageReason::wireValue)
                         .toList(),
-                cards(candidates, resultIds, queryTokens),
+                cards(candidates, resultIds, userTokens, expandedTokens),
                 candidates.hasNext());
     }
 
@@ -216,13 +220,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
      */
     private long openExecution(ExecuteSearchQuery query) {
         try {
-            return record.start(
-                    new StartSearchExecution(
-                            query.memberId(),
-                            ExecutionType.NORMAL,
-                            null,
-                            query.rawQuery(),
-                            query.parentExecutionId()));
+            return record.start(new StartSearchExecution(
+                    query.memberId(), ExecutionType.NORMAL, null, query.rawQuery(), query.parentExecutionId()));
         } catch (SearchRecordingException notOpened) {
             throw new BusinessException(SearchExecutionErrorCode.EXECUTION_NOT_RECORDED, notOpened);
         }
@@ -337,7 +336,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
             ParseRulePolicy.Result rules,
             QueryResolution finalResolution,
             List<SearchDegradedReason> degradedReasons,
-            List<String> queryTokens,
+            List<String> userTokens,
+            List<String> expandedTokens,
             long startedAt) {
         try {
             // 규칙이 충돌·비호환·실패로 건너뛰어졌으면 그것도 기능 저하다. 공개 어휘(§5.1)에는
@@ -357,7 +357,7 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
                     SearchRecordPayload.candidates(candidates),
                     SearchRecordPayload.filtered(candidates),
                     SearchRecordPayload.appliedExcludes(candidates),
-                    SearchRecordPayload.rankedScenes(candidates, queryTokens),
+                    SearchRecordPayload.rankedScenes(candidates, userTokens, expandedTokens),
                     candidates.config(),
                     elapsedMs(startedAt),
                     null));
@@ -385,12 +385,12 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
     }
 
     private List<SearchExecutionResult.ResultCard> cards(
-            SearchCandidates candidates, List<Long> resultIds, List<String> queryTokens) {
+            SearchCandidates candidates, List<Long> resultIds, List<String> userTokens, List<String> expandedTokens) {
         List<SearchExecutionResult.ResultCard> cards = new ArrayList<>();
         for (int index = 0; index < candidates.scenes().size(); index++) {
             SearchCandidates.ScoredScene scene = candidates.scenes().get(index);
             Long resultId = resultIds == null ? null : resultIds.get(index);
-            cards.add(SearchExplain.card(scene, index + 1, resultId, queryTokens));
+            cards.add(SearchExplain.card(scene, index + 1, resultId, userTokens, expandedTokens));
         }
         return cards;
     }

@@ -1,10 +1,11 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Check, ChevronDown, Film, RefreshCw } from 'lucide-react';
+import { ChevronDown, RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import { Tooltip } from '@/components/tooltip';
 import { getProcessingClip } from '@/features/wireframes/clip-processing-api';
 import {
   clipDetailPollInterval,
@@ -53,6 +54,10 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
   }, [loadedId]);
   const data = detail.data;
   const clip = data?.clip;
+  const title = displayClipTitle(clip?.title ?? null);
+  const titleCharacters = Array.from(title);
+  const headingTitle =
+    titleCharacters.length > 40 ? `${titleCharacters.slice(0, 40).join('')}...` : title;
   const run = clip?.latest_run;
   const processing = data?.processing_details;
   const transcript = processing?.transcript;
@@ -118,8 +123,18 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
             >
               <div className={styles.detailHeading}>
                 <div className={styles.titleCopy}>
-                  <h1 ref={headingRef} tabIndex={-1}>
-                    {displayClipTitle(clip.title)}
+                  <h1 ref={headingRef} tabIndex={-1} aria-label={title}>
+                    <Tooltip content={title} placement="bottom">
+                      {(descriptionId) => (
+                        <span
+                          className={styles.detailTitle}
+                          tabIndex={0}
+                          aria-describedby={descriptionId}
+                        >
+                          {headingTitle}
+                        </span>
+                      )}
+                    </Tooltip>
                   </h1>
                   <p className={styles.registrationMeta}>
                     {clip.source_type === 'broadcast' ? '방송 영상' : '자료 영상'}
@@ -127,45 +142,27 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                     {clip.registered_by && <span>등록자 {clip.registered_by.login_id}</span>}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className={styles.detailButton}
-                  disabled={detail.isFetching}
-                  onClick={() => detail.refetch()}
-                >
-                  <RefreshCw aria-hidden="true" />
-                  상태 새로고침
-                </button>
-              </div>
-              <ProcessingRefreshStatus state={refreshState} dataUpdatedAt={detail.dataUpdatedAt} />
-              <div className={styles.runSummary} data-status={run?.status}>
-                <div className={styles.runState} role="status">
-                  <span className={styles.stateMark} aria-hidden="true">
-                    {run?.status === 'succeeded' ? (
-                      <Check />
-                    ) : run?.status === 'failed' ? (
-                      <AlertCircle />
-                    ) : (
-                      <Film />
-                    )}
-                  </span>
-                  <div>
-                    <strong>{clipRunLabels[run?.status ?? 'no_run']}</strong>
-                    <p>
-                      {run?.error_code
-                        ? '영상 처리를 완료하지 못했습니다. 아래 처리 내역을 확인해 주세요.'
-                        : clip.progress?.current_stage
-                          ? processingStageLabel(clip.progress.current_stage)
-                          : run?.status === 'queued'
-                            ? '등록된 영상의 분석 시작을 기다리고 있습니다.'
-                            : processingProgressLabel(clip.progress)}
-                    </p>
+                <div className={styles.detailActions}>
+                  <button
+                    type="button"
+                    className={styles.detailButton}
+                    disabled={detail.isFetching}
+                    onClick={() => detail.refetch()}
+                  >
+                    <RefreshCw aria-hidden="true" />
+                    상태 새로고침
+                  </button>
+                  <div className={styles.runSummary} data-status={run?.status}>
+                    <strong className={styles.runState} role="status">
+                      {clipRunLabels[run?.status ?? 'no_run']}
+                    </strong>
+                    <span className={styles.availability} data-available={clip.search_available}>
+                      {clip.search_available ? '검색 가능' : '검색 미제공'}
+                    </span>
                   </div>
                 </div>
-                <span className={styles.availability} data-available={clip.search_available}>
-                  {clip.search_available ? '검색 가능' : '검색 미제공'}
-                </span>
               </div>
+              <ProcessingRefreshStatus state={refreshState} dataUpdatedAt={detail.dataUpdatedAt} />
               {!run && (
                 <p className={styles.contextNotice}>
                   {refreshState.isAutomatic
@@ -175,6 +172,13 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                       : '아직 처리 기록이 없습니다. ‘상태 새로고침’으로 다시 확인해 주세요.'}
                 </p>
               )}
+              {clip.search_available &&
+                run &&
+                clip.active_pipeline_run_id !== run.pipeline_run_id && (
+                  <p className={styles.contextNotice}>
+                    이전 처리 결과로 검색을 제공하고 있습니다. 아래 기록은 최신 처리 시도입니다.
+                  </p>
+                )}
               <dl className={`${styles.facts} ${styles.runFacts}`}>
                 <div>
                   <dt>최신 처리</dt>
@@ -189,19 +193,12 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                   <dd>{dateLabel(run?.finished_at ?? null)}</dd>
                 </div>
               </dl>
-              {clip.search_available &&
-                run &&
-                clip.active_pipeline_run_id !== run.pipeline_run_id && (
-                  <p className={styles.contextNotice}>
-                    이전 처리 결과로 검색을 제공하고 있습니다. 아래 기록은 최신 처리 시도입니다.
-                  </p>
-                )}
             </section>
             <section className={`${styles.panel} ${styles.detailSection}`} aria-label="원본 영상">
               <h2>원본 영상</h2>
               <video
                 key={clipId}
-                aria-label={displayClipTitle(clip.title) + ' 원본 영상'}
+                aria-label={title + ' 원본 영상'}
                 className={styles.media}
                 controls
                 playsInline

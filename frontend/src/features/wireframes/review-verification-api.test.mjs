@@ -30,7 +30,10 @@ const contractResponse = {
       start_time_ms: 42000,
       end_time_ms: 49000,
       reason: {
-        match: { matched_keywords: ['제주도'], match_evidence: [] },
+        match: {
+          matched_keywords: [{ keyword: '제주도', origin: 'expanded' }],
+          match_evidence: [],
+        },
         score: { base_score: 1.2 },
       },
     },
@@ -61,7 +64,7 @@ test('snake_case 응답을 camelCase 로 바꾸고 ID 는 문자열로 보존한
         sceneDescription: '제주 해안 풍경',
         startTimeMs: 42000,
         endTimeMs: 49000,
-        matchedKeywords: ['제주도'],
+        matchedKeywords: [{ keyword: '제주도', origin: 'expanded' }],
       },
     ],
     droppedScenes: [

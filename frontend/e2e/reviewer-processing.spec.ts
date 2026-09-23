@@ -85,6 +85,28 @@ async function clipList(page: Page, count = 11) {
   });
   return requests;
 }
+// 처리 중인 영상이 있어 5초마다 다시 읽는 목록. size 를 따르고, 첫 응답 뒤로는 늦게 답해 조회 중 상태를 붙잡는다.
+async function pollingClipList(page: Page, count = 45) {
+  const requests: URL[] = [];
+  await page.route('**/api/v1/clips?*', async (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    if (requests.length > 1) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const currentPage = Number(url.searchParams.get('page'));
+    const size = Number(url.searchParams.get('size'));
+    const items = Array.from({ length: count }, (_, index) => clip(String(index + 21), 'running'));
+    await success(route, {
+      items: items.slice(currentPage * size, (currentPage + 1) * size),
+      page: currentPage,
+      size,
+      total_elements: items.length,
+      total_pages: Math.ceil(items.length / size),
+      has_next: (currentPage + 1) * size < items.length,
+      run_counts: { queued: 0, running: count, failed: 0, succeeded: 0, no_run: 0 },
+    });
+  });
+  return requests;
+}
 test.beforeEach(async ({ page }) => {
   await page.context().addCookies([
     { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
@@ -144,7 +166,10 @@ test('서버 전체 집계·필터·페이지를 사용하고 상세에서 목�
   // 한 페이지뿐이어도 페이지네이션은 사라지지 않는다. 문의 화면과 같은 규약.
   const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
   await expect(pager).toBeVisible();
-  await expect(pager).toContainText('1 / 1');
+  await expect(pager.getByRole('button', { name: '1페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
   await expect(pager.getByRole('button', { name: '이전 페이지' })).toBeDisabled();
   await expect(pager.getByRole('button', { name: '다음 페이지' })).toBeDisabled();
   await expect(page).not.toHaveURL(/progressPage=/);
@@ -400,13 +425,14 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(page).toHaveURL(/view=processing&clip=21/);
   // 등록 직후에는 칩 필터를 풀어야 방금 올린 영상(no_run)이 목록에 남는다.
   await expect(page).not.toHaveURL(/clipStatus=/);
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toContainText(
-    '영상이 등록되었습니다.',
+  // 등록 성공은 완료 사실만 알리는 일회성 안내라 자동 소멸 토스트로 뜬다 (S15P21A501-303).
+  const registrationToast = page.getByText(
+    /영상 등록 완료 · preview-fixture\.mp4 · 처리 대기 상태/,
   );
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toContainText(
-    'preview-fixture.mp4 · 처리 대기 상태',
-  );
+  await expect(registrationToast).toBeVisible();
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
+  // 자동 소멸(일정 시간 뒤 사라짐)은 아래 폴링 루프의 fastForward(총 15s)가 지나며 확인된다
+  // — 여기서 별도로 앞당기면 처리현황 폴링 타임라인이 밀린다. 소멸 결과는 431·433행에서 단언.
   const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   const noRunNotice = overview.getByText(
     '처리 기록을 확인하고 있습니다. 기록이 준비되면 자동으로 표시합니다.',
@@ -426,9 +452,9 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(
     page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toHaveCount(0);
+  await expect(registrationToast).toHaveCount(0);
   await page.getByRole('button', { name: '서버 영상 21 처리 상세', exact: true }).click();
-  await expect(page.getByRole('status', { name: '영상 등록 결과' })).toHaveCount(0);
+  await expect(registrationToast).toHaveCount(0);
   await expect(page.getByRole('region', { name: '영상 처리 상세', exact: true })).toContainText(
     '처리 완료',
   );
@@ -439,6 +465,35 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
   expect(registrations).toBe(1);
   expect(reads).toBeGreaterThanOrEqual(2);
+});
+
+test('이미 등록된 영상은 그 사실을 알리고 내가 입력한 이름 대신 기존 등록 정보를 보여준다', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/clips', async (route) => {
+    expect(route.request().method()).toBe('POST');
+    await success(route, {
+      clip_id: '21',
+      pipeline_run_id: '32',
+      status: 'queued',
+      outcome: 'duplicate_other',
+    });
+  });
+  await page.route('**/api/v1/clips/21', (route) => success(route, detail('21', 'succeeded')));
+  await page.goto('/review?view=upload');
+  await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
+  await page.locator('#registration-title').fill('내가 붙인 제목');
+  await page.locator('#rights-confirmed').check();
+  await page.locator('#external-processing-confirmed').check();
+  await page.getByRole('button', { name: '등록', exact: true }).click();
+  await expect(page).toHaveURL(/view=processing&clip=21/);
+  const notice = page.getByRole('status', { name: '영상 등록 결과' });
+  await expect(notice).toContainText('다른 사용자가 이미 등록한 영상입니다.');
+  await expect(notice).toContainText('이번에 입력한 제목과 날짜는 저장되지 않았습니다.');
+  // 등록 성공으로 읽히는 문구와 내 로컬 파일명이 남아 있으면 남의 영상을 내 것으로 오해한다.
+  await expect(notice).not.toContainText('영상이 등록되었습니다.');
+  await expect(notice).not.toContainText('preview-fixture.mp4');
+  await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
 });
 
 test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 지원한다', async ({ page }) => {
@@ -770,8 +825,7 @@ for (const width of [1440, 390, 320]) {
     const header = page.getByRole('banner');
     await expect(header.getByText('영상 등록 처리 상세', { exact: true })).toBeVisible();
     await expect(overview.getByText('영상 등록 처리 상세', { exact: true })).toHaveCount(0);
-    await expect(overview.getByRole('status')).toContainText('확인 필요');
-    await expect(overview.getByRole('status')).toContainText('영상 처리를 완료하지 못했습니다.');
+    await expect(overview.getByRole('status')).toHaveText('확인 필요');
     await expect(overview).not.toContainText('STAGE_TIMEOUT');
     await expect(overview.getByText('검색 가능', { exact: true })).toBeVisible();
     await expect(stages.getByText(/처리 실패/)).toBeVisible();
@@ -853,3 +907,123 @@ for (const width of [1440, 390, 320]) {
     }
   });
 }
+
+test('자동 재조회 중에도 번호 입력은 포커스를 잃지 않고 목록 표시 개수를 따른다', async ({
+  page,
+}) => {
+  const requests = await pollingClipList(page);
+  await page.goto('/review?view=processing&progressSize=20');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  const pageInput = pager.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await expect(pager.getByRole('button', { name: '3페이지' })).toBeVisible();
+  expect(requests[0].searchParams.get('size')).toBe('20');
+  await pageInput.fill('2');
+  await expect.poll(() => requests.length, { timeout: 10_000 }).toBeGreaterThan(1);
+  await expect(pageInput).toBeEnabled();
+  await expect(pageInput).toBeFocused();
+  await pageInput.press('Enter');
+  await expect(page).toHaveURL(/progressSize=20&progressPage=2$/);
+});
+
+test('범위 밖 안내는 필터를 바꾸면 지워진다', async ({ page }) => {
+  await pollingClipList(page);
+  await page.goto('/review?view=processing');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  const pageInput = pager.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await pageInput.fill('9');
+  await pageInput.press('Enter');
+  await expect(pager.getByRole('alert')).toHaveText('1~5 사이의 페이지 번호를 입력해 주세요.');
+  await page.getByRole('checkbox', { name: '내 영상만 보기' }).click();
+  await expect(page).toHaveURL(/mine=true/);
+  await expect(pager.getByRole('alert')).toHaveCount(0);
+  await expect(pageInput).toHaveValue('');
+  await expect(pageInput).not.toHaveAttribute('aria-invalid', 'true');
+});
+
+test('허용하지 않는 목록 표시 개수는 URL 에서 걷어 낸다', async ({ page }) => {
+  await pollingClipList(page);
+  await page.goto('/review?view=processing&progressSize=30');
+  await expect(page).not.toHaveURL(/progressSize=/);
+  await expect(page.getByRole('combobox', { name: '목록 표시 개수' })).toHaveValue('10');
+});
+
+test('다음 쪽을 읽는 동안에도 번호와 포커스를 유지하고 번호 이동 뒤에도 입력칸에 머문다', async ({
+  page,
+}) => {
+  const requests = await pollingClipList(page);
+  await page.goto('/review?view=processing');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  await pager.getByRole('button', { name: '2페이지' }).click();
+  // 응답이 1.5초 늦게 온다. 그동안 총 쪽수를 잃으면 번호가 1 하나로 줄고 누른 버튼이 사라진다.
+  await expect(pager.getByRole('button', { name: '5페이지' })).toBeVisible();
+  await expect(pager.getByRole('button', { name: '2페이지' })).toBeFocused();
+  // 앞 쪽 행을 보여 주는 동안은 새 쪽이 아님을 알린다.
+  await expect(page.getByRole('region', { name: '영상 목록' }).getByRole('list')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
+  await expect.poll(() => requests.length).toBeGreaterThan(1);
+  const pageInput = pager.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await pageInput.fill('4');
+  await pageInput.press('Enter');
+  await expect(page).toHaveURL(/progressPage=4$/);
+  await expect(pageInput).toBeFocused();
+});
+
+test('목록 표시 개수를 바꿔도 셀렉트에 포커스가 남는다', async ({ page }) => {
+  await pollingClipList(page);
+  await page.goto('/review?view=processing');
+  const select = page.getByRole('combobox', { name: '목록 표시 개수' });
+  // 제목이 마운트될 때 포커스를 가져가므로 목록이 뜬 뒤에 둔다.
+  // selectOption 은 포커스를 옮기지 않는다. 키보드 사용자처럼 먼저 포커스를 둔다.
+  await expect(page.getByRole('heading', { name: '영상 처리 현황' })).toBeFocused();
+  await select.focus();
+  await select.selectOption('20');
+  await expect(page).toHaveURL(/progressSize=20/);
+  await expect(page.getByRole('region', { name: '영상 목록' }).getByRole('listitem')).toHaveCount(
+    20,
+  );
+  await expect(select).toBeFocused();
+});
+
+test('앞 쪽의 옛 총 쪽수로 새 쪽을 잘라 내지 않는다', async ({ page }) => {
+  // 캐시를 비우려면 쓰지 않는 쿼리의 gcTime(5분)을 넘겨야 한다.
+  await page.clock.install();
+  let count = 45;
+  await page.route('**/api/v1/clips?*', async (route) => {
+    const url = new URL(route.request().url());
+    const currentPage = Number(url.searchParams.get('page'));
+    const items = Array.from({ length: count }, (_, index) => clip(String(index + 21)));
+    await success(route, {
+      items: items.slice(currentPage * 10, (currentPage + 1) * 10),
+      page: currentPage,
+      size: 10,
+      total_elements: items.length,
+      total_pages: Math.ceil(items.length / 10),
+      has_next: (currentPage + 1) * 10 < items.length,
+      run_counts: { queued: 0, running: 0, failed: count, succeeded: 0, no_run: 0 },
+    });
+  });
+  await page.goto('/review?view=processing&progressPage=4');
+  const pager = page.getByRole('navigation', { name: '영상 목록 페이지' });
+  await expect(pager.getByRole('button', { name: '4페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  // 1쪽을 읽는 사이 영상이 줄어 3쪽이 된다. 4쪽 캐시는 시간이 지나 사라진다.
+  count = 25;
+  await pager.getByRole('button', { name: '1페이지' }).click();
+  await expect(pager.getByRole('button', { name: '3페이지' })).toBeVisible();
+  await expect(pager.getByRole('button', { name: '4페이지' })).toHaveCount(0);
+  await page.clock.fastForward('06:00');
+  // 다시 늘어난 뒤 뒤로 가 4쪽을 연다. 4쪽 응답 전의 1쪽 총계(3쪽)로 잘라 내면 안 된다.
+  count = 45;
+  await page.goBack();
+  // 4쪽 응답 전, 1쪽을 대신 보여 주는 동안에도 URL 이 4쪽에 머물러야 한다.
+  await expect(page).toHaveURL(/progressPage=4$/);
+  await expect(pager.getByRole('button', { name: '4페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page).toHaveURL(/progressPage=4$/);
+});

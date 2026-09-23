@@ -1,4 +1,8 @@
 import { ApiClientError, fetchJson } from '@/lib/api/client';
+import type {
+  SearchKeywordOrigin,
+  SearchMatchedKeyword,
+} from '@/features/wireframes/search-api-contract';
 
 export type DroppedReason = 'approved_scene_exclusion' | 'false_hit_guard' | 'score_drop';
 
@@ -13,7 +17,7 @@ export interface VerificationScene {
 
 export interface VerificationResult {
   executionId: string;
-  enteredScenes: Array<VerificationScene & { matchedKeywords: string[] }>;
+  enteredScenes: Array<VerificationScene & { matchedKeywords: SearchMatchedKeyword[] }>;
   droppedScenes: Array<VerificationScene & { reason: DroppedReason }>;
   verificationRuleSet: string[];
 }
@@ -70,12 +74,17 @@ function scene(value: Record<string, unknown>): VerificationScene {
   };
 }
 
-function enteredKeywords(value: unknown): string[] {
+function enteredKeywords(value: unknown): SearchMatchedKeyword[] {
   const reason = record(value);
   const match = record(reason.match);
-  return list(match.matched_keywords).map((keyword) => {
-    if (typeof keyword !== 'string' || !keyword.trim()) fail();
-    return keyword;
+  return list(match.matched_keywords).map((value) => {
+    const matched = record(value);
+    if (typeof matched.keyword !== 'string' || !matched.keyword.trim()) fail();
+    if (matched.origin !== 'user' && matched.origin !== 'expanded') fail();
+    return {
+      keyword: matched.keyword,
+      origin: matched.origin as SearchKeywordOrigin,
+    };
   });
 }
 

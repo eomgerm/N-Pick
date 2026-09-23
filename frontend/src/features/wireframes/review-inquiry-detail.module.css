@@ -19,36 +19,18 @@
   overflow-wrap: anywhere;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-  color: #e2edf5;
-  font-size: 12px;
-}
-
-.toolbar > span > span {
-  margin-inline: 10px;
-  opacity: 0.5;
-}
-
-.detail .backButton {
+.backButton {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 9px;
   min-height: 40px;
-  margin-bottom: 18px;
+  margin: 0;
   padding: 8px 0;
   color: #e2edf5;
   font-size: 13px;
   font-weight: 550;
   transition: color 180ms;
-}
-
-.toolbar .backButton {
-  margin: 0;
 }
 
 .backButton svg {
@@ -79,15 +61,7 @@
   color: #f3f8fc;
 }
 
-.eyebrow {
-  margin: 0 0 10px;
-  color: #c6d8e7;
-  font-size: 12px;
-  font-weight: 550;
-  letter-spacing: 0.04em;
-}
-
-.heading h1 {
+.heading h2 {
   margin: 0;
   font-size: clamp(24px, 2.5vw, 36px);
   font-weight: 650;
@@ -567,8 +541,9 @@
   outline-offset: 3px;
 }
 
-.detail .backButton:focus-visible {
-  outline-color: #d4e8ff;
+.backButton:focus-visible {
+  outline: 3px solid #d4e8ff;
+  outline-offset: 3px;
 }
 
 .detail button:disabled {
@@ -636,10 +611,6 @@
 }
 
 @media (max-width: 560px) {
-  .toolbar > span {
-    display: none;
-  }
-
   .heading {
     align-items: flex-start;
     flex-direction: column;
