@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
+import { openRegistration } from './registration-helpers';
+
 const videoBytes = readFileSync('e2e/preview-fixture.mp4');
 
 test.beforeEach(async ({ context }) => {
@@ -15,9 +17,11 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
     uploads++;
     return route.fulfill({ status: 500 });
   });
-  await page.goto('/review?view=upload');
+  await openRegistration(page);
   const videoInput = page.locator('#video-file');
-  const videoZone = page.locator('label[data-kind="video"]');
+  const videoZone = page.locator('[data-kind="video"]');
+  const isInert = (selector: string) =>
+    page.locator(selector).evaluate((element) => Boolean(element.closest('[inert]')));
   await videoZone.screenshot({ path: 'test-results/video-registration-empty.png' });
   await videoInput.setInputFiles({
     name: '가짜.mp4',
@@ -30,9 +34,10 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
   await expect(videoZone).not.toContainText('선택됨');
   await page.evaluate(() => window.scrollTo(0, 0));
   await videoZone.screenshot({ path: 'test-results/video-registration-error.png' });
-  await page.locator('#rights-confirmed').check();
-  await page.locator('#external-processing-confirmed').check();
-  await page.getByRole('button', { name: '등록', exact: true }).click();
+  // 영상을 고르기 전에는 나머지 입력과 등록 버튼을 조작할 수 없다.
+  expect(await isInert('#registration-title')).toBe(true);
+  expect(await isInert('#rights-confirmed')).toBe(true);
+  expect(await isInert('button[type="submit"]')).toBe(true);
   expect(uploads).toBe(0);
 
   await videoInput.setInputFiles({ name: '첫번째.mp4', mimeType: 'video/mp4', buffer: videoBytes });
@@ -40,7 +45,10 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
   await expect(videoZone).toContainText('선택됨');
   await expect(videoZone).toContainText('파일 선택');
   await expect(page.getByRole('list', { name: '선택한 영상 파일' })).toHaveCount(0);
+  expect(await isInert('#registration-title')).toBe(false);
   await page.locator('#registration-title').fill('유지할 제목');
+  await page.locator('#rights-confirmed').check();
+  await page.locator('#external-processing-confirmed').check();
 
   const subtitle = page.locator('#subtitle-file');
   await subtitle.setInputFiles({
@@ -95,6 +103,68 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
   await videoZone.screenshot({ path: 'test-results/video-registration-mobile.png' });
   await page.getByRole('button', { name: '영상 파일 삭제', exact: true }).click();
   await expect(videoZone).toContainText('영상 파일 추가하기');
+  // 영상을 지워 다시 잠겨도 입력한 값은 남는다.
+  expect(await isInert('#registration-title')).toBe(true);
+  await expect(page.locator('#registration-title')).toHaveValue('유지할 제목');
+});
+
+test('선택한 영상을 등록 전에 브라우저에서 재생해 확인한다', async ({ page }) => {
+  await openRegistration(page);
+  const input = page.locator('#video-file');
+  const preview = page.getByLabel('선택한 영상 미리보기');
+  await expect(preview).toHaveCount(0);
+
+  await input.setInputFiles({ name: '첫번째.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(preview).toHaveAttribute('src', /^blob:/);
+  const firstSource = await preview.getAttribute('src');
+  // 메타데이터를 읽으면 용량 뒤에 길이(mm:ss)가 붙는다.
+  await expect(page.locator('#video-selection')).toContainText(/\d{2}:\d{2}/);
+  await preview.evaluate((element: HTMLVideoElement) => element.play());
+  await expect
+    .poll(() => preview.evaluate((element: HTMLVideoElement) => element.currentTime))
+    .toBeGreaterThan(0);
+
+  await input.setInputFiles({ name: '두번째.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(page.locator('#video-selection')).toContainText('두번째.mp4');
+  await expect(preview).toHaveAttribute('src', /^blob:/);
+  expect(await preview.getAttribute('src')).not.toBe(firstSource);
+
+  await page.getByRole('button', { name: '영상 파일 삭제', exact: true }).click();
+  await expect(preview).toHaveCount(0);
+});
+
+test('재생할 수 없는 코덱이어도 안내만 하고 등록은 막지 않는다', async ({ page }) => {
+  await openRegistration(page);
+  const atom = (type: string) => {
+    const bytes = Buffer.alloc(12);
+    bytes.writeUInt32BE(12);
+    bytes.write(type, 4);
+    return bytes;
+  };
+  // 컨테이너 헤더 검사는 통과하지만 브라우저가 디코딩할 트랙이 없는 MOV.
+  await page.locator('#video-file').setInputFiles({
+    name: '디코딩불가.mov',
+    mimeType: 'video/quicktime',
+    buffer: Buffer.concat([atom('wide'), atom('mdat'), atom('moov')]),
+  });
+  await expect(page.locator('#video-selection')).toContainText('디코딩불가.mov');
+  await expect(page.getByText('이 브라우저에서는 미리보기를 재생할 수 없어요')).toBeVisible();
+  await page.locator('#rights-confirmed').check();
+  await page.locator('#external-processing-confirmed').check();
+  await expect(page.getByRole('button', { name: '등록', exact: true })).toBeEnabled();
+});
+
+test('영상을 고른 등록 화면은 1080p 한 화면에 들어온다', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await openRegistration(page);
+  await page
+    .locator('#video-file')
+    .setInputFiles({ name: '뉴스.mp4', mimeType: 'video/mp4', buffer: videoBytes });
+  await expect(page.locator('#video-selection')).toContainText('뉴스.mp4');
+  await page.screenshot({ path: 'test-results/video-registration-1080p.png' });
+  expect(
+    await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight),
+  ).toBe(true);
 });
 
 test('느린 파일 검사가 제출을 막고 빠른 재선택 결과를 덮어쓰지 않는다', async ({ page }) => {
@@ -120,7 +190,7 @@ test('느린 파일 검사가 제출을 막고 빠른 재선택 결과를 덮어
       return blob;
     };
   });
-  await page.goto('/review?view=upload');
+  await openRegistration(page);
   const input = page.locator('#video-file');
   await input.setInputFiles({ name: '느린영상.mp4', mimeType: 'video/mp4', buffer: videoBytes });
   await expect(page.getByRole('button', { name: '파일 확인 중…', exact: true })).toBeDisabled();

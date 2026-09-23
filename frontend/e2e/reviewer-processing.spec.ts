@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+import { openRegistrationWithVideo } from './registration-helpers';
+
 function clip(id = '21', status = 'failed') {
   return {
     clip_id: id,
@@ -454,8 +456,7 @@ test('이미 등록된 영상은 그 사실을 알리고 내가 입력한 이름
     });
   });
   await page.route('**/api/v1/clips/21', (route) => success(route, detail('21', 'succeeded')));
-  await page.goto('/review?view=upload');
-  await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
+  await openRegistrationWithVideo(page);
   await page.locator('#registration-title').fill('내가 붙인 제목');
   await page.locator('#rights-confirmed').check();
   await page.locator('#external-processing-confirmed').check();
@@ -471,7 +472,7 @@ test('이미 등록된 영상은 그 사실을 알리고 내가 입력한 이름
 });
 
 test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 지원한다', async ({ page }) => {
-  await page.goto('/review?view=upload');
+  await openRegistrationWithVideo(page);
 
   const emptyTransfer = await page.evaluateHandle(() => new DataTransfer());
   await page.locator('label[data-kind="subtitle"]').dispatchEvent('drop', {

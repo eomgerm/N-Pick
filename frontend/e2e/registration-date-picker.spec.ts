@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+
+import { openRegistrationWithVideo } from './registration-helpers';
 
 test.beforeEach(async ({ context, page }) => {
   await context.addCookies([
@@ -13,7 +14,7 @@ for (const width of [1440, 390]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto('/review?view=upload');
+    await openRegistrationWithVideo(page);
     await expect(page.locator('input[type="date"]')).toHaveCount(0);
     await page.getByRole('button', { name: '촬영일 달력 열기', exact: true }).click();
     const filming = page.getByRole('dialog', { name: '촬영일 선택', exact: true });
@@ -66,7 +67,7 @@ for (const width of [1440, 390]) {
 test('등록 달력은 1950년 하한·키보드·바깥 클릭을 지원하며 자료 영상에는 방송일을 숨긴다', async ({
   page,
 }) => {
-  await page.goto('/review?view=upload');
+  await openRegistrationWithVideo(page);
   const input = page.locator('#filmed-date');
   await expect(input).toHaveAttribute('max', '2026-09-22');
   await input.focus();
@@ -111,12 +112,7 @@ test('등록 날짜 직접 입력 오류는 제출을 막으며 달력을 열어
     uploads++;
     return route.fulfill({ status: 500 });
   });
-  await page.goto('/review?view=upload');
-  await page.locator('#video-file').setInputFiles({
-    name: '영상.mp4',
-    mimeType: 'video/mp4',
-    buffer: readFileSync('e2e/preview-fixture.mp4'),
-  });
+  await openRegistrationWithVideo(page);
   await page.locator('#rights-confirmed').check();
   await page.locator('#external-processing-confirmed').check();
   await page.locator('#broadcast-date').fill('2026-02-30');
