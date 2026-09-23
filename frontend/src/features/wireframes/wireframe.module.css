@@ -352,7 +352,7 @@
 }
 
 .resultsSection {
-  padding: 17px 0 0;
+  padding: 0;
 }
 
 .resultsHeading {
@@ -438,8 +438,13 @@
 
 /* 검색 기록(스냅샷) 모드 전용 컨텍스트. 좌측 accent 보더로 라이브 검색과 시각적으로 구분한다. */
 .historyContext {
+  --accent: #5d7fa6;
+  --surface: #dce8f4;
+  --muted: #344e6a;
+  --line: #b8cce1;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 0 0 16px;
   padding: 12px 14px;
@@ -447,10 +452,13 @@
   border-left: 3px solid var(--accent);
   border-radius: 12px;
   background: var(--surface);
+  font-family: var(--font-ui);
 }
 
 .historyContext .historyBadge {
+  flex-shrink: 0;
   margin: 0;
+  background: #c4d7eb;
 }
 
 .historyNotice {
