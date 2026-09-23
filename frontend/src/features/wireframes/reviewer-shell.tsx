@@ -7,7 +7,13 @@ import { useEffect, useRef, useState, useTransition } from 'react';
 
 import { ProcessingClipDetail } from '@/features/wireframes/processing-clip-detail';
 import { ReviewInquiryWorkspace } from '@/features/wireframes/review-inquiry-workspace';
-import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { ReviewOverview } from '@/features/wireframes/review-overview';
+import {
+  getReviewTabUrl,
+  getReviewUrl,
+  selectReviewView,
+  type ReviewTab,
+} from '@/features/wireframes/reviewer-board-state';
 import { ReviewerLayout } from '@/features/wireframes/reviewer-layout';
 import { ReviewerProgress, ReviewerProgressHeading } from '@/features/wireframes/reviewer-progress';
 import progressStyles from '@/features/wireframes/reviewer-progress.module.css';
@@ -47,8 +53,9 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   const [registeredVideo, setRegisteredVideo] = useState<RegisteredVideo | null>(null);
   const registrationDetailShownRef = useRef<string | null>(null);
   const registrationBusyRef = useRef(false);
-  const isProcessing = searchParams.get('view') === 'processing';
-  const isRegistration = searchParams.get('view') === 'upload';
+  const view = selectReviewView(searchParams);
+  const isProcessing = view === 'processing';
+  const isRegistration = view === 'upload';
   const clipId = searchParams.get('clip');
   const isInteractionLocked = isNavigating || isRegistrationBusy;
 
@@ -76,7 +83,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       router.push(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
     });
   }
-  function handleTabChange(tab: 'inquiries' | 'processing') {
+  function handleTabChange(tab: ReviewTab) {
     if (registrationBusyRef.current) return;
     startNavigation(() => {
       router.push(getReviewTabUrl(pathname, searchParams.toString(), tab), { scroll: false });
@@ -113,7 +120,8 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
     });
   }
 
-  if (!isProcessing && !isRegistration) return <ReviewInquiryWorkspace theme={theme} />;
+  if (view === 'overview') return <ReviewOverview theme={theme} />;
+  if (view === 'inquiries') return <ReviewInquiryWorkspace theme={theme} />;
 
   return (
     <ReviewerLayout

@@ -259,7 +259,7 @@ test('연결 실패는 같은 키로 재시도하고 요청 중 중복 입력을
     await success(route);
   });
 
-  await page.goto('/review');
+  await page.goto('/review?view=inquiries');
   await page.getByRole('button', { name: /문의 #41/ }).click();
   await page.getByRole('button', { name: '검수 시작', exact: true }).click();
   await page.getByRole('button', { name: '검수 시작 다시 시도' }).click();

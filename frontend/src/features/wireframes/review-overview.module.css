@@ -1,0 +1,199 @@
+.overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.overview > section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* 266 이전 처리 현황의 요약 카드. 배경만 대시보드 패널(.panel)을 따른다. */
+.overview > .summary {
+  gap: 0;
+  padding: 24px 28px;
+}
+
+.summaryTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.summaryTitle svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-strong);
+}
+
+.summaryTitle h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.summaryTitle > span {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.summary > p {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 18px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.summary strong {
+  color: var(--text);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -1.5px;
+  line-height: 1;
+}
+
+.summary progress {
+  display: block;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--accent-strong);
+}
+
+.summary progress::-webkit-progress-bar {
+  background: var(--surface-muted);
+  border-radius: 999px;
+}
+
+.summary progress::-webkit-progress-value {
+  background: var(--accent-strong);
+  border-radius: 999px;
+}
+
+.summary progress::-moz-progress-bar {
+  background: var(--accent-strong);
+  border-radius: 999px;
+}
+
+.summaryMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px 22px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.summaryMeta a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.summaryMeta a:hover {
+  color: var(--accent-strong);
+}
+
+.summaryMeta b {
+  margin-left: 5px;
+  color: var(--text);
+}
+
+/*
+ * 두 최근 목록은 grid 한 줄에서 같은 높이로 늘어난다.
+ * 행 텍스트를 한 줄로 잘라 5건이면 높이가 같게 하고, 건수가 다를 때 남는 공간은
+ * 목록과 하단 링크 사이로 보낸다.
+ */
+.recent {
+  gap: 12px;
+}
+
+.line {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.line > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.footerLink {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 6px;
+  margin-top: auto;
+  padding: 8px 0 4px;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.footerLink svg {
+  width: 15px;
+  height: 15px;
+}
+
+.footerLink:hover {
+  text-decoration: underline;
+}
+
+.recent > .empty {
+  margin-block: auto;
+  text-align: center;
+}
+
+.summary > [role='status'] {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.summary > .error {
+  margin-top: 16px;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+@media (max-width: 1080px) {
+  .overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .overview > .summary {
+    padding: 20px;
+  }
+
+  .summaryMeta {
+    gap: 10px 16px;
+  }
+}
