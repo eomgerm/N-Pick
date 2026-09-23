@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Clock3 } from 'lucide-react';
+import { Clock3 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -9,6 +9,7 @@ import { results as demoResults, type SearchResult } from '@/features/wireframes
 import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import { SceneSearchField } from '@/features/wireframes/scene-search-field';
 import { SearchLayout } from '@/features/wireframes/search-layout';
 import { useSearchArrival } from '@/features/wireframes/search-transition';
@@ -135,15 +136,8 @@ export function WireframeShell({
   const [inquirySubmission, setInquirySubmission] = useState<InquirySubmission | null>(null);
   const [inquiryError, setInquiryError] = useState<unknown>();
   const [isInquirySubmitting, setIsInquirySubmitting] = useState(false);
-  const [inquirySuccessNotice, setInquirySuccessNotice] = useState('');
-  const [inquirySuccessToastKey, setInquirySuccessToastKey] = useState<string | null>(null);
+  const { showSuccess } = useSuccessToast();
   const inquirySubmittingRef = useRef(false);
-
-  useEffect(() => {
-    if (inquirySuccessToastKey === null) return;
-    const timeoutId = window.setTimeout(() => setInquirySuccessToastKey(null), 5_000);
-    return () => window.clearTimeout(timeoutId);
-  }, [inquirySuccessToastKey]);
 
   useEffect(() => {
     if (isSearchPending) {
@@ -268,10 +262,9 @@ export function WireframeShell({
           ? current
           : [...current, submission.snapshot.resultId],
       );
-      setInquirySuccessNotice(
+      showSuccess(
         `문의 #${response.inquiryId}의 접수가 확인되었습니다. 현재 상태: ${inquiryStatusLabels[response.status]}. 문의 접수 자체로 검색 결과는 변경되지 않습니다.`,
       );
-      setInquirySuccessToastKey(submission.key);
       setInquirySubmission(null);
       setInquiryResultId(null);
     } catch (error) {
@@ -287,7 +280,6 @@ export function WireframeShell({
     // 문의 가능 여부는 이 결과 자신의 저장 상태(searchResultId)로 판단한다. 더보기로 합쳐진 실행
     // 상태가 다른 페이지 snapshot 실패로 degraded 여도 저장된 결과는 문의할 수 있다 (S15P21A501-251 P1).
     if (!result?.searchResultId || submittedInquiryIds.includes(result.searchResultId)) return;
-    setInquirySuccessToastKey(null);
     setInquiryResultId(resultId);
     setInquirySubmission(null);
     setInquiryError(undefined);
@@ -403,11 +395,6 @@ export function WireframeShell({
             {resultState === 'empty' || resultState === 'populated' ? (
               <SearchResultNotices execution={searchExecution} variant="results" />
             ) : null}
-            {inquirySuccessNotice ? (
-              <p className={styles.inquirySuccessNotice} role="status">
-                {inquirySuccessNotice}
-              </p>
-            ) : null}
 
             {api?.validationMessage ? (
               <p role="alert" className="p-4 text-sm wrap-anywhere">
@@ -480,13 +467,6 @@ export function WireframeShell({
             ? '검색 중입니다.'
             : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
-
-      {inquirySuccessToastKey !== null ? (
-        <div aria-atomic="true" className={styles.inquirySuccessToast} role="status">
-          <CheckCircle2 aria-hidden="true" />
-          문의가 접수되었어요
-        </div>
-      ) : null}
 
       {isPreviewOpen && selectedResult ? (
         <ScenePreviewDialog

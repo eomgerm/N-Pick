@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, Info } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
 
@@ -24,6 +24,7 @@ import {
 } from '@/features/wireframes/video-registration';
 import type { ClipRegistrationOutcome } from '@/features/wireframes/video-registration-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 
 interface ReviewerShellProps {
@@ -44,6 +45,7 @@ const duplicateNoticeDetail =
   '같은 영상 파일이 이미 등록되어 있어 아래에 기존 등록 정보를 표시합니다. 이번에 입력한 제목과 날짜는 저장되지 않았습니다.';
 
 export function ReviewerShell({ theme }: ReviewerShellProps) {
+  const { showSuccess } = useSuccessToast();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -103,6 +105,13 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
   function handleRegister(record: RegisteredVideo) {
     registrationDetailShownRef.current = null;
     setRegisteredVideo(record);
+    // 신규 등록 성공만 일회성 토스트로 알린다. 중복 등록(duplicate_*)은 아래에 기존 등록
+    // 정보를 설명하는 안내를 계속 남긴다 (S15P21A501-303).
+    if (record.outcome === 'created') {
+      showSuccess(
+        `${registrationNotices.created.heading} · ${record.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`,
+      );
+    }
     void queryClient.invalidateQueries({ queryKey: ['processing-clips'] });
     void queryClient.invalidateQueries({ queryKey: ['processing-clip', record.id] });
     // Registration returns a real ID; the detail query owns all subsequent processing state.
@@ -168,30 +177,21 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
           />
         ) : clipId ? (
           <>
-            {registeredVideo?.id === clipId ? (
+            {/* 등록 성공(created)은 완료 사실만 알리는 일회성 피드백이라 자동 소멸 토스트로
+                띄운다. 중복 등록(duplicate_*)은 아래에 열리는 기존 등록 정보를 설명하는 안내라
+                계속 남겨 둔다 (S15P21A501-303). */}
+            {registeredVideo?.id === clipId && registeredVideo.outcome !== 'created' ? (
               <section
                 aria-label="영상 등록 결과"
                 aria-live="polite"
-                className={
-                  registeredVideo.outcome === 'created'
-                    ? styles.registrationNotice
-                    : `${styles.registrationNotice} ${styles.duplicateNotice}`
-                }
+                className={`${styles.registrationNotice} ${styles.duplicateNotice}`}
                 role="status"
               >
-                {registeredVideo.outcome === 'created' ? (
-                  <CheckCircle2 aria-hidden="true" />
-                ) : (
-                  <Info aria-hidden="true" />
-                )}
+                <Info aria-hidden="true" />
                 <div>
                   <p>{registrationNotices[registeredVideo.outcome].label}</p>
                   <h2>{registrationNotices[registeredVideo.outcome].heading}</h2>
-                  <span>
-                    {registeredVideo.outcome === 'created'
-                      ? `${registeredVideo.fileName} · 처리 대기 상태로 상세 화면에서 진행 상황을 확인할 수 있습니다.`
-                      : duplicateNoticeDetail}
-                  </span>
+                  <span>{duplicateNoticeDetail}</span>
                 </div>
               </section>
             ) : null}

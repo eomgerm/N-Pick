@@ -286,6 +286,8 @@ test('담당 검수자는 쉼표로 여러 태그를 추가하고 기존 태그 
   await expect(page.getByText(/서울역.*태그를 삭제 후보로 만들까요/)).toBeVisible();
   await page.getByRole('button', { name: '삭제 후보 저장' }).click();
   await expect(page.getByText(/'서울역' 삭제 후보를 저장했습니다/)).toBeVisible();
+  // 연속 작업 시 이전 안내는 최신으로 교체된다(누적 없음) — 첫 성공 문구는 사라진다.
+  await expect(page.getByText(/3개 태그를 검증 후보로 저장했습니다/)).toHaveCount(0);
   expect(operations[1]).toEqual([
     {
       action: 'REJECT',
@@ -499,3 +501,60 @@ for (const snapshot of [
     expect(errors).toEqual([]);
   });
 }
+
+test('성공 안내는 자동 소멸하고 실패 안내는 남는다 (S15P21A501-303)', async ({ page }) => {
+  await page.clock.install();
+  await reviewer(page);
+  const current = inquiry('41', 'REVIEWING');
+  current.resolution = 'tag_correction';
+  current.history.reviewerLoginId = 'e2e-reviewer';
+  let calls = 0;
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
+  await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
+    calls += 1;
+    // 첫 저장은 성공, 두 번째는 서버 실패 — 성공/실패 표시 정책을 한 흐름에서 확인한다.
+    if (calls === 1) {
+      await success(route, { feedbackId: '41', created: 1, evidenceIds: ['61'] });
+    } else {
+      await failure(route, 409, 'REVIEW_409_231');
+    }
+  });
+
+  await page.goto('/review?inquiry=41');
+  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('서울');
+  await page.getByRole('button', { name: '1개 추가 후보 만들기' }).click();
+
+  // 성공 안내는 토스트로 뜬다.
+  const toast = page.getByText(/1개 태그를 검증 후보로 저장했습니다/);
+  await expect(toast).toBeVisible();
+  // 일정 시간(5초) 뒤 자동으로 사라져 레이아웃을 계속 차지하지 않는다.
+  await page.clock.fastForward(5_100);
+  await expect(toast).toHaveCount(0);
+
+  // 두 번째 저장은 실패 — 실패 안내는 토스트가 아니라 작업 영역에 뜨고, 자동 소멸하지 않는다.
+  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('부산');
+  await page.getByRole('button', { name: '1개 추가 후보 만들기' }).click();
+  const error = page.getByText('요청을 처리할 수 없습니다.', { exact: false });
+  await expect(error).toBeVisible();
+  await page.clock.fastForward(10_000);
+  await expect(error).toBeVisible();
+  // 실패를 성공처럼 표시하지 않는다.
+  await expect(page.getByText(/저장했습니다/)).toHaveCount(0);
+});
+
+test('판정 저장 성공도 자동 소멸 토스트로 뜬다 (S15P21A501-303)', async ({ page }) => {
+  await page.clock.install();
+  await reviewer(page);
+  const current = inquiry('41', 'REVIEWING');
+  current.resolution = 'tag_correction';
+  current.history.reviewerLoginId = 'e2e-reviewer';
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
+  await page.route('**/api/v1/review/inquiries/41/resolution', (route) => success(route));
+
+  await page.goto('/review?inquiry=41');
+  await page.getByRole('button', { name: '판정 저장', exact: true }).click();
+  const toast = page.getByText('판정을 저장했습니다.', { exact: false });
+  await expect(toast).toBeVisible();
+  await page.clock.fastForward(5_100);
+  await expect(toast).toHaveCount(0);
+});

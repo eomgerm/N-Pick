@@ -102,7 +102,9 @@ test('Preview 문의는 저장 결과 ID로 접수하고 재시도 키와 재검
   page,
 }, testInfo) => {
   await page.clock.install();
-  const successToast = page.getByRole('status').filter({ hasText: '문의가 접수되었어요' });
+  const successToast = page
+    .getByRole('status')
+    .filter({ hasText: '문의 #501의 접수가 확인되었습니다' });
   const requests: { url: string; key: string | undefined; body: unknown }[] = [];
   await page.route('**/api/v1/search/results/*/inquiries', async (route) => {
     const request = route.request();

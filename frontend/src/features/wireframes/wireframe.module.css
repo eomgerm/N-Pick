@@ -388,32 +388,6 @@
   font-size: 11px;
 }
 
-.inquirySuccessToast {
-  position: fixed;
-  z-index: 50;
-  bottom: 28px;
-  left: 50%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: calc(100% - 32px);
-  padding: 14px 20px;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: rgb(244 255 249 / 96%);
-  box-shadow: 0 12px 32px rgb(0 48 33 / 18%);
-  color: #1a5542;
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.inquirySuccessToast svg {
-  width: 20px;
-  height: 20px;
-  flex: none;
-}
-
 /* 실시간 검색과 섞이지 않도록, 검색 기록 스냅샷임을 결과 그리드 위에 한 줄로 밝힌다. */
 .historyBadge {
   display: inline-flex;
@@ -457,18 +431,6 @@
   margin: 0;
   color: var(--muted);
   font-size: 13px;
-}
-
-.inquirySuccessNotice {
-  margin: -4px 0 18px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--success) 34%, var(--line));
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--success) 9%, var(--surface));
-  color: var(--success);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.55;
 }
 
 .resultsGrid {
