@@ -27,9 +27,12 @@ import {
   getSceneDownloadUrl,
 } from '@/features/wireframes/scene-preview-media';
 import {
+  checkClipDownload,
+  ClipDownloadError,
   fetchSceneDownload,
   saveSceneDownload,
   SceneDownloadError,
+  startClipDownload,
 } from '@/features/wireframes/scene-download';
 import {
   canCreateInquiry,
@@ -182,6 +185,12 @@ export function ScenePreviewDialog({
     message: string;
   } | null>(null);
   const sceneDownloadControllerRef = useRef<AbortController | null>(null);
+  const [checkingClipId, setCheckingClipId] = useState<string | null>(null);
+  const [clipDownloadFailure, setClipDownloadFailure] = useState<{
+    clipId: string;
+    message: string;
+  } | null>(null);
+  const clipDownloadControllerRef = useRef<AbortController | null>(null);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
   const filmingStatus = result.filmedDate ? (result.filmingState ?? 'unknown') : 'unknown';
   const evidenceField = result.matchEvidence?.field ?? result.evidenceType;
@@ -203,6 +212,9 @@ export function ScenePreviewDialog({
   const isSceneDownloading = downloadingSceneId === result.sceneId;
   const sceneDownloadError =
     sceneDownloadFailure?.sceneId === result.sceneId ? sceneDownloadFailure?.message : null;
+  const isClipDownloadChecking = checkingClipId === result.clipId;
+  const clipDownloadError =
+    clipDownloadFailure?.clipId === result.clipId ? clipDownloadFailure?.message : null;
   useEffect(() => {
     closeButtonRef.current?.focus({ preventScroll: true });
   }, []);
@@ -220,10 +232,24 @@ export function ScenePreviewDialog({
   }, [result.id]);
   useEffect(() => {
     return () => {
-      sceneDownloadControllerRef.current?.abort();
-      sceneDownloadControllerRef.current = null;
+      const controller = sceneDownloadControllerRef.current;
+      controller?.abort();
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
     };
   }, [result.sceneId]);
+  useEffect(() => {
+    return () => {
+      const controller = clipDownloadControllerRef.current;
+      controller?.abort();
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
+      }
+    };
+  }, [result.clipId]);
 
   async function handleSceneDownload() {
     if (!sceneDownloadUrl || !result.sceneId || sceneDownloadControllerRef.current) return;
@@ -232,6 +258,7 @@ export function ScenePreviewDialog({
     sceneDownloadControllerRef.current = controller;
     setDownloadingSceneId(sceneId);
     setSceneDownloadFailure(null);
+    setClipDownloadFailure(null);
     try {
       const download = await fetchSceneDownload(sceneDownloadUrl, controller.signal);
       if (!controller.signal.aborted) {
@@ -251,6 +278,34 @@ export function ScenePreviewDialog({
       if (sceneDownloadControllerRef.current === controller) {
         sceneDownloadControllerRef.current = null;
         setDownloadingSceneId(null);
+      }
+    }
+  }
+  async function handleClipDownload() {
+    if (!clipDownloadUrl || !result.clipId || clipDownloadControllerRef.current) return;
+    const clipId = result.clipId;
+    const controller = new AbortController();
+    clipDownloadControllerRef.current = controller;
+    setCheckingClipId(clipId);
+    setClipDownloadFailure(null);
+    setSceneDownloadFailure(null);
+    try {
+      await checkClipDownload(clipDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) startClipDownload(clipDownloadUrl);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setClipDownloadFailure({
+          clipId,
+          message:
+            error instanceof ClipDownloadError
+              ? error.message
+              : '원본 클립을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
       }
     }
   }
@@ -374,15 +429,26 @@ export function ScenePreviewDialog({
                 </button>
               ) : null}
               {clipDownloadUrl ? (
-                <a className={styles.previewDownloadButton} download href={clipDownloadUrl}>
-                  <Download aria-hidden="true" /> 원본 클립 다운로드
-                </a>
+                <button
+                  aria-busy={isClipDownloadChecking || undefined}
+                  className={styles.previewDownloadButton}
+                  disabled={isClipDownloadChecking}
+                  onClick={() => void handleClipDownload()}
+                  type="button"
+                >
+                  {isClipDownloadChecking ? (
+                    <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                  ) : (
+                    <Download aria-hidden="true" />
+                  )}
+                  {isClipDownloadChecking ? '원본 확인 중…' : '원본 클립 다운로드'}
+                </button>
               ) : null}
             </div>
           ) : null}
-          {sceneDownloadError ? (
+          {sceneDownloadError || clipDownloadError ? (
             <p className={styles.previewDownloadError} role="alert">
-              {sceneDownloadError}
+              {sceneDownloadError ?? clipDownloadError}
             </p>
           ) : null}
           <SearchResultNotices

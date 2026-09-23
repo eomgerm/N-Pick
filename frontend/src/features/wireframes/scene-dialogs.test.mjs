@@ -133,7 +133,10 @@ test('저장된 장면과 원본 클립 다운로드를 함께 제공한다', ()
   assert.match(html, /aria-label="영상 다운로드" role="group"/);
   assert.match(sceneDialogsSource, /getSceneDownloadUrl\(result\.sceneId\)/);
   assert.doesNotMatch(sceneDialogsSource, /getSceneDownloadUrl\(result\.id\)/);
-  assert.ok(html.includes('/api/v1/media/9007199254740993/download'));
+  assert.match(sceneDialogsSource, /checkClipDownload\(clipDownloadUrl, controller\.signal\)/);
+  assert.match(sceneDialogsSource, /startClipDownload\(clipDownloadUrl\)/);
+  assert.match(sceneDialogsSource, /setDownloadingSceneId\(null\)/);
+  assert.doesNotMatch(html, /<a[^>]+download[^>]*>[^<]*원본 클립 다운로드/);
 });
 
 test('장면과 원본 다운로드 노출은 서로의 ID에 의존하지 않는다', () => {
