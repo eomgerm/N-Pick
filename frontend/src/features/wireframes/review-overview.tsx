@@ -24,6 +24,7 @@ import {
   type ClipFilter,
 } from '@/features/wireframes/clip-processing-view';
 import { inquiryStatusLabels, type InquiryStatus } from '@/features/wireframes/inquiry-state';
+import { DEFAULT_PAGE_SIZE } from '@/features/wireframes/list-pagination';
 import { getReviewInquiries } from '@/features/wireframes/review-inquiry-api';
 import { displayClipTitle, formatInquiryDate } from '@/features/wireframes/review-inquiry-view';
 import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
@@ -50,12 +51,12 @@ export function ReviewOverview({ theme }: { theme: WireframeTheme }) {
   const pathname = usePathname();
   // 문의·처리 목록의 첫 페이지와 같은 키를 써서 탭을 오갈 때 캐시를 공유한다.
   const inquiries = useQuery({
-    queryKey: ['review-inquiries', 'all', 1],
-    queryFn: ({ signal }) => getReviewInquiries(0, undefined, signal),
+    queryKey: ['review-inquiries', 'all', 1, DEFAULT_PAGE_SIZE],
+    queryFn: ({ signal }) => getReviewInquiries(0, DEFAULT_PAGE_SIZE, undefined, signal),
   });
   const clips = useQuery({
-    queryKey: ['processing-clips', 'all', false, 1],
-    queryFn: ({ signal }) => getProcessingClips(0, [], false, signal),
+    queryKey: ['processing-clips', 'all', false, 1, DEFAULT_PAGE_SIZE],
+    queryFn: ({ signal }) => getProcessingClips(0, DEFAULT_PAGE_SIZE, [], false, signal),
   });
   const inquiryCounts = inquiries.data?.statusCounts;
   const inquiryTotal = inquiryCounts
