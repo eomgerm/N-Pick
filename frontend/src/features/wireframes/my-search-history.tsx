@@ -32,7 +32,9 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(0);
   const [pendingDelete, setPendingDelete] = useState<MySearchHistoryItem | null>(null);
-  const [isClearOpen, setIsClearOpen] = useState(false);
+  // 전체 삭제 확인 모달. 열 때의 총계를 담아 둔다 — 목록 캐시가 (뒷 페이지 이동 뒤 GC 등으로) 잠깐 비어도
+  // 모달이 사라지지 않고, 안내 건수도 "열었을 때 기준"으로 고정된다.
+  const [clearCount, setClearCount] = useState<number | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const list = useQuery({
     queryKey: mySearchHistoryKeys.list(memberId, page),
@@ -63,7 +65,7 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
       // 빈 현재 페이지를 한 번 받아 렌더하는 일을 없앤다.
       setPage(0);
       await queryClient.invalidateQueries({ queryKey: mySearchHistoryKeys.all(memberId) });
-      setIsClearOpen(false);
+      setClearCount(null);
       // 건별 삭제와 같은 이유로 다이얼로그가 언마운트된 뒤 rAF 로 목록에 포커스를 돌린다 — 모달이 열린 동안은
       // 바깥이 inert 라 focus() 가 무시되고, 놓치면 포커스가 <body> 로 떨어진다.
       requestAnimationFrame(() => listRef.current?.focus({ preventScroll: true }));
@@ -79,7 +81,7 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
   function closeClearDialog() {
     if (clearAll.isPending) return;
     clearAll.reset();
-    setIsClearOpen(false);
+    setClearCount(null);
   }
 
   return (
@@ -97,7 +99,7 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
               className={styles.clearAllButton}
               onClick={() => {
                 clearAll.reset();
-                setIsClearOpen(true);
+                setClearCount(list.data.totalElements);
               }}
               type="button"
             >
@@ -246,14 +248,14 @@ export function MySearchHistory({ theme, onNavigate }: MySearchHistoryProps) {
           theme={theme}
         />
       ) : null}
-      {isClearOpen && list.data ? (
+      {clearCount !== null ? (
         <MySearchHistoryClearDialog
           error={clearAll.error}
           isClearing={clearAll.isPending}
           onCancel={closeClearDialog}
           onConfirm={() => clearAll.mutate()}
           theme={theme}
-          totalElements={list.data.totalElements}
+          totalElements={clearCount}
         />
       ) : null}
     </>
