@@ -353,6 +353,7 @@ export async function resolveReviewInquiry(
 export async function createTagCorrectionCandidate(
   feedbackId: string,
   operations: TagCorrectionOperation[],
+  idempotencyKey: string,
   signal?: AbortSignal,
 ): Promise<TagCorrectionCandidate> {
   identifier(feedbackId);
@@ -361,6 +362,7 @@ export async function createTagCorrectionCandidate(
     await fetchJson<unknown>(`/review/inquiries/${feedbackId}/tag-correction-candidate`, {
       method: 'POST',
       body: { operations },
+      idempotencyKey,
       signal,
     }),
   );

@@ -5,6 +5,7 @@ import { type DragEvent, type KeyboardEvent, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
+  combineParseRules,
   defaultType,
   deriveEdits,
   deriveParseRules,
@@ -16,6 +17,7 @@ import {
 } from '@/features/wireframes/interpretation-edit';
 import {
   createParsePatchCandidate,
+  discardParsePatchCandidate,
   parseRuleErrorMessage,
   resolutionAxisLabels,
   validateParseRuleBody,
@@ -102,7 +104,9 @@ export function ParseInterpretationEditor({
   const rules = deriveParseRules(edits, guard);
   const draftCount = rules.length + chips.filter((chip) => chip.isNew && !chip.value.trim()).length;
 
+  // 검증(재검색)이 저장 진행 중에 끼어들지 않도록, 검증 패널이 useIsMutating 으로 감시할 키를 단다.
   const save = useMutation({
+    mutationKey: ['parse-patch-save', feedbackId],
     mutationFn: async () => {
       if (rules.length === 0) {
         throw new ApiClientError('api', 0, {
@@ -118,7 +122,9 @@ export function ParseInterpretationEditor({
       }
       if (
         edits.some((edit) => {
-          if (edit.kind === 'remove') return false;
+          // remove 는 값을 새로 넣지 않고, move 는 원본 칩을 옮길 뿐이라 길이 상한을 검사하지 않는다.
+          // add·edit 의 새로 입력한 값만 검사한다 (입력창 maxLength 로 이미 20자 이하로 제한된다).
+          if (edit.kind === 'remove' || edit.kind === 'move') return false;
           const value = edit.kind === 'edit' ? edit.to : edit.value;
           return value.length > MAX_CHIP_VALUE_LENGTH;
         })
@@ -128,23 +134,21 @@ export function ParseInterpretationEditor({
           message: '교정 값은 20자 이하여야 합니다.',
         });
       }
-      // 일부만 POST 되는 상황을 막기 위해, 하나라도 POST 하기 전에 전체 규칙을 먼저 검증한다.
-      for (const body of rules) {
-        const problem = validateParseRuleBody(body);
-        if (problem) {
-          throw new ApiClientError('api', 0, {
-            code: 'CLIENT_PARSE_RULE_INVALID',
-            message: problem,
-          });
-        }
+      // 백엔드 확정은 candidate_rules 가 2건 이상이면 거부하므로, 편집이 여러 개여도 후보 1건으로 합쳐
+      // 보낸다. 합친 본문도 서버가 거부할 수 있으니 POST 전에 검증한다.
+      const combined = combineParseRules(rules);
+      const problem = validateParseRuleBody(combined);
+      if (problem) {
+        throw new ApiClientError('api', 0, {
+          code: 'CLIENT_PARSE_RULE_INVALID',
+          message: problem,
+        });
       }
-      for (const body of rules) {
-        await createParsePatchCandidate(
-          feedbackId,
-          body,
-          await ruleIdempotencyKey(feedbackId, body),
-        );
-      }
+      await createParsePatchCandidate(
+        feedbackId,
+        combined,
+        await ruleIdempotencyKey(feedbackId, combined),
+      );
       return rules.length;
     },
     onSuccess: () => {
@@ -153,6 +157,18 @@ export function ParseInterpretationEditor({
       queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] });
     },
   });
+
+  const discard = useMutation({
+    mutationFn: () => discardParsePatchCandidate(feedbackId),
+  });
+
+  // 담은 뒤 다시 편집하면 서버에 남은 이전 후보를 폐기한다. 그러지 않으면 다음 저장이 두 번째 후보를
+  // 만들어(내용이 달라 멱등성 키도 달라짐) 후보가 1건을 넘고 확정이 거부된다 (SRCH_409_204).
+  function resetAfterSave() {
+    if (!save.isSuccess) return;
+    save.reset();
+    discard.mutate();
+  }
 
   if (!seeded) {
     return (
@@ -170,13 +186,13 @@ export function ParseInterpretationEditor({
   }
 
   function removeChip(id: string) {
-    if (save.isSuccess) save.reset();
+    resetAfterSave();
     setChips((prev) => prev.filter((chip) => chip.id !== id));
     if (editingId === id) setEditingId(null);
   }
 
   function addChip(axis: EditableAxis) {
-    if (save.isSuccess) save.reset();
+    resetAfterSave();
     newChipCounter.current += 1;
     const chip: Chip = {
       id: `new-${newChipCounter.current}`,
@@ -193,7 +209,7 @@ export function ParseInterpretationEditor({
   function commitEdit() {
     const id = editingId;
     if (id === null) return;
-    if (save.isSuccess) save.reset();
+    resetAfterSave();
     const value = editDraft.trim();
     setChips((prev) =>
       value
@@ -254,7 +270,7 @@ export function ParseInterpretationEditor({
     const id = event.dataTransfer.getData('text/plain');
     setDropTargetAxis(null);
     setDraggingId(null);
-    if (save.isSuccess) save.reset();
+    resetAfterSave();
     setChips((prev) =>
       prev.map((chip) =>
         chip.id === id && chip.axis !== axis ? { ...chip, axis, type: defaultType(axis) } : chip,

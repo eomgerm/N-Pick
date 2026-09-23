@@ -14,6 +14,7 @@ import {
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
 import { useSuccessToast } from '@/features/wireframes/success-toast';
+import { createIdempotencyKey } from '@/lib/api/idempotency';
 
 const tagTypeLabels: Record<ReviewTagType, string> = {
   person: '인물',
@@ -64,6 +65,9 @@ interface CandidateSubmission {
   operations: TagCorrectionOperation[];
   draftId?: string;
   added?: AddedTag;
+  withdrawnAddedId?: string;
+  removedTaggingId?: string;
+  restoredTaggingId?: string;
 }
 
 interface ReviewInquiryTagsProps {
@@ -95,7 +99,8 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     inquiry.status === 'reviewing' && isOwner && inquiry.resolution === 'correction';
   const mutation = useMutation({
     mutationFn: ({ operations }: CandidateSubmission) =>
-      createTagCorrectionCandidate(inquiry.feedbackId, operations),
+      createTagCorrectionCandidate(inquiry.feedbackId, operations, createIdempotencyKey()),
+    // 서버 반영이 성공한 뒤에만 로컬 상태를 바꾼다 — 실패 시 UI 와 서버가 어긋나지 않는다.
     onSuccess: (_response, submission) => {
       if (submission.draftId) {
         setDrafts((current) => current.filter((draft) => draft.id !== submission.draftId));
@@ -103,6 +108,22 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       if (submission.added) {
         const next = submission.added;
         setAdded((current) => [...current, next]);
+      }
+      if (submission.withdrawnAddedId) {
+        const id = submission.withdrawnAddedId;
+        setAdded((current) => current.filter((item) => item.id !== id));
+      }
+      if (submission.removedTaggingId) {
+        const id = submission.removedTaggingId;
+        setRemoved((current) => new Set(current).add(id));
+      }
+      if (submission.restoredTaggingId) {
+        const id = submission.restoredTaggingId;
+        setRemoved((current) => {
+          const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
       }
       showSuccess('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
     },
@@ -156,13 +177,26 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     });
   }
 
-  function removeAdded(id: string) {
-    setAdded((current) => current.filter((item) => item.id !== id));
+  // 추가는 이미 APPROVE 후보를 서버에 올린 상태다. 취소하려면 같은 대상에 WITHDRAW 를 보내야
+  // 서버의 미확정 판정이 무효가 된다 — 로컬 칩만 지우면 서버에 후보가 남는다.
+  function removeAdded(tag: AddedTag) {
+    mutation.reset();
+    mutation.mutate({
+      operations: [
+        {
+          action: 'WITHDRAW',
+          scope: tag.scope,
+          tagType: tag.tagType,
+          matchValue: tag.value,
+          displayName: tag.value,
+        },
+      ],
+      withdrawnAddedId: tag.id,
+    });
   }
 
   function markRemoved(evidence: Evidence) {
     mutation.reset();
-    setRemoved((current) => new Set(current).add(evidence.taggingId));
     mutation.mutate({
       operations: [
         {
@@ -173,16 +207,12 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
           displayName: evidence.tagName,
         },
       ],
+      removedTaggingId: evidence.taggingId,
     });
   }
 
   function restoreRemoved(evidence: Evidence) {
     mutation.reset();
-    setRemoved((current) => {
-      const next = new Set(current);
-      next.delete(evidence.taggingId);
-      return next;
-    });
     mutation.mutate({
       operations: [
         {
@@ -193,6 +223,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
           displayName: evidence.tagName,
         },
       ],
+      restoredTaggingId: evidence.taggingId,
     });
   }
 
@@ -266,7 +297,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                 aria-label={`‘${tag.value}’ 추가 취소`}
                 className={`${iconButtonClass} hover:text-(--danger)`}
                 disabled={mutation.isPending}
-                onClick={() => removeAdded(tag.id)}
+                onClick={() => removeAdded(tag)}
                 type="button"
               >
                 ×

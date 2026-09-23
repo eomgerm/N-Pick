@@ -302,6 +302,36 @@ test('add: guard 없으면 규칙 없음, 있으면 guard 조건', () => {
   ]);
 });
 
+const { combineParseRules } = await import('./interpretation-edit.ts');
+
+test('combineParseRules: 여러 규칙을 후보 1건으로 합치고 조건 중복을 제거한다', () => {
+  const guard = { axis: 'incident_names', value: '추석' };
+  const rules = deriveParseRules(
+    [
+      { kind: 'add', axis: 'expanded_terms', value: '나들이' },
+      { kind: 'add', axis: 'locations', value: '서울', type: 'location' },
+      { kind: 'remove', axis: 'entities', value: '한국도로공사', type: 'organization' },
+    ],
+    guard,
+  );
+  assert.equal(rules.length, 3);
+
+  const combined = combineParseRules(rules);
+  // 두 add 는 같은 guard 조건을 공유 → 조건은 dedup 되어 guard 1건 + remove 조건 1건 = 2건.
+  assert.deepEqual(combined.condition.all, [
+    { axis: 'incident_names', op: 'has_value', value: '추석' },
+    { axis: 'entities', op: 'has_value', value: '한국도로공사' },
+  ]);
+  // 연산은 원래 순서를 지켜 이어 붙인다.
+  assert.deepEqual(combined.patch.operations, [
+    { op: 'add_item', axis: 'expanded_terms', value: '나들이' },
+    { op: 'add_item', axis: 'locations', value: '서울', type: 'location' },
+    { op: 'remove_item', axis: 'entities', value: '한국도로공사', type: 'organization' },
+  ]);
+  // 합친 본문도 그대로 검증을 통과해야 한다.
+  assert.equal(validateParseRuleBody(combined), null);
+});
+
 const { describeEdits } = await import('./interpretation-edit.ts');
 
 test('편집을 사람 문장으로 요약한다', () => {

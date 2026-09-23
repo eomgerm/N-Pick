@@ -268,6 +268,18 @@ function parseCandidate(value: unknown): ParsePatchCandidate {
   };
 }
 
+/** 대기 중인 이 문의의 해석 교정 후보를 폐기한다. 확정된 규칙·장면 제외는 건드리지 않는다. 200 반환. */
+export async function discardParsePatchCandidate(
+  feedbackId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  identifier(feedbackId);
+  await fetchJson<unknown>(`/review/inquiries/${feedbackId}/parse-patch-candidate`, {
+    method: 'DELETE',
+    signal,
+  });
+}
+
 /**
  * 해석 교정 후보를 저장한다. 신규는 `201`, 같은 멱등성 키의 재요청은 기존 후보를 `200` 으로 돌려준다 —
  * 공통 client 가 둘을 구분하지 않고 성공으로 읽는다.

@@ -30,6 +30,7 @@ import {
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
+import { resolutionModeFromValue } from '@/features/wireframes/review-resolution-toggle-mode';
 import { ReviewInquiryTags } from '@/features/wireframes/review-inquiry-tags';
 import { ParseInterpretationEditor } from '@/features/wireframes/review-interpretation-editor';
 import { CorrectionVerificationPanel } from '@/features/wireframes/review-verification';
@@ -131,7 +132,9 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
   const clipTitle = displayClipTitle(inquiry.scene.clipTitle);
   const claimRecovery = claim.isError ? getClaimRecovery(claim.error) : null;
   const statusIndex = ['open', 'reviewing', 'closed'].indexOf(inquiry.status);
-  const hasCorrection = inquiry.status === 'reviewing' && inquiry.resolution === 'correction';
+  // 레거시 교정 3종(tag_correction·patch_parse·exclude_scene)도 교정으로 취급한다.
+  const hasCorrection =
+    inquiry.status === 'reviewing' && resolutionModeFromValue(inquiry.resolution) === 'correction';
 
   return (
     <div className={styles.detail}>
@@ -362,7 +365,11 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
               </div>
             </section>
             <div className={styles.currentTags}>
-              <ReviewInquiryTags inquiry={inquiry} memberLoginId={member.loginId} />
+              <ReviewInquiryTags
+                inquiry={inquiry}
+                key={inquiry.feedbackId}
+                memberLoginId={member.loginId}
+              />
             </div>
           </div>
         </section>

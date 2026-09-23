@@ -286,22 +286,26 @@ test('문의·태그 교정 API 경로와 요청 본문을 계약대로 보낸�
   await claimReviewInquiry('41', 'claim-key');
   await resolveReviewInquiry('41', 'no_action', '문제 없음');
   await resolveReviewInquiry('41', 'correction', '교정 후보 확인');
-  await createTagCorrectionCandidate('41', [
-    {
-      action: 'APPROVE',
-      scope: 'SCENE',
-      tagType: 'location',
-      matchValue: '서울',
-      displayName: '서울',
-    },
-    {
-      action: 'REJECT',
-      scope: 'CLIP',
-      tagType: 'keyword',
-      matchValue: '교통',
-      displayName: '교통',
-    },
-  ]);
+  await createTagCorrectionCandidate(
+    '41',
+    [
+      {
+        action: 'APPROVE',
+        scope: 'SCENE',
+        tagType: 'location',
+        matchValue: '서울',
+        displayName: '서울',
+      },
+      {
+        action: 'REJECT',
+        scope: 'CLIP',
+        tagType: 'keyword',
+        matchValue: '교통',
+        displayName: '교통',
+      },
+    ],
+    'tag-key',
+  );
 
   const listUrl = new URL(requests[0].input);
   assert.equal(listUrl.pathname, '/api/v1/review/inquiries');
@@ -326,6 +330,7 @@ test('문의·태그 교정 API 경로와 요청 본문을 계약대로 보낸�
   });
   assert.ok(requests[5].input.endsWith('/api/v1/review/inquiries/41/tag-correction-candidate'));
   assert.equal(requests[5].init.method, 'POST');
+  assert.equal(new Headers(requests[5].init.headers).get('Idempotency-Key'), 'tag-key');
   assert.deepEqual(JSON.parse(requests[5].init.body), {
     operations: [
       {
