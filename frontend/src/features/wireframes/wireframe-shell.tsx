@@ -1,6 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
+import { Clock3 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -60,6 +61,13 @@ interface WireframeShellProps {
     error: unknown;
     /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
     failureReason?: string;
+    /**
+     * 실패 시 검색어·기간을 이 화면이 알고 있는지. 기본은 안다(false) — 진입 화면에서 넘어온
+     * 검색은 실패해도 요청했던 조건을 그대로 쥐고 있다. 검색 기록 스냅샷처럼 서버 응답이
+     * 와야만 조건을 알 수 있는 화면은, 그 응답 자체가 실패하면 조건도 모른다 — 「입력한
+     * 검색어와 기간은 유지돼요」가 거짓이 된다.
+     */
+    conditionsUnknown?: boolean;
     retry: () => void;
     /**
      * 같은 검색어를 다시 조회(refetch)하는 중. useInfiniteQuery 는 첫 로딩에만 isLoading 을
@@ -80,6 +88,14 @@ interface WireframeShellProps {
   initialParams?: SearchScreenParams;
   execution?: SearchExecutionPresentation;
   resultDetails?: SearchResultDetails;
+  /** 결과 그리드 위에 한 줄로 띄우는 배지(예: 검색 기록 스냅샷 날짜). 실시간 검색과 섞이지 않게 구분한다. */
+  historyBadge?: string;
+  /**
+   * 「저장된 당시 결과예요」 재검색 고지 노출 여부. 배지(날짜)와 따로 가른다 —
+   * 스냅샷이 없는(unavailable) 기록도 날짜는 사실이라 배지는 뜨지만, 당시 결과가
+   * 없으므로 「저장된 당시 결과예요」는 바로 아래 실패 안내와 모순된다 (S15P21A501-262).
+   */
+  showHistoryNotice?: boolean;
 }
 
 export function WireframeShell({
@@ -89,6 +105,8 @@ export function WireframeShell({
   api,
   execution,
   resultDetails,
+  historyBadge,
+  showHistoryNotice = false,
 }: WireframeShellProps) {
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
@@ -311,10 +329,6 @@ export function WireframeShell({
       isDisabled={isSearchPending}
       onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
       onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
-      onSearchHistorySelect={(historyQuery) => {
-        setQuery(historyQuery);
-        requestAnimationFrame(() => searchFieldRef.current?.querySelector('input')?.focus());
-      }}
       searchField={
         <SceneSearchField
           variant="compact"
@@ -340,6 +354,22 @@ export function WireframeShell({
         <main className={styles.mainContent}>
           <h1 className={styles.visuallyHidden}>뉴스 장면 검색 결과</h1>
           <section className={styles.resultsSection} id="search-results">
+            {/* 검색 기록(스냅샷) 모드. 같은 결과 화면이지만 라이브 검색과 다르게 — 당시 저장분임을
+                배지로 알리고, 다시 검색하면 지금 기준 새 결과가 나온다는 것을 고지한다
+                (S15P21A501-262). 제외 수 같은 감사 정보는 일반 사용자에게 오히려 혼란이라 싣지 않는다. */}
+            {historyBadge ? (
+              <div className={styles.historyContext} role="status">
+                <p className={styles.historyBadge}>
+                  <Clock3 aria-hidden="true" />
+                  {historyBadge}
+                </p>
+                {showHistoryNotice ? (
+                  <p className={styles.historyNotice}>
+                    저장된 당시 결과예요. 다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className={styles.resultsHeading}>
               <div>
                 <p>검색 결과</p>
@@ -382,6 +412,7 @@ export function WireframeShell({
                 filmingRange={filmingRange}
                 details={details}
                 reason={api?.failureReason}
+                conditionsUnknown={api?.conditionsUnknown}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }

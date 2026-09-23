@@ -388,6 +388,51 @@
   font-size: 11px;
 }
 
+/* 실시간 검색과 섞이지 않도록, 검색 기록 스냅샷임을 결과 그리드 위에 한 줄로 밝힌다. */
+.historyBadge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.historyBadge svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+
+/* 검색 기록(스냅샷) 모드 전용 컨텍스트. 좌측 accent 보더로 라이브 검색과 시각적으로 구분한다. */
+.historyContext {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.historyContext .historyBadge {
+  margin: 0;
+}
+
+.historyNotice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .inquirySuccessNotice {
   margin: -4px 0 18px;
   padding: 12px 14px;

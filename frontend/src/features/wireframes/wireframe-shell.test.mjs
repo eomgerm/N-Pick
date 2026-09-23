@@ -199,6 +199,73 @@ test('사유 없는 검색 실패는 기존 연결 안내와 재시도를 유지
   assert.match(html, /같은 조건으로 다시 시도/);
 });
 
+test('조건을 모르는 실패(검색 기록 스냅샷 조회 실패)는 검색어·기간이 유지된다고 말하지 않는다', () => {
+  const html = renderShell(
+    {},
+    { api: { state: 'failed', error: null, conditionsUnknown: true, retry() {} } },
+  );
+  assert.match(html, /이 화면에서는 검색어와 기간을 확인할 수 없어요\./);
+  assert.doesNotMatch(html, /입력한 검색어와 기간은 유지돼요\./);
+});
+
+test('historyBadge가 있으면 결과 그리드 위에 한 줄 배지로 뜬다', () => {
+  const html = renderShell({ state: 'empty' }, { historyBadge: '2026-09-15 검색 기록' });
+  assert.match(html, /2026-09-15 검색 기록/);
+});
+
+test('검색 기록 모드는 배지와 재검색 고지를 보여주고 제외 감사정보는 싣지 않는다', () => {
+  // 다시 검색하면 당시가 아닌 새 결과가 나온다는 것을 고지한다. 제외 수 같은 감사 정보는
+  // 일반 사용자에게 혼란이라 결과 화면에 싣지 않는다 (S15P21A501-262).
+  const html = renderShell(
+    {},
+    {
+      historyBadge: '2026-09-15 검색 기록',
+      showHistoryNotice: true,
+      api: {
+        state: 'ready',
+        presentation: {
+          results: [],
+          execution: { status: 'succeeded', degradedReasons: [], hasAppliedReviewRule: false },
+          details: {
+            resolverStatus: 'succeeded',
+            excludedCount: 2,
+            exclusionReasons: ['승인된 장면 제외 규칙에 해당'],
+          },
+        },
+        error: null,
+        retry() {},
+      },
+    },
+  );
+  // 기록 컨텍스트 블록만 검사한다. 결과 0개 상태 패널의 「제외된 결과」는 라이브 검색에도 있는
+  // 기존 동작이라 이 티켓 범위가 아니다.
+  const historyContext = html.match(/<div class="historyContext"[\s\S]*?<\/div>/)?.[0] ?? '';
+  assert.match(historyContext, /2026-09-15 검색 기록/);
+  assert.match(historyContext, /다시 검색하면 지금 기준으로 새로 찾은 결과/);
+  assert.doesNotMatch(historyContext, /제외된 결과/);
+});
+
+test('스냅샷 없는 기록은 배지만 뜨고 「저장된 당시 결과예요」 고지는 빠진다', () => {
+  // unavailable 기록도 날짜(배지)는 사실이라 뜨지만, 당시 결과가 없어 재검색 고지를 내면
+  // 바로 아래 실패 안내(「당시 결과 기록이 없어…」)와 모순된다 (S15P21A501-262).
+  const html = renderShell(
+    {},
+    {
+      historyBadge: '2026-08-01 검색 기록',
+      showHistoryNotice: false,
+      api: {
+        state: 'failed',
+        error: null,
+        failureReason: '이 검색의 당시 결과 기록이 없어 결과를 표시할 수 없어요.',
+        retry() {},
+      },
+    },
+  );
+  const historyContext = html.match(/<div class="historyContext"[\s\S]*?<\/div>/)?.[0] ?? '';
+  assert.match(historyContext, /2026-08-01 검색 기록/);
+  assert.doesNotMatch(historyContext, /저장된 당시 결과예요/);
+});
+
 const { SearchResultState } = await import('./search-result-state.tsx');
 
 test('빈 결과의 적용 조건과 제외 수 0·미제공·유효하지 않은 값을 구분한다', () => {
