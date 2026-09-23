@@ -48,4 +48,9 @@ public class ParseRuleCandidateRepositoryAdapter implements ParseRuleCandidateRe
     public int countByFeedback(long sourceFeedbackId) {
         return (int) jpaRepository.countByFeedback(sourceFeedbackId);
     }
+
+    @Override
+    public boolean existsPendingReplacing(long sourceFeedbackId, long replacesRuleId) {
+        return jpaRepository.existsPendingReplacing(sourceFeedbackId, replacesRuleId);
+    }
 }

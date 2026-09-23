@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.npick.common.error.BusinessException;
 import com.npick.common.persistence.CorrectionStateFingerprint;
+import com.npick.search.application.error.ParseRuleCandidateErrorCode;
 import com.npick.search.application.error.VerificationErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.ExcludeContext;
@@ -93,6 +94,15 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         PendingCandidates candidates = candidatesPort.load(feedbackId);
         if (candidates.tagEvidenceIds().isEmpty() && candidates.rules().isEmpty()) {
             throw new BusinessException(VerificationErrorCode.NO_PENDING_CANDIDATES);
+        }
+        // 방어: 같은 규칙을 교체 대상으로 가리키는 대기 후보가 둘 이상이면 함께 확정할 수 없다 — 첫 교체 뒤
+        // 둘째의 deactivate 가 0행이 돼 롤백된다. 생성 단계에서 같은 잠금으로 이미 막지만, 레거시·직접 주입
+        // 데이터까지 검증 전에 거른다 (S15P21A501-309).
+        var replacedTargets = new java.util.HashSet<Long>();
+        for (PendingCandidates.RuleCandidate rule : candidates.rules()) {
+            if (rule.replacedRuleId() != null && !replacedTargets.add(rule.replacedRuleId())) {
+                throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_CONFLICT);
+            }
         }
 
         VerificationInput input = inputPort.load(feedbackId);
