@@ -61,14 +61,6 @@
   color: #f3f8fc;
 }
 
-.eyebrow {
-  margin: 0 0 10px;
-  color: #c6d8e7;
-  font-size: 12px;
-  font-weight: 550;
-  letter-spacing: 0.04em;
-}
-
 .heading h2 {
   margin: 0;
   font-size: clamp(24px, 2.5vw, 36px);

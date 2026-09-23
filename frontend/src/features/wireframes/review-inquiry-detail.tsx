@@ -143,7 +143,6 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
       <article className={styles.workspace}>
         <header className={styles.heading}>
           <div className="min-w-0">
-            <p className={styles.eyebrow}>문의 #{inquiry.feedbackId}</p>
             <h2 ref={detailTitleRef} tabIndex={-1}>
               {clipTitle}
             </h2>
@@ -153,6 +152,9 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
               </span>
               <span>
                 검색 결과 <strong>#{inquiry.resultRank}</strong>
+              </span>
+              <span>
+                문의 <strong>#{inquiry.feedbackId}</strong>
               </span>
             </p>
           </div>
