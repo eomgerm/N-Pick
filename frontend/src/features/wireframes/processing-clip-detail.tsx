@@ -172,6 +172,13 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                       : '아직 처리 기록이 없습니다. ‘상태 새로고침’으로 다시 확인해 주세요.'}
                 </p>
               )}
+              {clip.search_available &&
+                run &&
+                clip.active_pipeline_run_id !== run.pipeline_run_id && (
+                  <p className={styles.contextNotice}>
+                    이전 처리 결과로 검색을 제공하고 있습니다. 아래 기록은 최신 처리 시도입니다.
+                  </p>
+                )}
               <dl className={`${styles.facts} ${styles.runFacts}`}>
                 <div>
                   <dt>최신 처리</dt>
@@ -186,13 +193,6 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                   <dd>{dateLabel(run?.finished_at ?? null)}</dd>
                 </div>
               </dl>
-              {clip.search_available &&
-                run &&
-                clip.active_pipeline_run_id !== run.pipeline_run_id && (
-                  <p className={styles.contextNotice}>
-                    이전 처리 결과로 검색을 제공하고 있습니다. 아래 기록은 최신 처리 시도입니다.
-                  </p>
-                )}
             </section>
             <section className={`${styles.panel} ${styles.detailSection}`} aria-label="원본 영상">
               <h2>원본 영상</h2>

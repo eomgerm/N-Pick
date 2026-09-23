@@ -354,6 +354,10 @@
 .detailPage .panel {
   border-radius: 20px;
 }
+.overview {
+  display: flex;
+  flex-direction: column;
+}
 .overview > .detailHeading {
   align-items: flex-start;
   justify-content: space-between;
@@ -405,6 +409,8 @@
   flex: none;
 }
 .runFacts {
+  flex: 1;
+  align-content: end;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .contextNotice {
