@@ -20,6 +20,7 @@ import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
 import com.npick.search.application.CreateParsePatchCandidateService;
+import com.npick.search.application.DiscardParsePatchCandidateUseCase;
 import com.npick.search.application.ParseCandidateOutcome;
 
 import static org.hamcrest.Matchers.instanceOf;
@@ -59,6 +60,9 @@ class ParsePatchCandidateControllerTest {
 
     @MockitoBean
     CreateParsePatchCandidateService service;
+
+    @MockitoBean
+    DiscardParsePatchCandidateUseCase discardService;
 
     @Test
     @DisplayName("검수자가 새 후보를 만들면 201 과 생성 id 를 준다")
