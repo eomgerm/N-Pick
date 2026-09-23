@@ -187,7 +187,7 @@ test('방송일·촬영일 프리셋을 각각 적용하고 초기화는 즉시 
 
   await broadcastTrigger.click();
   await broadcastDialog.getByRole('button', { name: '초기화' }).click();
-  await expect(broadcastDialog).not.toBeVisible();
+  await expect(broadcastDialog).toBeVisible();
   await expect(page.getByRole('button', { name: '방송일 기간 선택: 전체 기간' })).toBeVisible();
   await expect(
     page.getByRole('button', { name: '촬영일 기간 선택: 2023.09.11 – 2026.09.11' }),

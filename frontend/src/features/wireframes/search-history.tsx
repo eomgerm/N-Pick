@@ -107,6 +107,7 @@ export function SearchHistory({
                   setIsNavExpanded(true);
                   setActivePanel(null);
                 },
+                onClose: () => setIsNavExpanded(false),
               }}
               onChange={onBroadcastChange}
               value={broadcastRange}
@@ -121,6 +122,7 @@ export function SearchHistory({
                   setIsNavExpanded(true);
                   setActivePanel(null);
                 },
+                onClose: () => setIsNavExpanded(false),
               }}
               onChange={onFilmingChange}
               value={filmingRange}
