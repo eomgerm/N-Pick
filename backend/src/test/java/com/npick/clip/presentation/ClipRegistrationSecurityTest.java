@@ -19,6 +19,7 @@ import com.npick.clip.application.command.prepare.PrepareVideoResult;
 import com.npick.clip.application.command.register.RegisterClipCommand;
 import com.npick.clip.application.command.register.RegisterClipResult;
 import com.npick.clip.application.command.register.RegisterClipUseCase;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.clip.application.command.store.StoreVideoResult;
 import com.npick.clip.application.port.ClipRegistrationContextPort;
@@ -136,7 +137,8 @@ class ClipRegistrationSecurityTest {
         when(database.register(any())).thenAnswer(call -> {
             RegisterClipCommand command = call.getArgument(0);
             assertThat(command.registeredById()).isEqualTo(7);
-            return new RegisterClipResult(command.clipId(), command.pipelineRunId(), "queued");
+            return new RegisterClipResult(
+                    command.clipId(), command.pipelineRunId(), "queued", RegistrationOutcome.CREATED);
         });
         mvc.perform(request().session(login("reviewer")).with(csrf()).param("registered_by_id", "999"))
                 .andExpect(status().isCreated());

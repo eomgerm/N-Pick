@@ -29,7 +29,7 @@
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  color: #c81e63;
+  color: #23578d;
 }
 .dateField[data-compact='true'] {
   display: block;
@@ -144,7 +144,7 @@
   cursor: pointer;
 }
 .calendarPopover button:focus-visible {
-  outline: 2px solid #c81e63;
+  outline: 2px solid #23578d;
   outline-offset: 2px;
 }
 .popoverHeader {
@@ -280,7 +280,7 @@
 }
 .periodGrid button:hover,
 .periodGrid button[aria-pressed='true'] {
-  color: #c81e63;
+  color: #23578d;
 }
 .periodGrid button[aria-pressed='true'] {
   font-weight: 700;
@@ -318,14 +318,21 @@
 }
 .day[data-within='true'] {
   border-radius: 0;
-  background: #fdeef4;
-  color: #c81e63;
+  background: #e1ebf6;
+  color: #23578d;
 }
 .day[data-boundary='true'] {
   border-radius: 10px;
-  background: #c81e63;
+  background: #23578d;
   color: white;
   font-weight: 700;
+}
+.day:disabled,
+.periodGrid button:disabled {
+  background: transparent;
+  color: #8e9399;
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .fieldError {
   margin: 8px 0 0;

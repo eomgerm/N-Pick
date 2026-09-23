@@ -403,11 +403,11 @@ def test_tokenize_returns_one_token_list_per_input_in_order(client: TestClient) 
     tokens = response.json()["tokens"]
     # 항목별 결과를 **위치로** 맞춘다. 입력을 되돌려 주지 않으므로 이 정렬이 계약이다.
     assert len(tokens) == 3
-    assert tokens[0] == ["귀성객"]
-    assert tokens[1] == ["부산", "침수"]
+    assert tokens[0] == ["귀성객/nng"]
+    assert tokens[1] == ["부산/nnp", "침수/nng"]
     # 색인 측과 같은 분절이다 — 사용자 사전의 「서울」 때문에 「서울역」 이 쪼개진다.
     # 문서 쪽 ocr 단계가 같은 경로를 쓰므로 이렇게 쪼개져야 맞는다.
-    assert tokens[2] == ["서울", "역"]
+    assert tokens[2] == ["서울/nnp", "역/nng"]
 
 
 def test_tokenize_item_without_content_tokens_is_empty_not_error(client: TestClient) -> None:
@@ -420,7 +420,7 @@ def test_tokenize_item_without_content_tokens_is_empty_not_error(client: TestCli
     response = client.post("/query/tokenize", json={"texts": ["···", "귀성객"]})
 
     assert response.status_code == 200
-    assert response.json()["tokens"] == [[], ["귀성객"]]
+    assert response.json()["tokens"] == [[], ["귀성객/nng"]]
 
 
 def test_tokenize_applies_no_alias(client: TestClient) -> None:
@@ -432,7 +432,7 @@ def test_tokenize_applies_no_alias(client: TestClient) -> None:
     """
     tokens = client.post("/query/tokenize", json={"texts": ["서울시"]}).json()["tokens"]
 
-    assert tokens == [["서울시"]]
+    assert tokens == [["서울시/nnp"]]
 
 
 def test_tokenize_version_matches_resolve(client: TestClient, stub: StubFactory) -> None:

@@ -58,14 +58,15 @@ public class JdbcSearchExecutionRecordAdapter implements SearchExecutionRecordPo
                     """
                     INSERT INTO npick.search_execution (
                         search_execution_id, searched_by_id, query_text, execution_type,
-                        replay_of_feedback_id, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, 'running', now(), now())
+                        replay_of_feedback_id, parent_execution_id, status, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'running', now(), now())
                     """,
                     id,
                     command.searchedById(),
                     command.rawQuery(),
                     command.executionType().databaseValue(),
-                    command.replayOfFeedbackId());
+                    command.replayOfFeedbackId(),
+                    command.parentExecutionId());
             return id;
         } catch (RuntimeException failure) {
             throw recordingFailure("검색 실행 시작 기록을 저장하지 못했다", failure);

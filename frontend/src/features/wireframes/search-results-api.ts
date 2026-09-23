@@ -139,20 +139,24 @@ export function mergeSearchExecutions(
   };
 }
 
-// 상세도 페이지별로 다르다. resolver 는 한 페이지라도 fallback 이면 fallback, 제외 수는 지금까지
-// 불러온 페이지 몫의 합, 제외 사유는 순서를 지키며 합집합으로 모은다.
+// 상세도 페이지별로 다르다. resolver 는 한 페이지라도 fallback 이면 fallback으로 본다.
 export function mergeSearchResultDetails(
   details: readonly SearchResultDetails[],
 ): SearchResultDetails {
-  const exclusionReasons: string[] = [];
-  let excludedCount = 0;
   let resolverStatus: SearchResultDetails['resolverStatus'] = 'succeeded';
   for (const detail of details) {
     if (detail.resolverStatus === 'fallback') resolverStatus = 'fallback';
-    excludedCount += detail.excludedCount ?? 0;
-    for (const reason of detail.exclusionReasons ?? []) {
-      if (!exclusionReasons.includes(reason)) exclusionReasons.push(reason);
-    }
   }
-  return { resolverStatus, excludedCount, exclusionReasons };
+  // 제외 수는 페이지마다 전체 후보 pool 기준으로 다시 세므로 합산하면 페이지 수만큼 부풀려진다
+  // (S15P21A501-280 #1: 제외 4건이 2페이지면 8로 보이던 문제). 첫 페이지 값이 그 pool 기준
+  // 대표값이다. 제외 사유도 같은 첫 페이지 기준으로 쓴다 — 수는 첫 페이지·사유는 합집합으로
+  // 두면 「0건 + 사유 있음」 모순이 생겨 §5.1 불변식(수 0이면 사유도 빔)이 깨진다. guard 사유는
+  // 페이지 무관 pool 전체 기준이라 페이지별로 달라지는 건 승인 장면 제외뿐이고, 그 페이지-구간
+  // 몫은 offset 모델에선 정확히 합칠 수 없어 cursor 작업에서 완결한다 — 사유까지 첫 페이지로
+  // 좁혀도 실질 손실 없이 모순만 사라진다.
+  return {
+    resolverStatus,
+    excludedCount: details[0]?.excludedCount ?? 0,
+    exclusionReasons: details[0]?.exclusionReasons ?? [],
+  };
 }

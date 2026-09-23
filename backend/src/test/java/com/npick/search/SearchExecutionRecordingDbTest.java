@@ -120,7 +120,8 @@ class SearchExecutionRecordingDbTest {
         QueryResolution raw = resolution(QueryResolution.Intent.UNKNOWN);
         QueryResolution verified = resolution(QueryResolution.Intent.SCENE_SEARCH);
         long executionId = records.start(
-                new StartSearchExecution(MEMBER_ID, StartSearchExecution.ExecutionType.NORMAL, null, "명절 교통"));
+                new StartSearchExecution(
+                        MEMBER_ID, StartSearchExecution.ExecutionType.NORMAL, null, "명절 교통", null));
 
         assertThat(jdbc.queryForObject(
                         "SELECT normalized_query FROM npick.search_execution WHERE search_execution_id=?",
@@ -231,7 +232,8 @@ class SearchExecutionRecordingDbTest {
     @DisplayName("순위 계산 전에 끊긴 실행을 failed로 닫고 기록 실패는 호출부로 던지지 않는다")
     void closesFailedExecutionWithoutThrowing() {
         long executionId = records.start(
-                new StartSearchExecution(MEMBER_ID, StartSearchExecution.ExecutionType.NORMAL, null, "명절 교통"));
+                new StartSearchExecution(
+                        MEMBER_ID, StartSearchExecution.ExecutionType.NORMAL, null, "명절 교통", null));
 
         // 해석이 오기 전이라 정규화 질의도 설정 snapshot도 없다. 이 상태로는 결과를 낸 실행이 될 수 없다는 것을
         // 스키마가 직접 막는다 (ck_execution_completed_snapshot). 코드 검증만으로는 다른 경로가 생기면 뚫린다.

@@ -1,6 +1,7 @@
 'use client';
 
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { useSyncExternalStore } from 'react';
 
 import { WireframeShell, type SearchScreenParams } from '@/features/wireframes/wireframe-shell';
 import { createSearchRequestBody } from '@/features/wireframes/search-api-contract';
@@ -12,33 +13,55 @@ import {
   searchScenes,
 } from '@/features/wireframes/search-results-api';
 import { validateSearchQuery } from '@/features/wireframes/input-validation';
+import { seoulToday } from '@/lib/seoul-date';
+
+const subscribeToNothing = () => () => {};
+const getNoToday = () => '';
 
 export function SearchResults({ params }: { params: SearchScreenParams }) {
-  const broadcast = readDateRange(params.broadcastFrom, params.broadcastTo);
-  const filming = readDateRange(params.filmingFrom, params.filmingTo);
+  const today = useSyncExternalStore(subscribeToNothing, seoulToday, getNoToday);
+  const broadcast = readDateRange(params.broadcastFrom, params.broadcastTo, today);
+  const filming = readDateRange(params.filmingFrom, params.filmingTo, today);
   // 고르다 만 기간은 조건이 없었던 것과 다르다. 접힌 값을 그대로 검색하면 사용자가 건
   // 방송일·촬영일이 사라진 채 결과가 나오고, 화면에는 그 사실이 남지 않는다. 계약 §5 는
   // 한쪽만 온 기간을 SRCH_400_003 으로 막으므로 그 요청을 보내지 않는다.
   const rangeError = broadcast.error || filming.error;
   // 기간을 버린 검색은 본문을 만들지 않는다. 만들면 같은 검색어의 무필터 검색과 queryKey 가
   // 같아져, 캐시에 남은 그 결과가 「필터가 버려진 결과」로 흘러나올 자리가 생긴다.
-  const body = rangeError
-    ? null
-    : createSearchRequestBody({
-        query: params.q ?? '',
-        broadcast: broadcast.range,
-        filming: filming.range,
-      });
+  const body =
+    !today || rangeError
+      ? null
+      : createSearchRequestBody({
+          query: params.q ?? '',
+          broadcast: broadcast.range,
+          filming: filming.range,
+        });
   const search = useInfiniteQuery({
     queryKey: ['scene-search', body],
-    // 첫 페이지(pageParam=0)는 page 를 싣지 않는다 — 계약상 생략이 곧 첫 페이지이고 더보기만
-    // page 를 싣는다(search-api-contract.ts:26). 0 도 실으면 첫 요청 본문이 계약과 달라진다.
+    // 첫 페이지(page=0)는 page·search_execution_id 를 싣지 않는다 — 계약상 생략이 곧 첫 페이지다.
+    // 더보기는 page 와 함께 첫 페이지(root) 실행 id 를 실어, 서버가 「내 검색 기록」에서 이어보기
+    // 실행을 root 아래로 숨기게 한다(S15P21A501-280). 결과 재사용이 아니라 기록 그룹핑 힌트다.
     queryFn: ({ pageParam, signal }) =>
-      searchScenes(pageParam > 0 ? { ...body!, page: pageParam } : body!, signal),
+      searchScenes(
+        pageParam.page > 0
+          ? {
+              ...body!,
+              page: pageParam.page,
+              ...(pageParam.rootExecutionId
+                ? { search_execution_id: pageParam.rootExecutionId }
+                : {}),
+            }
+          : body!,
+        signal,
+      ),
     enabled: body !== null,
-    initialPageParam: 0,
-    // 다음 페이지 번호 = 지금까지 받은 페이지 수(0-based). has_next 가 거짓이면 더보기를 멈춘다.
-    getNextPageParam: (lastPage, allPages) => (lastPage.hasNext ? allPages.length : undefined),
+    initialPageParam: { page: 0, rootExecutionId: null as string | null },
+    // 다음 페이지 번호 = 지금까지 받은 페이지 수(0-based). root 실행 id 는 첫 페이지 응답의 것을
+    // 그대로 물려 더보기 요청이 참조한다. has_next 가 거짓이면 더보기를 멈춘다.
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.hasNext
+        ? { page: allPages.length, rootExecutionId: allPages[0]?.searchExecutionId ?? null }
+        : undefined,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
@@ -78,8 +101,9 @@ export function SearchResults({ params }: { params: SearchScreenParams }) {
         // 결과를 유지하고 더보기 영역에서만 재시도한다. 재검색(refetch) 실패는 react-query 가
         // 이전 결과를 남겨도 failed 로 본다. pages.length 로 가르면(옛 코드) 재검색 실패가 남은
         // 결과 뒤에 숨어 「정상」으로 위장된다 (S15P21A501-251 리뷰).
-        state:
-          body === null || (search.isError && !search.isFetchNextPageError)
+        state: !today
+          ? 'loading'
+          : body === null || (search.isError && !search.isFetchNextPageError)
             ? 'failed'
             : search.isLoading
               ? 'loading'

@@ -16,7 +16,7 @@ const scene = (i: number, rank: number) => ({
   filmed_date: { value: null, verification_status: 'unknown' },
   shot_type: 'b_roll',
   scene_type: null,
-  matched_keywords: ['장면'],
+  matched_keywords: [{ keyword: '장면', origin: 'user' }],
   match_evidence: [
     { field: 'caption', value: '설명', source: 'vlm', verification_status: 'unverified' },
   ],
@@ -54,10 +54,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('더보기로 다음 페이지를 누적하고 마지막 페이지에서 버튼이 사라진다', async ({ page }) => {
-  const pageParams: (number | undefined)[] = [];
+  const requests: { page?: number; search_execution_id?: string }[] = [];
   await page.route('**/api/v1/search', (route) => {
-    const body = route.request().postDataJSON() as { page?: number };
-    pageParams.push(body.page);
+    const body = route.request().postDataJSON() as { page?: number; search_execution_id?: string };
+    requests.push({ page: body.page, search_execution_id: body.search_execution_id });
     return route.fulfill({ json: ok(body.page === 1 ? page1 : page0) });
   });
 
@@ -73,6 +73,10 @@ test('더보기로 다음 페이지를 누적하고 마지막 페이지에서 �
   await expect(cards).toHaveCount(13);
   await expect(loadMore).toHaveCount(0);
 
-  // 첫 요청은 page 를 싣지 않고(계약), 더보기 요청만 page:1 을 싣는다
-  expect(pageParams).toEqual([undefined, 1]);
+  // 첫 요청은 page·search_execution_id 를 싣지 않고(계약), 더보기 요청만 page:1 과 첫 페이지(root)
+  // 실행 id 를 실어 서버가 기록에서 이어보기 실행을 root 아래로 숨기게 한다 (S15P21A501-280).
+  expect(requests).toEqual([
+    { page: undefined, search_execution_id: undefined },
+    { page: 1, search_execution_id: '100' },
+  ]);
 });

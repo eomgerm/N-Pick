@@ -45,9 +45,9 @@ src/
 │  │  ├─ inquiry-api.ts          문의 snapshot·응답 검증·접수 API
 │  │  └─ search-placeholder.tsx
 │  └─ wireframes/
-│     ├─ landing-shell.tsx        브랜드 인트로와 역할 선택
+│     ├─ landing-shell.tsx        영상 히어로와 역할 선택
 │     ├─ landing-cube.tsx         이전 유리 큐브 시안 (현재 랜딩에서 사용하지 않음)
-│     ├─ landing.module.css       영상 히어로·타이포그래피 인트로·역할 카드
+│     ├─ landing.module.css       영상 히어로·워드마크·역할 카드
 │     ├─ login-shell.tsx          로그인 form·mutation·오류와 안전한 복귀
 │     ├─ search-entry-shell.tsx   편집자 검색 입력과 결과 진입
 │     ├─ search-layout.tsx        검색 입력·결과의 공통 사이드바와 계정 메뉴 조합
@@ -81,6 +81,7 @@ src/
 │     ├─ clip-processing-api.ts 영상 목록·상세 조회와 공개 응답 검증
 │     ├─ clip-processing-view.ts 처리 상태 표시와 polling 조건
 │     ├─ processing-clip-detail.tsx 영상 요약·원본 영상·처리 기록·대사 정보
+│     ├─ processing-refresh-status.tsx 영상 목록·상세의 조회 안내와 마지막 성공 확인 시각
 │     ├─ processing-pipeline.tsx 계약 순서의 10단계와 hover·키보드·터치 상세 조회
 │     ├─ reviewer-progress-state.ts 탭 타입과 구 화면 단위 테스트용 집계
 │     ├─ reviewer-progress.module.css 진행 목록의 테마·반응형 레이아웃
@@ -117,7 +118,7 @@ src/
 
 현재 와이어프레임 UI를 제품 화면으로 사용하며 디자인은 신한(`shinhan`)을 유지합니다. `/`는 `/landing`으로 이동하고 역할 카드는 `/login?role=editor|reviewer`로 연결합니다. 로그인 후 실제 계정의 역할에 따라 편집자는 `/search`, 검수자는 `/review`로 이동합니다. 권한이 있는 내부 `returnTo`가 있으면 우선 복귀합니다. 검색 결과는 `/search/results`에서 표시합니다. 화면 경로 상수는 `src/lib/routes.ts`가 소유합니다. 기존 테마 주소는 `next.config.ts`의 307 redirect로 새 화면에 연결하고 query를 보존하며 알 수 없는 테마는 404로 처리합니다. 인증·영상 등록 POST·검색·문의 접수·검수 문의 목록·상세·선점·판정 API는 연결되어 있으며 처리 목록·상세 조회도 실제 API와 연결되어 있습니다. 비밀번호와 세션 토큰은 프론트 저장소에 저장하지 않습니다.
 
-랜딩은 `landing-shell.tsx`에서 검은 배경의 `NEED? PICK!` 인트로 뒤에 앱 아이콘·두 줄 `N / PICK` 워드마크와 반복 재생 영상을 보여 줍니다. 워드마크에는 Black Han Sans를 적용하며, 배경 영상과 포스터는 `public/media/landing-hero*`, 앱 아이콘은 공통 `AppLogo`, 역할 카드 이미지는 `public/images/role-*.jpg`에서 제공합니다. 너비 1000px 초과·높이 720px 초과인 창에서는 스크롤 진행도에 따라 같은 로고가 좌하단에서 역할 선택 영역으로 이동하며 크기를 맞추고, 안내 문구와 역할 카드는 같은 진행도로 교차 페이드합니다. 역할 영역의 어두운 배경은 화면 전체 너비를 덮고 콘텐츠만 최대 1440px 안에 배치합니다. 너비 1000px 이하 또는 높이 720px 이하에서는 고정을 풀어 인트로와 역할 선택을 일반 문서 흐름에 놓고, 역할 영역에 같은 디자인의 정지 워드마크를 표시합니다. 너비 740px 이하에서는 카드를 한 열로 쌓으며 안내·설명·버튼·푸터를 생략하지 않고 필요한 높이만큼 스크롤합니다. 역스크롤 시 데스크톱 로고는 원위치로 돌아오며, 창 크기가 바뀌면 위치와 배치를 다시 계산하고 역할 선택 중 배치가 전환되면 해당 영역을 유지합니다. 카드는 기존 `/login?role=editor|reviewer`로 연결됩니다. `prefers-reduced-motion`에서는 인트로·영상 재생·CSS 애니메이션을 멈추고 로고 위치도 이동 애니메이션 없이 전환합니다. 영상 자동 재생이 허용되지 않으면 포스터를 유지합니다.
+랜딩은 `landing-shell.tsx`에서 진입 즉시 앱 아이콘·두 줄 `N / PICK` 워드마크와 배경 영상이 있는 히어로를 보여 줍니다. `NEED? PICK!` 인트로와 대기·등장 애니메이션은 제거했으며, 스크립트 실행 전에도 로고와 영상 포스터·헤더·스크롤 안내가 보입니다. 워드마크에는 Black Han Sans를 적용하며, 배경 영상과 포스터는 `public/media/landing-hero*`, 앱 아이콘은 공통 `AppLogo`, 역할 카드 이미지는 `public/images/role-*.jpg`에서 제공합니다. 너비 1000px 초과·높이 720px 초과인 창에서는 스크롤 진행도에 따라 같은 로고가 좌하단에서 역할 선택 영역으로 이동하며 크기를 맞추고, 안내 문구와 역할 카드는 같은 진행도로 교차 페이드합니다. 역할 영역의 어두운 배경은 화면 전체 너비를 덮고 콘텐츠만 최대 1440px 안에 배치합니다. 너비 1000px 이하 또는 높이 720px 이하에서는 고정을 풀어 히어로와 역할 선택을 일반 문서 흐름에 놓고, 역할 영역에 같은 디자인의 정지 워드마크를 표시합니다. 너비 740px 이하에서는 카드를 한 열로 쌓으며 안내·설명·버튼·푸터를 생략하지 않고 필요한 높이만큼 스크롤합니다. 역스크롤 시 데스크톱 로고는 원위치로 돌아오며, 창 크기가 바뀌면 위치와 배치를 다시 계산하고 역할 선택 중 배치가 전환되면 해당 영역을 유지합니다. 카드는 기존 `/login?role=editor|reviewer`로 연결됩니다. `prefers-reduced-motion`에서는 영상 재생·CSS 애니메이션을 멈추고 로고 위치도 이동 애니메이션 없이 전환합니다. 영상 자동 재생이 허용되지 않으면 포스터를 유지합니다.
 
 편집자 검색 화면의 왼쪽 사이드바에는 `이전 검색 기록`과 `문의 사항`을 표시합니다. 각 아이콘 버튼으로 펼치고 같은 버튼·닫기·배경·Escape로 접습니다. 사이드바 너비와 모서리, 라벨, 기록 패널은 양방향으로 전환하며 모션 감소 설정에서는 즉시 전환합니다. 닫힌 패널은 `inert`로 포커스와 클릭을 차단합니다. 기록 패널과 사이드바는 같은 높이·계정 버튼과 같은 밝은 frosted glass 표면을 사용하며 목록만 내부 스크롤합니다. 검색바도 미세 노이즈와 backdrop blur를 사용합니다. 검색 헤더는 좌측 로고 없이 좌상단에 기본 프로필 이미지를 표시하는 72×72 원형 버튼을 둡니다. 버튼의 오른쪽에는 전체 계정명·역할명·역할별 메뉴·빨간 로그아웃 버튼이 펼쳐지고 바깥 클릭·포커스 이탈·Escape로 닫힙니다. 검색 기록은 패널을 열 때 `GET /search/history?page=0&size=10`으로 본인의 실제 기록을 조회하고 서버 순서대로 표시합니다. 항목을 선택하면 `/search/results?historyId={searchExecutionId}`로 이동해 `GET /search/history/{searchExecutionId}`의 저장된 검색어·날짜 조건·결과·해석 상태를 검색 결과 화면에 복원하며 `POST /search`로 재검색하지 않습니다. 별도 검색 기록 상세 다이얼로그는 두지 않습니다. 저장된 결과 카드는 `SearchResultCard`, 장면 확인은 `ScenePreviewDialog`를 재사용합니다. 0건 결과와 복원 불가 기록을 구분하고, 과거 조건·근거의 null은 현재 데이터로 채우지 않습니다. 계정별 query key와 세션 쿠키를 사용하며 패널 재열기·페이지 이동·결과 화면 진입 시 재조회합니다. 검색 목록·결과의 로딩·빈 기록·오류·재시도를 구분합니다. 문의 사항은 패널을 열 때 `GET /inquiries?page=0&size=10`으로 본인의 실제 기록을 조회하며 패널 안에서 페이지를 이동합니다. 고정 문의·메모리 접수는 사용하지 않습니다. 항목을 선택하면 `GET /inquiries/{feedbackId}`로 최신 상세를 읽고 `InquiryDialog`에서 검색어·영상 제목·구간·설명·상태·처리 결과와 사유를 표시합니다. ID는 문자열을 유지하고 계정별 query key로 캐시를 구분합니다. 서버가 제공하지 않는 썸네일은 영상 아이콘으로, `snapshot_status=unavailable`은 상세 근거 미제공 안내로 표시하며 근거를 합성하지 않습니다. 목록·상세의 loading·empty·error와 수동 재시도를 구분하고 native dialog로 배경 조작을 막으며 Escape·닫기 후 선택한 항목으로 포커스를 돌립니다. 검색 결과에서 문의 접수에 성공하면 내 문의 캐시를 무효화하며, 패널과 상세를 다시 열 때도 서버에서 재조회합니다. 문의 설명 수정·교정 후보 편집 UI는 별도 작업입니다.
 
@@ -137,9 +138,13 @@ src/
 
 폼은 검증을 통과한 File 포함 snapshot과 UUID 멱등성 키를 함께 소유하고 `POST /api/v1/clips`를 실행합니다. 네트워크·취소·비정상 응답·5xx·처리 중/결과 확인 불가 오류의 수동 재시도는 같은 snapshot/key를 쓰되 매 시도마다 새 `FormData`를 만듭니다. 입력을 수정하거나 서버가 새 요청 키를 요구하면 snapshot/key를 폐기하며 mutation을 자동 재시도하지 않습니다. 대본 읽기부터 응답까지 폼과 `ReviewerShell` 상단 이동을 잠그고 실패 시 File을 포함한 입력을 유지합니다. 허용된 검증 필드의 안전한 문자열만 인라인 오류로 사용하고 나머지는 공통 API 오류 UI로 표시합니다.
 
-성공 응답은 문자열 `clip_id`, `pipeline_run_id`와 `queued`만 인정합니다. `ReviewerShell`은 영상 목록 캐시를 무효화하고 `view=processing&tab=uploads&clip=<clipId>`로 이동해 실제 상세 GET을 실행합니다. 새로고침에도 URL의 ID로 서버 기록을 조회하며, 처리 상태와 단계 정보를 등록 요청 메모리에서 만들지 않습니다. media decode, pipeline enqueue와 등록 결과의 영속성은 서버 책임입니다.
+성공 응답은 문자열 `clip_id`, `pipeline_run_id`와 `queued`만 인정하며, `outcome`으로 신규 등록(`created`)과 이미 있던 clip 의 반환(`duplicate_own`·`duplicate_other`)을 구분합니다. `outcome`이 없거나 아는 값이 아니면 신규 등록으로 읽어 이전 서버와 섞여 배포돼도 흐름이 끊기지 않습니다. 중복이면 `ReviewerShell`이 그 사실과 입력값이 저장되지 않았음을 알리고, 등록 결과 배너에 요청 당시의 파일명을 쓰지 않습니다 — 그 화면에 열리는 clip 은 다른 사람의 등록일 수 있어 요청 값과 서버 값을 섞으면 존재하지 않는 조합을 보여주게 됩니다. `ReviewerShell`은 영상 목록 캐시를 무효화하고 `view=processing&tab=uploads&clip=<clipId>`로 이동해 실제 상세 GET을 실행합니다. 새로고침에도 URL의 ID로 서버 기록을 조회하며, 처리 상태와 단계 정보를 등록 요청 메모리에서 만들지 않습니다. media decode, pipeline enqueue와 등록 결과의 영속성은 서버 책임입니다.
 
 처리 현황은 `view=processing`에서 `문의 처리 중` 탭을 먼저 보여주고, `tab=uploads`와 `tab=completed`로 영상 상태를 나눕니다. 문의는 서버의 REVIEWING 목록, 종료 건수는 statusCounts.closed를 사용합니다. 영상은 최신 run의 대기·진행·실패·성공·기록 없음 상태를 표시합니다. 상세에서 돌아오면 선택한 탭과 progressPage를 유지합니다. 신규 등록의 단계 수와 상태는 상세 API 응답을 따르며 시간 경과로 임의 증가하지 않습니다.
+
+영상 목록·상세의 갱신 안내는 기존 5초 polling 조건과 Query의 요청 상태를 따릅니다. 마지막 확인 시각은 성공한 조회의 `dataUpdatedAt`이며 처리 단계 변경 시각과 구분합니다. 조회 오류·완료·실패에서는 자동 확인 종료를 안내하고, 오프라인·백그라운드 화면에서는 일시 중지를 표시합니다. 등록 직후 실행 기록이 없는 상세는 등록 시각부터 1분 동안 기록을 자동 확인하며, 1분 경계에서 안내를 수동 새로고침으로 바꿉니다. 이 경계용 단발 타이머는 조회 간격을 바꾸거나 진행률을 만들지 않습니다. 요청·시각 안내는 live region 밖에 두어 5초마다 반복 낭독하지 않고, 실제 처리 상태 변경만 기존 상태 영역에서 알립니다. 갱신 중 원본 영상과 키보드 포커스는 유지합니다.
+
+최신 처리 시도의 음성 인식 상태는 대사 기록의 알려진 `asr_status`를 우선하여 `대기 / 처리 중 / 완료 / 실패 / 생략`으로 표시합니다. 상태가 미확인이면 같은 `pipeline_run_id`의 `asr` 단계로만 보완하며, 근거가 없으면 `상태 정보 없음`으로 남깁니다. 대사 출처의 `record_status=unavailable`은 별도로 저장된 ASR 상태를 무효화하지 않습니다. 전체 실행의 성공·실패와 `asr_required`로 ASR 상태를 추정하지 않으며, 후보 구간의 실제 0건과 null, 현재 검색 제공 결과의 대사 출처는 기존대로 구분합니다.
 
 문의 검수 상세는 일반 문의 목록과 처리 현황에서 같은 `InquiryDetail`을 사용합니다. 실제 문의·장면·당시 검색 snapshot·근거·담당 이력을 조회하고 claim·resolution 성공 시 관련 목록과 상세 캐시를 갱신합니다. 서버에 없는 후보 재검색·검증·확정 결과를 로컬에서 생성하지 않습니다. 이전 mock의 교정 편집·재시도 화면은 제품 경로에서 제거했으며 추가 API 범위는 웹 API 계약 §6.5와 §7에 기록합니다.
 
@@ -155,7 +160,7 @@ src/
 
 검색 실행의 정상·degraded 상태와 사람 검수 규칙 적용 여부는 개별 장면이 아니라 `WireframeShell`이 한 번 소유합니다. `SearchResultNotices`가 결과 상단과 Preview에 같은 누락 사유·검수 규칙·송출 전 확인 문구를 제공하며, `state=degraded-resolver`, `degraded-dense`, `degraded-snapshot`, `review-rule`은 실제 API 연결 전의 화면 검증용 상태입니다. snapshot 저장 실패 결과는 볼 수 있지만 저장된 검색 식별자가 필요한 문의는 이유와 함께 비활성화합니다. `SearchResults`는 공통 client로 POST /search를 호출하고 응답 검증 후 `presentSearchResponse`로 카드에 연결합니다. 검색 실패는 데모로 대체하지 않으며 같은 조건 재시도는 명시적으로 실행합니다. clip ID와 scene ID는 문자열로 보존하고 Preview에 실제 구간을 전달합니다. 표준 /search/results route는 실제 API를 사용하며 WireframeShell의 데모 입력은 기존 단위 테스트용으로만 유지합니다. 121번 문의 접수 API는 실제 검색 결과 Preview와 연결되어 있습니다.
 
-신한 Preview의 `ScenePreviewPlayer`는 ID 기반 MP4를 HTML video로 직접 요청하고, 장면 시작점 seek 후 재생합니다. 장면 끝 이후에도 계속 재생하며 전체 위치·IN/OUT·구간 다시 재생을 제공합니다. 미디어 요청은 세션 credentials와 브라우저 Range를 사용하고 JSON client를 통과하지 않습니다. 자동 재생 차단·로딩/이동 실패·구간 불일치를 안내하며 닫기와 장면 교체 시 이전 미디어를 정리합니다. ID 없는 기록 데모는 재생 불가로 표시합니다. 실제 검색 adapter는 `clipId`를 보존하고 `toScenePreviewMedia`로 밀리초를 초로 변환합니다. `preview=loading`의 타이머 기반 가짜 로딩은 제거했습니다. `/review?view=processing`은 `GET /review/inquiries?status=REVIEWING`과 `GET /clips`를 병렬 조회합니다. 문의의 `statusCounts`와 영상의 `run_counts`를 요약·탭 건수에 사용하며, 목록은 서버 필터와 10건 pagination을 사용합니다. 페이지는 기존 문의 게시판의 `page`와 분리한 `progressPage`로 URL에 보존하고 탭 변경 시 초기화합니다. 영상 등록 성공 시 실제 ID의 `GET /clips/{id}`로 이동하므로 새로고침에도 기록을 다시 조회합니다. 최신 처리 상태와 활성 검색 제공 여부를 분리하고 partial/unavailable/unsupported_version의 null 단계 수를 0이나 추정 진행률로 바꾸지 않습니다. 영상 목록은 전체 queued/running이 있을 때, 상세는 해당 run이 queued/running일 때 5초마다 갱신하며 terminal·오류에서 중단합니다. 문의 현황은 REVIEWING이 있을 때 15초마다 갱신합니다. 오류는 영역별로 표시하고 명시적으로 다시 조회할 수 있습니다. 상세는 단계·실패·자동 재시도 이력·대사 채택 기록을 표시하며 원본 영상은 세션 credentials를 포함한 `GET /media/{clipId}`로 재생합니다. 문의 상세·선점·판정은 기존 실제 API 컴포넌트를 재사용합니다. 수동 재처리, 장면 목록·썸네일, 제공되지 않는 파일 메타데이터는 합성하지 않습니다. 추가 BE 계약은 `docs/contracts/web-api.md` §6.5와 §7을 따릅니다. `registration-processing.ts`의 구 mock 변환은 제품 경로에서 사용하지 않습니다.
+신한 Preview의 `ScenePreviewPlayer`는 ID 기반 MP4를 HTML video로 직접 요청하고, 장면 시작점 seek 후 재생합니다. 기본적으로 장면 끝 이후에도 계속 재생하며 전체 위치·IN/OUT·구간 다시 재생을 제공합니다. `구간 반복`을 켜면 선택한 IN/OUT 구간을 반복하며 원본 끝과 OUT이 같아도 이어집니다. 반복 토글은 미디어를 다시 불러오지 않고 일시 정지를 유지하며, 미리보기를 다시 열거나 장면이 바뀌면 꺼짐으로 시작합니다. 미디어 요청은 세션 credentials와 브라우저 Range를 사용하고 JSON client를 통과하지 않습니다. 자동 재생 차단·로딩/이동 실패·구간 불일치를 안내하며 닫기와 장면 교체 시 이전 미디어를 정리합니다. ID 없는 기록 데모는 재생 불가로 표시합니다. 실제 검색 adapter는 `clipId`를 보존하고 `toScenePreviewMedia`로 밀리초를 초로 변환합니다. `preview=loading`의 타이머 기반 가짜 로딩은 제거했습니다. `/review?view=processing`은 `GET /review/inquiries?status=REVIEWING`과 `GET /clips`를 병렬 조회합니다. 문의의 `statusCounts`와 영상의 `run_counts`를 요약·탭 건수에 사용하며, 목록은 서버 필터와 10건 pagination을 사용합니다. 페이지는 기존 문의 게시판의 `page`와 분리한 `progressPage`로 URL에 보존하고 탭 변경 시 초기화합니다. 영상 등록 성공 시 실제 ID의 `GET /clips/{id}`로 이동하므로 새로고침에도 기록을 다시 조회합니다. 최신 처리 상태와 활성 검색 제공 여부를 분리하고 partial/unavailable/unsupported_version의 null 단계 수를 0이나 추정 진행률로 바꾸지 않습니다. 영상 목록은 전체 queued/running이 있을 때, 상세는 해당 run이 queued/running일 때 5초마다 갱신하며 terminal·오류에서 중단합니다. 문의 현황은 REVIEWING이 있을 때 15초마다 갱신합니다. 오류는 영역별로 표시하고 명시적으로 다시 조회할 수 있습니다. 상세는 단계·실패·자동 재시도 이력·대사 채택 기록을 표시하며 원본 영상은 세션 credentials를 포함한 `GET /media/{clipId}`로 재생합니다. 문의 상세·선점·판정은 기존 실제 API 컴포넌트를 재사용합니다. 수동 재처리, 장면 목록·썸네일, 제공되지 않는 파일 메타데이터는 합성하지 않습니다. 추가 BE 계약은 `docs/contracts/web-api.md` §6.5와 §7을 따릅니다. `registration-processing.ts`의 구 mock 변환은 제품 경로에서 사용하지 않습니다.
 
 ## 계층별 책임
 
@@ -168,6 +173,8 @@ src/
 | `public`     | 브라우저에 그대로 제공하는 정적 파일                | 빌드가 필요한 소스 파일                 |
 
 ## 의존 방향
+
+로그인·검색 입력의 `EntryFooter`에는 저작권 문구만 표시하며 배경 움직임 토글과 브라우저 저장 설정은 사용하지 않습니다. 과거 `npick:parallax-enabled` 저장값은 무시합니다. 배경 파라랙스는 기본 활성화하며 운영체제 모션 감소 설정을 우선합니다.
 
 로그인(`/login`)과 검색(`/search`)은 사용자 요청에 따라 공통 `MountainBackdrop`의 산 파라랙스를 표시합니다. 사진을 바탕으로 재구성한 하늘·설산·숲과 호수 이미지는 `public/images/login-mountains/`에 보관하며, SVG 능선 마스크로 레이어를 합성합니다. 미세 포인터와 실제 문서 스크롤에 깊이 0.12/0.45/1로 반응하고, 64px 여유 영역 안에서 이동량을 제한합니다. `requestAnimationFrame`은 이동 중에만 실행하며 모션 감소·숨긴 탭에서는 멈추고 unmount 때 이벤트를 정리합니다. 레이어를 모두 읽기 전이나 이미지 로딩 실패 시 원본 사진을 표시합니다. 배경은 포커스·클릭·인증 상태를 소유하지 않습니다. 동작·폼·모바일 검증은 `e2e/login-mountain-backdrop.spec.ts`와 `e2e/search-experience.spec.ts`가 담당합니다.
 
@@ -187,6 +194,12 @@ app ───────→ features ───────→ lib
 - 두 기능에 필요한 코드가 생기면 UI는 `components`, 기반 로직은 `lib`로 이동할 수 있는지 검토합니다. 앱 전역 shell과 layout UI도 `components`에 둘 수 있습니다.
 
 ## Feature 내부 확장
+
+문의 상세는 `review-inquiry-detail.module.css`에서 반응형 2열 레이아웃과 진행 단계 표시를 관리합니다. 문의 내용·당시 검색어·장면 구간을 왼쪽에, 선점·검수 이력·판정 입력을 오른쪽에 배치하며 모바일은 한 열로 표시합니다. 후보 작성·검증과 당시 검색 기록·현재 태그는 별도 영역에 두고 기존 API와 캐시 갱신 동작을 유지합니다.
+
+등록 파일 선택은 `registration-files.ts`에서 실제 내용을 검사합니다. 영상은 MP4/MOV 컨테이너 헤더만 부분 읽기하고, 자막은 UTF-8과 SRT/VTT/승인 JSON 구조를 검사합니다. TXT는 고유 헤더가 없어 청크 단위 UTF-8·바이너리 제어 문자·문서 헤더 검사로 형식 위장을 거부합니다. 실제 미디어 디코딩·영상 길이와 자막의 상세 정합 검사는 서버가 최종 수행합니다. 검사 중에는 제출을 막고 이전 파일의 늦은 검사 결과는 무시합니다. 선택한 영상의 정보는 별도 파일 행 대신 선택 영역 안에 표시합니다. 선택 전 중립색·점선에서 선택 후 초록색·실선·체크 표시로 바꾸며, 일반 동작은 파랑 계열이고 빨강·분홍 계열은 오류에만 사용합니다.
+
+검색 날짜 선택기의 오늘은 `lib/seoul-date.ts`의 Asia/Seoul 날짜를 사용합니다(S15P21A501-287). 등록도 같은 날짜 계산을 사용하지만 방송일·촬영일의 상호 제약은 `registration-dates.ts`에 유지합니다. 검색 달력은 열기 이벤트에서 오늘을 주입하고 미래 날짜·월·연도와 키보드 이동을 제한합니다. `SearchResults`는 hydration 이후 같은 상한으로 URL 범위를 검사하며, 잘못된 기간을 필터 없는 검색으로 보내지 않습니다. 기간의 구조 검증은 순수 함수로 유지하고 필요한 호출부에서 상한을 전달합니다.
 
 검수 문의 화면은 목록·상세·스냅샷 표시를 분리하고 `review-inquiry-view.ts`에서 순수 매핑과 URL 상태 계산을 관리합니다. 상세의 선점 재시도는 같은 멱등성 키를 사용하며, 최신 상태 확인은 이전 mutation 오류를 초기화한 뒤 상세와 목록을 갱신합니다. 조회 실패는 조회 오류로 안내합니다. 처리 결과 색상은 `Record<InquiryResolution, string>`으로 모든 값을 명시합니다. 검색 해석은 `SearchInterpretation`에서 한 번 계산하고 `ResolutionSummaryView`에 전달하며, 기록 없음과 계산 실패를 구분합니다. 파서의 `endTimeMs > startTimeMs`, `processingNo >= 1`, `resultRank >= 1` 검증은 DB CHECK 제약과 일치하므로 유지합니다. 순수 상태·파싱·렌더링은 단위 테스트로, 선점 복구·서버 재조회·페이지와 필터 URL 복원은 `e2e/review-inquiry.spec.ts`로 검증합니다.
 
@@ -267,7 +280,7 @@ HTTP·업무 실패·네트워크·본문 수신 실패·비정상 응답·취�
 
 멱등성 키는 `src/lib/api/idempotency.ts`의 `createIdempotencyKey()`가 불투명한 UUID로 생성합니다. 기능별 제출 경계가 입력과 키를 함께 소유하여 같은 논리적 요청의 재시도에는 기존 키를, 새 제출에는 새 키를 사용합니다. `fetchJson`은 `idempotencyKey` 옵션을 `Idempotency-Key` 헤더로 전달하고 조회 요청의 키는 전송 전에 거부합니다. 공통 client는 키를 자동 생성하거나 변경 요청을 자동 재시도하지 않습니다.
 
-`components/api-error-notice.tsx`는 오류 객체를 받아 한국어 메시지와 후속 안내만 `role="alert"`로 표시합니다. 오류 코드·요청 ID는 화면에 표시하지 않고 `ApiClientError`와 기존 `[API]` 로그에 유지합니다. form의 `aria-describedby`에 연결할 수 있는 `id`를 지원합니다. 정상 한국어 서버 메시지를 우선하며, 현재 백엔드의 고정 영어 메시지는 `code/message`가 정확히 일치하는 6개 조합만 번역합니다. 메시지 누락·타입 오류·한국어 안내 계약 위반(내부 경로·HTML·JSON·예외 trace·진단 코드 등)에는 일반 한국어 안내를 사용합니다. 한국어와 `validation_error` 같은 진단 문자열이 섞여 있어도 원문을 표시하지 않습니다. 등록 시 미매핑 검증 오류는 일반 입력 안내, 자막 검증 오류는 자막 항목의 한국어 안내로 표시합니다. 처리 목록·상세·실패 시도 기록도 원시 오류 코드를 노출하지 않습니다. 임의 JSON 응답의 `message`나 일반 `Error.message`는 표시하지 않습니다.
+`components/api-error-notice.tsx`는 오류 객체를 받아 한국어 메시지와 후속 안내만 `role="alert"`로 표시합니다. 오류 코드·요청 ID는 화면에 표시하지 않고 `ApiClientError`와 기존 `[API]` 로그에 유지합니다. form의 `aria-describedby`에 연결할 수 있는 `id`를 지원합니다. 기능 계층이 변환한 사용자 문구와 후속 안내가 있으면 이를 우선합니다. 검색 오류 알림은 `search-error-presentation.ts`에서 stable `SRCH_*` 코드와 오류 종류를 사용자 관점의 존댓말 문구로 변환하며 서버의 내부 문장을 직접 표시하지 않습니다. 그 밖의 정상 한국어 서버 메시지는 우선하며, 현재 백엔드의 고정 영어 메시지는 `code/message`가 정확히 일치하는 6개 조합만 번역합니다. 메시지 누락·타입 오류·한국어 안내 계약 위반(내부 경로·HTML·JSON·예외 trace·진단 코드 등)에는 일반 한국어 안내를 사용합니다. 한국어와 `validation_error` 같은 진단 문자열이 섞여 있어도 원문을 표시하지 않습니다. 등록 시 미매핑 검증 오류는 일반 입력 안내, 자막 검증 오류는 자막 항목의 한국어 안내로 표시합니다. 처리 목록·상세·실패 시도 기록도 원시 오류 코드를 노출하지 않습니다. 임의 JSON 응답의 `message`나 일반 `Error.message`는 표시하지 않습니다.
 
 **현재 연동 차이:** FRD §6.3의 API 오류 코드·요청 식별자 계약은 유지합니다. FE는 본문의 `requestId`, 없으면 `X-Request-ID` 응답 헤더를 읽어 진단용으로 보존하며, 미제공 ID를 임의 생성하지 않습니다. 백엔드의 한국어 메시지·요청 ID 생성과 교차 오리진 호출 시 해당 헤더의 CORS 노출은 별도 연동 작업입니다. 공통 client와 오류 UI는 로그인·로그아웃·세션 조회에 연결되어 있습니다.
 
@@ -290,7 +303,7 @@ S15P21A501-252·254·256에서 검색어는 trim 후 2~500자, 선택 문의 내
 
 | Route             | 사용자            | 책임                                        |
 | ----------------- | ----------------- | ------------------------------------------- |
-| `/landing`        | 공통              | 브랜드 인트로·역할 선택                     |
+| `/landing`        | 공통              | 영상 히어로·역할 선택                       |
 | `/login`          | 공통              | 역할별 ID·비밀번호 입력                     |
 | `/search`         | EDITOR / REVIEWER | 검색어 입력과 검색·문의 기록                |
 | `/search/results` | EDITOR / REVIEWER | 결과·필터·근거 확인, Preview, 이상해요 제출 |

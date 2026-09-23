@@ -15,6 +15,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import com.npick.clip.application.command.ClipUploadService;
 import com.npick.clip.application.command.prepare.PrepareVideoResult;
 import com.npick.clip.application.command.register.RegisterClipResult;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipCommand;
 import com.npick.clip.application.error.ClipRuntimeErrorCode;
 import com.npick.clip.application.port.ClipRegistrationContextPort;
@@ -88,7 +89,9 @@ class TranscriptRegistrationLifecycleTest {
                     } catch (java.io.IOException failure) {
                         throw new java.io.UncheckedIOException(failure);
                     }
-                    return replay ? new RegisterClipResult(1, 3, "queued") : create.get();
+                    return replay
+                            ? new RegisterClipResult(1, 3, "queued", RegistrationOutcome.DUPLICATE_OWN)
+                            : create.get();
                 },
                 (subtitle, duration, id) -> {
                     var intake = adapter.receive(subtitle, duration, id);
@@ -96,7 +99,8 @@ class TranscriptRegistrationLifecycleTest {
                     return intake;
                 });
         if (replay) {
-            assertThat(service.upload(command())).isEqualTo(new RegisterClipResult(1, 3, "queued"));
+            assertThat(service.upload(command()))
+                    .isEqualTo(new RegisterClipResult(1, 3, "queued", RegistrationOutcome.DUPLICATE_OWN));
             assertThat(output.getOut())
                     .contains("Duplicate registration subtitle cleanup failed", "CLIP_500_003")
                     .doesNotContain("외부 변경", "한글 원본");
@@ -128,7 +132,8 @@ class TranscriptRegistrationLifecycleTest {
                 command -> {
                     throw new AssertionError("Duplicate must not register again");
                 },
-                (key, actor, hash, request, create) -> new RegisterClipResult(1, 3, "queued"),
+                (key, actor, hash, request, create) ->
+                        new RegisterClipResult(1, 3, "queued", RegistrationOutcome.DUPLICATE_OWN),
                 new LocalTranscriptIntakeAdapter(root, 1024, new SubtitleParser()));
         assertThatThrownBy(() -> service.upload(command())).isSameAs(failure);
     }
@@ -142,7 +147,7 @@ class TranscriptRegistrationLifecycleTest {
                 command -> {
                     assertThat(command.transcriptFileKey()).isNull();
                     assertThat(command.scriptText()).isEqualTo("참고 대본");
-                    return new RegisterClipResult(2, 3, "queued");
+                    return new RegisterClipResult(2, 3, "queued", RegistrationOutcome.CREATED);
                 },
                 (key, actor, hash, request, create) -> {
                     assertThat(request.subtitleHash()).isNull();

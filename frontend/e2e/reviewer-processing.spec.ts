@@ -205,20 +205,57 @@ test('내 영상만 보기는 mine 을 싣고 끄면 파라미터를 지운다',
 
 test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어 URL을 사용한다', async ({ page }) => {
   let reads = 0;
+  let completeRead: (() => void) | undefined;
+  const responseReady = new Promise<void>((resolve) => {
+    completeRead = resolve;
+  });
   await page.clock.install();
-  await page.route('**/api/v1/clips/21', (route) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.route('**/api/v1/clips/21', async (route) => {
     reads++;
+    if (reads === 2) await responseReady;
     return success(route, detail('21', reads === 1 ? 'running' : 'succeeded'));
   });
   await page.goto('/review?view=processing&clip=21');
   const region = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   await expect(region).toContainText('진행 중');
+  const refreshStatus = region.getByRole('group', { name: '영상 상태 갱신 안내' });
+  await expect(refreshStatus).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
+  const checkedAt = await refreshStatus.locator('time').getAttribute('datetime');
+  const video = page.locator('video');
+  await expect
+    .poll(() => video.evaluate((element) => (element as HTMLVideoElement).duration))
+    .toBeGreaterThan(0);
+  const originalVideo = await video.elementHandle();
+  await video.evaluate((element) => {
+    (element as HTMLVideoElement).currentTime = 2;
+  });
+  const transcriptToggle = page
+    .getByRole('region', { name: '대사 처리 기록', exact: true })
+    .locator('summary');
+  await transcriptToggle.focus();
   await page.clock.fastForward(5_100);
+  await expect(refreshStatus).toContainText('처리 상태 확인 중…');
+  expect(
+    await refreshStatus
+      .locator('svg')
+      .evaluate((element) => getComputedStyle(element).animationName),
+  ).toBe('none');
+  completeRead!();
   await expect(region).toContainText('처리 완료');
+  await expect(refreshStatus).toContainText('자동 확인이 종료되었습니다.');
+  await expect(refreshStatus.locator('time')).not.toHaveAttribute('datetime', checkedAt!);
+  await expect(transcriptToggle).toBeFocused();
+  expect(await video.evaluate((element, original) => element === original, originalVideo)).toBe(
+    true,
+  );
+  expect(
+    await video.evaluate((element) => (element as HTMLVideoElement).currentTime),
+  ).toBeGreaterThanOrEqual(2);
+  await expect(region.getByRole('status').locator('time')).toHaveCount(0);
   const settledReads = reads;
   await page.clock.fastForward(15_000);
   expect(reads).toBe(settledReads);
-  const video = page.locator('video');
   await expect(video).toHaveAttribute('src', 'http://127.0.0.1:18116/api/v1/media/21');
   await expect(video).toHaveAttribute('crossorigin', 'use-credentials');
   await expect
@@ -372,13 +409,17 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
   const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   const noRunNotice = overview.getByText(
-    '아직 처리 기록이 없습니다. 잠시 후 ‘상태 새로고침’으로 다시 확인해 주세요.',
+    '처리 기록을 확인하고 있습니다. 기록이 준비되면 자동으로 표시합니다.',
   );
   await expect(noRunNotice).toBeVisible();
+  await expect(overview).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
   for (const state of ['처리 대기', '진행 중', '처리 완료']) {
     await page.clock.fastForward(5_100);
     await expect(overview).toContainText(state);
+    if (state === '처리 대기')
+      await expect(overview).toContainText('등록된 영상의 분석 시작을 기다리고 있습니다.');
   }
+  await expect(overview).toContainText('자동 확인이 종료되었습니다.');
   await expect(noRunNotice).toHaveCount(0);
   await page.getByRole('button', { name: '처리 현황으로', exact: true }).click();
   await expect(page).toHaveURL(/view=processing$/);
@@ -398,6 +439,35 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
   expect(registrations).toBe(1);
   expect(reads).toBeGreaterThanOrEqual(2);
+});
+
+test('이미 등록된 영상은 그 사실을 알리고 내가 입력한 이름 대신 기존 등록 정보를 보여준다', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/clips', async (route) => {
+    expect(route.request().method()).toBe('POST');
+    await success(route, {
+      clip_id: '21',
+      pipeline_run_id: '32',
+      status: 'queued',
+      outcome: 'duplicate_other',
+    });
+  });
+  await page.route('**/api/v1/clips/21', (route) => success(route, detail('21', 'succeeded')));
+  await page.goto('/review?view=upload');
+  await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
+  await page.locator('#registration-title').fill('내가 붙인 제목');
+  await page.locator('#rights-confirmed').check();
+  await page.locator('#external-processing-confirmed').check();
+  await page.getByRole('button', { name: '등록', exact: true }).click();
+  await expect(page).toHaveURL(/view=processing&clip=21/);
+  const notice = page.getByRole('status', { name: '영상 등록 결과' });
+  await expect(notice).toContainText('다른 사용자가 이미 등록한 영상입니다.');
+  await expect(notice).toContainText('이번에 입력한 제목과 날짜는 저장되지 않았습니다.');
+  // 등록 성공으로 읽히는 문구와 내 로컬 파일명이 남아 있으면 남의 영상을 내 것으로 오해한다.
+  await expect(notice).not.toContainText('영상이 등록되었습니다.');
+  await expect(notice).not.toContainText('preview-fixture.mp4');
+  await expect(page.getByRole('heading', { name: '서버 영상 21', exact: true })).toBeVisible();
 });
 
 test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 지원한다', async ({ page }) => {
@@ -479,6 +549,7 @@ test('최근 등록의 기록 없음 재조회는 1분 뒤 멈추고 수동 조�
   const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
   const refresh = overview.getByRole('button', { name: '상태 새로고침', exact: true });
   await expect(overview).toContainText('처리 기록 없음');
+  await expect(overview).toContainText('처리 기록을 확인하고 있습니다.');
   await expect(refresh).toBeEnabled();
   await page.clock.fastForward(5_100);
   await expect.poll(() => reads).toBe(2);
@@ -488,12 +559,185 @@ test('최근 등록의 기록 없음 재조회는 1분 뒤 멈추고 수동 조�
   await expect(refresh).toBeEnabled();
   await page.clock.fastForward(60_000);
   expect(reads).toBe(3);
-  await expect(overview).toContainText('잠시 후 ‘상태 새로고침’으로 다시 확인해 주세요.');
+  await expect(overview).toContainText('‘상태 새로고침’으로 다시 확인해 주세요.');
+  await expect(overview).not.toContainText('처리 기록을 확인하고 있습니다.');
+  await expect(overview).toContainText('자동 확인이 종료되었습니다.');
   hasRun = true;
   await refresh.click();
   await expect(overview).toContainText('진행 중');
+  await expect(overview).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
   await expect(overview.getByText(/아직 처리 기록이 없습니다/)).toHaveCount(0);
   expect(reads).toBe(4);
+});
+
+test('조회 오류에서 자동 확인과 성공 시각을 멈추고 수동 복구 뒤 다시 조회한다', async ({
+  page,
+}) => {
+  let reads = 0;
+  await page.clock.install();
+  await page.route('**/api/v1/clips/21', async (route) => {
+    reads++;
+    if (reads === 2) {
+      await route.fulfill({
+        status: 503,
+        json: { isSuccess: false, code: 'CLIP_QUERY_503', message: '처리 상태 조회 실패' },
+      });
+      return;
+    }
+    await success(route, detail('21', reads < 4 ? 'running' : 'succeeded'));
+  });
+  await page.goto('/review?view=processing&tab=uploads&clip=21');
+  const status = page.getByRole('group', { name: '영상 상태 갱신 안내' });
+  await expect(status).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
+  const checkedAt = await status.locator('time').getAttribute('datetime');
+  await page.clock.fastForward(5_100);
+  await expect(status).toContainText('조회 오류로 자동 확인을 중단했습니다.');
+  await expect(status.locator('time')).toHaveAttribute('datetime', checkedAt!);
+  await expect(page.getByRole('region', { name: '처리 상세 조회 오류' })).toContainText(
+    '아래는 마지막으로 확인한 기록입니다.',
+  );
+  await page.clock.fastForward(15_000);
+  expect(reads).toBe(2);
+  await page.getByRole('button', { name: '처리 상세 다시 시도' }).click();
+  await expect(status).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
+  await expect(status.locator('time')).not.toHaveAttribute('datetime', checkedAt!);
+  await page.clock.fastForward(5_100);
+  await expect(status).toContainText('자동 확인이 종료되었습니다.');
+  expect(reads).toBe(4);
+});
+
+test('오프라인에서는 자동 확인 중으로 안내하지 않고 재연결하면 복구한다', async ({
+  page,
+  context,
+}) => {
+  await page.clock.install();
+  await page.route('**/api/v1/clips/21', (route) => success(route, detail('21', 'running')));
+  await page.goto('/review?view=processing&tab=uploads&clip=21');
+  const status = page.getByRole('group', { name: '영상 상태 갱신 안내' });
+  await expect(status).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
+  const checkedAt = await status.locator('time').getAttribute('datetime');
+  await context.setOffline(true);
+  await expect(status).toContainText('자동 확인이 일시 중지되었습니다.');
+  await page.clock.fastForward(5_100);
+  await expect(status).not.toContainText('처리 상태 확인 중');
+  await expect(status.locator('time')).toHaveAttribute('datetime', checkedAt!);
+  await context.setOffline(false);
+  await expect(status).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
+});
+
+for (const isOffline of [false, true]) {
+  test(`등록 1분 경계는 ${isOffline ? '오프라인 대기 중에도' : '다음 조회 전에'} 안내를 종료한다`, async ({
+    page,
+    context,
+  }) => {
+    const createdAt = '2026-09-17T01:00:00Z';
+    await page.clock.install({
+      time: new Date(Date.parse(createdAt) + (isOffline ? 54_000 : 59_000)),
+    });
+    await page.route('**/api/v1/clips/21', (route) =>
+      success(route, {
+        ...detail(),
+        clip: { ...clip(), created_at: createdAt, latest_run: null, progress: null },
+        processing_details: null,
+      }),
+    );
+    await page.goto('/review?view=processing&tab=uploads&clip=21');
+    const overview = page.getByRole('region', { name: '영상 처리 상세', exact: true });
+    await expect(overview).toContainText('처리 기록을 확인하고 있습니다.');
+    const checkedAt = await overview.locator('time').getAttribute('datetime');
+    if (isOffline) {
+      await context.setOffline(true);
+      await page.clock.fastForward(5_100);
+      await expect(overview).toContainText('자동 확인이 일시 중지되었습니다.');
+    }
+    await page.clock.fastForward(1_100);
+    await expect(overview).toContainText('자동 확인이 종료되었습니다.');
+    await expect(overview).not.toContainText('처리 기록을 확인하고 있습니다.');
+    await expect(overview.getByRole('status')).toContainText('처리 기록 없음');
+    await expect(overview.locator('time')).toHaveAttribute('datetime', checkedAt!);
+  });
+}
+
+test('영상 목록 갱신 안내는 완료 필터 건수 변경 뒤 자동 확인을 종료한다', async ({ page }) => {
+  let reads = 0;
+  await page.clock.install();
+  await page.route('**/api/v1/clips?*', (route) => {
+    reads++;
+    return success(route, {
+      items: reads === 1 ? [clip('21', 'running')] : [],
+      page: 0,
+      size: 10,
+      total_elements: reads === 1 ? 1 : 0,
+      total_pages: reads === 1 ? 1 : 0,
+      has_next: false,
+      run_counts: {
+        queued: 0,
+        running: reads === 1 ? 1 : 0,
+        failed: 0,
+        succeeded: reads === 1 ? 0 : 1,
+        no_run: 0,
+      },
+    });
+  });
+  await page.goto('/review?view=processing');
+  const summary = page.getByRole('region', { name: '영상 목록', exact: true });
+  await expect(summary).toContainText('5초마다 처리 상태를 자동으로 확인합니다.');
+  await expect(summary.getByRole('group', { name: '영상 상태 갱신 안내' })).toHaveCount(1);
+  await page.clock.fastForward(5_100);
+  await expect(summary).toContainText('자동 확인이 종료되었습니다.');
+  await expect(summary.getByRole('button', { name: '처리 완료 1', exact: true })).toBeVisible();
+  await page.clock.fastForward(15_000);
+  expect(reads).toBe(2);
+});
+
+test('음성 인식은 직접 상태와 동일 실행 단계를 사용하며 실패·생략·미확인·0건을 보존한다', async ({
+  page,
+}) => {
+  const cases = [
+    { direct: 'pending', stage: 'running', expected: '대기' },
+    { direct: 'running', stage: 'succeeded', expected: '처리 중' },
+    { direct: 'succeeded', stage: 'unknown', expected: '완료' },
+    { direct: 'failed', stage: 'succeeded', expected: '실패' },
+    { direct: 'skipped', stage: 'running', expected: '생략' },
+    { direct: null, stage: 'pending', expected: '대기' },
+    { direct: 'unknown', stage: 'running', expected: '처리 중' },
+    { direct: null, stage: 'unknown', expected: '상태 정보 없음' },
+  ];
+  let current = cases[0];
+  await page.route('**/api/v1/clips/21', (route) => {
+    const response = detail('21', 'succeeded');
+    return success(route, {
+      ...response,
+      processing_details: {
+        ...response.processing_details,
+        stages: [{ ...response.processing_details.stages[0], name: 'asr', status: current.stage }],
+        transcript: {
+          record_status: 'unavailable',
+          asr_status: current.direct,
+          asr_required: false,
+          asr_segment_count: 0,
+        },
+      },
+    });
+  });
+  await page.goto('/review?view=processing&tab=uploads&clip=21');
+  const transcript = page.getByRole('region', { name: '대사 처리 기록', exact: true });
+  await transcript.locator('summary').click();
+  const asrStatus = transcript
+    .locator('dl > div')
+    .filter({ has: page.getByText('음성 인식 상태', { exact: true }) })
+    .locator('dd');
+  const count = transcript
+    .locator('dl > div')
+    .filter({ has: page.getByText('음성 인식 후보 구간', { exact: true }) })
+    .locator('dd');
+  for (const scenario of cases) {
+    current = scenario;
+    await page.getByRole('button', { name: '상태 새로고침', exact: true }).click();
+    await expect(asrStatus).toHaveText(scenario.expected);
+    await expect(transcript).toContainText('처리 기록 미확인');
+    await expect(count).toHaveText('0개');
+  }
 });
 
 for (const width of [1440, 390, 320]) {

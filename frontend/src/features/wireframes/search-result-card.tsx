@@ -3,7 +3,11 @@
 import { useState } from 'react';
 import { Play } from 'lucide-react';
 
-import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
+import {
+  getKeywordOriginLabel,
+  getVerificationStatusLabel,
+  type SearchResult,
+} from '@/features/wireframes/demo-scenes';
 import { SceneHoverPreview } from '@/features/wireframes/scene-hover-preview';
 import { formatMediaTime, getSceneThumbnailUrl } from '@/features/wireframes/scene-preview-media';
 import { SceneThumbnail } from '@/features/wireframes/scene-thumbnail';
@@ -19,6 +23,16 @@ interface SearchResultCardProps {
 
 function getEvidenceFieldLabel(field: SearchResult['matchEvidence']['field']) {
   return field === '화면 속 글자 (OCR)' ? '화면 속 글자' : field;
+}
+
+/** hover 로만 보이는 요약에도 화면과 같은 구분을 싣는다. 칩에서 라벨을 읽은 사람과 다른 사실을 보게 두지 않는다. */
+function formatKeywordSummary(keywords: SearchResult['matchedKeywords']) {
+  return keywords
+    .map(({ keyword, origin }) => {
+      const originLabel = getKeywordOriginLabel(origin);
+      return originLabel === null ? keyword : `${keyword}(${originLabel})`;
+    })
+    .join(', ');
 }
 
 function getEvidenceValueLabel(value: string) {
@@ -90,11 +104,19 @@ export function SearchResultCard({
         <div className={styles.matchedKeywords}>
           <span className={styles.keywordList}>
             <span>키워드</span>
-            {result.matchedKeywords.map((keyword) => (
-              <span className={styles.keywordChip} key={keyword}>
-                {keyword}
-              </span>
-            ))}
+            {result.matchedKeywords.map(({ keyword, origin }) => {
+              // 색상만으로 구분하지 않는다 (FRD 6.3) — 사용자가 넣지 않은 말에는 라벨을 붙이고,
+              // data-origin 은 그 라벨과 같은 사실을 스타일·테스트가 함께 읽도록 둔다.
+              const originLabel = getKeywordOriginLabel(origin);
+              return (
+                <span className={styles.keywordChip} data-origin={origin} key={keyword}>
+                  {keyword}
+                  {originLabel === null ? null : (
+                    <span className={styles.keywordChipOrigin}>({originLabel})</span>
+                  )}
+                </span>
+              );
+            })}
           </span>
           <span className={styles.evidenceTooltip}>
             <span
@@ -118,7 +140,7 @@ export function SearchResultCard({
         aria-label={`${position}위 ${result.title} Preview 열기`}
         className={styles.cardSelectButton}
         onClick={() => onSelect(result.id)}
-        title={`${result.title}\n키워드: ${result.matchedKeywords.join(', ')}`}
+        title={`${result.title}\n키워드: ${formatKeywordSummary(result.matchedKeywords)}`}
         type="button"
       />
     </article>

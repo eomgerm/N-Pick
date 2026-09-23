@@ -703,7 +703,10 @@ class SearchAssemblyServiceTest {
 
         SearchExecutionResult result = service.execute(query());
 
-        assertThat(result.results().getFirst().matchedKeywords()).contains("집중호우");
+        // 확장어로만 걸린 말이므로 origin 은 expanded 다 — 사용자가 친 말로 표시하면 F-05 구분이 깨진다.
+        assertThat(result.results().getFirst().matchedKeywords())
+                .contains(new SearchExecutionResult.MatchedKeyword(
+                        "집중호우", SearchExecutionResult.MatchedKeyword.ORIGIN_EXPANDED));
     }
 
     private SearchCandidates.ScoredScene sceneWithCaption(String caption, List<String> captionTokens) {

@@ -39,7 +39,8 @@ class SearchHistoryHttpDbTest {
                     + " \"filmed_date\": {\"value\": null, \"verification_status\": \"unknown\"}}";
 
     private static final String MATCH =
-            "\"match\": {\"matched_keywords\": [\"서울역\"], \"match_evidence\": [{\"field\": \"ocr\","
+            "\"match\": {\"matched_keywords\": [{\"keyword\": \"서울역\", \"origin\": \"user\"}],"
+                    + " \"match_evidence\": [{\"field\": \"ocr\","
                     + " \"value\": \"서울역\", \"source\": \"keyframe_ocr\","
                     + " \"verification_status\": \"verified\"}]}";
 
@@ -96,6 +97,22 @@ class SearchHistoryHttpDbTest {
                         jsonPath("$.data.items[1].representative_result.rank").value(1))
                 // 목록 항목에는 상세 전용 필드를 싣지 않는다.
                 .andExpect(jsonPath("$.data.items[1].search_snapshot").doesNotExist());
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("더보기 이어보기 실행(parent_execution_id 있음)은 기록 목록에서 root 아래로 숨는다 (S15P21A501-280)")
+    void listHidesLoadMoreContinuationExecutions() throws Exception {
+        seed();
+        // 9701 을 root 로 하는 더보기 이어보기 실행. 한 검색이라 기록엔 root(9701)만 한 줄로 보여야 한다.
+        execution(9799, 9001, "서울역 귀성 인파", "succeeded", "original", null, "2026-09-15T03:05:00Z", null, "[]");
+        exec("UPDATE npick.search_execution SET parent_execution_id = 9701 WHERE search_execution_id = 9799");
+
+        mockMvc.perform(get("/api/v1/search/history?page=0&size=10").with(user(OWNER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total_elements").value(3))
+                .andExpect(jsonPath(
+                        "$.data.items[*].search_execution_id", Matchers.not(Matchers.hasItem("9799"))));
     }
 
     @Test
@@ -223,8 +240,10 @@ class SearchHistoryHttpDbTest {
                         jsonPath("$.data.search_snapshot.results[0].scene_type").value("역사 인파"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].filmed_date.verification_status")
                         .value("unknown"))
-                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0]")
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0].keyword")
                         .value("서울역"))
+                .andExpect(jsonPath("$.data.search_snapshot.results[0].matched_keywords[0].origin")
+                        .value("user"))
                 .andExpect(jsonPath("$.data.search_snapshot.results[0].match_evidence[0].field")
                         .value("ocr"));
     }

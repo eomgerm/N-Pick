@@ -212,7 +212,7 @@ warn_unused_configs = true
 # **여기 올라가는 하네스끼리는 모듈 이름이 겹치면 안 된다.** mypy 는 `metrics` 를 앞의
 # 경로 하나로만 해석하므로, 둘 다 `metrics.py` 를 두면 한쪽 테스트가 **다른 하네스를
 # 검사하고 통과한다.** 그래서 OCR 쪽은 `ocr_metrics.py`·`ocr_bench.py` 다.
-mypy_path = ["eval/query_resolver", "eval/ocr"]
+mypy_path = ["eval/query_resolver", "eval/ocr", "eval/search"]
 
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
