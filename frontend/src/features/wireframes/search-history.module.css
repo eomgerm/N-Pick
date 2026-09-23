@@ -203,6 +203,41 @@
   color: #516477;
   font-size: 10px;
 }
+
+/* 제목과 전체 삭제 버튼을 한 줄에 좌우로 둔다 (S15P21A501-291). */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+}
+.clearAllButton {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin: 0 4px 13px 0;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 48%);
+  color: #516477;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.clearAllButton:hover {
+  background: rgb(176 32 42 / 12%);
+  color: #8c1620;
+}
+.clearAllButton:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 2px;
+}
+.clearAllButton svg {
+  width: 14px;
+  height: 14px;
+}
 .listViewport {
   min-height: 0;
   overflow: auto;
