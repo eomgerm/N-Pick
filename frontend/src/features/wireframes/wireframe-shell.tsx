@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CheckCircle2, Sparkles } from 'lucide-react';
+import { CheckCircle2, Clock3 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -30,16 +30,14 @@ import styles from '@/features/wireframes/wireframe.module.css';
 import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
 import {
+  canCreateInquiry,
   getDemoSearchExecution,
   getSearchExecutionAnnouncement,
   successfulSearchExecution,
   type SearchExecutionPresentation,
 } from '@/features/wireframes/search-execution-status';
 import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
-import {
-  getResolverLabel,
-  type SearchResultDetails,
-} from '@/features/wireframes/search-result-details';
+import { type SearchResultDetails } from '@/features/wireframes/search-result-details';
 
 export interface SearchScreenParams {
   q?: string;
@@ -63,6 +61,13 @@ interface WireframeShellProps {
     error: unknown;
     /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
     failureReason?: string;
+    /**
+     * 실패 시 검색어·기간을 이 화면이 알고 있는지. 기본은 안다(false) — 진입 화면에서 넘어온
+     * 검색은 실패해도 요청했던 조건을 그대로 쥐고 있다. 검색 기록 스냅샷처럼 서버 응답이
+     * 와야만 조건을 알 수 있는 화면은, 그 응답 자체가 실패하면 조건도 모른다 — 「입력한
+     * 검색어와 기간은 유지돼요」가 거짓이 된다.
+     */
+    conditionsUnknown?: boolean;
     retry: () => void;
     /**
      * 같은 검색어를 다시 조회(refetch)하는 중. useInfiniteQuery 는 첫 로딩에만 isLoading 을
@@ -83,6 +88,14 @@ interface WireframeShellProps {
   initialParams?: SearchScreenParams;
   execution?: SearchExecutionPresentation;
   resultDetails?: SearchResultDetails;
+  /** 결과 그리드 위에 한 줄로 띄우는 배지(예: 검색 기록 스냅샷 날짜). 실시간 검색과 섞이지 않게 구분한다. */
+  historyBadge?: string;
+  /**
+   * 「저장된 당시 결과예요」 재검색 고지 노출 여부. 배지(날짜)와 따로 가른다 —
+   * 스냅샷이 없는(unavailable) 기록도 날짜는 사실이라 배지는 뜨지만, 당시 결과가
+   * 없으므로 「저장된 당시 결과예요」는 바로 아래 실패 안내와 모순된다 (S15P21A501-262).
+   */
+  showHistoryNotice?: boolean;
 }
 
 export function WireframeShell({
@@ -92,6 +105,8 @@ export function WireframeShell({
   api,
   execution,
   resultDetails,
+  historyBadge,
+  showHistoryNotice = false,
 }: WireframeShellProps) {
   const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
@@ -121,7 +136,14 @@ export function WireframeShell({
   const [inquiryError, setInquiryError] = useState<unknown>();
   const [isInquirySubmitting, setIsInquirySubmitting] = useState(false);
   const [inquirySuccessNotice, setInquirySuccessNotice] = useState('');
+  const [inquirySuccessToastKey, setInquirySuccessToastKey] = useState<string | null>(null);
   const inquirySubmittingRef = useRef(false);
+
+  useEffect(() => {
+    if (inquirySuccessToastKey === null) return;
+    const timeoutId = window.setTimeout(() => setInquirySuccessToastKey(null), 5_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [inquirySuccessToastKey]);
 
   useEffect(() => {
     if (isSearchPending) {
@@ -176,13 +198,6 @@ export function WireframeShell({
         ? 'fallback'
         : effectiveResultDetails?.resolverStatus,
   };
-  const resolutionStatusLabel =
-    resultState === 'loading'
-      ? '확인 중'
-      : resultState === 'failed'
-        ? '확인하지 못함'
-        : getResolverLabel(details.resolverStatus);
-
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedQuery = query.trim();
@@ -256,6 +271,7 @@ export function WireframeShell({
       setInquirySuccessNotice(
         `문의 #${response.inquiryId}의 접수가 확인되었습니다. 현재 상태: ${inquiryStatusLabels[response.status]}. 문의 접수 자체로 검색 결과는 변경되지 않습니다.`,
       );
+      setInquirySuccessToastKey(submission.key);
       setInquirySubmission(null);
       setInquiryResultId(null);
     } catch (error) {
@@ -271,6 +287,7 @@ export function WireframeShell({
     // 문의 가능 여부는 이 결과 자신의 저장 상태(searchResultId)로 판단한다. 더보기로 합쳐진 실행
     // 상태가 다른 페이지 snapshot 실패로 degraded 여도 저장된 결과는 문의할 수 있다 (S15P21A501-251 P1).
     if (!result?.searchResultId || submittedInquiryIds.includes(result.searchResultId)) return;
+    setInquirySuccessToastKey(null);
     setInquiryResultId(resultId);
     setInquirySubmission(null);
     setInquiryError(undefined);
@@ -292,10 +309,23 @@ export function WireframeShell({
     setIsPreviewOpen(false);
   }
 
+  // 문의(신고) 진입점은 결과 카드 썸네일에 있지만, Preview 를 열어 근거를 확인한 뒤에도
+  // 바로 문의할 수 있어야 한다 (S15P21A501-294). Preview 를 닫고 문의 다이얼로그를 연다
+  // — 두 다이얼로그가 겹치지 않게 한다. 문의 가능 여부는 handleInquiryOpen 이 결과 자신의
+  // 저장 상태로 판단하므로 여기서 또 거르지 않는다.
   function handlePreviewInquiry() {
-    if (!selectedResult?.searchResultId) return;
+    if (!selectedResult) return;
     setIsPreviewOpen(false);
     handleInquiryOpen(selectedResult.id);
+  }
+
+  function inquiryUnavailableReason(result: SearchResult): string | undefined {
+    const hasSavedResult =
+      typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
+    if (hasSavedResult) return undefined;
+    return canCreateInquiry(searchExecution)
+      ? '저장된 검색 결과가 아니므로 문의할 수 없습니다.'
+      : '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.';
   }
 
   return (
@@ -306,12 +336,9 @@ export function WireframeShell({
       broadcastRange={broadcastRange}
       filmingRange={filmingRange}
       isDisabled={isSearchPending}
-      onBroadcastChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
-      onFilmingChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
-      onSearchHistorySelect={(historyQuery) => {
-        setQuery(historyQuery);
-        requestAnimationFrame(() => searchFieldRef.current?.querySelector('input')?.focus());
-      }}
+      onDateRangesChange={({ broadcast, filming }) =>
+        handleSearchNavigation(submittedQuery, broadcast, filming)
+      }
       searchField={
         <SceneSearchField
           variant="compact"
@@ -328,7 +355,6 @@ export function WireframeShell({
             form: styles.searchForm,
             field: styles.searchField,
             submitButton: styles.searchButton,
-            hint: styles.searchHint,
           }}
         />
       }
@@ -336,43 +362,23 @@ export function WireframeShell({
       <div className={styles.workspace} data-state={resultState} ref={workspaceRef}>
         <main className={styles.mainContent}>
           <h1 className={styles.visuallyHidden}>뉴스 장면 검색 결과</h1>
-          <section className={styles.resolution} aria-label="검색 요약">
-            <div className={styles.resolutionIcon}>
-              <Sparkles aria-hidden="true" />
-            </div>
-            <div>
-              <span>검색어</span>
-              <strong>{submittedQuery}</strong>
-              <p className={styles.resolutionStatus} role="status">
-                검색 해석: {resolutionStatusLabel}
-              </p>
-            </div>
-            <span
-              className={styles.searchHealth}
-              data-status={searchExecution.status === 'degraded' ? 'degraded' : resultState}
-            >
-              {resultState === 'populated' || resultState === 'empty' ? (
-                searchExecution.status === 'degraded' ? (
-                  <AlertTriangle aria-hidden="true" />
-                ) : (
-                  <CheckCircle2 aria-hidden="true" />
-                )
-              ) : null}
-              {resultState === 'failed'
-                ? // 서버에 가 보지도 않은 실패를 연결 실패로 적지 않는다. 배지라 사유 전문은
-                  // 아래 패널이 싣고 여기에는 짧은 상태만 둔다.
-                  api?.validationMessage || api?.failureReason
-                  ? '검색 조건 확인 필요'
-                  : '검색 연결 실패'
-                : resultState === 'loading'
-                  ? '검색 중'
-                  : searchExecution.status === 'degraded'
-                    ? '일부 기능 누락'
-                    : '정상 검색'}
-            </span>
-          </section>
-
           <section className={styles.resultsSection} id="search-results">
+            {/* 검색 기록(스냅샷) 모드. 같은 결과 화면이지만 라이브 검색과 다르게 — 당시 저장분임을
+                배지로 알리고, 다시 검색하면 지금 기준 새 결과가 나온다는 것을 고지한다
+                (S15P21A501-262). 제외 수 같은 감사 정보는 일반 사용자에게 오히려 혼란이라 싣지 않는다. */}
+            {historyBadge ? (
+              <div className={styles.historyContext} role="status">
+                <p className={styles.historyBadge}>
+                  <Clock3 aria-hidden="true" />
+                  {historyBadge}
+                </p>
+                {showHistoryNotice ? (
+                  <p className={styles.historyNotice}>
+                    저장된 당시 결과예요. 다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className={styles.resultsHeading}>
               <div>
                 <p>검색 결과</p>
@@ -415,6 +421,7 @@ export function WireframeShell({
                 filmingRange={filmingRange}
                 details={details}
                 reason={api?.failureReason}
+                conditionsUnknown={api?.conditionsUnknown}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
@@ -433,6 +440,9 @@ export function WireframeShell({
                       isSelected={isPreviewOpen && selectedResultId === result.id}
                       key={result.id}
                       onSelect={handlePreviewSelect}
+                      onInquiry={handleInquiryOpen}
+                      isInquirySubmitted={submittedInquiryIds.includes(result.searchResultId ?? '')}
+                      inquiryUnavailableReason={inquiryUnavailableReason(result)}
                     />
                   ))}
                 </div>
@@ -470,6 +480,13 @@ export function WireframeShell({
             ? '검색 중입니다.'
             : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
+
+      {inquirySuccessToastKey !== null ? (
+        <div aria-atomic="true" className={styles.inquirySuccessToast} role="status">
+          <CheckCircle2 aria-hidden="true" />
+          문의가 접수되었어요
+        </div>
+      ) : null}
 
       {isPreviewOpen && selectedResult ? (
         <ScenePreviewDialog

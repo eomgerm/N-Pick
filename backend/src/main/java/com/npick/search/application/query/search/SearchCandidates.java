@@ -57,7 +57,15 @@ public record SearchCandidates(
             List<SearchDegradedReason> degradedReasons,
             List<ShortageReason> shortageReasons,
             List<String> expandedTokens) {
-        this(scenes, candidates, guard, appliedExcludes, config, degradedReasons, shortageReasons, expandedTokens,
+        this(
+                scenes,
+                candidates,
+                guard,
+                appliedExcludes,
+                config,
+                degradedReasons,
+                shortageReasons,
+                expandedTokens,
                 false);
     }
 

@@ -116,7 +116,7 @@ export function InquiryList({ data, currentStatus }: InquiryListProps) {
         {data.items.length === 0 ? (
           <div className={boardStyles.empty}>
             <Inbox aria-hidden="true" />
-            <h3>이 상태의 문의가 없습니다.</h3>
+            <h3>해당 상태 문의 없음</h3>
             <p>다른 상태를 선택하면 접수된 문의를 확인할 수 있어요.</p>
           </div>
         ) : (

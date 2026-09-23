@@ -28,6 +28,13 @@ const searchErrorMessages: Readonly<Partial<Record<string, SearchErrorPresentati
     message: '날짜 범위를 확인할 부분이 있어요.',
     followUp: '시작일은 종료일과 같거나 이전 날짜여야 해요.',
   },
+  // 검색 기록 상세(GET /search/history/{id})가 없는·남의 기록에 404 로 준다. 이 화면의 오류도
+  // SearchErrorToast 를 타므로 여기 매핑한다. 없으면 retryable 로 떨어져 재시도를 권하는데,
+  // 없는 기록엔 재시도가 소용없다 — 목록을 새로 부르라고 안내한다 (S15P21A501-262/-285 교차).
+  SRCH_404_001: {
+    message: '이 검색 기록을 찾을 수 없어요.',
+    followUp: '목록을 새로 불러오면 최신 기록을 볼 수 있어요.',
+  },
   SRCH_503_011: retryableSearchError,
   SRCH_503_012: retryableSearchError,
   SRCH_503_013: retryableSearchError,

@@ -203,9 +203,8 @@ class SearchControllerTest {
                         .with(user(EDITOR))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(
-                                "{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":1,"
-                                        + "\"search_execution_id\":\"398021847361024\"}"))
+                        .content("{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":1,"
+                                + "\"search_execution_id\":\"398021847361024\"}"))
                 .andExpect(status().isOk());
         var captor = org.mockito.ArgumentCaptor.forClass(ExecuteSearchQuery.class);
         verify(useCase).execute(captor.capture());
@@ -216,9 +215,8 @@ class SearchControllerTest {
                         .with(user(EDITOR))
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(
-                                "{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":1,"
-                                        + "\"search_execution_id\":\"99999999999999999999\"}"))
+                        .content("{\"query\":\"명절 교통\",\"explicit_filters\":{},\"page\":1,"
+                                + "\"search_execution_id\":\"99999999999999999999\"}"))
                 .andExpect(status().isOk());
     }
 

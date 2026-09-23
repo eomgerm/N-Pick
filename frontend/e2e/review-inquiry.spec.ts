@@ -95,8 +95,42 @@ async function mockList(page: Page, getItems: () => ReturnType<typeof inquiry>[]
   return requests;
 }
 
+for (const viewport of [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 390, height: 844 },
+]) {
+  test(`빈 문의 패널과 사이드바의 상하단이 ${viewport.width}×${viewport.height}에서 정렬된다`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize(viewport);
+    await reviewer(page);
+    await mockList(page, () => []);
+    await page.goto('/review');
+    await expect(
+      page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
+    ).toBeVisible();
+    await page.evaluate(() => document.fonts.ready);
+
+    const sidebar = page.getByRole('complementary', { name: '검수 도구' });
+    const panel = page.getByRole('region', { name: '문의 목록', exact: true });
+    const sidebarBounds = (await sidebar.boundingBox())!;
+    const panelBounds = (await panel.boundingBox())!;
+    expect(panelBounds.y).toBeCloseTo(sidebarBounds.y, 0);
+    expect(panelBounds.y + panelBounds.height).toBeCloseTo(
+      sidebarBounds.y + sidebarBounds.height,
+      0,
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(viewport.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(viewport.width);
+    await page.screenshot({ path: testInfo.outputPath('empty-review.png'), fullPage: true });
+  });
+}
+
 // 검수 중 문의는 문의 화면의 status 필터가 담당한다. 처리 현황 화면에는 문의 탭이 없다.
-test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터로 복귀한다', async ({ page }) => {
+test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터로 복귀한다', async ({
+  page,
+}, testInfo) => {
   await reviewer(page);
   const requests = await mockList(page, () => [inquiry('41', 'REVIEWING')]);
   await page.route('**/api/v1/review/inquiries/41', (route) =>
@@ -106,7 +140,28 @@ test('검수 중 문의는 실제 목록·상세를 조회하고 같은 필터�
   await expect(page.getByRole('button', { name: /문의 #41/ })).toBeVisible();
   await page.getByRole('button', { name: /문의 #41/ }).click();
   await expect(page.getByText(/서버 담당자/)).toBeVisible();
-  await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
+  const header = page.getByRole('banner');
+  const title = header.getByRole('heading', { name: '문의 상세', exact: true });
+  const backButton = header.getByRole('button', { name: '문의 목록으로', exact: true });
+  await expect(page.getByRole('main').getByRole('button', { name: '문의 목록으로' })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText(/문의 상세\s*\/\s*#/)).toHaveCount(0);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(title).toBeVisible();
+    await expect(backButton).toBeInViewport();
+    const titleBounds = (await title.boundingBox())!;
+    const buttonBounds = (await backButton.boundingBox())!;
+    expect(buttonBounds.x + buttonBounds.width).toBeCloseTo(width - (width > 760 ? 32 : 14), 0);
+    expect(titleBounds.y + titleBounds.height / 2).toBeCloseTo(
+      buttonBounds.y + buttonBounds.height / 2,
+      0,
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    await page.screenshot({ path: testInfo.outputPath(`inquiry-detail-header-${width}.png`) });
+  }
+  await backButton.click();
   await expect(page).toHaveURL('/review?status=reviewing');
   await expect(page.getByRole('button', { name: /문의 #41/ })).toBeVisible();
   expect(requests.every((url) => url.searchParams.get('status') === 'REVIEWING')).toBe(true);
@@ -140,7 +195,9 @@ test('선점 충돌 후 최신 상태를 읽으면 이전 오류를 지우고 �
   expect(detailReads).toBeGreaterThanOrEqual(2);
   await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
   await expect(page).toHaveURL(/\/review\?status=open$/);
-  await expect(page.getByText('이 상태의 문의가 없습니다.')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
+  ).toBeVisible();
   expect(listReads.length).toBeGreaterThanOrEqual(2);
 });
 
@@ -364,7 +421,9 @@ test('범위 초과 페이지는 마지막 페이지로 보정하고 빈 목록�
   await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
   await page.goto('/review?status=closed&page=99&keep=1');
   await expect(page).toHaveURL(/status=closed&keep=1$/);
-  await expect(page.getByText('이 상태의 문의가 없습니다.')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: '이전', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
 });

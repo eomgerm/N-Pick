@@ -7,11 +7,6 @@
 .layers {
   position: absolute;
   inset: 0;
-  opacity: 0;
-}
-
-.layers[data-ready='true'] {
-  opacity: 1;
 }
 
 .layer {
@@ -39,6 +34,10 @@
 .foreground {
   --depth: 1;
   mask-image: url('/images/login-mountains/foreground-mask.svg');
+}
+
+.layers[data-parallax='false'] .layer {
+  transform: none;
 }
 
 .veil {

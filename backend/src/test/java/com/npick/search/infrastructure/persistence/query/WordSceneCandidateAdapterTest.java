@@ -3,6 +3,7 @@ package com.npick.search.infrastructure.persistence.query;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.Arrays;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
@@ -51,6 +52,9 @@ class WordSceneCandidateAdapterTest {
         try (var statement = connection.createStatement()) {
             statement.execute("SET LOCAL search_path = npick, public");
             statement.execute(resource("search/scene-candidate-fixture.sql"));
+            // 확장어 구·문서빈도 표본은 별도 파일이다. dense 후보 조회 테스트가 같은 기본 표본을
+            // 쓰면서 활성 장면 수를 절대값으로 단언하므로 그쪽 숫자를 흔들지 않는다.
+            statement.execute(resource("search/expanded-phrase-fixture.sql"));
         }
         dataSource = new SingleConnectionDataSource(connection, true);
     }
@@ -205,6 +209,103 @@ class WordSceneCandidateAdapterTest {
                 .isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> adapter(1, 1, 1, 10).findByWords(List.of("화재"), null))
                 .isInstanceOf(NullPointerException.class);
+    }
+
+    /**
+     * 다어절 확장어는 구 단위로 건다 (S15P21A501-302).
+     *
+     * <p>평탄화하면 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되어 짜장면 검색에 중국 경제 뉴스가 올라온다. 운영 실측 19건이었다.
+     */
+    @Test
+    void multiTokenExpandedPhraseDoesNotMatchOnOneTokenAlone() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음식")));
+
+        assertThat(sceneIds(candidates))
+                .as("'중국' 만 있는 장면과 '음식' 만 있는 장면은 후보가 아니다")
+                .doesNotContain(60L, 62L);
+    }
+
+    /** 구의 토큰을 모두 가진 장면은 후보가 된다 — 구 단위 AND 가 확장어를 통째로 죽이는 것이 아니다. */
+    @Test
+    void multiTokenExpandedPhraseMatchesSceneHavingEveryToken() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음식")));
+
+        assertThat(sceneIds(candidates)).containsExactly(61L);
+    }
+
+    /** 단일 토큰 확장어(화재→불)는 종전대로 걸린다. 구 단위 AND 는 토큰이 하나면 그 토큰 하나다. */
+    @Test
+    void singleTokenExpandedPhraseStillMatches() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("불")))))
+                .containsExactly(63L);
+    }
+
+    /** 구가 둘 이상이면 구 사이는 OR 다. 확장어 항목끼리는 서로 다른 동의어 후보이므로 함께 요구하면 안 된다. */
+    @Test
+    void phrasesAreOrredWithEachOther() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음식"), List.of("불")));
+
+        assertThat(sceneIds(candidates)).containsExactlyInAnyOrder(61L, 63L);
+    }
+
+    /** 단일 토큰 확장어(우천→비, 마운틴→산)가 캡션·대사 양쪽에서 걸린다. */
+    @Test
+    void singleTokenExpandedPhraseMatchesCaptionAndTranscript() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("비")))))
+                .as("캡션에만 있는 단일 토큰")
+                .containsExactly(64L);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("산")))))
+                .as("대사에만 있는 단일 토큰")
+                .containsExactly(65L);
+    }
+
+    /**
+     * 구에 쓸 수 없는 토큰이 하나라도 있으면 <b>그 구를 통째로 버린다</b> — 남은 토큰으로 계속 걸지 않는다.
+     *
+     * <p>토큰만 빼면 「중국 음식」이 {@code 중국} 단독 매칭이 되어 이 티켓이 없애려던 넓은 매칭이 되살아난다. 장면 60 은 '중국' 만 가진 장면이고, 그것이 후보로 올라오는 것이 바로 그
+     * 결함이다.
+     */
+    @Test
+    void dropsWholePhraseWhenOneTokenIsUnusable() {
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음 식")))))
+                .as("'음 식' 이 못 쓰는 토큰이라고 '중국' 단독으로 걸면 안 된다")
+                .isEmpty();
+        assertThat(sceneIds(
+                        adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(java.util.Arrays.asList("중국", null)))))
+                .as("빈 토큰도 같다")
+                .isEmpty();
+    }
+
+    /** 버려지는 것은 그 구 하나뿐이다. 구 사이는 OR 이므로 다른 구는 영향받지 않는다. */
+    @Test
+    void droppingOnePhraseLeavesTheOthers() {
+        var candidates = adapter(1, 1, 1, 10).findByWords(List.of("짜장면"), List.of(List.of("중국", "음 식"), List.of("불")));
+
+        assertThat(sceneIds(candidates)).containsExactly(63L);
+    }
+
+    /**
+     * 확장어 목록이 비어도 원 질의 토큰 검색은 그대로 돈다 (S15P21A501-48 계약 9).
+     *
+     * <p>쓸 수 없는 확장어가 섞여 있어도 마찬가지다. 확장어는 보조 신호이고, 한 건 때문에 검색을 끊으면 원 질의로 충분히 찾을 수 있던 결과까지 잃는다. 원 질의 토큰은 반대로 규약 위반이면 거부한다
+     * — 그쪽은 우리 토크나이저가 만든 값이다 ({@link #rejectsTokenContainingWhitespace}).
+     */
+    @Test
+    void keepsSearchingOriginalTokensWhenExpandedPhrasesAreUnusable() {
+        var expected = List.of(30L, 31L, 34L);
+
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of())))
+                .as("확장어가 없을 때")
+                .containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of(List.of()))))
+                .as("빈 구만 온 때")
+                .containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of(Arrays.asList((String) null)))))
+                .as("구 안이 null 토큰뿐인 때")
+                .containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("화재"), List.of(List.of("중국 음식")))))
+                .as("확장어 토큰에 공백이 있어도 500 이 아니다 — 그 토큰만 버리고 이어간다")
+                .containsExactlyInAnyOrderElementsOf(expected);
     }
 
     private static SceneCandidateResult onlyCandidate(List<SceneCandidateResult> candidates, long sceneId) {

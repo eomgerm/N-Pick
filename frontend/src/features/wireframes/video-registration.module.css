@@ -49,7 +49,7 @@
 }
 .section h2,
 .sourceType legend,
-.dateField > span,
+.dateField > label,
 .textField > span,
 .confirmations legend {
   margin: 0 0 14px;
@@ -61,7 +61,7 @@
   font-size: 13px;
 }
 .section h2 > span,
-.dateField > span > small,
+.dateField > label > small,
 .textField > span > small {
   margin-left: 6px;
   color: var(--muted);
