@@ -128,13 +128,13 @@ final class SearchRecordPayload {
      * 쓴다 — 두 경로가 다른 변환을 타면 검증 replay 행이 일반 검색보다 얕은 충실도로 남는다.
      */
     static List<CompleteSearchExecution.RankedScene> rankedScenes(
-            SearchCandidates candidates, List<String> queryTokens) {
+            SearchCandidates candidates, List<String> userTokens, List<String> expandedTokens) {
         List<CompleteSearchExecution.RankedScene> ranked = new ArrayList<>();
         int rank = 1;
         for (SearchCandidates.ScoredScene scene : candidates.scenes()) {
             var explain = new LinkedHashMap<String, Object>();
             explain.put("score", SearchExplain.score(scene));
-            explain.put("match", SearchExplain.match(scene, queryTokens));
+            explain.put("match", SearchExplain.match(scene, userTokens, expandedTokens));
             explain.put("guard", SearchExplain.guard(scene));
             explain.put("display", SearchExplain.display(scene));
             ranked.add(new CompleteSearchExecution.RankedScene(scene.sceneId(), rank++, explain));

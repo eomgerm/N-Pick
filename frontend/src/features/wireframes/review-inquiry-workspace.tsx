@@ -87,7 +87,7 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
         ) : list.isError ? (
           <div className={`${dashboardStyles.dashboard} ${dashboardStyles.statePanel}`}>
             <Inbox aria-hidden="true" />
-            <h2>문의 목록을 불러오지 못했어요</h2>
+            <h2>문의 목록 불러오기 실패</h2>
             <p>
               {status ? `${inquiryStatusLabels[status]} 상태 · ` : '전체 상태 · '}페이지 {page}
             </p>

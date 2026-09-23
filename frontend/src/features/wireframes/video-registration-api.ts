@@ -21,10 +21,23 @@ export interface ClipRegistrationSubmission {
   snapshot: Readonly<ClipRegistrationSnapshot>;
 }
 
+/**
+ * 서버가 clip 을 새로 만들었는지, 같은 영상으로 이미 있던 clip 을 돌려주었는지 구분한다.
+ * `duplicate_own`은 본인이, `duplicate_other`는 다른 사용자가 먼저 등록한 경우다.
+ */
+export type ClipRegistrationOutcome = 'created' | 'duplicate_own' | 'duplicate_other';
+
+const registrationOutcomes: readonly ClipRegistrationOutcome[] = [
+  'created',
+  'duplicate_own',
+  'duplicate_other',
+];
+
 export interface ClipRegistrationResult {
   clipId: string;
   pipelineRunId: string;
   status: 'queued';
+  outcome: ClipRegistrationOutcome;
 }
 
 export type RegistrationField =
@@ -120,10 +133,13 @@ export function parseClipRegistrationResponse(value: unknown): ClipRegistrationR
   ) {
     throw new ApiClientError('invalid-response', 201);
   }
+  // 구버전 서버는 outcome 을 보내지 않는다. 그때는 기존 동작대로 신규 등록으로 본다.
+  const outcome = registrationOutcomes.find((candidate) => candidate === payload.outcome);
   return {
     clipId: payload.clip_id,
     pipelineRunId: payload.pipeline_run_id,
     status: payload.status,
+    outcome: outcome ?? 'created',
   };
 }
 

@@ -107,7 +107,9 @@ for (const viewport of [
     await reviewer(page);
     await mockList(page, () => []);
     await page.goto('/review');
-    await expect(page.getByText('이 상태의 문의가 없습니다.')).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
+    ).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
 
     const sidebar = page.getByRole('complementary', { name: '검수 도구' });
@@ -193,7 +195,9 @@ test('선점 충돌 후 최신 상태를 읽으면 이전 오류를 지우고 �
   expect(detailReads).toBeGreaterThanOrEqual(2);
   await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
   await expect(page).toHaveURL(/\/review\?status=open$/);
-  await expect(page.getByText('이 상태의 문의가 없습니다.')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
+  ).toBeVisible();
   expect(listReads.length).toBeGreaterThanOrEqual(2);
 });
 
@@ -417,7 +421,9 @@ test('범위 초과 페이지는 마지막 페이지로 보정하고 빈 목록�
   await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
   await page.goto('/review?status=closed&page=99&keep=1');
   await expect(page).toHaveURL(/status=closed&keep=1$/);
-  await expect(page.getByText('이 상태의 문의가 없습니다.')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: '이전', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
 });

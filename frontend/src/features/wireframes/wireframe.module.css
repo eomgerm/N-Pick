@@ -216,7 +216,6 @@
   flex-direction: column;
 }
 
-.workspace[data-state='failed'] .resolution,
 .workspace[data-state='failed'] .resultsHeading {
   flex: none;
 }
@@ -352,93 +351,6 @@
   height: 18px;
 }
 
-.resolution {
-  display: grid;
-  grid-template-columns: auto minmax(200px, 1fr) auto;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  border: 0;
-  border-radius: 20px;
-  background: url('/textures/frosted-grain.svg') rgb(16 36 49 / 72%);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-  color: #f2f7fd;
-}
-
-.resolutionIcon {
-  display: inline-flex;
-  width: 38px;
-  height: 38px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: rgb(255 255 255 / 9%);
-  color: #b8d6f8;
-}
-
-.resolutionIcon svg {
-  width: 18px;
-}
-
-.resolution > div:nth-child(2) {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.resolution > div:nth-child(2) span {
-  color: #b4c6d5;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.resolution > div:nth-child(2) strong {
-  overflow: hidden;
-  font-size: 14px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.resolutionStatus {
-  margin: 0;
-  color: #dbe7f0;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.searchHealth {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: 8px;
-  background: rgb(255 255 255 / 8%);
-  color: #a4e4c8;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.searchHealth svg {
-  width: 15px;
-}
-
-.searchHealth[data-status='degraded'] {
-  color: #f3d4a5;
-}
-
-.searchHealth[data-status='failed'] {
-  color: #ffd3cd;
-}
-
-.searchHealth[data-status='loading'] {
-  color: #cfdeed;
-}
-
 .resultsSection {
   padding: 17px 0 0;
 }
@@ -500,6 +412,51 @@
   width: 20px;
   height: 20px;
   flex: none;
+}
+
+/* 실시간 검색과 섞이지 않도록, 검색 기록 스냅샷임을 결과 그리드 위에 한 줄로 밝힌다. */
+.historyBadge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.historyBadge svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+
+/* 검색 기록(스냅샷) 모드 전용 컨텍스트. 좌측 accent 보더로 라이브 검색과 시각적으로 구분한다. */
+.historyContext {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.historyContext .historyBadge {
+  margin: 0;
+}
+
+.historyNotice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .inquirySuccessNotice {
@@ -593,6 +550,67 @@
 .cardSelectButton:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 72%, white);
   outline-offset: -3px;
+}
+
+/* 카드 전체를 덮는 cardSelectButton(z-index 5) 위에 얹어, 문의 클릭이 Preview 열기로 새지 않게 한다. */
+.cardInquiry {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+}
+
+.cardInquiryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  cursor: pointer;
+}
+
+.cardInquiryButton:hover:not(:disabled) {
+  background: var(--danger, #d64545);
+}
+
+.cardInquiryButton[data-state='unavailable'] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.cardInquiryButton[data-state='submitted'] {
+  background: var(--accent, #2a8a5f);
+  cursor: default;
+}
+
+.cardInquiryButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cardInquiryTooltip {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 88%);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cardInquiry:hover .cardInquiryTooltip,
+.cardInquiryButton:focus-visible ~ .cardInquiryTooltip {
+  opacity: 1;
 }
 
 .selectedCard {
@@ -821,11 +839,46 @@
 
 .keywordChip {
   padding: 4px 7px;
+  /* 확장어 칩만 테두리를 두르므로 기본 칩이 그 자리를 미리 잡는다. 없으면 확장어가 걸린 카드만 2px 높아져
+     결과 목록의 카드 높이가 들쭉날쭉해진다. */
+  border: 1px solid transparent;
   border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent-strong);
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+/* 사용자가 넣지 않은 말에 붙는 꼬리표. 구분을 지는 것은 이 글자이고 아래 배경·테두리가 거든다 (FRD 6.3). */
+.keywordChipOrigin {
+  margin-left: 2px;
+}
+
+/*
+ * 사용자가 친 말이 먼저 읽혀야 한다. 뒤에 오는 .keywordChip 규칙이 모든 칩을 흰 계열로 내려 카드 배경에
+ * 묻히므로, 배경에 톤을 주고 글자를 --muted 에서 --text 로 올린다. 이것이 없으면 점선이 달린 확장어 쪽으로
+ * 시선이 먼저 가서 위계가 뒤집힌다.
+ *
+ * 색을 새로 만들지 않고 기존 토큰만 쓴다 — 이 파일은 .workspace·.dialog.previewModal·
+ * .shell[data-theme='shinhan'] 에서 같은 변수를 다시 정의하므로, 하드코딩하면 한 테마에서만 맞는다.
+ */
+.keywordChip[data-origin='user'] {
+  background: var(--secondary-soft);
+  color: var(--text);
+  font-weight: 700;
+}
+
+/*
+ * 확장어 칩은 채우지 않고 점선 테두리만 둔다. 채움 유무라 색을 못 보는 사람과 흑백 출력에도 남고,
+ * 점선은 「확정되지 않은 것」이라는 관습이 있어 AI 가 추정한 말이라는 뜻과 맞는다.
+ *
+ * 색을 새로 만들지 않고 기존 토큰만 쓴다 — 이 파일은 .workspace·.dialog.previewModal·
+ * .shell[data-theme='shinhan'] 에서 같은 변수를 다시 정의하므로, 하드코딩하면 한 테마에서만 맞는다.
+ */
+.keywordChip[data-origin='expanded'] {
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
 }
 
 .statusBadge {
@@ -1203,11 +1256,6 @@
   background: rgb(255 255 255 / 80%);
 }
 
-.previewHeaderActions .previewReportButton {
-  min-height: 44px;
-  white-space: nowrap;
-}
-
 .previewInquiryAction {
   position: relative;
   z-index: 2;
@@ -1317,6 +1365,17 @@
 
 .previewPlayer {
   min-width: 0;
+}
+
+.previewPlayerActions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+}
+
+.previewPlayerActions .previewReportButton {
+  min-height: 40px;
+  white-space: nowrap;
 }
 
 .previewPlayer [data-preview-state='error'] > div:first-child {
@@ -1732,60 +1791,8 @@
   margin: 16px 0 0;
 }
 
-.resultSafetyNotice[data-variant='preview'] {
-  padding: 12px 16px;
-  border: 0;
-  border-radius: 12px;
-  background: rgb(255 255 255 / 30%);
-  color: var(--muted);
-}
-
-.resultSafetyNotice[data-variant='preview'] > svg {
-  color: var(--warning);
-}
-
-.resultSafetyNotice[data-variant='preview'] p {
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.resultSafetyNotice[data-variant='preview'] strong {
-  margin-bottom: 2px;
-  font-size: inherit;
-  font-weight: 600;
-}
-
-.resultSafetyNotice[data-variant='results'] {
-  align-items: center;
-  padding: 12px 16px;
-  border: 0;
-  border-radius: 12px;
-  background: rgb(16 36 49 / 78%);
-  color: #dae5ef;
-  backdrop-filter: blur(16px);
-}
-
-.resultSafetyNotice[data-variant='results'] > svg {
-  color: #f3d4a5;
-}
-
-.resultSafetyNotice[data-variant='results'] p {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 12px;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.resultSafetyNotice[data-variant='results'] strong {
-  color: #f2f7fd;
-  font-size: inherit;
-  font-weight: 600;
-}
-
 .degradedNotice,
-.reviewRuleNotice,
-.resultSafetyNotice {
+.reviewRuleNotice {
   border-radius: var(--radius-small);
 }
 
@@ -1797,16 +1804,14 @@
 }
 
 .degradedNoticeHeading,
-.reviewRuleNotice,
-.resultSafetyNotice {
+.reviewRuleNotice {
   display: flex;
   align-items: flex-start;
   gap: 9px;
 }
 
 .degradedNoticeHeading > svg,
-.reviewRuleNotice > svg,
-.resultSafetyNotice > svg {
+.reviewRuleNotice > svg {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
@@ -1873,25 +1878,6 @@
   color: var(--muted);
   font-size: 10px;
   line-height: 1.5;
-}
-
-.resultSafetyNotice {
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--warning) 24%, var(--line));
-  background: var(--warning-soft);
-  color: var(--warning);
-}
-
-.resultSafetyNotice p {
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.55;
-}
-
-.resultSafetyNotice strong {
-  display: block;
-  color: var(--text);
-  font-size: 11px;
 }
 
 .searchResultNotices[data-variant='preview'] .degradedReasonList li {
@@ -2138,10 +2124,44 @@
 
 .modal {
   width: min(100%, 500px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
   padding: 22px;
   border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: 0 24px 70px rgb(0 0 0 / 28%);
+}
+
+.inquiryReasons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+  padding: 0;
+  border: 0;
+}
+
+.inquiryReasons legend {
+  margin-bottom: 10px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.inquiryReason {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.inquiryReason[data-active='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .modalHeader {
@@ -2404,10 +2424,6 @@
   margin: 0;
   padding: 20px 0 26px;
   background: transparent;
-}
-
-.shell[data-theme='shinhan'] .resolution {
-  margin-top: 0;
 }
 
 .previewPaneClosed {
@@ -2749,10 +2765,6 @@
   .resultsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .resolution {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
 }
 
 @media (max-width: 920px) {
@@ -2792,19 +2804,6 @@
     height: 44px;
     min-width: 44px;
     padding: 0;
-  }
-
-  .resolution {
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 12px;
-    padding: 16px;
-  }
-
-  .searchHealth {
-    grid-column: 2;
-    justify-self: start;
-    padding: 0;
-    background: transparent;
   }
 
   .resultsHeading {

@@ -32,6 +32,7 @@ import {
 } from '@/features/wireframes/registration-files';
 import {
   type ClipRegistrationErrorPresentation,
+  type ClipRegistrationOutcome,
   type ClipRegistrationSubmission,
   type ClipSourceType,
   createClipRegistrationSubmission,
@@ -50,6 +51,8 @@ export interface RegisteredVideo {
   id: string;
   pipelineRunId: string;
   status: 'queued';
+  /** 서버가 새 clip 을 만들었는지, 이미 있던 clip 을 돌려주었는지. 등록 결과 안내 문구를 가른다. */
+  outcome: ClipRegistrationOutcome;
   title: string;
   fileName: string;
   fileSize: number;
@@ -323,6 +326,7 @@ export function VideoRegistration({
         id: result.clipId,
         pipelineRunId: result.pipelineRunId,
         status: result.status,
+        outcome: result.outcome,
         title: snapshot.title,
         fileName: snapshot.video.name,
         fileSize: snapshot.video.size,
@@ -686,9 +690,7 @@ export function VideoRegistration({
                 type="text"
                 value={title}
               />
-              <small id="title-hint">
-                {title.length}/{CLIP_TITLE_MAX_LENGTH}자 · 비워둘 경우 파일명을 제목으로 사용합니다.
-              </small>
+              <small id="title-hint">비워둘 경우 파일명을 제목으로 사용합니다.</small>
               {fieldErrors.title ? (
                 <FieldError id="title-error">{fieldErrors.title}</FieldError>
               ) : null}

@@ -133,6 +133,7 @@ test('Preview 문의는 저장 결과 ID로 접수하고 재시도 키와 재검
   await page.getByRole('button', { name: '이상해요', exact: true }).click();
   const inquiry = page.getByRole('dialog', { name: '이 장면에 이상이 있나요?' });
   await expect(successToast).toHaveCount(0);
+  await inquiry.getByRole('radio', { name: '기타', exact: true }).check();
   await inquiry.getByRole('textbox').fill('  장면을 확인해 주세요  ');
   await inquiry.getByRole('button', { name: '문의 접수', exact: true }).click();
   await expect(inquiry.getByRole('button', { name: '다시 시도', exact: true })).toBeVisible();

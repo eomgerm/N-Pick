@@ -75,3 +75,18 @@ test('일반 예외와 임의 객체는 일반 한국어 안내만 표시한다'
     assert.doesNotMatch(html, /secret|<script>/);
   }
 });
+
+test('기능 계층이 전달한 사용자 문구와 후속 안내를 우선 표시한다', () => {
+  const error = new Error('internal message');
+  const html = renderToStaticMarkup(
+    createElement(ApiErrorNotice, {
+      error,
+      message: '입력한 내용만으로는 검색하기 어려워요.',
+      followUp: '찾으려는 대상을 포함하면 검색할 수 있어요.',
+    }),
+  );
+
+  assert.match(html, /입력한 내용만으로는 검색하기 어려워요/);
+  assert.match(html, /찾으려는 대상을 포함하면 검색할 수 있어요/);
+  assert.doesNotMatch(html, /internal message|담당자에게 문의해 주세요/);
+});

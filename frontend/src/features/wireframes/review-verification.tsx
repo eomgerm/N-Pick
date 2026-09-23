@@ -92,8 +92,10 @@ export function CorrectionVerificationPanel({
 
       {verification.isError ? (
         <div className="mt-4 space-y-3">
-          <ApiErrorNotice error={verification.error} />
-          {guidance ? <p className="text-sm">{guidance}</p> : null}
+          <ApiErrorNotice
+            error={verification.error}
+            message={guidance ?? '검증 재검색을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'}
+          />
         </div>
       ) : null}
 
@@ -176,8 +178,13 @@ export function CorrectionVerificationPanel({
             ) : null}
             {confirmation.isError ? (
               <div className="mt-3 space-y-3">
-                <ApiErrorNotice error={confirmation.error} />
-                {confirmGuidance ? <p className="text-sm">{confirmGuidance}</p> : null}
+                <ApiErrorNotice
+                  error={confirmation.error}
+                  message={
+                    confirmGuidance ??
+                    '교정 확정을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+                  }
+                />
               </div>
             ) : null}
           </section>

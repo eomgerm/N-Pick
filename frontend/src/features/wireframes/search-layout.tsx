@@ -17,7 +17,6 @@ interface SearchLayoutProps {
   broadcastRange: DateRange;
   filmingRange: DateRange;
   onDateRangesChange: (value: SearchDateRanges) => void;
-  onSearchHistorySelect: (query: string) => void;
 }
 
 export function SearchLayout({
@@ -30,7 +29,6 @@ export function SearchLayout({
   broadcastRange,
   filmingRange,
   onDateRangesChange,
-  onSearchHistorySelect,
 }: SearchLayoutProps) {
   return (
     <AppShell
@@ -48,7 +46,6 @@ export function SearchLayout({
         filmingRange={filmingRange}
         isDisabled={isDisabled}
         onDateRangesChange={onDateRangesChange}
-        onSearchHistorySelect={onSearchHistorySelect}
         theme={theme}
       />
     </AppShell>
