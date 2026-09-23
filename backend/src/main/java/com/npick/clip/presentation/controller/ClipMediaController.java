@@ -14,6 +14,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.npick.clip.application.query.media.ClipMediaDownloadResult;
@@ -60,6 +62,14 @@ public class ClipMediaController {
         sendDownload(clipDownload.downloadClip(clipId), response);
     }
 
+    @RequestMapping(path = "/api/v1/media/{clipId}/download", method = RequestMethod.HEAD)
+    public void checkClipDownload(@PathVariable long clipId, HttpServletResponse response) {
+        try (ClipMediaDownloadResult media = clipDownload.downloadClip(clipId)) {
+            prepareDownloadHeaders(media, response);
+            response.setContentLengthLong(media.sizeBytes());
+        }
+    }
+
     @GetMapping("/api/v1/media/scenes/{sceneId}/download")
     public void downloadScene(
             @PathVariable long sceneId, @LoginMember CurrentMember member, HttpServletResponse response)
@@ -71,14 +81,7 @@ public class ClipMediaController {
     private static void sendDownload(ClipMediaDownloadResult media, HttpServletResponse response) throws IOException {
         try (media) {
             Map<String, List<String>> beforeStreaming = copyHeaders(response);
-            response.setContentType(media.contentType());
-            response.setHeader(
-                    HttpHeaders.CONTENT_DISPOSITION,
-                    ContentDisposition.attachment()
-                            .filename(media.fileName(), java.nio.charset.StandardCharsets.UTF_8)
-                            .build()
-                            .toString());
-            response.setHeader(HttpHeaders.CACHE_CONTROL, "private, no-store");
+            prepareDownloadHeaders(media, response);
             if (media.internalLocation() != null) {
                 response.setHeader(ACCEL_REDIRECT_HEADER, media.internalLocation());
                 return;
@@ -95,6 +98,17 @@ public class ClipMediaController {
                 log.debug("영상 다운로드 전송이 중단되었습니다. fileName={}", media.fileName(), failure);
             }
         }
+    }
+
+    private static void prepareDownloadHeaders(ClipMediaDownloadResult media, HttpServletResponse response) {
+        response.setContentType(media.contentType());
+        response.setHeader(
+                HttpHeaders.CONTENT_DISPOSITION,
+                ContentDisposition.attachment()
+                        .filename(media.fileName(), java.nio.charset.StandardCharsets.UTF_8)
+                        .build()
+                        .toString());
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "private, no-store");
     }
 
     @GetMapping("/api/v1/media/{clipId}")

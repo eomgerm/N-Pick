@@ -411,6 +411,7 @@ FE URL 상태와 wire 요청의 대응:
 #### 6.1.1 영상 다운로드
 
 - `GET /media/{clipId}/download`: 등록된 원본 클립 전체를 내려받는다.
+- `HEAD /media/{clipId}/download`: 원본 본문을 읽지 않고 다운로드 가능 여부와 파일 헤더를 확인한다. FE는 이 확인이 성공한 뒤 브라우저 네이티브 다운로드를 시작하여 대용량 원본을 메모리에 적재하지 않는다.
 - `GET /media/scenes/{sceneId}/download`: DB에 저장된 장면의 `start_time_ms`부터 `end_time_ms`까지를 MP4로 추출해 내려받는다.
 - 임의 시작·종료 시각은 입력으로 받지 않는다. 사용자가 검색 결과에서 확인한 저장 장면 경계만 다운로드할 수 있다.
 - 두 응답은 `Content-Disposition: attachment`, `Cache-Control: private, no-store`와 영상 byte를 반환하며 공통 JSON envelope를 사용하지 않는다.

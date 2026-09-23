@@ -54,6 +54,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -140,6 +141,35 @@ class ClipMediaControllerTest {
                 .andExpect(header().string("Cache-Control", "private, no-store"))
                 .andExpect(header().string("Content-Length", String.valueOf(CONTENT.length)))
                 .andExpect(content().bytes(CONTENT));
+    }
+
+    @Test
+    void checksTheOriginalClipWithoutReadingItsBody() throws Exception {
+        AtomicBoolean cleaned = new AtomicBoolean();
+        ClipMediaBody body = new ClipMediaBody() {
+            @Override
+            public void writeTo(java.io.OutputStream target) {
+                throw new AssertionError("HEAD 확인에서는 원본 파일 본문을 읽지 않는다");
+            }
+
+            @Override
+            public void close() {
+                cleaned.set(true);
+            }
+        };
+        when(clipDownload.downloadClip(42))
+                .thenReturn(new ClipMediaDownloadResult("clip-42.mp4", "video/mp4", CONTENT.length, null, body));
+
+        mvc.perform(head(URL + "/download").session(login("editor")).header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("clip-42.mp4")))
+                .andExpect(header().string("Cache-Control", "private, no-store"))
+                .andExpect(header().string("Content-Length", String.valueOf(CONTENT.length)))
+                .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"))
+                .andExpect(content().bytes(new byte[0]));
+
+        assertThat(cleaned).isTrue();
     }
 
     @Test
