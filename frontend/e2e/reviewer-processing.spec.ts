@@ -799,8 +799,7 @@ for (const width of [1440, 390, 320]) {
     const header = page.getByRole('banner');
     await expect(header.getByText('영상 등록 처리 상세', { exact: true })).toBeVisible();
     await expect(overview.getByText('영상 등록 처리 상세', { exact: true })).toHaveCount(0);
-    await expect(overview.getByRole('status')).toContainText('확인 필요');
-    await expect(overview.getByRole('status')).toContainText('영상 처리를 완료하지 못했습니다.');
+    await expect(overview.getByRole('status')).toHaveText('확인 필요');
     await expect(overview).not.toContainText('STAGE_TIMEOUT');
     await expect(overview.getByText('검색 가능', { exact: true })).toBeVisible();
     await expect(stages.getByText(/처리 실패/)).toBeVisible();
