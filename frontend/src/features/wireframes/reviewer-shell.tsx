@@ -147,7 +147,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       onTabChange={handleTabChange}
       onRegistrationOpen={handleRegistrationOpen}
     >
-      <main className={styles.page}>
+      <main className={`${styles.page} ${isProcessing && !clipId ? styles.processingPage : ''}`}>
         {isRegistration ? (
           <VideoRegistration
             isNavigating={isNavigating}
