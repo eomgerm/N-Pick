@@ -19,6 +19,7 @@
 | [docs/query-embedding.md](docs/query-embedding.md) | 질의 dense 벡터 — 원문을 임베딩하는 이유·접두가 색인 측과 다른 이유·기동 워밍업과 그 상한. 벡터 공간은 색인 측 정본을 **읽어 쓴다** |
 | **[../docs/frd.md](../docs/frd.md) F-04~06, §6.2, §11** | **Query Resolver 정본.** 질의 해석·명시 조건 보호·실패 처리. 출력 schema와 span 검증 방식은 모듈 계약. `query_resolver/` 를 고치기 전에 읽는다 |
 | [eval/query_resolver/README.md](eval/query_resolver/README.md) | Query Resolver 모델 비교 하네스 — 골드셋 200문항·지표 정의·유의성 판정·라벨 한계. **프롬프트나 모델을 바꾸면 여기로 회귀를 잰다** |
+| [docs/proper-noun-search.md](docs/proper-noun-search.md) | 고유명사 검색 오탐 3건의 재현·원인 분류와 실측 — 원인이 리졸버 프롬프트·dense 설정·색인 토큰 형식으로 갈린다. **사람 이름은 `encpos2` 가 만든 회귀이고 수정에 재색인이 필요하다(§3)** |
 | [../AGENTS.md](../AGENTS.md) | 저장소 공통 규칙 (커밋/브랜치/문서 템플릿) |
 
 - 커밋 scope 와 브랜치 플랫폼은 `ai` 를 쓴다.
