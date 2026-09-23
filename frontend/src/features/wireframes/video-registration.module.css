@@ -2,22 +2,6 @@
   width: 100%;
   margin: 0;
 }
-.heading .backButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  border: 0;
-  padding: 8px 0;
-  background: transparent;
-  color: #d4e4dd;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.backButton svg {
-  width: 15px;
-  height: 15px;
-}
 .heading {
   display: flex;
   align-items: center;
@@ -47,20 +31,27 @@
 .section + .section {
   margin-top: 30px;
 }
+/* 섹션 제목과 필드 라벨의 위계를 나눈다. 같은 크기면 섹션 경계가 보이지 않는다. */
 .section h2,
+.confirmations legend {
+  margin: 0 0 16px;
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -0.2px;
+}
 .sourceType legend,
 .dateField > label,
-.textField > span,
-.confirmations legend {
-  margin: 0 0 14px;
-  font-size: 15px;
-  font-weight: 700;
+.textField > span {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
 }
 .section h3 {
   margin: 0 0 10px;
   font-size: 13px;
 }
 .section h2 > span,
+.sourceType legend > span,
 .dateField > label > small,
 .textField > span > small {
   margin-left: 6px;
@@ -68,7 +59,8 @@
   font-size: 11px;
   font-weight: 400;
 }
-.section h2 > .required {
+.section h2 > .required,
+.sourceType legend > .required {
   color: var(--accent-strong);
 }
 .description {
@@ -169,45 +161,6 @@
   font-size: 12px;
   font-weight: 700;
 }
-.fileRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  margin-top: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-}
-.fileRow > svg {
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  color: var(--accent-strong);
-}
-.fileRow > span {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
-}
-.fileRow strong {
-  font-size: 12px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.fileRow small {
-  font-size: 10px;
-  color: var(--muted);
-}
-.selectionStatus {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  width: fit-content;
-  color: var(--positive);
-  font-size: 10px;
-  font-weight: 800;
-}
 .selectedVideo {
   display: grid;
   justify-items: center;
@@ -264,43 +217,155 @@
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
-.selectionStatus svg {
-  width: 13px;
-  height: 13px;
-  stroke-width: 2.5;
-}
-.fileRow button {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  flex-shrink: 0;
-  border: 0;
-  border-radius: 6px;
-  background: var(--surface-muted);
-  color: var(--muted);
-}
-.fileRow button svg {
-  width: 15px;
-  height: 15px;
-}
-.files {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
 .attachmentGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  /* 제목·설명·드롭존·선택 파일 목록을 공유해 두 첨부 열의 항목이 겹치지 않게 정렬한다. */
-  grid-template-rows: auto auto auto auto;
-  column-gap: 20px;
-  row-gap: 0;
+  gap: 20px;
 }
-.attachmentGrid > div {
+/* 선택한 자료는 영상처럼 선택 영역 안에 이름·용량과 삭제 버튼을 둔다. */
+.attachmentGrid .dropzone[data-selected='true'] {
+  padding-right: 52px;
+}
+.attachmentGrid .selectedVideo {
+  justify-items: start;
+  gap: 2px;
+}
+.attachmentGrid .removeVideo {
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+}
+/* 선택 자료는 필수 영상보다 작게 둔다. 선택 전·후 내용 높이가 달라도 옆 칸과 높이가 맞도록 최소 높이를 고정한다. */
+.attachmentGrid .dropzone {
+  min-height: 76px;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.attachmentGrid .uploadIcon {
+  width: 32px;
+  height: 32px;
+}
+
+/* 영상을 고르면 왼쪽은 미리보기, 오른쪽은 영상 정보. */
+.videoLayout {
   display: grid;
-  grid-template-rows: subgrid;
-  grid-row: span 4;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 28px;
+}
+/* 두 열은 서로 늘려주지 않는다. 오른쪽에 오류 문구가 생겨도 왼쪽 영상 영역은 그대로 있다. */
+.videoLayout > .section {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.detailsColumn {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  min-width: 0;
+}
+.detailsColumn > .section + .section {
+  margin-top: 0;
+}
+.videoLayout .metadata {
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 16px;
+}
+.videoLayout .sourceType,
+.videoLayout .textField {
+  grid-column: 1 / -1;
+}
+/* 오른쪽 열(오류 없을 때 465px)과 아래 끝이 맞는 높이. 오른쪽 구성이 바뀌면 e2e
+   '오른쪽에 오류가 생겨도 왼쪽 영상 영역은 움직이지 않는다' 가 어긋남을 잡는다. */
+.videoCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 391px;
+  min-width: 0;
+}
+.videoCard[data-has-file='false'] > .dropzoneGroup {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+.videoCard[data-has-file='false'] .dropzone {
+  flex: 1;
+  justify-content: center;
+}
+.videoPreview {
+  display: block;
+  flex: 1 1 0;
+  width: 100%;
+  min-height: 200px;
+  object-fit: contain;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: #0d1a1f;
+}
+.previewNotice {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+/* 선택 뒤의 파일 선택 영역은 미리보기 아래 한 줄 정보로 접는다. */
+.videoCard[data-has-file='true'] .dropzone[data-kind='video'] {
+  flex-direction: row;
+  gap: 12px;
+  padding: 12px 56px 12px 14px;
+  border: 0;
+  cursor: default;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  text-align: left;
+}
+/* 파일 input 이 줄 전체를 덮지 않게 해 `파일 선택`으로만 연다. 키보드 포커스 표시는 유지한다. */
+.videoCard[data-has-file='true'] .fileInput {
+  pointer-events: none;
+}
+.videoCard[data-has-file='true'] .dropzone:focus-within:not(:has(:focus-visible)) {
+  outline: none;
+}
+.videoCard[data-has-file='true'] .chooseFile {
+  cursor: pointer;
+}
+.videoCard[data-has-file='true'] .dropzone[data-kind='video'] .uploadIcon {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.videoCard[data-has-file='true'] .dropzone[data-kind='video'] .uploadIcon svg {
+  width: 18px;
+  height: 18px;
+}
+.videoCard[data-has-file='true'] .dropCopy {
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.videoCard[data-has-file='true'] .selectedVideo {
+  justify-items: start;
+  gap: 2px;
+}
+.videoCard[data-has-file='true'] .removeVideo {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.submitArea {
+  margin-top: 26px;
+}
+.submitArea > .confirmations {
+  margin: 0 0 20px;
+}
+.submitArea > .footer {
+  justify-content: center;
+  padding-top: 20px;
+}
+.detailsColumn[data-locked='true'],
+.confirmations[data-locked='true'] {
+  opacity: 0.5;
 }
 .error {
   margin: 10px 0 0;
@@ -356,19 +421,11 @@
   color: var(--muted);
   font-size: 13px;
 }
-.sourceType span svg {
-  width: 15px;
-  height: 15px;
-  visibility: hidden;
-}
 .sourceType input:checked + span {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-strong);
   font-weight: 700;
-}
-.sourceType input:checked + span svg {
-  visibility: visible;
 }
 .sourceType input:focus-visible + span {
   outline: 3px solid color-mix(in srgb, var(--accent) 40%, white);
@@ -433,26 +490,23 @@
 }
 .confirmBox {
   display: grid;
-  gap: 10px;
-  padding: 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--surface-muted);
+  gap: 8px;
 }
 .confirmations label {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: var(--surface);
+  gap: 10px;
   color: var(--text);
   font-size: 12px;
   line-height: 1.7;
+  cursor: pointer;
 }
-.confirmations label[data-invalid='true'] {
-  border-color: var(--danger);
+.confirmations label[data-invalid='true'] > span {
+  color: var(--danger);
+}
+/* 오류 문구는 체크박스(17px) + 간격(10px) 뒤 설명 글과 같은 선에서 시작한다. */
+.confirmBox .error {
+  margin: -4px 0 4px 27px;
 }
 .confirmations input {
   width: 17px;
@@ -514,13 +568,11 @@
   justify-content: flex-end;
   gap: 20px;
   padding-top: 24px;
-  border-top: 1px solid var(--line);
 }
 .footer > div {
   display: flex;
   gap: 10px;
 }
-.cancelButton,
 .submitButton {
   min-height: 44px;
   min-width: 94px;
@@ -531,9 +583,6 @@
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
-}
-.cancelButton {
-  color: var(--muted);
 }
 .submitButton {
   border-color: var(--accent-strong);
@@ -568,6 +617,33 @@
   }
   .attachmentGrid {
     grid-template-columns: 1fr;
+  }
+  .videoLayout,
+  .videoLayout .metadata {
+    grid-template-columns: 1fr;
+  }
+  .videoCard[data-has-file='true'] .dropzone[data-kind='video'] {
+    flex-wrap: wrap;
+  }
+  .videoCard[data-has-file='true'] .dropCopy {
+    flex-basis: calc(100% - 48px);
+  }
+  /* 파일 선택이 둘째 줄로 내려가므로 X 도 그 줄 가운데에 맞춘다. */
+  .videoCard[data-has-file='true'] .removeVideo {
+    top: auto;
+    bottom: 32px;
+    transform: translateY(50%);
+  }
+  .videoCard {
+    height: auto;
+  }
+  .videoCard[data-has-file='false'] .dropzone {
+    min-height: 220px;
+  }
+  .videoPreview {
+    flex: none;
+    aspect-ratio: 16 / 9;
+    min-height: 0;
   }
   .dropzone {
     padding: 18px 14px;

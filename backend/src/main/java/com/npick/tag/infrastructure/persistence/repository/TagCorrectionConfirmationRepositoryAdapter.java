@@ -43,4 +43,18 @@ public class TagCorrectionConfirmationRepositoryAdapter implements TagCorrection
         entityManager.clear();
         return confirmed;
     }
+
+    // no_action 종료(S15P21A501-281)는 이 신고가 만든 대기 근거를 지운다. confirmed=false 로 좁혀 이미 확정된 근거는 건드리지 않는다.
+    @Override
+    public int discardPending(long sourceFeedbackId) {
+        entityManager.flush();
+        int discarded = entityManager
+                .createNativeQuery(
+                        "DELETE FROM tag_evidence "
+                                + "WHERE source_feedback_id = :feedbackId AND source = 'reviewer_feedback' AND confirmed = false")
+                .setParameter("feedbackId", sourceFeedbackId)
+                .executeUpdate();
+        entityManager.clear();
+        return discarded;
+    }
 }

@@ -109,6 +109,20 @@ class CreateParsePatchCandidateServiceTest {
     }
 
     @Test
+    @DisplayName("통합 판정 correction 신고에서도 해석 규칙 후보를 만든다 (S15P21A501-281)")
+    void acceptsUnifiedCorrectionResolution() {
+        when(parseContextPort.find(1L))
+                .thenReturn(Optional.of(new ParseContext("REVIEWING", "correction", 9L, RESOLVER_OUTPUT)));
+        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.of(777L));
+
+        ParseCandidateOutcome outcome = service.create(command(true, 9L, CONDITION, PATCH, null));
+
+        assertThat(outcome.created()).isTrue();
+        assertThat(outcome.searchRuleId()).isEqualTo(777L);
+    }
+
+    @Test
     @DisplayName("해석 교정으로 처리된 신고가 아니면 거부한다")
     void rejectsNotPatchParse() {
         when(parseContextPort.find(1L))

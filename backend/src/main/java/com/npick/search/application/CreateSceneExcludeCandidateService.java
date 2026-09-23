@@ -51,7 +51,11 @@ public class CreateSceneExcludeCandidateService implements CreateSceneExcludeCan
         if (!"REVIEWING".equals(context.status())) {
             throw new BusinessException(SceneExcludeCandidateErrorCode.NOT_REVIEWING);
         }
-        if (!"exclude_scene".equals(context.resolution())) {
+        // 재설계 후 검수자는 통합 판정 "correction" 하나만 저장한다(S15P21A501-281) — 어떤 후보를 만들지는 저장된 resolution 이
+        // 아니라 호출한 생성 API 로 정해진다. 레거시 3값도 하위 호환으로 통과시켜야 하므로 "교정류인가"만 본다.
+        // feedback.domain.model.FeedbackResolution 을 그대로 쓰면 search↔feedback 모듈 순환 의존이 생겨(ModuleBoundaryArchitectureTest)
+        // 같은 어휘를 여기서 다시 나열한다.
+        if (!isCorrectionResolution(context.resolution())) {
             throw new BusinessException(SceneExcludeCandidateErrorCode.NOT_EXCLUDE_SCENE);
         }
         if (context.reviewedById() == null || context.reviewedById() != command.reviewerId()) {
@@ -84,5 +88,13 @@ public class CreateSceneExcludeCandidateService implements CreateSceneExcludeCan
                 .findByTargetScene(command.feedbackId(), command.targetSceneId())
                 .map(ParseCandidateOutcome::existing)
                 .orElseThrow(() -> new IllegalStateException("insert conflict but no existing candidate found"));
+    }
+
+    // FeedbackResolution.fromValue 와 같은 어휘(레거시 3종 + 통합 "correction"). 임포트 대신 나열하는 이유는 위 가드 주석 참고.
+    private boolean isCorrectionResolution(String resolution) {
+        return "correction".equals(resolution)
+                || "tag_correction".equals(resolution)
+                || "patch_parse".equals(resolution)
+                || "exclude_scene".equals(resolution);
     }
 }

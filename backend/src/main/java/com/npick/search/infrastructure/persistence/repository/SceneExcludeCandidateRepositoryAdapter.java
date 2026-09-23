@@ -41,4 +41,9 @@ public class SceneExcludeCandidateRepositoryAdapter implements SceneExcludeCandi
         return jpaRepository.findIdsByScene(sourceFeedbackId, targetSceneId).stream()
                 .findFirst();
     }
+
+    @Override
+    public int discardByFeedback(long sourceFeedbackId) {
+        return jpaRepository.deleteByFeedback(sourceFeedbackId);
+    }
 }

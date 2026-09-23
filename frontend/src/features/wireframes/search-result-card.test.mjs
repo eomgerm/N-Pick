@@ -14,6 +14,7 @@ const localFiles = {
   '@/features/wireframes/demo-scenes': './demo-scenes.ts',
   '@/features/wireframes/scene-hover-preview': './scene-hover-preview.tsx',
   '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
+  '@/features/wireframes/media-time': './media-time.ts',
   '@/features/wireframes/scene-thumbnail': './scene-thumbnail.tsx',
   '@/lib/api/client': '../../lib/api/client.ts',
   '@/lib/api/error': '../../lib/api/error.ts',

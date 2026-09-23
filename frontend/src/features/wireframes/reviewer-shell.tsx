@@ -137,10 +137,7 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
       theme={theme}
       headerContent={
         isRegistration ? (
-          <VideoRegistrationHeading
-            isDisabled={isInteractionLocked}
-            onBack={() => handleTabChange('inquiries')}
-          />
+          <VideoRegistrationHeading />
         ) : isProcessing && clipId ? (
           <div className={progressStyles.detailHeader}>
             <p>영상 등록 처리 상세</p>
@@ -172,7 +169,6 @@ export function ReviewerShell({ theme }: ReviewerShellProps) {
               registrationBusyRef.current = isBusy;
               setIsRegistrationBusy(isBusy);
             }}
-            onCancel={() => handleTabChange('inquiries')}
             onRegister={handleRegister}
           />
         ) : clipId ? (

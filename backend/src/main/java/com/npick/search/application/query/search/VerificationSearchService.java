@@ -115,14 +115,27 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             // 트랜잭션 안에서 부르면 리졸버 지연만큼 flip 이 쥔 행 잠금·커넥션 점유가 늘어난다.
             InterpretSearchQueryUseCase.Resolution resolution = interpreter.resolve(query);
             VerificationSearchOutcome outcome = searchWithCandidatesRolledBack(query, candidates, resolution);
-            List<Long> originalSceneIds = inputPort.loadOriginalResultSceneIds(feedbackId);
+            List<VerificationScene> originalScenes = inputPort.loadOriginalResultScenes(feedbackId);
+            List<Long> originalSceneIds = originalScenes.stream().map(VerificationScene::sceneId).toList();
             SceneDiff.Result diff = SceneDiff.of(originalSceneIds, outcome.candidates());
             // complete() 는 해석 스냅샷(normalized_query 등)이 먼저 채워져 있어야 완결을 받아준다 — 일반 검색과
             // 같은 두 단계(recordResolution → complete)를 그대로 태운다. 롤백은 이미 끝났으므로 여기서 쓰는 값은
             // 롤백 전에 캡처해 둔 InterpretedQuery 그대로다.
             record.recordResolution(recordResolutionCommand(executionId, query, outcome.interpreted()));
             record.complete(completeCommand(executionId, outcome, candidates, baselineFingerprint, startedAt));
-            return new VerificationResult(executionId, diff.entered(), diff.dropped(), outcome.activeRuleSet());
+            var verificationScenes = new java.util.LinkedHashMap<Long, VerificationScene>();
+            originalScenes.forEach(scene -> verificationScenes.put(scene.sceneId(), scene));
+            outcome.candidates().scenes().forEach(scene -> verificationScenes.put(
+                    scene.sceneId(),
+                    new VerificationScene(
+                            scene.sceneId(),
+                            scene.clipId(),
+                            scene.card().clipTitle(),
+                            scene.card().caption(),
+                            scene.card().startTimeMs(),
+                            scene.card().endTimeMs())));
+            return new VerificationResult(
+                    executionId, diff.entered(), diff.dropped(), outcome.activeRuleSet(), verificationScenes);
         } catch (RuntimeException failed) {
             // running 누수 금지 (§8, -59 H5 패턴): 넓은 catch 로 실행 행을 fail 로 닫는다.
             record.fail(executionId, verificationErrorCode(failed), elapsedMs(startedAt));
@@ -163,6 +176,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                 candidates.rules().isEmpty() ? null : candidates.rules().get(0);
         context.put("approved_rule_id", firstRule == null ? null : firstRule.approvedRuleId());
         context.put("replaced_rule_id", firstRule == null ? null : firstRule.replacedRuleId());
+        context.put("approved_rule_action", firstRule == null ? null : firstRule.action());
         context.put(
                 "candidate_rules",
                 candidates.rules().stream()
@@ -170,6 +184,7 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
                             Map<String, Object> pair = new LinkedHashMap<>();
                             pair.put("approved_rule_id", rule.approvedRuleId());
                             pair.put("replaced_rule_id", rule.replacedRuleId());
+                            pair.put("action", rule.action());
                             return pair;
                         })
                         .toList());

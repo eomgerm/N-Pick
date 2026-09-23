@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +23,7 @@ import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.search.application.CreateSceneExcludeCandidateCommand;
 import com.npick.search.application.CreateSceneExcludeCandidateUseCase;
+import com.npick.search.application.DiscardSceneExcludeCandidateUseCase;
 import com.npick.search.application.ParseCandidateOutcome;
 import com.npick.search.application.error.SceneExcludeCandidateErrorCode;
 import com.npick.search.presentation.response.SceneExcludeCandidateResponse;
@@ -40,9 +42,12 @@ public class SceneExcludeCandidateController {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final CreateSceneExcludeCandidateUseCase service;
+    private final DiscardSceneExcludeCandidateUseCase discardService;
 
-    public SceneExcludeCandidateController(CreateSceneExcludeCandidateUseCase service) {
+    public SceneExcludeCandidateController(
+            CreateSceneExcludeCandidateUseCase service, DiscardSceneExcludeCandidateUseCase discardService) {
         this.service = service;
+        this.discardService = discardService;
     }
 
     @PostMapping("/{feedbackId}/scene-exclude-candidate")
@@ -65,6 +70,17 @@ public class SceneExcludeCandidateController {
         HttpStatus status = outcome.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status)
                 .body(ApiResponse.success(SceneExcludeCandidateResponse.of(outcome.searchRuleId(), feedbackId)));
+    }
+
+    /**
+     * 검수자가 확정 전에 실수로 만든 대기 중인 장면 제외 후보를 취소한다 (S15P21A501-281, F-11).
+     *
+     * <p>이미 확정되어 켜진 규칙은 서비스가 건드리지 않으므로 확정 뒤에 불러도 조용히 0건으로 끝난다.
+     */
+    @DeleteMapping("/{feedbackId}/scene-exclude-candidate")
+    public ApiResponse<Void> discard(@PathVariable long feedbackId, @LoginMember CurrentMember member) {
+        discardService.discard(feedbackId, member.memberId(), REVIEWER_ROLE.equalsIgnoreCase(member.role()));
+        return ApiResponse.success();
     }
 
     /** 장면 ID 는 64bit 라 FE 가 문자열로 보낼 수 있다. 숫자·양의 정수 문자열 둘 다 받는다. 형식 문제는 장면 불일치가 아니라 MALFORMED_REQUEST 로 구분한다. */

@@ -28,4 +28,12 @@ public interface SearchRuleConfirmationJpaRepository extends JpaRepository<Searc
                     + "WHERE search_rule_id = :ruleId AND active = true",
             nativeQuery = true)
     int deactivate(@Param("ruleId") long ruleId);
+
+    // no_action 종료(S15P21A501-281)는 이 신고가 만든 대기 규칙 후보(patch_parse·exclude_scene 공통)를 지운다.
+    // active=false 로 좁혀 이미 켜진 규칙은 건드리지 않는다.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+            value = "DELETE FROM search_rule WHERE source_feedback_id = :feedbackId AND active = false",
+            nativeQuery = true)
+    int discardPending(@Param("feedbackId") long feedbackId);
 }

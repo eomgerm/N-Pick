@@ -1,4 +1,4 @@
-interface ResolutionTerm {
+export interface ResolutionTerm {
   value: string;
   type?: string;
   origin: string;
@@ -6,7 +6,7 @@ interface ResolutionTerm {
   confidence: number;
 }
 
-interface Resolution {
+export interface Resolution {
   schema_version: string;
   intent: string;
   date_windows: { field: string; start: string; end_exclusive: string; origin: string }[];

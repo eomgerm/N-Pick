@@ -1,0 +1,273 @@
+.wrap {
+  display: grid;
+  gap: 16px;
+}
+
+.card {
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.hint {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rows {
+  display: grid;
+  gap: 2px;
+  margin-top: 18px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+}
+
+.row:first-child {
+  border-top: none;
+}
+
+.dropTarget {
+  outline: 2px dashed var(--accent-strong);
+  outline-offset: 3px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+
+.axis {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.dragging {
+  opacity: 0.5;
+}
+
+.chipRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-strong) 12%, transparent);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.chipRemove:hover {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--danger);
+}
+
+.chipInput {
+  min-width: 90px;
+  padding: 6px 11px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.addButton {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.addButton:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+  opacity: 1;
+}
+
+.addButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.guardNotice {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.changeCardDisabled {
+  opacity: 0.75;
+}
+
+.changeHeading {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.changeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.changeGroup {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--line));
+}
+
+.changeGroupHeading {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.changeGroupHeading span {
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.changeGroup[data-kind='add'] .changeGroupHeading {
+  color: var(--positive);
+}
+
+.changeGroup[data-kind='remove'] .changeGroupHeading {
+  color: var(--danger);
+}
+
+.changeGroup[data-kind='edit'] .changeGroupHeading {
+  color: var(--accent-strong);
+}
+
+.changeList {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.changeList li {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.changeGroupEmpty {
+  margin: 0;
+  color: var(--muted-2);
+  font-size: 12px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.emptyNotice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  margin-top: 16px;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 11px;
+  background: var(--accent-strong);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.errorGroup {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.success {
+  margin: 12px 0 0;
+  color: var(--accent-strong);
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .changeGrid {
+    grid-template-columns: 1fr;
+  }
+}

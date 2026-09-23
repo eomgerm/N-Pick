@@ -1,17 +1,15 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Check, FileText, Film, Plus, UploadCloud, X } from 'lucide-react';
-import {
-  type DragEvent,
-  type FormEvent,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { type FormEvent, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
+import {
+  type DropzoneKind,
+  FieldError,
+  FileDropzone,
+  VideoFileField,
+} from '@/features/wireframes/registration-file-fields';
 import { RegistrationDatePicker } from '@/features/wireframes/registration-date-picker';
 import {
   registrationDateBounds,
@@ -19,7 +17,6 @@ import {
   validateRegistrationDates,
 } from '@/features/wireframes/registration-dates';
 import {
-  formatFileSize,
   scriptAccept,
   subtitleAccept,
   validateScriptContent,
@@ -28,7 +25,6 @@ import {
   validateSubtitleFiles,
   validateVideoContent,
   validateVideoFiles,
-  videoAccept,
 } from '@/features/wireframes/registration-files';
 import {
   type ClipRegistrationErrorPresentation,
@@ -66,29 +62,7 @@ export interface RegisteredVideo {
 interface VideoRegistrationProps {
   isNavigating: boolean;
   onBusyChange: (isBusy: boolean) => void;
-  onCancel: () => void;
   onRegister: (video: RegisteredVideo) => void;
-}
-
-interface VideoRegistrationHeadingProps {
-  isDisabled: boolean;
-  onBack: () => void;
-}
-
-type DropzoneKind = 'video' | 'subtitle' | 'script';
-
-interface FileDropzoneProps {
-  accept: string;
-  error: string;
-  hasFile: boolean;
-  hint?: string;
-  isDisabled: boolean;
-  isChecking?: boolean;
-  kind: DropzoneKind;
-  label: string;
-  onFiles: (files: File[]) => void;
-  selectedFile?: File | null;
-  onRemove?: () => void;
 }
 
 const subscribeToNothing = () => () => {};
@@ -106,162 +80,7 @@ const focusSelectors: Record<RegistrationField, string> = {
   externalProcessingConfirmed: '#external-processing-confirmed',
 };
 
-function FileDropzone({
-  accept,
-  error,
-  hasFile,
-  hint,
-  isDisabled,
-  isChecking = false,
-  kind,
-  label,
-  onFiles,
-  selectedFile,
-  onRemove,
-}: FileDropzoneProps) {
-  const [isDragging, setIsDragging] = useState(false);
-  const dragDepth = useRef(0);
-  const isVideo = kind === 'video';
-
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    dragDepth.current = 0;
-    setIsDragging(false);
-    const files = Array.from(event.dataTransfer.files);
-    if (!isDisabled && files.length > 0) onFiles(files);
-  }
-
-  return (
-    <div className={styles.dropzoneGroup}>
-      <label
-        className={styles.dropzone}
-        data-kind={kind}
-        data-dragging={isDragging}
-        data-invalid={Boolean(error)}
-        data-selected={hasFile}
-        onDragEnter={(event) => {
-          event.preventDefault();
-          dragDepth.current += 1;
-          if (!isDisabled) setIsDragging(true);
-        }}
-        onDragLeave={() => {
-          dragDepth.current = Math.max(0, dragDepth.current - 1);
-          if (dragDepth.current === 0) setIsDragging(false);
-        }}
-        onDragOver={(event) => {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = isDisabled ? 'none' : 'copy';
-        }}
-        onDrop={handleDrop}
-      >
-        <input
-          accept={accept}
-          aria-describedby={[
-            error ? `${kind}-error` : hint ? `${kind}-hint` : `${kind}-desc`,
-            selectedFile ? `${kind}-selection` : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-invalid={Boolean(error)}
-          aria-label={`${label} 선택`}
-          aria-required={isVideo}
-          className={styles.fileInput}
-          disabled={isDisabled}
-          id={`${kind}-file`}
-          onChange={(event) => {
-            const files = Array.from(event.currentTarget.files ?? []);
-            if (files.length) onFiles(files);
-            event.currentTarget.value = '';
-          }}
-          type="file"
-        />
-        <span className={styles.uploadIcon}>
-          {isVideo ? (
-            selectedFile ? (
-              <Film aria-hidden="true" />
-            ) : (
-              <UploadCloud aria-hidden="true" />
-            )
-          ) : (
-            <Plus aria-hidden="true" />
-          )}
-        </span>
-        <span className={styles.dropCopy}>
-          {selectedFile ? (
-            <span className={styles.selectedVideo} id={`${kind}-selection`}>
-              <span className={styles.selectionStatus}>
-                <Check aria-hidden="true" /> 선택됨
-              </span>
-              <strong>{selectedFile.name}</strong>
-              <span>{formatFileSize(selectedFile.size)}</span>
-            </span>
-          ) : (
-            <strong>
-              {isChecking
-                ? '파일 내용을 확인하고 있어요…'
-                : hasFile
-                  ? `${label} 재선택`
-                  : `${label} 추가하기`}
-            </strong>
-          )}
-          {hint ? <span id={`${kind}-hint`}>{hint}</span> : null}
-        </span>
-        {isVideo ? <span className={styles.chooseFile}>파일 선택</span> : null}
-      </label>
-      {selectedFile && onRemove ? (
-        <button
-          aria-label={`${label} 삭제`}
-          className={styles.removeVideo}
-          disabled={isDisabled}
-          onClick={onRemove}
-          type="button"
-        >
-          <X aria-hidden="true" />
-        </button>
-      ) : null}
-      {error ? <FieldError id={`${kind}-error`}>{error}</FieldError> : null}
-    </div>
-  );
-}
-
-function SelectedFileRow({
-  file,
-  isDisabled,
-  label,
-  onRemove,
-}: {
-  file: File;
-  isDisabled: boolean;
-  label: string;
-  onRemove: () => void;
-}) {
-  return (
-    <li className={styles.fileRow}>
-      {label === '영상 파일' ? <Film aria-hidden="true" /> : <FileText aria-hidden="true" />}
-      <span>
-        <span className={styles.selectionStatus}>
-          <Check aria-hidden="true" /> 선택됨
-        </span>
-        <strong>{file.name}</strong>
-        <small>{formatFileSize(file.size)}</small>
-      </span>
-      <button aria-label={`${label} 삭제`} disabled={isDisabled} onClick={onRemove} type="button">
-        <X aria-hidden="true" />
-      </button>
-    </li>
-  );
-}
-
-function FieldError({ children, id }: { children: string; id: string }) {
-  return (
-    <p className={styles.error} id={id} role="alert">
-      {children}
-    </p>
-  );
-}
-
-export function VideoRegistrationHeading({ isDisabled, onBack }: VideoRegistrationHeadingProps) {
+export function VideoRegistrationHeading() {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -274,9 +93,6 @@ export function VideoRegistrationHeading({ isDisabled, onBack }: VideoRegistrati
       <h1 ref={headingRef} tabIndex={-1}>
         영상 등록
       </h1>
-      <button className={styles.backButton} disabled={isDisabled} onClick={onBack} type="button">
-        <ArrowLeft aria-hidden="true" /> 문의 목록으로
-      </button>
     </div>
   );
 }
@@ -284,7 +100,6 @@ export function VideoRegistrationHeading({ isDisabled, onBack }: VideoRegistrati
 export function VideoRegistration({
   isNavigating,
   onBusyChange,
-  onCancel,
   onRegister,
 }: VideoRegistrationProps) {
   const [video, setVideo] = useState<File | null>(null);
@@ -361,6 +176,8 @@ export function VideoRegistration({
   });
   const isBusy = isNavigating || mutation.isPending || isSubmissionLocked;
   const isCheckingFiles = Object.values(checkingFiles).some(Boolean);
+  // 영상을 고르기 전에는 나머지 입력을 잠근다. 재선택 검사 중에는 잠그지 않아 포커스·입력이 유지된다.
+  const isLocked = !video && !checkingFiles.video;
   // 서버에서는 빈 값을 주고 마운트 후에 로컬 오늘로 바꾼다. 렌더 중에 오늘을 읽으면 서버·브라우저 시간대 차이로
   // hydration 이 어긋난다.
   const today = useSyncExternalStore(subscribeToNothing, registrationToday, getNoToday);
@@ -522,307 +339,284 @@ export function VideoRegistration({
           {liveMessage}
         </p>
 
-        <section aria-labelledby="video-label" className={styles.section}>
-          <h2 id="video-label">
-            영상 파일 <span className={styles.required}>필수</span>
-          </h2>
-          <p className={styles.description} id="video-desc">
-            등록할 영상을 업로드 해주세요. (MP4/MOV 지원)
-          </p>
-          <FileDropzone
-            accept={videoAccept}
-            error={fieldErrors.video ?? ''}
-            hasFile={Boolean(video)}
-            hint="드래그하거나 클릭하여 선택 · 영상 1개"
-            isDisabled={isBusy}
-            isChecking={checkingFiles.video}
-            kind="video"
-            label="영상 파일"
-            onFiles={(files) => void handleFiles('video', files)}
-            selectedFile={video}
-            onRemove={() => {
-              markEdited('video');
-              setVideo(null);
-              setLiveMessage(`영상 파일 ${video?.name}이 삭제되었습니다.`);
-            }}
-          />
-        </section>
-
-        <section aria-labelledby="supplement-label" className={styles.section}>
-          <h2 id="supplement-label">
-            추가 자료 <span>선택</span>
-          </h2>
-          <div className={styles.attachmentGrid}>
-            <div>
-              <h3>자막 파일</h3>
-              <p className={styles.description} id="subtitle-desc">
-                SRT, VTT 또는 승인된 JSON 한 개 · 10 MiB 이하
-              </p>
-              <FileDropzone
-                accept={subtitleAccept}
-                error={fieldErrors.subtitle ?? ''}
-                hasFile={Boolean(subtitle)}
-                hint="드래그하거나 클릭하여 선택 · SRT/VTT/JSON 1개 · 10 MiB 이하"
-                isDisabled={isBusy}
-                isChecking={checkingFiles.subtitle}
-                kind="subtitle"
-                label="자막 파일"
-                onFiles={(files) => void handleFiles('subtitle', files)}
-              />
-              {subtitle ? (
-                <ul aria-label="선택한 자막 파일" className={styles.files}>
-                  <SelectedFileRow
-                    file={subtitle}
+        <div className={styles.videoLayout}>
+          <section aria-labelledby="video-label" className={styles.section}>
+            <h2 id="video-label">
+              영상 파일 <span className={styles.required}>필수</span>
+            </h2>
+            <p className={styles.description} id="video-desc">
+              등록할 영상을 업로드 해주세요. (MP4/MOV 지원)
+            </p>
+            <VideoFileField
+              error={fieldErrors.video ?? ''}
+              file={video}
+              isDisabled={isBusy}
+              isChecking={Boolean(checkingFiles.video)}
+              onFiles={(files) => void handleFiles('video', files)}
+              onRemove={() => {
+                markEdited('video');
+                setVideo(null);
+                setLiveMessage(`영상 파일 ${video?.name}이 삭제되었습니다.`);
+              }}
+            />
+          </section>
+          <div className={styles.detailsColumn} data-locked={isLocked} inert={isLocked}>
+            <section aria-labelledby="metadata-label" className={styles.section}>
+              <h2 id="metadata-label">영상 정보</h2>
+              <div className={styles.metadata}>
+                <fieldset
+                  aria-describedby={fieldErrors.sourceType ? 'source-type-error' : undefined}
+                  className={styles.sourceType}
+                  disabled={isBusy}
+                >
+                  <legend>
+                    영상 종류 <span className={styles.required}>필수</span>
+                  </legend>
+                  <div>
+                    {(
+                      [
+                        ['broadcast', '방송 영상'],
+                        ['archive', '자료 영상'],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <label key={value}>
+                        <input
+                          checked={sourceType === value}
+                          name="sourceType"
+                          onChange={() => {
+                            markEdited('sourceType');
+                            if (value === 'archive' && broadcastDate) {
+                              setBroadcastDate('');
+                              setFieldErrors((current) => ({
+                                ...current,
+                                broadcastDate: undefined,
+                              }));
+                              setLiveMessage('자료 영상으로 변경해 입력한 방송일을 제외했습니다.');
+                            }
+                            setSourceType(value);
+                          }}
+                          type="radio"
+                          value={value}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {fieldErrors.sourceType ? (
+                    <FieldError id="source-type-error">{fieldErrors.sourceType}</FieldError>
+                  ) : null}
+                </fieldset>
+                <label className={styles.textField}>
+                  <span>
+                    제목 <small>선택 · 최대 {CLIP_TITLE_MAX_LENGTH}자</small>
+                  </span>
+                  <input
+                    aria-describedby={fieldErrors.title ? 'title-error' : 'title-hint'}
+                    aria-invalid={Boolean(fieldErrors.title)}
+                    disabled={isBusy}
+                    id="registration-title"
+                    maxLength={CLIP_TITLE_MAX_LENGTH}
+                    onPaste={(event) =>
+                      rejectOversizedPaste(event, CLIP_TITLE_MAX_LENGTH, () =>
+                        setFieldErrors((current) => ({
+                          ...current,
+                          title: `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`,
+                        })),
+                      )
+                    }
+                    onChange={(event) => {
+                      markEdited('title');
+                      setTitle(event.target.value);
+                    }}
+                    placeholder="영상 제목을 입력하세요"
+                    type="text"
+                    value={title}
+                  />
+                  <small id="title-hint">비워둘 경우 파일명을 제목으로 사용합니다.</small>
+                  {fieldErrors.title ? (
+                    <FieldError id="title-error">{fieldErrors.title}</FieldError>
+                  ) : null}
+                </label>
+                {sourceType === 'broadcast' ? (
+                  <RegistrationDatePicker
+                    error={fieldErrors.broadcastDate}
                     isDisabled={isBusy}
+                    id="broadcast-date"
+                    label="방송일"
+                    maxDate={dateBounds.broadcastMax}
+                    minDate={dateBounds.broadcastMin}
+                    onChange={(date) => {
+                      markEdited('broadcastDate');
+                      setBroadcastDate(date);
+                    }}
+                    value={broadcastDate}
+                  />
+                ) : (
+                  <p className={styles.archiveDateNotice}>
+                    자료 영상에는 방송일 입력이 불가합니다.
+                  </p>
+                )}
+                <RegistrationDatePicker
+                  error={fieldErrors.filmedDate}
+                  isDisabled={isBusy}
+                  id="filmed-date"
+                  label="촬영일"
+                  maxDate={dateBounds.filmedMax}
+                  minDate={dateBounds.filmedMin}
+                  onChange={(date) => {
+                    markEdited('filmedDate');
+                    setFilmedDate(date);
+                  }}
+                  value={filmedDate}
+                />
+              </div>
+            </section>
+
+            <section aria-labelledby="supplement-label" className={styles.section}>
+              <h2 id="supplement-label">
+                추가 자료 <span>선택</span>
+              </h2>
+              <div className={styles.attachmentGrid}>
+                <div>
+                  <FileDropzone
+                    accept={subtitleAccept}
+                    error={fieldErrors.subtitle ?? ''}
+                    hasFile={Boolean(subtitle)}
+                    hint={subtitle ? undefined : 'SRT·VTT·JSON 1개 · 10 MiB 이하'}
+                    isDisabled={isBusy}
+                    isChecking={checkingFiles.subtitle}
+                    kind="subtitle"
                     label="자막 파일"
+                    onFiles={(files) => void handleFiles('subtitle', files)}
+                    selectedFile={subtitle}
                     onRemove={() => {
                       markEdited('subtitle');
                       setSubtitle(null);
-                      setLiveMessage(`자막 파일 ${subtitle.name}이 삭제되었습니다.`);
+                      setLiveMessage(`자막 파일 ${subtitle?.name}이 삭제되었습니다.`);
                     }}
                   />
-                </ul>
-              ) : null}
-            </div>
-            <div>
-              <h3>일반 대본</h3>
-              <p className={styles.description} id="script-desc">
-                대본 파일을 선택해주세요. (TXT 지원)
-              </p>
-              <FileDropzone
-                accept={scriptAccept}
-                error={fieldErrors.scriptText ?? ''}
-                hasFile={Boolean(script)}
-                hint="드래그하거나 클릭하여 선택 · TXT 1개"
-                isDisabled={isBusy}
-                isChecking={checkingFiles.script}
-                kind="script"
-                label="일반 대본 파일"
-                onFiles={(files) => void handleFiles('script', files)}
-              />
-              {script ? (
-                <ul aria-label="선택한 일반 대본 파일" className={styles.files}>
-                  <SelectedFileRow
-                    file={script}
+                </div>
+                <div>
+                  <FileDropzone
+                    accept={scriptAccept}
+                    error={fieldErrors.scriptText ?? ''}
+                    hasFile={Boolean(script)}
+                    hint={script ? undefined : 'UTF-8 TXT 1개'}
                     isDisabled={isBusy}
+                    isChecking={checkingFiles.script}
+                    kind="script"
                     label="일반 대본 파일"
+                    onFiles={(files) => void handleFiles('script', files)}
+                    selectedFile={script}
                     onRemove={() => {
                       markEdited('scriptText');
                       setScript(null);
-                      setLiveMessage(`일반 대본 파일 ${script.name}이 삭제되었습니다.`);
+                      setLiveMessage(`일반 대본 파일 ${script?.name}이 삭제되었습니다.`);
                     }}
                   />
-                </ul>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div className={styles.submitArea}>
+          {/* 영상을 고르기 전에는 동의를 잠그고, 등록 버튼은 비활성으로 둔다. */}
+          <fieldset
+            className={styles.confirmations}
+            data-locked={isLocked}
+            disabled={isBusy}
+            inert={isLocked}
+          >
+            <legend>등록 전 확인</legend>
+            <div className={styles.confirmBox}>
+              <label data-invalid={Boolean(fieldErrors.rightsConfirmed)}>
+                <input
+                  aria-describedby={fieldErrors.rightsConfirmed ? 'rights-error' : undefined}
+                  aria-invalid={Boolean(fieldErrors.rightsConfirmed)}
+                  checked={rightsConfirmed}
+                  id="rights-confirmed"
+                  onChange={(event) => {
+                    markEdited('rightsConfirmed');
+                    setRightsConfirmed(event.target.checked);
+                  }}
+                  type="checkbox"
+                />
+                <span>이 영상과 관련 자료를 등록 및 처리할 권한이 있음을 확인하였습니다.</span>
+              </label>
+              {fieldErrors.rightsConfirmed ? (
+                <FieldError id="rights-error">{fieldErrors.rightsConfirmed}</FieldError>
+              ) : null}
+              <label data-invalid={Boolean(fieldErrors.externalProcessingConfirmed)}>
+                <input
+                  aria-describedby={
+                    fieldErrors.externalProcessingConfirmed
+                      ? 'external-processing-error'
+                      : undefined
+                  }
+                  aria-invalid={Boolean(fieldErrors.externalProcessingConfirmed)}
+                  checked={externalProcessingConfirmed}
+                  id="external-processing-confirmed"
+                  onChange={(event) => {
+                    markEdited('externalProcessingConfirmed');
+                    setExternalProcessingConfirmed(event.target.checked);
+                  }}
+                  type="checkbox"
+                />
+                <span>처리 과정에서 외부 AI 서비스로 영상이 전송될 수 있음을 확인하였습니다.</span>
+              </label>
+              {fieldErrors.externalProcessingConfirmed ? (
+                <FieldError id="external-processing-error">
+                  {fieldErrors.externalProcessingConfirmed}
+                </FieldError>
               ) : null}
             </div>
-          </div>
-        </section>
+          </fieldset>
 
-        <section aria-labelledby="metadata-label" className={styles.section}>
-          <h2 id="metadata-label">영상 정보</h2>
-          <div className={styles.metadata}>
-            <fieldset
-              aria-describedby={fieldErrors.sourceType ? 'source-type-error' : undefined}
-              className={styles.sourceType}
-              disabled={isBusy}
-            >
-              <legend>영상 종류</legend>
-              <div>
-                {(
-                  [
-                    ['broadcast', '방송 영상'],
-                    ['archive', '자료 영상'],
-                  ] as const
-                ).map(([value, label]) => (
-                  <label key={value}>
-                    <input
-                      checked={sourceType === value}
-                      name="sourceType"
-                      onChange={() => {
-                        markEdited('sourceType');
-                        if (value === 'archive' && broadcastDate) {
-                          setBroadcastDate('');
-                          setFieldErrors((current) => ({
-                            ...current,
-                            broadcastDate: undefined,
-                          }));
-                          setLiveMessage('자료 영상으로 변경해 입력한 방송일을 제외했습니다.');
-                        }
-                        setSourceType(value);
-                      }}
-                      type="radio"
-                      value={value}
-                    />
-                    <span>
-                      <Check aria-hidden="true" />
-                      {label}
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {fieldErrors.sourceType ? (
-                <FieldError id="source-type-error">{fieldErrors.sourceType}</FieldError>
+          {errorPresentation?.showGlobal && mutation.error ? (
+            <div className={styles.apiError} ref={globalErrorRef} tabIndex={-1}>
+              <ApiErrorNotice
+                error={mutation.error}
+                id="registration-api-error"
+                message={errorPresentation.globalMessage}
+              />
+              {errorPresentation.retryMode === 'same-request' ? (
+                <div className={styles.retryAction}>
+                  <p>동일한 요청으로 재시도합니다.</p>
+                  <button
+                    disabled={isBusy}
+                    onClick={() => {
+                      if (retrySubmissionRef.current) startSubmission(retrySubmissionRef.current);
+                    }}
+                    type="button"
+                  >
+                    동일 요청 재시도
+                  </button>
+                </div>
+              ) : errorPresentation.retryMode === 'new-request' ? (
+                <p className={styles.newRequestNotice}>등록 버튼을 눌러 재시도 해주세요.</p>
               ) : null}
-            </fieldset>
-            <label className={styles.textField}>
-              <span>
-                제목 <small>선택 · 최대 {CLIP_TITLE_MAX_LENGTH}자</small>
-              </span>
-              <input
-                aria-describedby={fieldErrors.title ? 'title-error' : 'title-hint'}
-                aria-invalid={Boolean(fieldErrors.title)}
-                disabled={isBusy}
-                id="registration-title"
-                maxLength={CLIP_TITLE_MAX_LENGTH}
-                onPaste={(event) =>
-                  rejectOversizedPaste(event, CLIP_TITLE_MAX_LENGTH, () =>
-                    setFieldErrors((current) => ({
-                      ...current,
-                      title: `제목은 ${CLIP_TITLE_MAX_LENGTH}자 이내로 입력해 주세요.`,
-                    })),
-                  )
-                }
-                onChange={(event) => {
-                  markEdited('title');
-                  setTitle(event.target.value);
-                }}
-                placeholder="영상 제목을 입력하세요"
-                type="text"
-                value={title}
-              />
-              <small id="title-hint">비워둘 경우 파일명을 제목으로 사용합니다.</small>
-              {fieldErrors.title ? (
-                <FieldError id="title-error">{fieldErrors.title}</FieldError>
-              ) : null}
-            </label>
-            {sourceType === 'broadcast' ? (
-              <RegistrationDatePicker
-                error={fieldErrors.broadcastDate}
-                isDisabled={isBusy}
-                id="broadcast-date"
-                label="방송일"
-                maxDate={dateBounds.broadcastMax}
-                minDate={dateBounds.broadcastMin}
-                onChange={(date) => {
-                  markEdited('broadcastDate');
-                  setBroadcastDate(date);
-                }}
-                value={broadcastDate}
-              />
-            ) : (
-              <p className={styles.archiveDateNotice}>자료 영상에는 방송일 입력이 불가합니다.</p>
-            )}
-            <RegistrationDatePicker
-              error={fieldErrors.filmedDate}
-              isDisabled={isBusy}
-              id="filmed-date"
-              label="촬영일"
-              maxDate={dateBounds.filmedMax}
-              minDate={dateBounds.filmedMin}
-              onChange={(date) => {
-                markEdited('filmedDate');
-                setFilmedDate(date);
-              }}
-              value={filmedDate}
-            />
-          </div>
-        </section>
+            </div>
+          ) : null}
 
-        <fieldset className={styles.confirmations} disabled={isBusy}>
-          <legend>등록 전 확인</legend>
-          <div className={styles.confirmBox}>
-            <label data-invalid={Boolean(fieldErrors.rightsConfirmed)}>
-              <input
-                aria-describedby={fieldErrors.rightsConfirmed ? 'rights-error' : undefined}
-                aria-invalid={Boolean(fieldErrors.rightsConfirmed)}
-                checked={rightsConfirmed}
-                id="rights-confirmed"
-                onChange={(event) => {
-                  markEdited('rightsConfirmed');
-                  setRightsConfirmed(event.target.checked);
-                }}
-                type="checkbox"
-              />
-              <span>이 영상과 관련 자료를 등록 및 처리할 권한이 있음을 확인하였습니다.</span>
-            </label>
-            {fieldErrors.rightsConfirmed ? (
-              <FieldError id="rights-error">{fieldErrors.rightsConfirmed}</FieldError>
-            ) : null}
-            <label data-invalid={Boolean(fieldErrors.externalProcessingConfirmed)}>
-              <input
-                aria-describedby={
-                  fieldErrors.externalProcessingConfirmed ? 'external-processing-error' : undefined
-                }
-                aria-invalid={Boolean(fieldErrors.externalProcessingConfirmed)}
-                checked={externalProcessingConfirmed}
-                id="external-processing-confirmed"
-                onChange={(event) => {
-                  markEdited('externalProcessingConfirmed');
-                  setExternalProcessingConfirmed(event.target.checked);
-                }}
-                type="checkbox"
-              />
-              <span>처리 과정에서 외부 AI 서비스로 영상이 전송될 수 있음을 확인하였습니다.</span>
-            </label>
-            {fieldErrors.externalProcessingConfirmed ? (
-              <FieldError id="external-processing-error">
-                {fieldErrors.externalProcessingConfirmed}
-              </FieldError>
-            ) : null}
-          </div>
-        </fieldset>
-
-        {errorPresentation?.showGlobal && mutation.error ? (
-          <div className={styles.apiError} ref={globalErrorRef} tabIndex={-1}>
-            <ApiErrorNotice
-              error={mutation.error}
-              id="registration-api-error"
-              message={errorPresentation.globalMessage}
-            />
-            {errorPresentation.retryMode === 'same-request' ? (
-              <div className={styles.retryAction}>
-                <p>동일한 요청으로 재시도합니다.</p>
-                <button
-                  disabled={isBusy}
-                  onClick={() => {
-                    if (retrySubmissionRef.current) startSubmission(retrySubmissionRef.current);
-                  }}
-                  type="button"
-                >
-                  동일 요청 재시도
-                </button>
-              </div>
-            ) : errorPresentation.retryMode === 'new-request' ? (
-              <p className={styles.newRequestNotice}>등록 버튼을 눌러 재시도 해주세요.</p>
-            ) : null}
-          </div>
-        ) : null}
-
-        <footer className={styles.footer}>
-          <div>
-            <button
-              className={styles.cancelButton}
-              disabled={isBusy}
-              onClick={onCancel}
-              type="button"
-            >
-              취소
-            </button>
-            <button
-              className={styles.submitButton}
-              disabled={isBusy || isCheckingFiles}
-              type="submit"
-            >
-              {isBusy
-                ? '등록 중…'
-                : isCheckingFiles
-                  ? '파일 확인 중…'
-                  : errorPresentation?.retryMode === 'same-request'
-                    ? '다시 시도'
-                    : '등록'}
-            </button>
-          </div>
-        </footer>
+          <footer className={styles.footer}>
+            <div>
+              <button
+                className={styles.submitButton}
+                disabled={isBusy || isCheckingFiles || isLocked}
+                type="submit"
+              >
+                {isBusy
+                  ? '등록 중…'
+                  : isCheckingFiles
+                    ? '파일 확인 중…'
+                    : errorPresentation?.retryMode === 'same-request'
+                      ? '다시 시도'
+                      : '등록'}
+              </button>
+            </div>
+          </footer>
+        </div>
       </form>
     </div>
   );

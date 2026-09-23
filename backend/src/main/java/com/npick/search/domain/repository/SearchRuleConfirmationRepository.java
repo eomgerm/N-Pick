@@ -21,4 +21,12 @@ public interface SearchRuleConfirmationRepository {
      * @return 새로 비활성화된 규칙 수(0 또는 1)
      */
     int deactivate(long ruleId);
+
+    /**
+     * 이 신고의 대기 규칙 후보({@code active=false})를 모두 폐기한다 (S15P21A501-281 no_action 종료). patch_parse·exclude_scene 을 모두 지운다 —
+     * 켜진(활성) 규칙은 건드리지 않는다.
+     *
+     * @return 폐기된 후보 수
+     */
+    int discardPending(long sourceFeedbackId);
 }

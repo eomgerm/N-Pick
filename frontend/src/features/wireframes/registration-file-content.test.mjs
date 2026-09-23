@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 
-import {
-  validateVideoContent,
-  validateSubtitleContent,
-  validateScriptContent,
-} from './registration-files.ts';
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(
+      specifier.startsWith('@/')
+        ? new URL(`../../${specifier.slice(2)}.ts`, import.meta.url).href
+        : specifier,
+      context,
+    );
+  },
+});
+
+const { validateVideoContent, validateSubtitleContent, validateScriptContent } =
+  await import('./registration-files.ts');
 
 function atom(type, payload = Buffer.alloc(4)) {
   const header = Buffer.alloc(8);

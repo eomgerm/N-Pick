@@ -147,12 +147,13 @@ function resolution(value: unknown): InquiryResolution | null {
   if (typeof value !== 'string') fail();
   const normalized = value.toLowerCase();
   if (
-    normalized !== 'exclude_scene' &&
-    normalized !== 'no_action' &&
-    normalized !== 'deferred' &&
-    normalized !== 'tag_correction' &&
-    normalized !== 'patch_parse'
+    normalized === 'exclude_scene' ||
+    normalized === 'tag_correction' ||
+    normalized === 'patch_parse'
   ) {
+    return 'correction';
+  }
+  if (normalized !== 'no_action' && normalized !== 'deferred' && normalized !== 'correction') {
     fail();
   }
   return normalized;

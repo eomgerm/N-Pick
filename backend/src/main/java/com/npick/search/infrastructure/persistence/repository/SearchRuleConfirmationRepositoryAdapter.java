@@ -23,4 +23,9 @@ public class SearchRuleConfirmationRepositoryAdapter implements SearchRuleConfir
     public int deactivate(long ruleId) {
         return jpaRepository.deactivate(ruleId);
     }
+
+    @Override
+    public int discardPending(long sourceFeedbackId) {
+        return jpaRepository.discardPending(sourceFeedbackId);
+    }
 }

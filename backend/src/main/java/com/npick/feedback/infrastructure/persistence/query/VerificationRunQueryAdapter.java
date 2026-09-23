@@ -53,11 +53,17 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
             return false;
         }
         String resolution = run.resolution();
+        boolean hasRule = run.approvedRuleId() != null;
         if ("tag_correction".equals(resolution)) {
             return !run.approvedEvidenceIds().isEmpty();
         }
         if ("patch_parse".equals(resolution) || "exclude_scene".equals(resolution)) {
-            return run.approvedRuleId() != null;
+            return hasRule && resolution.equals(run.approvedRuleAction());
+        }
+        if ("correction".equals(resolution)) {
+            return hasRule
+                    ? isRuleAction(run.approvedRuleAction())
+                    : !run.approvedEvidenceIds().isEmpty();
         }
         return false;
     }
@@ -93,13 +99,27 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
         if (approvedRuleId == INVALID || replacedRuleId == INVALID) {
             return null;
         }
+        String resolution = text(node, "resolution");
+        String approvedRuleAction = text(node, "approved_rule_action");
+        if (approvedRuleAction == null
+                && ("patch_parse".equals(resolution) || "exclude_scene".equals(resolution))) {
+            approvedRuleAction = resolution;
+        }
+        if (approvedRuleAction != null && !isRuleAction(approvedRuleAction)) {
+            return null;
+        }
         return new VerificationRun(
                 executionId,
-                text(node, "resolution"),
+                resolution,
                 List.copyOf(evidenceIds),
                 approvedRuleId,
                 replacedRuleId,
+                approvedRuleAction,
                 text(node, "state_fingerprint"));
+    }
+
+    private static boolean isRuleAction(String action) {
+        return "patch_parse".equals(action) || "exclude_scene".equals(action);
     }
 
     private static final Long INVALID = Long.MIN_VALUE;

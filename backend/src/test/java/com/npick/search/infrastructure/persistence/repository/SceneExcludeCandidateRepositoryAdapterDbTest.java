@@ -96,6 +96,47 @@ class SceneExcludeCandidateRepositoryAdapterDbTest {
         assertThat(count.intValue()).isEqualTo(1);
     }
 
+    @Test
+    @Transactional
+    @DisplayName("discardByFeedback 은 이 신고의 대기 중인 제외 후보를 지운다 (S15P21A501-281)")
+    void discardsPendingCandidate() {
+        seed();
+        long id = repository.insertIfAbsent(candidate()).orElseThrow();
+
+        int discarded = repository.discardByFeedback(9901L);
+
+        assertThat(discarded).isEqualTo(1);
+        assertThat(existsRule(id)).isFalse();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("이미 확정되어 켜진 규칙은 discardByFeedback 이 건드리지 않는다")
+    void doesNotDiscardActivatedCandidate() {
+        seed();
+        long id = repository.insertIfAbsent(candidate()).orElseThrow();
+        exec("UPDATE search_rule SET active = true WHERE search_rule_id = " + id);
+
+        int discarded = repository.discardByFeedback(9901L);
+
+        assertThat(discarded).isEqualTo(0);
+        assertThat(existsRule(id)).isTrue();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("대기 후보가 없는 신고는 discardByFeedback 이 0행으로 조용히 통과한다")
+    void discardByFeedbackIsNoopWhenNothingPending() {
+        assertThat(repository.discardByFeedback(8888L)).isEqualTo(0);
+    }
+
+    private boolean existsRule(long ruleId) {
+        return !em.createNativeQuery("SELECT 1 FROM search_rule WHERE search_rule_id = :id")
+                .setParameter("id", ruleId)
+                .getResultList()
+                .isEmpty();
+    }
+
     private void seed() {
         exec("INSERT INTO npick.member (member_id, login_id, password_hash, name, role, created_at, updated_at)"
                 + " VALUES (9001, 'editor-9001', 'hash', '편집기자', 'editor', now(), now())");

@@ -21,4 +21,12 @@ public interface SceneExcludeCandidateRepository {
 
     /** 신고의 그 장면에 대한 기존 제외 후보 id. 멱등 재생·경합 복구에 쓴다. */
     Optional<Long> findByTargetScene(long sourceFeedbackId, long targetSceneId);
+
+    /**
+     * 신고의 대기 중인({@code active=false}) 장면 제외 후보를 모두 지운다. 검수자가 확정 전에 실수로 만든 후보를 취소할 때 쓴다 (S15P21A501-281).
+     * 이미 확정되어 켜진 규칙은 건드리지 않는다.
+     *
+     * @return 지워진 행 수
+     */
+    int discardByFeedback(long sourceFeedbackId);
 }
