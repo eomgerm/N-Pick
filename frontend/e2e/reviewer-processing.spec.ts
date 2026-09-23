@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+import { openRegistrationWithVideo } from './registration-helpers';
+
 function clip(id = '21', status = 'failed') {
   return {
     clip_id: id,
@@ -480,8 +482,7 @@ test('이미 등록된 영상은 그 사실을 알리고 내가 입력한 이름
     });
   });
   await page.route('**/api/v1/clips/21', (route) => success(route, detail('21', 'succeeded')));
-  await page.goto('/review?view=upload');
-  await page.locator('#video-file').setInputFiles('e2e/preview-fixture.mp4');
+  await openRegistrationWithVideo(page);
   await page.locator('#registration-title').fill('내가 붙인 제목');
   await page.locator('#rights-confirmed').check();
   await page.locator('#external-processing-confirmed').check();
@@ -497,7 +498,9 @@ test('이미 등록된 영상은 그 사실을 알리고 내가 입력한 이름
 });
 
 test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 지원한다', async ({ page }) => {
-  await page.goto('/review?view=upload');
+  await openRegistrationWithVideo(page);
+  // 전역 토스트도 status 역할이라 등록 폼의 안내 영역으로 좁힌다.
+  const registrationStatus = page.getByRole('form', { name: '영상 등록' }).getByRole('status');
 
   const emptyTransfer = await page.evaluateHandle(() => new DataTransfer());
   await page.locator('label[data-kind="subtitle"]').dispatchEvent('drop', {
@@ -513,7 +516,7 @@ test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 �
   await expect(page.locator('#subtitle-error')).toHaveText(
     '자막 파일은 SRT, VTT 또는 승인된 JSON 형식으로 선택해 주세요.',
   );
-  await expect(page.getByRole('status')).toHaveText(/자막 파일을 선택하지 못했습니다/);
+  await expect(registrationStatus).toHaveText(/자막 파일을 선택하지 못했습니다/);
 
   const subtitleTransfer = await page.evaluateHandle(() => {
     const transfer = new DataTransfer();
@@ -523,26 +526,27 @@ test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 �
   await page.locator('label[data-kind="subtitle"]').dispatchEvent('drop', {
     dataTransfer: subtitleTransfer,
   });
-  const subtitleList = page.getByRole('list', { name: '선택한 자막 파일' });
-  await expect(subtitleList).toContainText('선택됨');
-  await expect(subtitleList).toContainText('뉴스.srt');
-  await expect(page.getByRole('status')).toHaveText('자막 파일 뉴스.srt이 선택되었습니다.');
+  // 선택한 파일은 영상처럼 선택 영역 안에 보이고, 아래에 따로 목록을 만들지 않는다.
+  const subtitleSelection = page.locator('label[data-kind="subtitle"] #subtitle-selection');
+  await expect(subtitleSelection).toContainText('선택됨');
+  await expect(subtitleSelection).toContainText('뉴스.srt');
+  await expect(page.getByRole('list', { name: '선택한 자막 파일' })).toHaveCount(0);
+  await expect(registrationStatus).toHaveText('자막 파일 뉴스.srt이 선택되었습니다.');
 
   await page.locator('#script-file').setInputFiles({
     name: '취재대본.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('취재 대본'),
   });
-  await expect(page.getByRole('list', { name: '선택한 일반 대본 파일' })).toContainText(
+  await expect(page.locator('label[data-kind="script"] #script-selection')).toContainText(
     '취재대본.txt',
   );
-  await expect(page.getByRole('status')).toHaveText(
-    '일반 대본 파일 취재대본.txt이 선택되었습니다.',
-  );
+  await expect(page.getByRole('list', { name: '선택한 일반 대본 파일' })).toHaveCount(0);
+  await expect(registrationStatus).toHaveText('일반 대본 파일 취재대본.txt이 선택되었습니다.');
 
   await page.getByRole('button', { name: '자막 파일 삭제' }).click();
-  await expect(subtitleList).toHaveCount(0);
-  await expect(page.getByRole('status')).toHaveText('자막 파일 뉴스.srt이 삭제되었습니다.');
+  await expect(subtitleSelection).toHaveCount(0);
+  await expect(registrationStatus).toHaveText('자막 파일 뉴스.srt이 삭제되었습니다.');
 });
 
 test('최근 등록의 기록 없음 재조회는 1분 뒤 멈추고 수동 조회로 복구한다', async ({ page }) => {

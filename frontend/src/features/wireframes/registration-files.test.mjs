@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 
-import {
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(
+      specifier.startsWith('@/')
+        ? new URL(`../../${specifier.slice(2)}.ts`, import.meta.url).href
+        : specifier,
+      context,
+    );
+  },
+});
+
+const {
   MAX_VIDEO_SIZE_BYTES,
   MAX_SUBTITLE_SIZE_BYTES,
   validateScriptFiles,
   validateSubtitleFiles,
   validateVideoFiles,
-} from './registration-files.ts';
+} = await import('./registration-files.ts');
 
 const mp4 = new File(['demo video bytes'], '뉴스.mp4', { type: 'video/mp4' });
 const mov = new File(['demo video bytes'], '뉴스.MOV', { type: 'video/quicktime' });

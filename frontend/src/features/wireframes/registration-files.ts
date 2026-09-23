@@ -1,3 +1,5 @@
+import { formatMediaTime } from '@/features/wireframes/media-time';
+
 type FileInfo = Pick<File, 'name' | 'size' | 'type'>;
 
 export const MAX_VIDEO_SIZE_BYTES = 10 * 1024 * 1024 * 1024;
@@ -210,4 +212,24 @@ export function formatFileSize(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+export function formatVideoDetails({
+  size,
+  duration,
+  width,
+  height,
+}: {
+  size: number;
+  duration?: number;
+  width?: number;
+  height?: number;
+}): string {
+  return [
+    formatFileSize(size),
+    duration !== undefined && Number.isFinite(duration) ? formatMediaTime(duration) : '',
+    width && height ? `${width}×${height}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }

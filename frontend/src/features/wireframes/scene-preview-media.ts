@@ -1,4 +1,8 @@
 import { createApiUrl } from '@/lib/api/client';
+import { formatMediaTime } from '@/features/wireframes/media-time';
+
+// 등록 화면처럼 API client 가 필요 없는 곳은 media-time 에서 바로 가져온다.
+export { formatMediaTime };
 
 export interface ScenePreviewMedia {
   clipId?: string;
@@ -50,14 +54,6 @@ export function toScenePreviewMedia(scene: {
     sceneStart: scene.startTimeMs / 1000,
     sceneEnd: scene.endTimeMs / 1000,
   };
-}
-
-export function formatMediaTime(seconds: number) {
-  const value = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(value / 3600);
-  const minutes = Math.floor((value % 3600) / 60);
-  const time = `${String(minutes).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
-  return hours ? `${hours}:${time}` : time;
 }
 
 export function formatSceneDuration(seconds: number) {
