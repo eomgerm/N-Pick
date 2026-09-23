@@ -13,7 +13,7 @@ registerHooks({
   },
 });
 
-const { seedChips, EDITABLE_AXES } = await import('./interpretation-edit.ts');
+const { seedChips, EDITABLE_AXES, deriveEdits } = await import('./interpretation-edit.ts');
 const { parseResolution } = await import('./reviewer-resolution-state.ts');
 
 const SAMPLE = JSON.stringify({
@@ -40,4 +40,35 @@ test('seedChips 는 편집 4축만 평탄화하고 type·origin 을 보존한다
   assert.equal(term.type, undefined);
   assert.ok(chips.every((c) => typeof c.id === 'string' && c.id.length > 0));
   assert.deepEqual(EDITABLE_AXES, ['incident_names', 'entities', 'locations', 'expanded_terms']);
+});
+
+const ORIG = [
+  { id: 'incident_names#0', axis: 'incident_names', value: '추석' },
+  { id: 'entities#0', axis: 'entities', value: '한국도로공사', type: 'organization' },
+  { id: 'locations#0', axis: 'locations', value: '경부고속도로', type: 'location' },
+  { id: 'expanded_terms#0', axis: 'expanded_terms', value: '귀성 차량' },
+];
+
+test('삭제/수정/이동/추가를 분류한다', () => {
+  const current = [
+    // locations#0 을 인물·기관으로 이동
+    { id: 'locations#0', axis: 'entities', value: '경부고속도로', type: 'location' },
+    // entities#0 값 수정
+    { id: 'entities#0', axis: 'entities', value: '도로공사', type: 'organization' },
+    // incident_names#0 삭제됨(빠짐)
+    // 새 검색 의미어 추가
+    { id: 'new-1', axis: 'expanded_terms', value: '나들이', isNew: true },
+    { id: 'expanded_terms#0', axis: 'expanded_terms', value: '귀성 차량' },
+  ];
+  const edits = deriveEdits(ORIG, current);
+  assert.deepEqual(edits.sort((a, b) => a.kind.localeCompare(b.kind)), [
+    { kind: 'add', axis: 'expanded_terms', value: '나들이', type: undefined },
+    { kind: 'edit', axis: 'entities', from: '한국도로공사', to: '도로공사', type: 'organization' },
+    { kind: 'move', from: 'locations', to: 'entities', value: '경부고속도로', type: 'location' },
+    { kind: 'remove', axis: 'incident_names', value: '추석', type: undefined },
+  ]);
+});
+
+test('변화 없으면 빈 배열', () => {
+  assert.deepEqual(deriveEdits(ORIG, ORIG.map((c) => ({ ...c }))), []);
 });
