@@ -37,6 +37,21 @@ test('검색어를 정규화할 수 없으면 서버 문장 대신 사용자 행
   assert.doesNotMatch(JSON.stringify(presentSearchError(error)), /찾지 못했다/);
 });
 
+test('없는 검색 기록 404 는 재시도가 아니라 목록 새로고침을 안내한다', () => {
+  // 없는·남의 기록이라 재시도해도 해결되지 않는다. retryable 로 떨어지지 않게 매핑한다
+  // (S15P21A501-262/-285 교차).
+  const error = new ApiClientError('http', 404, {
+    code: 'SRCH_404_001',
+    message: '검색 기록을 찾을 수 없습니다.',
+  });
+
+  assert.deepEqual(presentSearchError(error), {
+    message: '이 검색 기록을 찾을 수 없어요.',
+    followUp: '목록을 새로 불러오면 최신 기록을 볼 수 있어요.',
+  });
+  assert.doesNotMatch(JSON.stringify(presentSearchError(error)), /잠시 후 같은 조건/);
+});
+
 test('재시도 가능한 검색 오류는 내부 구성 요소를 노출하지 않는다', () => {
   const error = new ApiClientError('http', 503, {
     code: 'SRCH_503_012',

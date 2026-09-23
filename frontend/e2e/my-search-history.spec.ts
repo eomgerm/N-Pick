@@ -192,7 +192,7 @@ test('0건 검색·복원 불가·기록 404를 결과 화면에서 구분한다
   await page.getByRole('button', { name: '이전 검색 기록', exact: true }).click();
   panel = page.getByRole('complementary', { name: '이전 검색 기록', exact: true });
   await panel.getByText('서버 검색어 200', { exact: true }).click();
-  await expect(page.getByText('검색 기록을 찾을 수 없습니다.', { exact: true })).toBeVisible();
+  await expect(page.getByText('이 검색 기록을 찾을 수 없어요.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '같은 조건으로 다시 시도', exact: true }).click();
   await expect(
     page
