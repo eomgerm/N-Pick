@@ -7,6 +7,12 @@ import { useEffect, useRef } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { getProcessingClips } from '@/features/wireframes/clip-processing-api';
+import { DEFAULT_PAGE_SIZE, selectPageSize } from '@/features/wireframes/list-pagination';
+import {
+  PageJump,
+  PageNumbers,
+  PageSizeSelect,
+} from '@/features/wireframes/list-pagination-controls';
 import {
   CLIP_FILTERS,
   clipFilterCounts,
@@ -88,13 +94,23 @@ export function ReviewerProgress({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const page = selectInquiryPage(searchParams.get('progressPage'));
+  const pageSize = selectPageSize(searchParams.get('progressSize'));
   const filter = selectClipFilter(searchParams.get('clipStatus'));
   const mine = searchParams.get('mine') === 'true';
   const videos = useQuery({
-    queryKey: ['processing-clips', filter, mine, page],
-    queryFn: ({ signal }) => getProcessingClips(page - 1, clipFilterStatuses(filter), mine, signal),
+    queryKey: ['processing-clips', filter, mine, page, pageSize],
+    queryFn: ({ signal }) =>
+      getProcessingClips(page - 1, pageSize, clipFilterStatuses(filter), mine, signal),
     refetchInterval: (query) =>
       clipListPollInterval(query.state.data?.run_counts, query.state.status === 'error'),
+    // 쪽만 바뀌면 다음 쪽이 올 때까지 앞 쪽을 보여 준다. 총 쪽수를 잃으면 번호가 1 하나로 줄고 누른 버튼의 포커스가 빠진다.
+    // 필터·개수가 바뀌면 다른 목록이라 이어 보이지 않는다.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === filter &&
+      previousQuery.queryKey[2] === mine &&
+      previousQuery.queryKey[4] === pageSize
+        ? previous
+        : undefined,
   });
   const refreshState = useProcessingRefreshState({
     canPoll: Boolean(clipListPollInterval(videos.data?.run_counts, videos.isError)),
@@ -106,17 +122,30 @@ export function ReviewerProgress({
   const total = videos.data?.total_elements;
   const filterRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
+  const rawPageSize = searchParams.get('progressSize');
+  // 허용하지 않는 개수와 범위 밖 쪽을 한 번의 replace 로 고친다. 따로 고치면 서로 옛 URL 을 되살린다.
   useEffect(() => {
-    if (totalPages === undefined || videos.isError) return;
-    const normalizedPage = normalizeInquiryPage(page, totalPages);
-    if (normalizedPage === page) return;
-    router.replace(
-      getReviewUrl(pathname, searchParams.toString(), {
-        progressPage: normalizedPage === 1 ? null : String(normalizedPage),
-      }),
-      { scroll: false },
-    );
-  }, [videos.isError, page, pathname, router, searchParams, totalPages]);
+    const updates: Record<string, string | null> = {};
+    if (rawPageSize !== null && rawPageSize !== String(pageSize)) updates.progressSize = null;
+    // 앞 쪽을 대신 보여 주는 동안의 총 쪽수는 옛 값이다. 그 값으로 새 쪽을 잘라 내지 않는다.
+    if (totalPages !== undefined && !videos.isError && !videos.isPlaceholderData) {
+      const normalizedPage = normalizeInquiryPage(page, totalPages);
+      if (normalizedPage !== page)
+        updates.progressPage = normalizedPage === 1 ? null : String(normalizedPage);
+    }
+    if (Object.keys(updates).length === 0) return;
+    router.replace(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
+  }, [
+    videos.isError,
+    videos.isPlaceholderData,
+    page,
+    pageSize,
+    pathname,
+    rawPageSize,
+    router,
+    searchParams,
+    totalPages,
+  ]);
 
   function handleFilterKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
     if (isNavigating) return;
@@ -204,7 +233,16 @@ export function ReviewerProgress({
           <p aria-live="polite" role="status">
             총 <strong>{total ?? '—'}</strong>건{mine && ' · 내가 등록한 영상'}
           </p>
-          <span>페이지 {page} · 10개씩</span>
+          <PageSizeSelect
+            isDisabled={isNavigating}
+            pageSize={pageSize}
+            onPageSizeChange={(size) =>
+              onFilterChange({
+                progressSize: size === DEFAULT_PAGE_SIZE ? null : String(size),
+                progressPage: null,
+              })
+            }
+          />
         </div>
 
         {videos.isError ? (
@@ -222,7 +260,7 @@ export function ReviewerProgress({
             {filter !== 'all' && <p>다른 상태를 선택하면 등록된 영상을 확인할 수 있어요.</p>}
           </div>
         ) : (
-          <ul className={styles.list}>
+          <ul aria-busy={videos.isPlaceholderData || undefined} className={styles.list}>
             {videos.data?.items.map((video) => (
               <li key={video.clip_id} className={styles.videoRow}>
                 <span className={styles.videoIcon}>
@@ -284,26 +322,21 @@ export function ReviewerProgress({
         )}
 
         {!videos.isError && (
-          <nav aria-label="영상 목록 페이지" className={styles.pagination}>
-            <button
-              type="button"
-              disabled={isNavigating || videos.isFetching || page <= 1}
-              onClick={() => onPageChange(page - 1)}
-            >
-              이전 페이지
-            </button>
-            <span>
-              {page} / {Math.max(totalPages ?? 1, 1)}
-            </span>
-            <button
-              type="button"
-              disabled={
-                isNavigating || videos.isFetching || totalPages === undefined || page >= totalPages
-              }
-              onClick={() => onPageChange(page + 1)}
-            >
-              다음 페이지
-            </button>
+          <nav aria-label="영상 목록 페이지" className={dashboardStyles.pagination}>
+            {/* 처리 중 영상이 있으면 5초마다 다시 읽는다. isFetching 으로 막으면 그때마다 포커스가 빠진다. */}
+            <PageNumbers
+              isDisabled={isNavigating || totalPages === undefined}
+              page={page}
+              totalPages={totalPages ?? 1}
+              onPageChange={onPageChange}
+            />
+            <PageJump
+              // 목록 조건이 바뀌면 입력과 범위 밖 안내를 비운다.
+              key={`${filter}|${mine}|${pageSize}`}
+              isDisabled={isNavigating}
+              totalPages={totalPages ?? 1}
+              onPageChange={onPageChange}
+            />
           </nav>
         )}
       </section>

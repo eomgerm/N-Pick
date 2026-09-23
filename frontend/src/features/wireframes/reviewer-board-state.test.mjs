@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getReviewTabUrl, getReviewUrl, selectBoardPage } from './reviewer-board-state.ts';
+import {
+  getReviewTabUrl,
+  getReviewUrl,
+  selectBoardPage,
+  selectReviewView,
+} from './reviewer-board-state.ts';
 
 const items = Array.from({ length: 23 }, (_, index) => ({
   id: `inquiry-${index}`,
@@ -48,8 +53,36 @@ test('처리·문의 전환은 상세·하위 탭을 해제하고 목록 조건�
       assert.equal(url.searchParams.toString(), new URLSearchParams(filters).toString());
     }
   }
-  assert.equal(getReviewTabUrl('/review', '', 'inquiries'), '/review');
+  assert.equal(getReviewTabUrl('/review', '', 'inquiries'), '/review?view=inquiries');
   assert.equal(getReviewTabUrl('/review', '', 'processing'), '/review?view=processing');
+});
+
+test('파라미터 없는 /review 만 개요이고, 파라미터가 있는 기존 URL 은 원래 화면을 연다', () => {
+  assert.equal(selectReviewView(new URLSearchParams('')), 'overview');
+  assert.equal(selectReviewView(new URLSearchParams('view=processing&clip=1')), 'processing');
+  assert.equal(selectReviewView(new URLSearchParams('view=upload')), 'upload');
+  for (const query of ['view=inquiries', 'status=open', 'inquiry=41', 'page=2', 'keep=1']) {
+    assert.equal(selectReviewView(new URLSearchParams(query)), 'inquiries', query);
+  }
+});
+
+test('문의 화면에서 마지막 조건을 지워도 개요로 넘어가지 않는다', () => {
+  assert.equal(getReviewUrl('/review', 'inquiry=41', { inquiry: null }), '/review?view=inquiries');
+  assert.equal(
+    getReviewUrl('/review', 'status=open', { status: null, page: null }),
+    '/review?view=inquiries',
+  );
+});
+
+test('개요 탭은 모든 조건을 지운 /review 로 간다', () => {
+  for (const current of [
+    '',
+    'status=open&page=2',
+    'view=processing&clipStatus=done&clip=1',
+    'view=upload',
+  ]) {
+    assert.equal(getReviewTabUrl('/review', current, 'overview'), '/review');
+  }
 });
 
 test('처리 상세를 열고 복귀해도 선택한 칩·내 영상 조건과 목록 조건이 유지된다', () => {

@@ -23,9 +23,24 @@ export function getSceneMediaUrl({ clipId, sceneStart, sceneEnd }: ScenePreviewM
   return createApiUrl(`/media/${clipId}`);
 }
 
+function isPublicId(value: string | null | undefined) {
+  return Boolean(value && /^[1-9]\d*$/.test(value));
+}
+
+export function getClipDownloadUrl(clipId: string | null | undefined) {
+  if (!isPublicId(clipId)) return null;
+  return createApiUrl(`/media/${clipId}/download`);
+}
+
+export function getSceneDownloadUrl(sceneId: string | number | null | undefined) {
+  const value = sceneId === null || sceneId === undefined ? undefined : String(sceneId);
+  if (!isPublicId(value)) return null;
+  return createApiUrl(`/media/scenes/${value}/download`);
+}
+
 // 검색·문의 응답은 이미지도 URL도 싣지 않는다. scene_id로 endpoint를 조립한다(web-api.md §6.8).
 export function getSceneThumbnailUrl(sceneId: string | null | undefined) {
-  if (!sceneId || !/^[1-9]\d*$/.test(sceneId)) return null;
+  if (!isPublicId(sceneId)) return null;
   return createApiUrl(`/scenes/${sceneId}/thumbnail`);
 }
 

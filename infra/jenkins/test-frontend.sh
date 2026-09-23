@@ -1,5 +1,7 @@
 #!/bin/sh
-# MR 게이트 FE 유닛 테스트. node:24-alpine 컨테이너에서 npm ci 후 유닛 테스트(node --test)만 돌린다.
+# MR 게이트 FE 검사. node:24-alpine 컨테이너에서 npm ci 후 타입 검사(tsc)와 유닛 테스트(node --test)를 돌린다.
+# 유닛 테스트는 .mjs 라 tsc 를 거치지 않는다. 타입 검사가 없으면 두 MR 이 각자 초록인데 합치면
+# 빌드가 깨지는 경우(S15P21A501-305: 한쪽이 함수 인자를 늘리고 다른 쪽이 옛 인자로 호출)를 못 잡는다.
 # Playwright e2e 는 브라우저 다운로드가 무거워 이 게이트에서 제외한다(필요하면 별도 잡으로).
 #
 # 경로(이다인 P1): test-backend.sh 와 같은 이유 — Jenkins 컨테이너 안의 $PWD 를 docker.sock 으로
@@ -17,4 +19,4 @@ docker run --rm \
   -v npick-ci-npm:/root/.npm \
   -w "$WORKSPACE/frontend" \
   node:24-alpine \
-  sh -c "npm ci && npm test; rc=\$?; chown -R $HOST_UID:$HOST_GID \"$WORKSPACE/frontend/node_modules\" 2>/dev/null || true; exit \$rc"
+  sh -c "npm ci && npm run typecheck && npm test; rc=\$?; chown -R $HOST_UID:$HOST_GID \"$WORKSPACE/frontend/node_modules\" 2>/dev/null || true; exit \$rc"

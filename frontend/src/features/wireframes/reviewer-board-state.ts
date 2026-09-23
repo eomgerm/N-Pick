@@ -67,15 +67,23 @@ export function getReviewUrl(
     if (value === null || value === '') params.delete(key);
     else params.set(key, value);
   }
-  const query = params.toString();
-  return `${pathname}${query ? `?${query}` : ''}`;
+  // 빈 /review 는 개요다. 문의 화면에서 마지막 조건을 지워도 문의 화면에 머물게 view 를 남긴다.
+  const query = params.toString() || 'view=inquiries';
+  return `${pathname}?${query}`;
 }
 
-export function getReviewTabUrl(
-  pathname: string,
-  currentParams: string,
-  tab: 'inquiries' | 'processing',
-) {
+export type ReviewTab = 'overview' | 'inquiries' | 'processing';
+export type ReviewView = ReviewTab | 'upload';
+
+/** 파라미터가 하나도 없을 때만 개요다. 기존 `?status=`·`?inquiry=` 같은 링크는 문의 화면을 연다. */
+export function selectReviewView(params: URLSearchParams): ReviewView {
+  const view = params.get('view');
+  if (view === 'processing' || view === 'upload') return view;
+  return params.size === 0 ? 'overview' : 'inquiries';
+}
+
+export function getReviewTabUrl(pathname: string, currentParams: string, tab: ReviewTab) {
+  if (tab === 'overview') return pathname;
   return getReviewUrl(pathname, currentParams, {
     view: tab === 'processing' ? 'processing' : null,
     tab: null,

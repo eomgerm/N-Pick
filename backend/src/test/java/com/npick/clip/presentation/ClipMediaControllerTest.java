@@ -1,6 +1,9 @@
 package com.npick.clip.presentation;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,7 +21,11 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.clip.application.error.ClipMediaErrorCode;
+import com.npick.clip.application.query.media.ClipMediaBody;
+import com.npick.clip.application.query.media.ClipMediaDownloadResult;
 import com.npick.clip.application.query.media.ClipMediaStreamResult;
+import com.npick.clip.application.query.media.DownloadClipMediaUseCase;
+import com.npick.clip.application.query.media.DownloadSceneMediaUseCase;
 import com.npick.clip.application.query.media.StreamClipMediaQuery;
 import com.npick.clip.application.query.media.StreamClipMediaUseCase;
 import com.npick.clip.presentation.controller.ClipMediaController;
@@ -28,6 +35,7 @@ import com.npick.common.error.handler.ApiErrorResponseWriter;
 import com.npick.common.error.handler.ErrorTypeHttpStatusMapper;
 import com.npick.common.error.handler.GlobalExceptionHandler;
 import com.npick.common.security.AuthenticatedMember;
+import com.npick.common.security.CurrentMember;
 import com.npick.common.security.config.SecurityConfig;
 import com.npick.common.security.config.SecurityWebMvcConfig;
 import com.npick.common.security.handler.RestAccessDeniedHandler;
@@ -39,11 +47,14 @@ import com.npick.member.infrastructure.security.MemberUserDetailsService;
 import com.npick.member.presentation.AuthController;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -86,6 +97,12 @@ class ClipMediaControllerTest {
     @MockitoBean
     StreamClipMediaUseCase stream;
 
+    @MockitoBean
+    DownloadClipMediaUseCase clipDownload;
+
+    @MockitoBean
+    DownloadSceneMediaUseCase sceneDownload;
+
     @BeforeEach
     void setUp() {
         org.mockito.Mockito.when(refreshLogin.register(
@@ -111,6 +128,93 @@ class ClipMediaControllerTest {
                 .andExpect(header().doesNotExist("Content-Range"))
                 .andExpect(header().doesNotExist("X-Accel-Redirect"))
                 .andExpect(content().bytes(CONTENT));
+    }
+
+    @Test
+    void downloadsTheOriginalClipAsAnAttachment() throws Exception {
+        when(clipDownload.downloadClip(42)).thenReturn(download("clip-42.mp4"));
+
+        mvc.perform(get(URL + "/download").session(login("editor")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("attachment")))
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("clip-42.mp4")))
+                .andExpect(header().string("Cache-Control", "private, no-store"))
+                .andExpect(header().string("Content-Length", String.valueOf(CONTENT.length)))
+                .andExpect(content().bytes(CONTENT));
+    }
+
+    @Test
+    void checksTheOriginalClipWithoutReadingItsBody() throws Exception {
+        AtomicBoolean cleaned = new AtomicBoolean();
+        ClipMediaBody body = new ClipMediaBody() {
+            @Override
+            public void writeTo(java.io.OutputStream target) {
+                throw new AssertionError("HEAD 확인에서는 원본 파일 본문을 읽지 않는다");
+            }
+
+            @Override
+            public void close() {
+                cleaned.set(true);
+            }
+        };
+        when(clipDownload.downloadClip(42))
+                .thenReturn(new ClipMediaDownloadResult("clip-42.mp4", "video/mp4", CONTENT.length, null, body));
+
+        mvc.perform(head(URL + "/download").session(login("editor")).header("Origin", ALLOWED_ORIGIN))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("clip-42.mp4")))
+                .andExpect(header().string("Cache-Control", "private, no-store"))
+                .andExpect(header().string("Content-Length", String.valueOf(CONTENT.length)))
+                .andExpect(header().string("Access-Control-Allow-Origin", ALLOWED_ORIGIN))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"))
+                .andExpect(content().bytes(new byte[0]));
+
+        assertThat(cleaned).isTrue();
+    }
+
+    @Test
+    void downloadsTheStoredSceneRangeAsAnAttachment() throws Exception {
+        when(sceneDownload.downloadScene(77)).thenReturn(download("scene-77.mp4"));
+
+        mvc.perform(get("/api/v1/media/scenes/77/download").session(login("reviewer")))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("scene-77.mp4")))
+                .andExpect(content().bytes(CONTENT));
+    }
+
+    @Test
+    void cleansUpTheTemporarySceneWhenTheResponseStreamCannotBeOpened() throws Exception {
+        AtomicBoolean cleaned = new AtomicBoolean();
+        ClipMediaBody body = new ClipMediaBody() {
+            @Override
+            public void writeTo(java.io.OutputStream target) {
+                throw new AssertionError("응답 stream을 열지 못하면 본문을 쓰지 않는다");
+            }
+
+            @Override
+            public void close() {
+                cleaned.set(true);
+            }
+        };
+        when(sceneDownload.downloadScene(77))
+                .thenReturn(new ClipMediaDownloadResult("scene-77.mp4", "video/mp4", 10, null, body));
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(response.getHeaderNames()).thenReturn(List.of());
+        when(response.getOutputStream()).thenThrow(new java.io.IOException("client disconnected"));
+        var controller = new ClipMediaController(stream, clipDownload, sceneDownload);
+
+        assertThatThrownBy(() -> controller.downloadScene(77, new CurrentMember(7, "reviewer", "REVIEWER"), response))
+                .isInstanceOf(java.io.IOException.class);
+        assertThat(cleaned).isTrue();
+    }
+
+    @Test
+    void reportsAnUnknownSceneWithoutTouchingAFilePath() throws Exception {
+        when(sceneDownload.downloadScene(77)).thenThrow(new BusinessException(ClipMediaErrorCode.SCENE_NOT_FOUND));
+
+        mvc.perform(get("/api/v1/media/scenes/77/download").session(login("editor")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CLIP_404_003"));
     }
 
     @Test
@@ -255,6 +359,16 @@ class ClipMediaControllerTest {
 
     private static ClipMediaStreamResult whole() {
         return new ClipMediaStreamResult("video/mp4", CONTENT.length, 0, CONTENT.length, false, null, target -> {
+            try {
+                target.write(CONTENT);
+            } catch (java.io.IOException failure) {
+                throw new IllegalStateException(failure);
+            }
+        });
+    }
+
+    private static ClipMediaDownloadResult download(String fileName) {
+        return new ClipMediaDownloadResult(fileName, "video/mp4", CONTENT.length, null, target -> {
             try {
                 target.write(CONTENT);
             } catch (java.io.IOException failure) {

@@ -187,7 +187,7 @@ test('목록은 칩이 고른 상태와 내 영상 여부·0 기반 페이지·�
     Response.json({ isSuccess: true, code: 'COMM_200', message: '성공', data: page }),
   );
   const controller = new AbortController();
-  await getProcessingClips(2, ['failed', 'no_run'], true, controller.signal);
+  await getProcessingClips(2, 10, ['failed', 'no_run'], true, controller.signal);
   const [attention] = fetch.mock.calls.map((call) => call.arguments);
   const url = new URL(attention[0]);
   assert.equal(url.searchParams.get('status'), 'failed,no_run');
@@ -198,11 +198,22 @@ test('목록은 칩이 고른 상태와 내 영상 여부·0 기반 페이지·�
   assert.equal(attention[1].signal, controller.signal);
 });
 
+test('목록은 고른 표시 개수를 size 로 보내고 다른 크기의 응답은 받지 않는다', async (context) => {
+  let data = { ...page, size: 20 };
+  const fetch = context.mock.method(globalThis, 'fetch', async () =>
+    Response.json({ isSuccess: true, code: 'COMM_200', message: '성공', data }),
+  );
+  await getProcessingClips(0, 20, [], false);
+  assert.equal(new URL(fetch.mock.calls[0].arguments[0]).searchParams.get('size'), '20');
+  data = page;
+  await assert.rejects(getProcessingClips(0, 20, [], false));
+});
+
 test('전체 칩이고 내 영상이 아니면 두 파라미터를 아예 보내지 않는다', async (context) => {
   const fetch = context.mock.method(globalThis, 'fetch', async () =>
     Response.json({ isSuccess: true, code: 'COMM_200', message: '성공', data: page }),
   );
-  await getProcessingClips(0, [], false);
+  await getProcessingClips(0, 10, [], false);
   const url = new URL(fetch.mock.calls[0].arguments[0]);
   assert.equal(url.searchParams.get('status'), null);
   assert.equal(url.searchParams.get('mine'), null);

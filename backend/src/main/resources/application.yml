@@ -99,6 +99,10 @@ npick:
     # 로컬·테스트에는 nginx 가 없으므로 기본은 애플리케이션 직접 전송이다.
     nginx-accel: ${CLIP_MEDIA_NGINX_ACCEL:false}
     internal-location: ${CLIP_MEDIA_INTERNAL_LOCATION:/internal-media/}
+    # 장면 다운로드를 위한 ffmpeg 구간 추출 최대 시간.
+    extraction-timeout: ${CLIP_MEDIA_EXTRACTION_TIMEOUT:2m}
+    # 요청 스레드에서 실행하는 ffmpeg 재인코딩의 전역 동시 실행 상한. 초과 요청은 즉시 503으로 거절한다.
+    max-concurrent-extractions: ${CLIP_MEDIA_MAX_CONCURRENT_EXTRACTIONS:1}
   search:
     structured:
       # 동일 가중치는 시험용이며 운영 최적값이 아니다. Gate B 실측 후 값과 상태를 함께 설정한다.

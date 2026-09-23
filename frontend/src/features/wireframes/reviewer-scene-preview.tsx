@@ -55,6 +55,7 @@ export function ReviewerScenePreview({ inquiry, theme }: ReviewerScenePreviewPro
           notice="영상 미리보기 데모입니다. 실제 영상 파일은 아직 연결되지 않았어요."
           result={{
             id: inquiry.sceneId,
+            sceneId: inquiry.sceneId,
             title: inquiry.sceneTitle,
             sceneStart,
             sceneEnd,
@@ -99,6 +100,7 @@ export function ReviewInquiryPreview({
           result={{
             ...toScenePreviewMedia(inquiry.scene),
             id: inquiry.sceneId,
+            sceneId: inquiry.sceneId,
             title: inquiry.scene.clipTitle ?? '제목 없는 영상',
             duration: formatSceneDuration(
               (inquiry.scene.endTimeMs - inquiry.scene.startTimeMs) / 1000,

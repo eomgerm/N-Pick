@@ -1,12 +1,17 @@
 'use client';
 
-import { Film, Inbox, Plus } from 'lucide-react';
+import { Film, Inbox, LayoutDashboard, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { AppShell } from '@/components/app-shell';
-import { getReviewTabUrl, getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import {
+  getReviewTabUrl,
+  getReviewUrl,
+  selectReviewView,
+  type ReviewTab,
+} from '@/features/wireframes/reviewer-board-state';
 import styles from '@/features/wireframes/reviewer.module.css';
 import sidebarStyles from '@/features/wireframes/search-history.module.css';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
@@ -16,7 +21,7 @@ interface ReviewerLayoutProps {
   theme: WireframeTheme;
   headerContent?: ReactNode;
   isInteractionLocked?: boolean;
-  onTabChange?: (tab: 'inquiries' | 'processing') => void;
+  onTabChange?: (tab: ReviewTab) => void;
   onRegistrationOpen?: () => void;
 }
 
@@ -30,13 +35,20 @@ export function ReviewerLayout({
 }: ReviewerLayoutProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const view = searchParams.get('view');
+  const view = selectReviewView(searchParams);
   const currentParams = searchParams.toString();
   const items = [
     {
+      label: '개요',
+      icon: LayoutDashboard,
+      isCurrent: view === 'overview',
+      href: getReviewTabUrl(pathname, currentParams, 'overview'),
+      onSelect: onTabChange ? () => onTabChange('overview') : undefined,
+    },
+    {
       label: '문의',
       icon: Inbox,
-      isCurrent: view !== 'processing' && view !== 'upload',
+      isCurrent: view === 'inquiries',
       href: getReviewTabUrl(pathname, currentParams, 'inquiries'),
       onSelect: onTabChange ? () => onTabChange('inquiries') : undefined,
     },

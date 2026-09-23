@@ -21,6 +21,7 @@ import {
   type PatchOperation,
   type ResolutionAxis,
 } from '@/features/wireframes/review-parse-rule-api';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
 import styles from '@/features/wireframes/reviewer.module.css';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -275,6 +276,7 @@ function OperationRow({ operation, index, disabled, onChange, onRemove }: Operat
 
 export function ParsePatchCandidateForm({ feedbackId }: ParsePatchCandidateFormProps) {
   const queryClient = useQueryClient();
+  const { showSuccess } = useSuccessToast();
   const [predicates, setPredicates] = useState<ConditionPredicate[]>([emptyPredicate]);
   const [operations, setOperations] = useState<PatchOperation[]>([emptyOperation]);
   const [replacesRuleId, setReplacesRuleId] = useState('');
@@ -303,7 +305,12 @@ export function ParsePatchCandidateForm({ feedbackId }: ParsePatchCandidateFormP
         draftKey.current = { draft, key: createIdempotencyKey() };
       return createParsePatchCandidate(feedbackId, body, draftKey.current.key);
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] }),
+    onSuccess: (data) => {
+      showSuccess(
+        `해석 교정 후보를 저장했습니다. 규칙 번호 ${data.searchRuleId}, 검증 전까지 검색에 반영되지 않습니다.`,
+      );
+      return queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] });
+    },
   });
 
   function edit() {
@@ -421,12 +428,9 @@ export function ParsePatchCandidateForm({ feedbackId }: ParsePatchCandidateFormP
             {serverMessage ? <p className="text-sm">{serverMessage}</p> : null}
           </div>
         ) : null}
+        {/* 진행 안내는 라이브 영역을 항상 마운트해 두고 텍스트만 토글한다(성공은 토스트로 분리). */}
         <p aria-live="polite" className="text-sm" role="status">
-          {mutation.isPending
-            ? '해석 교정 후보를 저장하고 있습니다.'
-            : mutation.isSuccess
-              ? `해석 교정 후보를 저장했습니다. 규칙 번호 ${mutation.data.searchRuleId}, 검증 전까지 검색에 반영되지 않습니다.`
-              : ''}
+          {mutation.isPending ? '해석 교정 후보를 저장하고 있습니다.' : ''}
         </p>
         <button className={styles.primaryButton} disabled={mutation.isPending} type="submit">
           {mutation.isPending ? '저장 중…' : '해석 교정 후보 저장'}

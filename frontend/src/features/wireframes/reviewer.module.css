@@ -170,6 +170,10 @@
   --inquiry-panel-height: calc(
     100dvh - var(--layout-top-inset) - var(--nav-collapsed-width) - var(--nav-top-gap) - 64px
   );
+}
+
+.page.inquiryPage,
+.page.processingPage {
   padding-top: calc(var(--nav-top-gap) - 14px);
   padding-bottom: 64px;
 }

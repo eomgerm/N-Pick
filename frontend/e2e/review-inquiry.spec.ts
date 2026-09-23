@@ -79,12 +79,13 @@ async function mockList(page: Page, getItems: () => ReturnType<typeof inquiry>[]
     const status = url.searchParams.get('status');
     const filtered = items.filter((item) => !status || item.status === status);
     const currentPage = Number(url.searchParams.get('page'));
+    const size = Number(url.searchParams.get('size'));
     await success(route, {
-      items: filtered.slice(currentPage * 10, (currentPage + 1) * 10),
+      items: filtered.slice(currentPage * size, (currentPage + 1) * size),
       page: currentPage,
-      size: 10,
+      size,
       totalElements: filtered.length,
-      totalPages: Math.ceil(filtered.length / 10),
+      totalPages: Math.ceil(filtered.length / size),
       statusCounts: {
         open: items.filter((item) => item.status === 'OPEN').length,
         reviewing: items.filter((item) => item.status === 'REVIEWING').length,
@@ -106,7 +107,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await reviewer(page);
     await mockList(page, () => []);
-    await page.goto('/review');
+    await page.goto('/review?view=inquiries');
     await expect(
       page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
     ).toBeVisible();
@@ -285,6 +286,8 @@ test('담당 검수자는 쉼표로 여러 태그를 추가하고 기존 태그 
   await expect(page.getByText(/서울역.*태그를 삭제 후보로 만들까요/)).toBeVisible();
   await page.getByRole('button', { name: '삭제 후보 저장' }).click();
   await expect(page.getByText(/'서울역' 삭제 후보를 저장했습니다/)).toBeVisible();
+  // 연속 작업 시 이전 안내는 최신으로 교체된다(누적 없음) — 첫 성공 문구는 사라진다.
+  await expect(page.getByText(/3개 태그를 검증 후보로 저장했습니다/)).toHaveCount(0);
   expect(operations[1]).toEqual([
     {
       action: 'REJECT',
@@ -316,7 +319,7 @@ test('연결 실패는 같은 키로 재시도하고 요청 중 중복 입력을
     await success(route);
   });
 
-  await page.goto('/review');
+  await page.goto('/review?view=inquiries');
   await page.getByRole('button', { name: /문의 #41/ }).click();
   await page.getByRole('button', { name: '검수 시작', exact: true }).click();
   await page.getByRole('button', { name: '검수 시작 다시 시도' }).click();
@@ -386,14 +389,14 @@ test('페이지·상태 필터와 상세 복귀는 URL 조건과 브라우저 �
   await page.goto('/review?keep=1');
   const pagination = page.getByRole('navigation', { name: '문의 목록 페이지' });
   await expect(page.getByRole('list', { name: '문의 목록' }).getByRole('listitem')).toHaveCount(10);
-  await expect(pagination.getByRole('button', { name: '이전' })).toBeDisabled();
-  await pagination.getByRole('button', { name: '다음' }).click();
+  await expect(pagination.getByRole('button', { name: '이전 페이지' })).toBeDisabled();
+  await pagination.getByRole('button', { name: '다음 페이지' }).click();
   await expect(page).toHaveURL(/keep=1&page=2$/);
   await page.getByRole('button', { name: /문의 #51/ }).click();
   await page.getByRole('button', { name: '문의 목록으로', exact: true }).click();
   await expect(page).toHaveURL(/keep=1&page=2$/);
   await expect(page.getByRole('button', { name: /문의 #51/ })).toBeVisible();
-  await pagination.getByRole('button', { name: '이전' }).click();
+  await pagination.getByRole('button', { name: '이전 페이지' }).click();
   await expect(page).toHaveURL(/\/review\?keep=1$/);
   await page.goBack();
   await expect(page).toHaveURL(/keep=1&page=2$/);
@@ -410,6 +413,45 @@ test('페이지·상태 필터와 상세 복귀는 URL 조건과 브라우저 �
   await expect(page.getByRole('button', { name: /문의 #99/ })).toBeVisible();
 });
 
+test('번호 이동은 범위 밖 입력을 안내하고 목록 표시 개수는 URL 에 남기며 첫 페이지로 돌아간다', async ({
+  page,
+}) => {
+  await reviewer(page);
+  const requests = await mockList(page, () =>
+    Array.from({ length: 45 }, (_, index) => inquiry(String(41 + index))),
+  );
+  await page.goto('/review?keep=1');
+  const pagination = page.getByRole('navigation', { name: '문의 목록 페이지' });
+  const pageInput = pagination.getByRole('textbox', { name: '이동할 페이지 번호' });
+  await pageInput.fill('9');
+  await pagination.getByRole('button', { name: '이동', exact: true }).click();
+  await expect(pagination.getByRole('alert')).toHaveText('1~5 사이의 페이지 번호를 입력해 주세요.');
+  await expect(pageInput).toHaveAttribute('aria-invalid', 'true');
+  await expect(page).toHaveURL(/\/review\?keep=1$/);
+  await pageInput.fill('4');
+  await pageInput.press('Enter');
+  await expect(page).toHaveURL(/keep=1&page=4$/);
+  await expect(pagination.getByRole('button', { name: '4페이지' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await page.getByRole('combobox', { name: '목록 표시 개수' }).selectOption('20');
+  await expect(page).toHaveURL(/keep=1&size=20$/);
+  await expect(page.getByRole('list', { name: '문의 목록' }).getByRole('listitem')).toHaveCount(20);
+  expect(requests.at(-1)?.searchParams.get('size')).toBe('20');
+  expect(requests.at(-1)?.searchParams.get('page')).toBe('0');
+  await expect(pagination.getByRole('button', { name: '3페이지' })).toBeVisible();
+  await expect(pagination.getByRole('button', { name: '4페이지' })).toHaveCount(0);
+});
+
+test('허용하지 않는 목록 표시 개수는 URL 에서 걷어 낸다', async ({ page }) => {
+  await reviewer(page);
+  await mockList(page, () => Array.from({ length: 45 }, (_, index) => inquiry(String(41 + index))));
+  await page.goto('/review?size=30&keep=1');
+  await expect(page).toHaveURL(/\/review\?keep=1$/);
+  await expect(page.getByRole('combobox', { name: '목록 표시 개수' })).toHaveValue('10');
+});
+
 test('범위 초과 페이지는 마지막 페이지로 보정하고 빈 목록은 첫 페이지로 복귀한다', async ({
   page,
 }) => {
@@ -418,14 +460,14 @@ test('범위 초과 페이지는 마지막 페이지로 보정하고 빈 목록�
   await page.goto('/review?status=open&page=99&keep=1');
   await expect(page).toHaveURL(/status=open&page=3&keep=1$/);
   await expect(page.getByRole('list', { name: '문의 목록' }).getByRole('listitem')).toHaveCount(3);
-  await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
   await page.goto('/review?status=closed&page=99&keep=1');
   await expect(page).toHaveURL(/status=closed&keep=1$/);
   await expect(
     page.getByRole('heading', { name: '해당 상태 문의 없음', exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('button', { name: '이전', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: '다음', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '이전 페이지', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
 });
 
 for (const snapshot of [
@@ -459,3 +501,60 @@ for (const snapshot of [
     expect(errors).toEqual([]);
   });
 }
+
+test('성공 안내는 자동 소멸하고 실패 안내는 남는다 (S15P21A501-303)', async ({ page }) => {
+  await page.clock.install();
+  await reviewer(page);
+  const current = inquiry('41', 'REVIEWING');
+  current.resolution = 'tag_correction';
+  current.history.reviewerLoginId = 'e2e-reviewer';
+  let calls = 0;
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
+  await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
+    calls += 1;
+    // 첫 저장은 성공, 두 번째는 서버 실패 — 성공/실패 표시 정책을 한 흐름에서 확인한다.
+    if (calls === 1) {
+      await success(route, { feedbackId: '41', created: 1, evidenceIds: ['61'] });
+    } else {
+      await failure(route, 409, 'REVIEW_409_231');
+    }
+  });
+
+  await page.goto('/review?inquiry=41');
+  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('서울');
+  await page.getByRole('button', { name: '1개 추가 후보 만들기' }).click();
+
+  // 성공 안내는 토스트로 뜬다.
+  const toast = page.getByText(/1개 태그를 검증 후보로 저장했습니다/);
+  await expect(toast).toBeVisible();
+  // 일정 시간(5초) 뒤 자동으로 사라져 레이아웃을 계속 차지하지 않는다.
+  await page.clock.fastForward(5_100);
+  await expect(toast).toHaveCount(0);
+
+  // 두 번째 저장은 실패 — 실패 안내는 토스트가 아니라 작업 영역에 뜨고, 자동 소멸하지 않는다.
+  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('부산');
+  await page.getByRole('button', { name: '1개 추가 후보 만들기' }).click();
+  const error = page.getByText('요청을 처리할 수 없습니다.', { exact: false });
+  await expect(error).toBeVisible();
+  await page.clock.fastForward(10_000);
+  await expect(error).toBeVisible();
+  // 실패를 성공처럼 표시하지 않는다.
+  await expect(page.getByText(/저장했습니다/)).toHaveCount(0);
+});
+
+test('판정 저장 성공도 자동 소멸 토스트로 뜬다 (S15P21A501-303)', async ({ page }) => {
+  await page.clock.install();
+  await reviewer(page);
+  const current = inquiry('41', 'REVIEWING');
+  current.resolution = 'tag_correction';
+  current.history.reviewerLoginId = 'e2e-reviewer';
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
+  await page.route('**/api/v1/review/inquiries/41/resolution', (route) => success(route));
+
+  await page.goto('/review?inquiry=41');
+  await page.getByRole('button', { name: '판정 저장', exact: true }).click();
+  const toast = page.getByText('판정을 저장했습니다.', { exact: false });
+  await expect(toast).toBeVisible();
+  await page.clock.fastForward(5_100);
+  await expect(toast).toHaveCount(0);
+});

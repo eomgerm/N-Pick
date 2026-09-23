@@ -11,6 +11,7 @@ const cssModuleUrl = `data:text/javascript,${encodeURIComponent(
 )}`;
 const localFiles = {
   '@/features/wireframes/input-validation': './input-validation.ts',
+  '@/features/wireframes/scene-download': './scene-download.ts',
   '@/features/wireframes/scene-preview-player': './scene-preview-player.tsx',
   '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
   '@/features/wireframes/media-time': './media-time.ts',
@@ -58,6 +59,7 @@ const { buildInquiryComment, InquiryDialog, ScenePreviewDialog } =
   await import('./scene-dialogs.tsx');
 const { getDemoSearchExecution } = await import('./search-execution-status.ts');
 const { results } = await import('./demo-scenes.ts');
+const sceneDialogsSource = readFileSync(new URL('./scene-dialogs.tsx', import.meta.url), 'utf8');
 
 function renderPreview({
   isSubmitted = false,
@@ -100,6 +102,8 @@ test('ID 없는 데모는 미디어를 요청하거나 재생 중으로 표시�
   assert.ok(html.includes('영상 ID 또는 장면 구간을 확인할 수 없어 재생할 수 없습니다.'));
   assert.ok(!html.includes('<video'));
   assert.ok(!html.includes('재생 중'));
+  assert.ok(!html.includes('장면 다운로드'));
+  assert.ok(!html.includes('원본 클립 다운로드'));
 });
 
 const { getSceneMediaUrl, getSceneThumbnailUrl, toScenePreviewMedia, formatMediaTime } =
@@ -114,6 +118,42 @@ test('큰 clip ID를 보존하고 밀리초를 초로 변환한다', () => {
   assert.deepEqual(media, { clipId: '9007199254740993', sceneStart: 1.25, sceneEnd: 2.7 });
   assert.ok(getSceneMediaUrl(media).endsWith('/api/v1/media/9007199254740993'));
   assert.equal(formatMediaTime(3661.25), '1:01:01');
+});
+
+test('저장된 장면과 원본 클립 다운로드를 함께 제공한다', () => {
+  const html = renderPreview({
+    result: {
+      ...results[0],
+      id: 3,
+      sceneId: '9007199254740994',
+      clipId: '9007199254740993',
+    },
+  });
+
+  assert.ok(html.includes('장면 다운로드'));
+  assert.ok(html.includes('원본 클립 다운로드'));
+  assert.match(html, /aria-label="영상 다운로드" role="group"/);
+  assert.match(sceneDialogsSource, /getSceneDownloadUrl\(result\.sceneId\)/);
+  assert.doesNotMatch(sceneDialogsSource, /getSceneDownloadUrl\(result\.id\)/);
+  assert.match(sceneDialogsSource, /checkClipDownload\(clipDownloadUrl, controller\.signal\)/);
+  assert.match(sceneDialogsSource, /startClipDownload\(clipDownloadUrl\)/);
+  assert.match(sceneDialogsSource, /setDownloadingSceneId\(null\)/);
+  assert.doesNotMatch(html, /<a[^>]+download[^>]*>[^<]*원본 클립 다운로드/);
+});
+
+test('장면과 원본 다운로드 노출은 서로의 ID에 의존하지 않는다', () => {
+  const sceneOnly = renderPreview({
+    result: { ...results[0], sceneId: '9007199254740994', clipId: undefined },
+  });
+  const clipOnly = renderPreview({
+    result: { ...results[0], sceneId: undefined, clipId: '9007199254740993' },
+  });
+
+  assert.ok(sceneOnly.includes('장면 다운로드'));
+  assert.ok(!sceneOnly.includes('원본 클립 다운로드'));
+  assert.ok(!sceneOnly.includes('/api/v1/media/scenes/1/download'));
+  assert.ok(!clipOnly.includes('장면 다운로드'));
+  assert.ok(clipOnly.includes('원본 클립 다운로드'));
 });
 
 test('경로·다른 ID·비정상 구간을 media URL로 만들지 않는다', () => {

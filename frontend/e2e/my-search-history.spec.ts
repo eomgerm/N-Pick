@@ -78,13 +78,11 @@ for (const role of ['editor', 'reviewer']) {
     await expect(panel.getByRole('listitem')).toHaveCount(10);
     await expect(panel.getByText('2026. 8. 1.', { exact: true }).first()).toBeVisible();
     await panel.screenshot({ path: test.info().outputPath('search-history-list.png') });
-    await panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }).click();
+    await panel.getByRole('button', { name: '다음 페이지', exact: true }).click();
     await expect(panel.getByRole('listitem')).toHaveCount(1);
     await expect(panel.getByText('서버 검색어 110', { exact: true })).toBeVisible();
-    await expect(
-      panel.getByRole('button', { name: '다음 검색 기록 페이지', exact: true }),
-    ).toBeDisabled();
-    await panel.getByRole('button', { name: '이전 검색 기록 페이지', exact: true }).click();
+    await expect(panel.getByRole('button', { name: '다음 페이지', exact: true })).toBeDisabled();
+    await panel.getByRole('button', { name: '이전 페이지', exact: true }).click();
 
     // 기록 행을 누르면 그 자리에서 검색창만 채우던 옛 동작 대신, 당시 결과 화면(historyId)으로
     // 이동해 스냅샷을 그대로 보여준다 — 이 MR(S15P21A501-262)이 새로 만든 동작이다.

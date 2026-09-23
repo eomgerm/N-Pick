@@ -70,7 +70,8 @@ src/
 │     ├─ entry-chrome.tsx         로그인 헤더와 로그인·검색 공통 푸터
 │     ├─ entry.module.css         신한 로그인·검색 반응형 레이아웃
 │     ├─ reviewer-shell.tsx    처리 상태·문의 검수 로컬 상호작용
-│     ├─ reviewer-layout.tsx   검수 공통 계정 헤더·문의/처리/등록 사이드바·어두운 배경
+│     ├─ reviewer-layout.tsx   검수 공통 계정 헤더·개요/문의/처리/등록 사이드바·어두운 배경
+│     ├─ review-overview.tsx   검수 개요: 문의·영상 요약 카드와 최근 문의·등록 영상
 │     ├─ review-inquiry-workspace.tsx 문의 목록 조회·URL 보정·목록/상세 조합
 │     ├─ review-inquiry-list.tsx 문의 목록·상태 필터·페이지 이동
 │     ├─ review-inquiry-detail.tsx 문의 상세 조회·선점·오류 복구와 캐시 갱신
@@ -133,7 +134,7 @@ src/
 
 검색 결과의 문의 입력은 Preview의 `이상해요`에서만 열며 `POST /search/results/{resultId}/inquiries`로 선택 설명을 전송합니다. 화면 장면 ID와 서버의 저장된 결과 ID를 분리하고 `SearchResult.searchResultId`만 API 경로에 사용합니다. 데모 결과에는 서버 ID를 만들지 않으며 저장 ID가 없거나 snapshot 저장에 실패하면 이유와 함께 문의를 비활성화합니다. 실제 검색 응답의 저장 결과 ID를 Preview에서 문의 접수로 전달하며, 접수 상태도 이 ID로 구분해 재검색의 새 결과에 이전 접수 상태가 붙지 않도록 합니다. 제출은 trim한 설명과 frozen snapshot·UUID 멱등성 키를 보존하며 자동 재시도하지 않습니다. 실패 후 설명을 바꾸지 않은 수동 재시도는 같은 snapshot/key를 사용하고 입력 변경 시 새 요청으로 바꿉니다. 제출 중에는 입력·중복 제출·dialog 닫기를 잠급니다. 성공 응답의 양의 `feedbackId`와 `OPEN/REVIEWING/CLOSED`를 확인한 뒤 접수 확인과 현재 상태를 표시하며 접수 자체로 현재 결과를 숨기거나 즉시 개선하지 않습니다. 백엔드는 동일한 검색 결과·신고자의 기존 문의를 현재 상태로 반환할 수 있으므로 재전송 응답을 새 접수나 `open`으로 바꾸지 않습니다.
 
-검수 화면 왼쪽 사이드바는 URL로 선택 상태를 계산합니다. 기본 `/review`는 문의, `view=processing`은 처리, `view=upload`는 영상 등록으로 표시합니다. 문의·처리 이동은 `getReviewTabUrl`로 상세 선택(`inquiry/clip`)과 처리 하위 `tab`을 지우고 목록 조건과 나머지 query를 유지합니다. 처리 하위 탭은 기존 `tab=uploads/completed`를 사용하며 생략하거나 알 수 없는 값이면 문의 처리 중을 표시합니다. 문의·처리 이동은 브라우저 이력에 남고 새로고침·뒤로가기·앞으로가기로 복원됩니다. 서버에 저장한 검수 상태는 이동 후 재조회하며 등록 취소는 문의 목록으로 돌아갑니다.
+검수 화면 왼쪽 사이드바는 URL로 선택 상태를 계산합니다. 파라미터가 없는 `/review`는 개요, `view=processing`은 처리, `view=upload`는 영상 등록, 그 밖의 파라미터가 있으면(`view=inquiries`·`status`·`inquiry` 등) 문의로 표시합니다. 기존 `?status=`·`?inquiry=` 링크는 그대로 문의를 엽니다. 문의 화면에서 마지막 조건을 지워 query가 비면 개요로 넘어가지 않도록 `getReviewUrl`이 `view=inquiries`를 남깁니다. 개요는 `GET /review/inquiries`와 `GET /clips` 첫 페이지를 문의·처리 목록과 같은 query key로 조회해 `statusCounts`·`run_counts` 요약 카드와 최근 5건씩을 보여 주며, 카드의 상태 항목은 해당 필터가 걸린 목록으로 연결합니다. 새 집계 API는 사용하지 않습니다. 문의·처리 이동은 `getReviewTabUrl`로 상세 선택(`inquiry/clip`)과 처리 하위 `tab`을 지우고 목록 조건과 나머지 query를 유지합니다. 처리 하위 탭은 기존 `tab=uploads/completed`를 사용하며 생략하거나 알 수 없는 값이면 문의 처리 중을 표시합니다. 문의·처리 이동은 브라우저 이력에 남고 새로고침·뒤로가기·앞으로가기로 복원됩니다. 서버에 저장한 검수 상태는 이동 후 재조회하며 등록 취소는 문의 목록으로 돌아갑니다.
 
 영상 등록은 `/review?view=upload`에서 제공하며 문의 목록과 영상 처리 화면에서 진입할 수 있습니다. 헤더 행에서 제목과 문의 목록 복귀 버튼을 양끝에 두고 등록 중에는 복귀 버튼도 잠급니다. 등록 페이지는 최대 너비와 자동 좌우 margin 없이 본문을 채우며, 폼은 사이드바와 같은 무테두리 프로스티드 그레인·반투명 배경·24px blur를 사용합니다. MP4/MOV 영상 1개, 선택 자막(SRT/VTT·승인 JSON, 10 MiB 이하) 1개, 선택 일반 대본(TXT) 1개를 클릭 또는 드래그로 고르고 파일명·용량 확인과 삭제·교체가 가능합니다. 방송분 `broadcast`과 자료 영상 `archive`, 선택 제목, 독립적인 방송일·촬영일, 이용 권한·외부 처리 확인을 입력합니다. 자료 영상은 방송일 입력을 숨기고 multipart에도 포함하지 않습니다. 일반 대본은 fatal UTF-8 검사 뒤 `script_text`로 읽으며 자막 파일의 서버 저장·처리는 선행 이슈가 소유합니다.
 

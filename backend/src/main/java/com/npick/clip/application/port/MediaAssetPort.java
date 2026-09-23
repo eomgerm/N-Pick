@@ -17,7 +17,7 @@ public interface MediaAssetPort {
      */
     MediaAsset resolve(String storageKey);
 
-    interface MediaAsset {
+    interface MediaAsset extends AutoCloseable {
 
         String contentType();
 
@@ -28,5 +28,9 @@ public interface MediaAssetPort {
 
         /** {@code offset} 부터 {@code count} 바이트를 쓴다. {@code target} 은 닫지 않는다. */
         void writeTo(OutputStream target, long offset, long count);
+
+        /** 임시 산출물이 있으면 정리한다. 영속 원본 asset 은 기본적으로 할 일이 없다. */
+        @Override
+        default void close() {}
     }
 }
