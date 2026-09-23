@@ -52,11 +52,13 @@ export function SuccessToastProvider({ children }: { children: ReactNode }) {
     <SuccessToastContext.Provider value={{ showSuccess }}>
       {children}
       {/* 라이브 영역은 항상 마운트해 둔다 — 요소를 내용과 함께 붙였다 떼면 스크린리더가 변화를
-          announce 하지 못한다. 안내 문구만 토글한다. */}
+          announce 하지 못한다. 안내 문구만 토글한다.
+          하단 중앙에 둔다 — SearchErrorToast 등 오류 알림이 상단(top-5)을 쓰므로, 성공·오류가
+          5초 안에 동시에 떠도 겹치지 않고 각각 읽고 닫을 수 있다 (S15P21A501-303). */}
       <div
         aria-atomic="true"
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-4 top-5 z-50 mx-auto flex max-w-xl justify-center"
+        className="pointer-events-none fixed inset-x-4 bottom-6 z-50 mx-auto flex max-w-xl justify-center"
         role="status"
       >
         {toast.message ? (
