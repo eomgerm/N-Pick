@@ -57,6 +57,23 @@ test('검색은 양쪽 화면과 직접 URL에서 길이를 검사하고 조합 
   }
 });
 
+test('빈 검색창과 정상 입력에서는 하단 안내 문구를 띄우지 않는다', async ({ page }) => {
+  await page.goto('/search');
+  const hint = page.locator('#scene-search-hint');
+  const input = page.getByRole('searchbox', { name: '뉴스 장면 검색어' });
+  // 입력 전에는 내부 제약을 노출하지 않는다(S15P21A501-284). 요소는 남아야 aria-live 가 동작한다.
+  await expect(hint).toHaveText('');
+  await expect(hint).toHaveCount(1);
+  await expect(input).not.toHaveAttribute('aria-describedby', /./);
+  await input.fill('화재');
+  await expect(hint).toHaveText('');
+  await input.fill('비');
+  await expect(hint).toContainText('2자 이상');
+  await expect(input).toHaveAttribute('aria-describedby', 'scene-search-hint');
+  await input.fill('');
+  await expect(hint).toHaveText('');
+});
+
 test('문의는 긴 붙여넣기를 거부하고 2000자 원문을 온전히 전송한다', async ({ page }) => {
   let comment: string | undefined;
   await page.route('**/api/v1/search/results/101/inquiries', async (route) => {

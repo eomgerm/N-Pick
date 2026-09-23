@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.npick.clip.application.command.register.RegisterClipCommand;
 import com.npick.clip.application.command.register.RegisterClipResult;
 import com.npick.clip.application.command.register.RegisterClipUseCase;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.domain.model.InitialClipRegistration;
 import com.npick.clip.domain.model.InitialClipRegistration.PipelineDefinition;
 import com.npick.clip.domain.model.InitialClipRegistration.SourceType;
@@ -40,6 +41,10 @@ public class ClipRegistrationService implements RegisterClipUseCase {
                 new PipelineDefinition(command.pipelineVersion(), command.stageNames()),
                 Instant.now());
         repository.save(registration);
-        return new RegisterClipResult(registration.clipId(), registration.pipelineRunId(), registration.status());
+        return new RegisterClipResult(
+                registration.clipId(),
+                registration.pipelineRunId(),
+                registration.status(),
+                RegistrationOutcome.CREATED);
     }
 }

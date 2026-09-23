@@ -13,12 +13,14 @@ export function isCalendarDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export function validateDateRange(range: DateRange): string {
+export function validateDateRange(range: DateRange, maxDate?: string): string {
   if (!range.from && !range.to) return '';
   if (!range.from || !range.to) return '시작일과 종료일을 모두 선택해 주세요.';
   if (!isCalendarDate(range.from) || !isCalendarDate(range.to))
     return '올바른 날짜를 입력해 주세요.';
   if (range.from > range.to) return '종료일은 시작일과 같거나 이후여야 해요.';
+  if (maxDate && (range.from > maxDate || range.to > maxDate))
+    return '시작일과 종료일은 오늘 이후 날짜로 선택할 수 없습니다.';
   return '';
 }
 
@@ -66,8 +68,8 @@ export interface ReadDateRangeResult {
  * 내게 되고, 그것이 방송일·촬영일을 건 링크가 필터 없는 검색으로 조용히 돌아간 원인이었습니다.
  * 계약 §5 는 한쪽만 온 기간을 `SRCH_400_003` 으로 막습니다.
  */
-export function readDateRange(from?: string, to?: string): ReadDateRangeResult {
+export function readDateRange(from?: string, to?: string, maxDate?: string): ReadDateRangeResult {
   const range = { from: from ?? '', to: to ?? '' };
-  const error = validateDateRange(range);
+  const error = validateDateRange(range, maxDate);
   return { range: error ? emptyDateRange : range, error };
 }

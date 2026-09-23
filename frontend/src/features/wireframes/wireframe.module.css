@@ -768,11 +768,46 @@
 
 .keywordChip {
   padding: 4px 7px;
+  /* 확장어 칩만 테두리를 두르므로 기본 칩이 그 자리를 미리 잡는다. 없으면 확장어가 걸린 카드만 2px 높아져
+     결과 목록의 카드 높이가 들쭉날쭉해진다. */
+  border: 1px solid transparent;
   border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent-strong);
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+/* 사용자가 넣지 않은 말에 붙는 꼬리표. 구분을 지는 것은 이 글자이고 아래 배경·테두리가 거든다 (FRD 6.3). */
+.keywordChipOrigin {
+  margin-left: 2px;
+}
+
+/*
+ * 사용자가 친 말이 먼저 읽혀야 한다. 뒤에 오는 .keywordChip 규칙이 모든 칩을 흰 계열로 내려 카드 배경에
+ * 묻히므로, 배경에 톤을 주고 글자를 --muted 에서 --text 로 올린다. 이것이 없으면 점선이 달린 확장어 쪽으로
+ * 시선이 먼저 가서 위계가 뒤집힌다.
+ *
+ * 색을 새로 만들지 않고 기존 토큰만 쓴다 — 이 파일은 .workspace·.dialog.previewModal·
+ * .shell[data-theme='shinhan'] 에서 같은 변수를 다시 정의하므로, 하드코딩하면 한 테마에서만 맞는다.
+ */
+.keywordChip[data-origin='user'] {
+  background: var(--secondary-soft);
+  color: var(--text);
+  font-weight: 700;
+}
+
+/*
+ * 확장어 칩은 채우지 않고 점선 테두리만 둔다. 채움 유무라 색을 못 보는 사람과 흑백 출력에도 남고,
+ * 점선은 「확정되지 않은 것」이라는 관습이 있어 AI 가 추정한 말이라는 뜻과 맞는다.
+ *
+ * 색을 새로 만들지 않고 기존 토큰만 쓴다 — 이 파일은 .workspace·.dialog.previewModal·
+ * .shell[data-theme='shinhan'] 에서 같은 변수를 다시 정의하므로, 하드코딩하면 한 테마에서만 맞는다.
+ */
+.keywordChip[data-origin='expanded'] {
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
 }
 
 .statusBadge {

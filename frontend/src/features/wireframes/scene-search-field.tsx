@@ -59,10 +59,14 @@ export function SceneSearchField({
   const [isComposing, setIsComposing] = useState(false);
   const queryError = validateSearchQuery(query);
   const hintId = `${inputId}-hint`;
-  const describedBy = classes.hint ? hintId : undefined;
+  // 노출 정책(S15P21A501-284): 안내할 일이 있을 때만 문구를 낸다. 빈 입력에서 내부 제약을
+  // 그대로 읽어주던 상시 문구와 글자수 카운터는 뺐다. 길이 제한값은 input-validation 소관이다.
+  const hintText = pasteError || (query && !isComposing ? queryError : '');
+  const describedBy = classes.hint && hintText ? hintId : undefined;
+  // 내용이 없어도 요소는 남긴다 — aria-live 영역을 그때그때 붙였다 떼면 변화를 읽어주지 않는다.
   const hint = classes.hint ? (
     <p className={classes.hint} id={hintId} aria-live="polite">
-      {pasteError || (query && !isComposing ? queryError : '')}
+      {hintText}
     </p>
   ) : null;
   const validationProps = {

@@ -21,13 +21,17 @@ import {
   formatFileSize,
   scriptAccept,
   subtitleAccept,
+  validateScriptContent,
   validateScriptFiles,
+  validateSubtitleContent,
   validateSubtitleFiles,
+  validateVideoContent,
   validateVideoFiles,
   videoAccept,
 } from '@/features/wireframes/registration-files';
 import {
   type ClipRegistrationErrorPresentation,
+  type ClipRegistrationOutcome,
   type ClipRegistrationSubmission,
   type ClipSourceType,
   createClipRegistrationSubmission,
@@ -46,6 +50,8 @@ export interface RegisteredVideo {
   id: string;
   pipelineRunId: string;
   status: 'queued';
+  /** 서버가 새 clip 을 만들었는지, 이미 있던 clip 을 돌려주었는지. 등록 결과 안내 문구를 가른다. */
+  outcome: ClipRegistrationOutcome;
   title: string;
   fileName: string;
   fileSize: number;
@@ -76,9 +82,12 @@ interface FileDropzoneProps {
   hasFile: boolean;
   hint?: string;
   isDisabled: boolean;
+  isChecking?: boolean;
   kind: DropzoneKind;
   label: string;
   onFiles: (files: File[]) => void;
+  selectedFile?: File | null;
+  onRemove?: () => void;
 }
 
 const subscribeToNothing = () => () => {};
@@ -102,9 +111,12 @@ function FileDropzone({
   hasFile,
   hint,
   isDisabled,
+  isChecking = false,
   kind,
   label,
   onFiles,
+  selectedFile,
+  onRemove,
 }: FileDropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragDepth = useRef(0);
@@ -126,6 +138,7 @@ function FileDropzone({
         data-kind={kind}
         data-dragging={isDragging}
         data-invalid={Boolean(error)}
+        data-selected={hasFile}
         onDragEnter={(event) => {
           event.preventDefault();
           dragDepth.current += 1;
@@ -143,7 +156,12 @@ function FileDropzone({
       >
         <input
           accept={accept}
-          aria-describedby={error ? `${kind}-error` : hint ? `${kind}-hint` : `${kind}-desc`}
+          aria-describedby={[
+            error ? `${kind}-error` : hint ? `${kind}-hint` : `${kind}-desc`,
+            selectedFile ? `${kind}-selection` : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
           aria-invalid={Boolean(error)}
           aria-label={`${label} 선택`}
           aria-required={isVideo}
@@ -158,14 +176,49 @@ function FileDropzone({
           type="file"
         />
         <span className={styles.uploadIcon}>
-          {isVideo ? <UploadCloud aria-hidden="true" /> : <Plus aria-hidden="true" />}
+          {isVideo ? (
+            selectedFile ? (
+              <Film aria-hidden="true" />
+            ) : (
+              <UploadCloud aria-hidden="true" />
+            )
+          ) : (
+            <Plus aria-hidden="true" />
+          )}
         </span>
         <span className={styles.dropCopy}>
-          <strong>{hasFile ? `${label} 재선택` : `${label} 추가하기`}</strong>
+          {selectedFile ? (
+            <span className={styles.selectedVideo} id={`${kind}-selection`}>
+              <span className={styles.selectionStatus}>
+                <Check aria-hidden="true" /> 선택됨
+              </span>
+              <strong>{selectedFile.name}</strong>
+              <span>{formatFileSize(selectedFile.size)}</span>
+            </span>
+          ) : (
+            <strong>
+              {isChecking
+                ? '파일 내용을 확인하고 있어요…'
+                : hasFile
+                  ? `${label} 재선택`
+                  : `${label} 추가하기`}
+            </strong>
+          )}
           {hint ? <span id={`${kind}-hint`}>{hint}</span> : null}
         </span>
         {isVideo ? <span className={styles.chooseFile}>파일 선택</span> : null}
       </label>
+      {selectedFile && onRemove ? (
+        <button
+          aria-label={`${label} 삭제`}
+          className={styles.removeVideo}
+          disabled={isDisabled}
+          onClick={onRemove}
+          type="button"
+        >
+          <X aria-hidden="true" />
+        </button>
+      ) : null}
       {error ? <FieldError id={`${kind}-error`}>{error}</FieldError> : null}
     </div>
   );
@@ -236,6 +289,9 @@ export function VideoRegistration({
   const [video, setVideo] = useState<File | null>(null);
   const [subtitle, setSubtitle] = useState<File | null>(null);
   const [script, setScript] = useState<File | null>(null);
+  const [checkingFiles, setCheckingFiles] = useState<Partial<Record<DropzoneKind, boolean>>>({});
+  const fileChecks = useRef({ video: 0, subtitle: 0, script: 0 });
+  const pendingFileChecks = useRef(new Set<DropzoneKind>());
   const [sourceType, setSourceType] = useState<ClipSourceType>('broadcast');
   const [title, setTitle] = useState('');
   const [broadcastDate, setBroadcastDate] = useState('');
@@ -269,6 +325,7 @@ export function VideoRegistration({
         id: result.clipId,
         pipelineRunId: result.pipelineRunId,
         status: result.status,
+        outcome: result.outcome,
         title: snapshot.title,
         fileName: snapshot.video.name,
         fileSize: snapshot.video.size,
@@ -302,6 +359,7 @@ export function VideoRegistration({
     },
   });
   const isBusy = isNavigating || mutation.isPending || isSubmissionLocked;
+  const isCheckingFiles = Object.values(checkingFiles).some(Boolean);
   // 서버에서는 빈 값을 주고 마운트 후에 로컬 오늘로 바꾼다. 렌더 중에 오늘을 읽으면 서버·브라우저 시간대 차이로
   // hydration 이 어긋난다.
   const today = useSyncExternalStore(subscribeToNothing, registrationToday, getNoToday);
@@ -334,43 +392,49 @@ export function VideoRegistration({
     }));
   }
 
-  function handleVideoFiles(files: File[]) {
-    markEdited('video');
-    setVideo(null);
-    const error = validateVideoFiles(files);
-    setFieldErrors((current) => ({ ...current, video: error || undefined }));
+  async function handleFiles(kind: DropzoneKind, files: File[]) {
+    if (lockedRef.current || isNavigating || files.length === 0) return;
+    const { field, label, setFile, validateFiles, validateContent } = {
+      video: {
+        field: 'video',
+        label: '영상 파일',
+        setFile: setVideo,
+        validateFiles: validateVideoFiles,
+        validateContent: validateVideoContent,
+      },
+      subtitle: {
+        field: 'subtitle',
+        label: '자막 파일',
+        setFile: setSubtitle,
+        validateFiles: validateSubtitleFiles,
+        validateContent: validateSubtitleContent,
+      },
+      script: {
+        field: 'scriptText',
+        label: '일반 대본 파일',
+        setFile: setScript,
+        validateFiles: validateScriptFiles,
+        validateContent: validateScriptContent,
+      },
+    }[kind];
+    const check = ++fileChecks.current[kind];
+    markEdited(field as RegistrationField);
+    setFile(null);
+    pendingFileChecks.current.add(kind);
+    setCheckingFiles((current) => ({ ...current, [kind]: true }));
+    setLiveMessage(`${label} 내용을 확인하고 있어요.`);
+    const error = validateFiles(files) || (await validateContent(files[0]));
+    // 먼저 고른 파일의 느린 읽기 결과가 나중에 고른 파일을 덮어쓰지 않게 한다.
+    if (check !== fileChecks.current[kind]) return;
+    pendingFileChecks.current.delete(kind);
+    setCheckingFiles((current) => ({ ...current, [kind]: false }));
+    setFieldErrors((current) => ({ ...current, [field]: error || undefined }));
     if (error) {
-      setLiveMessage(`영상 파일을 선택하지 못했습니다. ${error}`);
+      setLiveMessage(`${label}을 선택하지 못했습니다. ${error}`);
       return;
     }
-    setVideo(files[0]);
-    setLiveMessage(`영상 파일 ${files[0].name}이 선택되었습니다.`);
-  }
-
-  function handleSubtitleFiles(files: File[]) {
-    markEdited('subtitle');
-    setSubtitle(null);
-    const error = validateSubtitleFiles(files);
-    setFieldErrors((current) => ({ ...current, subtitle: error || undefined }));
-    if (error) {
-      setLiveMessage(`자막 파일을 선택하지 못했습니다. ${error}`);
-      return;
-    }
-    setSubtitle(files[0]);
-    setLiveMessage(`자막 파일 ${files[0].name}이 선택되었습니다.`);
-  }
-
-  function handleScriptFiles(files: File[]) {
-    markEdited('scriptText');
-    setScript(null);
-    const error = validateScriptFiles(files);
-    setFieldErrors((current) => ({ ...current, scriptText: error || undefined }));
-    if (error) {
-      setLiveMessage(`일반 대본 파일을 선택하지 못했습니다. ${error}`);
-      return;
-    }
-    setScript(files[0]);
-    setLiveMessage(`일반 대본 파일 ${files[0].name}이 선택되었습니다.`);
+    setFile(files[0]);
+    setLiveMessage(`${label} ${files[0].name}이 선택되었습니다.`);
   }
 
   function validateForm(): RegistrationFieldErrors {
@@ -392,7 +456,7 @@ export function VideoRegistration({
   }
 
   function startSubmission(submission: ClipRegistrationSubmission) {
-    if (lockedRef.current || isNavigating) return;
+    if (lockedRef.current || isNavigating || pendingFileChecks.current.size > 0) return;
     lockedRef.current = true;
     setIsSubmissionLocked(true);
     activeSubmissionRef.current = submission;
@@ -406,7 +470,7 @@ export function VideoRegistration({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (lockedRef.current || isNavigating) return;
+    if (lockedRef.current || isNavigating || pendingFileChecks.current.size > 0) return;
     if (errorPresentation?.retryMode === 'same-request' && retrySubmissionRef.current) {
       startSubmission(retrySubmissionRef.current);
       return;
@@ -444,7 +508,7 @@ export function VideoRegistration({
   return (
     <div className={styles.page}>
       <form
-        aria-busy={isBusy}
+        aria-busy={isBusy || isCheckingFiles}
         aria-label="영상 등록"
         className={styles.form}
         noValidate
@@ -470,24 +534,17 @@ export function VideoRegistration({
             hasFile={Boolean(video)}
             hint="드래그하거나 클릭하여 선택 · 영상 1개"
             isDisabled={isBusy}
+            isChecking={checkingFiles.video}
             kind="video"
             label="영상 파일"
-            onFiles={handleVideoFiles}
+            onFiles={(files) => void handleFiles('video', files)}
+            selectedFile={video}
+            onRemove={() => {
+              markEdited('video');
+              setVideo(null);
+              setLiveMessage(`영상 파일 ${video?.name}이 삭제되었습니다.`);
+            }}
           />
-          {video ? (
-            <ul aria-label="선택한 영상 파일" className={styles.files}>
-              <SelectedFileRow
-                file={video}
-                isDisabled={isBusy}
-                label="영상 파일"
-                onRemove={() => {
-                  markEdited('video');
-                  setVideo(null);
-                  setLiveMessage(`영상 파일 ${video.name}이 삭제되었습니다.`);
-                }}
-              />
-            </ul>
-          ) : null}
         </section>
 
         <section aria-labelledby="supplement-label" className={styles.section}>
@@ -506,9 +563,10 @@ export function VideoRegistration({
                 hasFile={Boolean(subtitle)}
                 hint="드래그하거나 클릭하여 선택 · SRT/VTT/JSON 1개 · 10 MiB 이하"
                 isDisabled={isBusy}
+                isChecking={checkingFiles.subtitle}
                 kind="subtitle"
                 label="자막 파일"
-                onFiles={handleSubtitleFiles}
+                onFiles={(files) => void handleFiles('subtitle', files)}
               />
               {subtitle ? (
                 <ul aria-label="선택한 자막 파일" className={styles.files}>
@@ -536,9 +594,10 @@ export function VideoRegistration({
                 hasFile={Boolean(script)}
                 hint="드래그하거나 클릭하여 선택 · TXT 1개"
                 isDisabled={isBusy}
+                isChecking={checkingFiles.script}
                 kind="script"
                 label="일반 대본 파일"
-                onFiles={handleScriptFiles}
+                onFiles={(files) => void handleFiles('script', files)}
               />
               {script ? (
                 <ul aria-label="선택한 일반 대본 파일" className={styles.files}>
@@ -765,12 +824,18 @@ export function VideoRegistration({
             >
               취소
             </button>
-            <button className={styles.submitButton} disabled={isBusy} type="submit">
+            <button
+              className={styles.submitButton}
+              disabled={isBusy || isCheckingFiles}
+              type="submit"
+            >
               {isBusy
                 ? '등록 중…'
-                : errorPresentation?.retryMode === 'same-request'
-                  ? '다시 시도'
-                  : '등록'}
+                : isCheckingFiles
+                  ? '파일 확인 중…'
+                  : errorPresentation?.retryMode === 'same-request'
+                    ? '다시 시도'
+                    : '등록'}
             </button>
           </div>
         </footer>

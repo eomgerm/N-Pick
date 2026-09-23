@@ -370,6 +370,56 @@ class SearchSnapshotTest {
     }
 
     @Test
+    @DisplayName("출처를 남기지 않던 과거 기록은 origin 을 null 로 복원한다")
+    void restoresLegacyKeywordsWithoutOrigin() {
+        // user 로 채우면 그 단어를 사용자가 실제로 쳤다고 기록이 주장하게 된다. 알 수 없는 것은
+        // 안다고 적지 않는다 (FRD §7.2). 화면은 이것을 구분이 생기기 전 모든 칩이 보이던 모양 그대로 그린다.
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, MATCH))));
+
+        var keyword =
+                snapshot.payload().get("results").get(0).get("matched_keywords").get(0);
+        assertThat(keyword.get("keyword").asString()).isEqualTo("서울역");
+        assertThat(keyword.get("origin").isNull()).isTrue();
+    }
+
+    @Test
+    @DisplayName("출처를 실은 기록은 그 출처 그대로 복원한다")
+    void keepsStoredKeywordOrigin() {
+        String withOrigin = MATCH.replace(
+                "[\"서울역\"]",
+                "[{\"keyword\": \"서울역\", \"origin\": \"user\"}, {\"keyword\": \"역사\", \"origin\": \"expanded\"}]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, withOrigin))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("available");
+        var keywords = snapshot.payload().get("results").get(0).get("matched_keywords");
+        assertThat(keywords.get(0).get("origin").asString()).isEqualTo("user");
+        assertThat(keywords.get(1).get("origin").asString()).isEqualTo("expanded");
+    }
+
+    @Test
+    @DisplayName("matched_keywords 의 origin 이 어휘 밖이면 unavailable 이다")
+    void unavailableWhenKeywordOriginOutOfVocabulary() {
+        String broken = MATCH.replace("[\"서울역\"]", "[{\"keyword\": \"서울역\", \"origin\": \"guess\"}]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
+    @DisplayName("matched_keywords 항목에 origin 키가 없으면 unavailable 이다")
+    void unavailableWhenKeywordOriginMissing() {
+        // 깨진 기록은 예외가 아니라 unavailable 로 떨어져야 한다. origin 기본값을 null 로 두면
+        // Set.of(...).contains(null) 이 NullPointerException 을 던져 조회 자체가 500 이 된다.
+        String broken = MATCH.replace("[\"서울역\"]", "[{\"keyword\": \"서울역\"}]");
+
+        SearchSnapshot snapshot = SearchSnapshot.from(record(FILTERED_OK, resultRow(1, explain(DISPLAY, broken))));
+
+        assertThat(snapshot.snapshotStatus()).isEqualTo("unavailable");
+    }
+
+    @Test
     @DisplayName("start_time_ms 가 문자열이면 unavailable 이다")
     void unavailableWhenTimeNotInteger() {
         String broken = DISPLAY.replace("\"start_time_ms\": 42000", "\"start_time_ms\": \"42000\"");
@@ -668,7 +718,8 @@ class SearchSnapshotTest {
         assertThat(result.get("scene_type").asString()).isEqualTo("역사 인파");
         assertThat(result.get("filmed_date").get("verification_status").asString())
                 .isEqualTo("unknown");
-        assertThat(result.get("matched_keywords").get(0).asString()).isEqualTo("서울역");
+        assertThat(result.get("matched_keywords").get(0).get("keyword").asString())
+                .isEqualTo("서울역");
         assertThat(result.get("match_evidence").get(0).get("field").asString()).isEqualTo("ocr");
         assertThat(snapshot.representativeResult().get("display_name").asString())
                 .isEqualTo("예시 뉴스 · 서울역");

@@ -81,6 +81,7 @@ src/
 │     ├─ clip-processing-api.ts 영상 목록·상세 조회와 공개 응답 검증
 │     ├─ clip-processing-view.ts 처리 상태 표시와 polling 조건
 │     ├─ processing-clip-detail.tsx 영상 요약·원본 영상·처리 기록·대사 정보
+│     ├─ processing-refresh-status.tsx 영상 목록·상세의 조회 안내와 마지막 성공 확인 시각
 │     ├─ processing-pipeline.tsx 계약 순서의 10단계와 hover·키보드·터치 상세 조회
 │     ├─ reviewer-progress-state.ts 탭 타입과 구 화면 단위 테스트용 집계
 │     ├─ reviewer-progress.module.css 진행 목록의 테마·반응형 레이아웃
@@ -137,9 +138,13 @@ src/
 
 폼은 검증을 통과한 File 포함 snapshot과 UUID 멱등성 키를 함께 소유하고 `POST /api/v1/clips`를 실행합니다. 네트워크·취소·비정상 응답·5xx·처리 중/결과 확인 불가 오류의 수동 재시도는 같은 snapshot/key를 쓰되 매 시도마다 새 `FormData`를 만듭니다. 입력을 수정하거나 서버가 새 요청 키를 요구하면 snapshot/key를 폐기하며 mutation을 자동 재시도하지 않습니다. 대본 읽기부터 응답까지 폼과 `ReviewerShell` 상단 이동을 잠그고 실패 시 File을 포함한 입력을 유지합니다. 허용된 검증 필드의 안전한 문자열만 인라인 오류로 사용하고 나머지는 공통 API 오류 UI로 표시합니다.
 
-성공 응답은 문자열 `clip_id`, `pipeline_run_id`와 `queued`만 인정합니다. `ReviewerShell`은 영상 목록 캐시를 무효화하고 `view=processing&tab=uploads&clip=<clipId>`로 이동해 실제 상세 GET을 실행합니다. 새로고침에도 URL의 ID로 서버 기록을 조회하며, 처리 상태와 단계 정보를 등록 요청 메모리에서 만들지 않습니다. media decode, pipeline enqueue와 등록 결과의 영속성은 서버 책임입니다.
+성공 응답은 문자열 `clip_id`, `pipeline_run_id`와 `queued`만 인정하며, `outcome`으로 신규 등록(`created`)과 이미 있던 clip 의 반환(`duplicate_own`·`duplicate_other`)을 구분합니다. `outcome`이 없거나 아는 값이 아니면 신규 등록으로 읽어 이전 서버와 섞여 배포돼도 흐름이 끊기지 않습니다. 중복이면 `ReviewerShell`이 그 사실과 입력값이 저장되지 않았음을 알리고, 등록 결과 배너에 요청 당시의 파일명을 쓰지 않습니다 — 그 화면에 열리는 clip 은 다른 사람의 등록일 수 있어 요청 값과 서버 값을 섞으면 존재하지 않는 조합을 보여주게 됩니다. `ReviewerShell`은 영상 목록 캐시를 무효화하고 `view=processing&tab=uploads&clip=<clipId>`로 이동해 실제 상세 GET을 실행합니다. 새로고침에도 URL의 ID로 서버 기록을 조회하며, 처리 상태와 단계 정보를 등록 요청 메모리에서 만들지 않습니다. media decode, pipeline enqueue와 등록 결과의 영속성은 서버 책임입니다.
 
 처리 현황은 `view=processing`에서 `문의 처리 중` 탭을 먼저 보여주고, `tab=uploads`와 `tab=completed`로 영상 상태를 나눕니다. 문의는 서버의 REVIEWING 목록, 종료 건수는 statusCounts.closed를 사용합니다. 영상은 최신 run의 대기·진행·실패·성공·기록 없음 상태를 표시합니다. 상세에서 돌아오면 선택한 탭과 progressPage를 유지합니다. 신규 등록의 단계 수와 상태는 상세 API 응답을 따르며 시간 경과로 임의 증가하지 않습니다.
+
+영상 목록·상세의 갱신 안내는 기존 5초 polling 조건과 Query의 요청 상태를 따릅니다. 마지막 확인 시각은 성공한 조회의 `dataUpdatedAt`이며 처리 단계 변경 시각과 구분합니다. 조회 오류·완료·실패에서는 자동 확인 종료를 안내하고, 오프라인·백그라운드 화면에서는 일시 중지를 표시합니다. 등록 직후 실행 기록이 없는 상세는 등록 시각부터 1분 동안 기록을 자동 확인하며, 1분 경계에서 안내를 수동 새로고침으로 바꿉니다. 이 경계용 단발 타이머는 조회 간격을 바꾸거나 진행률을 만들지 않습니다. 요청·시각 안내는 live region 밖에 두어 5초마다 반복 낭독하지 않고, 실제 처리 상태 변경만 기존 상태 영역에서 알립니다. 갱신 중 원본 영상과 키보드 포커스는 유지합니다.
+
+최신 처리 시도의 음성 인식 상태는 대사 기록의 알려진 `asr_status`를 우선하여 `대기 / 처리 중 / 완료 / 실패 / 생략`으로 표시합니다. 상태가 미확인이면 같은 `pipeline_run_id`의 `asr` 단계로만 보완하며, 근거가 없으면 `상태 정보 없음`으로 남깁니다. 대사 출처의 `record_status=unavailable`은 별도로 저장된 ASR 상태를 무효화하지 않습니다. 전체 실행의 성공·실패와 `asr_required`로 ASR 상태를 추정하지 않으며, 후보 구간의 실제 0건과 null, 현재 검색 제공 결과의 대사 출처는 기존대로 구분합니다.
 
 문의 검수 상세는 일반 문의 목록과 처리 현황에서 같은 `InquiryDetail`을 사용합니다. 실제 문의·장면·당시 검색 snapshot·근거·담당 이력을 조회하고 claim·resolution 성공 시 관련 목록과 상세 캐시를 갱신합니다. 서버에 없는 후보 재검색·검증·확정 결과를 로컬에서 생성하지 않습니다. 이전 mock의 교정 편집·재시도 화면은 제품 경로에서 제거했으며 추가 API 범위는 웹 API 계약 §6.5와 §7에 기록합니다.
 
@@ -189,6 +194,12 @@ app ───────→ features ───────→ lib
 - 두 기능에 필요한 코드가 생기면 UI는 `components`, 기반 로직은 `lib`로 이동할 수 있는지 검토합니다. 앱 전역 shell과 layout UI도 `components`에 둘 수 있습니다.
 
 ## Feature 내부 확장
+
+문의 상세는 `review-inquiry-detail.module.css`에서 반응형 2열 레이아웃과 진행 단계 표시를 관리합니다. 문의 내용·당시 검색어·장면 구간을 왼쪽에, 선점·검수 이력·판정 입력을 오른쪽에 배치하며 모바일은 한 열로 표시합니다. 후보 작성·검증과 당시 검색 기록·현재 태그는 별도 영역에 두고 기존 API와 캐시 갱신 동작을 유지합니다.
+
+등록 파일 선택은 `registration-files.ts`에서 실제 내용을 검사합니다. 영상은 MP4/MOV 컨테이너 헤더만 부분 읽기하고, 자막은 UTF-8과 SRT/VTT/승인 JSON 구조를 검사합니다. TXT는 고유 헤더가 없어 청크 단위 UTF-8·바이너리 제어 문자·문서 헤더 검사로 형식 위장을 거부합니다. 실제 미디어 디코딩·영상 길이와 자막의 상세 정합 검사는 서버가 최종 수행합니다. 검사 중에는 제출을 막고 이전 파일의 늦은 검사 결과는 무시합니다. 선택한 영상의 정보는 별도 파일 행 대신 선택 영역 안에 표시합니다. 선택 전 중립색·점선에서 선택 후 초록색·실선·체크 표시로 바꾸며, 일반 동작은 파랑 계열이고 빨강·분홍 계열은 오류에만 사용합니다.
+
+검색 날짜 선택기의 오늘은 `lib/seoul-date.ts`의 Asia/Seoul 날짜를 사용합니다(S15P21A501-287). 등록도 같은 날짜 계산을 사용하지만 방송일·촬영일의 상호 제약은 `registration-dates.ts`에 유지합니다. 검색 달력은 열기 이벤트에서 오늘을 주입하고 미래 날짜·월·연도와 키보드 이동을 제한합니다. `SearchResults`는 hydration 이후 같은 상한으로 URL 범위를 검사하며, 잘못된 기간을 필터 없는 검색으로 보내지 않습니다. 기간의 구조 검증은 순수 함수로 유지하고 필요한 호출부에서 상한을 전달합니다.
 
 검수 문의 화면은 목록·상세·스냅샷 표시를 분리하고 `review-inquiry-view.ts`에서 순수 매핑과 URL 상태 계산을 관리합니다. 상세의 선점 재시도는 같은 멱등성 키를 사용하며, 최신 상태 확인은 이전 mutation 오류를 초기화한 뒤 상세와 목록을 갱신합니다. 조회 실패는 조회 오류로 안내합니다. 처리 결과 색상은 `Record<InquiryResolution, string>`으로 모든 값을 명시합니다. 검색 해석은 `SearchInterpretation`에서 한 번 계산하고 `ResolutionSummaryView`에 전달하며, 기록 없음과 계산 실패를 구분합니다. 파서의 `endTimeMs > startTimeMs`, `processingNo >= 1`, `resultRank >= 1` 검증은 DB CHECK 제약과 일치하므로 유지합니다. 순수 상태·파싱·렌더링은 단위 테스트로, 선점 복구·서버 재조회·페이지와 필터 URL 복원은 `e2e/review-inquiry.spec.ts`로 검증합니다.
 
@@ -269,7 +280,7 @@ HTTP·업무 실패·네트워크·본문 수신 실패·비정상 응답·취�
 
 멱등성 키는 `src/lib/api/idempotency.ts`의 `createIdempotencyKey()`가 불투명한 UUID로 생성합니다. 기능별 제출 경계가 입력과 키를 함께 소유하여 같은 논리적 요청의 재시도에는 기존 키를, 새 제출에는 새 키를 사용합니다. `fetchJson`은 `idempotencyKey` 옵션을 `Idempotency-Key` 헤더로 전달하고 조회 요청의 키는 전송 전에 거부합니다. 공통 client는 키를 자동 생성하거나 변경 요청을 자동 재시도하지 않습니다.
 
-`components/api-error-notice.tsx`는 오류 객체를 받아 한국어 메시지와 후속 안내만 `role="alert"`로 표시합니다. 오류 코드·요청 ID는 화면에 표시하지 않고 `ApiClientError`와 기존 `[API]` 로그에 유지합니다. form의 `aria-describedby`에 연결할 수 있는 `id`를 지원합니다. 정상 한국어 서버 메시지를 우선하며, 현재 백엔드의 고정 영어 메시지는 `code/message`가 정확히 일치하는 6개 조합만 번역합니다. 메시지 누락·타입 오류·한국어 안내 계약 위반(내부 경로·HTML·JSON·예외 trace·진단 코드 등)에는 일반 한국어 안내를 사용합니다. 한국어와 `validation_error` 같은 진단 문자열이 섞여 있어도 원문을 표시하지 않습니다. 등록 시 미매핑 검증 오류는 일반 입력 안내, 자막 검증 오류는 자막 항목의 한국어 안내로 표시합니다. 처리 목록·상세·실패 시도 기록도 원시 오류 코드를 노출하지 않습니다. 임의 JSON 응답의 `message`나 일반 `Error.message`는 표시하지 않습니다.
+`components/api-error-notice.tsx`는 오류 객체를 받아 한국어 메시지와 후속 안내만 `role="alert"`로 표시합니다. 오류 코드·요청 ID는 화면에 표시하지 않고 `ApiClientError`와 기존 `[API]` 로그에 유지합니다. form의 `aria-describedby`에 연결할 수 있는 `id`를 지원합니다. 기능 계층이 변환한 사용자 문구와 후속 안내가 있으면 이를 우선합니다. 검색 오류 알림은 `search-error-presentation.ts`에서 stable `SRCH_*` 코드와 오류 종류를 사용자 관점의 존댓말 문구로 변환하며 서버의 내부 문장을 직접 표시하지 않습니다. 그 밖의 정상 한국어 서버 메시지는 우선하며, 현재 백엔드의 고정 영어 메시지는 `code/message`가 정확히 일치하는 6개 조합만 번역합니다. 메시지 누락·타입 오류·한국어 안내 계약 위반(내부 경로·HTML·JSON·예외 trace·진단 코드 등)에는 일반 한국어 안내를 사용합니다. 한국어와 `validation_error` 같은 진단 문자열이 섞여 있어도 원문을 표시하지 않습니다. 등록 시 미매핑 검증 오류는 일반 입력 안내, 자막 검증 오류는 자막 항목의 한국어 안내로 표시합니다. 처리 목록·상세·실패 시도 기록도 원시 오류 코드를 노출하지 않습니다. 임의 JSON 응답의 `message`나 일반 `Error.message`는 표시하지 않습니다.
 
 **현재 연동 차이:** FRD §6.3의 API 오류 코드·요청 식별자 계약은 유지합니다. FE는 본문의 `requestId`, 없으면 `X-Request-ID` 응답 헤더를 읽어 진단용으로 보존하며, 미제공 ID를 임의 생성하지 않습니다. 백엔드의 한국어 메시지·요청 ID 생성과 교차 오리진 호출 시 해당 헤더의 CORS 노출은 별도 연동 작업입니다. 공통 client와 오류 UI는 로그인·로그아웃·세션 조회에 연결되어 있습니다.
 

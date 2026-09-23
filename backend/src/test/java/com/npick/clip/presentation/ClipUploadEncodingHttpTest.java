@@ -23,6 +23,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import com.npick.clip.application.command.register.RegisterClipResult;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipCommand;
 import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.support.NpickPostgres;
@@ -96,7 +97,8 @@ class ClipUploadEncodingHttpTest {
 
     @Test
     void koreanTitleSurvivesAMultipartPartWithoutACharset() throws Exception {
-        when(useCase.upload(any())).thenReturn(new RegisterClipResult(1L, 2L, "processing"));
+        when(useCase.upload(any()))
+                .thenReturn(new RegisterClipResult(1L, 2L, "processing", RegistrationOutcome.CREATED));
 
         var response = send(HttpRequest.newBuilder(uri("/api/v1/clips"))
                 .header("X-XSRF-TOKEN", csrf())

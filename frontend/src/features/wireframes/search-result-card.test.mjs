@@ -69,7 +69,7 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
     '1위',
     result.title,
     '00:42 – 00:49',
-    ...result.matchedKeywords,
+    ...result.matchedKeywords.map(({ keyword }) => keyword),
     '검증됨',
     '화면 속 글자',
     '서울역, 설 연휴 귀성객',
@@ -112,6 +112,18 @@ test('결과 카드는 키워드 행 끝의 검증 칩과 사용자용 근거 �
   assert.match(html, /aria-haspopup="dialog"/);
   assert.match(html, /aria-expanded="false"/);
   assert.match(html, new RegExp(`aria-label="${result.imageLabel}"`));
+});
+
+test('키워드 칩은 사용자가 친 말과 AI 확장어를 색상 말고 라벨로 구분한다', () => {
+  // FRD 6.3: 색상만으로 상태를 구분하지 않는다. F-05·F-07: 사용자가 명시한 내용과 AI 가 추정한 내용을 구분한다.
+  const html = renderCard(results[0]);
+
+  assert.ok(html.includes('<span class="keywordChip" data-origin="user">서울역</span>'));
+  assert.ok(
+    html.includes(
+      '<span class="keywordChip" data-origin="expanded">귀성객<span class="keywordChipOrigin">(확장)</span></span>',
+    ),
+  );
 });
 
 test('촬영일 값이 없어도 카드에는 근거 검증 칩만 표시한다', () => {

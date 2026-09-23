@@ -13,6 +13,7 @@ import {
 } from '@/features/wireframes/date-range';
 import { DateRangeCalendar } from '@/features/wireframes/date-range-calendar';
 import styles from '@/features/wireframes/shinhan-search.module.css';
+import { seoulToday } from '@/lib/seoul-date';
 
 interface DateRangePickerProps {
   label: string;
@@ -25,13 +26,6 @@ interface DateRangePickerProps {
     onOpen: () => void;
   };
   onChange: (value: DateRange) => void;
-}
-
-function localToday() {
-  const today = new Date();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  return `${today.getFullYear()}-${month}-${day}`;
 }
 
 /**
@@ -52,6 +46,7 @@ export function DateRangePicker({
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [isOpen, setIsOpen] = useState(false);
+  const [today, setToday] = useState('');
   const [draft, setDraft] = useState(value);
   const [error, setError] = useState('');
   const [placement, setPlacement] = useState<'above' | 'below'>('below');
@@ -75,13 +70,16 @@ export function DateRangePicker({
   }, [isOpen]);
 
   function handleOpen() {
+    // 사용자 이벤트에서 읽어 hydration을 피하고, 다시 열 때 날짜를 갱신합니다.
+    const currentToday = seoulToday();
+    setToday(currentToday);
     navigationTrigger?.onOpen();
     const trigger = triggerRef.current?.getBoundingClientRect();
     // 아래 공간이 모자라면 위로 펼칩니다.
     const spaceBelow = trigger ? window.innerHeight - trigger.bottom : Number.POSITIVE_INFINITY;
     setPlacement(spaceBelow < 380 && trigger && trigger.top > spaceBelow ? 'above' : 'below');
     setDraft(value);
-    setError('');
+    setError(validateDateRange(value, currentToday));
     setIsOpen(true);
   }
 
@@ -174,7 +172,7 @@ export function DateRangePicker({
           </div>
           <div aria-label="빠른 기간 선택" className={styles.datePresets} role="group">
             {([1, 2, 3] as const).map((years: RecentYearPreset) => {
-              const preset = createRecentYearRange(years, localToday());
+              const preset = createRecentYearRange(years, today);
               const isSelected = draft.from === preset.from && draft.to === preset.to;
               return (
                 <button
@@ -196,7 +194,8 @@ export function DateRangePicker({
             {(['from', 'to'] as const).map((endpoint) => (
               <DateRangeCalendar
                 endpoint={endpoint}
-                initialDate={draft[endpoint] || value[endpoint] || value.from || localToday()}
+                initialDate={draft[endpoint] || value[endpoint] || value.from || today}
+                maxDate={today}
                 key={endpoint}
                 onSelect={(date) => {
                   setDraft((current) => ({ ...current, [endpoint]: date }));
@@ -218,7 +217,7 @@ export function DateRangePicker({
             <button
               className={styles.primaryButton}
               onClick={() => {
-                const message = validateDateRange(draft);
+                const message = validateDateRange(draft, seoulToday());
                 setError(message);
                 if (message) return;
                 handleClose();

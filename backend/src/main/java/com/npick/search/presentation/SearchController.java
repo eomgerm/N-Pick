@@ -38,7 +38,11 @@ public class SearchController {
     public ResponseEntity<ApiResponse<SearchResponse>> search(
             @Valid @RequestBody SearchRequest request, @LoginMember CurrentMember member) {
         var result = useCase.execute(new ExecuteSearchQuery(
-                request.query(), request.toDateFilters(), member.memberId(), request.pageOrDefault()));
+                request.query(),
+                request.toDateFilters(),
+                member.memberId(),
+                request.pageOrDefault(),
+                request.parentExecutionId()));
         return ResponseEntity.ok(ApiResponse.success(SearchResponse.of(result)));
     }
 }
