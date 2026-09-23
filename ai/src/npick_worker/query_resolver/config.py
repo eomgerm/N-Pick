@@ -20,10 +20,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 #: 패키지에 동봉된 기본 프롬프트. 휠에 포함되도록 src/npick_worker/config/ 아래 둔다.
 #:
-#: v1 은 회귀 비교용으로 남겨둔다 — `load_config(path)` 로 가리킬 수 있다. v2 가 무엇을
-#: 고쳤고 왜 고쳤는지는 그 파일 머리말에 있다(S15P21A501-102 실측).
+#: 옛 판은 회귀 비교용으로 남겨둔다 — `load_config(path)` 로 가리킬 수 있다. 각 판이
+#: 무엇을 고쳤고 왜 고쳤는지는 그 파일 머리말에 있다 (v2: S15P21A501-102 실측,
+#: v3: S15P21A501-293 고유명사 상위 범주 확장 금지).
 DEFAULT_CONFIG_PATH: Final[Path] = (
-    Path(__file__).resolve().parent.parent / "config" / "query_resolver.v2.toml"
+    Path(__file__).resolve().parent.parent / "config" / "query_resolver.v3.toml"
 )
 
 #: prompt_version 뒤에 붙는 해시 길이. scene_detection 과 맞춘다.

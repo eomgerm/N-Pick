@@ -67,6 +67,41 @@ $PY eval/query_resolver/resolver_bench.py \
 `--no-mlflow` 로 콘솔·JSON 만 낼 수 있고, `--only-domain 재난기상` 으로 한 도메인만,
 `--config` 로 다른 프롬프트 toml 을 가리킬 수 있다(v1 회귀 비교).
 
+### 프롬프트 v2 → v3 회귀 (S15P21A501-293, 2026-09-23)
+
+`results/prompt-v2-baseline-S15P21A501-293.json` · `results/prompt-v3-S15P21A501-293.json`.
+gpt-4o-mini 한 모델만 같은 날 같은 골드셋으로 각각 돌렸다.
+
+```bash
+for v in v2 v3; do
+  $PY eval/query_resolver/resolver_bench.py --models gpt-4o-mini --no-mlflow --concurrency 4       --config src/npick_worker/config/query_resolver.$v.toml       --out eval/query_resolver/results/prompt-$v-S15P21A501-293.json
+done
+```
+
+**`results/score.json` 을 기준선으로 쓰지 않았다.** 그 파일은 `params.rescored_from` 이
+가리키듯 옛 실행을 재채점한 것이라 `gold_hash` 가 `32b7cd4b7340e14d` 인데 현재 골드셋은
+`825e75cba391aa2d` 다. 맞대면 프롬프트 차이가 아니라 골드셋 차이를 재게 된다.
+
+대응표본 부트스트랩 95% CI 로 네 지표 전부 유의차가 없었다(slot_f1 −0.0208, frame −0.0300,
+leak +0.0200, intent +0.0050). 점 추정이 둘에서 낮으므로 「회귀 없음」이 아니라 「회귀를
+관측하지 못했다」로 읽는다. 자세한 것은 `ai/docs/proper-noun-search.md` §2.
+
+**이 지표는 v3 이 고친 것을 재지 못한다.** `expanded_terms` 는 점수에서 빠져 있다
+(아래 §지표). 그것을 재는 것이 아래다.
+
+### 고유명사 확장어 오염 — `proper_noun_expansion.py`
+
+`resolver_bench.py` 가 점수에서 빼는 `expanded_terms` 만 본다. 고유명사 12문항의 **상위 범주
+확장**과, 확장어가 나와야 하는 대조군 8문항의 **과잉 억제**를 함께 잰다. 한쪽만 재면 오탐
+하나를 고치고 재현율을 잃는 변경이 통과한다.
+
+```bash
+$PY eval/query_resolver/proper_noun_expansion.py     --config src/npick_worker/config/query_resolver.v2.toml     --config src/npick_worker/config/query_resolver.v3.toml     --out eval/query_resolver/results/proper-noun-expansion-S15P21A501-293.json
+```
+
+**temperature 0 인데도 실행마다 흔들린다.** 커밋된 결과는 2회차이고 1회차 값은
+`ai/docs/proper-noun-search.md` §2 에 함께 적었다. 한 번만 돌려 판정하지 않는다.
+
 ## 지표
 
 joint intent detection + slot filling 의 표준을 따른다.

@@ -1,0 +1,288 @@
+[
+  {
+    "config": "query_resolver.v2.toml",
+    "prompt_version": "query-resolver-prompt/v2:b98a0418",
+    "model": "gpt-4o-mini",
+    "고유명사": {
+      "오염": 2,
+      "전체": 12,
+      "detail": [
+        {
+          "query": "둘리",
+          "expanded_terms": [
+            "캐릭터",
+            "만화"
+          ],
+          "상위범주": [
+            "캐릭터",
+            "만화"
+          ]
+        },
+        {
+          "query": "뽀로로",
+          "expanded_terms": [
+            "캐릭터",
+            "애니메이션"
+          ],
+          "상위범주": [
+            "캐릭터",
+            "애니메이션"
+          ]
+        },
+        {
+          "query": "카카오",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "네이버",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "무한도전",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "소녀시대",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "갤럭시",
+          "expanded_terms": [
+            "갤럭시"
+          ],
+          "상위범주": []
+        },
+        {
+          "query": "나이키",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "경부선",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "호남선",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "한라산",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "첨성대",
+          "expanded_terms": [],
+          "상위범주": []
+        }
+      ]
+    },
+    "대조군": {
+      "확장어_없음": 0,
+      "전체": 8,
+      "확장어_총수": 20,
+      "detail": [
+        {
+          "query": "귀성객 몰린 기차역",
+          "expanded_terms": [
+            "귀성",
+            "인파"
+          ]
+        },
+        {
+          "query": "폭우로 침수된 도로",
+          "expanded_terms": [
+            "침수",
+            "물에 잠긴"
+          ]
+        },
+        {
+          "query": "벚꽃 구경하는 사람들",
+          "expanded_terms": [
+            "벚꽃",
+            "구경",
+            "사람들"
+          ]
+        },
+        {
+          "query": "출근길 지하철 혼잡",
+          "expanded_terms": [
+            "출근길",
+            "통근",
+            "인파"
+          ]
+        },
+        {
+          "query": "산불 진화 장면",
+          "expanded_terms": [
+            "산불",
+            "진화",
+            "소방"
+          ]
+        },
+        {
+          "query": "코로나 선별진료소",
+          "expanded_terms": [
+            "코로나",
+            "진료소"
+          ]
+        },
+        {
+          "query": "국회 본회의장 모습",
+          "expanded_terms": [
+            "국회",
+            "회의",
+            "장면"
+          ]
+        },
+        {
+          "query": "태풍 피해 복구 현장",
+          "expanded_terms": [
+            "태풍",
+            "피해"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "config": "query_resolver.v3.toml",
+    "prompt_version": "query-resolver-prompt/v3:d46f3c0b",
+    "model": "gpt-4o-mini",
+    "고유명사": {
+      "오염": 0,
+      "전체": 12,
+      "detail": [
+        {
+          "query": "둘리",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "뽀로로",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "카카오",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "네이버",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "무한도전",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "소녀시대",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "갤럭시",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "나이키",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "경부선",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "호남선",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "한라산",
+          "expanded_terms": [],
+          "상위범주": []
+        },
+        {
+          "query": "첨성대",
+          "expanded_terms": [],
+          "상위범주": []
+        }
+      ]
+    },
+    "대조군": {
+      "확장어_없음": 1,
+      "전체": 8,
+      "확장어_총수": 17,
+      "detail": [
+        {
+          "query": "귀성객 몰린 기차역",
+          "expanded_terms": [
+            "귀성",
+            "인파"
+          ]
+        },
+        {
+          "query": "폭우로 침수된 도로",
+          "expanded_terms": [
+            "침수",
+            "물에 잠긴"
+          ]
+        },
+        {
+          "query": "벚꽃 구경하는 사람들",
+          "expanded_terms": [
+            "벚꽃",
+            "구경",
+            "사람들"
+          ]
+        },
+        {
+          "query": "출근길 지하철 혼잡",
+          "expanded_terms": [
+            "출근길",
+            "혼잡한 지하철"
+          ]
+        },
+        {
+          "query": "산불 진화 장면",
+          "expanded_terms": [
+            "산불",
+            "진화",
+            "소방"
+          ]
+        },
+        {
+          "query": "코로나 선별진료소",
+          "expanded_terms": [
+            "코로나",
+            "진료소"
+          ]
+        },
+        {
+          "query": "국회 본회의장 모습",
+          "expanded_terms": []
+        },
+        {
+          "query": "태풍 피해 복구 현장",
+          "expanded_terms": [
+            "태풍",
+            "피해",
+            "복구"
+          ]
+        }
+      ]
+    }
+  }
+]

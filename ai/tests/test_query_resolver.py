@@ -423,7 +423,7 @@ def test_resolve_query_reports_three_versions() -> None:
     stub = StubResolver(_payload(locations=[_anchor("서울역", 0, 3, type="facility")]))
     result = resolve_query("서울역 귀성객", stub)
     assert result.resolution_schema_version == SCHEMA_VERSION
-    assert result.prompt_version.startswith("query-resolver-prompt/v2:")
+    assert result.prompt_version.startswith("query-resolver-prompt/v3:")
     assert result.model_version == "stub-model@abc123"
 
 
@@ -741,7 +741,7 @@ def test_v2_date_contract_round_trip(field: str) -> None:
     assert serialized["date_windows"][0]["field"] == field
     assert serialized["schema_version"] == "query-resolver/v2"
     assert result.resolution_schema_version == "query-resolver/v2"
-    assert result.prompt_version.startswith("query-resolver-prompt/v2:")
+    assert result.prompt_version.startswith("query-resolver-prompt/v3:")
 
 
 def test_legacy_filming_date_is_rejected() -> None:
