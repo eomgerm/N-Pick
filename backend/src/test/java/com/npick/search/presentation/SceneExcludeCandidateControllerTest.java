@@ -20,13 +20,17 @@ import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
 import com.npick.search.application.CreateSceneExcludeCandidateService;
+import com.npick.search.application.DiscardSceneExcludeCandidateService;
 import com.npick.search.application.ParseCandidateOutcome;
 
 import static org.hamcrest.Matchers.instanceOf;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -52,6 +56,9 @@ class SceneExcludeCandidateControllerTest {
 
     @MockitoBean
     CreateSceneExcludeCandidateService service;
+
+    @MockitoBean
+    DiscardSceneExcludeCandidateService discardService;
 
     private static final AuthenticatedMember REVIEWER = new AuthenticatedMember(9L, "reviewer01", "h", "REVIEWER");
 
@@ -135,6 +142,27 @@ class SceneExcludeCandidateControllerTest {
                         .header("Idempotency-Key", "rk-1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(BODY))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("검수자가 대기 중인 제외 후보를 취소하면 200 으로 성공한다 (S15P21A501-281)")
+    void reviewerDiscardsCandidate() throws Exception {
+        given(discardService.discard(anyLong(), anyLong(), anyBoolean())).willReturn(1);
+
+        mockMvc.perform(delete("/api/v1/review/inquiries/1/scene-exclude-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true));
+    }
+
+    @Test
+    @DisplayName("편집기자는 제외 후보 취소 경로에 접근할 수 없다")
+    void discardEditorForbidden() throws Exception {
+        mockMvc.perform(delete("/api/v1/review/inquiries/1/scene-exclude-candidate")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
+                        .with(csrf()))
                 .andExpect(status().isForbidden());
     }
 }
