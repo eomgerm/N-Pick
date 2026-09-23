@@ -49,12 +49,9 @@ function renderNotices(state, variant = 'results') {
   );
 }
 
-test('정상 검색에도 송출 전 최종 확인 고지를 항상 표시한다', () => {
+test('알릴 것이 없으면 아무 고지도 렌더하지 않는다', () => {
   const html = renderNotices();
 
-  for (const text of ['송출 전 최종 확인', '내용·최신성·권리·사용 적합성']) {
-    assert.ok(html.includes(text));
-  }
   assert.ok(!html.includes('일부 기능 누락'));
   assert.ok(!html.includes('검수 규칙 적용'));
 });
@@ -71,7 +68,6 @@ test('세 degraded 사유를 서로 다른 사용자 문구로 표시한다', ()
     assert.ok(html.includes('일부 기능 누락'));
     assert.ok(html.includes(title));
     assert.ok(html.includes(description));
-    assert.ok(html.includes('송출 전 최종 확인'));
     assert.match(html, /aria-label="검색 기능 누락 안내"/);
   }
 });
@@ -88,7 +84,7 @@ test('결과와 Preview가 같은 상태·고지 문구를 사용한다', () => 
   const resultsHtml = renderNotices('degraded-snapshot', 'results');
   const previewHtml = renderNotices('degraded-snapshot', 'preview');
 
-  for (const text of ['검색 기록 저장 실패', '문의와 후속 교정', '송출 전 최종 확인']) {
+  for (const text of ['검색 기록 저장 실패', '문의와 후속 교정']) {
     assert.ok(resultsHtml.includes(text));
     assert.ok(previewHtml.includes(text));
   }

@@ -1,0 +1,45 @@
+.inputGroup {
+  position: relative;
+}
+.inputGroup input[type='text'] {
+  padding-right: 48px;
+  font-variant-numeric: tabular-nums;
+}
+.calendarButton {
+  position: absolute;
+  inset: 4px 4px 4px auto;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #23578d;
+  cursor: pointer;
+}
+.calendarButton:hover,
+.calendarButton[aria-expanded='true'] {
+  background: #e1ebf6;
+}
+.calendarButton:focus-visible {
+  outline: 2px solid #23578d;
+  outline-offset: 2px;
+}
+.calendarButton:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.calendarButton svg {
+  width: 20px;
+  height: 20px;
+}
+.popover[role='dialog'] {
+  position: fixed;
+  z-index: 120;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px;
+}

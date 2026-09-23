@@ -29,4 +29,11 @@ public class SearchHistoryDeleteService implements DeleteMySearchHistoryUseCase 
             throw new BusinessException(SearchErrorCode.SEARCH_EXECUTION_NOT_FOUND);
         }
     }
+
+    /** 지운 기록 수와 무관하게 성공이다 — 빈 목록을 비우는 것은 오류가 아니라 멱등한 요청이다(S15P21A501-291). */
+    @Override
+    @Transactional
+    public void deleteAllMine(long ownerId) {
+        softDeletePort.hideAllOwned(ownerId);
+    }
 }

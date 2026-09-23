@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Inbox, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Inbox, RefreshCw } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -10,6 +10,7 @@ import { useMember } from '@/components/session-boundary';
 import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import { getReviewInquiries } from '@/features/wireframes/review-inquiry-api';
 import { InquiryDetail } from '@/features/wireframes/review-inquiry-detail';
+import detailStyles from '@/features/wireframes/review-inquiry-detail.module.css';
 import { InquiryList, InquiryListHeading } from '@/features/wireframes/review-inquiry-list';
 import { selectPageSize } from '@/features/wireframes/list-pagination';
 import dashboardStyles from '@/features/wireframes/review-dashboard.module.css';
@@ -52,14 +53,31 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
     router.replace(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
   }, [feedbackId, list.data, page, pageSize, pathname, rawPageSize, router, searchParams]);
 
+  function handleBack() {
+    router.push(getReviewUrl(pathname, searchParams.toString(), { inquiry: null }), {
+      scroll: false,
+    });
+  }
+
   return (
     <ReviewerLayout
       theme={theme}
-      headerContent={feedbackId === null ? <InquiryListHeading data={list.data} /> : undefined}
+      headerContent={
+        feedbackId === null ? (
+          <InquiryListHeading data={list.data} />
+        ) : (
+          <section className={dashboardStyles.heading} aria-labelledby="inquiry-detail-title">
+            <h1 id="inquiry-detail-title">문의 상세</h1>
+            <button className={detailStyles.backButton} onClick={handleBack} type="button">
+              <ArrowLeft aria-hidden="true" /> 문의 목록으로
+            </button>
+          </section>
+        )
+      }
     >
-      <main className={styles.page}>
+      <main className={`${styles.page} ${feedbackId === null ? styles.inquiryPage : ''}`}>
         {feedbackId ? (
-          <InquiryDetail feedbackId={feedbackId} theme={theme} />
+          <InquiryDetail feedbackId={feedbackId} theme={theme} onBack={handleBack} />
         ) : list.isPending ? (
           <div
             className={`${dashboardStyles.dashboard} ${dashboardStyles.statePanel}`}
@@ -73,7 +91,7 @@ export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
         ) : list.isError ? (
           <div className={`${dashboardStyles.dashboard} ${dashboardStyles.statePanel}`}>
             <Inbox aria-hidden="true" />
-            <h2>문의 목록을 불러오지 못했어요</h2>
+            <h2>문의 목록 불러오기 실패</h2>
             <p>
               {status ? `${inquiryStatusLabels[status]} 상태 · ` : '전체 상태 · '}페이지 {page}
             </p>

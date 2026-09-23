@@ -117,7 +117,10 @@ npick:
     # 값을 바꿀 때는 config-version 도 함께 올린다 — 그러지 않으면 다른 설정으로 돌린
     # 두 실행이 search_execution 에서 같은 설정으로 보인다.
     candidate:
-      config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v1}
+      # candidate-v2: 확장어를 구 단위 AND 로 걸기 시작한 판 (S15P21A501-302). 설정 값 자체는
+      # 안 바뀌었지만 같은 값으로 순위가 달라지므로, 라벨을 올려 두지 않으면 전후 실행이
+      # search_execution 에서 구분되지 않는다.
+      config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v2}
       # 가중치 0 은 그 필드를 검색 대상에서 제외한다는 뜻이다. 실측 전까지 세 채널을 동일 가중으로 둔다.
       caption-weight: ${SEARCH_CANDIDATE_CAPTION_WEIGHT:1.0}
       transcript-weight: ${SEARCH_CANDIDATE_TRANSCRIPT_WEIGHT:1.0}

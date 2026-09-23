@@ -3,7 +3,15 @@ export interface DateRange {
   to: string;
 }
 
+export type DateBasis = 'broadcast' | 'filming';
+export type SearchDateRanges = Record<DateBasis, DateRange>;
+export const dateBasisLabels: Record<DateBasis, string> = {
+  broadcast: '방송일',
+  filming: '촬영일',
+};
+
 export const emptyDateRange: DateRange = { from: '', to: '' };
+export const MIN_SELECTABLE_DATE = '1950-01-01';
 
 export type RecentYearPreset = 1 | 2 | 3;
 
@@ -19,6 +27,8 @@ export function validateDateRange(range: DateRange, maxDate?: string): string {
   if (!isCalendarDate(range.from) || !isCalendarDate(range.to))
     return '올바른 날짜를 입력해 주세요.';
   if (range.from > range.to) return '종료일은 시작일과 같거나 이후여야 해요.';
+  if (range.from < MIN_SELECTABLE_DATE || range.to < MIN_SELECTABLE_DATE)
+    return '1950년 1월 1일 이전 날짜는 선택할 수 없습니다.';
   if (maxDate && (range.from > maxDate || range.to > maxDate))
     return '시작일과 종료일은 오늘 이후 날짜로 선택할 수 없습니다.';
   return '';

@@ -65,6 +65,7 @@
 .navAction {
   display: flex;
   align-items: center;
+  justify-content: center;
   min-height: 52px;
   border-radius: 18px;
 }
@@ -82,7 +83,8 @@
 .navAction {
   width: 100%;
   gap: 0;
-  padding: 0 14px;
+  /* 접힌 버튼(52px)에서 21px 아이콘이 가운데 오도록 (52 - 21) / 2. */
+  padding: 0 15.5px;
   border: 0;
   color: #17243b;
   background: transparent;
@@ -125,6 +127,7 @@
   opacity: 1;
 }
 .navDock[data-expanded='true'] .navAction {
+  justify-content: flex-start;
   gap: 13px;
 }
 .navAction:focus-visible,
@@ -203,10 +206,61 @@
   color: #516477;
   font-size: 10px;
 }
+
+/* 제목과 전체 삭제 버튼을 한 줄에 좌우로 둔다 (S15P21A501-291). */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+}
+.clearAllButton {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin: 0 4px 13px 0;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 48%);
+  color: #516477;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.clearAllButton:hover {
+  background: rgb(176 32 42 / 12%);
+  color: #8c1620;
+}
+.clearAllButton:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 2px;
+}
+.clearAllButton svg {
+  width: 14px;
+  height: 14px;
+}
 .listViewport {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(81 100 119 / 40%) transparent;
+  scrollbar-gutter: stable;
+}
+.listViewport::-webkit-scrollbar {
+  width: 6px;
+}
+.listViewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.listViewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(81 100 119 / 40%);
+}
+.listViewport::-webkit-scrollbar-thumb:hover {
+  background: rgb(81 100 119 / 65%);
 }
 .groupLabel {
   display: flex;
@@ -292,8 +346,8 @@
 /*
  * 삭제 확인. 되돌릴 수 없는 동작이라 목록 위에 모달로 띄운다 (S15P21A501-277).
  *
- * 베이스 .dialog 와 같은 명시도로 쓰면 padding: 0 과 어느 쪽이 이길지가 스타일시트 로드 순서에 달린다. 형제인
- * 검색 기록 상세가 .dialog[open][data-theme] 로 올려 둔 것과 같은 이유이며 같은 패턴을 쓴다.
+ * 베이스 .dialog 와 같은 명시도로 쓰면 padding: 0 과 어느 쪽이 이길지가 스타일시트 로드 순서에 달리므로
+ * .dialog[open][data-theme] 와 같은 수준으로 명시도를 올린다.
  *
  * 배경과 모서리도 직접 정한다. .dialogTheme 의 --background 는 따뜻한 베이지(#efeae3)라 검색 기록 패널의
  * 차가운 흰-파랑 계통과 어긋나고, 베이스에는 border-radius 가 없어 각진 모서리로 나간다.

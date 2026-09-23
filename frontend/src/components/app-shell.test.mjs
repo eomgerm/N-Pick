@@ -15,12 +15,6 @@ registerHooks({
         shortCircuit: true,
       };
     }
-    if (specifier === '@/components/mountain-backdrop') {
-      return {
-        url: 'data:text/javascript,export function MountainBackdrop() { return null; }',
-        shortCircuit: true,
-      };
-    }
     if (specifier === 'next/navigation') {
       return {
         url: 'data:text/javascript,export function usePathname() { return globalThis.testPathname; }',

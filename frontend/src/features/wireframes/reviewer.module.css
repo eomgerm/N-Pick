@@ -166,6 +166,14 @@
   padding: 24px 32px 64px 124px;
 }
 
+.page.inquiryPage {
+  --inquiry-panel-height: calc(
+    100dvh - var(--layout-top-inset) - var(--nav-collapsed-width) - var(--nav-top-gap) - 64px
+  );
+  padding-top: calc(var(--nav-top-gap) - 14px);
+  padding-bottom: 64px;
+}
+
 .hero {
   display: flex;
   align-items: flex-end;
