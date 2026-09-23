@@ -9,7 +9,6 @@ import {
   type DropzoneKind,
   FieldError,
   FileDropzone,
-  SelectedFileRow,
   VideoFileField,
 } from '@/features/wireframes/registration-file-fields';
 import { RegistrationDatePicker } from '@/features/wireframes/registration-date-picker';
@@ -494,54 +493,38 @@ export function VideoRegistration({
                     accept={subtitleAccept}
                     error={fieldErrors.subtitle ?? ''}
                     hasFile={Boolean(subtitle)}
-                    hint="SRT·VTT·JSON 1개 · 10 MiB 이하"
+                    hint={subtitle ? undefined : 'SRT·VTT·JSON 1개 · 10 MiB 이하'}
                     isDisabled={isBusy}
                     isChecking={checkingFiles.subtitle}
                     kind="subtitle"
                     label="자막 파일"
                     onFiles={(files) => void handleFiles('subtitle', files)}
+                    selectedFile={subtitle}
+                    onRemove={() => {
+                      markEdited('subtitle');
+                      setSubtitle(null);
+                      setLiveMessage(`자막 파일 ${subtitle?.name}이 삭제되었습니다.`);
+                    }}
                   />
-                  {subtitle ? (
-                    <ul aria-label="선택한 자막 파일" className={styles.files}>
-                      <SelectedFileRow
-                        file={subtitle}
-                        isDisabled={isBusy}
-                        label="자막 파일"
-                        onRemove={() => {
-                          markEdited('subtitle');
-                          setSubtitle(null);
-                          setLiveMessage(`자막 파일 ${subtitle.name}이 삭제되었습니다.`);
-                        }}
-                      />
-                    </ul>
-                  ) : null}
                 </div>
                 <div>
                   <FileDropzone
                     accept={scriptAccept}
                     error={fieldErrors.scriptText ?? ''}
                     hasFile={Boolean(script)}
-                    hint="UTF-8 TXT 1개"
+                    hint={script ? undefined : 'UTF-8 TXT 1개'}
                     isDisabled={isBusy}
                     isChecking={checkingFiles.script}
                     kind="script"
                     label="일반 대본 파일"
                     onFiles={(files) => void handleFiles('script', files)}
+                    selectedFile={script}
+                    onRemove={() => {
+                      markEdited('scriptText');
+                      setScript(null);
+                      setLiveMessage(`일반 대본 파일 ${script?.name}이 삭제되었습니다.`);
+                    }}
                   />
-                  {script ? (
-                    <ul aria-label="선택한 일반 대본 파일" className={styles.files}>
-                      <SelectedFileRow
-                        file={script}
-                        isDisabled={isBusy}
-                        label="일반 대본 파일"
-                        onRemove={() => {
-                          markEdited('scriptText');
-                          setScript(null);
-                          setLiveMessage(`일반 대본 파일 ${script.name}이 삭제되었습니다.`);
-                        }}
-                      />
-                    </ul>
-                  ) : null}
                 </div>
               </div>
             </section>

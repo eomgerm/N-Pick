@@ -62,7 +62,7 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
     mimeType: 'text/vtt',
     buffer: Buffer.from('WEBVTT\n\n00:00.000 --> 00:01.000\n뉴스'),
   });
-  await expect(page.getByRole('list', { name: '선택한 자막 파일' })).toContainText('자막.vtt');
+  await expect(page.locator('#subtitle-selection')).toContainText('자막.vtt');
 
   const transfer = await page.evaluateHandle(() => {
     const data = new DataTransfer();
@@ -77,7 +77,7 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
   await page
     .locator('#script-file')
     .setInputFiles({ name: '대본.txt', mimeType: 'text/plain', buffer: Buffer.from('정상 대본') });
-  await expect(page.getByRole('list', { name: '선택한 일반 대본 파일' })).toContainText('대본.txt');
+  await expect(page.locator('#script-selection')).toContainText('대본.txt');
 
   await videoInput.setInputFiles({
     name: '재선택한-영상.mp4',
@@ -87,7 +87,7 @@ test('위장 파일을 차단하고 선택 영역 안에서 영상 정보·재�
   await expect(videoZone).toContainText('재선택한-영상.mp4');
   await expect(videoZone).not.toContainText('첫번째.mp4');
   await expect(page.locator('#registration-title')).toHaveValue('유지할 제목');
-  await expect(page.getByRole('list', { name: '선택한 자막 파일' })).toContainText('자막.vtt');
+  await expect(page.locator('#subtitle-selection')).toContainText('자막.vtt');
   await expect(page.locator('#rights-confirmed')).toBeChecked();
   await page.evaluate(() => window.scrollTo(0, 0));
   await videoZone.screenshot({ path: 'test-results/video-registration-selected.png' });

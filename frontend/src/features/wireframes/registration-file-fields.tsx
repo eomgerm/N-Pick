@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, FileText, Film, Plus, UploadCloud, X } from 'lucide-react';
+import { FileText, Film, Plus, UploadCloud, X } from 'lucide-react';
 import { type DragEvent, useEffect, useRef, useState } from 'react';
 
 import {
@@ -94,7 +94,8 @@ export function FileDropzone({
         <input
           accept={accept}
           aria-describedby={[
-            error ? `${kind}-error` : hint ? `${kind}-hint` : `${kind}-desc`,
+            // 영상만 섹션 설명(video-desc)이 있다. 없는 id 를 가리키지 않는다.
+            error ? `${kind}-error` : hint ? `${kind}-hint` : isVideo ? 'video-desc' : '',
             selectedFile ? `${kind}-selection` : '',
           ]
             .filter(Boolean)
@@ -119,6 +120,8 @@ export function FileDropzone({
             ) : (
               <UploadCloud aria-hidden="true" />
             )
+          ) : selectedFile ? (
+            <FileText aria-hidden="true" />
           ) : (
             <Plus aria-hidden="true" />
           )}
@@ -161,34 +164,6 @@ export function FileDropzone({
       ) : null}
       {error ? <FieldError id={`${kind}-error`}>{error}</FieldError> : null}
     </div>
-  );
-}
-
-export function SelectedFileRow({
-  file,
-  isDisabled,
-  label,
-  onRemove,
-}: {
-  file: File;
-  isDisabled: boolean;
-  label: string;
-  onRemove: () => void;
-}) {
-  return (
-    <li className={styles.fileRow}>
-      {label === '영상 파일' ? <Film aria-hidden="true" /> : <FileText aria-hidden="true" />}
-      <span>
-        <span className={styles.selectionStatus}>
-          <Check aria-hidden="true" /> 선택됨
-        </span>
-        <strong>{file.name}</strong>
-        <small>{formatFileSize(file.size)}</small>
-      </span>
-      <button aria-label={`${label} 삭제`} disabled={isDisabled} onClick={onRemove} type="button">
-        <X aria-hidden="true" />
-      </button>
-    </li>
   );
 }
 

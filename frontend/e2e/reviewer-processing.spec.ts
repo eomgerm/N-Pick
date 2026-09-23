@@ -498,9 +498,11 @@ test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 �
   await page.locator('label[data-kind="subtitle"]').dispatchEvent('drop', {
     dataTransfer: subtitleTransfer,
   });
-  const subtitleList = page.getByRole('list', { name: '선택한 자막 파일' });
-  await expect(subtitleList).toContainText('선택됨');
-  await expect(subtitleList).toContainText('뉴스.srt');
+  // 선택한 파일은 영상처럼 선택 영역 안에 보이고, 아래에 따로 목록을 만들지 않는다.
+  const subtitleSelection = page.locator('label[data-kind="subtitle"] #subtitle-selection');
+  await expect(subtitleSelection).toContainText('선택됨');
+  await expect(subtitleSelection).toContainText('뉴스.srt');
+  await expect(page.getByRole('list', { name: '선택한 자막 파일' })).toHaveCount(0);
   await expect(page.getByRole('status')).toHaveText('자막 파일 뉴스.srt이 선택되었습니다.');
 
   await page.locator('#script-file').setInputFiles({
@@ -508,15 +510,16 @@ test('자막과 대본의 선택·오류·삭제를 알리고 자막 드롭을 �
     mimeType: 'text/plain',
     buffer: Buffer.from('취재 대본'),
   });
-  await expect(page.getByRole('list', { name: '선택한 일반 대본 파일' })).toContainText(
+  await expect(page.locator('label[data-kind="script"] #script-selection')).toContainText(
     '취재대본.txt',
   );
+  await expect(page.getByRole('list', { name: '선택한 일반 대본 파일' })).toHaveCount(0);
   await expect(page.getByRole('status')).toHaveText(
     '일반 대본 파일 취재대본.txt이 선택되었습니다.',
   );
 
   await page.getByRole('button', { name: '자막 파일 삭제' }).click();
-  await expect(subtitleList).toHaveCount(0);
+  await expect(subtitleSelection).toHaveCount(0);
   await expect(page.getByRole('status')).toHaveText('자막 파일 뉴스.srt이 삭제되었습니다.');
 });
 
