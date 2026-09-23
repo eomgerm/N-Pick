@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft } from 'lucide-react';
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import {
@@ -24,6 +24,8 @@ interface DateRangePickerProps {
     className: string;
     icon: ReactNode;
     onOpen: () => void;
+    /** <·트리거 재클릭·적용으로 닫을 때 부릅니다. 초기화·Esc·바깥 클릭은 부르지 않습니다. */
+    onClose: () => void;
   };
   onChange: (value: DateRange) => void;
 }
@@ -32,7 +34,7 @@ interface DateRangePickerProps {
  * 달력 버튼에 붙는 기간 선택 드롭다운입니다.
  * 화면을 덮는 모달 대신 트리거 아래에 작은 패널을 띄우고,
  * 바깥 클릭·Esc·포커스 이탈로 닫습니다. 선택 값은 "적용"에서 반영하고,
- * 초기화는 한 번의 클릭으로 즉시 반영합니다.
+ * 초기화는 패널을 연 채 한 번의 클릭으로 즉시 반영합니다.
  */
 export function DateRangePicker({
   label,
@@ -88,6 +90,11 @@ export function DateRangePicker({
     triggerRef.current?.focus();
   }
 
+  function handleDismiss() {
+    handleClose();
+    navigationTrigger?.onClose();
+  }
+
   return (
     <div
       className={styles.dateField}
@@ -115,7 +122,7 @@ export function DateRangePicker({
         data-active={isOpen}
         data-applied={Boolean(value.from && value.to)}
         disabled={isDisabled}
-        onClick={() => (isOpen ? handleClose() : handleOpen())}
+        onClick={() => (isOpen ? handleDismiss() : handleOpen())}
         ref={triggerRef}
         title={isCompact ? `${label} 기간 선택: ${formatDateRange(value)}` : undefined}
         type="button"
@@ -154,7 +161,6 @@ export function DateRangePicker({
                   setDraft(emptyDateRange);
                   setError('');
                   onChange(emptyDateRange);
-                  handleClose();
                 }}
                 type="button"
               >
@@ -163,10 +169,10 @@ export function DateRangePicker({
               <button
                 aria-label={`${label} 기간 선택 닫기`}
                 className={styles.popoverClose}
-                onClick={handleClose}
+                onClick={handleDismiss}
                 type="button"
               >
-                <X aria-hidden="true" />
+                <ChevronLeft aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -211,16 +217,13 @@ export function DateRangePicker({
             </p>
           ) : null}
           <div className={styles.popoverFooter}>
-            <button onClick={handleClose} type="button">
-              취소
-            </button>
             <button
               className={styles.primaryButton}
               onClick={() => {
                 const message = validateDateRange(draft, seoulToday());
                 setError(message);
                 if (message) return;
-                handleClose();
+                handleDismiss();
                 onChange(draft);
               }}
               type="button"
