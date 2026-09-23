@@ -20,6 +20,13 @@ models/
 *.bin
 *.onnx
 *.safetensors
+# HF 허브 캐시가 ai/ 에 풀릴 때 생기는 것들. 위 `models/` 로는 안 걸린다 — 허브 캐시는
+# `models--<org>--<repo>/` 로 눕고 그 옆에 잠금 디렉터리와 CACHEDIR.TAG 를 만든다.
+# 테스트가 가중치를 받으면 바로 생기므로, 막아 두지 않으면 `git add .` 한 번에 GB 단위가
+# 커밋된다 (2026-09-23 실제로 이 상태로 올라와 있었다).
+models--*/
+.locks/
+CACHEDIR.TAG
 
 ### IDE ###
 .idea/
