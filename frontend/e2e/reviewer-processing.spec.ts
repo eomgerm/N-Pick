@@ -1019,6 +1019,8 @@ test('앞 쪽의 옛 총 쪽수로 새 쪽을 잘라 내지 않는다', async ({
   // 다시 늘어난 뒤 뒤로 가 4쪽을 연다. 4쪽 응답 전의 1쪽 총계(3쪽)로 잘라 내면 안 된다.
   count = 45;
   await page.goBack();
+  // 4쪽 응답 전, 1쪽을 대신 보여 주는 동안에도 URL 이 4쪽에 머물러야 한다.
+  await expect(page).toHaveURL(/progressPage=4$/);
   await expect(pager.getByRole('button', { name: '4페이지' })).toHaveAttribute(
     'aria-current',
     'page',

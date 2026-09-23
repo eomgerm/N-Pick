@@ -22,7 +22,7 @@
   width: 16px;
   height: 16px;
 }
-/* 현재 쪽은 색만이 아니라 굵기·테두리로도 구분한다. 화면별 `.page .pagination button` 굵기보다 앞서야 한다. */
+/* 현재 쪽은 색만이 아니라 굵기·테두리로도 구분한다. */
 .pageNumbers .pageButton[aria-current='page'] {
   box-shadow: inset 0 0 0 2px currentColor;
   font-weight: 700;
@@ -50,17 +50,15 @@
 }
 .jumpInput,
 .sizeSelect {
-  min-height: 36px;
+  /* 번호 버튼(review-dashboard.module.css `.pagination button`)과 높이·모서리를 맞춘다. */
+  min-height: 44px;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface);
   color: var(--text);
   font-size: 12px;
 }
-/* 옆의 번호 버튼(review-dashboard.module.css `.pagination button`)과 높이·모서리를 맞춘다. */
 .jumpInput {
-  min-height: 44px;
-  border-radius: 12px;
   width: 52px;
   padding: 0 8px;
   text-align: center;

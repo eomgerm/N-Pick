@@ -160,6 +160,10 @@ export function PageSizeSelect({
         onChange={(event) => {
           if (!isDisabled) onPageSizeChange(Number(event.target.value));
         }}
+        // 잠긴 동안 목록이 펼쳐지면 고를 수 있는 것처럼 보인다. 포커스는 두고 펼침만 막는다.
+        onMouseDown={(event) => {
+          if (isDisabled) event.preventDefault();
+        }}
         value={pageSize}
       >
         {PAGE_SIZE_OPTIONS.map((size) => (
