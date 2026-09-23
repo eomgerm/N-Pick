@@ -122,3 +122,20 @@ test('add: guard 없으면 규칙 없음, 있으면 guard 조건', () => {
   assert.deepEqual(rule.condition.all, [{ axis: 'incident_names', op: 'has_value', value: '추석' }]);
   assert.deepEqual(rule.patch.operations, [{ op: 'add_item', axis: 'expanded_terms', value: '나들이' }]);
 });
+
+const { describeEdits } = await import('./interpretation-edit.ts');
+
+test('편집을 사람 문장으로 요약한다', () => {
+  const out = describeEdits([
+    { kind: 'move', from: 'locations', to: 'entities', value: '경부고속도로' },
+    { kind: 'add', axis: 'expanded_terms', value: '나들이' },
+    { kind: 'remove', axis: 'incident_names', value: '추석' },
+    { kind: 'edit', axis: 'entities', from: '한국도로공사', to: '도로공사' },
+  ]);
+  assert.deepEqual(out, [
+    { key: '이동', text: '\u2018경부고속도로\u2019를 장소·시설에서 인물·기관으로' },
+    { key: '추가', text: '검색 의미어에 \u2018나들이\u2019' },
+    { key: '삭제', text: '사건명에서 \u2018추석\u2019 제거' },
+    { key: '수정', text: '인물·기관 \u2018한국도로공사\u2019를 \u2018도로공사\u2019로' },
+  ]);
+});

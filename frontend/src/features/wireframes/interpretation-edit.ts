@@ -3,6 +3,7 @@ import {
   type PatchOperation,
   PARSE_RULE_SYNTAX_VERSION,
   RESOLUTION_SCHEMA_VERSION,
+  resolutionAxisLabels,
 } from '@/features/wireframes/review-parse-rule-api';
 import { type Resolution } from '@/features/wireframes/reviewer-resolution-state';
 
@@ -151,4 +152,19 @@ export function deriveParseRules(
     }
   }
   return rules;
+}
+
+export function describeEdits(edits: ChipEdit[]): { key: string; text: string }[] {
+  return edits.map((edit) => {
+    if (edit.kind === 'remove')
+      return { key: '삭제', text: `${resolutionAxisLabels[edit.axis]}에서 ‘${edit.value}’ 제거` };
+    if (edit.kind === 'edit')
+      return { key: '수정', text: `${resolutionAxisLabels[edit.axis]} ‘${edit.from}’를 ‘${edit.to}’로` };
+    if (edit.kind === 'move')
+      return {
+        key: '이동',
+        text: `‘${edit.value}’를 ${resolutionAxisLabels[edit.from]}에서 ${resolutionAxisLabels[edit.to]}으로`,
+      };
+    return { key: '추가', text: `${resolutionAxisLabels[edit.axis]}에 ‘${edit.value}’` };
+  });
 }
