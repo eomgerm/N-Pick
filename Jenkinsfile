@@ -64,6 +64,8 @@ pipeline {
           def isMergeRequest = env.gitlabActionType == 'MERGE' && env.gitlabTargetBranch == 'dev'
           PIPELINE_MODE = isMergeRequest ? 'MR' : 'DEPLOY'
 
+          // 이전 실행이 비정상 종료돼 root 소유 산출물이 남아도 Checkout 전에 복구한다.
+          sh 'docker exec -u 0 jenkins chown -R "$(id -u):$(id -g)" "$WORKSPACE"'
           if (isMergeRequest) {
             // 잡 자체는 */dev 의 Jenkinsfile 을 신뢰해 시작한다. 실제 검증 대상만 MR 소스와
             // 최신 dev 의 임시 병합 결과로 바꿔, 머지 충돌과 버전 역전을 머지 전에 잡는다.
@@ -277,7 +279,23 @@ pipeline {
     cleanup {
       // always 가 아니라 cleanup 이다. always 는 failure 보다 먼저 실행되어
       // rollback.sh 를 지워버린다(2026-09-07 실측).
-      cleanWs()
+      script {
+        if (PIPELINE_MODE == 'MR') {
+          // sh 단계가 취소돼도 sibling 테스트 컨테이너는 계속 파일을 쓸 수 있다.
+          // 이 빌드의 컨테이너가 모두 끝난 뒤 권한을 돌리고 동기적으로 정리한다.
+          sh '''
+            set -eu
+            for container in $(docker ps -q --filter "label=npick.mr.build=$BUILD_TAG"); do
+              docker stop --time 10 "$container" || true
+            done
+            test -z "$(docker ps -q --filter "label=npick.mr.build=$BUILD_TAG")"
+            docker exec -u 0 jenkins chown -R "$(id -u):$(id -g)" "$WORKSPACE"
+          '''
+          cleanWs(deleteDirs: true, disableDeferredWipeout: true)
+        } else {
+          cleanWs()
+        }
+      }
     }
   }
 }
