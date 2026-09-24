@@ -21,6 +21,7 @@ set -eu
 HOST_UID="$(stat -c %u "$WORKSPACE")"
 HOST_GID="$(stat -c %g "$WORKSPACE")"
 docker run --rm \
+  --label "npick.mr.build=${BUILD_TAG:-manual-$$}" \
   --network host \
   --add-host=host.docker.internal:host-gateway \
   -e TESTCONTAINERS_HOST_OVERRIDE=host.docker.internal \

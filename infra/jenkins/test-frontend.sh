@@ -15,6 +15,7 @@ set -eu
 HOST_UID="$(stat -c %u "$WORKSPACE")"
 HOST_GID="$(stat -c %g "$WORKSPACE")"
 docker run --rm \
+  --label "npick.mr.build=${BUILD_TAG:-manual-$$}" \
   --volumes-from "${JENKINS_CONTAINER:-$(hostname)}" \
   -v npick-ci-npm:/root/.npm \
   -w "$WORKSPACE/frontend" \
