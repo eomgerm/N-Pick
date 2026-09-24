@@ -36,6 +36,7 @@ pipeline {
     gitlab(
       triggerOnPush: true,
       triggerOnMergeRequest: true,
+      triggerOnlyIfNewCommitsPushed: true,
       triggerOpenMergeRequestOnPush: 'both',
       skipWorkInProgressMergeRequest: true,
       cancelPendingBuildsOnUpdate: true,
