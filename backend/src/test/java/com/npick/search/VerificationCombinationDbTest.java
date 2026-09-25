@@ -23,15 +23,18 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
      * flip → 검색 → 롤백)이 손대는 대상이 아니므로 그 롤백으로 되돌아가지 않는다. 공유 DB(NpickPostgres)에 {@code active=true} 로 남으면
      * {@code ParseRuleRepositoryAdapter.findActivePatchParseRules()} 가 전역(질의 무관) 조회라 다음에 실행되는 다른 검증 DbTest 의 실
      * {@code interpret()} 까지 오염시킨다 — {@code condition_json='{}'} 는 파싱 실패로 {@code SKIPPED_INCOMPATIBLE}(degraded 사유)이 되어
-     * 그 실행의 status 가 succeeded 대신 degraded 로 뒤바뀐다.
+     * 그 실행의 status 가 succeeded 대신 degraded 로 뒤바뀐다. 복합 확정 테스트가 confirm 으로 활성화한 COMPOSITE_PARSE_RULE·
+     * COMPOSITE_EXCLUDE_RULE 도 같은 이유로 되돌린다(S15P21A501-309).
      */
     @AfterEach
     void deactivateLeakedActiveRules() {
         jdbc.update(
-                "UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (?, ?, ?)",
+                "UPDATE npick.search_rule SET active = false WHERE search_rule_id IN (?, ?, ?, ?, ?)",
                 R1,
                 OTHER_ACTIVE,
-                MULTI_OLD_RULE);
+                MULTI_OLD_RULE,
+                COMPOSITE_PARSE_RULE,
+                COMPOSITE_EXCLUDE_RULE);
     }
 
     private static final long MEMBER_ID = 8305001L,
@@ -44,7 +47,9 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
             R1 = 8305080L,
             R2 = 8305081L,
             OTHER_ACTIVE = 8305082L,
-            MULTI_OLD_RULE = 8305180L;
+            MULTI_OLD_RULE = 8305180L,
+            COMPOSITE_PARSE_RULE = 8305191L,
+            COMPOSITE_EXCLUDE_RULE = 8305192L;
 
     @Autowired
     VerifyCorrectionCandidatesUseCase useCase;
@@ -169,7 +174,10 @@ class VerificationCombinationDbTest extends AbstractVerificationSearchDbTest {
                 exec = EXEC_ID + 3,
                 result = RESULT_ID + 3,
                 feedbackId = FEEDBACK_ID + 3;
-        long parseRule = 8305191L, excludeRule = 8305192L, evidenceId = 8305193L, execId = 8305194L;
+        long parseRule = COMPOSITE_PARSE_RULE,
+                excludeRule = COMPOSITE_EXCLUDE_RULE,
+                evidenceId = 8305193L,
+                execId = 8305194L;
         TestGraph.insertSearchableReportedScene(jdbc, member, clip, run, scene, exec, result, feedbackId);
         // 통합 판정. 세 종류 후보를 한 신고 아래 함께 담는다.
         jdbc.update("UPDATE npick.feedback SET resolution = 'correction' WHERE feedback_id = ?", feedbackId);
