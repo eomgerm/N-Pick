@@ -17,12 +17,14 @@ import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 
 interface ClaimReleaseControlProps {
   feedbackId: string;
+  /** 확정 직후 부른다. 성공해 이 컨트롤이 사라진 뒤의 포커스는 부모가 맡는다. */
+  onConfirm: () => void;
 }
 
 // 담당 검수자가 선점을 풀어 다른 검수자가 맡을 수 있게 한다 (S15P21A501-289). 서버가 대기 중인
 // 교정 후보를 모두 폐기하므로 확인 단계를 거친다. 성공하면 상세가 OPEN 으로 다시 그려지면서
 // 교정 편집기·태그 초안이 상태 key 로 새로 마운트된다.
-export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
+export function ClaimReleaseControl({ feedbackId, onConfirm }: ClaimReleaseControlProps) {
   const queryClient = useQueryClient();
   const { showSuccess } = useSuccessToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -54,6 +56,11 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
     restoreFocus.current = false;
     triggerRef.current?.focus();
   }, [confirmOpen]);
+
+  // 확정 후 실패해 검수 중으로 남으면, 다시 켜진 취소 버튼으로 포커스를 돌려준다.
+  useEffect(() => {
+    if (release.isError) triggerRef.current?.focus();
+  }, [release.isError]);
 
   function closeDialog() {
     restoreFocus.current = true;
@@ -131,6 +138,7 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
                 className={styles.primaryButton}
                 disabled={disabled}
                 onClick={() => {
+                  onConfirm();
                   release.mutate();
                   setConfirmOpen(false);
                 }}

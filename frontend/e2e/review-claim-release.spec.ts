@@ -127,6 +127,7 @@ test('확인하면 DELETE 를 보내고 성공 안내 뒤 미담당 상태로 �
   await expect(page.getByRole('status').filter({ hasText: '검수를 취소했습니다.' })).toBeVisible();
   await expect(page.getByText('아직 담당자가 없습니다.')).toBeVisible();
   await expect(page.getByRole('button', { name: /검수 시작/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /검수 시작/ })).toBeFocused();
   await expect(page.getByRole('button', { name: '검수 취소' })).toHaveCount(0);
   await expect(page.getByText('처리 판정')).toHaveCount(0);
   expect(requests).toEqual(['DELETE']);
@@ -187,6 +188,7 @@ test('보안 계층 403 은 담당자 안내 대신 서버 문구를 보여 주�
   ).toBeVisible();
   await expect(page.getByText('이 문의의 담당자만 검수를 취소할 수 있습니다.')).toHaveCount(0);
   await expect(releaseButton(page)).toBeEnabled();
+  await expect(releaseButton(page)).toBeFocused();
   await expect(page.getByText('처리 판정')).toBeVisible();
   await expect(page.getByText('검수를 취소했습니다.')).toHaveCount(0);
 });
@@ -206,6 +208,7 @@ test('담당자가 아니라는 403 은 담당자 안내를 보여 준다', asyn
     page.getByRole('alert').filter({ hasText: '이 문의의 담당자만 검수를 취소할 수 있습니다.' }),
   ).toBeVisible();
   await expect(releaseButton(page)).toBeEnabled();
+  await expect(releaseButton(page)).toBeFocused();
 });
 
 test('이미 풀린 문의의 409 뒤에는 상세를 다시 불러와 미담당 상태로 맞춘다', async ({ page }) => {
@@ -232,6 +235,7 @@ test('이미 풀린 문의의 409 뒤에는 상세를 다시 불러와 미담당
 
   await expect(page.getByText('아직 담당자가 없습니다.')).toBeVisible();
   await expect(page.getByRole('button', { name: /검수 시작/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /검수 시작/ })).toBeFocused();
   await expect(page.getByRole('button', { name: '검수 취소' })).toHaveCount(0);
   expect(detailGets).toBeGreaterThan(getsBefore);
   await expect(page.getByText('검수를 취소했습니다.')).toHaveCount(0);
