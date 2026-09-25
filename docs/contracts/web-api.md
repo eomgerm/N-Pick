@@ -44,6 +44,7 @@
 | 해석 교정 후보             | POST   | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 검수 교정 바인딩            |
 | 장면 제외 후보             | POST   | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 검수 교정 바인딩            |
 | 태그 교정 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/tag-correction-candidate` | BE 구현 | 후보 취소 바인딩            |
+| 태그 교정 후보 개별 취소   | DELETE | `/review/inquiries/{feedbackId}/tag-correction-candidate/{evidenceId}` | BE 구현 | 추가 태그 취소 바인딩 |
 | 해석 교정 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 후보 취소 바인딩            |
 | 장면 제외 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 후보 취소 바인딩            |
 | 후보 검증 재검색           | POST   | `/review/inquiries/{feedbackId}/verify`                   | BE 구현 | 검수 재검색·확정 바인딩     |
@@ -620,6 +621,15 @@ body는 생략하거나 다음처럼 보낸다.
 
 담당 검수자가 확정 전 대기 중인 태그 교정 후보를 취소한다. 가드는 검수자 role·`REVIEWING`·담당 검수자다. 이미 확정된(`confirmed=true`) 근거는 건드리지 않는다. 성공은 body 없는 `200`이다.
 
+`DELETE /review/inquiries/{feedbackId}/tag-correction-candidate/{evidenceId}` (S15P21A501-309)
+
+담당 검수자가 대기 중인 태그 교정 후보 근거 **하나만** 취소한다 — 같은 신고의 다른 대기 근거는 남긴다. 추가한 태그 하나를 취소할 때 쓴다(새로고침 뒤에도 다른 후보를 지우지 않는다).
+
+- `evidenceId`는 생성 응답 `evidenceIds`의 문자열(TSID)을 그대로 넣는다.
+- 가드·검사 순서·오류 코드는 위 전체 취소와 같다: 검수자 role(`TAG_403_001`) → 교정 상태 잠금 → 신고 존재(`TAG_404_001`) → `REVIEWING`(`TAG_409_001`) → 담당 검수자(`TAG_403_002`).
+- 이 신고가 만든(`source_feedback_id`) 검수자 근거(`source='reviewer_feedback'`) 중 `confirmed=false`인 해당 근거만 지운다. 이미 확정됐거나, 다른 신고의 근거이거나, 없는 id면 아무것도 지우지 않고 성공한다(멱등).
+- 성공은 body 없는 `200`이다.
+
 `POST /review/inquiries/{feedbackId}/scene-exclude-candidate` (S15P21A501-82)
 
 검수 중(`REVIEWING`)이고 처리 결과가 교정(`correction`, 또는 레거시 교정 종류)인 신고에서, 담당 검수자가 신고 장면의 제외 후보를 저장한다. 생성은 더 이상 특정 세부 종류가 일치할 것을 요구하지 않는다 — 하나의 교정 처리 결과 아래에서 태그·해석·장면 제외 후보를 섞어 함께 만들 수 있다(F-09/281). 후보는 `search_rule`에 `active=false`로 대기하며 검증(-83)·확정(-85) 전까지 검색에 반영되지 않는다.
@@ -651,6 +661,7 @@ body는 생략하거나 다음처럼 보낸다.
 - Body: `{ "condition": {…}, "patch": {…}, "replacesRuleId": "9201" }` — `condition`·`patch`는 `parse-rule/v1` JSON 객체이며 원문 그대로 보존한다(도메인 형식 정본은 규칙 스키마). `replacesRuleId`는 선택이며 교체 대상 규칙 id(정수 문자열, 소수는 거부).
 - 멱등은 `Idempotency-Key` 단위다. 같은 키 재요청은 후보를 중복 생성하지 않고 기존 후보를 돌려준다.
 - 한 신고에서 대기 중인 후보는 10개까지다. 확정되어 활성이 된 규칙은 세지 않는다. 상한에 닿은 뒤에도 같은 키의 멱등 재요청은 기존 후보를 돌려준다.
+- 같은 신고의 대기 중인 해석 후보끼리는 같은 활성 규칙을 교체 대상(`replacesRuleId`)으로 가리킬 수 없다 — 함께 확정하면 첫 교체가 그 규칙을 끈 뒤 둘째 교체가 실패해 전체가 롤백되기 때문이다. 이미 그런 대기 후보가 있으면 `409 SRCH_409_205`로 거부한다. 같은 `Idempotency-Key` 재요청은 이 검사보다 먼저 기존 후보를 돌려주므로 여전히 성공한다.
 - 대기 중인 해석 후보는 아래 `DELETE /review/inquiries/{feedbackId}/parse-patch-candidate`로 취소한다. 상한에 닿으면 대기 후보를 취소하거나 남은 후보로 검증·확정하거나 판정을 다시 내려야 한다.
 - 성공: 신규는 `201`, 멱등 재생은 `200`. `data`: `{ searchRuleId, feedbackId, active }`. `searchRuleId`·`feedbackId`는 정밀도 보존을 위해 문자열(TSID)이다 — §8의 신규 응답 string 규칙을 따른다(S15P21A501-202).
 
@@ -665,6 +676,7 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_409_202`  | 409  | 해석 교정으로 처리된 신고 아님    |
 | `SRCH_409_203`  | 409  | 원 검색에 교정할 해석 출력이 없음 |
 | `SRCH_409_204`  | 409  | 신고당 후보 10개 초과             |
+| `SRCH_409_205`  | 409  | 이미 같은 규칙을 교체하는 대기 후보가 있음 |
 
 `DELETE /review/inquiries/{feedbackId}/parse-patch-candidate` (S15P21A501-309)
 
@@ -704,10 +716,13 @@ body는 생략하거나 다음처럼 보낸다.
 | `SRCH_404_231`  | 404  | 신고 없음                         |
 | `SRCH_409_231`  | 409  | 검수 중이 아님                    |
 | `SRCH_409_232`  | 409  | 대기 중인 교정 후보가 없음        |
+| `SRCH_409_205`  | 409  | 이미 같은 규칙을 교체하는 대기 후보가 있음 |
+
+`SRCH_409_205`는 해석 후보 생성의 같은 검사를 검증 직전에 한 번 더 하는 방어다 — 생성 단계에서 이미 막지만, 레거시·직접 주입 데이터로 같은 규칙을 교체하는 대기 후보가 둘 이상 남아 있으면 재검색 전에 거부한다.
 
 동시성 노트: 이 endpoint 한 요청은 실행 시작 기록(`REQUIRES_NEW`) → 외부 롤백 트랜잭션 → 완료/실패 기록(`REQUIRES_NEW`) 순으로 커넥션을 쓴다. 트랜잭션은 겹치지 않으므로 동시에 열리는 커넥션은 최대 1개다. 그래도 검증 동시 요청 상한 또는 커넥션 풀 크기는 동시 요청 수 × 2 이상을 보수적으로 권장한다. AI 리졸버 호출은 롤백 트랜잭션을 열기 전에 끝낸다(S15P21A501-219) — 트랜잭션은 flip과 재랭킹만 담당해 후보 행 잠금·커넥션을 점유하는 시간이 짧다.
 
-복수 규칙 후보는 모두 임시 활성화해 재검색하고 `verification_context_json.candidate_rules`에 `(approved_rule_id, replaced_rule_id)` 쌍 전체를 기록한다. 기존 `/confirm`의 단수 `approved_rule_id`/`replaced_rule_id` 계약도 유지한다. 따라서 복수 규칙 후보의 검증 결과는 확인할 수 있지만, 확정 시 일부만 반영되는 일을 막기 위해 `/confirm`은 이를 거부한다. 복수 규칙 일괄 확정은 별도 계약 확장이 필요하다.
+복수 규칙 후보는 모두 임시 활성화해 재검색하고 `verification_context_json.candidate_rules`에 `(approved_rule_id, replaced_rule_id, action)` 전체를 기록한다. `/confirm`은 이 `candidate_rules` 전체를 돌며 규칙마다 종류(`patch_parse`/`exclude_scene`)대로 활성화·교체를 한 트랜잭션으로 확정한다 — 하나라도 실패하면 전체를 롤백하므로 일부만 반영되지 않는다. 단수 `approved_rule_id`/`replaced_rule_id`/`approved_rule_action`은 첫 규칙 값으로 계속 기록하며(하위호환·신고의 `created_rule_id` 감사 기록), `candidate_rules`가 없는 레거시 스냅샷은 이 단수 필드로 한 건을 확정한다.
 
 `POST /review/inquiries/{feedbackId}/confirm` (S15P21A501-84)
 
