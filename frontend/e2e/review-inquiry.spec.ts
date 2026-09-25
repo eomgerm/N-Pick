@@ -35,7 +35,7 @@ function inquiry(feedbackId = '41', status = 'OPEN') {
       tagType: string;
       matchValue: string;
       tagName: string;
-      source: string | null;
+      sources: string[];
       verifiedState: string | null;
       scope: string;
     }>,
@@ -276,10 +276,12 @@ test('담당자 정보가 없는 검수 중 문의는 다른 담당자로 단정
   await expect(page.getByRole('button', { name: /^(문의 종료|판정 저장)$/ })).toHaveCount(0);
 });
 
-test('담당 검수자는 쉼표로 여러 태그를 추가하고 기존 태그 삭제 후보를 만든다', async ({ page }) => {
+test('담당 검수자는 여러 태그 추가 후보를 만들고 기존 태그 삭제 후보를 만든다', async ({
+  page,
+}) => {
   await reviewer(page);
   const current = inquiry('41', 'REVIEWING');
-  current.resolution = 'tag_correction';
+  current.resolution = 'correction';
   current.history.reviewerLoginId = 'e2e-reviewer';
   current.history.reviewerName = 'E2E 검수자';
   current.evidence = [
@@ -288,7 +290,7 @@ test('담당 검수자는 쉼표로 여러 태그를 추가하고 기존 태그 
       tagType: 'location',
       matchValue: '서울역',
       tagName: '서울역',
-      source: 'ocr',
+      sources: ['ocr'],
       verifiedState: 'verified',
       scope: 'SCENE',
     },
@@ -306,41 +308,63 @@ test('담당 검수자는 쉼표로 여러 태그를 추가하고 기존 태그 
   });
 
   await page.goto('/review?inquiry=41');
-  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('서울, 부산, 서울, 광주');
-  await expect(page.getByText('3개 후보: 서울 · 부산 · 광주')).toBeVisible();
-  await page.getByRole('button', { name: '3개 추가 후보 만들기' }).click();
-  await expect(page.getByText(/3개 태그를 검증 후보로 저장했습니다/)).toBeVisible();
-  expect(operations[0]).toEqual([
-    {
-      action: 'APPROVE',
-      scope: 'SCENE',
-      tagType: 'keyword',
-      matchValue: '서울',
-      displayName: '서울',
-    },
-    {
-      action: 'APPROVE',
-      scope: 'SCENE',
-      tagType: 'keyword',
-      matchValue: '부산',
-      displayName: '부산',
-    },
-    {
-      action: 'APPROVE',
-      scope: 'SCENE',
-      tagType: 'keyword',
-      matchValue: '광주',
-      displayName: '광주',
-    },
+  const tags = page.getByRole('list', { name: '현재 장면과 영상의 태그' });
+  const toast = page.getByText('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
+
+  // 추가 칩은 하나씩 확정한다 — ✓ 버튼, Enter, 다른 범위·유형 순으로 모두 같은 저장 경로를 탄다.
+  await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('서울');
+  await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
+  await expect(tags.getByText('서울', { exact: true })).toBeVisible();
+  await expect(toast).toBeVisible();
+
+  await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('부산');
+  await page.getByRole('textbox', { name: '태그 값', exact: true }).press('Enter');
+  await expect(tags.getByText('부산', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: '+ 영상 전체', exact: true }).click();
+  await page.getByRole('combobox', { name: '태그 유형', exact: true }).selectOption('location');
+  await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('광주');
+  await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
+  await expect(tags.getByText('광주', { exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '태그 값', exact: true })).toHaveCount(0);
+  expect(operations).toEqual([
+    [
+      {
+        action: 'APPROVE',
+        scope: 'SCENE',
+        tagType: 'keyword',
+        matchValue: '서울',
+        displayName: '서울',
+      },
+    ],
+    [
+      {
+        action: 'APPROVE',
+        scope: 'SCENE',
+        tagType: 'keyword',
+        matchValue: '부산',
+        displayName: '부산',
+      },
+    ],
+    [
+      {
+        action: 'APPROVE',
+        scope: 'CLIP',
+        tagType: 'location',
+        matchValue: '광주',
+        displayName: '광주',
+      },
+    ],
   ]);
 
-  await page.getByRole('button', { name: '삭제 후보' }).click();
-  await expect(page.getByText(/서울역.*태그를 삭제 후보로 만들까요/)).toBeVisible();
-  await page.getByRole('button', { name: '삭제 후보 저장' }).click();
-  await expect(page.getByText(/'서울역' 삭제 후보를 저장했습니다/)).toBeVisible();
-  // 연속 작업 시 이전 안내는 최신으로 교체된다(누적 없음) — 첫 성공 문구는 사라진다.
-  await expect(page.getByText(/3개 태그를 검증 후보로 저장했습니다/)).toHaveCount(0);
-  expect(operations[1]).toEqual([
+  await page.getByRole('button', { name: '‘서울역’ 삭제 후보', exact: true }).click();
+  await expect(page.getByRole('button', { name: '‘서울역’ 삭제 취소', exact: true })).toBeVisible();
+  await expect(tags.getByText('서울역', { exact: true })).toHaveCount(0);
+  // 연속 작업 시 이전 안내는 최신으로 교체된다(누적 없음) — 성공 토스트는 하나만 남는다.
+  await expect(toast).toHaveCount(1);
+  expect(operations[3]).toEqual([
     {
       action: 'REJECT',
       scope: 'SCENE',
@@ -585,7 +609,7 @@ test('성공 안내는 자동 소멸하고 실패 안내는 남는다 (S15P21A50
   await page.clock.install();
   await reviewer(page);
   const current = inquiry('41', 'REVIEWING');
-  current.resolution = 'tag_correction';
+  current.resolution = 'correction';
   current.history.reviewerLoginId = 'e2e-reviewer';
   let calls = 0;
   await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
@@ -600,19 +624,21 @@ test('성공 안내는 자동 소멸하고 실패 안내는 남는다 (S15P21A50
   });
 
   await page.goto('/review?inquiry=41');
-  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('서울');
-  await page.getByRole('button', { name: '1개 추가 후보 만들기' }).click();
+  await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('서울');
+  await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
 
   // 성공 안내는 토스트로 뜬다.
-  const toast = page.getByText(/1개 태그를 검증 후보로 저장했습니다/);
+  const toast = page.getByText('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
   await expect(toast).toBeVisible();
   // 일정 시간(5초) 뒤 자동으로 사라져 레이아웃을 계속 차지하지 않는다.
   await page.clock.fastForward(5_100);
   await expect(toast).toHaveCount(0);
 
   // 두 번째 저장은 실패 — 실패 안내는 토스트가 아니라 작업 영역에 뜨고, 자동 소멸하지 않는다.
-  await page.getByRole('textbox', { name: '태그 값 (쉼표로 구분)' }).fill('부산');
-  await page.getByRole('button', { name: '1개 추가 후보 만들기' }).click();
+  await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('부산');
+  await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
   const error = page.getByText('요청을 처리할 수 없습니다.', { exact: false });
   await expect(error).toBeVisible();
   await page.clock.fastForward(10_000);
@@ -625,15 +651,22 @@ test('판정 저장 성공도 자동 소멸 토스트로 뜬다 (S15P21A501-303)
   await page.clock.install();
   await reviewer(page);
   const current = inquiry('41', 'REVIEWING');
-  current.resolution = 'tag_correction';
   current.history.reviewerLoginId = 'e2e-reviewer';
+  const resolutions: unknown[] = [];
   await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
-  await page.route('**/api/v1/review/inquiries/41/resolution', (route) => success(route));
+  await page.route('**/api/v1/review/inquiries/41/resolution', async (route) => {
+    resolutions.push(route.request().postDataJSON());
+    await success(route);
+  });
 
   await page.goto('/review?inquiry=41');
-  await page.getByRole('button', { name: '판정 저장', exact: true }).click();
+  // 판정 전(resolution 없음) 문의에서 처리 결과를 교정으로 켜면 판정이 바로 저장된다.
+  const toggle = page.getByRole('switch', { name: '처리 결과', exact: true });
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await toggle.click();
   const toast = page.getByText('판정을 저장했습니다.', { exact: false });
   await expect(toast).toBeVisible();
+  expect(resolutions).toEqual([{ resolution: 'correction', note: null }]);
   await page.clock.fastForward(5_100);
   await expect(toast).toHaveCount(0);
 });

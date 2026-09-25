@@ -1,10 +1,11 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
-function inquiry(resolution: 'exclude_scene' | 'patch_parse') {
+// 교정 토글이 켜진(correction) 검수 중 문의만 장면 제외·해석 교정 편집을 연다.
+function inquiry() {
   return {
     feedbackId: '41',
     status: 'REVIEWING',
-    resolution,
+    resolution: 'correction',
     resolutionNote: null,
     createdAt: '2026-09-09T01:00:00Z',
     queryText: '귀성길 정체',
@@ -25,7 +26,14 @@ function inquiry(resolution: 'exclude_scene' | 'patch_parse') {
     execution: {
       queryText: '귀성길 정체',
       explicitFiltersJson: '{}',
-      parsedQueryJson: '{}',
+      // 해석 칩 편집기는 당시 해석 스냅샷에서 칩을 씨딩한다 — 빈 객체면 편집할 칩이 없다.
+      parsedQueryJson: JSON.stringify({
+        date_windows: [],
+        incident_names: [],
+        entities: [],
+        locations: [{ value: '서울역', type: 'location', origin: 'explicit' }],
+        expanded_terms: ['귀성길'],
+      }),
       resolverOutputJson: null,
       appliedRulesJson: '[]',
       appliedExcludesJson: '[]',
@@ -54,14 +62,14 @@ async function failure(route: Route, code: string) {
   });
 }
 
-async function openInquiry(page: Page, resolution: 'exclude_scene' | 'patch_parse') {
+async function openInquiry(page: Page) {
   await page.clock.install();
   await page.context().addCookies([
     { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
     { name: 'XSRF-TOKEN', value: 'review-csrf', url: 'http://127.0.0.1:3116' },
   ]);
   await page.route('**/api/v1/auth/csrf', (route) => success(route));
-  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, inquiry(resolution)));
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, inquiry()));
   await page.goto('/review?inquiry=41');
 }
 
@@ -77,9 +85,9 @@ test('장면 제외 실패 후 재시도 성공은 토스트로 뜨고 자동 �
     }
     await success(route, { searchRuleId: '71', feedbackId: '41', active: false });
   });
-  await openInquiry(page, 'exclude_scene');
+  await openInquiry(page);
 
-  const save = page.getByRole('button', { name: '제외 후보 저장', exact: true });
+  const save = page.getByRole('button', { name: '이 장면 제외', exact: true });
   await save.click();
   const error = page.getByText('검수 중인 문의가 아닙니다. 최신 상태를 다시 확인해 주세요.');
   await expect(error).toBeVisible();
@@ -95,7 +103,9 @@ test('장면 제외 실패 후 재시도 성공은 토스트로 뜨고 자동 �
   expect(calls).toBe(2);
 });
 
-test('해석 교정 실패 후 재시도 성공은 토스트로 뜨고 자동 소멸한다 (S15P21A501-303)', async ({
+// 해석 칩 편집기는 담기 성공을 토스트가 아니라 편집기 안 상태 문구로 남긴다 — 담은 교정이
+// '바뀌는 점'과 함께 계속 보여야 아래 검증으로 이어 갈 수 있기 때문이다 (S15P21A501-281).
+test('해석 교정 실패 안내는 남고 재시도 성공은 오류를 지우고 담기 완료를 안내한다 (S15P21A501-303)', async ({
   page,
 }) => {
   let calls = 0;
@@ -107,15 +117,12 @@ test('해석 교정 실패 후 재시도 성공은 토스트로 뜨고 자동 �
     }
     await success(route, { searchRuleId: '72', feedbackId: '41', active: false });
   });
-  await openInquiry(page, 'patch_parse');
+  await openInquiry(page);
 
-  const conditions = page.getByRole('group', { name: '적용 조건' });
-  await conditions.getByRole('textbox', { name: '값 (해당 조건만)' }).fill('서울역');
-  const changes = page.getByRole('group', { name: '변경 내용' });
-  await changes.getByRole('combobox', { name: '해석 항목' }).selectOption('expanded_terms');
-  await changes.getByRole('textbox', { name: '값', exact: true }).fill('귀성길');
+  await expect(page.getByRole('heading', { name: '검색 해석 교정', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: "'귀성길' 삭제", exact: true }).click();
 
-  const save = page.getByRole('button', { name: '해석 교정 후보 저장', exact: true });
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
   await save.click();
   const error = page.getByText('검수 중인 문의만 규칙 후보를 저장할 수 있습니다.');
   await expect(error).toBeVisible();
@@ -123,10 +130,7 @@ test('해석 교정 실패 후 재시도 성공은 토스트로 뜨고 자동 �
   await expect(error).toBeVisible();
 
   await save.click();
-  const toast = page.getByText('해석 교정 후보를 저장했습니다.', { exact: false });
-  await expect(toast).toBeVisible();
+  await expect(page.getByText('1개 교정을 담았어요. 아래에서 검증하고 확정하세요.')).toBeVisible();
   await expect(error).toHaveCount(0);
-  await page.clock.fastForward(5_100);
-  await expect(toast).toHaveCount(0);
   expect(calls).toBe(2);
 });
