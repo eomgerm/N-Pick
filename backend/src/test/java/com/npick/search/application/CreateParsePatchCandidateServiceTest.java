@@ -396,4 +396,52 @@ class CreateParsePatchCandidateServiceTest {
         assertThat(outcome.searchRuleId()).isEqualTo(555L);
         assertThat(outcome.created()).isFalse();
     }
+
+    @Test
+    @DisplayName("value_from 과 공백 리터럴 value 를 함께 적으면 본문 오류(SRCH_400_201)로 거부한다")
+    void rejectsWhitespaceLiteralBesideValueFrom() {
+        readyToInsert();
+        String operation = "{\"op\":\"add_item\",\"axis\":\"incident_names\",\"value\":\"" + " ".repeat(1000)
+                + "\",\"value_from\":{\"axis\":\"locations\",\"type\":\"location\",\"value\":\"○○공장\"}}";
+        assertThatThrownBy(() -> service.create(command(true, 9L, CONDITION, patch(1, operation), null)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(ParseRuleCandidateErrorCode.INVALID_CANDIDATE));
+        verify(candidateRepository, never()).insertIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("value_from 옆 value 가 빈 문자열이면 값 없음과 같게 보고 저장한다")
+    void acceptsEmptyLiteralBesideValueFrom() {
+        readyToInsert();
+        String operation = "{\"op\":\"add_item\",\"axis\":\"incident_names\",\"value\":\"\","
+                + "\"value_from\":{\"axis\":\"locations\",\"type\":\"location\",\"value\":\"○○공장\"}}";
+        assertThat(service.create(command(true, 9L, CONDITION, patch(1, operation), null))
+                        .created())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("문법이 읽지 않는 필드(unset 의 type)에 큰 값을 실으면 저장 크기 상한으로 거부한다")
+    void rejectsHugeUnusedField() {
+        readyToInsert();
+        String operation = "{\"op\":\"unset\",\"axis\":\"intent\",\"type\":\"" + "x".repeat(9000) + "\"}";
+        assertTooLarge(CONDITION, patch(1, operation));
+    }
+
+    @Test
+    @DisplayName("필드별 상한을 모두 채운 가장 긴 정상 본문(조건 10개·연산 10개, 값 100자)은 저장한다")
+    void acceptsLongestLegitimateBody() {
+        readyToInsert();
+        String hundred = "가".repeat(100);
+        String predicate = "{\"axis\":\"incident_names\",\"op\":\"has_value\",\"value\":\"" + hundred + "\"}";
+        String condition = "{\"syntax_version\":\"parse-rule/v1\",\"resolution_schema_version\":\"query-resolver/v2\","
+                + "\"all\":[" + String.join(",", Collections.nCopies(10, predicate)) + "]}";
+        String operation = "{\"op\":\"add_item\",\"axis\":\"entities\",\"type\":\"organization\",\"value_from\":"
+                + "{\"axis\":\"entities\",\"type\":\"organization\",\"value\":\"" + hundred + "\"}}";
+
+        assertThat(service.create(command(true, 9L, condition, patch(10, operation), null))
+                        .created())
+                .isTrue();
+    }
 }
