@@ -59,7 +59,8 @@ function computeGuard(original: Chip[]): { axis: EditableAxis; value: string } |
 
 /**
  * 규칙 내용으로부터 결정론적 멱등성 키를 만든다. 같은 내용은 매번 같은 키가 되어, 중간 실패 뒤
- * 재시도해도 이미 만든 후보를 새로 만들지 않고 서버가 기존 후보를 그대로 돌려준다 (SRCH_409_204 방지).
+ * 재시도해도 이미 만든 후보를 새로 만들지 않고 서버가 기존 후보를 그대로 돌려준다 — 재시도마다 후보가
+ * 쌓여 신고당 후보 상한(SRCH_409_204)에 닿는 것을 막는다.
  */
 async function ruleIdempotencyKey(
   feedbackId: string,
@@ -134,8 +135,8 @@ export function ParseInterpretationEditor({
           message: '교정 값은 20자 이하여야 합니다.',
         });
       }
-      // 백엔드 확정은 candidate_rules 가 2건 이상이면 거부하므로, 편집이 여러 개여도 후보 1건으로 합쳐
-      // 보낸다. 합친 본문도 서버가 거부할 수 있으니 POST 전에 검증한다.
+      // 편집이 여러 개여도 후보 1건으로 합쳐 보낸다 — 저장 1회가 후보 1건이어야 재저장 때 이전 후보를
+      // 깔끔히 폐기·교체할 수 있다. 합친 본문도 서버가 거부할 수 있으니 POST 전에 검증한다.
       const combined = combineParseRules(rules);
       const problem = validateParseRuleBody(combined);
       if (problem) {
@@ -162,8 +163,12 @@ export function ParseInterpretationEditor({
     mutationFn: () => discardParsePatchCandidate(feedbackId),
   });
 
+  // 저장 POST 는 누른 시점의 규칙을 담는다. 진행 중에 칩을 바꾸면 성공 뒤 '담았어요'가 실제로 담지 않은
+  // 내용을 가리키고, resetAfterSave 도 아직 성공 전이라 이전 후보를 폐기하지 못한다 — 그동안 편집을 잠근다.
+  const locked = save.isPending;
+
   // 담은 뒤 다시 편집하면 서버에 남은 이전 후보를 폐기한다. 그러지 않으면 다음 저장이 두 번째 후보를
-  // 만들어(내용이 달라 멱등성 키도 달라짐) 후보가 1건을 넘고 확정이 거부된다 (SRCH_409_204).
+  // 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서 이미 고친 이전 후보가 새 후보와 함께 검증·확정된다.
   function resetAfterSave() {
     if (!save.isSuccess) return;
     save.reset();
@@ -179,6 +184,7 @@ export function ParseInterpretationEditor({
   }
 
   function startEdit(chip: Chip) {
+    if (locked) return;
     // 이전 Escape 취소가 blur 를 못 만나 남겨둔 억제 플래그가 다음 편집까지 새지 않게 한다.
     suppressBlur.current = false;
     setEditingId(chip.id);
@@ -186,6 +192,7 @@ export function ParseInterpretationEditor({
   }
 
   function removeChip(id: string) {
+    if (locked) return;
     // 값을 담은 적 없는 새 빈 칩을 지우는 건 교정 변경이 아니다. 실제 칩(값 있음/기존)만 폐기를 유발한다.
     const target = chips.find((chip) => chip.id === id);
     if (target && !(target.isNew && !target.value.trim())) resetAfterSave();
@@ -194,6 +201,7 @@ export function ParseInterpretationEditor({
   }
 
   function addChip(axis: EditableAxis) {
+    if (locked) return;
     // 빈 칩을 추가하는 것만으로는 교정 내용이 바뀌지 않는다 — 실제 값을 확정(commitEdit)할 때만 이전 후보를 폐기한다.
     newChipCounter.current += 1;
     const chip: Chip = {
@@ -256,6 +264,10 @@ export function ParseInterpretationEditor({
   }
 
   function onChipDragStart(event: DragEvent<HTMLSpanElement>, chip: Chip) {
+    if (locked) {
+      event.preventDefault();
+      return;
+    }
     event.dataTransfer.setData('text/plain', chip.id);
     event.dataTransfer.effectAllowed = 'move';
     setDraggingId(chip.id);
@@ -276,6 +288,7 @@ export function ParseInterpretationEditor({
     const id = event.dataTransfer.getData('text/plain');
     setDropTargetAxis(null);
     setDraggingId(null);
+    if (locked) return;
     // 같은 축에 다시 떨구거나 대상이 없으면 실제 변경이 없다 — 폐기하지 않는다.
     const target = chips.find((chip) => chip.id === id);
     if (!target || target.axis === axis) return;
@@ -320,8 +333,9 @@ export function ParseInterpretationEditor({
                       />
                     ) : (
                       <span
+                        aria-disabled={locked || undefined}
                         className={`${styles.chip} ${draggingId === chip.id ? styles.dragging : ''}`}
-                        draggable
+                        draggable={!locked}
                         key={chip.id}
                         onClick={() => startEdit(chip)}
                         onDragEnd={onChipDragEnd}
@@ -339,6 +353,7 @@ export function ParseInterpretationEditor({
                         <button
                           aria-label={`'${chip.value}' 삭제`}
                           className={styles.chipRemove}
+                          disabled={locked}
                           onClick={(event) => {
                             event.stopPropagation();
                             removeChip(chip.id);
@@ -353,7 +368,7 @@ export function ParseInterpretationEditor({
                 <button
                   aria-label={`${resolutionAxisLabels[axis]}에 항목 추가`}
                   className={styles.addButton}
-                  disabled={!guard || draftCount >= MAX_PARSE_RULE_DRAFTS}
+                  disabled={locked || !guard || draftCount >= MAX_PARSE_RULE_DRAFTS}
                   onClick={() => addChip(axis)}
                   title={
                     guard ? undefined : '대표 항목(사건명·인물·장소)이 없어 추가할 수 없습니다.'

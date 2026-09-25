@@ -209,9 +209,9 @@ export function deriveParseRules(
 }
 
 /**
- * 여러 규칙을 후보 1건으로 합친다. 백엔드 확정은 candidate_rules 가 2건 이상이면 거부하므로,
- * 편집이 여러 개여도 반드시 후보 1건으로 보내야 한다. 조건(`all`)은 동일 술어를 합치고(중복 제거),
- * 변경 연산(`operations`)은 순서를 지켜 이어 붙인다 — 백엔드가 순차 적용한다.
+ * 여러 규칙을 후보 1건으로 합친다. 저장 1회가 후보 1건이 되어야, 다시 편집해 저장할 때 이전 후보를
+ * 통째로 폐기·교체할 수 있고 멱등성 키도 저장 단위로 하나만 유지된다. 조건(`all`)은 동일 술어를
+ * 합치고(중복 제거), 변경 연산(`operations`)은 순서를 지켜 이어 붙인다 — 백엔드가 순차 적용한다.
  */
 export function combineParseRules(rules: ParseRuleCandidateBody[]): ParseRuleCandidateBody {
   const all: ParseRuleCandidateBody['condition']['all'] = [];
