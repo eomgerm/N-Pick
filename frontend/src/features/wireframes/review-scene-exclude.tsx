@@ -3,13 +3,17 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 
-import type { ReviewInquiryDetail } from '@/features/wireframes/review-inquiry-api';
+import {
+  correctionCandidatesQueryKey,
+  type ReviewInquiryDetail,
+} from '@/features/wireframes/review-inquiry-api';
 import {
   createSceneExcludeCandidate,
   discardSceneExcludeCandidate,
   getSceneExcludeMessage,
 } from '@/features/wireframes/review-scene-exclude-api';
 import { useSuccessToast } from '@/features/wireframes/success-toast';
+import { useCorrectionCandidates } from '@/features/wireframes/use-correction-candidates';
 import styles from '@/features/wireframes/reviewer.module.css';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 
@@ -22,8 +26,25 @@ interface SceneExcludeCandidateFormProps {
 export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateFormProps) {
   const queryClient = useQueryClient();
   const { showSuccess } = useSuccessToast();
-  const [excluded, setExcluded] = useState(false);
+  // 서버의 대기 후보가 정본이다 (S15P21A501-317): 새로고침 뒤에도 이 장면을 뺀 후보가 있으면 제외 상태로
+  // 연다. 등록·취소 직후의 로컬 값은 다음 서버 응답이 올 때까지만 쓴다.
+  const candidates = useCorrectionCandidates(inquiry.feedbackId, true);
+  const [localExcluded, setLocalExcluded] = useState<boolean | null>(null);
+  const [seenAt, setSeenAt] = useState(0);
+  if (candidates.dataUpdatedAt !== seenAt) {
+    setSeenAt(candidates.dataUpdatedAt);
+    setLocalExcluded(null);
+  }
+  const excluded =
+    localExcluded ??
+    candidates.data?.sceneExcludes.some((item) => item.targetSceneId === inquiry.sceneId) ??
+    false;
   const idempotencyKey = useRef<string | null>(null);
+
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
+    queryClient.invalidateQueries({ queryKey: correctionCandidatesQueryKey(inquiry.feedbackId) });
+  }
 
   const register = useMutation({
     mutationKey: ['scene-exclude-change', inquiry.feedbackId],
@@ -36,9 +57,9 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
       );
     },
     onSuccess: () => {
-      setExcluded(true);
+      setLocalExcluded(true);
       showSuccess('제외 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
-      queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
+      refresh();
     },
   });
 
@@ -46,10 +67,10 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
     mutationKey: ['scene-exclude-change', inquiry.feedbackId],
     mutationFn: () => discardSceneExcludeCandidate(inquiry.feedbackId),
     onSuccess: () => {
-      setExcluded(false);
+      setLocalExcluded(false);
       idempotencyKey.current = null;
       showSuccess('장면 제외 후보를 취소했습니다.');
-      queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
+      refresh();
     },
   });
 

@@ -1,13 +1,19 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
+  appendAddedTag,
+  restoreTagCandidates,
+  type AddedTag,
+  type OtherTagCandidate,
+} from '@/features/wireframes/correction-candidate-restore';
+import {
+  correctionCandidatesQueryKey,
   createTagCorrectionCandidate,
   discardTagCorrectionCandidateEvidence,
-  reviewTagTypes,
   type ReviewInquiryDetail,
   type ReviewTagScope,
   type ReviewTagType,
@@ -15,22 +21,16 @@ import {
 } from '@/features/wireframes/review-inquiry-api';
 import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
 import { resolutionModeFromValue } from '@/features/wireframes/review-resolution-toggle-mode';
+import {
+  iconButtonClass,
+  pillClass,
+  TagDraftChip,
+  type TagDraft,
+} from '@/features/wireframes/review-tag-draft-chip';
 import { useSuccessToast } from '@/features/wireframes/success-toast';
+import { tagTypeLabels } from '@/features/wireframes/tag-type-effect';
+import { useCorrectionCandidates } from '@/features/wireframes/use-correction-candidates';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
-
-const tagTypeLabels: Record<ReviewTagType, string> = {
-  person: '인물',
-  organization: '조직',
-  location: '장소',
-  facility: '시설',
-  keyword: '키워드',
-  event: '사건',
-  season: '계절',
-  weather: '날씨',
-  scene_type: '장면 유형',
-  filmed_date: '촬영일',
-  broadcast_date: '방송일',
-};
 
 const tagScopeLabels: Record<ReviewTagScope, string> = {
   SCENE: '이 장면',
@@ -41,29 +41,12 @@ const MAX_TAG_DRAFTS = 10;
 
 const addButtonClass =
   'rounded-lg border border-(--line) bg-(--surface) px-3 py-1.5 text-sm font-bold text-(--accent-strong) transition-colors hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40';
-const pillClass =
-  'inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full bg-(--accent-soft) py-1.5 pr-2 pl-3 text-sm text-(--accent-strong)';
-const iconButtonClass =
-  'grid size-5 shrink-0 place-items-center rounded-full text-base leading-none text-(--muted)';
-
 type Evidence = ReviewInquiryDetail['evidence'][number];
 
-interface Draft {
-  id: string;
-  scope: ReviewTagScope;
-  tagType: ReviewTagType;
-  value: string;
-  error: string;
-}
-
-interface AddedTag {
-  id: string;
-  scope: ReviewTagScope;
-  tagType: ReviewTagType;
-  value: string;
-  /** 이 추가가 서버에 만든 대기 근거. 추가 취소는 이 근거만 지운다. */
-  evidenceIds: string[];
-}
+const otherActionLabels: Record<OtherTagCandidate['action'], string> = {
+  REJECT: '삭제',
+  WITHDRAW: '개입 해제',
+};
 
 interface CandidateSubmission {
   operations: TagCorrectionOperation[];
@@ -77,7 +60,8 @@ interface ReviewInquiryTagsProps {
   memberLoginId: string;
 }
 
-function validateTagValue(value: string, tagType: ReviewTagType): string {
+function validateTagValue(value: string, tagType: ReviewTagType | null): string {
+  if (!tagType) return '태그 유형을 선택해 주세요.';
   const trimmed = value.trim();
   if (!trimmed) return '태그 값을 입력해 주세요.';
   if (trimmed.length > 20) return '태그는 20자 이하여야 합니다.';
@@ -91,17 +75,40 @@ function validateTagValue(value: string, tagType: ReviewTagType): string {
 }
 
 export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsProps) {
+  const queryClient = useQueryClient();
   const { showSuccess } = useSuccessToast();
-  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [drafts, setDrafts] = useState<TagDraft[]>([]);
   const [added, setAdded] = useState<AddedTag[]>([]);
   // 삭제 후보로 만든 기존 태그 → 그 REJECT 가 서버에 만든 대기 근거. 삭제 취소는 이 근거만 지운다.
   const [removed, setRemoved] = useState<Map<string, string[]>>(new Map());
+  // 칩을 붙일 현재 태그가 없는 대기 후보(개입 해제, 현재 태그에 없는 삭제). 서버에서 복원될 때만 생긴다.
+  const [other, setOther] = useState<OtherTagCandidate[]>([]);
   const seq = useRef(0);
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
   const canCorrect =
     inquiry.status === 'reviewing' &&
     isOwner &&
     resolutionModeFromValue(inquiry.resolution) === 'correction';
+
+  // 새로고침 뒤에도 작성 중이던 태그 후보를 복원한다 (S15P21A501-317). 서버 응답이 새로 올 때마다 그
+  // 응답으로 로컬 상태를 다시 채운다 — 로컬에 먼저 붙인 칩과 겹쳐도 서버 목록이 정본이 된다.
+  const candidates = useCorrectionCandidates(inquiry.feedbackId, canCorrect);
+  const [seededAt, setSeededAt] = useState(0);
+  if (candidates.data && candidates.dataUpdatedAt !== seededAt) {
+    setSeededAt(candidates.dataUpdatedAt);
+    const restored = restoreTagCandidates(candidates.data.tags, inquiry.evidence);
+    setAdded(restored.added);
+    setRemoved(restored.removed);
+    setOther(restored.other);
+  }
+  // 태그를 바꾸는 요청이 성공하면 늘 대기 후보를 다시 읽는다 — 서버는 같은 태깅의 반대 판단을 지우거나 기존
+  // 근거를 재사용하므로 로컬 병합만으로는 서버와 어긋날 수 있다. 다시 읽기가 끝날 때까지 요청이 진행 중으로
+  // 남아, 다음 조작이 옛 상태 위에서 시작되지 않는다.
+  function refreshCandidates() {
+    return queryClient.invalidateQueries({
+      queryKey: correctionCandidatesQueryKey(inquiry.feedbackId),
+    });
+  }
   // 후보를 바꾸는 태그 요청은 모두 같은 키를 단다 — 검증 패널이 useIsMutating 으로 감시해, 진행 중에는
   // 검증 재검색이 옛 후보로 돌지 않게 막는다.
   const changeKey = ['tag-candidate-change', inquiry.feedbackId];
@@ -116,13 +123,14 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       }
       if (submission.added) {
         const next = { ...submission.added, evidenceIds: response.evidenceIds };
-        setAdded((current) => [...current, next]);
+        setAdded((current) => appendAddedTag(current, next));
       }
       if (submission.removedTaggingId) {
         const id = submission.removedTaggingId;
-        setRemoved((current) => new Map(current).set(id, response.evidenceIds));
+        setRemoved((current) => new Map(current).set(id, [...new Set(response.evidenceIds)]));
       }
       showSuccess('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
+      return refreshCandidates();
     },
   });
 
@@ -136,8 +144,16 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
         await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
       }
     },
-    onSuccess: (_result, tag) =>
-      setAdded((current) => current.filter((item) => item.id !== tag.id)),
+    onSuccess: (_result, tag) => {
+      // 같은 근거를 가리키는 칩이 남아 있으면 함께 지운다 — 지운 근거의 유령 칩이 남지 않게 한다.
+      const discarded = new Set(tag.evidenceIds);
+      setAdded((current) =>
+        current.filter(
+          (item) => item.id !== tag.id && !item.evidenceIds.some((id) => discarded.has(id)),
+        ),
+      );
+      return refreshCandidates();
+    },
   });
 
   // 삭제 취소: APPROVE 를 새로 올리면 REJECT 와 APPROVE 가 함께 대기하다 함께 확정된다. 대신 그 REJECT 가
@@ -149,20 +165,41 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
         await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
       }
     },
-    onSuccess: (_result, taggingId) =>
+    onSuccess: (_result, taggingId) => {
       setRemoved((current) => {
         const next = new Map(current);
         next.delete(taggingId);
         return next;
-      }),
+      });
+      return refreshCandidates();
+    },
+  });
+
+  // 기타 후보 취소: 그 후보의 대기 근거만 지운다 — 추가·삭제 취소와 같은 방식.
+  const cancelOther = useMutation({
+    mutationKey: changeKey,
+    mutationFn: async (candidate: OtherTagCandidate) => {
+      for (const evidenceId of candidate.evidenceIds) {
+        await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
+      }
+    },
+    onSuccess: (_result, candidate) => {
+      setOther((current) => current.filter((item) => item.id !== candidate.id));
+      return refreshCandidates();
+    },
   });
   // 후보를 바꾸는 요청은 한 번에 하나만 보낸다 — 취소 중 새 후보가 끼어들어 서로의 결과를 덮지 않게 한다.
-  const isBusy = mutation.isPending || cancelAdded.isPending || restoreRemoved.isPending;
+  const isBusy =
+    mutation.isPending ||
+    cancelAdded.isPending ||
+    restoreRemoved.isPending ||
+    cancelOther.isPending;
 
   function resetMutations() {
     mutation.reset();
     cancelAdded.reset();
     restoreRemoved.reset();
+    cancelOther.reset();
   }
 
   const pendingCount = drafts.length + added.length;
@@ -172,12 +209,12 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     seq.current += 1;
     setDrafts((current) => [
       ...current,
-      { id: `draft-${seq.current}`, scope, tagType: 'keyword', value: '', error: '' },
+      { id: `draft-${seq.current}`, scope, tagType: null, value: '', error: '' },
     ]);
     resetMutations();
   }
 
-  function updateDraft(id: string, patch: Partial<Draft>) {
+  function updateDraft(id: string, patch: Partial<TagDraft>) {
     setDrafts((current) =>
       current.map((draft) => (draft.id === id ? { ...draft, ...patch, error: '' } : draft)),
     );
@@ -189,9 +226,9 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
   }
 
   // ✓: 검증 후보를 만들고, 편집 칩을 일반 태그와 같은 형태의 칩으로 남긴다.
-  function submitDraft(draft: Draft) {
+  function submitDraft(draft: TagDraft) {
     const error = validateTagValue(draft.value, draft.tagType);
-    if (error) {
+    if (error || !draft.tagType) {
       setDrafts((current) =>
         current.map((item) => (item.id === draft.id ? { ...item, error } : item)),
       );
@@ -319,74 +356,21 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
 
           {canCorrect
             ? drafts.map((draft) => (
-                <li
-                  className={`${pillClass} border border-dashed border-(--accent) bg-(--accent-soft)`}
+                <TagDraftChip
+                  draft={draft}
+                  isBusy={isBusy}
                   key={draft.id}
-                >
-                  <span className="shrink-0 text-xs font-bold text-(--accent-strong)">
-                    {tagScopeLabels[draft.scope]}
-                  </span>
-                  <select
-                    aria-label="태그 유형"
-                    className="bg-transparent text-xs font-bold text-(--accent-strong) outline-none"
-                    disabled={isBusy}
-                    onChange={(event) =>
-                      updateDraft(draft.id, { tagType: event.target.value as ReviewTagType })
-                    }
-                    value={draft.tagType}
-                  >
-                    {reviewTagTypes.map((value) => (
-                      <option key={value} value={value}>
-                        {tagTypeLabels[value]}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    aria-label="태그 값"
-                    autoFocus
-                    className="w-24 bg-transparent text-sm font-semibold text-(--accent-strong) outline-none placeholder:text-(--muted)"
-                    disabled={isBusy}
-                    maxLength={20}
-                    onChange={(event) => updateDraft(draft.id, { value: event.target.value })}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        submitDraft(draft);
-                      }
-                      if (event.key === 'Escape') removeDraft(draft.id);
-                    }}
-                    placeholder={
-                      draft.tagType === 'filmed_date' || draft.tagType === 'broadcast_date'
-                        ? '2026-09-21'
-                        : '값 입력'
-                    }
-                    value={draft.value}
-                  />
-                  <button
-                    aria-label="태그 추가 확정"
-                    className={`${iconButtonClass} hover:text-(--positive)`}
-                    disabled={isBusy}
-                    onClick={() => submitDraft(draft)}
-                    type="button"
-                  >
-                    ✓
-                  </button>
-                  <button
-                    aria-label="태그 추가 취소"
-                    className={`${iconButtonClass} hover:text-(--danger)`}
-                    disabled={isBusy}
-                    onClick={() => removeDraft(draft.id)}
-                    type="button"
-                  >
-                    ×
-                  </button>
-                </li>
+                  onChange={(patch) => updateDraft(draft.id, patch)}
+                  onRemove={() => removeDraft(draft.id)}
+                  onSubmit={() => submitDraft(draft)}
+                  scopeLabel={tagScopeLabels[draft.scope]}
+                />
               ))
             : null}
         </ul>
       )}
 
-      {removedTags.length > 0 ? (
+      {removedTags.length > 0 || other.length > 0 ? (
         <div className="mt-5 border-t border-(--line) pt-5">
           <h4 className="text-sm font-bold text-(--muted)">삭제 후보</h4>
           <ul className="mt-3 grid gap-2">
@@ -404,6 +388,29 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                   className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
                   disabled={isBusy}
                   onClick={() => restore(evidence)}
+                  type="button"
+                >
+                  +
+                </button>
+              </li>
+            ))}
+            {other.map((candidate) => (
+              <li
+                className="inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full border border-dashed border-(--line) py-1.5 pr-2 pl-3 text-sm text-(--muted) line-through"
+                key={candidate.id}
+              >
+                <strong className="truncate font-semibold">{candidate.value}</strong>
+                <span className="shrink-0 text-xs no-underline">
+                  {tagTypeLabels[candidate.tagType]} · {otherActionLabels[candidate.action]}
+                </span>
+                <button
+                  aria-label={`‘${candidate.value}’ ${otherActionLabels[candidate.action]} 취소`}
+                  className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
+                  disabled={isBusy}
+                  onClick={() => {
+                    cancelOther.reset();
+                    cancelOther.mutate(candidate);
+                  }}
                   type="button"
                 >
                   +
@@ -442,6 +449,25 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
         <div className="mt-3">
           <ApiErrorNotice error={restoreRemoved.error} />
         </div>
+      ) : null}
+
+      {cancelOther.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={cancelOther.error} />
+        </div>
+      ) : null}
+
+      {candidates.isError ? (
+        <p className="mt-3 text-sm text-(--muted)">
+          저장해 둔 태그 후보를 불러오지 못했습니다.{' '}
+          <button
+            className="font-bold text-(--accent-strong) underline"
+            onClick={() => void candidates.refetch()}
+            type="button"
+          >
+            다시 불러오기
+          </button>
+        </p>
       ) : null}
     </section>
   );
