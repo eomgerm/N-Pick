@@ -10,6 +10,7 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 
 import com.npick.search.domain.model.IneligibleReason;
+import com.npick.search.domain.model.KeywordTagSettings;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.QueryResolution.Classification;
 import com.npick.search.domain.model.QueryResolution.ClassificationType;
@@ -283,6 +284,135 @@ class StructuredSceneScoringServiceTest {
         people.add(person("홍길동"));
         assertThat(service(settings(Map.of())).score(query).scenes()).isEmpty();
         verifyNoInteractions(candidates, tags, eligible);
+    }
+
+    @Test
+    void keywordOnlySceneIsAdmittedAndScoredAsSeparateBonus() {
+        // 캡션·대사·OCR 에 없는 말도 keyword 태그로 후보가 된다. 점수는 개체 축 분모 밖의 가산점이다.
+        var r = resolution(List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        when(candidates.find(any())).thenReturn(List.of(new TagMatchedScene(30, 10, List.of())));
+        var matched = tag(1, TagType.KEYWORD, "전세사기", EffectiveTag.Verification.UNVERIFIED);
+        arrange(List.of(matched));
+
+        var result = service(keywordSettings())
+                .score(new ScoreStructuredScenesQuery(r, List.of(), List.of("전세/nng", "사기/nng"), List.of()));
+
+        var scene = result.scenes().getFirst();
+        assertThat(scene.tagCandidate()).isTrue();
+        assertThat(scene.inputCandidate()).isFalse();
+        assertThat(scene.axes()).isEmpty();
+        assertThat(scene.denominator()).isZero();
+        assertThat(scene.keyword().bonus()).isCloseTo(0.5 / 3, within(1e-12));
+        assertThat(scene.score()).isEqualTo(scene.keyword().bonus());
+        assertThat(scene.keyword().matchedTags()).containsExactly(matched);
+        verify(candidates)
+                .find(List.of(
+                        TagCondition.exact(TagType.KEYWORD, "전세"),
+                        TagCondition.exact(TagType.KEYWORD, "사기"),
+                        TagCondition.exact(TagType.KEYWORD, "전세사기")));
+    }
+
+    @Test
+    void entityScoreIsNotDilutedByUnmatchedKeywordConditions() {
+        // 설계 §3: 가중평균에 넣으면 서울역 장소 태그 장면이 1.0 → 0.67 로 깎인다. 가산점이면 그대로다.
+        var r = resolution(
+                List.of(),
+                List.of(),
+                List.of(new Location(LocationType.LOCATION, "서울역", Origin.INFERRED, null, .5)),
+                List.of(),
+                List.of(),
+                List.of());
+        arrange(List.of(tag(1, TagType.LOCATION, "서울역", EffectiveTag.Verification.VERIFIED)));
+        var without = service(keywordSettings())
+                .score(new ScoreStructuredScenesQuery(r, List.of(30L)))
+                .scenes()
+                .getFirst();
+
+        var with = service(keywordSettings())
+                .score(new ScoreStructuredScenesQuery(r, List.of(30L), List.of("서울역/nnp", "광장/nng"), List.of()))
+                .scenes()
+                .getFirst();
+
+        assertThat(with.score()).isEqualTo(without.score()).isEqualTo(1.0);
+        assertThat(with.denominator()).isEqualTo(without.denominator()).isEqualTo(1.0);
+        assertThat(with.keyword().bonus()).isZero();
+        assertThat(with.keyword().queryConditions())
+                .hasSize(3)
+                .noneMatch(StructuredScoresResult.ConditionMatch::matched);
+    }
+
+    @Test
+    void expandedTermsAdmitButNeverScore() {
+        // S15P21A501-48: 확장어는 구조화 점수에 쓰지 않는다. 후보 편입만 한다.
+        var r = resolution(List.of(), List.of(), List.of(), List.of(), List.of(), List.of("전세사기"));
+        when(candidates.find(any())).thenReturn(List.of(new TagMatchedScene(30, 10, List.of())));
+        arrange(List.of(tag(1, TagType.KEYWORD, "전세사기", EffectiveTag.Verification.UNVERIFIED)));
+
+        var scene = service(keywordSettings())
+                .score(new ScoreStructuredScenesQuery(r, List.of(), List.of(), List.of(List.of("전세사기/nng"))))
+                .scenes()
+                .getFirst();
+
+        assertThat(scene.tagCandidate()).isTrue();
+        assertThat(scene.score()).isZero();
+        assertThat(scene.keyword().bonus()).isZero();
+        assertThat(scene.keyword().queryConditions()).isEmpty();
+        assertThat(scene.keyword().expandedConditions())
+                .singleElement()
+                .satisfies(match -> assertThat(match.matched()).isTrue());
+    }
+
+    @Test
+    void sameConditionMatchedTwiceCountsOnce() {
+        // Review Focus 4: 같은 태그가 클립 상속과 장면 판단으로 두 번 와도 조건은 하나다. 가산점은 weight 를 넘지 않는다.
+        var r = resolution(List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        when(candidates.find(any())).thenReturn(List.of(new TagMatchedScene(30, 10, List.of())));
+        var inherited = tag(1, TagType.KEYWORD, "서울", EffectiveTag.Verification.UNVERIFIED);
+        var sceneLevel = new EffectiveTag(
+                30,
+                10,
+                1,
+                TagType.KEYWORD,
+                "서울",
+                "서울",
+                EffectiveTag.Verification.REVIEWER_VERIFIED,
+                EffectiveTag.Scope.SCENE,
+                "reviewer_feedback");
+        arrange(List.of(inherited, sceneLevel));
+
+        var scene = service(keywordSettings())
+                .score(new ScoreStructuredScenesQuery(r, List.of(), List.of("서울/nnp"), List.of()))
+                .scenes()
+                .getFirst();
+
+        assertThat(scene.keyword().bonus()).isEqualTo(0.5);
+        assertThat(scene.score()).isEqualTo(0.5);
+    }
+
+    @Test
+    void zeroKeywordWeightDisablesAdmissionAndBonus() {
+        // Review Focus 5: 끈 채널이 후보를 끌어오면 「가중치 0 = off」 가 깨진다. 확장어 편입도 멈춘다.
+        var r = resolution(List.of(), List.of(), List.of(), List.of(), List.of(), List.of("전세사기"));
+        arrange(List.of(tag(1, TagType.KEYWORD, "전세", EffectiveTag.Verification.UNVERIFIED)));
+        var off = new StructuredScoreSettings(
+                StructuredScoreSettings.WeightStatus.EXPERIMENTAL,
+                settings(Map.of()).weights(),
+                new KeywordTagSettings(0.0, 12, List.of()));
+
+        var result = service(off)
+                .score(new ScoreStructuredScenesQuery(
+                        r, List.of(30L), List.of("전세/nng"), List.of(List.of("전세사기/nng"))));
+
+        verifyNoInteractions(candidates);
+        assertThat(result.scenes().getFirst().keyword()).isEqualTo(StructuredScoresResult.KeywordScore.NONE);
+        assertThat(result.scenes().getFirst().score()).isZero();
+    }
+
+    private static StructuredScoreSettings keywordSettings() {
+        return new StructuredScoreSettings(
+                StructuredScoreSettings.WeightStatus.EXPERIMENTAL,
+                settings(Map.of()).weights(),
+                new KeywordTagSettings(0.5, 12, List.of("앞")));
     }
 
     private void arrange(List<EffectiveTag> observed) {

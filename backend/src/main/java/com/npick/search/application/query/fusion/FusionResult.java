@@ -30,7 +30,7 @@ public record FusionResult(List<ScoredCandidate> candidates, SearchConfigSnapsho
      * @param baseScore {@code R/M + λ × structured}. -55 는 이 값을 고치지 않고 별도 조정 결과를 만든다
      * @param normalizedRrf {@code R/M}. 활성 채널이 전부 1등이면 1.0 이다
      * @param structuredContribution {@code λ × structured}. λ 가 0 이면 0 이다
-     * @param structuredScore -52 가 낸 [0,1] 가중평균 원값. λ 를 바꿔 다시 계산할 수 있도록 함께 남긴다
+     * @param structuredScore -52 가중평균 + -321 키워드 가산점의 원값 ({@code [0, 1 + keywordWeight]}). λ 를 바꿔 다시 계산할 수 있도록 함께 남긴다
      * @param channels 채널별 상태와 기여. 기여가 0 이어도 이유가 다르므로 상태를 구분해 남긴다
      */
     public record ScoredCandidate(

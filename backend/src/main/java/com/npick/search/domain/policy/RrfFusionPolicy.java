@@ -55,7 +55,7 @@ public final class RrfFusionPolicy {
      *
      * @param rrfSum 채널 기여의 합. 어느 채널에도 없었으면 0 이다
      * @param ceiling {@link #ceiling(FusionSettings)} 의 값
-     * @param structuredScore S15P21A501-52 의 [0,1] 가중평균
+     * @param structuredScore S15P21A501-52 의 가중평균 [0,1] + S15P21A501-321 키워드 가산점 [0, keywordWeight]
      */
     public double baseScore(FusionSettings settings, double rrfSum, double ceiling, double structuredScore) {
         return rrfSum / ceiling + settings.lambda() * structuredScore;

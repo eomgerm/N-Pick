@@ -2,6 +2,7 @@ package com.npick.search.application.query.structured;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 import com.npick.search.domain.model.IneligibleReason;
 import com.npick.search.domain.model.QueryResolution;
@@ -28,7 +29,13 @@ public record StructuredScoresResult(
         }
     }
 
-    /** 정렬 순서는 sceneId이며 검색 순위가 아니다. 두 후보 경로가 겹쳐도 장면 결과는 하나다. */
+    /**
+     * 정렬 순서는 sceneId이며 검색 순위가 아니다. 두 후보 경로가 겹쳐도 장면 결과는 하나다.
+     *
+     * @param score 개체 축 가중평균({@code axes} 기여 합) + {@code keyword.bonus()}. 범위는 {@code [0, 1 + keywordWeight]}
+     * @param denominator 개체 축 가중치 합. 키워드는 들어가지 않는다
+     * @param keyword 키워드 태그 매칭 결과 (S15P21A501-321). 조건이 없으면 {@link KeywordScore#NONE}
+     */
     public record SceneScore(
             long sceneId,
             long clipId,
@@ -36,9 +43,50 @@ public record StructuredScoresResult(
             boolean tagCandidate,
             double score,
             double denominator,
-            List<AxisScore> axes) {
+            List<AxisScore> axes,
+            KeywordScore keyword) {
         public SceneScore {
             axes = List.copyOf(axes);
+            Objects.requireNonNull(keyword, "keyword");
+        }
+
+        public SceneScore(
+                long sceneId,
+                long clipId,
+                boolean inputCandidate,
+                boolean tagCandidate,
+                double score,
+                double denominator,
+                List<AxisScore> axes) {
+            this(sceneId, clipId, inputCandidate, tagCandidate, score, denominator, axes, KeywordScore.NONE);
+        }
+    }
+
+    /**
+     * 키워드 태그 가산점과 근거 (S15P21A501-321).
+     *
+     * @param bonus 질의 명사 조건 충족률 × weight. 확장어 조건은 세지 않는다
+     * @param queryConditions 질의 명사 조건별 일치
+     * @param expandedConditions 확장어 조건별 일치. 편입 근거일 뿐 점수가 아니다
+     */
+    public record KeywordScore(
+            double weight,
+            double bonus,
+            List<ConditionMatch> queryConditions,
+            List<ConditionMatch> expandedConditions) {
+        public static final KeywordScore NONE = new KeywordScore(0, 0, List.of(), List.of());
+
+        public KeywordScore {
+            queryConditions = List.copyOf(queryConditions);
+            expandedConditions = List.copyOf(expandedConditions);
+        }
+
+        /** 근거 설명(match_evidence)에 싣는 태그. 질의 명사로 맞은 것이 먼저다. */
+        public List<EffectiveTag> matchedTags() {
+            return Stream.concat(queryConditions.stream(), expandedConditions.stream())
+                    .flatMap(match -> match.matchedTags().stream())
+                    .distinct()
+                    .toList();
         }
     }
 

@@ -7,6 +7,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
+import com.npick.search.domain.model.KeywordTagSettings;
 import com.npick.search.domain.model.QueryResolution;
 import com.npick.search.domain.model.StructuredAxis;
 import com.npick.search.domain.model.StructuredScoreSettings;
@@ -94,8 +95,8 @@ final class StructuredScoreCalculator {
      * 것과 AI 가 낸 동의어가 같은 무게를 갖는데, F-05 는 「사용자가 직접 명시한 내용과 AI가 추정한 내용을 구분한다」 를 요구한다. 확장어는 출처조차 없다
      * ({@code ResolutionAxis.carriesOrigin()}). 이 상태는 #52 의
      * {@code normalizesAndDeduplicatesSameTypedConditionsWithoutScoringExpandedTerms} 가 고정한다. <b>점수 경로에서 확장어를 쓰는 곳은
-     * 없고</b> 단어 검색의 후보 조회에서만 쓰며, 그 계약은
-     * {@link com.npick.search.application.query.candidate.FindSceneCandidatesQueryPort} 에 있다.
+     * 없다.</b> 확장어는 단어 검색의 후보 조회와, 키워드 태그 후보 편입({@link KeywordConditionExtractor}, 점수 0 — S15P21A501-321)에서만 쓰며, 단어 검색 쪽
+     * 계약은 {@link com.npick.search.application.query.candidate.FindSceneCandidatesQueryPort} 에 있다.
      *
      * <p><b>점수 밖에는 소비처가 있다.</b> {@link com.npick.search.domain.model.ResolutionAxis#EXPANDED_TERMS} 가 교정 규칙의 축으로 이 값을
      * 읽고 쓴다 (S15P21A501-49·-81, 검수 화면 「관련 검색어」). 확장어 목록을 후보 조회 전용으로 가공하거나 비우면 검수자가 저장한 해석 교정이 조용히 무력화된다.
@@ -114,6 +115,7 @@ final class StructuredScoreCalculator {
             boolean inputCandidate,
             boolean tagCandidate,
             Map<StructuredAxis, List<TagCondition>> axes,
+            KeywordConditionExtractor.Conditions keyword,
             List<EffectiveTag> tags,
             StructuredScoreSettings settings) {
         var counts = new EnumMap<StructuredAxis, AxisCount>(StructuredAxis.class);
@@ -125,13 +127,7 @@ final class StructuredScoreCalculator {
                     .distinct()
                     .sorted(Comparator.comparingLong(EffectiveTag::tagId))
                     .toList();
-            var conditionMatches = conditions.stream()
-                    .map(condition -> new StructuredScoresResult.ConditionMatch(
-                            condition,
-                            observed.stream()
-                                    .filter(tag -> matches(condition, tag))
-                                    .toList()))
-                    .toList();
+            var conditionMatches = conditionMatches(conditions, observed);
             counts.put(
                     axis,
                     new AxisCount(
@@ -156,8 +152,45 @@ final class StructuredScoreCalculator {
         double score = results.stream()
                 .mapToDouble(StructuredScoresResult.AxisScore::contribution)
                 .sum();
+        // 가산점은 분모 밖이다 (S15P21A501-321). 축 기여 합에 더하기만 하므로 개체 축만 맞은 장면의 점수는 그대로다.
+        var keywordScore = keywordScore(keyword, tags, settings.keyword());
         return new StructuredScoresResult.SceneScore(
-                scene.sceneId(), scene.clipId(), inputCandidate, tagCandidate, score, denominator, results);
+                scene.sceneId(),
+                scene.clipId(),
+                inputCandidate,
+                tagCandidate,
+                score + keywordScore.bonus(),
+                denominator,
+                results,
+                keywordScore);
+    }
+
+    private StructuredScoresResult.KeywordScore keywordScore(
+            KeywordConditionExtractor.Conditions keyword, List<EffectiveTag> tags, KeywordTagSettings settings) {
+        if (keyword.isEmpty()) {
+            return StructuredScoresResult.KeywordScore.NONE;
+        }
+        var observed = tags.stream()
+                .filter(tag -> tag.tagType() == TagType.KEYWORD)
+                .distinct()
+                .sorted(Comparator.comparingLong(EffectiveTag::tagId))
+                .toList();
+        var query = conditionMatches(keyword.query(), observed);
+        var expanded = conditionMatches(keyword.expanded(), observed);
+        int matched = (int) query.stream()
+                .filter(StructuredScoresResult.ConditionMatch::matched)
+                .count();
+        return new StructuredScoresResult.KeywordScore(
+                settings.weight(), policy.keywordBonus(query.size(), matched, settings.weight()), query, expanded);
+    }
+
+    private static List<StructuredScoresResult.ConditionMatch> conditionMatches(
+            List<TagCondition> conditions, List<EffectiveTag> observed) {
+        return conditions.stream()
+                .map(condition -> new StructuredScoresResult.ConditionMatch(
+                        condition,
+                        observed.stream().filter(tag -> matches(condition, tag)).toList()))
+                .toList();
     }
 
     private static boolean matches(TagCondition condition, EffectiveTag tag) {
