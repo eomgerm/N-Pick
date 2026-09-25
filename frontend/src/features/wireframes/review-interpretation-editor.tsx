@@ -88,9 +88,10 @@ export function ParseInterpretationEditor({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetAxis, setDropTargetAxis] = useState<EditableAxis | null>(null);
   const newChipCounter = useRef(0);
-  // 이 화면에서 저장한 후보가 서버에 하나라도 있는지. 여러 건 중 일부만 저장되고 실패해도 참이 되어,
-  // 그 뒤 편집하면 이미 저장된 일부도 폐기한다 (save.isSuccess 는 전부 성공했을 때만 참이다).
-  const hasSavedCandidates = useRef(false);
+  // 서버에 이 화면이 보낸 후보가 남아 있을 수 있는지. POST 를 보내는 순간 참이 된다 — 서버가 저장했는데
+  // 응답만 유실되거나 여러 건 중 일부만 저장되고 실패해도, 그 뒤 편집하면 이전 후보를 폐기하기 위함이다.
+  // 일괄 폐기 DELETE 는 멱등이라 실제로 남은 후보가 없어도 무해하다. 폐기가 성공했을 때만 거짓으로 돌린다.
+  const mayHaveServerCandidates = useRef(false);
   const suppressBlur = useRef(false);
 
   const guard = computeGuard(originalChips);
@@ -152,12 +153,10 @@ export function ParseInterpretationEditor({
       // 순서대로 보낸다. 중간에 실패하면 다시 눌러 전부 재전송하면 된다 — 이미 저장된 규칙은 같은 결정적
       // 멱등성 키라 서버가 기존 후보를 돌려주어 중복이 생기지 않는다.
       for (const rule of rules) {
-        await createParsePatchCandidate(
-          feedbackId,
-          rule,
-          await ruleIdempotencyKey(feedbackId, rule),
-        );
-        hasSavedCandidates.current = true;
+        const key = await ruleIdempotencyKey(feedbackId, rule);
+        // 응답을 받기 전에 표시한다 — 요청이 서버에 닿았는지는 응답이 유실되면 알 수 없다.
+        mayHaveServerCandidates.current = true;
+        await createParsePatchCandidate(feedbackId, rule, key);
       }
       return rules.length;
     },
@@ -170,18 +169,21 @@ export function ParseInterpretationEditor({
 
   const discard = useMutation({
     mutationFn: () => discardParsePatchCandidate(feedbackId),
+    onSuccess: () => {
+      mayHaveServerCandidates.current = false;
+    },
   });
 
   // 저장 POST 는 누른 시점의 규칙을 담는다. 진행 중에 칩을 바꾸면 성공 뒤 '담았어요'가 실제로 담지 않은
   // 내용을 가리키고, 이전 후보 폐기가 아직 끝나지 않은 POST 와 엇갈린다 — 그동안 편집을 잠근다.
   const locked = save.isPending;
 
-  // 담은 뒤(일부만 담긴 경우 포함) 다시 편집하면 서버에 남은 이전 후보를 모두 폐기한다. 그러지 않으면
-  // 다음 저장이 새 후보를 더 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서 이미 고친 이전 후보가 새
-  // 후보와 함께 검증·확정된다.
+  // 저장을 시도한 뒤(성공·일부 성공·응답 유실 포함) 다시 편집하면 서버에 남았을 수 있는 이전 후보를
+  // 모두 폐기한다. 그러지 않으면 다음 저장이 새 후보를 더 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서
+  // 이미 고친 이전 후보가 새 후보와 함께 검증·확정된다. 폐기가 실패하면 표시가 남아 다음 편집에서도 다시
+  // 폐기하고, 저장은 폐기가 성공할 때까지 막힌다.
   function resetAfterSave() {
-    if (!hasSavedCandidates.current) return;
-    hasSavedCandidates.current = false;
+    if (!mayHaveServerCandidates.current) return;
     save.reset();
     discard.mutate();
   }
