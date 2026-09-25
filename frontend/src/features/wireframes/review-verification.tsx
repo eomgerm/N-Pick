@@ -100,7 +100,10 @@ export function CorrectionVerificationPanel({
   const tagChangePending = useIsMutating({ mutationKey: ['tag-candidate-change', feedbackId] }) > 0;
   const sceneExcludePending =
     useIsMutating({ mutationKey: ['scene-exclude-change', feedbackId] }) > 0;
-  const savePending = parseSavePending || tagChangePending || sceneExcludePending;
+  const parseDiscardPending =
+    useIsMutating({ mutationKey: ['parse-patch-discard', feedbackId] }) > 0;
+  const savePending =
+    parseSavePending || tagChangePending || sceneExcludePending || parseDiscardPending;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [previewScene, setPreviewScene] = useState<{
     scene: VerificationScene;
