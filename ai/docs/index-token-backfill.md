@@ -8,6 +8,8 @@
 - `query-norm/v2` — 질의 BM25 토큰에만 색 형용사↔색 명사 묶음(`search_token_synonyms`,
   「빨간」→`빨간색/nng`)을 더한다. 색인과 지문은 그대로다 → 재생성 불필요, 버전만 바뀌므로 재키 필요.
   확장어 토큰화(`POST /query/tokenize`)에는 걸지 않는다 — 원 질의의 `search_tokens` 만이다.
+  더한 토큰도 BE 에는 원 질의 토큰으로 보이므로, 맞으면 근거 설명의 `matched_keywords` 에 `origin=query` 로
+  나온다(「빨간」으로 쳤는데 `빨간색` 이 원 질의어로 표시). 지금은 받아들이고, 구분이 필요하면 BE 가 나눈다.
 
 검색은 저장된 토큰을 BM25 로 조회할 뿐 질의 시점에 문서를 다시 토큰화하지 않는다. 그래서 코드만
 배포하면 **새 질의 토큰(`걷/vv`)이 옛 색인에 없어 효과가 0** 이고, `normalization_version` 이 바뀌어
@@ -41,6 +43,10 @@
 `text_key`(OCR 병합 키)는 토큰에서 파생되지만 저장 컬럼이 아니므로 손대지 않는다. `updated_at` 도
 건드리지 않는다 — 원문도 판정도 바뀌지 않은 파생 컬럼 재계산이다.
 
+**출처 버전은 옛 값으로 남는다.** 재생성은 토큰 컬럼만 바꾸고, 그 토큰을 만든 단계의 재현 기록
+(`pipeline_run.stage_states_json` 의 단계별 `versions.detail.tokenizer`)은 `…:encpos2` 그대로다(로컬 942 회차).
+-282 백필 때와 같은 출처 어긋남이다 — 백필한 행은 기록된 tokenizer 가 아니라 이 문서의 절차가 만든 것이다.
+
 ## 2. 순서
 
 | 단계 | 이유 |
@@ -49,15 +55,32 @@
 | ② 백업 | 아래 §3 |
 | ③ **색인 토큰 백필** | 새 색인은 옛 색인의 `형태/품사` 토큰을 전부 담고 불규칙 용언 토큰이 **더해진** 것이다. 옛 질의(`encpos2`)의 매칭 집합은 줄지 않는다. 먼저 해도 검색이 깨지지 않는다 |
 | ④ 재키 CSV 를 **미리 만든다** | 계산은 새 이미지로 한다. 반영 SQL 은 한순간이다 |
-| ⑤ **재키 반영 → 곧바로 리졸버(`ai-worker`) 교체** | 재키된 규칙은 새 버전(`query-norm/v2:…:encpos3`) 질의에만 걸린다. 반영과 교체 사이가 곧 「장면 제외가 안 걸리는 창」이라 둘을 붙여 실행한다. 교체 중에는 어차피 해석이 멈춘다 |
+| ⑤ **재키 반영 → 곧바로 리졸버(`ai-worker`) 교체**, 같은 창에 **BE `candidate-v4`** 배포 | 재키된 규칙은 새 버전(`query-norm/v2:…:encpos3`) 질의에만 걸린다. 반영부터 새 리졸버가 healthy 가 될 때까지가 「장면 제외가 안 걸리는 창」이다 — 컨테이너 재기동부터 임베딩 워밍업을 마치고 healthy 가 될 때까지이고, 로컬 실측 **15~17 초**(모델 캐시 볼륨이 찬 상태, 첫 `/query/resolve` 응답·임베딩 포함 15.2 초 · healthy 15.2~17.4 초)다. 교체 중에는 어차피 해석이 멈춘다. BE 는 아래 「드리프트 가드」 때문에 같은 창에 올린다 |
 | ⑥ 파이프라인 워커 교체 | `ai-cpu-worker`(OCR)·GPU 노드(VLM·대사 매핑)도 `korean_tokens` 로 색인 토큰을 만든다. 하나라도 옛 코드면 **새로 처리한 영상이 옛 토큰으로 저장된다** |
 | ⑦ **백필을 한 번 더** | ③ 이후 ⑥ 전까지 옛 워커가 저장한 행을 잡는다. 멱등이라 이미 맞는 행은 건드리지 않는다 |
+| ⑧ **재키를 한 번 더** (배포 후 며칠 뒤, 멱등) | BE `CreateSceneExcludeCandidateService` 는 후보의 `query_fingerprint`·`normalized_query`·`normalization_version` 을 **원 검색(`search_execution`)에서 복사**한다. ④의 추출 뒤에 배포 전(옛 버전) 검색이나 ⑤의 창 안 검색에서 만든 후보는 옛 키로 승인되어 영영 안 걸린다. 아래 확인 쿼리가 0 이 될 때까지 §3 의 재키를 다시 돌린다 |
+
+⑧ 확인 쿼리 — 현재 버전은 새 리졸버의 `normalization_version` 이다:
+
+```sql
+SELECT r.search_rule_id, r.active, f.status, r.normalization_version
+FROM npick.search_rule r JOIN npick.feedback f ON f.feedback_id = r.source_feedback_id
+WHERE r.action = 'exclude_scene'
+  AND (r.active OR (f.status = 'REVIEWING' AND f.created_rule_id IS NULL))
+  AND r.normalization_version <> 'query-norm/v2:6f769b32:kiwi0.23.2:model0.23.0:encpos3';
+```
+
+영구 해결은 BE 가 후보를 만들거나 승인할 때 원 질의를 **현재 정규화로 다시 정규화**하는 것이다(BE 후속 과제).
+그전까지는 정규화 버전이 바뀔 때마다 ⑧ 이 필요하다.
 
 **BE 설정 버전·드리프트 가드.** 재키는 규칙 ID 를 바꾸지 않고, BE 의 `config_version` 에는
 `normalization_version` 이 들어 있지 않다. 그래서 `CorrectionStateFingerprint` 가 바뀌지 않고, 배포 **전에**
 검증을 마친 `REVIEWING` 신고는 정규화가 바뀐 뒤에도 재검증 없이 확정된다(-282 리뷰 ③ 과 같은 구멍).
-배포 공지에 「검수 중인 신고는 배포 뒤 검증을 다시 돌린다」를 넣는다. 코드로 막으려면 BE 가
-`normalization_version` 을 설정 버전에 실어야 한다 — 이 문서 범위 밖이다.
+배포 공지에 「검수 중인 신고는 배포 뒤 검증을 다시 돌린다」를 넣는다. 이번 배포에서는 BE `candidate-v4`
+(MR !239, `be/fix/bm25-term-scoring-S15P21A501-320`)가 `config_version` 을 바꾸므로 지문의 config 축이 바뀌어
+재검증이 강제된다 — **그래서 !239 를 리졸버 교체와 같은 배포 창에 올려야 이 구멍이 덮인다.** (!238 의
+`candidate-v3` 은 이미 dev 에 있어 지금 배포되어도 이 창을 덮지 못한다.) 정규화만 바뀌는 다음 배포에서도
+막으려면 BE 가 `normalization_version` 을 설정 버전에 실어야 한다 — 이 문서 범위 밖이다.
 
 **재키 범위.** 활성 규칙과 **검수 중인 신고의 대기 후보**(`active = false`, 신고 `REVIEWING`)를 함께
 옮긴다. 후보는 승인될 때 키를 그대로 들고 활성화되므로, 옮기지 않으면 켜지는 순간부터 안 걸리고 검증
@@ -245,8 +268,10 @@ npsql -At -c "SELECT count(*) FROM npick.scene WHERE caption_tokens ~ '(^| )걷/
 | 하얀 눈 | `눈` | `+하얗/va` | `+희/va 흰색/nng 하얀색/nng` | 139 / 146 / 200 | 4 / 8 / 122 | 0 / 0 / 3 |
 
 후보 풀에는 색이 든 장면이 크게 늘지만 상위 10 은 조금만 바뀐다. OR 매칭이라 `하늘`·`눈`·`옷` 만 맞은
-장면도 같은 풀에서 겨루고, 색 토큰은 그중 한 텀이라 순위를 뒤집을 만큼 점수를 더하지 못한다 — 순위
-쪽(min-should-match·가중) 몫이다. `normalized_query` 는 v1 설정과 같다(테스트로 고정).
+장면도 같은 풀에서 겨룬다. **이 표는 dev 의 `term_set` 모양으로 쟀다** — `term_set` 은 칸마다 상수 점수라
+맞은 텀 수가 순위에 거의 안 실린다. BE `candidate-v4`(!239, 토큰별 `term` BM25 점수)에서는 색 토큰이 맞은
+장면이 점수를 더 받으므로 상위 10 이 달라질 수 있고, 그 모양으로는 다시 재지 않았다.
+`normalized_query` 는 v1 설정과 같다(테스트로 고정).
 
 **재키.** 활성 4 · 대기 후보 2(`아이돌`, `태풍에 날아가는 우산`)가 `query-norm/v2:…:encpos3` 으로 옮겨졌고,
 여섯 모두 저장 지문이 이식한 해시로 재현됐다. 새 리졸버로 원 질의를 다시 해석해 BE 조회 조건으로 대조하면

@@ -89,6 +89,10 @@ def _with_synonyms(tokens: tuple[str, ...], settings: QueryNormalizationConfig) 
     지문(`normalized_query`)은 이 결과를 보지 않는다. 장면 제외 규칙이 지문에 걸리므로
     같은 뜻 토큰을 지문에 섞으면 규칙이 걸리는 질의가 넓어진다(FR-OVR-009 가 금지한 유사
     질의 확장). 이미 있는 토큰은 다시 넣지 않는다 — BM25 가 한 뜻을 두 번 센다.
+
+    더한 토큰은 BE 에 원 질의 토큰과 구분 없이 가므로 근거 설명의 `matched_keywords` 에
+    `origin=query` 로 나온다(「빨간」 질의에 `빨간색`). 지금은 받아들인 동작이고, 나눠
+    보여야 하면 BE 가 이 묶음을 따로 받아 구분한다 (S15P21A501-320 리뷰).
     """
     extra: list[str] = []
     present = set(tokens)
