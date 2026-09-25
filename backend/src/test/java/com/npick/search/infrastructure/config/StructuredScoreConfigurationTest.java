@@ -52,6 +52,40 @@ class StructuredScoreConfigurationTest {
                 });
     }
 
+    @Test
+    void bindsKeywordTagDefaultsFromYaml() {
+        runner().run(context -> {
+            assertThat(context).hasNotFailed();
+            var keyword = context.getBean(StructuredScoreSettings.class).keyword();
+            assertThat(keyword.weight()).isEqualTo(0.5);
+            assertThat(keyword.conditionCap()).isEqualTo(12);
+            assertThat(keyword.enabled()).isTrue();
+            assertThat(keyword.stoplist()).hasSize(33).startsWith("앞", "뒤", "위").contains("북부", "인근", "장면", "보이", "관련");
+        });
+    }
+
+    @Test
+    void rejectsInvalidKeywordTagSettingsAtStartup() {
+        for (var property : new String[] {
+            "npick.search.structured.keyword.weight=-0.1",
+            "npick.search.structured.keyword.weight=NaN",
+            "npick.search.structured.keyword.condition-cap=-1",
+            "npick.search.structured.keyword.stoplist[0]=​"
+        }) {
+            runner().withPropertyValues(property)
+                    .run(context -> assertThat(context).hasFailed());
+        }
+    }
+
+    @Test
+    void zeroKeywordWeightTurnsTheChannelOff() {
+        runner().withPropertyValues("npick.search.structured.keyword.weight=0").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(StructuredScoreSettings.class).keyword().enabled())
+                    .isFalse();
+        });
+    }
+
     private static ApplicationContextRunner runner() {
         return new ApplicationContextRunner()
                 .withInitializer(context -> {
