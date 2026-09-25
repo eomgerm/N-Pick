@@ -29,8 +29,37 @@ export interface TagCorrectionOperation {
 
 export interface TagCorrectionCandidate {
   feedbackId: string;
+  /** evidenceIds 길이. 자연 키로 재사용한 근거도 센다. */
   created: number;
+  /** 이번 요청으로 실제로 새로 만든 근거 수(S15P21A501-317). 전부 재사용이면 0. */
+  newlyCreated?: number;
   evidenceIds: string[];
+}
+
+/** 확정 전 대기 교정 후보 (S15P21A501-317). 새로고침 뒤 작성 중이던 교정을 복원하는 데 쓴다. */
+export interface CorrectionCandidates {
+  tags: Array<{
+    evidenceId: string;
+    taggingId: string;
+    action: TagCorrectionAction;
+    scope: ReviewTagScope;
+    tagType: ReviewTagType;
+    matchValue: string;
+    displayName: string;
+  }>;
+  parsePatches: Array<{
+    searchRuleId: string;
+    condition: Record<string, unknown>;
+    patch: Record<string, unknown>;
+    replacesRuleId: string | null;
+  }>;
+  sceneExcludes: Array<{ searchRuleId: string; targetSceneId: string }>;
+}
+
+export type CorrectionCandidateTag = CorrectionCandidates['tags'][number];
+
+export function correctionCandidatesQueryKey(feedbackId: string) {
+  return ['correction-candidates', feedbackId] as const;
 }
 
 export interface ReviewInquiryScene {
@@ -290,10 +319,60 @@ export function parseTagCorrectionCandidate(value: unknown): TagCorrectionCandid
   const evidenceIds = data.evidenceIds.map(identifier);
   const created = positiveInteger(data.created);
   if (created !== evidenceIds.length) fail();
-  return {
+  const parsed: TagCorrectionCandidate = {
     feedbackId: identifier(data.feedbackId),
     created,
     evidenceIds,
+  };
+  if (data.newlyCreated !== undefined) {
+    const newlyCreated = integer(data.newlyCreated);
+    if (newlyCreated > created) fail();
+    parsed.newlyCreated = newlyCreated;
+  }
+  return parsed;
+}
+
+function tagAction(value: unknown): TagCorrectionAction {
+  if (value !== 'APPROVE' && value !== 'REJECT' && value !== 'WITHDRAW') fail();
+  return value;
+}
+
+function list(value: unknown): unknown[] {
+  if (!Array.isArray(value)) fail();
+  return value;
+}
+
+export function parseCorrectionCandidates(value: unknown): CorrectionCandidates {
+  const data = record(value);
+  return {
+    tags: list(data.tags).map((value) => {
+      const item = record(value);
+      return {
+        evidenceId: identifier(item.evidenceId),
+        taggingId: identifier(item.taggingId),
+        action: tagAction(item.action),
+        scope: tagScope(item.scope),
+        tagType: tagType(item.tagType),
+        matchValue: text(item.matchValue),
+        displayName: text(item.displayName),
+      };
+    }),
+    parsePatches: list(data.parsePatches).map((value) => {
+      const item = record(value);
+      return {
+        searchRuleId: identifier(item.searchRuleId),
+        condition: record(item.condition),
+        patch: record(item.patch),
+        replacesRuleId: item.replacesRuleId === null ? null : identifier(item.replacesRuleId),
+      };
+    }),
+    sceneExcludes: list(data.sceneExcludes).map((value) => {
+      const item = record(value);
+      return {
+        searchRuleId: identifier(item.searchRuleId),
+        targetSceneId: identifier(item.targetSceneId),
+      };
+    }),
   };
 }
 
@@ -320,6 +399,17 @@ export async function getReviewInquiry(
   identifier(feedbackId);
   return parseReviewInquiryDetail(
     await fetchJson<unknown>(`/review/inquiries/${feedbackId}`, { signal }),
+  );
+}
+
+/** 담당 검수자가 이 신고에 쌓아 둔 확정 전 대기 교정 후보 전체를 읽는다 (S15P21A501-317). */
+export async function getCorrectionCandidates(
+  feedbackId: string,
+  signal?: AbortSignal,
+): Promise<CorrectionCandidates> {
+  identifier(feedbackId);
+  return parseCorrectionCandidates(
+    await fetchJson<unknown>(`/review/inquiries/${feedbackId}/correction-candidates`, { signal }),
   );
 }
 
