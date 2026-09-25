@@ -185,7 +185,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     /**
      * 확장어를 <b>구 단위 묶음</b>으로 토큰화한다 (S15P21A501-302).
      *
-     * <p>평탄화하지 않는 것이 핵심이다. 펼쳐 넘기면 어댑터의 {@code term_set} 이 확장어를 OR 로 받아 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되고, 짜장면 검색에
+     * <p>평탄화하지 않는 것이 핵심이다. 펼쳐 넘기면 어댑터가 원 질의 토큰처럼 토큰마다 OR({@code should}) 로 걸어 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되고, 짜장면 검색에
      * 중국 경제 뉴스가 올라온다 (운영 실측 19건). 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지르지 않게 하는 것은 종전대로 낮은 가중의 별도 절이 맡는다.
      *
      * <p>흔한 토큰을 문서빈도로 걸러내는 것은 이 티켓에서 <b>뺐다.</b> Elasticsearch 가 같은 것({@code cutoff_frequency}·{@code common_terms})을

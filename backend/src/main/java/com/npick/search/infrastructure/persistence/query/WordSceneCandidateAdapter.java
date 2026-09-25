@@ -40,16 +40,23 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
      * lexical 채널 둘 사이에 있다. ponytail: 순위 기반 결합 대신 가중합으로 두었고, Gate B 실측에서 {@code ocrWeight} 로 보정한다. 실측으로도 안 맞으면 이 자리를 RRF
      * 로 올린다.
      *
-     * <p>{@code paradedb.score(<테이블 별칭>)} 과 두 인자짜리 {@code paradedb.term_set(<필드>, <text[]>)} 는 공개 문서에 없는 형태다. 0.25.6
-     * 컨테이너의 {@code pg_proc} 에서 {@code score(relation_reference anyelement)} 와 {@code term_set(field fieldname, terms
-     * text[])} 를 직접 확인했고, {@code EXPLAIN} 이 두 인덱스 모두 {@code Custom Scan (ParadeDB Base Scan)} 을 타는 것을 확인했다 (2026-09-09
-     * 실측).
+     * <p>{@code paradedb.score(<테이블 별칭>)} 는 공개 문서에 없는 형태다. 0.25.6 컨테이너의 {@code pg_proc} 에서
+     * {@code score(relation_reference anyelement)} 를 직접 확인했고, {@code EXPLAIN} 이 두 인덱스 모두 {@code Custom Scan (ParadeDB
+     * Base Scan)} 을 타는 것을 확인했다 (2026-09-09 실측).
+     *
+     * <p><b>{@code term_set} 이 아니라 토큰마다 {@code term} 을 {@code should} 로 건다</b> (S15P21A501-320). 0.25.6 의
+     * {@code term_set} 은 맞은 문서에 <b>상수 점수 1.0</b> 을 준다 — 몇 개의 토큰이 맞았는지도, 토큰이 얼마나 드문지도, 문서 길이도 보지 않는다. 그래서 순위가 「몇
+     * 칸(캡션·대사·화면 글자)에서 맞았나」 1~3 점과 {@code scene_id} 로만 정해져, 세 토큰이 다 맞은 장면이 흔한 한 토큰만 맞은 장면 수백 개 뒤로 밀렸다 (로컬 운영 복원본 실측:
+     * 「화재 현장 소방관」 세 토큰 일치 장면의 중앙 순위 359위). 토큰별 {@code term} 의 {@code should} 는 <b>맞는 문서 집합이 {@code term_set} 과
+     * 같고</b>(OR) 점수만 실제 BM25(IDF·TF·길이 정규화의 합)가 된다. 토큰은 바인딩 한 개({@code :tokens})로 넘기고 {@code unnest} 로 절을 만든다 — 토큰 값이
+     * SQL 문자열에 들어가지 않는다.
      *
      * <p>캡션·대사 가중치는 {@code paradedb.boost} 로 인덱스 <b>안</b> 에서, 화면 글자 가중치는 밖에서 곱한다. 앞의 둘은 한 인덱스의 두 칸이라 점수가 하나로 합산되어 나오지만,
      * 화면 글자는 다른 표의 다른 인덱스라 점수가 따로 나오기 때문이다.
      *
      * <p>화면 글자를 {@code max} 로 모으는 것은 장면당 키프레임 수가 다르기 때문이다. 합으로 모으면 키프레임이 많은 장면이 내용과 무관하게 이기고, 이는 BM25 가 문서 길이 정규화로 막는
-     * 편향을 밖에서 되살리는 것이다.
+     * 편향을 밖에서 되살리는 것이다. 점수가 실제 BM25 가 된 뒤로는(S15P21A501-320) 질의 토큰이 한 관측에 함께 있으면 합산되고, 서로 다른 키프레임에
+     * 나뉘어 있으면 가장 높은 관측 하나만 반영된다 — 같은 토큰을 덮어도 순위가 갈릴 수 있다는 뜻이며, 키프레임 수 편향을 막는 대가로 받아들인다.
      */
     private static final String FIND_CANDIDATES_SQL = """
             WITH query_tokens AS (
@@ -62,10 +69,12 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                     AND c.active_pipeline_run_id = s.pipeline_run_id
                     AND c.deleted_at IS NULL
                 WHERE s @@@ paradedb.boolean(should => ARRAY[
-                    paradedb.boost(CAST(:captionWeight AS real),
-                        paradedb.term_set('caption_tokens', (SELECT tokens FROM query_tokens))),
-                    paradedb.boost(CAST(:transcriptWeight AS real),
-                        paradedb.term_set('transcript_tokens', (SELECT tokens FROM query_tokens)))%s])
+                    paradedb.boost(CAST(:captionWeight AS real), paradedb.boolean(should => ARRAY(
+                        SELECT paradedb.term('caption_tokens', token)
+                        FROM unnest((SELECT tokens FROM query_tokens)) AS token))),
+                    paradedb.boost(CAST(:transcriptWeight AS real), paradedb.boolean(should => ARRAY(
+                        SELECT paradedb.term('transcript_tokens', token)
+                        FROM unnest((SELECT tokens FROM query_tokens)) AS token)))%s])
             ),
             ocr_hits AS (
                 SELECT k.scene_id, s.clip_id, max(paradedb.score(o)) AS score
@@ -75,7 +84,9 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                 JOIN npick.clip c ON c.clip_id = s.clip_id
                     AND c.active_pipeline_run_id = s.pipeline_run_id
                     AND c.deleted_at IS NULL
-                WHERE o @@@ paradedb.term_set('tokens', (SELECT tokens FROM query_tokens))
+                WHERE o @@@ paradedb.boolean(should => ARRAY(
+                    SELECT paradedb.term('tokens', token)
+                    FROM unnest((SELECT tokens FROM query_tokens)) AS token))
                 GROUP BY k.scene_id, s.clip_id
             )
             SELECT scene_id, clip_id, text_score, ocr_score, total
@@ -224,19 +235,20 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
      * 토큰을 공백으로 이어 SQL 의 {@code string_to_array} 에 넘긴다.
      *
      * <p>토큰 하나에 공백이 있으면 DB 에서 두 토큰으로 쪼개져 검색어가 조용히 달라진다. Kiwi 형태소는 공백을 품지 않으므로 이런 값은 규약 위반이며, 결과를 왜곡하는 대신 거부한다.
+     *
+     * <p>같은 토큰은 한 번만 넘긴다. {@code term_set} 은 집합이라 중복이 점수를 바꾸지 않았지만 토큰별 {@code term} 의 {@code should} 는 같은 절이 두 번 가산된다.
      */
     private static String joinTokens(List<String> searchTokens) {
         // null 은 빈 목록과 다르다. 조용히 빈 결과를 주면 호출부 배선 실수가 "검색 결과 없음" 으로 위장된다.
         Objects.requireNonNull(searchTokens, "searchTokens");
-        StringBuilder joined = new StringBuilder();
+        Set<String> tokens = new LinkedHashSet<>();
         for (String token : searchTokens) {
             if (token == null || token.isBlank()) continue;
             if (token.codePoints().anyMatch(Character::isWhitespace)) {
                 throw new BusinessException(SceneCandidateErrorCode.SEARCH_TOKEN_CONTAINS_WHITESPACE);
             }
-            if (!joined.isEmpty()) joined.append(' ');
-            joined.append(token);
+            tokens.add(token);
         }
-        return joined.toString();
+        return String.join(" ", tokens);
     }
 }
