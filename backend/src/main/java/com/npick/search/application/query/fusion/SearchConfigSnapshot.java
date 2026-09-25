@@ -95,6 +95,7 @@ public record SearchConfigSnapshot(
         value.put("ocr_weight", lexical.ocrWeight());
         value.put("expanded_weight", lexical.expandedWeight());
         value.put("pool_size", lexical.poolSize());
+        value.put("excluded_query_tokens", lexical.excludedQueryTokens());
         return value;
     }
 

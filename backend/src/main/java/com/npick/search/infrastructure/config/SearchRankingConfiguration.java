@@ -44,7 +44,8 @@ public class SearchRankingConfiguration {
                 properties.transcriptWeight(),
                 properties.ocrWeight(),
                 properties.expandedWeight(),
-                properties.poolSize());
+                properties.poolSize(),
+                properties.excludedQueryTokens());
     }
 
     /**

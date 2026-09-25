@@ -25,7 +25,33 @@ class SceneCandidateConfigurationTest {
             assertThat(settings.transcriptWeight()).isPositive();
             assertThat(settings.ocrWeight()).isPositive();
             assertThat(settings.isAnyFieldSearched()).isTrue();
+            assertThat(settings.excludedQueryTokens())
+                    .containsExactly(
+                            "장면/nng", "보이/vv", "화면/nng", "모습/nng", "표시/nng", "설명/nng", "하단/nng", "내용/nng", "관련/nng");
         });
+    }
+
+    /** 빈 값은 범용어 제외를 끄는 스위치다 (S15P21A501-320). 부팅은 되어야 한다. */
+    @Test
+    void anEmptyExcludedTokenListTurnsTheExclusionOff() {
+        runnerWithApplicationYaml()
+                .withPropertyValues("npick.search.candidate.excluded-query-tokens=")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(SceneCandidateProperties.class).excludedQueryTokens())
+                            .isEmpty();
+                });
+    }
+
+    /** `형태/품사` 가 아닌 값은 어떤 질의 토큰과도 맞지 않는 오타다. 조용히 꺼지지 않게 부팅에서 막는다. */
+    @Test
+    void refusesMalformedExcludedToken() {
+        runnerWithApplicationYaml()
+                .withPropertyValues("npick.search.candidate.excluded-query-tokens=장면")
+                .run(context -> assertThat(context).hasFailed());
+        runnerWithApplicationYaml()
+                .withPropertyValues("npick.search.candidate.excluded-query-tokens=장면/NNG")
+                .run(context -> assertThat(context).hasNotFailed());
     }
 
     /** 후보 pool 이 0 이면 어떤 검색도 결과를 못 낸다. 질의 시점이 아니라 부팅에서 걸러야 한다. */

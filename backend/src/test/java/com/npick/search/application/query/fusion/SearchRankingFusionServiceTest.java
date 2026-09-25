@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.within;
 class SearchRankingFusionServiceTest {
     private static final String MODEL = "arctic-ko@" + "a".repeat(40);
     private static final LexicalSearchSettings LEXICAL =
-            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200);
+            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, List.of());
 
     @Test
     void combinesChannelRanksAndAddsTheStructuredTermWithoutAssigningAFinalRank() {
@@ -215,6 +215,23 @@ class SearchRankingFusionServiceTest {
         assertThat(result.config().soft()).isSameAs(SOFT);
         assertThat(service(settings(1.0, 1.0, 1.0), soft(2.0)).fuse(query).configVersion())
                 .isNotEqualTo(result.configVersion());
+    }
+
+    /** 범용어 제외 목록(-320)도 후보 자격을 바꾸므로 버전에 실려야 한다 — 검증 재검색의 지문 config 축이 같은 버전을 본다. */
+    @Test
+    void excludedQueryTokensAreTrackedByTheConfigVersion() {
+        var query = new FuseSearchRankingQuery(
+                List.of(candidate(30)), dense(), structured(List.of(scene(30, 0.0)), List.of()));
+        var excluding = new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, List.of("장면/nng"));
+
+        var result = new SearchRankingFusionService(settings(1.0, 1.0, 1.0), excluding, SOFT).fuse(query);
+
+        assertThat(result.config().payload())
+                .extracting("lexical")
+                .extracting("excluded_query_tokens")
+                .isEqualTo(List.of("장면/nng"));
+        assertThat(result.configVersion())
+                .isNotEqualTo(service(settings(1.0, 1.0, 1.0)).fuse(query).configVersion());
     }
 
     private SearchRankingFusionService service(FusionSettings settings) {

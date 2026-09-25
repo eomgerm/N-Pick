@@ -60,6 +60,7 @@ class SearchCandidatePipelineTest {
     private final ApplyActiveSceneExclusionsUseCase exclusions = mock(ApplyActiveSceneExclusionsUseCase.class);
     private final FindSceneCardsQueryPort cards = mock(FindSceneCardsQueryPort.class);
     private final TokenizeExpandedTermsPort expandedTerms = mock(TokenizeExpandedTermsPort.class);
+    private LexicalSearchSettings lexicalSettings = lexicalSettings(List.of());
 
     @Test
     @DisplayName("단어 채널이 꺼져 있으면 조회하지 않는다")
@@ -179,7 +180,65 @@ class SearchCandidatePipelineTest {
         verify(lexical).findByWords(anyList(), anyList());
     }
 
+    @Test
+    @DisplayName("캡션 범용어는 BM25 질의 토큰에서 빼고 근거 설명 토큰도 같은 값을 쓴다")
+    void dropsGenericCaptionTermsFromTheLexicalQuery() {
+        // S15P21A501-320: 「장면」 은 활성 장면 33% 의 캡션에 있다. 남기면 term_set OR 로 그만큼이 후보가 된다.
+        lexicalSettings = lexicalSettings(List.of("장면/nng", "보이/vv", "화면/nng", "모습/nng"));
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        SearchCandidates result = pipeline.rank(query(List.of("화재/nng", "장면/nng")));
+
+        verify(lexical).findByWords(List.of("화재/nng"), List.of());
+        // matched_keywords 가 이 값을 원 질의 토큰으로 쓴다 — 정규화 결과를 보면 「장면」 이 칩으로 뜬다.
+        assertThat(result.searchTokens()).containsExactly("화재/nng");
+    }
+
+    @Test
+    @DisplayName("원 질의 토큰이 전부 범용어면 빼지 않는다")
+    void keepsTheQueryWhenEveryTokenIsGeneric() {
+        lexicalSettings = lexicalSettings(List.of("장면/nng", "화면/nng"));
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        SearchCandidates result = pipeline.rank(query(List.of("화면/nng", "장면/nng")));
+
+        verify(lexical).findByWords(List.of("화면/nng", "장면/nng"), List.of());
+        assertThat(result.searchTokens()).containsExactly("화면/nng", "장면/nng");
+    }
+
+    @Test
+    @DisplayName("확장어 구 안의 범용어는 빼지 않고, 겹침은 범용어를 빼기 전 원 질의로 판정한다")
+    void keepsGenericTermsInsideExpandedPhrases() {
+        // 구는 must 라 범용어가 있어도 좁힐 뿐이다. 빼면 「자료 화면」 이 자료 단독 매칭으로 풀린다 (S15P21A501-320).
+        lexicalSettings = lexicalSettings(List.of("장면/nng", "화면/nng", "모습/nng"));
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1"))
+                .thenReturn(List.of(
+                        List.of("자료/nng", "화면/nng"), // 그대로 남는다
+                        List.of("화재/nng", "장면/nng"), // 사용자가 친 말뿐이다 → 버린다 (남기면 화재 중복 가산 + 장면 부활)
+                        List.of("모습/nng"), // 범용어뿐이다 → 버린다
+                        List.of("소방/nng", "장면/nng"))); // 그대로 남는다
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        SearchCandidates result = pipeline.rank(
+                queryWithExpandedTerms(new QueryNormalization("화재 장면", List.of("화재/nng", "장면/nng"), "norm/v1")));
+
+        verify(lexical)
+                .findByWords(List.of("화재/nng"), List.of(List.of("자료/nng", "화면/nng"), List.of("소방/nng", "장면/nng")));
+        // 칩에는 범용어를 싣지 않는다 — 같은 구의 자료·소방이 이유를 설명한다.
+        assertThat(result.expandedTokens()).containsExactly("자료/nng", "소방/nng");
+    }
+
     private RankSearchCandidatesUseCase.Query queryWithExpandedTerms() {
+        return queryWithExpandedTerms(new QueryNormalization("질의", List.of("질의"), "norm/v1"));
+    }
+
+    private RankSearchCandidatesUseCase.Query queryWithExpandedTerms(QueryNormalization normalization) {
         QueryResolution withTerms = new QueryResolution(
                 "query-resolver/v2",
                 QueryResolution.Intent.SCENE_SEARCH,
@@ -191,10 +250,7 @@ class SearchCandidatePipelineTest {
                 List.of("집중호우"),
                 0.9);
         return new RankSearchCandidatesUseCase.Query(
-                new QueryNormalization("질의", List.of("질의"), "norm/v1"),
-                withTerms,
-                null,
-                NormalizedSearch.of("질의", Map.of(), "norm/v1"));
+                normalization, withTerms, null, NormalizedSearch.of("질의", Map.of(), "norm/v1"));
     }
 
     @Test
@@ -224,6 +280,7 @@ class SearchCandidatePipelineTest {
                 dense,
                 provider(),
                 settings,
+                lexicalSettings,
                 structured,
                 fusion,
                 soft,
@@ -267,8 +324,12 @@ class SearchCandidatePipelineTest {
     }
 
     private RankSearchCandidatesUseCase.Query query() {
+        return query(List.of("질의"));
+    }
+
+    private RankSearchCandidatesUseCase.Query query(List<String> searchTokens) {
         return new RankSearchCandidatesUseCase.Query(
-                new QueryNormalization("질의", List.of("질의"), "norm/v1"),
+                new QueryNormalization(String.join(" ", searchTokens), searchTokens, "norm/v1"),
                 resolution(),
                 null,
                 NormalizedSearch.of("질의", Map.of(), "norm/v1"));
@@ -302,11 +363,11 @@ class SearchCandidatePipelineTest {
 
     private static SearchConfigSnapshot config() {
         return new SearchConfigSnapshot(
-                lexicalOnly(),
-                new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200),
-                null,
-                structuredSettings(),
-                softSettings());
+                lexicalOnly(), lexicalSettings(List.of()), null, structuredSettings(), softSettings());
+    }
+
+    private static LexicalSearchSettings lexicalSettings(List<String> excludedQueryTokens) {
+        return new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, excludedQueryTokens);
     }
 
     private static StructuredScoreSettings structuredSettings() {

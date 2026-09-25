@@ -24,6 +24,8 @@ import com.npick.tag.domain.model.EffectiveTag;
  * @param guard 통과한 장면의 판정까지 들어 있다. 응답의 {@code guard_summary} 는 이 중 제외 건만 센다
  * @param degradedReasons 이 구간이 낸 사유. 해석 단계가 낸 것과 합쳐야 최종 {@code status} 가 된다
  * @param shortageReasons 10개를 못 채웠으면 1개 이상. 왜 못 채웠는지는 이 구간만 안다
+ * @param searchTokens 이 검색이 실제로 BM25 에 건 원 질의 토큰. 정규화 결과에서 캡션 범용어를 뺀 것이다 (S15P21A501-320). 근거 설명이 정규화 결과를 그대로 보면 조회에 쓰지
+ *     않은 말이 {@code matched_keywords} 에 뜬다
  * @param expandedTokens 이 검색이 실제로 쓴 확장어 토큰. 근거 설명이 원 질의 토큰만 보면 확장어로만 걸린 장면의 {@code matched_keywords} 가 비어 「왜 나왔는지 모르는
  *     결과」가 된다
  * @param hasNext 이 페이지 뒤로 유효한 후보가 더 있으면 참. 응답의 {@code has_next} 로 나가 더보기 버튼을 띄운다 (S15P21A501-251)
@@ -36,6 +38,7 @@ public record SearchCandidates(
         SearchConfigSnapshot config,
         List<SearchDegradedReason> degradedReasons,
         List<ShortageReason> shortageReasons,
+        List<String> searchTokens,
         List<String> expandedTokens,
         boolean hasNext) {
 
@@ -44,6 +47,7 @@ public record SearchCandidates(
         appliedExcludes = List.copyOf(appliedExcludes);
         degradedReasons = List.copyOf(degradedReasons);
         shortageReasons = List.copyOf(shortageReasons);
+        searchTokens = searchTokens == null ? List.of() : List.copyOf(searchTokens);
         expandedTokens = expandedTokens == null ? List.of() : List.copyOf(expandedTokens);
     }
 
@@ -56,6 +60,7 @@ public record SearchCandidates(
             SearchConfigSnapshot config,
             List<SearchDegradedReason> degradedReasons,
             List<ShortageReason> shortageReasons,
+            List<String> searchTokens,
             List<String> expandedTokens) {
         this(
                 scenes,
@@ -65,6 +70,7 @@ public record SearchCandidates(
                 config,
                 degradedReasons,
                 shortageReasons,
+                searchTokens,
                 expandedTokens,
                 false);
     }

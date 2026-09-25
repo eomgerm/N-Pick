@@ -40,6 +40,7 @@ import com.npick.search.application.query.structured.StructuredScoresResult;
 import com.npick.search.application.resolution.SearchDegradedReason;
 import com.npick.search.domain.model.FusionChannel;
 import com.npick.search.domain.model.FusionSettings;
+import com.npick.search.domain.model.LexicalSearchSettings;
 import com.npick.search.domain.model.ShortageReason;
 import com.npick.tag.application.query.ResolveSceneTagsUseCase;
 import com.npick.tag.domain.model.EffectiveTag;
@@ -59,6 +60,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     private final FindDenseCandidatesQueryPort denseCandidates;
     private final ObjectProvider<DenseSearchSettings> denseSettings;
     private final FusionSettings fusionSettings;
+    private final LexicalSearchSettings lexicalSettings;
     private final ScoreStructuredScenesUseCase structuredScores;
     private final FuseSearchRankingUseCase fusion;
     private final AdjustSoftRankingUseCase softRanking;
@@ -73,6 +75,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
             FindDenseCandidatesQueryPort denseCandidates,
             ObjectProvider<DenseSearchSettings> denseSettings,
             FusionSettings fusionSettings,
+            LexicalSearchSettings lexicalSettings,
             ScoreStructuredScenesUseCase structuredScores,
             FuseSearchRankingUseCase fusion,
             AdjustSoftRankingUseCase softRanking,
@@ -85,6 +88,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         this.denseCandidates = denseCandidates;
         this.denseSettings = denseSettings;
         this.fusionSettings = fusionSettings;
+        this.lexicalSettings = lexicalSettings;
         this.structuredScores = structuredScores;
         this.fusion = fusion;
         this.softRanking = softRanking;
@@ -104,8 +108,12 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     public SearchCandidates rank(Query query) {
         List<SearchDegradedReason> degraded = new ArrayList<>();
 
+        // 범용어를 뺀 토큰을 조회·근거 설명이 함께 쓴다 (S15P21A501-320). 조회에서만 빼면 캡션의 「장면」 이
+        // matched_keywords 에 떠서, 그 말 때문에 나온 것처럼 보인다.
+        List<String> searchTokens =
+                lexicalSettings.searchQueryTokens(query.normalization().searchTokens());
         List<List<String>> expandedPhrases = expandedPhrases(query);
-        List<SceneCandidateResult> lexical = lexical(query, expandedPhrases);
+        List<SceneCandidateResult> lexical = lexical(searchTokens, expandedPhrases);
         DenseCandidatesResult dense = dense(query, degraded);
 
         StructuredScoresResult structured = structuredScores.score(
@@ -136,7 +144,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                 fused.config(),
                 degraded,
                 shortageReasons(scenes.size(), guarded, excluded),
-                flattenForEvidence(query, expandedPhrases),
+                searchTokens,
+                flattenForEvidence(searchTokens, expandedPhrases, lexicalSettings),
                 excluded.hasMore());
     }
 
@@ -148,11 +157,11 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      *
      * <p>dense 와 달리 사유를 남기지 않는다. 끈 채널은 장애가 아니고, 설정으로 끈 것을 사용자에게 「일부 기능 누락」으로 안내하면 매 검색이 degraded 가 된다.
      */
-    private List<SceneCandidateResult> lexical(Query query, List<List<String>> expandedPhrases) {
+    private List<SceneCandidateResult> lexical(List<String> searchTokens, List<List<String>> expandedPhrases) {
         if (!fusionSettings.isActive(FusionChannel.LEXICAL)) {
             return List.of();
         }
-        return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedPhrases);
+        return lexicalCandidates.findByWords(searchTokens, expandedPhrases);
     }
 
     /**
@@ -187,6 +196,15 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      * 겹치는 묶음은 <b>통째로 남긴다</b> — 구에서 토큰 하나를 빼면 {@code must} 가 그만큼 헐거워져 이 티켓이 없애려는 넓은 매칭이 되살아난다.
      *
      * <p>규칙 적용 <b>뒤</b>의 확장어를 토큰화한다. 교정으로 검수자가 넣은 값은 리졸버가 모르고, 백엔드에는 Kiwi 가 없다 (S15P21A501-205 의 창구).
+     *
+     * <p><b>구 안의 범용어는 빼지 않는다</b> (S15P21A501-320). 구는 {@code must} 라 범용어가 들어 있어도 매칭을 좁힐 뿐이다 — 빼면 「자료 화면」 이 {@code 자료}
+     * 단독 매칭이 되어 이 메서드가 막으려는 넓은 매칭이 되살아난다.
+     *
+     * <p><b>겹침 판정은 범용어를 빼기 전의 원 질의 토큰으로 한다.</b> 사용자가 친 말만으로 된 구는 확장어가 아니다. 「화재 장면」 에 확장어 「화재 장면」 이 오면 원 질의 절이 이미
+     * {@code 화재} 를 걸고 있으므로, 뺀 뒤 토큰({@code 화재})으로 판정해 이 구를 남기면 {@code 화재 AND 장면} 절이 같은 {@code 화재} 를 한 번 더 가산하고, 질의에서 일부러
+     * 뺀 {@code 장면} 을 순위 가산 조건으로 되살린다. 원 질의 토큰으로 판정해 버려지는 구는 사용자가 친 말로만 이루어져 있으므로 잃는 확장 정보가 없다.
+     *
+     * <p><b>범용어로만 된 구는 버린다.</b> 좁혀 줄 다른 토큰이 없어 원 질의에서 뺀 범용어 토큰과 똑같이 장면 수천 개를 끌어온다.
      */
     private List<List<String>> expandedPhrases(Query query) {
         if (query.finalResolution() == null
@@ -200,6 +218,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                         query.normalization().normalizationVersion())
                 .stream()
                 .filter(phrase -> !queryTokens.containsAll(phrase))
+                .filter(phrase -> !phrase.stream().allMatch(lexicalSettings::excludes))
                 .toList();
     }
 
@@ -208,13 +227,18 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      * 형태를 바꾸지 않는다 (S15P21A501-302).
      *
      * <p>원 질의와 겹치는 토큰은 조립이 {@code distinct} 로 합치므로 여기서 다시 뺄 필요는 없지만, 「확장어가 기여한 토큰」이라는 의미를 유지하려고 뺀다.
+     *
+     * <p>범용어는 구 조회에는 남기지만 여기서는 뺀다 (S15P21A501-320). 「소방 장면」 구로 걸린 장면의 칩에 {@code 장면} 이 뜨면 장면 3분의 1 에 들어 있는 말 때문에 나온 것처럼
+     * 보인다. 이유는 같은 구의 {@code 소방} 이 설명한다.
      */
-    private static List<String> flattenForEvidence(Query query, List<List<String>> phrases) {
+    private static List<String> flattenForEvidence(
+            List<String> searchTokens, List<List<String>> phrases, LexicalSearchSettings lexicalSettings) {
         if (phrases.isEmpty()) return List.of();
-        Set<String> queryTokens = Set.copyOf(query.normalization().searchTokens());
+        Set<String> queryTokens = Set.copyOf(searchTokens);
         return phrases.stream()
                 .flatMap(List::stream)
                 .filter(token -> !queryTokens.contains(token))
+                .filter(token -> !lexicalSettings.excludes(token))
                 .distinct()
                 .toList();
     }

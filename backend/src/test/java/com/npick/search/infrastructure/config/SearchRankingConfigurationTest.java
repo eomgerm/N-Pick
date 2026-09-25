@@ -1,6 +1,7 @@
 package com.npick.search.infrastructure.config;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
@@ -70,12 +71,13 @@ class SearchRankingConfigurationTest {
     @Test
     void lexicalRecordingSettingsMirrorTheCandidateAdapterConfiguration() {
         // -51 의 결과는 설정을 실어 보내지 않으므로 어댑터가 주입받는 것과 같은 빈에서 읽는다.
-        var properties = new SceneCandidateProperties("candidate-v1", 1.0, 2.0, 0.0, 0.3, 200);
+        var properties = new SceneCandidateProperties("candidate-v1", 1.0, 2.0, 0.0, 0.3, 200, List.of("장면/nng"));
         var lexical = configuration.lexicalSearchSettings(properties);
         assertThat(lexical.configVersion()).isEqualTo("candidate-v1");
         assertThat(lexical.transcriptWeight()).isEqualTo(2.0);
         assertThat(lexical.ocrWeight()).isZero();
         assertThat(lexical.poolSize()).isEqualTo(200);
+        assertThat(lexical.excludedQueryTokens()).containsExactly("장면/nng");
     }
 
     private static FusionProperties fusion(double lexical, double dense) {

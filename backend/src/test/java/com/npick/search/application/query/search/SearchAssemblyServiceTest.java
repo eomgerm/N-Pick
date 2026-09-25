@@ -63,7 +63,7 @@ class SearchAssemblyServiceTest {
     private static final String RAW_QUERY = "설 연휴 서울역 귀성 인파";
 
     private static final LexicalSearchSettings LEXICAL =
-            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200);
+            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, List.of());
 
     private QueryResolverPort resolver;
     private ParseRuleRepository parseRules;
@@ -450,6 +450,7 @@ class SearchAssemblyServiceTest {
                 base.config(),
                 base.degradedReasons(),
                 base.shortageReasons(),
+                base.searchTokens(),
                 base.expandedTokens());
     }
 
@@ -463,6 +464,7 @@ class SearchAssemblyServiceTest {
                 base.config(),
                 base.degradedReasons(),
                 List.of(ShortageReason.CANDIDATE_POOL_EXHAUSTED),
+                base.searchTokens(),
                 base.expandedTokens());
     }
 
@@ -559,6 +561,7 @@ class SearchAssemblyServiceTest {
                 base.config(),
                 base.degradedReasons(),
                 base.shortageReasons(),
+                base.searchTokens(),
                 base.expandedTokens());
     }
 
@@ -698,6 +701,7 @@ class SearchAssemblyServiceTest {
                         base.config(),
                         base.degradedReasons(),
                         base.shortageReasons(),
+                        base.searchTokens(),
                         List.of("집중호우")));
         when(record.complete(any())).thenReturn(List.of(801L));
 
@@ -707,6 +711,33 @@ class SearchAssemblyServiceTest {
         assertThat(result.results().getFirst().matchedKeywords())
                 .contains(new SearchExecutionResult.MatchedKeyword(
                         "집중호우", SearchExecutionResult.MatchedKeyword.ORIGIN_EXPANDED));
+    }
+
+    @Test
+    @DisplayName("원 질의 키워드는 정규화 결과가 아니라 후보 조회가 실제로 건 토큰에서 고른다")
+    void matchedKeywordsUseTheTokensTheLexicalQueryActuallyUsed() {
+        // S15P21A501-320: 범용어(장면·화면 등)는 BM25 질의에서 빠진다. 정규화 결과로 대조하면 캡션 셋 중 하나에
+        // 있는 그 말이 칩으로 떠서, 조회에 쓰지도 않은 말 때문에 나온 것처럼 보인다. 여기서는 「연휴」 를 뺀 값을 준다.
+        givenResolved();
+        SearchCandidates base = candidates(sceneWithCaption("연휴 서울역", List.of("연휴", "서울역")));
+        when(pipeline.rank(any()))
+                .thenReturn(new SearchCandidates(
+                        base.scenes(),
+                        base.candidates(),
+                        base.guard(),
+                        base.appliedExcludes(),
+                        base.config(),
+                        base.degradedReasons(),
+                        base.shortageReasons(),
+                        List.of("설", "서울역", "귀성", "인파"),
+                        List.of()));
+        when(record.complete(any())).thenReturn(List.of(801L));
+
+        SearchExecutionResult result = service.execute(query());
+
+        assertThat(result.results().getFirst().matchedKeywords())
+                .containsExactly(new SearchExecutionResult.MatchedKeyword(
+                        "서울역", SearchExecutionResult.MatchedKeyword.ORIGIN_USER));
     }
 
     private SearchCandidates.ScoredScene sceneWithCaption(String caption, List<String> captionTokens) {
@@ -805,6 +836,7 @@ class SearchAssemblyServiceTest {
                 new SearchConfigSnapshot(fusionSettings(), LEXICAL, null, structuredSettings(), softSettings()),
                 List.of(),
                 List.of(),
+                normalization().searchTokens(),
                 List.of());
     }
 
