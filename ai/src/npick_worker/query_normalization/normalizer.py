@@ -10,6 +10,8 @@
 - `search_tokens`    : BM25 용. 색인 측과 **같은 규칙만** 적용한다. 여기까지
   뭉개면 색인된 토큰과 어긋나 검색이 0건이 된다
   (`docs/architecture/02-container.md` 의 Kiwi 설정 일치 요구).
+  예외는 `search_token_synonyms` 하나다 — 원 토큰은 그대로 두고 색인에 이미 있는
+  모양의 같은 뜻 토큰을 **끝에 더하기만** 한다(S15P21A501-320, 「빨간」↔「빨간색」).
 """
 
 from dataclasses import dataclass
@@ -74,6 +76,28 @@ def normalize(raw_query: str, config: QueryNormalizationConfig | None = None) ->
 
     return NormalizedQuery(
         normalized_query=" ".join(content),
-        search_tokens=tuple(encode_token(form, tag) for form, tag in kept),
+        search_tokens=_with_synonyms(
+            tuple(encode_token(form, tag) for form, tag in kept), settings
+        ),
         normalization_version=tokenizer_version(settings),
     )
+
+
+def _with_synonyms(tokens: tuple[str, ...], settings: QueryNormalizationConfig) -> tuple[str, ...]:
+    """묶음에 든 토큰이 있으면 같은 묶음의 나머지를 끝에 더한다.
+
+    지문(`normalized_query`)은 이 결과를 보지 않는다. 장면 제외 규칙이 지문에 걸리므로
+    같은 뜻 토큰을 지문에 섞으면 규칙이 걸리는 질의가 넓어진다(FR-OVR-009 가 금지한 유사
+    질의 확장). 이미 있는 토큰은 다시 넣지 않는다 — BM25 가 한 뜻을 두 번 센다.
+    """
+    extra: list[str] = []
+    present = set(tokens)
+    for group in settings.synonym_groups:
+        encoded = [encode_token(form, tag) for form, tag in group]
+        if present.isdisjoint(encoded):
+            continue
+        for token in encoded:
+            if token not in present:
+                present.add(token)
+                extra.append(token)
+    return tokens + tuple(extra)

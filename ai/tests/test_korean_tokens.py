@@ -91,7 +91,8 @@ def test_fingerprint_includes_irregular_forms_and_stopwords_match_the_base_tag()
     """
     red = normalize("빨간 옷 입은 사람")
     assert red.normalized_query == "빨갛 사람 옷 입"
-    assert red.search_tokens == ("빨갛/va", "옷/nng", "입/vv", "사람/nng")
+    # 뒤에 붙는 색 명사(`빨간색/nng` 등)는 `test_search_token_synonyms.py` 가 본다
+    assert red.search_tokens[:4] == ("빨갛/va", "옷/nng", "입/vv", "사람/nng")
 
     assert normalize("사람들이 걷는 모습").normalized_query == "걷 모습 사람"
     # 불용어 `보/VV` 는 빠지고 불규칙 `듣` 은 남는다
