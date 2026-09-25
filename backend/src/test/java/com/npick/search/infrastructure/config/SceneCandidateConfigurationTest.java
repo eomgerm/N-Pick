@@ -25,7 +25,9 @@ class SceneCandidateConfigurationTest {
             assertThat(settings.transcriptWeight()).isPositive();
             assertThat(settings.ocrWeight()).isPositive();
             assertThat(settings.isAnyFieldSearched()).isTrue();
-            assertThat(settings.excludedQueryTokens()).containsExactly("장면/nng", "보이/vv", "화면/nng", "모습/nng");
+            assertThat(settings.excludedQueryTokens())
+                    .containsExactly(
+                            "장면/nng", "보이/vv", "화면/nng", "모습/nng", "표시/nng", "설명/nng", "하단/nng", "내용/nng", "관련/nng");
         });
     }
 

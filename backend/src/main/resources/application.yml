@@ -137,9 +137,11 @@ npick:
       pool-size: ${SEARCH_CANDIDATE_POOL_SIZE:200}
       # BM25 질의 토큰에서 뺄 캡션 범용어 (S15P21A501-320). VLM 캡션이 「~하는 장면이다 / 화면에 ~가 보인다 /
       # ~하는 모습」 식이라 활성 장면 문서빈도가 장면 33.4%·보이 30.6%·화면 27.2%·모습 16.6% 다 (운영 복원본 실측).
+      # 캡션 서술어 표시 10.3%·설명 9.9%·관련 6.1%·하단 4.9%·내용 4.4% 도 같은 이유로 뺀다. 설명·내용·관련은 질의 지문
+      # 불용어(query_normalization.v1.toml)이기도 하다. 뉴스·배경·보도는 주제어일 수 있어 넣지 않는다.
       # 질의에 남으면 term_set 의 OR 로 그만큼이 후보가 된다. 색인 토큰과 같은 `형태/품사` 소문자로 쓴다.
       # 원 질의 토큰이 전부 여기 들면 빼지 않는다. 질의 지문(normalized_query)·dense 입력과는 무관하다.
-      excluded-query-tokens: ${SEARCH_CANDIDATE_EXCLUDED_QUERY_TOKENS:장면/nng,보이/vv,화면/nng,모습/nng}
+      excluded-query-tokens: ${SEARCH_CANDIDATE_EXCLUDED_QUERY_TOKENS:장면/nng,보이/vv,화면/nng,모습/nng,표시/nng,설명/nng,하단/nng,내용/nng,관련/nng}
     # 순위 결합(RRF) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
     # 실제 사용 값은 search_execution.search_config_json 에 남고 config_version 이 그 값들에서 나온다.
     fusion:
