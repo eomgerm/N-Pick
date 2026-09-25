@@ -28,6 +28,8 @@ export const verificationErrorMessages: Record<string, string> = {
   SRCH_404_231: '문의를 찾을 수 없습니다. 목록에서 최신 상태를 확인해 주세요.',
   SRCH_409_231: '검수 중인 문의가 아닙니다. 검수를 시작한 뒤 다시 검증해 주세요.',
   SRCH_409_232: '대기 중인 교정 후보가 없습니다. 후보를 먼저 저장한 뒤 검증해 주세요.',
+  SRCH_409_205:
+    '같은 규칙을 교체하는 대기 후보가 둘 이상 있습니다. 이전 교정 후보를 폐기한 뒤 다시 저장하고 검증해 주세요.',
 };
 
 function fail(status = 200): never {

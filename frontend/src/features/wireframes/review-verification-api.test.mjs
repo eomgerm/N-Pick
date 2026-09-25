@@ -133,6 +133,10 @@ test('검수 중 아님(231)과 대기 후보 없음(232)은 서로 다른 문�
   }
 });
 
+test('같은 규칙을 교체하는 대기 후보 충돌(205)은 이전 후보 정리를 안내한다', () => {
+  assert.match(verificationErrorMessages.SRCH_409_205, /폐기/);
+});
+
 test('본문 없는 POST 를 계약 경로로 보낸다', async (context) => {
   const requests = [];
   context.mock.method(globalThis, 'fetch', async (input, init) => {
