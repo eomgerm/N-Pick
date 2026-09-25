@@ -465,7 +465,7 @@ function previousParsePatch() {
   };
 }
 
-test('새로고침 뒤 이전 해석 교정이 있으면 알리고, 다시 담기 전에 먼저 폐기한다', async ({
+test('새로고침 뒤 이전 해석 교정이 있으면 알리고, 편집만으로는 폐기하지 않고 담을 때 먼저 폐기한다', async ({
   page,
 }) => {
   const state = restoredState();
@@ -481,10 +481,55 @@ test('새로고침 뒤 이전 해석 교정이 있으면 알리고, 다시 담�
   await page.getByRole('button', { name: "'추석' 삭제", exact: true }).click();
   const save = page.getByRole('button', { name: '교정 담기', exact: true });
   await expect(save).toBeEnabled();
+  // 편집만으로는 폐기하지 않는다 — 떠나도 이전에 담은 교정이 서버에 남는다.
+  await expect(
+    page.getByText(
+      '편집한 내용은 아직 담지 않았어요. 교정 담기를 누르면 이전 교정을 폐기하고 새로 담습니다.',
+    ),
+  ).toBeVisible();
+  await expect(notice).toBeVisible();
+  expect(calls).toEqual([]);
+  expect(state.parsePatches).toEqual([previousParsePatch()]);
+
   await save.click();
   await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
   expect(calls).toEqual(['DELETE parse-patch', 'POST parse-patch']);
   expect(state.parsePatches).toHaveLength(1);
+});
+
+test('담을 때 이전 교정 폐기가 실패하면 저장하지 않고, 다시 누르면 폐기부터 반복한다', async ({
+  page,
+}) => {
+  const state = restoredState();
+  state.parsePatches = [previousParsePatch()];
+  const calls = await mockServer(page, state);
+  let failDelete = true;
+  await page.route('**/api/v1/review/inquiries/41/parse-patch-candidate', async (route) => {
+    if (route.request().method() === 'DELETE' && failDelete) {
+      failDelete = false;
+      calls.push('DELETE parse-patch (failed)');
+      await route.fulfill({
+        status: 409,
+        json: { isSuccess: false, code: 'SRCH_409_201', message: '요청을 처리할 수 없습니다.' },
+      });
+      return;
+    }
+    await route.fallback();
+  });
+  await page.goto('/review?inquiry=41');
+
+  await page.getByRole('button', { name: "'추석' 삭제", exact: true }).click();
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
+  await save.click();
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toBeVisible();
+  expect(calls).toEqual(['DELETE parse-patch (failed)']);
+  expect(state.parsePatches).toEqual([previousParsePatch()]);
+
+  await save.click();
+  await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
+  expect(calls).toEqual(['DELETE parse-patch (failed)', 'DELETE parse-patch', 'POST parse-patch']);
+  expect(state.parsePatches).toHaveLength(1);
+  expect(state.parsePatches).not.toContainEqual(previousParsePatch());
 });
 
 test('이전 교정 폐기 버튼은 서버 후보를 폐기하고 알림을 거둔다', async ({ page }) => {

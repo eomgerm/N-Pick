@@ -326,7 +326,7 @@ test('일부만 저장된 뒤 다시 담으면 같은 키로 재전송해 중복
   expect(created.size).toBe(2);
 });
 
-test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들을 저장한다 (S15P21A501-309)', async ({
+test('담은 뒤 다시 편집하면 담기를 누를 때 이전 후보를 폐기하고 새 후보들을 저장한다 (S15P21A501-317)', async ({
   page,
 }) => {
   const { calls } = await mockParseCandidates(page);
@@ -339,6 +339,14 @@ test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들
 
   await page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true }).click();
   await expect(save).toBeEnabled();
+  // 편집만으로는 폐기하지 않는다 — 담기 전까지 이전 후보가 서버에 남고, 아직 담지 않았다고 알린다.
+  await expect(
+    page.getByText(
+      '편집한 내용은 아직 담지 않았어요. 교정 담기를 누르면 이전 교정을 폐기하고 새로 담습니다.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('교정을 담았어요.', { exact: false })).toHaveCount(0);
+  expect(calls.map((call) => call.method)).toEqual(['POST']);
   await save.click();
   await expect(page.getByText('2개 교정을 담았어요.', { exact: false })).toBeVisible();
 
@@ -349,7 +357,7 @@ test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들
   ]);
 });
 
-test('저장 응답이 유실된 뒤 다시 편집하면 이전 후보를 폐기하고 새 규칙만 저장한다 (S15P21A501-309)', async ({
+test('저장 응답이 유실된 뒤 다시 편집해 담으면 이전 후보를 폐기하고 새 규칙만 저장한다 (S15P21A501-309)', async ({
   page,
 }) => {
   const { calls, stored } = await mockParseCandidates(
@@ -380,6 +388,8 @@ test('저장 응답이 유실된 뒤 다시 편집하면 이전 후보를 폐기
 
   await editChip('고속 정체', '정체');
   await expect(save).toBeEnabled();
+  expect(calls.map((call) => call.method)).toEqual(['POST']);
+  expect(stored.size).toBe(1);
   await save.click();
   await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
 
