@@ -11,7 +11,7 @@ const parsedQueryJson = JSON.stringify({
   confidence: 0.92,
 });
 
-function inquiry() {
+function inquiry(parsed: string = parsedQueryJson) {
   return {
     feedbackId: '41',
     status: 'REVIEWING',
@@ -36,7 +36,7 @@ function inquiry() {
     execution: {
       queryText: '귀성길 정체',
       explicitFiltersJson: '{}',
-      parsedQueryJson,
+      parsedQueryJson: parsed,
       resolverOutputJson: null,
       appliedRulesJson: '[]',
       appliedExcludesJson: '[]',
@@ -68,13 +68,13 @@ async function success(route: Route, data?: unknown) {
   });
 }
 
-async function openInquiry(page: Page) {
+async function openInquiry(page: Page, parsed?: string) {
   await page.context().addCookies([
     { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
     { name: 'XSRF-TOKEN', value: 'review-csrf', url: 'http://127.0.0.1:3116' },
   ]);
   await page.route('**/api/v1/auth/csrf', (route) => success(route));
-  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, inquiry()));
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, inquiry(parsed)));
   await page.goto('/review?inquiry=41');
 }
 
@@ -412,4 +412,42 @@ test('교정 담기 옆에 담을 교정 수를 보여주고 10개가 되면 추
   await page.getByRole('button', { name: "'장소9' 삭제", exact: true }).click();
   await expect(save).toHaveAccessibleDescription('담을 교정 수 9/10');
   await expect(addLocation).toBeEnabled();
+});
+
+test('20자를 넘는 AI 값을 고치지 않고 다른 항목으로 옮기면 원본 참조(value_from)로 저장된다 (S15P21A501-290)', async ({
+  page,
+}) => {
+  const longValue = '서울특별시 중구 세종대로 110 서울시청 본관';
+  expect(longValue.length).toBeGreaterThan(20);
+  const bodies: { patch: { operations: Record<string, unknown>[] } }[] = [];
+  await page.route('**/api/v1/review/inquiries/41/parse-patch-candidate', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await success(route);
+      return;
+    }
+    bodies.push(route.request().postDataJSON());
+    await success(route, { searchRuleId: '90', feedbackId: '41', active: false });
+  });
+  const parsed = JSON.parse(parsedQueryJson);
+  await openInquiry(page, JSON.stringify({ ...parsed, expanded_terms: [longValue] }));
+
+  const chip = page.getByRole('button', { name: new RegExp(`^${longValue}`) }).first();
+  const incidentRow = page.getByText('사건명', { exact: true }).locator('..');
+  await chip.dragTo(incidentRow);
+  await expect(
+    incidentRow.getByRole('button', { name: `'${longValue}' 삭제`, exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole('button', { name: '교정 담기', exact: true }).click();
+  await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
+
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0].patch.operations).toEqual([
+    { op: 'remove_item', axis: 'expanded_terms', value: longValue },
+    {
+      op: 'add_item',
+      axis: 'incident_names',
+      value_from: { axis: 'expanded_terms', value: longValue },
+    },
+  ]);
 });

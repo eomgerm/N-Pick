@@ -170,6 +170,19 @@ export function deriveParseRules(
         ),
       );
     } else if (edit.kind === 'move') {
+      // 값을 고치지 않은 이동은 원본 항목을 가리켜(value_from) 옮긴다. 원본 AI 값은 길이 제한이 없어 리터럴로
+      // 다시 적으면 새 값 상한(20자)에 걸리고, 참조로 옮기면 원본 출처·원문 구간도 승계된다 (FRD F-11).
+      // 이동하면서 값을 고쳤다면 새로 입력한 값이라 리터럴로 적는다 (입력창 maxLength 로 20자 이하).
+      const moved: Pick<PatchOperation, 'value' | 'value_from'> =
+        edit.value === edit.fromValue
+          ? {
+              value_from: {
+                axis: edit.from,
+                value: edit.fromValue,
+                ...typeIf(edit.from, edit.fromType),
+              },
+            }
+          : { value: edit.value };
       rules.push(
         body(
           [{ axis: edit.from, op: 'has_value', value: edit.fromValue }],
@@ -183,7 +196,7 @@ export function deriveParseRules(
             {
               op: 'add_item',
               axis: edit.to,
-              value: edit.value,
+              ...moved,
               ...typeIf(edit.to, defaultType(edit.to)),
             },
           ],

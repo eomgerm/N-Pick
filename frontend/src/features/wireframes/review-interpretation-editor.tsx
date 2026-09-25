@@ -132,9 +132,11 @@ export function ParseInterpretationEditor({
       }
       if (
         edits.some((edit) => {
-          // remove 는 값을 새로 넣지 않고, move 는 원본 칩을 옮길 뿐이라 길이 상한을 검사하지 않는다.
-          // add·edit 의 새로 입력한 값만 검사한다 (입력창 maxLength 로 이미 20자 이하로 제한된다).
-          if (edit.kind === 'remove' || edit.kind === 'move') return false;
+          // 새로 입력한 값(add·edit, 값을 고친 move)만 검사한다 (입력창 maxLength 로 이미 20자 이하로
+          // 제한된다). remove 는 값을 새로 넣지 않고, 값을 고치지 않은 move 는 원본 항목을 value_from 으로
+          // 가리켜 옮기므로 원본 값이 20자를 넘어도 된다 (서버 상한은 원본 값 100자).
+          if (edit.kind === 'remove') return false;
+          if (edit.kind === 'move' && edit.value === edit.fromValue) return false;
           const value = edit.kind === 'edit' ? edit.to : edit.value;
           return value.length > MAX_CHIP_VALUE_LENGTH;
         })
