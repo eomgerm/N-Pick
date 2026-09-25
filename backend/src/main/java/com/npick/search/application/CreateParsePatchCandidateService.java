@@ -38,6 +38,15 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
     // Idempotency-Key 가 바뀌어 행이 늘어나므로(F-12 5) 그 반복분까지 덮는 값으로 둔다 (S15P21A501-255).
     private static final int MAX_CANDIDATES_PER_FEEDBACK = 10;
 
+    // 후보 하나의 크기 상한 (S15P21A501-290). FE 편집기가 같은 값으로 막지만 직접 호출은 FE 를 거치지 않는다.
+    // 길이는 String.length()(UTF-16 단위)로 센다 — FE 의 JS string.length 와 같은 단위이고, 한글 음절은 1 단위다.
+    private static final int MAX_PREDICATES_PER_CANDIDATE = 10;
+    private static final int MAX_OPERATIONS_PER_CANDIDATE = 10;
+    // 패치가 새로 적는 리터럴 값(set 값, value_from 없는 add_item 값). FE 칩 값 상한(20자)과 같다.
+    private static final int MAX_NEW_VALUE_LENGTH = 20;
+    // AI 원본 해석의 값과 대조되는 값(조건 value, remove_item 값, value_from 값). 원본 값을 그대로 옮겨 적으므로 새 값보다 넉넉히 둔다.
+    private static final int MAX_MATCH_VALUE_LENGTH = 100;
+
     private final ParseContextPort parseContextPort;
     private final ParseRuleCandidateRepository candidateRepository;
     private final ParseRuleJsonPort jsonMapper;
@@ -98,6 +107,11 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
         if (rule.parseError() != null || rule.incompatibleReason(probe(context.resolverOutputJson())) != null) {
             throw new BusinessException(ParseRuleCandidateErrorCode.INVALID_CANDIDATE);
         }
+        // 크기 검사는 문법 검사 뒤에 둔다 — 파싱된 본문이 있어야 셀 수 있고, 문법이 틀린 본문은 크기와 무관하게 400_201 이다.
+        // 멱등 재생보다 뒤인 것도 문법 검사와 같다: 재생은 이미 저장된 후보를 돌려줄 뿐 이번 본문을 저장하지 않는다.
+        if (exceedsSizeLimit(rule)) {
+            throw new BusinessException(ParseRuleCandidateErrorCode.CANDIDATE_TOO_LARGE);
+        }
         if (command.replacesRuleId() != null && !candidateRepository.existsActivePatchParse(command.replacesRuleId())) {
             throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_NOT_FOUND);
         }
@@ -123,6 +137,37 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
                 .findId(command.feedbackId(), command.requestKey())
                 .map(ParseCandidateOutcome::existing)
                 .orElseThrow(() -> new IllegalStateException("insert conflict but no existing candidate found"));
+    }
+
+    private boolean exceedsSizeLimit(ParseRule rule) {
+        if (rule.condition().all().size() > MAX_PREDICATES_PER_CANDIDATE
+                || rule.patch().operations().size() > MAX_OPERATIONS_PER_CANDIDATE) {
+            return true;
+        }
+        for (ParseRule.Condition.Predicate predicate : rule.condition().all()) {
+            if (longerThan(predicate.value(), MAX_MATCH_VALUE_LENGTH)) {
+                return true;
+            }
+        }
+        for (ParseRule.Patch.Operation operation : rule.patch().operations()) {
+            if (operation.valueFrom() != null) {
+                // value_from 은 원본 항목을 가리키는 참조이고, 새 값은 그 원본 값을 승계한다.
+                if (longerThan(operation.valueFrom().value(), MAX_MATCH_VALUE_LENGTH)) {
+                    return true;
+                }
+                continue;
+            }
+            int limit =
+                    operation.op() == ParseRule.Patch.Op.REMOVE_ITEM ? MAX_MATCH_VALUE_LENGTH : MAX_NEW_VALUE_LENGTH;
+            if (longerThan(operation.target().value(), limit)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean longerThan(String value, int limit) {
+        return value != null && value.length() > limit;
     }
 
     /**
