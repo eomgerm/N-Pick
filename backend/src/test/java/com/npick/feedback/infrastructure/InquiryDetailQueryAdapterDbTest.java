@@ -103,6 +103,51 @@ class InquiryDetailQueryAdapterDbTest {
         assertThat(rejectedTag.sources()).containsExactly("reviewer_feedback");
     }
 
+    @Test
+    @Transactional
+    @DisplayName("확정 근거 없이 대기 중인 검수자 후보만 있거나 근거가 아예 없는 tagging 은 현재 태그로 내지 않는다 (S15P21A501-317)")
+    void excludesTaggingsWithoutConfirmedEvidence() {
+        seed();
+        exec("""
+                INSERT INTO npick.tag (tag_id, tag_type, match_value, name)
+                VALUES (9404, 'keyword', 'pending-tag-9404', '대기태그9404')
+                """);
+        exec("""
+                INSERT INTO npick.tag (tag_id, tag_type, match_value, name)
+                VALUES (9405, 'keyword', 'orphan-tag-9405', '고아태그9405')
+                """);
+        exec("""
+                INSERT INTO npick.tagging (tagging_id, clip_id, scene_id, tag_id, created_at)
+                VALUES (9504, 9101, 9301, 9404, now())
+                """);
+        // 후보 취소(-309)로 근거가 지워지고 tagging 만 남은 경우.
+        exec("""
+                INSERT INTO npick.tagging (tagging_id, clip_id, scene_id, tag_id, created_at)
+                VALUES (9505, 9101, NULL, 9405, now())
+                """);
+        exec("""
+                INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, source_feedback_id, confidence,
+                    verification_status, confirmed, created_at)
+                VALUES (9605, 9504, 'reviewer_feedback', 9901, NULL, 'verified', false, now())
+                """);
+        // 확정 근거가 있는 tagging 에 붙은 대기 후보는 출처·상태에 섞이지 않는다.
+        exec("""
+                INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, source_feedback_id, confidence,
+                    verification_status, confirmed, created_at)
+                VALUES (9606, 9502, 'reviewer_feedback', 9901, NULL, 'rejected', false, now())
+                """);
+
+        InquiryDetail detail = adapter.findById(9901L).orElseThrow();
+
+        assertThat(detail.evidence()).extracting(SceneEvidence::taggingId).containsExactly(9501L, 9503L, 9502L);
+        SceneEvidence clipTag = detail.evidence().stream()
+                .filter(e -> e.taggingId() == 9502L)
+                .findFirst()
+                .orElseThrow();
+        assertThat(clipTag.sources()).containsExactly("user_input");
+        assertThat(clipTag.verifiedState()).isEqualTo("unverified");
+    }
+
     private void seed() {
         exec("""
                 INSERT INTO npick.member (member_id, login_id, password_hash, name, role, created_at, updated_at)
