@@ -15,8 +15,8 @@ import java.util.Objects;
  *
  * @param excludedQueryTokens BM25 질의에서 뺄 범용어 토큰 ({@code 형태/품사} 소문자, 예: {@code 장면/nng}). VLM 캡션이 「~하는 장면이다」·「화면에 ~가 보인다」
  *     식으로 써서 이 말들은 활성 장면 3분의 1 가까이에 들어 있다 (S15P21A501-320, 운영 복원본 7,712 장면 실측: {@code 장면/nng} 33.4%). 「~를 표시·설명하는 내용」
- *     같은 캡션 서술어({@code 표시}·{@code 설명}·{@code 관련} 등, 4~10%)도 같은 경우다. 질의에 남기면 {@code term_set} 의 OR 로 그만큼이 후보가 된다. 목록 순서도
- *     버전 해시에 들어간다. 빈 목록이면 제외를 끈다
+ *     같은 캡션 서술어({@code 표시}·{@code 설명}·{@code 관련} 등, 4~10%)도 같은 경우다. 질의에 남기면 토큰 사이 OR 로 그만큼이 후보가 된다. 목록 순서도 버전 해시에 들어간다.
+ *     빈 목록이면 제외를 끈다
  */
 public record LexicalSearchSettings(
         String configVersion,

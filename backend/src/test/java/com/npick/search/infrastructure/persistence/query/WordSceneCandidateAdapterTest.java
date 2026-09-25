@@ -308,6 +308,102 @@ class WordSceneCandidateAdapterTest {
                 .containsExactlyInAnyOrderElementsOf(expected);
     }
 
+    /**
+     * S15P21A501-320: 세 토큰이 다 맞은 장면이 흔한 한 토큰만 맞은 장면들보다 앞선다.
+     *
+     * <p>{@code term_set} 은 맞은 문서에 상수 1.0 을 줘서 순위가 {@code scene_id} 로만 갈렸다. 세 토큰 장면을 가장 큰 id 에 두어, 상수 점수였다면 맨 뒤로 가는
+     * 자리에서 맨 앞으로 오는지 본다.
+     */
+    @Test
+    void sceneMatchingEveryTokenOutranksScenesMatchingOneCommonToken() throws Exception {
+        insertScenes(commonTokenScenes() + ", (89,11,22,0,1000,'고래 바다 사람 헤엄',NULL,'b_roll',now(),now())");
+
+        List<Long> ranked = sceneIds(adapter(1, 1, 1, 100).findByWords(List.of("고래", "바다", "사람"), List.of()));
+
+        assertThat(ranked.getFirst()).isEqualTo(89L);
+        assertThat(ranked).containsAll(List.of(80L, 81L, 82L, 83L, 84L, 85L, 86L, 87L));
+    }
+
+    /** 토큰별 term 의 should 는 term_set 과 <b>같은 후보 집합</b>을 낸다 — 바뀌는 것은 점수뿐이다 (S15P21A501-320). */
+    @Test
+    void candidateSetIsTheSameAsTheTermSetQuery() throws Exception {
+        insertScenes(commonTokenScenes() + ", (89,11,22,0,1000,'고래 바다 사람 헤엄',NULL,'b_roll',now(),now())");
+        List<String> tokens = List.of("고래", "사람", "화재", "제설", "속보", "비");
+
+        var viaTerms = sceneIds(adapter(1, 1, 1, 1000).findByWords(tokens, List.of()));
+
+        var viaTermSet = new NamedParameterJdbcTemplate(dataSource)
+                .queryForList(
+                        """
+                        SELECT s.scene_id FROM npick.scene s
+                        JOIN npick.clip c ON c.clip_id = s.clip_id
+                            AND c.active_pipeline_run_id = s.pipeline_run_id AND c.deleted_at IS NULL
+                        WHERE s @@@ paradedb.boolean(should => ARRAY[
+                            paradedb.term_set('caption_tokens', CAST(:tokens AS text[])),
+                            paradedb.term_set('transcript_tokens', CAST(:tokens AS text[]))])
+                        UNION
+                        SELECT k.scene_id FROM npick.ocr_observation o
+                        JOIN npick.keyframe k ON k.keyframe_id = o.keyframe_id
+                        JOIN npick.scene s ON s.scene_id = k.scene_id
+                        JOIN npick.clip c ON c.clip_id = s.clip_id
+                            AND c.active_pipeline_run_id = s.pipeline_run_id AND c.deleted_at IS NULL
+                        WHERE o @@@ paradedb.term_set('tokens', CAST(:tokens AS text[]))
+                        """,
+                        new org.springframework.jdbc.core.namedparam.MapSqlParameterSource(
+                                "tokens", tokens.toArray(String[]::new)),
+                        Long.class);
+
+        assertThat(viaTerms).isNotEmpty().containsExactlyInAnyOrderElementsOf(viaTermSet);
+    }
+
+    /** 토큰 값은 바인딩으로만 들어간다. 따옴표가 든 토큰이 SQL 을 깨지 않고 그 토큰 그대로 매칭된다. */
+    @Test
+    void tokensContainingQuotesAreBoundNotInterpolated() throws Exception {
+        insertScenes("(88,11,22,0,1000,'o''neil 인터뷰',NULL,'b_roll',now(),now())");
+
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("o'neil"), List.of())))
+                .containsExactly(88L);
+        assertThat(adapter(1, 1, 1, 10).findByWords(List.of("x')]);DROP/nng", "--'"), List.of()))
+                .isEmpty();
+        assertThat(sceneIds(adapter(1, 1, 1, 10).findByWords(List.of("제설"), List.of())))
+                .as("질의 뒤에도 표본이 그대로다")
+                .containsExactly(35L);
+    }
+
+    /** term_set 은 집합이라 중복 토큰이 점수를 바꾸지 않았다. 토큰별 절에서도 같은 토큰을 두 번 가산하지 않는다. */
+    @Test
+    void duplicateTokensAreNotCountedTwice() throws Exception {
+        insertScenes("(89,11,22,0,1000,'고래 바다 사람 헤엄',NULL,'b_roll',now(),now())");
+
+        double once = onlyCandidate(adapter(1, 1, 1, 10).findByWords(List.of("고래"), List.of()), 89L)
+                .score();
+        double twice = onlyCandidate(adapter(1, 1, 1, 10).findByWords(List.of("고래", "고래"), List.of()), 89L)
+                .score();
+
+        assertThat(twice).isEqualTo(once);
+    }
+
+    /** 흔한 토큰 「사람」 하나만 가진 장면 여덟. id 가 세 토큰 장면(89)보다 작아 상수 점수면 이들이 먼저 나온다. */
+    private static String commonTokenScenes() {
+        var rows = new StringBuilder();
+        for (int id = 80; id <= 87; id++) {
+            if (!rows.isEmpty()) rows.append(", ");
+            rows.append("(")
+                    .append(id)
+                    .append(",11,22,0,1000,'사람 거리 풍경 ")
+                    .append(id)
+                    .append("',NULL,'b_roll',now(),now())");
+        }
+        return rows.toString();
+    }
+
+    private void insertScenes(String values) throws Exception {
+        try (var statement = connection.createStatement()) {
+            statement.execute("INSERT INTO scene (scene_id,clip_id,pipeline_run_id,start_time_ms,end_time_ms,"
+                    + "caption_tokens,transcript_tokens,shot_type,created_at,updated_at) VALUES " + values);
+        }
+    }
+
     private static SceneCandidateResult onlyCandidate(List<SceneCandidateResult> candidates, long sceneId) {
         var matched = candidates.stream()
                 .filter(candidate -> candidate.sceneId() == sceneId)

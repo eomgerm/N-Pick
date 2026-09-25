@@ -125,7 +125,9 @@ npick:
       # 안 바뀌었지만 같은 값으로 순위가 달라지므로, 라벨을 올려 두지 않으면 전후 실행이
       # search_execution 에서 구분되지 않는다.
       # candidate-v3: 원 질의 토큰에서 캡션 범용어를 빼기 시작한 판 (S15P21A501-320). 확장어 구 안의 범용어는 남긴다.
-      config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v3}
+      # candidate-v4: term_set(상수 점수 1.0) 대신 토큰별 term 으로 걸어 실제 BM25 점수로 순위를 매기는 판 (S15P21A501-320).
+      # 후보 집합은 같고 순위만 바뀐다.
+      config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v4}
       # 가중치 0 은 그 필드를 검색 대상에서 제외한다는 뜻이다. 실측 전까지 세 채널을 동일 가중으로 둔다.
       caption-weight: ${SEARCH_CANDIDATE_CAPTION_WEIGHT:1.0}
       transcript-weight: ${SEARCH_CANDIDATE_TRANSCRIPT_WEIGHT:1.0}
@@ -139,7 +141,7 @@ npick:
       # ~하는 모습」 식이라 활성 장면 문서빈도가 장면 33.4%·보이 30.6%·화면 27.2%·모습 16.6% 다 (운영 복원본 실측).
       # 캡션 서술어 표시 10.3%·설명 9.9%·관련 6.1%·하단 4.9%·내용 4.4% 도 같은 이유로 뺀다. 설명·내용·관련은 질의 지문
       # 불용어(query_normalization.v1.toml)이기도 하다. 뉴스·배경·보도는 주제어일 수 있어 넣지 않는다.
-      # 질의에 남으면 term_set 의 OR 로 그만큼이 후보가 된다. 색인 토큰과 같은 `형태/품사` 소문자로 쓴다.
+      # 질의에 남으면 토큰 사이 OR 로 그만큼이 후보가 된다. 색인 토큰과 같은 `형태/품사` 소문자로 쓴다.
       # 원 질의 토큰이 전부 여기 들면 빼지 않는다. 질의 지문(normalized_query)·dense 입력과는 무관하다.
       excluded-query-tokens: ${SEARCH_CANDIDATE_EXCLUDED_QUERY_TOKENS:장면/nng,보이/vv,화면/nng,모습/nng,표시/nng,설명/nng,하단/nng,내용/nng,관련/nng}
     # 순위 결합(RRF) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
