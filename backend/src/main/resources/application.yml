@@ -122,8 +122,10 @@ npick:
       # 개체 축 가중평균에 넣지 않는 이유는 분모가 커져 개체만 맞은 장면이 깎이기 때문이다.
       # 확장어 명사는 후보로만 넣고 점수는 주지 않는다 (S15P21A501-48). weight 0 이면 확장어 편입까지 끈다.
       # 이 블록이 스냅샷에 들어가므로 값을 바꾸면 config_version 이 바뀌고 진행 중인 검증은 재검증 대상이 된다.
+      # 0.2 는 과거 검색 150건 재실행 비교로 정했다(0.5·0.2·0.1). 관련도는 셋 다 같은 수준이었고, 0.5 는 검색어 한
+      # 단어만 맞는 장면이 여러 단어가 맞는 장면을 밀어내는 회귀가 3건 있었는데 0.2 에서 2건이 사라졌다.
       keyword:
-        weight: ${SEARCH_STRUCTURED_KEYWORD_WEIGHT:0.5}
+        weight: ${SEARCH_STRUCTURED_KEYWORD_WEIGHT:0.2}
         # 질의 명사가 먼저 자리를 차지한다. 조건마다 태그 조회 SQL 에 OR 절이 하나씩 붙는다.
         condition-cap: ${SEARCH_STRUCTURED_KEYWORD_CONDITION_CAP:12}
         # 정보 없는 값. 「앞」 태그는 무엇의 앞인지 없어 무관 장면만 늘린다 (운영 복원본: 앞 0.6%).

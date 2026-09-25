@@ -57,7 +57,7 @@ class StructuredScoreConfigurationTest {
         runner().run(context -> {
             assertThat(context).hasNotFailed();
             var keyword = context.getBean(StructuredScoreSettings.class).keyword();
-            assertThat(keyword.weight()).isEqualTo(0.5);
+            assertThat(keyword.weight()).isEqualTo(0.2);
             assertThat(keyword.conditionCap()).isEqualTo(12);
             assertThat(keyword.enabled()).isTrue();
             assertThat(keyword.stoplist()).hasSize(33).startsWith("앞", "뒤", "위").contains("북부", "인근", "장면", "보이", "관련");
