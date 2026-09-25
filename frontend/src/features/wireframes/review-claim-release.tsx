@@ -2,12 +2,13 @@
 
 import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Undo2 } from 'lucide-react';
-import { useState } from 'react';
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { releaseReviewInquiry } from '@/features/wireframes/review-inquiry-api';
 import {
   isCorrectionMutation,
+  nextTrappedFocusIndex,
   releaseErrorMessages,
 } from '@/features/wireframes/review-claim-release-view';
 import { useSuccessToast } from '@/features/wireframes/success-toast';
@@ -25,6 +26,9 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
   const queryClient = useQueryClient();
   const { showSuccess } = useSuccessToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef(false);
   // 교정·판정을 바꾸는 요청이 진행 중이면 취소가 그 요청과 엇갈리지 않도록 막는다.
   const correctionPending =
     useIsMutating({
@@ -43,6 +47,38 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
     },
   });
   const disabled = release.isPending || correctionPending;
+
+  // 확인창을 닫으면(돌아가기·Escape·바깥 클릭) 연 버튼으로 포커스를 돌려준다.
+  useEffect(() => {
+    if (confirmOpen || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    triggerRef.current?.focus();
+  }, [confirmOpen]);
+
+  function closeDialog() {
+    restoreFocus.current = true;
+    setConfirmOpen(false);
+  }
+
+  // aria-modal 확인창 밖으로 Tab 이 새지 않도록 안의 버튼끼리만 돈다.
+  function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeDialog();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(
+      dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') ?? [],
+    );
+    const next = nextTrappedFocusIndex(
+      focusable.indexOf(document.activeElement as HTMLButtonElement),
+      focusable.length,
+      event.shiftKey,
+    );
+    event.preventDefault();
+    focusable[next]?.focus();
+  }
   const errorMessage =
     release.error instanceof ApiClientError ? releaseErrorMessages[release.error.code] : undefined;
 
@@ -51,6 +87,7 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
       <button
         className={`${styles.secondaryButton} w-full`}
         disabled={disabled}
+        ref={triggerRef}
         onClick={() => {
           release.reset();
           setConfirmOpen(true);
@@ -66,12 +103,11 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
           aria-labelledby="release-claim-title"
           aria-modal="true"
           className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') setConfirmOpen(false);
-          }}
+          onKeyDown={handleDialogKeyDown}
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setConfirmOpen(false);
+            if (event.target === event.currentTarget) closeDialog();
           }}
+          ref={dialogRef}
           role="dialog"
         >
           <div className="w-full max-w-sm rounded-2xl border border-(--line) bg-(--surface) p-6 shadow-xl">
@@ -86,7 +122,7 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
               <button
                 autoFocus
                 className={styles.secondaryButton}
-                onClick={() => setConfirmOpen(false)}
+                onClick={closeDialog}
                 type="button"
               >
                 돌아가기

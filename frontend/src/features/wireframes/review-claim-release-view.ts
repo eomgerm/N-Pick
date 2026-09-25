@@ -24,12 +24,20 @@ export const releaseErrorMessages: Record<string, string> = {
 // 바꾸는 요청이 하나라도 진행 중이면 취소를 잠근다. 각 요청은 [키, feedbackId] 로 mutationKey 를 단다.
 export const correctionMutationKeys = [
   'parse-patch-save',
+  'parse-patch-discard',
   'tag-candidate-change',
   'scene-exclude-change',
   'resolution-save',
   'verification-run',
   'confirm-correction',
 ] as const;
+
+/** 확인창 안에서 Tab·Shift+Tab 이 옮겨 갈 위치. 끝에서 반대쪽 끝으로 돈다. 바깥(-1)에서는 처음·끝으로 들어온다. */
+export function nextTrappedFocusIndex(current: number, count: number, backward: boolean): number {
+  if (count <= 0) return -1;
+  if (current < 0) return backward ? count - 1 : 0;
+  return (current + (backward ? count - 1 : 1)) % count;
+}
 
 export function isCorrectionMutation(
   mutationKey: readonly unknown[] | undefined,

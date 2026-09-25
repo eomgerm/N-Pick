@@ -15,7 +15,7 @@ registerHooks({
   },
 });
 
-const { canReleaseClaim, isCorrectionMutation, releaseErrorMessages } =
+const { canReleaseClaim, isCorrectionMutation, nextTrappedFocusIndex, releaseErrorMessages } =
   await import('./review-claim-release-view.ts');
 
 function inquiry(status, reviewerLoginId) {
@@ -45,6 +45,7 @@ test('검수 취소 오류는 코드로만 안내를 고르고 보안 계층 403
 test('교정·판정 요청 키가 같은 문의로 진행 중일 때만 검수 취소를 잠근다', () => {
   for (const key of [
     'parse-patch-save',
+    'parse-patch-discard',
     'tag-candidate-change',
     'scene-exclude-change',
     'resolution-save',
@@ -56,4 +57,16 @@ test('교정·판정 요청 키가 같은 문의로 진행 중일 때만 검수 
   }
   assert.equal(isCorrectionMutation(['claim-release', '41'], '41'), false);
   assert.equal(isCorrectionMutation(undefined, '41'), false);
+});
+
+test('확인창 Tab 은 안의 버튼끼리 양 끝에서 돈다', () => {
+  assert.equal(nextTrappedFocusIndex(0, 2, false), 1);
+  assert.equal(nextTrappedFocusIndex(1, 2, false), 0);
+  assert.equal(nextTrappedFocusIndex(0, 2, true), 1);
+  assert.equal(nextTrappedFocusIndex(1, 2, true), 0);
+  // 포커스가 창 밖에 있으면 방향에 맞는 끝으로 들여온다.
+  assert.equal(nextTrappedFocusIndex(-1, 2, false), 0);
+  assert.equal(nextTrappedFocusIndex(-1, 2, true), 1);
+  assert.equal(nextTrappedFocusIndex(0, 1, false), 0);
+  assert.equal(nextTrappedFocusIndex(-1, 0, false), -1);
 });

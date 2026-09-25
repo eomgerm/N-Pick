@@ -132,6 +132,35 @@ test('확인하면 DELETE 를 보내고 성공 안내 뒤 미담당 상태로 �
   expect(requests).toEqual(['DELETE']);
 });
 
+test('확인창은 Tab 을 안에 가두고 닫으면 검수 취소 버튼으로 포커스를 돌려준다', async ({
+  page,
+}) => {
+  await openInquiry(page, () => inquiry('reviewing'));
+  const dialog = page.getByRole('dialog', { name: '검수를 취소할까요?' });
+  const back = dialog.getByRole('button', { name: '돌아가기' });
+  const confirm = dialog.getByRole('button', { name: '검수 취소' });
+
+  await releaseButton(page).click();
+  await expect(back).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(confirm).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(back).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(confirm).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(back).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(releaseButton(page)).toBeFocused();
+
+  await releaseButton(page).click();
+  await back.click();
+  await expect(dialog).toHaveCount(0);
+  await expect(releaseButton(page)).toBeFocused();
+});
+
 async function confirmRelease(page: Page) {
   await releaseButton(page).click();
   await page
