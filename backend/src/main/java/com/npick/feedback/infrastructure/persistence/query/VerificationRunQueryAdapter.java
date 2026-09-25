@@ -52,20 +52,9 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
         if (run.stateFingerprint() == null || run.stateFingerprint().isBlank()) {
             return false;
         }
-        String resolution = run.resolution();
-        boolean hasRule = run.approvedRuleId() != null;
-        if ("tag_correction".equals(resolution)) {
-            return !run.approvedEvidenceIds().isEmpty();
-        }
-        if ("patch_parse".equals(resolution) || "exclude_scene".equals(resolution)) {
-            return hasRule && resolution.equals(run.approvedRuleAction());
-        }
-        if ("correction".equals(resolution)) {
-            return hasRule
-                    ? isRuleAction(run.approvedRuleAction())
-                    : !run.approvedEvidenceIds().isEmpty();
-        }
-        return false;
+        // 근거(태그) 또는 규칙(질의교정·장면제외) 중 하나라도 있으면 확정 근거가 된다. 규칙은 parse 에서
+        // 이미 종류·id 를 검증했다. 복합 교정은 여러 규칙 + 근거를 함께 담을 수 있다(S15P21A501-309).
+        return !run.approvedEvidenceIds().isEmpty() || !run.rules().isEmpty();
     }
 
     /** 스냅샷을 엄격히 읽는다. id 는 정수·양수만 허용하고, 타입이 어긋나면 {@code null}(무효)을 돌려준다. JSON 자체가 깨지면 실패시킨다(§6.2). */
@@ -78,11 +67,6 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
         }
         List<Long> evidenceIds = new ArrayList<>();
         JsonNode ids = node.get("approved_evidence_ids");
-        // -84의 단수 규칙 확정 계약으로 복수 후보를 일부만 확정해서는 안 된다.
-        JsonNode candidateRules = node.get("candidate_rules");
-        if (candidateRules != null && (!candidateRules.isArray() || candidateRules.size() > 1)) {
-            return null;
-        }
         if (ids != null && !ids.isNull()) {
             if (!ids.isArray()) {
                 return null;
@@ -91,7 +75,12 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
                 if (!isPositiveId(id)) {
                     return null;
                 }
-                evidenceIds.add(id.asLong());
+                // 중복 id 를 그대로 두면 confirmTag 의 IN 업데이트 행수(distinct)가 size 와 어긋나 영구
+                // NEEDS_REVERIFICATION 이 된다 — 여기서 접는다.
+                long value = id.asLong();
+                if (!evidenceIds.contains(value)) {
+                    evidenceIds.add(value);
+                }
             }
         }
         Long approvedRuleId = strictOptionalId(node.get("approved_rule_id"));
@@ -108,13 +97,36 @@ class VerificationRunQueryAdapter implements VerificationRunPort {
         if (approvedRuleAction != null && !isRuleAction(approvedRuleAction)) {
             return null;
         }
+        // 규칙 후보 전체를 읽는다 — 질의교정·장면제외를 함께 확정한다(S15P21A501-309). candidate_rules 가
+        // 있으면 그것이 정본이고, 없으면(레거시 단일 슬롯 스냅샷) 위 단일 필드에서 한 건 합성한다.
+        List<VerificationRun.RuleRef> rules = new ArrayList<>();
+        JsonNode candidateRules = node.get("candidate_rules");
+        if (candidateRules != null && !candidateRules.isNull()) {
+            if (!candidateRules.isArray()) {
+                return null;
+            }
+            for (JsonNode rule : candidateRules) {
+                Long ruleId = strictOptionalId(rule.get("approved_rule_id"));
+                Long ruleReplaced = strictOptionalId(rule.get("replaced_rule_id"));
+                String ruleAction = text(rule, "action");
+                if (ruleId == null || ruleId == INVALID || ruleReplaced == INVALID || !isRuleAction(ruleAction)) {
+                    return null;
+                }
+                rules.add(new VerificationRun.RuleRef(ruleId, ruleReplaced, ruleAction));
+            }
+        } else if (approvedRuleId != null) {
+            rules.add(new VerificationRun.RuleRef(approvedRuleId, replacedRuleId, approvedRuleAction));
+        }
+        // 단일 필드는 첫 규칙(감사 컬럼 created_rule_id·하위호환)으로 맞춘다.
+        VerificationRun.RuleRef firstRule = rules.isEmpty() ? null : rules.get(0);
         return new VerificationRun(
                 executionId,
                 resolution,
                 List.copyOf(evidenceIds),
-                approvedRuleId,
-                replacedRuleId,
-                approvedRuleAction,
+                firstRule == null ? null : firstRule.approvedRuleId(),
+                firstRule == null ? null : firstRule.replacedRuleId(),
+                firstRule == null ? null : firstRule.action(),
+                List.copyOf(rules),
                 text(node, "state_fingerprint"));
     }
 

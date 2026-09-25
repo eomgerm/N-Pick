@@ -21,4 +21,12 @@ public record VerificationRun(
         Long approvedRuleId,
         Long replacedRuleId,
         String approvedRuleAction,
-        String stateFingerprint) {}
+        List<RuleRef> rules,
+        String stateFingerprint) {
+
+    /**
+     * 규칙 후보 한 건 — 활성화 대상 id, 교체로 비활성화할 id(없으면 null), 종류(patch_parse/exclude_scene).
+     * 질의교정과 장면제외를 함께 담아 복합 교정을 한 번에 확정한다(S15P21A501-309).
+     */
+    public record RuleRef(Long approvedRuleId, Long replacedRuleId, String action) {}
+}

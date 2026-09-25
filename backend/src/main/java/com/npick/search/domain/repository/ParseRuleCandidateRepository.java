@@ -27,4 +27,10 @@ public interface ParseRuleCandidateRepository {
 
     /** 이 신고에서 대기 중인 patch_parse 후보 수. 누적 개수 상한 판정에 쓴다 (S15P21A501-255). */
     int countByFeedback(long sourceFeedbackId);
+
+    /**
+     * 이 신고의 대기 중(active=false) patch_parse 후보 중 같은 규칙을 교체 대상으로 가리키는 것이 있는지
+     * (S15P21A501-309). 같은 R1 을 겨누는 후보 2건이 함께 확정되면 충돌하므로 생성 단계에서 막는 데 쓴다.
+     */
+    boolean existsPendingReplacing(long sourceFeedbackId, long replacesRuleId);
 }

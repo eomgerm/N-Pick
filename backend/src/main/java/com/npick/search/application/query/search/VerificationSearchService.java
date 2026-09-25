@@ -12,6 +12,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.npick.common.error.BusinessException;
 import com.npick.common.persistence.CorrectionStateFingerprint;
+import com.npick.search.application.error.ParseRuleCandidateErrorCode;
 import com.npick.search.application.error.VerificationErrorCode;
 import com.npick.search.application.port.CompleteSearchExecution;
 import com.npick.search.application.port.ExcludeContext;
@@ -94,6 +95,15 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
         if (candidates.tagEvidenceIds().isEmpty() && candidates.rules().isEmpty()) {
             throw new BusinessException(VerificationErrorCode.NO_PENDING_CANDIDATES);
         }
+        // 방어: 같은 규칙을 교체 대상으로 가리키는 대기 후보가 둘 이상이면 함께 확정할 수 없다 — 첫 교체 뒤
+        // 둘째의 deactivate 가 0행이 돼 롤백된다. 생성 단계에서 같은 잠금으로 이미 막지만, 레거시·직접 주입
+        // 데이터까지 검증 전에 거른다 (S15P21A501-309).
+        var replacedTargets = new java.util.HashSet<Long>();
+        for (PendingCandidates.RuleCandidate rule : candidates.rules()) {
+            if (rule.replacedRuleId() != null && !replacedTargets.add(rule.replacedRuleId())) {
+                throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_CONFLICT);
+            }
+        }
 
         VerificationInput input = inputPort.load(feedbackId);
         ExecuteSearchQuery query = new ExecuteSearchQuery(input.rawQuery(), input.dateFilters(), reviewerId);
@@ -115,25 +125,22 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
             // 트랜잭션 안에서 부르면 리졸버 지연만큼 flip 이 쥔 행 잠금·커넥션 점유가 늘어난다.
             InterpretSearchQueryUseCase.Resolution resolution = interpreter.resolve(query);
             VerificationSearchOutcome outcome = searchWithCandidatesRolledBack(query, candidates, resolution);
-            List<VerificationScene> originalScenes = inputPort.loadOriginalResultScenes(feedbackId);
-            List<Long> originalSceneIds = originalScenes.stream().map(VerificationScene::sceneId).toList();
-            SceneDiff.Result diff = SceneDiff.of(originalSceneIds, outcome.candidates());
+            // 기준선은 원 신고 실행의 저장 결과가 아니라 같은 순간의 대조군(후보 미적용)이다 — 후보와 무관한
+            // 드리프트를 배제한다 (S15P21A501-281).
+            List<Long> controlSceneIds =
+                    outcome.controlCandidates().scenes().stream().map(SearchCandidates.ScoredScene::sceneId).toList();
+            SceneDiff.Result diff = SceneDiff.of(controlSceneIds, outcome.candidates());
             // complete() 는 해석 스냅샷(normalized_query 등)이 먼저 채워져 있어야 완결을 받아준다 — 일반 검색과
             // 같은 두 단계(recordResolution → complete)를 그대로 태운다. 롤백은 이미 끝났으므로 여기서 쓰는 값은
             // 롤백 전에 캡처해 둔 InterpretedQuery 그대로다.
             record.recordResolution(recordResolutionCommand(executionId, query, outcome.interpreted()));
             record.complete(completeCommand(executionId, outcome, candidates, baselineFingerprint, startedAt));
+            // 진입(실험군에만)·이탈(대조군에만) 장면 상세를 FE 가 모두 조회할 수 있게 두 집합을 합쳐 담는다.
             var verificationScenes = new java.util.LinkedHashMap<Long, VerificationScene>();
-            originalScenes.forEach(scene -> verificationScenes.put(scene.sceneId(), scene));
+            outcome.controlCandidates().scenes().forEach(scene -> verificationScenes.put(
+                    scene.sceneId(), toVerificationScene(scene)));
             outcome.candidates().scenes().forEach(scene -> verificationScenes.put(
-                    scene.sceneId(),
-                    new VerificationScene(
-                            scene.sceneId(),
-                            scene.clipId(),
-                            scene.card().clipTitle(),
-                            scene.card().caption(),
-                            scene.card().startTimeMs(),
-                            scene.card().endTimeMs())));
+                    scene.sceneId(), toVerificationScene(scene)));
             return new VerificationResult(
                     executionId, diff.entered(), diff.dropped(), outcome.activeRuleSet(), verificationScenes);
         } catch (RuntimeException failed) {
@@ -270,25 +277,52 @@ public class VerificationSearchService implements VerifyCorrectionCandidatesUseC
      * {@code InterpretedQuery} 도 담는다.
      */
     record VerificationSearchOutcome(
-            SearchCandidates candidates, InterpretedQuery interpreted, List<Long> activeRuleSet) {}
+            SearchCandidates candidates,
+            SearchCandidates controlCandidates,
+            InterpretedQuery interpreted,
+            List<Long> activeRuleSet) {}
 
     /**
-     * flip → 같은 코드로 재검색 → 캡처 → 롤백. 공유·확정 데이터는 복구된다 (FRD §11).
+     * 같은 트랜잭션 안에서 대조군(A)·실험군(B)을 연속 검색해 <b>후보의 순효과만</b> 낸다 (FRD F-12.4
+     * "새로 검색될 장면과 제외될 장면을 계산"). 예전에는 실험군을 원 신고 실행의 <i>저장된</i> 결과 행과
+     * 비교했는데, 그 사이 코퍼스 증가·클립 재처리(새 scene_id)·타 피드백 교정·리졸버 드리프트가 전부 diff 에
+     * 섞여 "태그 하나 삭제했는데 7개 진입·7개 이탈"처럼 후보와 무관한 변화가 나왔다 (S15P21A501-281).
+     * 이제 대조군·실험군을 <b>같은 순간·같은 코퍼스·같은 해석</b>으로 돌리고 그 둘만 비교하므로, 두 검색에
+     * 공통인 드리프트는 서로 상쇄되어 후보가 실제로 넣고 뺀 장면만 남는다.
      *
      * <p>{@code resolution} 은 트랜잭션 밖에서 이미 끝난 리졸버 호출 결과다(S15P21A501-219) — 여기서는
-     * {@link InterpretSearchQueryUseCase#interpretFromResolution} 만 불러 flip 반영 상태로 활성 규칙을 읽는다.
+     * {@link InterpretSearchQueryUseCase#interpretFromResolution} 만 불러 활성 규칙을 읽는다. 대조군은 flip 전,
+     * 실험군은 flip 후에 읽어 규칙 상태가 정확히 후보만큼 다르다.
      */
     private VerificationSearchOutcome searchWithCandidatesRolledBack(
             ExecuteSearchQuery query, PendingCandidates candidates, InterpretSearchQueryUseCase.Resolution resolution) {
         return rollbackTemplate.execute(status -> {
+            // A) 대조군: 후보를 적용하지 않은 현재 상태의 검색.
+            InterpretedQuery controlIq = interpreter.interpretFromResolution(query, resolution);
+            SearchCandidates control = ranker.rank(rankQuery(controlIq));
+            // B) 실험군: 후보를 임시 적용(flip)한 검색.
             candidateState.flip(candidates);
-            InterpretedQuery iq = interpreter.interpretFromResolution(query, resolution);
-            SearchCandidates result = ranker.rank(new RankSearchCandidatesUseCase.Query(
-                    iq.resolved().normalization(), iq.finalResolution(),
-                    iq.resolved().queryEmbedding(), iq.normalizedSearch()));
+            InterpretedQuery treatmentIq = interpreter.interpretFromResolution(query, resolution);
+            SearchCandidates treatment = ranker.rank(rankQuery(treatmentIq));
             List<Long> activeRuleSet = candidateState.readActivePatchRuleIds(); // flip 반영 상태 = 활성 − R1 + R2
             status.setRollbackOnly(); // flip 과 후보 적용을 모두 되돌린다
-            return new VerificationSearchOutcome(result, iq, activeRuleSet);
+            return new VerificationSearchOutcome(treatment, control, treatmentIq, activeRuleSet);
         });
+    }
+
+    private RankSearchCandidatesUseCase.Query rankQuery(InterpretedQuery iq) {
+        return new RankSearchCandidatesUseCase.Query(
+                iq.resolved().normalization(), iq.finalResolution(),
+                iq.resolved().queryEmbedding(), iq.normalizedSearch());
+    }
+
+    private VerificationScene toVerificationScene(SearchCandidates.ScoredScene scene) {
+        return new VerificationScene(
+                scene.sceneId(),
+                scene.clipId(),
+                scene.card().clipTitle(),
+                scene.card().caption(),
+                scene.card().startTimeMs(),
+                scene.card().endTimeMs());
     }
 }

@@ -57,4 +57,19 @@ public class TagCorrectionConfirmationRepositoryAdapter implements TagCorrection
         entityManager.clear();
         return discarded;
     }
+
+    // 개별 취소(S15P21A501-309). discardPending 과 같은 조건에 evidence_id 만 더 좁힌다 — 다른 신고의 id 가 넘어와도 지우지 않는다.
+    @Override
+    public int discardPendingOne(long sourceFeedbackId, long evidenceId) {
+        entityManager.flush();
+        int discarded = entityManager
+                .createNativeQuery("DELETE FROM tag_evidence "
+                        + "WHERE evidence_id = :evidenceId AND source_feedback_id = :feedbackId "
+                        + "AND source = 'reviewer_feedback' AND confirmed = false")
+                .setParameter("evidenceId", evidenceId)
+                .setParameter("feedbackId", sourceFeedbackId)
+                .executeUpdate();
+        entityManager.clear();
+        return discarded;
+    }
 }

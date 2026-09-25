@@ -61,4 +61,13 @@ public interface ParseRuleCandidateJpaRepository extends JpaRepository<SearchRul
                     + "WHERE source_feedback_id = :feedbackId AND action = 'patch_parse' AND active = false",
             nativeQuery = true)
     long countByFeedback(@Param("feedbackId") long sourceFeedbackId);
+
+    // 같은 신고의 대기 후보 중 같은 규칙을 교체 대상으로 가리키는 것이 있는지 (S15P21A501-309).
+    @Query(
+            value = "SELECT count(*) > 0 FROM search_rule "
+                    + "WHERE source_feedback_id = :feedbackId AND action = 'patch_parse' AND active = false "
+                    + "AND replaces_rule_id = :replacesRuleId",
+            nativeQuery = true)
+    boolean existsPendingReplacing(
+            @Param("feedbackId") long sourceFeedbackId, @Param("replacesRuleId") long replacesRuleId);
 }

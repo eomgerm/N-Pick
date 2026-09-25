@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,6 +23,7 @@ import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.search.application.CreateParsePatchCandidateCommand;
 import com.npick.search.application.CreateParsePatchCandidateUseCase;
+import com.npick.search.application.DiscardParsePatchCandidateUseCase;
 import com.npick.search.application.ParseCandidateOutcome;
 import com.npick.search.application.error.ParseRuleCandidateErrorCode;
 import com.npick.search.presentation.response.ParsePatchCandidateResponse;
@@ -43,9 +45,12 @@ public class ParsePatchCandidateController {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final CreateParsePatchCandidateUseCase service;
+    private final DiscardParsePatchCandidateUseCase discardService;
 
-    public ParsePatchCandidateController(CreateParsePatchCandidateUseCase service) {
+    public ParsePatchCandidateController(
+            CreateParsePatchCandidateUseCase service, DiscardParsePatchCandidateUseCase discardService) {
         this.service = service;
+        this.discardService = discardService;
     }
 
     @PostMapping("/{feedbackId}/parse-patch-candidate")
@@ -74,6 +79,17 @@ public class ParsePatchCandidateController {
         HttpStatus status = outcome.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status)
                 .body(ApiResponse.success(ParsePatchCandidateResponse.of(outcome.searchRuleId(), feedbackId)));
+    }
+
+    /**
+     * 검수자가 확정 전에 실수로 만든 대기 중인 해석 교정(patch_parse) 후보를 취소한다 (S15P21A501-309, F-11).
+     *
+     * <p>patch_parse 후보만 지우므로 같은 신고의 exclude_scene 후보는 남는다. 이미 확정되어 켜진 규칙은 서비스가 건드리지 않으므로 확정 뒤에 불러도 조용히 0건으로 끝난다.
+     */
+    @DeleteMapping("/{feedbackId}/parse-patch-candidate")
+    public ApiResponse<Void> discard(@PathVariable long feedbackId, @LoginMember CurrentMember member) {
+        discardService.discard(feedbackId, member.memberId(), REVIEWER_ROLE.equalsIgnoreCase(member.role()));
+        return ApiResponse.success();
     }
 
     /** 교체 대상 id. 없으면 null, 숫자·양의 정수 문자열이 아니면 400. {@code asLong()} 이 비숫자를 0 으로 삼키던 것을 막는다. */

@@ -101,6 +101,13 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
         if (command.replacesRuleId() != null && !candidateRepository.existsActivePatchParse(command.replacesRuleId())) {
             throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_NOT_FOUND);
         }
+        // 같은 R1 을 교체 대상으로 가리키는 대기 후보가 이미 있으면 거부한다 (S15P21A501-309). 함께 확정하면
+        // 첫 후보가 R1 을 끈 뒤 둘째의 교체가 0행이 돼 전체 롤백되므로, 검증까지 가기 전에 생성에서 막는다.
+        // 멱등 재생은 위에서 이미 걸러졌으므로 여기 오는 건 새 후보뿐이다.
+        if (command.replacesRuleId() != null
+                && candidateRepository.existsPendingReplacing(command.feedbackId(), command.replacesRuleId())) {
+            throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_CONFLICT);
+        }
 
         Optional<Long> inserted = candidateRepository.insertIfAbsent(new ParseRuleCandidate(
                 command.feedbackId(),

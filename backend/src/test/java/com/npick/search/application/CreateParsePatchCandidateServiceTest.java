@@ -181,6 +181,35 @@ class CreateParsePatchCandidateServiceTest {
     }
 
     @Test
+    @DisplayName("같은 규칙을 교체하는 대기 후보가 이미 있으면 새 후보를 거부한다 (S15P21A501-309)")
+    void rejectsSecondCandidateReplacingSameRule() {
+        reviewingPatchParse();
+        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
+        when(candidateRepository.existsActivePatchParse(555L)).thenReturn(true);
+        when(candidateRepository.existsPendingReplacing(1L, 555L)).thenReturn(true);
+        assertThatThrownBy(() -> service.create(command(true, 9L, CONDITION, PATCH, 555L)))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(ParseRuleCandidateErrorCode.REPLACES_CONFLICT));
+        verify(candidateRepository, never()).insertIfAbsent(any());
+    }
+
+    @Test
+    @DisplayName("서로 다른 규칙을 교체하는 후보는 함께 허용한다 (S15P21A501-309)")
+    void allowsCandidateReplacingDifferentRule() {
+        reviewingPatchParse();
+        when(candidateRepository.findId(1L, "rk-1")).thenReturn(Optional.empty());
+        when(candidateRepository.existsActivePatchParse(555L)).thenReturn(true);
+        when(candidateRepository.existsPendingReplacing(1L, 555L)).thenReturn(false);
+        when(candidateRepository.insertIfAbsent(any())).thenReturn(Optional.of(777L));
+
+        ParseCandidateOutcome outcome = service.create(command(true, 9L, CONDITION, PATCH, 555L));
+
+        assertThat(outcome.created()).isTrue();
+        verify(candidateRepository).insertIfAbsent(any());
+    }
+
+    @Test
     @DisplayName("같은 요청키로 다시 부르면 저장하지 않고 기존 후보를 existing 으로 준다")
     void idempotentReturnsExisting() {
         reviewingPatchParse();

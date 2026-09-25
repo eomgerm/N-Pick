@@ -161,16 +161,18 @@ class CorrectionCandidateConcurrencyDbTest {
         }
     }
 
-    @ParameterizedTest(name = "{0}: 다른 교정 판정이 먼저 잠금을 잡으면 후보 생성은 새 판정을 다시 읽고 거부된다")
+    @ParameterizedTest(name = "{0}: 교정 판정이 먼저 잠금을 잡아도 어느 종류 후보든 이어서 함께 담긴다")
     @EnumSource(CandidatePath.class)
     @Timeout(15)
-    void correctionResolutionFirstRejectsCandidateForPreviousResolution(CandidatePath path) throws Exception {
+    void correctionResolutionFirstStillAllowsAnyCandidateType(CandidatePath path) throws Exception {
         seedForCandidateCreation(path);
         LockGate gate = gateFirst("resolve-first");
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<ErrorCode> resolution = executor.submit(
-                    () -> named("resolve-first", () -> resolveAttempt(path.incompatibleResolution(), null)));
+            // 교정은 통합 판정(correction)으로, 장면 제외·태그 교정·질의 교정을 종류 안 가리고 함께 담는다
+            // (S15P21A501-281). 판정을 correction 으로 정한 뒤 어느 후보를 만들어도 거부되지 않는다.
+            Future<ErrorCode> resolution =
+                    executor.submit(() -> named("resolve-first", () -> resolveAttempt("correction", null)));
             assertThat(gate.firstAcquired().await(5, TimeUnit.SECONDS)).isTrue();
 
             Future<ErrorCode> candidate =
@@ -181,10 +183,10 @@ class CorrectionCandidateConcurrencyDbTest {
             gate.releaseFirst().countDown();
 
             assertThat(resolution.get(5, TimeUnit.SECONDS)).isNull();
-            assertThat(candidate.get(5, TimeUnit.SECONDS)).isEqualTo(path.wrongResolutionError());
+            assertThat(candidate.get(5, TimeUnit.SECONDS)).isNull();
             assertThat(feedbackStatus()).isEqualTo("REVIEWING");
-            assertThat(feedbackResolution()).isEqualTo(path.incompatibleResolution());
-            assertThat(candidateCount(path)).isZero();
+            assertThat(feedbackResolution()).isEqualTo("correction");
+            assertThat(candidateCount(path)).isEqualTo(1);
         } finally {
             gate.releaseFirst().countDown();
             executor.shutdownNow();
@@ -211,7 +213,8 @@ class CorrectionCandidateConcurrencyDbTest {
 
             assertThat(candidate.get(5, TimeUnit.SECONDS)).isNull();
             assertThat(resolution.get(5, TimeUnit.SECONDS)).isNull();
-            assertThat(candidateCount(path)).isEqualTo(1);
+            // 후보는 커밋됐지만, 뒤이은 no_action 종료가 대기 후보를 지운다(S15P21A501-281 종료 시 discard).
+            assertThat(candidateCount(path)).isZero();
             assertThat(feedbackStatus()).isEqualTo("CLOSED");
             assertThat(feedbackResolution()).isEqualTo("no_action");
         } finally {

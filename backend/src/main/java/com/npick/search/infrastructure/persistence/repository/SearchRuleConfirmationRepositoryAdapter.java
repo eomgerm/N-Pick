@@ -28,4 +28,9 @@ public class SearchRuleConfirmationRepositoryAdapter implements SearchRuleConfir
     public int discardPending(long sourceFeedbackId) {
         return jpaRepository.discardPending(sourceFeedbackId);
     }
+
+    @Override
+    public int discardPendingParse(long sourceFeedbackId) {
+        return jpaRepository.discardPendingParse(sourceFeedbackId);
+    }
 }

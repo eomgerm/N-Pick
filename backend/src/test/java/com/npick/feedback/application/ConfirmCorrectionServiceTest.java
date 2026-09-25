@@ -90,9 +90,28 @@ class ConfirmCorrectionServiceTest {
 
     private void verificationRun(
             String resolution, List<Long> evidenceIds, Long ruleId, Long replacedId, String ruleAction) {
+        List<VerificationRun.RuleRef> rules = ruleId == null
+                ? List.of()
+                : List.of(new VerificationRun.RuleRef(ruleId, replacedId, ruleAction));
         when(verificationRunPort.find(EXECUTION, FEEDBACK))
                 .thenReturn(Optional.of(new VerificationRun(
-                        EXECUTION, resolution, evidenceIds, ruleId, replacedId, ruleAction, FINGERPRINT)));
+                        EXECUTION, resolution, evidenceIds, ruleId, replacedId, ruleAction, rules, FINGERPRINT)));
+        when(currentStatePort.currentFingerprint(FEEDBACK)).thenReturn(FINGERPRINT);
+    }
+
+    private void verificationRun(
+            String resolution, List<Long> evidenceIds, List<VerificationRun.RuleRef> rules) {
+        VerificationRun.RuleRef first = rules.isEmpty() ? null : rules.get(0);
+        when(verificationRunPort.find(EXECUTION, FEEDBACK))
+                .thenReturn(Optional.of(new VerificationRun(
+                        EXECUTION,
+                        resolution,
+                        evidenceIds,
+                        first == null ? null : first.approvedRuleId(),
+                        first == null ? null : first.replacedRuleId(),
+                        first == null ? null : first.action(),
+                        rules,
+                        FINGERPRINT)));
         when(currentStatePort.currentFingerprint(FEEDBACK)).thenReturn(FINGERPRINT);
     }
 
@@ -186,6 +205,40 @@ class ConfirmCorrectionServiceTest {
                         eq(EXECUTION),
                         eq(6601L),
                         eq("exclude_scene"),
+                        eq("correction"),
+                        any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("복합 확정: 질의교정·장면제외·태그를 한 번에 모두 확정한다 (S15P21A501-309)")
+    void confirmsCompositeParseExcludeAndTag() {
+        target("REVIEWING", "correction", null);
+        verificationRun(
+                "correction",
+                List.of(7901L),
+                List.of(
+                        new VerificationRun.RuleRef(7701L, 4L, "patch_parse"),
+                        new VerificationRun.RuleRef(6601L, null, "exclude_scene")));
+        when(confirmParseRule.confirm(FEEDBACK, 7701L, 4L)).thenReturn(1);
+        when(excludeValidity.targetSceneActive(6601L)).thenReturn(true);
+        when(confirmExcludeScene.confirm(FEEDBACK, 6601L)).thenReturn(1);
+        when(confirmTag.confirm(FEEDBACK, List.of(7901L))).thenReturn(1);
+        when(feedbackRepository.confirm(eq(FEEDBACK), eq(REVIEWER), eq(EXECUTION), any(), any(), any(), any()))
+                .thenReturn(1);
+
+        service.confirm(command(true));
+
+        // 세 종류 모두 확정되고 예전처럼 규칙 2개에서 막히지 않는다.
+        verify(confirmParseRule).confirm(FEEDBACK, 7701L, 4L);
+        verify(confirmExcludeScene).confirm(FEEDBACK, 6601L);
+        verify(confirmTag).confirm(FEEDBACK, List.of(7901L));
+        verify(feedbackRepository)
+                .confirm(
+                        eq(FEEDBACK),
+                        eq(REVIEWER),
+                        eq(EXECUTION),
+                        eq(7701L),
+                        eq("correction"),
                         eq("correction"),
                         any(Instant.class));
     }

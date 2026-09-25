@@ -23,4 +23,11 @@ public interface TagCorrectionConfirmationRepository {
      * @return 폐기된 근거 수
      */
     int discardPending(long sourceFeedbackId);
+
+    /**
+     * 이 신고의 대기 근거 중 지정한 근거 하나만 폐기한다 (S15P21A501-309 개별 취소). 확정된 근거·다른 신고의 근거는 건드리지 않는다.
+     *
+     * @return 폐기된 근거 수(0 또는 1)
+     */
+    int discardPendingOne(long sourceFeedbackId, long evidenceId);
 }

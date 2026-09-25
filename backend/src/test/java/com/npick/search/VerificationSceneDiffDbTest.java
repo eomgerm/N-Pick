@@ -13,12 +13,11 @@ import com.npick.support.TestGraph;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Task 6(S15P21A501-83): 원 결과 장면 집합 로드 + diff 계산이 {@code VerificationResult} 에 실리는 배선을 확인한다. 실제 진입/제외 판정과 이탈 사유 분기(제외
- * 규칙/guard/score_drop)는 {@code SceneDiffTest} 순수 단위 테스트가 책임진다 — anchor-free 리졸버 스텁으로는 실 파이프라인이 SCENE_A→out, SCENE_B→in
- * 을 함께 내도록 강제하기 어렵기 때문이다(task-6-brief Step 1).
+ * diff 배선 + 기준선 검증 (S15P21A501-83, 기준선 재설계 S15P21A501-281). 진입/이탈 판정과 이탈 사유 분기(제외 규칙/guard/score_drop)는
+ * {@code SceneDiffTest} 순수 단위 테스트가 책임진다 — anchor-free 리졸버 스텁으로는 실 파이프라인이 SCENE_A→out, SCENE_B→in 을 함께 내도록 강제하기 어렵기 때문이다.
  *
- * <p>여기서는 원 실행 결과에 검색 불가한 장면(SCENE_OLD, caption 없음)을 하나 더 심어 「원 집합이 실제로 로드되고, 검증 결과에서 사라진 장면이 dropped 로 계산돼 응답에 실린다」만
- * 확인한다.
+ * <p>-281 이후 diff 기준선은 원 신고 실행의 <b>저장된</b> 결과가 아니라 같은 순간의 <b>대조군(후보 미적용) 재검색</b>이다. 그래서 원 저장 결과에만 있고 지금은 검색되지 않는
+ * 장면(SCENE_OLD)은 더 이상 이탈로 잡히지 않는다 — 대조군·실험군 어디에도 없기 때문. 이 테스트는 그 기준선 전환을 회귀로 고정하고, 두 검색에 공통인 장면은 진입/이탈이 아님을 확인한다.
  */
 class VerificationSceneDiffDbTest extends AbstractVerificationSearchDbTest {
 
@@ -37,8 +36,8 @@ class VerificationSceneDiffDbTest extends AbstractVerificationSearchDbTest {
     VerifyCorrectionCandidatesUseCase useCase;
 
     @Test
-    @DisplayName("원 결과 장면 집합을 로드해 검증 결과와 diff 하고 이탈 장면을 낸다")
-    void computesDroppedSceneFromOriginalResultSet() {
+    @DisplayName("diff 기준선은 저장된 원 결과가 아니라 같은 순간의 대조군이다")
+    void diffsAgainstControlNotStoredOriginalResult() {
         TestGraph.insertSearchableReportedScene(
                 jdbc, MEMBER_ID, CLIP_ID, RUN_ID, SCENE_ID, EXEC_ID, RESULT_ID, FEEDBACK_ID);
         insertUnsearchableOriginalResultScene();
@@ -50,9 +49,10 @@ class VerificationSceneDiffDbTest extends AbstractVerificationSearchDbTest {
 
         assertThat(result.executionId()).isPositive();
         assertThat(result.verificationRuleSet()).isNotNull();
-        // SCENE_OLD 는 caption/토큰이 없어 검증 재검색 후보에 오르지 못한다 — 원 결과에만 있던 장면.
-        assertThat(result.dropped()).extracting(d -> d.sceneId()).contains(SCENE_OLD);
-        // SCENE_ID 는 원 결과와 검증 결과 모두에 있으므로 진입도 이탈도 아니다.
+        // SCENE_OLD 는 저장된 원 결과에만 있고 지금은 검색 불가(caption 없음) — 대조군에도 없으므로 이제 이탈이 아니다.
+        // 기준선이 저장 원결과였다면 dropped 로 잡혔다. 이 단언이 기준선 전환(S15P21A501-281)을 고정한다.
+        assertThat(result.dropped()).extracting(d -> d.sceneId()).doesNotContain(SCENE_OLD);
+        // SCENE_ID 는 대조군·실험군 모두에 있으므로 진입도 이탈도 아니다.
         assertThat(result.entered()).extracting(e -> e.sceneId()).doesNotContain(SCENE_ID);
         assertThat(result.dropped()).extracting(d -> d.sceneId()).doesNotContain(SCENE_ID);
     }

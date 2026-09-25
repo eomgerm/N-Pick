@@ -31,7 +31,13 @@ public enum ParseRuleCandidateErrorCode implements ErrorCode {
     /** 원 검색에 교정 전 AI 해석(resolver_output)이 없어 후보 본문을 대조할 수 없다. */
     RESOLVER_OUTPUT_ABSENT(ErrorType.CONFLICT, "SRCH_409_203", "원 검색에 교정할 해석 출력이 없다"),
     /** 이 신고에서 만든 해석 교정 후보가 개수 상한에 닿았다 (S15P21A501-255). */
-    CANDIDATE_LIMIT_EXCEEDED(ErrorType.CONFLICT, "SRCH_409_204", "이 신고에서 만들 수 있는 해석 교정 후보 수를 넘었다");
+    CANDIDATE_LIMIT_EXCEEDED(ErrorType.CONFLICT, "SRCH_409_204", "이 신고에서 만들 수 있는 해석 교정 후보 수를 넘었다"),
+    /**
+     * 같은 신고의 대기 중인 다른 patch_parse 후보가 이미 같은 규칙을 교체 대상(replaces_rule_id)으로 가리킨다
+     * (S15P21A501-309). 둘을 함께 확정하면 첫 후보가 R1 을 비활성화한 뒤 둘째의 교체가 0행이 돼 전체 롤백되므로
+     * 생성 단계에서 막는다. 기존 후보를 취소하거나 남은 후보로 검증·확정한다.
+     */
+    REPLACES_CONFLICT(ErrorType.CONFLICT, "SRCH_409_205", "이미 같은 규칙을 교체하는 대기 후보가 있다");
 
     private final ErrorType type;
     private final String code;
