@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query';
 import { type DragEvent, type KeyboardEvent, useId, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -185,7 +185,9 @@ export function ParseInterpretationEditor({
 
   // 저장 POST 는 누른 시점의 규칙을 담는다. 진행 중에 칩을 바꾸면 성공 뒤 '담았어요'가 실제로 담지 않은
   // 내용을 가리키고, 이전 후보 폐기가 아직 끝나지 않은 POST 와 엇갈린다 — 그동안 편집을 잠근다.
-  const locked = save.isPending;
+  // 검증 재검색 중에도 잠가, 검증 대상 후보가 도중에 바뀌지 않게 한다 (S15P21A501-317).
+  const verifyPending = useIsMutating({ mutationKey: ['verification-run', feedbackId] }) > 0;
+  const locked = save.isPending || verifyPending;
 
   // 저장을 시도한 뒤(성공·일부 성공·응답 유실 포함) 다시 편집하면 서버에 남았을 수 있는 이전 후보를
   // 모두 폐기한다. 그러지 않으면 다음 저장이 새 후보를 더 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서
@@ -442,9 +444,7 @@ export function ParseInterpretationEditor({
           <button
             aria-describedby={draftCountId}
             className={styles.primaryButton}
-            disabled={
-              save.isPending || discard.isPending || discard.isError || descriptions.length === 0
-            }
+            disabled={locked || discard.isPending || discard.isError || descriptions.length === 0}
             onClick={() => save.mutate()}
             type="button"
           >
@@ -470,7 +470,7 @@ export function ParseInterpretationEditor({
             </p>
             <button
               className={styles.secondaryButton}
-              disabled={discard.isPending}
+              disabled={discard.isPending || verifyPending}
               onClick={() => discard.mutate()}
               type="button"
             >

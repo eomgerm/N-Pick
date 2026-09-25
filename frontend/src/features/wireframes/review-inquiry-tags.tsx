@@ -195,7 +195,10 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
   // 검증 재검색 중에도 잠근다 — 검증에 들어간 후보와 표시한 후보 수가 어긋나지 않게 한다.
   const verifyPending =
     useIsMutating({ mutationKey: ['verification-run', inquiry.feedbackId] }) > 0;
+  // 대기 후보를 아직 못 읽었으면(첫 조회 중·실패) 잠근다 — 서버에 이미 있는 판단을 모른 채 새 판단을
+  // 올리지 않게 한다. 조회가 성공하면 풀린다.
   const isBusy =
+    !candidates.isSuccess ||
     verifyPending ||
     mutation.isPending ||
     cancelAdded.isPending ||

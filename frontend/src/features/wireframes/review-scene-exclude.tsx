@@ -41,8 +41,9 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
     false;
   const idempotencyKey = useRef<string | null>(null);
 
-  // 후보 조회가 실패해 서버 상태를 모르면 토글을 잠근다 — 이미 제외했는데 "이 장면 제외"로 보이지 않게 한다.
-  const isUnknown = localExcluded === null && !candidates.data && candidates.isError;
+  // 대기 후보를 아직 못 읽었으면(첫 조회 중·실패) 토글을 잠근다 — 이미 제외했는데 "이 장면 제외"를 다시
+  // 누르지 않게 한다. 조회가 성공하면 풀린다.
+  const isUnknown = !candidates.isSuccess;
 
   // 대기 후보 다시 읽기가 끝날 때까지 요청을 진행 중으로 둔다 — 검증이 옛 후보 수로 돌지 않게 한다.
   function refresh() {
@@ -116,7 +117,7 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
           {register.isPending ? '제외 중…' : '이 장면 제외'}
         </button>
       )}
-      {isUnknown ? (
+      {candidates.isError ? (
         <p className="w-full text-sm text-(--muted)">
           저장해 둔 장면 제외 후보를 불러오지 못했습니다.{' '}
           <button
