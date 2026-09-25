@@ -1,6 +1,5 @@
 package com.npick.tag.presentation;
 
-import java.util.List;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
@@ -16,6 +15,7 @@ import com.npick.common.response.ApiResponse;
 import com.npick.common.security.CurrentMember;
 import com.npick.common.security.resolver.LoginMember;
 import com.npick.tag.application.CreateTagCorrectionCandidateCommand;
+import com.npick.tag.application.CreateTagCorrectionCandidateResult;
 import com.npick.tag.application.CreateTagCorrectionCandidateUseCase;
 import com.npick.tag.application.DiscardOneTagCorrectionCandidateUseCase;
 import com.npick.tag.application.DiscardTagCorrectionCandidateUseCase;
@@ -27,6 +27,8 @@ import com.npick.tag.presentation.response.TagCorrectionCandidateResponse;
  *
  * <p>{@code /api/v1/review/**} 는 이미 검수자 전용으로 보안 계층이 막는다. 담당 검수자·검수 중 여부·태그 교정 판정은 서비스가 검증한다. 교체는 반려+추가 두 변경안으로 오며 한
  * 트랜잭션으로 저장된다.
+ *
+ * <p>생성은 {@code Idempotency-Key} 를 읽지 않는다. 대신 같은 대기 판단을 자연 키로 재사용해 재시도가 근거를 쌓지 않는다 (S15P21A501-317).
  */
 @RestController
 @RequestMapping("/api/v1/review/inquiries")
@@ -53,9 +55,9 @@ public class TagCorrectionCandidateController {
             @PathVariable long feedbackId,
             @Valid @RequestBody TagCorrectionRequest request,
             @LoginMember CurrentMember member) {
-        List<Long> evidenceIds = service.create(new CreateTagCorrectionCandidateCommand(
+        CreateTagCorrectionCandidateResult result = service.create(new CreateTagCorrectionCandidateCommand(
                 feedbackId, member.memberId(), REVIEWER_ROLE.equalsIgnoreCase(member.role()), request.operations()));
-        return ApiResponse.success(TagCorrectionCandidateResponse.of(feedbackId, evidenceIds));
+        return ApiResponse.success(TagCorrectionCandidateResponse.of(feedbackId, result));
     }
 
     /**
