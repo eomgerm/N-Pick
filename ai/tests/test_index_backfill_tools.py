@@ -63,10 +63,53 @@ def test_retokenize_writes_only_changed_rows_and_keeps_empty_tokens_distinct(
     patch = sorted((tmp_path / "out").glob("scene_caption.*.csv"))
     lines = [line for path in patch for line in path.read_text(encoding="utf-8").splitlines()[1:]]
     assert lines == [
-        '"1","사람/nng 모습/nng","사람/nng 걷/vv 모습/nng"',
+        '"1","사람들이 걷는 모습","사람/nng 모습/nng","사람/nng 걷/vv 모습/nng"',
         # COPY csv 에서 따옴표 없는 빈 칸은 NULL 이다. 빈 토큰은 '' 로 남아야 한다
-        '"3","stale/nng",""',
+        '"3","...","stale/nng",""',
     ]
+
+
+def test_retokenize_removes_stale_patch_files_of_the_same_name(tmp_path: Path) -> None:
+    """다시 돌려 배치가 줄거나 0 이 되면 앞 회차의 끝쪽 파일이 적용 루프에 섞이면 안 된다."""
+    out = tmp_path / "out"
+    rows = [[str(i), "사람들이 걷는 모습", "사람/nng 모습/nng"] for i in range(3)]
+    retokenize(_write(tmp_path / "a.csv", ["id", "text", "tokens"], rows), out, "cap", 1)
+    other = out / "cap_other.0000.csv"
+    other.write_text("keep", encoding="utf-8")  # 다른 이름의 패치는 건드리지 않는다
+    assert len(list(out.glob("cap.*.csv"))) == 3
+
+    current = " ".join(korean_tokens.index_tokens("사람들이 걷는 모습"))
+    counts = retokenize(
+        _write(
+            tmp_path / "b.csv", ["id", "text", "tokens"], [["1", "사람들이 걷는 모습", current]]
+        ),
+        out,
+        "cap",
+        1,
+    )
+    assert counts["changed"] == 0
+    assert list(out.glob("cap.*.csv")) == []
+    assert other.exists()
+
+
+def test_backfill_doc_updates_only_rows_whose_source_text_is_unchanged() -> None:
+    """적용 SQL 은 문서에만 있다.
+
+    원문 비교가 빠지면 옛 토큰이 같은 다른 원문 행에 새 토큰이 들어간다.
+
+    옛 규칙에서 「사람들이 걷는 모습」과 「사람들이 듣는 모습」은 둘 다 `사람/nng 모습/nng` 다.
+    """
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "index-token-backfill.md").read_text(
+        encoding="utf-8"
+    )
+    assert "CREATE TEMP TABLE patch (id bigint PRIMARY KEY, text text NOT NULL" in doc
+    updates = [chunk.split('"; done')[0] for chunk in doc.split('apply_patch "$f" "')[1:]]
+    assert len(updates) == 3
+    for update, source in zip(
+        updates, ["s.caption", "s.transcript_text", "o.raw_text"], strict=True
+    ):
+        assert f"{source} = p.text" in update
+        assert "= p.old_tokens" in update
 
 
 def test_rekey_refuses_when_the_stored_fingerprint_cannot_be_reproduced(tmp_path: Path) -> None:

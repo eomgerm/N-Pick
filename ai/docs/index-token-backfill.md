@@ -147,25 +147,32 @@ done
 # rows=7712 changed=… unchanged=… batches=…  (표마다 한 줄)
 ```
 
-패치 파일 하나(기본 5,000 행)를 한 트랜잭션으로 반영한다. `old_tokens` 가 지금 값과 같은 행만 바꾸므로
-추출 뒤에 다시 쓰인 행은 건너뛴다 — 다음 회차가 잡는다.
+패치 파일 하나(기본 5,000 행)를 한 트랜잭션으로 반영한다. 패치 행은 추출 당시의 원문(`text`)과
+`old_tokens` 를 함께 싣고, **둘 다** 지금 값과 같은 행만 바꾸므로 추출 뒤에 다시 쓰인 행은 건너뛴다 —
+다음 회차가 잡는다. 토큰만으로는 모자란다. 옛 규칙에서 「사람들이 걷는 모습」과 「사람들이 듣는 모습」은
+둘 다 `사람/nng 모습/nng` 라, 첫 문장으로 만든 패치가 두 번째 문장으로 다시 쓰인 행에 `걷/vv` 를 넣는다.
+
+도구는 실행할 때마다 같은 `--name` 의 옛 패치 파일(`<name>.NNNN.csv`)을 먼저 지운다. ⑦ 에서 `changed=0`
+이거나 배치 수가 줄어도 ③ 의 파일이 남아 아래 루프에 섞이지 않는다.
 
 ```bash
 apply_patch() {  # $1 = 파일, $2 = UPDATE 문
   npsql -1 \
-    -c "CREATE TEMP TABLE patch (id bigint PRIMARY KEY, old_tokens text NOT NULL, new_tokens text NOT NULL)" \
+    -c "CREATE TEMP TABLE patch (id bigint PRIMARY KEY, text text NOT NULL, old_tokens text NOT NULL,
+      new_tokens text NOT NULL)" \
     -c "\copy patch FROM pstdin WITH (FORMAT csv, HEADER)" \
     -c "$2" < "$1"
 }
 for f in "$WORK"/patch/scene_caption.*.csv; do apply_patch "$f" "UPDATE npick.scene s
   SET caption_tokens = p.new_tokens FROM patch p
-  WHERE s.scene_id = p.id AND coalesce(s.caption_tokens, '') = p.old_tokens"; done
+  WHERE s.scene_id = p.id AND s.caption = p.text AND coalesce(s.caption_tokens, '') = p.old_tokens"; done
 for f in "$WORK"/patch/scene_transcript.*.csv; do apply_patch "$f" "UPDATE npick.scene s
   SET transcript_tokens = p.new_tokens FROM patch p
-  WHERE s.scene_id = p.id AND coalesce(s.transcript_tokens, '') = p.old_tokens"; done
+  WHERE s.scene_id = p.id AND s.transcript_text = p.text
+    AND coalesce(s.transcript_tokens, '') = p.old_tokens"; done
 for f in "$WORK"/patch/ocr_observation.*.csv; do apply_patch "$f" "UPDATE npick.ocr_observation o
   SET tokens = p.new_tokens FROM patch p
-  WHERE o.ocr_observation_id = p.id AND o.tokens = p.old_tokens"; done
+  WHERE o.ocr_observation_id = p.id AND o.raw_text = p.text AND o.tokens = p.old_tokens"; done
 ```
 
 파일마다 `COPY n`·`UPDATE n` 이 찍힌다. 두 수가 다르면 그만큼이 추출 뒤에 바뀐 행이다. 다시 추출해 도구를

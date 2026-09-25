@@ -8,9 +8,9 @@ imports `korean_tokens` directly instead of calling `POST /query/tokenize`, whic
 each text at 200 characters.
 
 The worker has no DB driver on purpose, so the tool reads and writes CSV. `psql \\copy`
-exports `(id, source text, current tokens)`, this tool writes `(id, old tokens, new
-tokens)` for the rows whose tokens actually change, and `psql` applies them with
-`UPDATE ... FROM` a temp table. The full procedure is in
+exports `(id, source text, current tokens)`, this tool writes `(id, source text, old
+tokens, new tokens)` for the rows whose tokens actually change, and `psql` applies them
+with `UPDATE ... FROM` a temp table. The full procedure is in
 `ai/docs/index-token-backfill.md`.
 
 Each column is rebuilt exactly as its producer builds it — `" ".join(index_tokens(text))`:
@@ -25,8 +25,11 @@ Each column is rebuilt exactly as its producer builds it — `" ".join(index_tok
         --in scene_caption.csv --out-dir patch/ --name scene_caption
 
 Idempotent: a row whose rebuilt tokens equal the stored ones is not written, so a second
-run over a fresh export produces no patch rows. The old tokens travel with each patch
-row so the UPDATE can skip a row that changed after the export.
+run over a fresh export produces no patch rows. The source text and the old tokens
+travel with each patch row so the UPDATE can skip a row that changed after the export —
+the tokens alone are not enough, two texts can share old tokens (`사람들이 걷는 모습` and
+`사람들이 듣는 모습` were both `사람/nng 모습/nng`). A run first deletes the previous
+`<name>.NNNN.csv` files, so a rerun with fewer batches (or none) leaves nothing stale.
 """
 
 import argparse
@@ -44,6 +47,8 @@ csv.field_size_limit(sys.maxsize)
 def retokenize(source: Path, out_dir: Path, name: str, batch_size: int) -> dict[str, int | str]:
     """Write `<name>.NNNN.csv` patch files and return the counts."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob(f"{name}.[0-9][0-9][0-9][0-9].csv"):
+        stale.unlink()
     counts: dict[str, int | str] = {"tokenizer": tokenizer_version()}
     total = changed = batches = 0
     writer = None
@@ -63,10 +68,10 @@ def retokenize(source: Path, out_dir: Path, name: str, batch_size: int) -> dict[
                 # QUOTE_ALL: in COPY csv an unquoted empty field is NULL, a quoted one is ''.
                 # A text with no content words has '' tokens, which is not the same as NULL.
                 writer = csv.writer(handle, quoting=csv.QUOTE_ALL)
-                writer.writerow(["id", "old_tokens", "new_tokens"])
+                writer.writerow(["id", "text", "old_tokens", "new_tokens"])
                 batches += 1
             assert writer is not None
-            writer.writerow([row["id"], old_tokens, new_tokens])
+            writer.writerow([row["id"], row["text"], old_tokens, new_tokens])
             changed += 1
     if handle is not None:
         handle.close()
