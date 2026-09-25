@@ -45,22 +45,8 @@ public record LexicalSearchSettings(
      */
     public List<String> searchQueryTokens(List<String> queryTokens) {
         List<String> kept =
-                queryTokens.stream().filter(token -> !isExcluded(token)).toList();
+                queryTokens.stream().filter(token -> !excludes(token)).toList();
         return kept.isEmpty() ? queryTokens : kept;
-    }
-
-    /**
-     * BM25 에 걸 확장어 구. 구 <b>안의</b> 범용어 토큰을 빼고, 비게 된 구는 버린다.
-     *
-     * <p>원 질의와 달리 되살리지 않는다. 확장어는 보조 신호라 한 구를 잃어도 원 질의가 남는다. 구에서 토큰을 빼면 {@code must} 가 헐거워지지만 빠지는 것은 장면 3분의 1 에 들어 있는
-     * 말이라 걸러 주던 것이 거의 없다 — 쓸 수 없는 토큰이 든 구를 통째로 버리는 어댑터 규칙과는 다른 경우다.
-     */
-    public List<List<String>> searchPhrases(List<List<String>> phrases) {
-        return phrases.stream()
-                .map(phrase ->
-                        phrase.stream().filter(token -> !isExcluded(token)).toList())
-                .filter(phrase -> !phrase.isEmpty())
-                .toList();
     }
 
     /**
@@ -85,8 +71,15 @@ public record LexicalSearchSettings(
                 .toList();
     }
 
-    /** {@code null} 토큰은 걸러 내지 않고 어댑터에 넘긴다 — 그쪽이 이미 다루는 값이고, 불변 목록의 {@code contains(null)} 은 던진다. */
-    private boolean isExcluded(String token) {
+    /**
+     * 이 토큰이 범용어 목록에 있는가.
+     *
+     * <p><b>확장어 구에서 토큰을 빼는 데는 쓰지 않는다</b> — 구는 {@code must} 로 걸리므로 범용어가 들어 있어도 매칭을 좁힐 뿐 넓히지 않는다. 빼면 「자료 화면」 이 {@code 자료}
+     * 단독 매칭으로 풀린다. 구에 대해서는 범용어로만 된 구를 버리고 근거 설명 칩에서 숨기는 데만 쓴다.
+     *
+     * <p>{@code null} 토큰은 걸러 내지 않는다 — 어댑터가 이미 다루는 값이고, 불변 목록의 {@code contains(null)} 은 던진다.
+     */
+    public boolean excludes(String token) {
         return token != null && excludedQueryTokens.contains(token);
     }
 

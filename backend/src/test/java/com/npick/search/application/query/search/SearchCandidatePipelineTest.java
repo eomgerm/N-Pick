@@ -211,23 +211,27 @@ class SearchCandidatePipelineTest {
     }
 
     @Test
-    @DisplayName("확장어 구 안의 범용어를 빼고, 빼고 나서 원 질의와 같아진 구는 넘기지 않는다")
-    void dropsGenericTermsInsideExpandedPhrases() {
-        lexicalSettings = lexicalSettings(List.of("장면/nng", "모습/nng"));
+    @DisplayName("확장어 구 안의 범용어는 빼지 않고, 겹침은 범용어를 빼기 전 원 질의로 판정한다")
+    void keepsGenericTermsInsideExpandedPhrases() {
+        // 구는 must 라 범용어가 있어도 좁힐 뿐이다. 빼면 「자료 화면」 이 자료 단독 매칭으로 풀린다 (S15P21A501-320).
+        lexicalSettings = lexicalSettings(List.of("장면/nng", "화면/nng", "모습/nng"));
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
         when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1"))
                 .thenReturn(List.of(
-                        List.of("호우/nng", "장면/nng"), // → 호우
-                        List.of("모습/nng"), // 비었다 → 버린다
-                        List.of("질의/nng", "장면/nng"))); // → 질의, 원 질의와 같다 → 버린다
+                        List.of("자료/nng", "화면/nng"), // 그대로 남는다
+                        List.of("화재/nng", "장면/nng"), // 사용자가 친 말뿐이다 → 버린다 (남기면 화재 중복 가산 + 장면 부활)
+                        List.of("모습/nng"), // 범용어뿐이다 → 버린다
+                        List.of("소방/nng", "장면/nng"))); // 그대로 남는다
         when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
         givenRankingOf();
 
         SearchCandidates result = pipeline.rank(
-                queryWithExpandedTerms(new QueryNormalization("질의 장면", List.of("질의/nng", "장면/nng"), "norm/v1")));
+                queryWithExpandedTerms(new QueryNormalization("화재 장면", List.of("화재/nng", "장면/nng"), "norm/v1")));
 
-        verify(lexical).findByWords(List.of("질의/nng"), List.of(List.of("호우/nng")));
-        assertThat(result.expandedTokens()).containsExactly("호우/nng");
+        verify(lexical)
+                .findByWords(List.of("화재/nng"), List.of(List.of("자료/nng", "화면/nng"), List.of("소방/nng", "장면/nng")));
+        // 칩에는 범용어를 싣지 않는다 — 같은 구의 자료·소방이 이유를 설명한다.
+        assertThat(result.expandedTokens()).containsExactly("자료/nng", "소방/nng");
     }
 
     private RankSearchCandidatesUseCase.Query queryWithExpandedTerms() {

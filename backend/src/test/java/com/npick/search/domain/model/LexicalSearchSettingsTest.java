@@ -70,11 +70,11 @@ class LexicalSearchSettingsTest {
     }
 
     @Test
-    @DisplayName("확장어 구 안의 범용어를 빼고 비게 된 구는 버린다")
-    void removesGenericTermsInsidePhrasesAndDropsEmptyPhrases() {
-        assertThat(settings.searchPhrases(
-                        List.of(List.of("큰불/nng", "장면/nng"), List.of("모습/nng", "화면/nng"), List.of("소방차/nng"))))
-                .containsExactly(List.of("큰불/nng"), List.of("소방차/nng"));
+    @DisplayName("범용어 여부는 정규화된 목록과 정확히 대조한다")
+    void excludesMatchesTheNormalizedList() {
+        assertThat(settings.excludes("장면/nng")).isTrue();
+        assertThat(settings.excludes("장면/nnp")).isFalse();
+        assertThat(settings.excludes(null)).isFalse();
     }
 
     @Test
@@ -82,6 +82,6 @@ class LexicalSearchSettingsTest {
     void anEmptyListExcludesNothing() {
         var none = new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, List.of());
         assertThat(none.searchQueryTokens(List.of("화재/nng", "장면/nng"))).containsExactly("화재/nng", "장면/nng");
-        assertThat(none.searchPhrases(List.of(List.of("장면/nng")))).containsExactly(List.of("장면/nng"));
+        assertThat(none.excludes("장면/nng")).isFalse();
     }
 }

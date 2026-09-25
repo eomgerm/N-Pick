@@ -124,7 +124,7 @@ npick:
       # candidate-v2: 확장어를 구 단위 AND 로 걸기 시작한 판 (S15P21A501-302). 설정 값 자체는
       # 안 바뀌었지만 같은 값으로 순위가 달라지므로, 라벨을 올려 두지 않으면 전후 실행이
       # search_execution 에서 구분되지 않는다.
-      # candidate-v3: 원 질의·확장어 토큰에서 캡션 범용어를 빼기 시작한 판 (S15P21A501-320).
+      # candidate-v3: 원 질의 토큰에서 캡션 범용어를 빼기 시작한 판 (S15P21A501-320). 확장어 구 안의 범용어는 남긴다.
       config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v3}
       # 가중치 0 은 그 필드를 검색 대상에서 제외한다는 뜻이다. 실측 전까지 세 채널을 동일 가중으로 둔다.
       caption-weight: ${SEARCH_CANDIDATE_CAPTION_WEIGHT:1.0}
