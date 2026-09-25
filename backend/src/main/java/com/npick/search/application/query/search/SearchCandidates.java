@@ -82,6 +82,8 @@ public record SearchCandidates(
      * 근거가 바뀐다 (§7.2 「지금의 교정 상태로 다시 계산해 덮어쓰지 않는다」).
      *
      * @param verdict guard 판정. 살아남았으므로 {@code exclusionReason} 은 {@code null} 이다
+     * @param keywordEvidence 구조화 점수가 검색어 명사·확장어와 맞춘 keyword 태그 (S15P21A501-321). 연결형·품사 태그 때문에 토큰 대조로는 되짚을 수 없어 점수 계산
+     *     결과를 그대로 나른다
      */
     public record ScoredScene(
             long sceneId,
@@ -90,10 +92,23 @@ public record SearchCandidates(
             List<EffectiveTag> tags,
             FusionResult.ScoredCandidate score,
             SoftRankingResult.OrderedCandidate soft,
-            FalseHitGuardResult.SceneVerdict verdict) {
+            FalseHitGuardResult.SceneVerdict verdict,
+            List<EffectiveTag> keywordEvidence) {
 
         public ScoredScene {
             tags = List.copyOf(tags);
+            keywordEvidence = List.copyOf(keywordEvidence);
+        }
+
+        public ScoredScene(
+                long sceneId,
+                long clipId,
+                SceneCard card,
+                List<EffectiveTag> tags,
+                FusionResult.ScoredCandidate score,
+                SoftRankingResult.OrderedCandidate soft,
+                FalseHitGuardResult.SceneVerdict verdict) {
+            this(sceneId, clipId, card, tags, score, soft, verdict, List.of());
         }
     }
 }

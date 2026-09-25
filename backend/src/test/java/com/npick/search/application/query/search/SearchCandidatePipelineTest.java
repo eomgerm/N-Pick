@@ -6,6 +6,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
 
 import com.npick.search.application.port.QueryNormalization;
@@ -26,6 +27,7 @@ import com.npick.search.application.query.guard.ApplyFalseHitGuardUseCase;
 import com.npick.search.application.query.guard.FalseHitGuardResult;
 import com.npick.search.application.query.soft.AdjustSoftRankingUseCase;
 import com.npick.search.application.query.soft.SoftRankingResult;
+import com.npick.search.application.query.structured.ScoreStructuredScenesQuery;
 import com.npick.search.application.query.structured.ScoreStructuredScenesUseCase;
 import com.npick.search.application.query.structured.StructuredScoresResult;
 import com.npick.search.domain.model.FusionChannel;
@@ -38,6 +40,9 @@ import com.npick.search.domain.model.SoftSignal;
 import com.npick.search.domain.model.StructuredAxis;
 import com.npick.search.domain.model.StructuredScoreSettings;
 import com.npick.tag.application.query.ResolveSceneTagsUseCase;
+import com.npick.tag.application.query.TagCondition;
+import com.npick.tag.domain.model.EffectiveTag;
+import com.npick.tag.domain.model.TagType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -272,6 +277,60 @@ class SearchCandidatePipelineTest {
                 .extracting(SearchCandidates.ScoredScene::sceneId)
                 .containsExactly(9301L);
         assertThat(result.scenes().getFirst().tags()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("구조화 점수에 범용어 제외 전 질의 토큰과 확장어 구를 넘긴다")
+    void passesRawQueryTokensAndExpandedPhrasesToStructuredScoring() {
+        // 키워드 태그 매칭은 320 의 BM25 범용어 목록과 독립이다 (설계 §5.3). 파이프라인이 뺀 토큰을 넘기면
+        // 제외 목록이 두 곳에서 겹쳐 걸리고, 한쪽만 바꿔도 다른 쪽이 따라 바뀐다.
+        lexicalSettings = lexicalSettings(List.of("장면/nng"));
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(expandedTerms.tokenize(List.of("집중호우"), "norm/v1")).thenReturn(List.of(List.of("집중/nng", "호우/nng")));
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf();
+
+        pipeline.rank(queryWithExpandedTerms(new QueryNormalization("전세 장면", List.of("전세/nng", "장면/nng"), "norm/v1")));
+
+        var captor = ArgumentCaptor.forClass(ScoreStructuredScenesQuery.class);
+        verify(structured).score(captor.capture());
+        assertThat(captor.getValue().searchTokens()).containsExactly("전세/nng", "장면/nng");
+        assertThat(captor.getValue().expandedPhrases()).containsExactly(List.of("집중/nng", "호우/nng"));
+    }
+
+    @Test
+    @DisplayName("구조화 점수가 맞춘 키워드 태그를 장면과 함께 나른다")
+    void carriesKeywordTagEvidenceFromStructuredScores() {
+        SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of());
+        givenRankingOf(9301L);
+        var keywordTag = new EffectiveTag(
+                9301,
+                9101,
+                7001,
+                TagType.KEYWORD,
+                "전세사기",
+                "전세 사기",
+                EffectiveTag.Verification.UNVERIFIED,
+                EffectiveTag.Scope.SCENE,
+                "vlm");
+        var keyword = new StructuredScoresResult.KeywordScore(
+                0.5,
+                0.5,
+                List.of(new StructuredScoresResult.ConditionMatch(
+                        TagCondition.exact(TagType.KEYWORD, "전세사기"), List.of(keywordTag))),
+                List.of());
+        when(structured.score(any()))
+                .thenReturn(new StructuredScoresResult(
+                        resolution(),
+                        structuredSettings(),
+                        List.of(new StructuredScoresResult.SceneScore(
+                                9301, 9101, false, true, 0.5, 0, List.of(), keyword)),
+                        List.of()));
+
+        SearchCandidates result = pipeline.rank(query());
+
+        assertThat(result.scenes().getFirst().keywordEvidence()).containsExactly(keywordTag);
     }
 
     private SearchCandidatePipeline pipeline(FusionSettings settings) {
