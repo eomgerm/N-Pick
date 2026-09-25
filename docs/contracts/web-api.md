@@ -47,6 +47,7 @@
 | 태그 교정 후보 개별 취소   | DELETE | `/review/inquiries/{feedbackId}/tag-correction-candidate/{evidenceId}` | BE 구현 | 추가 태그 취소 바인딩 |
 | 해석 교정 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/parse-patch-candidate`    | BE 구현 | 후보 취소 바인딩            |
 | 장면 제외 후보 취소        | DELETE | `/review/inquiries/{feedbackId}/scene-exclude-candidate`  | BE 구현 | 후보 취소 바인딩            |
+| 대기 교정 후보 조회        | GET    | `/review/inquiries/{feedbackId}/correction-candidates`    | BE 구현 | 새로고침 뒤 작성 중 교정 복원 |
 | 후보 검증 재검색           | POST   | `/review/inquiries/{feedbackId}/verify`                   | BE 구현 | 검수 재검색·확정 바인딩     |
 | 교정 확정                  | POST   | `/review/inquiries/{feedbackId}/confirm`                  | BE 구현 | 검수 재검색·확정 바인딩     |
 | 검색 규칙 사용 중단         | PATCH  | `/review/search-rules/{ruleId}`             | BE 구현   | 검수 규칙 관리 바인딩               |
@@ -526,7 +527,9 @@ body는 생략하거나 다음처럼 보낸다.
 
 ### 6.4 검수 문의 상세·시작·처리 결과
 
-`GET /review/inquiries/{feedbackId}`는 문의, 장면, 당시 검색 실행 snapshot, 근거, 검수 이력을 반환한다. 현재 BE 응답의 snapshot JSON 필드(`explicitFiltersJson`, `parsedQueryJson`, `resolverOutputJson`, `appliedRulesJson`, `appliedExcludesJson`)는 JSON 문자열이다. FE는 이를 개발용 원문으로 직접 노출하지 않고 사용자용 모델로 변환한다. `evidence[]`는 교정 후보를 정확히 만들 수 있도록 `taggingId`, `tagType`, `matchValue`, `tagName`, `source`, `verifiedState`, `scope`를 반환한다.
+`GET /review/inquiries/{feedbackId}`는 문의, 장면, 당시 검색 실행 snapshot, 근거, 검수 이력을 반환한다. 현재 BE 응답의 snapshot JSON 필드(`explicitFiltersJson`, `parsedQueryJson`, `resolverOutputJson`, `appliedRulesJson`, `appliedExcludesJson`)는 JSON 문자열이다. FE는 이를 개발용 원문으로 직접 노출하지 않고 사용자용 모델로 변환한다. `evidence[]`는 교정 후보를 정확히 만들 수 있도록 `taggingId`, `tagType`, `matchValue`, `tagName`, `sources`(출처 문자열 배열), `verifiedState`, `scope`를 반환한다.
+
+`evidence[]`는 **확정 근거(`tag_evidence.confirmed=true`)가 하나 이상 있는 태깅만** 담는 "현재 태그"다(S15P21A501-317). 출처·검증 상태도 확정 근거만으로 계산한다. 확정 근거 없이 검수자의 대기 후보(`confirmed=false`)만 있는 태깅이나, 후보 취소 뒤 근거 없이 남은 태깅은 나오지 않는다 — 대기 후보는 아래 `GET /review/inquiries/{feedbackId}/correction-candidates`로 따로 읽는다.
 
 `POST /review/inquiries/{feedbackId}/claim`
 
@@ -600,9 +603,13 @@ body는 생략하거나 다음처럼 보낸다.
 ```
 
 - `operations`는 최소 1개, 한 요청에 최대 20개. 교체는 `REJECT`+`APPROVE` 두 항목으로 보낸다. `action`은 `APPROVE|REJECT|WITHDRAW`, `scope`는 `SCENE|CLIP`.
-- 한 신고에 쌓을 수 있는 검수자 판단은 누적 50개까지다. 이번 요청분을 더해 넘으면 하나도 저장하지 않고 거부한다.
+- 한 신고에 쌓을 수 있는 검수자 판단은 누적 50개까지다. 이번 요청으로 **새로 만들** 판단을 더해 넘으면 하나도 저장하지 않고 거부한다. 아래 자연 키로 재사용하는 판단은 세지 않는다.
 - `tagType`은 11종 어휘, `matchValue`는 서버가 정규화한다(NFKC·불가시 문자 제거). 범위는 신고 컨텍스트의 장면/클립으로만 한정되어 임의 대상을 지정할 수 없다.
-- 성공 `201` body `data`: `{ feedbackId, created, evidenceIds }`. id는 정밀도 보존을 위해 문자열(TSID)이다.
+- **중복 제거는 멱등 키가 아니라 자연 키로 한다(S15P21A501-317).** 이 endpoint는 `Idempotency-Key` header를 읽지 않는다. 대신 변경안마다 같은 신고·같은 태깅(`tagType`+정규화된 `matchValue`+장면/클립 범위)·같은 판단(`APPROVE`/`REJECT`/`WITHDRAW` = `verified`/`rejected`/`withdrawn`)으로 대기 중인(`source='reviewer_feedback'`, `confirmed=false`) 근거가 이미 있으면 새로 넣지 않고 그 근거 id를 돌려준다. 한 요청 안의 같은 변경안 둘도 근거 하나로 모인다. `displayName`은 비교하지 않는다. 이미 확정된(`confirmed=true`) 근거나 다른 신고의 근거는 재사용하지 않는다. 그래서 새로고침 뒤 복원한 변경안을 다시 보내거나 응답을 잃고 재시도해도 근거가 쌓이지 않는다.
+- 성공 `201` body `data`: `{ feedbackId, created, newlyCreated, evidenceIds }`. id는 정밀도 보존을 위해 문자열(TSID)이다.
+  - `evidenceIds`: 요청 `operations` 순서대로 변경안마다 하나. 재사용이면 기존 근거 id, 아니면 새 근거 id다. 같은 변경안이 두 번 오면 같은 id가 두 번 나온다.
+  - `created`: `evidenceIds` 길이(= `operations` 수)다. 재사용한 것도 센다 — 기존 FE 파서의 `created == evidenceIds.length` 검사와 호환하려고 의미를 유지한다.
+  - `newlyCreated`: 이번 요청으로 실제로 새로 만든 근거 수. 전부 재사용이면 `0`이며 이때도 HTTP는 `201`이다.
 
 | 오류               | HTTP | 의미                              |
 | ------------------ | ---- | --------------------------------- |
@@ -681,6 +688,40 @@ body는 생략하거나 다음처럼 보낸다.
 `DELETE /review/inquiries/{feedbackId}/parse-patch-candidate` (S15P21A501-309)
 
 담당 검수자가 대기 중인 해석(`patch_parse`) 후보만 취소한다 — 같은 신고의 장면 제외 후보는 남긴다. 가드는 검수자 role·`REVIEWING`·담당 검수자로 같다. 이미 확정된 규칙은 건드리지 않는다. 성공은 body 없는 `200`이다.
+
+`GET /review/inquiries/{feedbackId}/correction-candidates` (S15P21A501-317)
+
+담당 검수자가 이 신고에 쌓인 **확정 전 대기 교정 후보 전체**(태그·해석·장면 제외)를 읽는다. 새로고침 뒤 작성 중이던 교정을 복원하는 용도다. 상세의 `evidence[]`는 확정 근거만 담으므로 대기 태그 후보는 이 조회로만 보인다.
+
+- 가드: 검수자 role(보안 계층, 편집기자는 `403`) → 신고 존재(`FEEDBACK_404_002`) → 담당 검수자(`FEEDBACK_403_002`, 아직 아무도 잡지 않은 신고 포함). 읽기 전용이라 `REVIEWING` 상태는 요구하지 않고 교정 상태 잠금도 잡지 않는다 — 종료된 신고는 종료·확정 때 대기 후보가 지워지거나 확정되므로 빈 목록이 나온다.
+- 이 신고가 만든(`source_feedback_id`) 대기 후보만 돌려준다: 태그는 `source='reviewer_feedback'`·`confirmed=false` 근거, 규칙은 `active=false`인 `search_rule`. 이미 확정된 근거·활성 규칙·다른 신고의 후보는 빠진다. 각 목록은 만든 순서다.
+- id는 모두 십진 문자열이다(§2.3·§8 신규 응답 string 규칙).
+
+성공 `200` body `data`:
+
+```json
+{
+  "tags": [
+    { "evidenceId": "5001", "taggingId": "5501", "action": "REJECT", "scope": "SCENE", "tagType": "location", "matchValue": "서울", "displayName": "서울" }
+  ],
+  "parsePatches": [
+    { "searchRuleId": "6602", "condition": { "version": "parse-rule/v1" }, "patch": { "version": "parse-rule/v1", "ops": [] }, "replacesRuleId": "6601" }
+  ],
+  "sceneExcludes": [
+    { "searchRuleId": "6603", "targetSceneId": "9301" }
+  ]
+}
+```
+
+- `tags[]`: 태그 생성 요청의 변경안 한 줄로 되돌릴 수 있는 형태다. `action`은 `APPROVE|REJECT|WITHDRAW`, `scope`는 `SCENE|CLIP`(태깅의 장면 유무). `evidenceId`는 개별 취소(`DELETE …/tag-correction-candidate/{evidenceId}`)에 그대로 쓴다. `displayName`은 태그 사전의 표시 이름이다 — 이미 있던 태그를 재사용했으면 생성 때 보낸 `displayName`이 아니라 사전 값이 나온다.
+- `parsePatches[]`: `condition`·`patch`는 생성 요청에 보낸 것과 같은 `parse-rule/v1` JSON **객체**다(문자열 아님, jsonb 저장이라 key 순서는 보존되지 않는다). `replacesRuleId`는 교체 대상이 없으면 `null`.
+- `sceneExcludes[]`: 제외 대상 장면 id.
+- 후보가 없으면 세 목록 모두 빈 배열이다.
+
+| 오류               | HTTP | 의미                        |
+| ------------------ | ---- | --------------------------- |
+| `FEEDBACK_403_002` | 403  | 담당 검수자 아님            |
+| `FEEDBACK_404_002` | 404  | 문의 없음                   |
 
 `POST /review/inquiries/{feedbackId}/verify` (S15P21A501-83)
 
