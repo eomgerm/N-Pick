@@ -29,6 +29,8 @@ import {
   SearchInterpretation,
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
+import { ClaimReleaseControl } from '@/features/wireframes/review-claim-release';
+import { canReleaseClaim } from '@/features/wireframes/review-claim-release-view';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import { resolutionModeFromValue } from '@/features/wireframes/review-resolution-toggle-mode';
 import { ReviewInquiryTags } from '@/features/wireframes/review-inquiry-tags';
@@ -304,6 +306,9 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
                 </span>
               </section>
             ) : null}
+            {canReleaseClaim(inquiry, member.loginId) ? (
+              <ClaimReleaseControl feedbackId={inquiry.feedbackId} key={inquiry.feedbackId} />
+            ) : null}
             {inquiry.status === 'reviewing' ? (
               <InquiryResolutionForm
                 inquiry={inquiry}
@@ -367,7 +372,7 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
             <div className={styles.currentTags}>
               <ReviewInquiryTags
                 inquiry={inquiry}
-                key={inquiry.feedbackId}
+                key={`${inquiry.feedbackId}-${inquiry.status}`}
                 memberLoginId={member.loginId}
               />
             </div>
