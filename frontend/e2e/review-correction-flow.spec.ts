@@ -41,7 +41,17 @@ function inquiry() {
       appliedRulesJson: '[]',
       appliedExcludesJson: '[]',
     },
-    evidence: [],
+    evidence: [
+      {
+        taggingId: '51',
+        tagType: 'location',
+        matchValue: '서울역',
+        tagName: '서울역',
+        sources: ['ocr'],
+        verifiedState: 'VERIFIED',
+        scope: 'SCENE',
+      },
+    ],
     history: {
       reviewedById: '2',
       reviewerName: 'E2E 검수자',
@@ -129,6 +139,47 @@ test('태그 추가 취소는 그 추가의 근거만 지우고 다른 후보는
     'DELETE /api/v1/review/inquiries/41/tag-correction-candidate/61',
   ]);
   expect(posts).toHaveLength(2);
+});
+
+test('삭제 취소는 REJECT 근거만 지우고, 지우는 동안 태그 조작과 검증을 잠근다 (S15P21A501-309)', async ({
+  page,
+}) => {
+  const posts: Array<{ operations: Array<{ action: string }> }> = [];
+  const deletes: string[] = [];
+  let releaseDelete: () => void = () => {};
+  const deleteHeld = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
+    posts.push(route.request().postDataJSON());
+    await success(route, { feedbackId: '41', created: 1, evidenceIds: ['71'] });
+  });
+  await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate/*', async (route) => {
+    deletes.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    await deleteHeld;
+    await success(route);
+  });
+  await openInquiry(page);
+
+  await page.getByRole('button', { name: '‘서울역’ 삭제 후보' }).click();
+  const restore = page.getByRole('button', { name: '‘서울역’ 삭제 취소' });
+  await expect(restore).toBeVisible();
+  expect(posts.map((body) => body.operations.map((operation) => operation.action))).toEqual([
+    ['REJECT'],
+  ]);
+
+  await restore.click();
+  await expect(restore).toBeDisabled();
+  await expect(page.getByRole('button', { name: '+ 이 장면', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '+ 영상 전체', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '후보 검증', exact: true })).toBeDisabled();
+
+  releaseDelete();
+  await expect(page.getByRole('button', { name: '‘서울역’ 삭제 후보' })).toBeVisible();
+  await expect(restore).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '후보 검증', exact: true })).toBeEnabled();
+  expect(deletes).toEqual(['DELETE /api/v1/review/inquiries/41/tag-correction-candidate/71']);
+  expect(posts).toHaveLength(1);
 });
 
 test('해석 교정 저장 중에는 칩 편집이 잠긴다 (S15P21A501-309)', async ({ page }) => {
