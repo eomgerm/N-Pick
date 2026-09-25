@@ -62,20 +62,23 @@ test('빈 검색창과 정상 입력에서는 하단 안내 문구를 띄우지 
   await page.goto('/search');
   const hint = page.locator('#scene-search-hint');
   const input = page.getByRole('searchbox', { name: '뉴스 장면 검색어' });
-  // 입력 전에는 내부 제약을 노출하지 않는다(S15P21A501-284). 요소는 남아야 aria-live 가 동작한다.
-  await expect(hint).toHaveText('');
-  await expect(hint).toHaveCount(1);
+  const submit = page.getByRole('button', { name: '장면 찾기' });
+  // 검색창 하단 안내 자체를 없앴다(S15P21A501-287) — 짧은 입력은 제출 버튼 비활성으로만 막는다.
+  await expect(input).toBeVisible();
+  await expect(hint).toHaveCount(0);
   await expect(input).not.toHaveAttribute('aria-describedby', /./);
   await input.fill('화재');
-  await expect(hint).toHaveText('');
+  await expect(submit).toBeEnabled();
+  await expect(hint).toHaveCount(0);
   await input.fill('비');
-  await expect(hint).toContainText('2자 이상');
-  await expect(input).toHaveAttribute('aria-describedby', 'scene-search-hint');
+  await expect(submit).toBeDisabled();
+  await expect(hint).toHaveCount(0);
+  await expect(input).not.toHaveAttribute('aria-describedby', /./);
   await input.fill('');
-  await expect(hint).toHaveText('');
+  await expect(hint).toHaveCount(0);
 });
 
-test('문의는 긴 붙여넣기를 거부하고 2000자 원문을 온전히 전송한다', async ({ page }) => {
+test('문의는 긴 붙여넣기를 거부하고 상한 길이 원문을 온전히 전송한다', async ({ page }) => {
   let comment: string | undefined;
   await page.route('**/api/v1/search/results/101/inquiries', async (route) => {
     comment = route.request().postDataJSON().comment;
@@ -89,21 +92,20 @@ test('문의는 긴 붙여넣기를 거부하고 2000자 원문을 온전히 전
     });
   });
   await page.goto('/search/results?q=화재');
-  await page
-    .getByRole('button', { name: /실제 응답 장면/ })
-    .first()
-    .click();
+  await page.getByRole('button', { name: '1위 실제 응답 장면 Preview 열기' }).click();
   await page.getByRole('button', { name: '이상해요', exact: true }).click();
+  // 상세 설명은 '기타'를 고를 때만 받고 상한은 200자다 (S15P21A501-294).
+  await page.getByRole('radio', { name: '기타', exact: true }).check();
   const input = page.locator('#inquiry-comment');
-  await expect(input).toHaveAttribute('maxlength', '2000');
-  expect(await paste(input, '가'.repeat(2001))).toBe(false);
+  await expect(input).toHaveAttribute('maxlength', '200');
+  expect(await paste(input, '가'.repeat(201))).toBe(false);
   await expect(input).toHaveValue('');
-  await expect(page.locator('#inquiry-comment-error')).toContainText('2,000자');
-  await input.fill('가'.repeat(2000));
+  await expect(page.locator('#inquiry-comment-error')).toContainText('200자');
+  await input.fill('가'.repeat(200));
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: '문의 접수', exact: true }).click();
-  await expect.poll(() => comment?.length).toBe(2000);
+  await expect.poll(() => comment?.length).toBe(200);
 });
 
 test('파일 선택과 DnD에서 자막 상한을 막고 제목 제한·자막 서버 오류를 안내한다', async ({
@@ -141,7 +143,9 @@ test('파일 선택과 DnD에서 자막 상한을 막고 제목 제한·자막 �
   await expect(title).toHaveValue('기존 제목');
   await expect(page.locator('#title-error')).toContainText('50자');
   await title.fill('가'.repeat(50));
-  await expect(page.locator('#title-hint')).toContainText('50/50자');
+  // 상시 글자 수 카운터는 없앴다(S15P21A501-294) — 상한까지 채우면 오류 없이 값만 남는다.
+  await expect(title).toHaveValue('가'.repeat(50));
+  await expect(page.locator('#title-error')).toHaveCount(0);
   await page.locator('#rights-confirmed').check();
   await page.locator('#external-processing-confirmed').check();
   const subtitle = page.locator('#subtitle-file');
@@ -203,8 +207,9 @@ test('화면은 진단 문자열을 숨기고 기존 API 로그는 코드·요�
     }),
   );
   await page.goto('/search/results?q=화재');
+  // 검색 오류는 사용자 안내 문구로 바꿔 보여 준다 (S15P21A501-285).
   await expect(
-    page.getByRole('alert').filter({ hasText: '요청을 처리하지 못했습니다.' }),
+    page.getByRole('alert').filter({ hasText: '검색 조건을 확인할 부분이 있어요.' }),
   ).toBeVisible();
   await expect(page.locator('body')).not.toContainText(
     /validation_error|COMM_400_001|diagnostic-only-123|오류 코드|요청 ID/,

@@ -188,7 +188,9 @@ test('검색 결과에서 접수한 문의는 재조회·새로고침 뒤에도 
   await panel.getByRole('button', { name: '정보 패널 닫기' }).click();
   await page.getByRole('button', { name: '1위 실제 응답 장면 Preview 열기' }).click();
   await page.getByRole('button', { name: '이상해요', exact: true }).click();
-  await page.getByRole('textbox', { name: '설명 (선택)' }).fill(item.comment);
+  // 직접 설명은 '기타'를 고를 때만 입력한다 (S15P21A501-294).
+  await page.getByRole('radio', { name: '기타', exact: true }).check();
+  await page.getByRole('textbox', { name: '상세 설명 (선택)' }).fill(item.comment);
   await page.getByRole('button', { name: '문의 접수', exact: true }).click();
   await expect(
     page.getByText(`문의 #${item.feedback_id}의 접수가 확인되었습니다.`, { exact: false }),
