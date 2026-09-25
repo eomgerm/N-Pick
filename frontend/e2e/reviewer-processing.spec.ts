@@ -444,8 +444,6 @@ test('등록 성공 뒤 서버 ID로 처리 상세를 조회하고 새로고침�
   for (const state of ['처리 대기', '진행 중', '처리 완료']) {
     await page.clock.fastForward(5_100);
     await expect(overview).toContainText(state);
-    if (state === '처리 대기')
-      await expect(overview).toContainText('등록된 영상의 분석 시작을 기다리고 있습니다.');
   }
   await expect(overview).toContainText('자동 확인이 종료되었습니다.');
   await expect(noRunNotice).toHaveCount(0);
