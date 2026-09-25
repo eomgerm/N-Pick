@@ -21,6 +21,13 @@ public interface FeedbackRepository {
 
     int claim(long feedbackId, long reviewerId, Instant reviewStartedAt);
 
+    /**
+     * reviewing 상태이고 담당 검수자 본인일 때만 claim 을 풀어 open 으로 되돌린다(CAS, S15P21A501-289). 담당자·검수 시작 시각·처리 결과·사유를 비운다.
+     *
+     * @return 갱신된 행 수. 0 이면 이미 종료·해제됐거나 담당이 아니어서 진 것이다.
+     */
+    int release(long feedbackId, long reviewerId, Instant now);
+
     int editComment(long feedbackId, long ownerId, String comment);
 
     /**

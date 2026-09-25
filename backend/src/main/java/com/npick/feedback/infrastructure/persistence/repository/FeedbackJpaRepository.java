@@ -29,6 +29,16 @@ public interface FeedbackJpaRepository extends JpaRepository<FeedbackJpaEntity, 
             @Param("reviewerId") long reviewerId,
             @Param("startedAt") Instant reviewStartedAt);
 
+    // 검수 취소(S15P21A501-289). resolution·resolution_note 는 JPA 엔티티에 없는 컬럼이라 native 로 쓴다.
+    // 검수 중 기록한 판정·사유는 이 담당자의 진행 중 판단이라 비워, 다음 검수자가 처음부터 판단하게 한다.
+    @Modifying
+    @Query(
+            value = "UPDATE feedback SET status = 'OPEN', reviewed_by_id = NULL, review_started_at = NULL, "
+                    + "resolution = NULL, resolution_note = NULL, updated_at = :now "
+                    + "WHERE feedback_id = :id AND status = 'REVIEWING' AND reviewed_by_id = :reviewerId",
+            nativeQuery = true)
+    int release(@Param("id") long feedbackId, @Param("reviewerId") long reviewerId, @Param("now") Instant now);
+
     @Modifying
     @Query("UPDATE FeedbackJpaEntity f SET f.comment = :comment, f.updatedAt = :now WHERE f.feedbackId = :id "
             + "AND f.createdById = :ownerId AND f.status = 'OPEN'")
