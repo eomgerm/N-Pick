@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+import { addPendingTags, mockCorrectionCandidates } from './correction-candidates-mock';
+
 function inquiry(feedbackId = '41', status = 'OPEN') {
   return {
     feedbackId,
@@ -296,15 +298,16 @@ test('담당 검수자는 여러 태그 추가 후보를 만들고 기존 태그
     },
   ];
   const operations: unknown[][] = [];
+  const candidates = await mockCorrectionCandidates(page);
   await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
-    const body = route.request().postDataJSON() as { operations: unknown[] };
+    const body = route.request().postDataJSON();
     operations.push(body.operations);
-    await success(route, {
-      feedbackId: '41',
-      created: body.operations.length,
-      evidenceIds: body.operations.map((_, index) => String(61 + index)),
-    });
+    const evidenceIds = body.operations.map((_: unknown, index: number) =>
+      String(61 + operations.length * 10 + index),
+    );
+    addPendingTags(candidates, body.operations, evidenceIds, { 서울역: '51' });
+    await success(route, { feedbackId: '41', created: body.operations.length, evidenceIds });
   });
 
   await page.goto('/review?inquiry=41');
@@ -312,13 +315,16 @@ test('담당 검수자는 여러 태그 추가 후보를 만들고 기존 태그
   const toast = page.getByText('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
 
   // 추가 칩은 하나씩 확정한다 — ✓ 버튼, Enter, 다른 범위·유형 순으로 모두 같은 저장 경로를 탄다.
+  const tagType = page.getByRole('combobox', { name: '태그 유형', exact: true });
   await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await tagType.selectOption('keyword');
   await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('서울');
   await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
   await expect(tags.getByText('서울', { exact: true })).toBeVisible();
   await expect(toast).toBeVisible();
 
   await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await tagType.selectOption('keyword');
   await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('부산');
   await page.getByRole('textbox', { name: '태그 값', exact: true }).press('Enter');
   await expect(tags.getByText('부산', { exact: true })).toBeVisible();
@@ -382,14 +388,17 @@ test('장면 제외 후보는 한 버튼에서 등록하고 취소한다', async
   current.history.reviewerLoginId = 'e2e-reviewer';
   current.history.reviewerName = 'E2E 검수자';
   const methods: string[] = [];
+  const candidates = await mockCorrectionCandidates(page);
 
   await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
   await page.route('**/api/v1/review/inquiries/41/scene-exclude-candidate', async (route) => {
     methods.push(route.request().method());
     if (route.request().method() === 'POST') {
+      candidates.sceneExcludes = [{ searchRuleId: '61', targetSceneId: current.sceneId }];
       await success(route, { searchRuleId: '61', feedbackId: '41', active: false });
       return;
     }
+    candidates.sceneExcludes = [];
     await success(route);
   });
 
@@ -612,11 +621,13 @@ test('성공 안내는 자동 소멸하고 실패 안내는 남는다 (S15P21A50
   current.resolution = 'correction';
   current.history.reviewerLoginId = 'e2e-reviewer';
   let calls = 0;
+  const candidates = await mockCorrectionCandidates(page);
   await page.route('**/api/v1/review/inquiries/41', (route) => success(route, current));
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
     calls += 1;
     // 첫 저장은 성공, 두 번째는 서버 실패 — 성공/실패 표시 정책을 한 흐름에서 확인한다.
     if (calls === 1) {
+      addPendingTags(candidates, route.request().postDataJSON().operations, ['61']);
       await success(route, { feedbackId: '41', created: 1, evidenceIds: ['61'] });
     } else {
       await failure(route, 409, 'REVIEW_409_231');
@@ -624,7 +635,9 @@ test('성공 안내는 자동 소멸하고 실패 안내는 남는다 (S15P21A50
   });
 
   await page.goto('/review?inquiry=41');
+  const tagType = page.getByRole('combobox', { name: '태그 유형', exact: true });
   await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await tagType.selectOption('keyword');
   await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('서울');
   await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
 
@@ -637,6 +650,7 @@ test('성공 안내는 자동 소멸하고 실패 안내는 남는다 (S15P21A50
 
   // 두 번째 저장은 실패 — 실패 안내는 토스트가 아니라 작업 영역에 뜨고, 자동 소멸하지 않는다.
   await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await tagType.selectOption('keyword');
   await page.getByRole('textbox', { name: '태그 값', exact: true }).fill('부산');
   await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
   const error = page.getByText('요청을 처리할 수 없습니다.', { exact: false });

@@ -145,6 +145,18 @@ async function mockServer(page: Page, state: ServerState) {
     state.sceneExcludes = [{ searchRuleId: '90', targetSceneId: '31' }];
     await success(route, { searchRuleId: '90', feedbackId: '41', active: false });
   });
+  await page.route('**/api/v1/review/inquiries/41/parse-patch-candidate', async (route) => {
+    calls.push(`${route.request().method()} parse-patch`);
+    if (route.request().method() === 'DELETE') {
+      state.parsePatches = [];
+      await success(route);
+      return;
+    }
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    const searchRuleId = String(200 + state.parsePatches.length);
+    state.parsePatches.push({ searchRuleId, ...body, replacesRuleId: null });
+    await success(route, { searchRuleId, feedbackId: '41', active: false });
+  });
   await page.route('**/api/v1/review/inquiries/41/verify', async (route) => {
     calls.push('POST verify');
     await success(route, {
@@ -375,10 +387,115 @@ test('대기 후보를 불러오지 못하면 장면 제외 토글을 잠그고 
   await page.goto('/review?inquiry=41');
 
   await expect(page.getByText('저장해 둔 장면 제외 후보를 불러오지 못했습니다.')).toBeVisible();
+  await expect(page.getByText('저장해 둔 태그 후보를 불러오지 못했습니다.')).toBeVisible();
   await expect(page.getByRole('button', { name: '이 장면 제외', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '+ 이 장면', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '+ 영상 전체', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '‘서울역’ 삭제 후보' })).toBeDisabled();
 
   failing = false;
   await page.getByRole('button', { name: '다시 불러오기' }).first().click();
   await expect(page.getByRole('button', { name: '제외 취소', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '‘부산’ 추가 취소' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '+ 이 장면', exact: true })).toBeEnabled();
   await expect(page.getByText('저장해 둔 장면 제외 후보를 불러오지 못했습니다.')).toHaveCount(0);
+  await expect(page.getByText('저장해 둔 태그 후보를 불러오지 못했습니다.')).toHaveCount(0);
+});
+
+test('대기 후보 첫 조회가 끝나기 전에는 태그·장면 제외 조작을 잠근다', async ({ page }) => {
+  await mockServer(page, restoredState());
+  let releaseGet: () => void = () => {};
+  const getHeld = new Promise<void>((resolve) => {
+    releaseGet = resolve;
+  });
+  await page.route('**/api/v1/review/inquiries/41/correction-candidates', async (route) => {
+    await getHeld;
+    await success(route, restoredState());
+  });
+  await page.goto('/review?inquiry=41');
+
+  const addScene = page.getByRole('button', { name: '+ 이 장면', exact: true });
+  await expect(addScene).toBeDisabled();
+  await expect(page.getByRole('button', { name: '+ 영상 전체', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '‘서울역’ 삭제 후보' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '이 장면 제외', exact: true })).toBeDisabled();
+
+  releaseGet();
+  await expect(addScene).toBeEnabled();
+  await expect(page.getByRole('button', { name: '‘서울역’ 삭제 취소' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '제외 취소', exact: true })).toBeEnabled();
+});
+
+test('검증 재검색 중에는 해석 교정을 담거나 칩을 고치지 못한다', async ({ page }) => {
+  await mockServer(page, restoredState());
+  let releaseVerify: () => void = () => {};
+  const verifyHeld = new Promise<void>((resolve) => {
+    releaseVerify = resolve;
+  });
+  await page.route('**/api/v1/review/inquiries/41/verify', async (route) => {
+    await verifyHeld;
+    await success(route, {
+      execution_id: '900',
+      entered_scenes: [],
+      dropped_scenes: [],
+      verification_rule_set: [],
+    });
+  });
+  await page.goto('/review?inquiry=41');
+
+  await page.getByRole('button', { name: "'추석' 삭제", exact: true }).click();
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
+  await expect(save).toBeEnabled();
+
+  await page.getByRole('button', { name: '후보 검증', exact: true }).click();
+  await expect(save).toBeDisabled();
+  await expect(page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true })).toBeDisabled();
+
+  releaseVerify();
+  await expect(page.getByText(/이번 검증에 적용된 후보/)).toBeVisible();
+  await expect(save).toBeEnabled();
+});
+
+function previousParsePatch() {
+  return {
+    searchRuleId: '6602',
+    condition: { syntax_version: 'parse-rule/v1', all: [] },
+    patch: { syntax_version: 'parse-rule/v1', operations: [] },
+    replacesRuleId: null,
+  };
+}
+
+test('새로고침 뒤 이전 해석 교정이 있으면 알리고, 다시 담기 전에 먼저 폐기한다', async ({
+  page,
+}) => {
+  const state = restoredState();
+  state.parsePatches = [previousParsePatch()];
+  const calls = await mockServer(page, state);
+  await page.goto('/review?inquiry=41');
+
+  const notice = page.getByText(
+    '이전에 담은 해석 교정 1건이 있어요. 편집해서 다시 담으면 이전 교정은 폐기됩니다.',
+  );
+  await expect(notice).toBeVisible();
+
+  await page.getByRole('button', { name: "'추석' 삭제", exact: true }).click();
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
+  expect(calls).toEqual(['DELETE parse-patch', 'POST parse-patch']);
+  expect(state.parsePatches).toHaveLength(1);
+});
+
+test('이전 교정 폐기 버튼은 서버 후보를 폐기하고 알림을 거둔다', async ({ page }) => {
+  const state = restoredState();
+  state.parsePatches = [previousParsePatch()];
+  const calls = await mockServer(page, state);
+  await page.goto('/review?inquiry=41');
+
+  const notice = page.getByText(/이전에 담은 해석 교정 1건이 있어요/);
+  await expect(notice).toBeVisible();
+  await page.getByRole('button', { name: '이전 교정 폐기', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+  expect(calls).toEqual(['DELETE parse-patch']);
 });

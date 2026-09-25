@@ -1,5 +1,11 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+import {
+  addPendingTags,
+  mockCorrectionCandidates,
+  removePendingTag,
+} from './correction-candidates-mock';
+
 const parsedQueryJson = JSON.stringify({
   schema_version: 'resolution-v1',
   intent: 'scene_search',
@@ -94,18 +100,18 @@ test('태그 추가 취소는 그 추가의 근거만 지우고 다른 후보는
   const deletes: string[] = [];
   let nextEvidenceId = 61;
   let failNextDelete = true;
+  const candidates = await mockCorrectionCandidates(page);
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
     if (route.request().method() !== 'POST') {
       deletes.push(`bulk:${route.request().method()}`);
       await success(route);
       return;
     }
-    posts.push(route.request().postDataJSON());
-    await success(route, {
-      feedbackId: '41',
-      created: 1,
-      evidenceIds: [String(nextEvidenceId++)],
-    });
+    const body = route.request().postDataJSON();
+    posts.push(body);
+    const evidenceIds = [String(nextEvidenceId++)];
+    addPendingTags(candidates, body.operations, evidenceIds);
+    await success(route, { feedbackId: '41', created: 1, evidenceIds });
   });
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate/*', async (route) => {
     deletes.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
@@ -117,6 +123,7 @@ test('태그 추가 취소는 그 추가의 근거만 지우고 다른 후보는
       });
       return;
     }
+    removePendingTag(candidates, route.request().url());
     await success(route);
   });
   await openInquiry(page);
@@ -152,13 +159,17 @@ test('삭제 취소는 REJECT 근거만 지우고, 지우는 동안 태그 조�
   const deleteHeld = new Promise<void>((resolve) => {
     releaseDelete = resolve;
   });
+  const candidates = await mockCorrectionCandidates(page);
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
-    posts.push(route.request().postDataJSON());
+    const body = route.request().postDataJSON();
+    posts.push(body);
+    addPendingTags(candidates, body.operations, ['71'], { 서울역: '51' });
     await success(route, { feedbackId: '41', created: 1, evidenceIds: ['71'] });
   });
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate/*', async (route) => {
     deletes.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
     await deleteHeld;
+    removePendingTag(candidates, route.request().url());
     await success(route);
   });
   await openInquiry(page);
