@@ -21,6 +21,7 @@ import com.npick.common.security.config.SecurityWebMvcConfig;
 import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
+import com.npick.tag.application.CreateTagCorrectionCandidateResult;
 import com.npick.tag.application.CreateTagCorrectionCandidateService;
 import com.npick.tag.application.DiscardOneTagCorrectionCandidateUseCase;
 import com.npick.tag.application.DiscardTagCorrectionCandidateUseCase;
@@ -72,7 +73,7 @@ class TagCorrectionCandidateControllerTest {
     @Test
     @DisplayName("검수자가 교정 후보를 만들면 201 과 생성된 근거 수·id 를 준다")
     void reviewerCreatesCandidate() throws Exception {
-        given(service.create(any())).willReturn(List.of(5001L, 5002L));
+        given(service.create(any())).willReturn(new CreateTagCorrectionCandidateResult(List.of(5001L, 5002L), 2));
 
         mockMvc.perform(post("/api/v1/review/inquiries/1/tag-correction-candidate")
                         .with(user(REVIEWER))
@@ -82,6 +83,23 @@ class TagCorrectionCandidateControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.created").value(2))
                 .andExpect(jsonPath("$.data.evidenceIds.length()").value(2));
+    }
+
+    @Test
+    @DisplayName("대기 판단을 재사용하면 created 는 id 수를 유지하고 newlyCreated 로 실제 생성 수를 준다 (S15P21A501-317)")
+    void reportsNewlyCreatedSeparatelyFromCreated() throws Exception {
+        given(service.create(any())).willReturn(new CreateTagCorrectionCandidateResult(List.of(5001L, 5002L), 0));
+
+        mockMvc.perform(post("/api/v1/review/inquiries/1/tag-correction-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(REPLACE_BODY))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.created").value(2))
+                .andExpect(jsonPath("$.data.newlyCreated").value(0))
+                .andExpect(jsonPath("$.data.evidenceIds[0]").value("5001"))
+                .andExpect(jsonPath("$.data.evidenceIds[1]").value("5002"));
     }
 
     @Test

@@ -1,7 +1,11 @@
 package com.npick.tag.application;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +25,12 @@ import com.npick.tag.domain.repository.TagCorrectionCandidateRepository;
  *
  * <p>전제(검수 중·태그 교정 판정·담당 검수자)를 확인하고, 변경안 목록을 한 트랜잭션으로 저장한다. 교체가 반려+추가 두 작업으로 와도 원자적으로 처리된다. 범위는 신고의 장면·클립으로만 한정되므로 임의의
  * 대상을 지정할 수 없다. 저장되는 판단은 모두 {@code confirmed=false} 이며 확정(-84) 전까지 검색·해석에 반영되지 않는다.
+ *
+ * <p>이 엔드포인트에는 멱등 키가 없는 대신 자연 키로 중복을 막는다 (S15P21A501-317). 같은 신고·같은 태깅(유형·값·장면/클립 범위)·같은 판단으로 대기 중인 근거가 이미 있으면 새로 넣지 않고
+ * 그 근거 id 를 돌려준다 — 새로고침 뒤 복원한 편집을 다시 보내거나 응답을 잃고 재시도해도 근거가 쌓이지 않는다. 확정된 근거는 재사용하지 않는다.
+ *
+ * <p>한 신고·한 태깅에 대기 판단은 <b>하나만</b> 남긴다. 판단이 바뀌면(승인→반려 등) 반대 판단의 대기 근거를 지우고 새 판단을 재사용하거나 만든다. 확정(-84)은 대기 근거를 모두 올리고 해석기는
+ * 최신 판단을 쓰므로, 옛 판단을 재사용해 두 판단이 함께 남으면 최종 의도와 반대 판단이 이길 수 있다. 한 요청 안에서 같은 태깅에 판단이 여럿 오면 마지막 변경안이 이긴다.
  */
 @Service
 public class CreateTagCorrectionCandidateService implements CreateTagCorrectionCandidateUseCase {
@@ -28,8 +38,8 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
     // 한 장면·클립 교정은 보통 1~5개, 교체가 2개씩이다. 20 이면 교체 10건을 한 번에 보내는 셈이라 정상 작업은 막지 않는다.
     private static final int MAX_OPERATIONS_PER_REQUEST = 20;
 
-    // 이 엔드포인트에는 멱등 키가 없어 같은 본문을 반복해 보내면 근거가 무한히 쌓인다. 요청당 상한만으로는 누적이 안 막혀
-    // 신고 단위로도 센다 (S15P21A501-255).
+    // 이 엔드포인트에는 멱등 키가 없다. 같은 판단은 자연 키로 재사용하지만(S15P21A501-317) 서로 다른 판단을 계속 보내면 쌓이므로
+    // 신고 단위로도 센다 (S15P21A501-255). 재사용분은 새 근거가 아니라 세지 않는다.
     private static final int MAX_JUDGMENTS_PER_FEEDBACK = 50;
 
     private final TagContextPort tagContextPort;
@@ -47,7 +57,7 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
 
     @Override
     @Transactional
-    public List<Long> create(CreateTagCorrectionCandidateCommand command) {
+    public CreateTagCorrectionCandidateResult create(CreateTagCorrectionCandidateCommand command) {
         if (!command.reviewerRole()) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.EDITOR_FORBIDDEN);
         }
@@ -76,28 +86,68 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
         if (context.reviewedById() == null || context.reviewedById() != command.reviewerId()) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.NOT_REVIEWER);
         }
-        // 부분 저장을 남기지 않으려고 저장 루프 전에 이번 요청분까지 더해 판정한다.
-        if (candidateRepository.countByFeedback(command.feedbackId())
-                        + command.operations().size()
-                > MAX_JUDGMENTS_PER_FEEDBACK) {
+        List<ReviewerTagJudgment> judgments = command.operations().stream()
+                .map(operation -> toJudgment(command.feedbackId(), context, operation))
+                .toList();
+
+        // 태깅마다 최종 판단 하나. 한 요청 안에서 같은 태깅에 판단이 여럿 오면 마지막 변경안이 이긴다(LinkedHashMap 은 첫 등장 순서를 지킨다).
+        Map<TaggingKey, ReviewerTagJudgment> finalJudgments = new LinkedHashMap<>();
+        for (ReviewerTagJudgment judgment : judgments) {
+            finalJudgments.put(TaggingKey.of(judgment), judgment);
+        }
+
+        // 반대 판단의 대기 근거를 먼저 지우고, 같은 판단이 남아 있으면 재사용한다. 아래 상한 초과로 거부되면 트랜잭션이 이 삭제도 되돌린다.
+        Map<TaggingKey, Long> ids = new HashMap<>();
+        Map<TaggingKey, ReviewerTagJudgment> toCreate = new LinkedHashMap<>();
+        finalJudgments.forEach((key, judgment) -> {
+            candidateRepository.discardConflictingPending(judgment);
+            Optional<Long> pending = candidateRepository.findPendingJudgment(judgment);
+            if (pending.isPresent()) {
+                // 레거시로 같은 대기 판단이 여러 건 남아 있으면 재사용할 하나만 남긴다 — 나머지가 조회·검증에 중복으로 섞이지 않게.
+                candidateRepository.discardDuplicatePending(judgment, pending.get());
+                ids.put(key, pending.get());
+            } else {
+                toCreate.put(key, judgment);
+            }
+        });
+
+        // 부분 저장을 남기지 않으려고 저장 루프 전에 이번 요청으로 새로 만들 것까지 더해 판정한다. 재사용분은 새 근거가 아니라 세지 않고,
+        // 방금 지운 반대 판단은 이미 빠진 수로 센다.
+        if (candidateRepository.countByFeedback(command.feedbackId()) + toCreate.size() > MAX_JUDGMENTS_PER_FEEDBACK) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.JUDGMENT_LIMIT_EXCEEDED);
         }
 
+        toCreate.forEach((key, judgment) -> ids.put(key, candidateRepository.addJudgment(judgment)));
+
+        // 변경안마다 그 태깅에 최종으로 남은 근거 id 를 준다. 뒤 변경안에 진 앞 변경안도 살아남은 근거 id 를 받는다.
         List<Long> evidenceIds = new ArrayList<>();
-        for (TagOperation operation : command.operations()) {
-            String tagType = validTagType(operation.tagType());
-            String matchValue = normalizedMatchValue(operation.matchValue());
-            Long sceneId = operation.scope() == TagScope.SCENE ? context.sceneId() : null;
-            evidenceIds.add(candidateRepository.addJudgment(new ReviewerTagJudgment(
-                    command.feedbackId(),
-                    context.clipId(),
-                    sceneId,
-                    tagType,
-                    matchValue,
-                    operation.displayName(),
-                    operation.action().verificationStatus())));
+        for (ReviewerTagJudgment judgment : judgments) {
+            evidenceIds.add(ids.get(TaggingKey.of(judgment)));
         }
-        return evidenceIds;
+        return new CreateTagCorrectionCandidateResult(evidenceIds, toCreate.size());
+    }
+
+    private ReviewerTagJudgment toJudgment(long feedbackId, TagContext context, TagOperation operation) {
+        String tagType = validTagType(operation.tagType());
+        String matchValue = normalizedMatchValue(operation.matchValue());
+        Long sceneId = operation.scope() == TagScope.SCENE ? context.sceneId() : null;
+        return new ReviewerTagJudgment(
+                feedbackId,
+                context.clipId(),
+                sceneId,
+                tagType,
+                matchValue,
+                operation.displayName(),
+                operation.action().verificationStatus());
+    }
+
+    // 대기 판단을 하나로 모으는 태깅 키. 신고·클립은 한 요청 안에서 같으므로 범위·태그만 담는다. 판단은 키가 아니다 — 태깅당 판단 하나만 남긴다.
+    // 표시 이름은 태그 사전 값이라 키가 아니다.
+    private record TaggingKey(Long sceneId, String tagType, String matchValue) {
+
+        static TaggingKey of(ReviewerTagJudgment judgment) {
+            return new TaggingKey(judgment.sceneId(), judgment.tagType(), judgment.matchValue());
+        }
     }
 
     // 11종 어휘 검증을 경계에서 한다. TagType.from 은 미확인 값에 500 성 예외를 던지므로, 외부 입력에는 400 으로 바꿔 돌려준다

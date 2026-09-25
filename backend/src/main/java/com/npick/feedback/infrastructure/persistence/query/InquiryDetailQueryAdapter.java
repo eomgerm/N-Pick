@@ -52,7 +52,7 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
                        WHEN bool_or(te.verification_status = 'unverified') THEN 'unverified'
                        -- 여기까지 안 걸리면 남은 건 검수자 판단(rejected/withdrawn)뿐이다. NULL 로 뭉개면
                        -- 반려 태그가 "기록 없음"으로 보인다(S15P21A501-235). 옛 FE current ?? next 와 같은 수준으로
-                       -- 남은 상태를 그대로 넘긴다. 근거가 아예 없으면(LEFT JOIN NULL) max 도 NULL 이라 그대로 NULL.
+                       -- 남은 상태를 그대로 넘긴다.
                        ELSE max(te.verification_status)
                    END AS verification_status,
                    CASE WHEN tg.scene_id IS NULL THEN 'CLIP' ELSE 'SCENE' END AS scope
@@ -62,7 +62,10 @@ public class InquiryDetailQueryAdapter implements InquiryDetailQuery {
             -- TagJudgmentQueryAdapter 의 e.confirmed 필터와 같은 불변식을 이 리더에서도 지킨다(F-09 "당시 결과와 현재 태그·근거 비교").
             -- 한 tagging 에 확정 근거가 여러 건(같은 태그가 여러 키프레임 OCR 등)이면 이 조인이 1:N 이라 tagging 이
             -- 근거 수만큼 곱해진다(S15P21A501-235). tagging 단위로 묶어 출처는 모으고 검증 상태는 verified 우선으로 하나만 낸다.
-            LEFT JOIN tag_evidence te ON te.tagging_id = tg.tagging_id AND te.confirmed
+            -- 내부 조인이라 확정 근거가 하나도 없는 tagging(대기 중인 검수자 후보뿐이거나, 후보 취소 뒤 근거 없이 남은 tagging)은
+            -- 줄 자체를 내지 않는다(S15P21A501-317). LEFT JOIN 이면 그런 후보가 출처 [] · 상태 NULL 인 "현재 태그"로 새어 나왔다.
+            -- 대기 후보는 GET .../correction-candidates 가 따로 돌려준다.
+            JOIN tag_evidence te ON te.tagging_id = tg.tagging_id AND te.confirmed
             WHERE tg.scene_id = :sceneId OR (tg.scene_id IS NULL AND tg.clip_id = :clipId)
             GROUP BY tg.tagging_id, t.tag_type, t.match_value, t.name, tg.scene_id
             ORDER BY (tg.scene_id IS NULL), tg.tagging_id

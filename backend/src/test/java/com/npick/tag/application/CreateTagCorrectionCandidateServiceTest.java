@@ -54,14 +54,14 @@ class CreateTagCorrectionCandidateServiceTest {
         reviewingTagCorrection();
         when(candidateRepository.addJudgment(any())).thenReturn(5001L, 5002L);
 
-        List<Long> ids = service.create(command(
+        CreateTagCorrectionCandidateResult result = service.create(command(
                 true,
                 9L,
                 new TagOperation(TagCorrectionAction.REJECT, TagScope.SCENE, "location", "서울", "서울"),
                 new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
 
         verify(correctionStateLock).acquire();
-        assertThat(ids).containsExactly(5001L, 5002L);
+        assertThat(result.evidenceIds()).containsExactly(5001L, 5002L);
         ArgumentCaptor<ReviewerTagJudgment> captor = ArgumentCaptor.forClass(ReviewerTagJudgment.class);
         verify(candidateRepository, org.mockito.Mockito.times(2)).addJudgment(captor.capture());
         ReviewerTagJudgment reject = captor.getAllValues().get(0);
@@ -147,8 +147,7 @@ class CreateTagCorrectionCandidateServiceTest {
     @Test
     @DisplayName("교정류가 아닌 종결 판정(오류없음 등)은 거부한다")
     void rejectsNotTagCorrection() {
-        when(tagContextPort.find(1L))
-                .thenReturn(Optional.of(new TagContext("REVIEWING", "no_action", 9L, 300L, 100L)));
+        when(tagContextPort.find(1L)).thenReturn(Optional.of(new TagContext("REVIEWING", "no_action", 9L, 300L, 100L)));
         assertThatThrownBy(() -> service.create(command(
                         true,
                         9L,
@@ -165,10 +164,10 @@ class CreateTagCorrectionCandidateServiceTest {
                 .thenReturn(Optional.of(new TagContext("REVIEWING", "patch_parse", 9L, 300L, 100L)));
         when(candidateRepository.addJudgment(any())).thenReturn(5001L);
 
-        List<Long> ids = service.create(command(
+        CreateTagCorrectionCandidateResult result = service.create(command(
                 true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
 
-        assertThat(ids).containsExactly(5001L);
+        assertThat(result.evidenceIds()).containsExactly(5001L);
     }
 
     @Test
@@ -178,10 +177,10 @@ class CreateTagCorrectionCandidateServiceTest {
                 .thenReturn(Optional.of(new TagContext("REVIEWING", "correction", 9L, 300L, 100L)));
         when(candidateRepository.addJudgment(any())).thenReturn(5001L);
 
-        List<Long> ids = service.create(command(
+        CreateTagCorrectionCandidateResult result = service.create(command(
                 true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
 
-        assertThat(ids).containsExactly(5001L);
+        assertThat(result.evidenceIds()).containsExactly(5001L);
     }
 
     @Test
@@ -191,10 +190,10 @@ class CreateTagCorrectionCandidateServiceTest {
                 .thenReturn(Optional.of(new TagContext("REVIEWING", "exclude_scene", 9L, 300L, 100L)));
         when(candidateRepository.addJudgment(any())).thenReturn(5001L);
 
-        List<Long> ids = service.create(command(
+        CreateTagCorrectionCandidateResult result = service.create(command(
                 true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
 
-        assertThat(ids).containsExactly(5001L);
+        assertThat(result.evidenceIds()).containsExactly(5001L);
     }
 
     @Test
@@ -286,7 +285,8 @@ class CreateTagCorrectionCandidateServiceTest {
         reviewingTagCorrection();
         when(candidateRepository.addJudgment(any())).thenReturn(5001L);
 
-        assertThat(service.create(command(true, 9L, operations(20)))).hasSize(20);
+        assertThat(service.create(command(true, 9L, operations(20))).evidenceIds())
+                .hasSize(20);
     }
 
     @Test
@@ -310,7 +310,102 @@ class CreateTagCorrectionCandidateServiceTest {
         when(candidateRepository.countByFeedback(1L)).thenReturn(45);
         when(candidateRepository.addJudgment(any())).thenReturn(5001L);
 
-        assertThat(service.create(command(true, 9L, operations(5)))).hasSize(5);
+        assertThat(service.create(command(true, 9L, operations(5))).evidenceIds())
+                .hasSize(5);
+    }
+
+    @Test
+    @DisplayName("같은 대기 판단이 이미 있으면 새로 넣지 않고 그 근거 id 를 요청 순서대로 돌려준다 (S15P21A501-317)")
+    void reusesPendingJudgmentInsteadOfInserting() {
+        reviewingTagCorrection();
+        when(candidateRepository.findPendingJudgment(any())).thenAnswer(invocation -> {
+            ReviewerTagJudgment judgment = invocation.getArgument(0);
+            return "서울".equals(judgment.matchValue()) ? Optional.of(4001L) : Optional.empty();
+        });
+        when(candidateRepository.addJudgment(any())).thenReturn(5002L);
+
+        CreateTagCorrectionCandidateResult result = service.create(command(
+                true,
+                9L,
+                new TagOperation(TagCorrectionAction.REJECT, TagScope.SCENE, "location", "서울", "서울"),
+                new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도")));
+
+        assertThat(result.evidenceIds()).containsExactly(4001L, 5002L);
+        assertThat(result.newlyCreated()).isEqualTo(1);
+        // 재사용할 근거만 남기고 같은 판단의 중복 대기 근거는 지운다.
+        verify(candidateRepository).discardDuplicatePending(any(), org.mockito.ArgumentMatchers.eq(4001L));
+        verify(candidateRepository, org.mockito.Mockito.times(1)).addJudgment(any());
+    }
+
+    @Test
+    @DisplayName("한 요청 안의 같은 변경안 두 개는 근거 하나로 모인다 (S15P21A501-317)")
+    void collapsesDuplicateOperationsInOneRequest() {
+        reviewingTagCorrection();
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+        TagOperation same = new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "제주도", "제주도");
+
+        CreateTagCorrectionCandidateResult result = service.create(command(true, 9L, same, same));
+
+        assertThat(result.evidenceIds()).containsExactly(5001L, 5001L);
+        assertThat(result.newlyCreated()).isEqualTo(1);
+        verify(candidateRepository, org.mockito.Mockito.times(1)).addJudgment(any());
+    }
+
+    @Test
+    @DisplayName("재사용하는 판단은 신고당 누적 상한(50)에 세지 않는다 (S15P21A501-317)")
+    void reusedJudgmentsDoNotConsumeAccumulatedLimit() {
+        reviewingTagCorrection();
+        when(candidateRepository.countByFeedback(1L)).thenReturn(50);
+        when(candidateRepository.findPendingJudgment(any())).thenReturn(Optional.of(4001L));
+
+        CreateTagCorrectionCandidateResult result = service.create(command(true, 9L, operations(3)));
+
+        assertThat(result.evidenceIds()).containsExactly(4001L, 4001L, 4001L);
+        assertThat(result.newlyCreated()).isZero();
+        verify(candidateRepository, never()).addJudgment(any());
+    }
+
+    @Test
+    @DisplayName("한 요청 안에서 같은 태깅에 판단이 여럿 오면 마지막 변경안이 이기고, 범위가 다른 태깅은 따로 남는다 (S15P21A501-317)")
+    void lastOperationWinsPerTaggingWithinRequest() {
+        reviewingTagCorrection();
+        when(candidateRepository.addJudgment(any())).thenReturn(5002L, 5003L);
+
+        CreateTagCorrectionCandidateResult result = service.create(command(
+                true,
+                9L,
+                new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "서울", "서울"),
+                new TagOperation(TagCorrectionAction.REJECT, TagScope.SCENE, "location", "서울", "서울"),
+                new TagOperation(TagCorrectionAction.APPROVE, TagScope.CLIP, "location", "서울", "서울")));
+
+        // 장면 태깅은 뒤의 REJECT 하나만 남고, 앞의 APPROVE 변경안도 살아남은 근거 id 를 받는다.
+        assertThat(result.evidenceIds()).containsExactly(5002L, 5002L, 5003L);
+        assertThat(result.newlyCreated()).isEqualTo(2);
+        ArgumentCaptor<ReviewerTagJudgment> captor = ArgumentCaptor.forClass(ReviewerTagJudgment.class);
+        verify(candidateRepository, org.mockito.Mockito.times(2)).addJudgment(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(ReviewerTagJudgment::sceneId, ReviewerTagJudgment::verificationStatus)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(300L, "rejected"),
+                        org.assertj.core.groups.Tuple.tuple(null, "verified"));
+    }
+
+    @Test
+    @DisplayName("저장 전에 태깅마다 반대 판단의 대기 근거를 지운다 — 한 태깅에 대기 판단은 하나만 남는다 (S15P21A501-317)")
+    void discardsConflictingPendingBeforeReuseOrInsert() {
+        reviewingTagCorrection();
+        when(candidateRepository.addJudgment(any())).thenReturn(5001L);
+
+        service.create(command(
+                true, 9L, new TagOperation(TagCorrectionAction.APPROVE, TagScope.SCENE, "location", "서울", "서울")));
+
+        ArgumentCaptor<ReviewerTagJudgment> captor = ArgumentCaptor.forClass(ReviewerTagJudgment.class);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(candidateRepository);
+        order.verify(candidateRepository).discardConflictingPending(captor.capture());
+        order.verify(candidateRepository).findPendingJudgment(any());
+        order.verify(candidateRepository).addJudgment(any());
+        assertThat(captor.getValue().verificationStatus()).isEqualTo("verified");
+        assertThat(captor.getValue().matchValue()).isEqualTo("서울");
     }
 
     private TagOperation[] operations(int count) {

@@ -20,4 +20,14 @@ public enum TagCorrectionAction {
     public String verificationStatus() {
         return verificationStatus;
     }
+
+    /** 저장된 {@code verification_status} 를 작업으로 되돌린다. 검수자 판단이 아닌 값(unverified 등)이면 {@code null}. */
+    public static TagCorrectionAction fromVerificationStatus(String verificationStatus) {
+        for (TagCorrectionAction action : values()) {
+            if (action.verificationStatus.equals(verificationStatus)) {
+                return action;
+            }
+        }
+        return null;
+    }
 }

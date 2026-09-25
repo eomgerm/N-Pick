@@ -2,6 +2,7 @@ package com.npick.tag.infrastructure.persistence.repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -52,6 +53,69 @@ public class TagCorrectionCandidateRepositoryAdapter implements TagCorrectionCan
                 .setParameter("now", Instant.now())
                 .executeUpdate();
         return evidenceId;
+    }
+
+    // 가장 먼저 만든 대기 근거를 준다 — 같은 판단이 레거시로 여러 건 남아 있어도 응답 id 가 요청마다 흔들리지 않게 한다.
+    @Override
+    @SuppressWarnings("unchecked")
+    public Optional<Long> findPendingJudgment(ReviewerTagJudgment judgment) {
+        List<Number> rows = entityManager
+                .createNativeQuery("SELECT te.evidence_id FROM tag_evidence te "
+                        + "JOIN tagging tg ON tg.tagging_id = te.tagging_id "
+                        + "JOIN tag t ON t.tag_id = tg.tag_id "
+                        + "WHERE te.source_feedback_id = :feedbackId AND te.source = 'reviewer_feedback' "
+                        + "AND te.confirmed = false AND te.verification_status = :status "
+                        + "AND tg.clip_id = :clipId AND tg.scene_id IS NOT DISTINCT FROM :sceneId "
+                        + "AND t.tag_type = :tagType AND t.match_value = :matchValue "
+                        + "ORDER BY te.created_at, te.evidence_id LIMIT 1")
+                .setParameter("feedbackId", judgment.sourceFeedbackId())
+                .setParameter("status", judgment.verificationStatus())
+                .setParameter("clipId", judgment.clipId())
+                .setParameter("sceneId", judgment.sceneId())
+                .setParameter("tagType", judgment.tagType())
+                .setParameter("matchValue", judgment.matchValue())
+                .getResultList();
+        return rows.stream().findFirst().map(Number::longValue);
+    }
+
+    @Override
+    public int discardConflictingPending(ReviewerTagJudgment judgment) {
+        entityManager.flush();
+        return entityManager
+                .createNativeQuery("DELETE FROM tag_evidence te USING tagging tg, tag t "
+                        + "WHERE tg.tagging_id = te.tagging_id AND t.tag_id = tg.tag_id "
+                        + "AND te.source_feedback_id = :feedbackId AND te.source = 'reviewer_feedback' "
+                        + "AND te.confirmed = false AND te.verification_status <> :status "
+                        + "AND tg.clip_id = :clipId AND tg.scene_id IS NOT DISTINCT FROM :sceneId "
+                        + "AND t.tag_type = :tagType AND t.match_value = :matchValue")
+                .setParameter("feedbackId", judgment.sourceFeedbackId())
+                .setParameter("status", judgment.verificationStatus())
+                .setParameter("clipId", judgment.clipId())
+                .setParameter("sceneId", judgment.sceneId())
+                .setParameter("tagType", judgment.tagType())
+                .setParameter("matchValue", judgment.matchValue())
+                .executeUpdate();
+    }
+
+    @Override
+    public int discardDuplicatePending(ReviewerTagJudgment judgment, long keepEvidenceId) {
+        entityManager.flush();
+        return entityManager
+                .createNativeQuery("DELETE FROM tag_evidence te USING tagging tg, tag t "
+                        + "WHERE tg.tagging_id = te.tagging_id AND t.tag_id = tg.tag_id "
+                        + "AND te.source_feedback_id = :feedbackId AND te.source = 'reviewer_feedback' "
+                        + "AND te.confirmed = false AND te.verification_status = :status "
+                        + "AND te.evidence_id <> :keepId "
+                        + "AND tg.clip_id = :clipId AND tg.scene_id IS NOT DISTINCT FROM :sceneId "
+                        + "AND t.tag_type = :tagType AND t.match_value = :matchValue")
+                .setParameter("feedbackId", judgment.sourceFeedbackId())
+                .setParameter("status", judgment.verificationStatus())
+                .setParameter("keepId", keepEvidenceId)
+                .setParameter("clipId", judgment.clipId())
+                .setParameter("sceneId", judgment.sceneId())
+                .setParameter("tagType", judgment.tagType())
+                .setParameter("matchValue", judgment.matchValue())
+                .executeUpdate();
     }
 
     // 확정(-84)은 confirmed 만 올리고 행을 지우지 않으므로 confirmed 여부와 무관하게 이 신고가 만든 근거를 전부 센다.
