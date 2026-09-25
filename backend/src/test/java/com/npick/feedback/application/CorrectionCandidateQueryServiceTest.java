@@ -72,17 +72,17 @@ class CorrectionCandidateQueryServiceTest {
     }
 
     @Test
-    @DisplayName("종료된 신고도 담당 검수자면 읽을 수 있다 (읽기 전용이라 상태를 요구하지 않는다)")
-    void closedFeedbackIsReadableByAssignedReviewer() {
+    @DisplayName("검수 중이 아닌 신고는 담당 검수자여도 후보를 읽지 않고 빈 목록을 준다 — 확정 뒤 꺼진 규칙이 후보로 새지 않게")
+    void closedFeedbackReturnsEmptyWithoutReadingCandidates() {
         when(repository.findById(1L)).thenReturn(Optional.of(feedback(FeedbackStatus.CLOSED, 9L)));
-        when(pendingTags.listPending(1L)).thenReturn(List.of());
-        when(pendingRules.listPending(1L)).thenReturn(new PendingSearchRuleCandidates(List.of(), List.of()));
 
         CorrectionCandidates result = service.get(1L, 9L);
 
         assertThat(result.tags()).isEmpty();
         assertThat(result.parsePatches()).isEmpty();
         assertThat(result.sceneExcludes()).isEmpty();
+        verify(pendingTags, never()).listPending(anyLong());
+        verify(pendingRules, never()).listPending(anyLong());
     }
 
     @Test

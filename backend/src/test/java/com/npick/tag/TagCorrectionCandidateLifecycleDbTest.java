@@ -202,6 +202,28 @@ class TagCorrectionCandidateLifecycleDbTest {
         assertThat(pendingStatuses(9901L, "서울", true)).containsExactly("verified");
     }
 
+    @Test
+    @Transactional
+    @DisplayName("레거시로 같은 대기 판단이 두 건 있으면 같은 변경안을 보낼 때 가장 먼저 만든 하나만 남기고 그 id 를 준다 (S15P21A501-317)")
+    void legacyDuplicatePendingJudgmentsCollapseToOne() throws Exception {
+        seed();
+        String kept = postOps(9901L, op("APPROVE", "SCENE", "서울"), 1).get(0);
+        // 자연 키 재사용 전 경로로 쌓였던 같은 판단 중복 — 나중에 만든 것.
+        jdbc.update("INSERT INTO tag_evidence (evidence_id, tagging_id, source, confidence, verification_status,"
+                + " source_feedback_id, confirmed, created_at)"
+                + " SELECT 7100001, tagging_id, 'reviewer_feedback', NULL, 'verified', 9901, false,"
+                + " created_at + interval '1 second' FROM tag_evidence WHERE evidence_id = " + kept);
+        assertThat(pendingStatuses(9901L, "서울", true)).containsExactly("verified", "verified");
+
+        List<String> again = postOps(9901L, op("APPROVE", "SCENE", "서울"), 0);
+
+        assertThat(again).containsExactly(kept);
+        assertThat(pendingStatuses(9901L, "서울", true)).containsExactly("verified");
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM tag_evidence WHERE evidence_id = ?", Integer.class, Long.parseLong(kept)))
+                .isEqualTo(1);
+    }
+
     private static String op(String action, String scope, String value) {
         return "{\"action\":\"" + action + "\",\"scope\":\"" + scope + "\",\"tagType\":\"location\",\"matchValue\":\""
                 + value + "\",\"displayName\":\"" + value + "\"}";

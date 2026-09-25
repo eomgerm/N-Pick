@@ -28,6 +28,14 @@ public interface TagCorrectionCandidateRepository {
      */
     int discardConflictingPending(ReviewerTagJudgment judgment);
 
+    /**
+     * 같은 신고·같은 태깅·같은 판단으로 대기 중인 검수자 근거 중 {@code keepEvidenceId} 를 뺀 나머지를 지운다 (S15P21A501-317). 레거시로 같은 대기 판단이 여러 건 쌓여
+     * 있으면 재사용할 하나만 남긴다.
+     *
+     * @return 지운 근거 수
+     */
+    int discardDuplicatePending(ReviewerTagJudgment judgment, long keepEvidenceId);
+
     /** 이 신고에서 만들어진 검수자 판단 수. 누적 개수 상한 판정에 쓴다 (S15P21A501-255). */
     int countByFeedback(long sourceFeedbackId);
 }

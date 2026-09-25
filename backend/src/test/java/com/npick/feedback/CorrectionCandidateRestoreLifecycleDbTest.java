@@ -104,6 +104,25 @@ class CorrectionCandidateRestoreLifecycleDbTest {
 
     @Test
     @Transactional
+    @DisplayName("종료된 신고가 만든 규칙이 확정 뒤 사용 중단돼 active=false 여도 후보로 내보내지 않고 빈 목록이다")
+    void closedFeedbackDoesNotExposeDeactivatedRules() throws Exception {
+        seed();
+        // 확정 뒤 사용 중단된 규칙 — active=false 지만 대기 후보가 아니다.
+        insertRule(6602, "patch_parse", null, 9901, false, null);
+        insertRule(6603, "exclude_scene", 9301L, 9901, false, null);
+        jdbc.execute("UPDATE feedback SET status = 'CLOSED', resolution = 'correction', closed_at = now()"
+                + " WHERE feedback_id = 9901");
+
+        mockMvc.perform(get("/api/v1/review/inquiries/9901/correction-candidates")
+                        .with(user(REVIEWER)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tags", hasSize(0)))
+                .andExpect(jsonPath("$.data.parsePatches", hasSize(0)))
+                .andExpect(jsonPath("$.data.sceneExcludes", hasSize(0)));
+    }
+
+    @Test
+    @Transactional
     @DisplayName("교체 대상이 없는 해석 후보는 replacesRuleId 가 null 이고, 후보가 없으면 빈 목록이다")
     void emptyListsAndNullReplaces() throws Exception {
         seed();

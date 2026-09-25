@@ -332,6 +332,8 @@ class CreateTagCorrectionCandidateServiceTest {
 
         assertThat(result.evidenceIds()).containsExactly(4001L, 5002L);
         assertThat(result.newlyCreated()).isEqualTo(1);
+        // 재사용할 근거만 남기고 같은 판단의 중복 대기 근거는 지운다.
+        verify(candidateRepository).discardDuplicatePending(any(), org.mockito.ArgumentMatchers.eq(4001L));
         verify(candidateRepository, org.mockito.Mockito.times(1)).addJudgment(any());
     }
 

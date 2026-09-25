@@ -103,6 +103,8 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
             candidateRepository.discardConflictingPending(judgment);
             Optional<Long> pending = candidateRepository.findPendingJudgment(judgment);
             if (pending.isPresent()) {
+                // 레거시로 같은 대기 판단이 여러 건 남아 있으면 재사용할 하나만 남긴다 — 나머지가 조회·검증에 중복으로 섞이지 않게.
+                candidateRepository.discardDuplicatePending(judgment, pending.get());
                 ids.put(key, pending.get());
             } else {
                 toCreate.put(key, judgment);
