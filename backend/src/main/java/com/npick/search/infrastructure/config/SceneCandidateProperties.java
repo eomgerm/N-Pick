@@ -5,6 +5,7 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
@@ -33,7 +34,8 @@ import org.springframework.validation.annotation.Validated;
  *     오타를 잡는 선</b>이다 — 0 을 하나 더 찍으면 한 요청이 수십만 행을 메모리로 올리는데, 부팅도 되고 검색도 되어 아무 신호가 없다. 이보다 큰 pool 이 필요해지면 왜 필요한지를 함께 적고 이
  *     값을 올린다
  * @param excludedQueryTokens BM25 질의 토큰에서 뺄 캡션 범용어 ({@code 형태/품사} 소문자). 색인은 그대로고 질의 쪽만 뺀다. 원 질의 토큰이 전부 여기 들면 빼지 않는다
- *     (S15P21A501-320, {@code LexicalSearchSettings#searchQueryTokens})
+ *     (S15P21A501-320, {@code LexicalSearchSettings#searchQueryTokens}). 대소문자·앞뒤 공백은 {@code LexicalSearchSettings} 가
+ *     맞춘다. 빈 목록이면 제외를 끈다
  */
 @Validated
 @ConfigurationProperties("npick.search.candidate")
@@ -44,7 +46,7 @@ public record SceneCandidateProperties(
         @NotNull @PositiveOrZero Double ocrWeight,
         @NotNull @PositiveOrZero Double expandedWeight,
         @NotNull @Positive @Max(10_000) Integer poolSize,
-        @NotNull List<@NotBlank String> excludedQueryTokens) {
+        @NotNull List<@NotBlank @Pattern(regexp = "\\s*[^/\\s]+/[^/\\s]+\\s*") String> excludedQueryTokens) {
 
     /** 전 필드가 0 이면 어떤 질의든 결과가 0건이 된다. 검색 실패를 결과 0건으로 위장하는 상태(F-06 완료 기준)라 부팅 단계에서 막는다. */
     @AssertTrue(message = "단어 검색 대상 필드가 하나도 없다. caption/transcript/ocr 가중치 중 하나는 0보다 커야 한다") public boolean isAnyFieldSearched() {

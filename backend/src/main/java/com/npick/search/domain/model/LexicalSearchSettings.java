@@ -1,6 +1,7 @@
 package com.npick.search.domain.model;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -14,7 +15,7 @@ import java.util.Objects;
  *
  * @param excludedQueryTokens BM25 질의에서 뺄 범용어 토큰 ({@code 형태/품사} 소문자, 예: {@code 장면/nng}). VLM 캡션이 「~하는 장면이다」·「화면에 ~가 보인다」
  *     식으로 써서 이 말들은 활성 장면 3분의 1 가까이에 들어 있다 (S15P21A501-320, 운영 복원본 7,712 장면 실측: {@code 장면/nng} 33.4%). 질의에 남기면
- *     {@code term_set} 의 OR 로 그만큼이 후보가 된다. 목록 순서도 버전 해시에 들어간다
+ *     {@code term_set} 의 OR 로 그만큼이 후보가 된다. 목록 순서도 버전 해시에 들어간다. 빈 목록이면 제외를 끈다
  */
 public record LexicalSearchSettings(
         String configVersion,
@@ -27,7 +28,7 @@ public record LexicalSearchSettings(
 
     public LexicalSearchSettings {
         Objects.requireNonNull(configVersion, "configVersion");
-        excludedQueryTokens = List.copyOf(Objects.requireNonNull(excludedQueryTokens, "excludedQueryTokens"));
+        excludedQueryTokens = normalized(Objects.requireNonNull(excludedQueryTokens, "excludedQueryTokens"));
         if (!finiteNonNegative(captionWeight)
                 || !finiteNonNegative(transcriptWeight)
                 || !finiteNonNegative(ocrWeight)) {
@@ -59,6 +60,28 @@ public record LexicalSearchSettings(
                 .map(phrase ->
                         phrase.stream().filter(token -> !isExcluded(token)).toList())
                 .filter(phrase -> !phrase.isEmpty())
+                .toList();
+    }
+
+    /**
+     * 설정 값을 질의 토큰과 같은 형태(앞뒤 공백 없음, 소문자)로 맞춘다.
+     *
+     * <p>Kiwi 태그는 대문자라 운영자가 {@code 장면/NNG} 로 적기 쉽다. 그대로 두면 소문자로 오는 질의 토큰과 영영 맞지 않아 <b>제외가 조용히 꺼진다</b> — 오류도 없고 검색도 돈다.
+     * 모양이 {@code 형태/품사} 가 아닌 값은 어떤 질의 토큰과도 맞을 수 없는 오타라 거부한다.
+     */
+    private static List<String> normalized(List<String> tokens) {
+        return tokens.stream()
+                .map(token -> {
+                    if (token == null || token.isBlank()) {
+                        throw new IllegalArgumentException("excludedQueryTokens must not contain blank tokens");
+                    }
+                    String value = token.strip().toLowerCase(Locale.ROOT);
+                    int slash = value.lastIndexOf('/');
+                    if (slash <= 0 || slash == value.length() - 1) {
+                        throw new IllegalArgumentException("excludedQueryTokens must be 형태/품사: " + token);
+                    }
+                    return value;
+                })
                 .toList();
     }
 

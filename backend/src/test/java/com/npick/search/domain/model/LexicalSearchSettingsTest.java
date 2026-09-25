@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** 캡션 범용어를 BM25 질의에서 빼는 규칙 (S15P21A501-320). */
 class LexicalSearchSettingsTest {
@@ -28,8 +29,30 @@ class LexicalSearchSettingsTest {
     void matchesOnlyTheEncodedToken() {
         // 보이/vv 는 빼도 보이/nnp(고유명사) 는 다른 말이다. 질의는 항상 `형태/품사` 소문자로 오므로
         // 옛 형식 `장면` 은 질의 쪽에서 나오지 않지만, 나오더라도 설정과 다른 값이라 건드리지 않는다.
-        assertThat(settings.searchQueryTokens(List.of("보이/nnp", "장면", "장면/NNG", "장면/nng")))
-                .containsExactly("보이/nnp", "장면", "장면/NNG");
+        assertThat(settings.searchQueryTokens(List.of("보이/nnp", "장면", "장면/nng", "화재/nng")))
+                .containsExactly("보이/nnp", "장면", "화재/nng");
+    }
+
+    @Test
+    @DisplayName("설정 토큰은 공백을 떼고 소문자로 맞춰 소문자 질의 토큰과 맞춘다")
+    void normalizesConfiguredTokensToTheQueryEncoding() {
+        // Kiwi 태그는 대문자라 운영자가 `장면/NNG` 로 적기 쉽다. 그대로 두면 제외가 조용히 꺼진다.
+        var upper = new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, List.of(" 장면/NNG ", "보이/VV"));
+
+        assertThat(upper.excludedQueryTokens()).containsExactly("장면/nng", "보이/vv");
+        assertThat(upper.searchQueryTokens(List.of("화재/nng", "장면/nng", "보이/vv")))
+                .containsExactly("화재/nng");
+    }
+
+    @Test
+    @DisplayName("형태/품사 모양이 아닌 설정 토큰은 거부한다")
+    void rejectsMalformedConfiguredTokens() {
+        for (String malformed : List.of("장면", " ", "/nng", "장면/")) {
+            assertThatThrownBy(() ->
+                            new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, List.of(malformed)))
+                    .as(malformed)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 
     @Test
@@ -55,7 +78,7 @@ class LexicalSearchSettingsTest {
     }
 
     @Test
-    @DisplayName("목록이 비어 있으면 아무것도 빼지 않는다")
+    @DisplayName("목록이 비어 있으면 아무것도 빼지 않는다 — 제외를 끄는 스위치다")
     void anEmptyListExcludesNothing() {
         var none = new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, List.of());
         assertThat(none.searchQueryTokens(List.of("화재/nng", "장면/nng"))).containsExactly("화재/nng", "장면/nng");
