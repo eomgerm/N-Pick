@@ -77,11 +77,9 @@ export function ParseInterpretationEditor({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetAxis, setDropTargetAxis] = useState<EditableAxis | null>(null);
   const newChipCounter = useRef(0);
-  // 서버에 이 화면이 보낸 후보가 남아 있을 수 있는지. POST 를 보내는 순간 참이 된다 — 서버가 저장했는데
-  // 응답만 유실되거나 여러 건 중 일부만 저장되고 실패해도, 그 뒤 편집하면 이전 후보를 폐기하기 위함이다.
-  // 일괄 폐기 DELETE 는 멱등이라 실제로 남은 후보가 없어도 무해하다. 폐기가 성공했을 때만 거짓으로 돌린다.
-  // 새로고침 뒤에는 서버의 대기 후보 목록으로 이를 안다 (S15P21A501-317, 아래 previousCount).
-  const mayHaveServerCandidates = useRef(false);
+  // 이 화면이 마지막으로 POST 를 보내기 시작한 규칙 묶음. 첫 POST 전에 기록한다 — 응답이 유실되거나 일부만
+  // 저장돼도 서버에 남았을 수 있다고 본다 (S15P21A501-309). 새로고침 뒤에는 서버 목록(previousCount)으로 안다.
+  const [lastAttempt, setLastAttempt] = useState<string | null>(null);
   const candidates = useCorrectionCandidates(feedbackId, true);
   const previousCount = candidates.data?.parsePatches.length ?? 0;
   const suppressBlur = useRef(false);
@@ -101,6 +99,10 @@ export function ParseInterpretationEditor({
   const draftCount = countParseRuleDrafts(rules.length, chips);
   const draftLimit = draftLimitStatus(draftCount);
   const draftCountId = useId();
+  const ruleSignature = JSON.stringify(rules);
+  // 저장 시 이전 후보를 먼저 폐기해야 하는지 (S15P21A501-317). 편집만으로는 폐기하지 않는다 — 담기 전에 떠나도
+  // 이전에 담은 교정이 남는다. 같은 내용 재시도는 폐기하지 않고 같은 멱등성 키로 재전송한다.
+  const mustDiscardFirst = lastAttempt === null ? previousCount > 0 : ruleSignature !== lastAttempt;
 
   // 검증(재검색)이 저장 진행 중에 끼어들지 않도록, 검증 패널이 useIsMutating 으로 감시할 키를 단다.
   const save = useMutation({
@@ -146,13 +148,17 @@ export function ParseInterpretationEditor({
           });
         }
       }
+      // 이전 후보를 먼저 폐기한다. 폐기가 실패하면 POST 하지 않고, 다시 누르면 폐기부터 반복한다.
+      if (mustDiscardFirst) await discardParsePatchCandidate(feedbackId);
       // 순서대로 보낸다. 중간에 실패하면 다시 눌러 전부 재전송하면 된다 — 이미 저장된 규칙은 같은 결정적
       // 멱등성 키라 서버가 기존 후보를 돌려주어 중복이 생기지 않는다.
+      setLastAttempt(ruleSignature);
       for (const rule of rules) {
-        const key = await ruleIdempotencyKey(feedbackId, rule);
-        // 응답을 받기 전에 표시한다 — 요청이 서버에 닿았는지는 응답이 유실되면 알 수 없다.
-        mayHaveServerCandidates.current = true;
-        await createParsePatchCandidate(feedbackId, rule, key);
+        await createParsePatchCandidate(
+          feedbackId,
+          rule,
+          await ruleIdempotencyKey(feedbackId, rule),
+        );
       }
       return rules.length;
     },
@@ -169,7 +175,7 @@ export function ParseInterpretationEditor({
     mutationKey: ['parse-patch-discard', feedbackId],
     mutationFn: () => discardParsePatchCandidate(feedbackId),
     onSuccess: () => {
-      mayHaveServerCandidates.current = false;
+      setLastAttempt(null);
       return queryClient.invalidateQueries({ queryKey: correctionCandidatesQueryKey(feedbackId) });
     },
   });
@@ -180,16 +186,6 @@ export function ParseInterpretationEditor({
   const verifyPending = useIsMutating({ mutationKey: ['verification-run', feedbackId] }) > 0;
   // 대기 후보를 아직 못 읽었으면(조회 중·실패) 서버에 남은 교정을 모르므로 편집도 잠근다.
   const locked = save.isPending || verifyPending || !candidates.isSuccess;
-
-  // 저장을 시도한 뒤(성공·일부 성공·응답 유실 포함) 다시 편집하면 서버에 남았을 수 있는 이전 후보를
-  // 모두 폐기한다. 그러지 않으면 다음 저장이 새 후보를 더 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서
-  // 이미 고친 이전 후보가 새 후보와 함께 검증·확정된다. 폐기가 실패하면 표시가 남아 다음 편집에서도 다시
-  // 폐기하고, 저장은 폐기가 성공할 때까지 막힌다.
-  function resetAfterSave() {
-    if (!mayHaveServerCandidates.current && previousCount === 0) return;
-    save.reset();
-    discard.mutate();
-  }
 
   if (!seeded) {
     return (
@@ -209,16 +205,16 @@ export function ParseInterpretationEditor({
 
   function removeChip(id: string) {
     if (locked) return;
-    // 값을 담은 적 없는 새 빈 칩을 지우는 건 교정 변경이 아니다. 실제 칩(값 있음/기존)만 폐기를 유발한다.
+    // 값을 담은 적 없는 새 빈 칩을 지우는 건 교정 변경이 아니다. 실제 칩(값 있음/기존)만 담았어요 표시를 거둔다(서버 후보는 다음 담기 때 교체).
     const target = chips.find((chip) => chip.id === id);
-    if (target && !(target.isNew && !target.value.trim())) resetAfterSave();
+    if (target && !(target.isNew && !target.value.trim())) save.reset();
     setChips((prev) => prev.filter((chip) => chip.id !== id));
     if (editingId === id) setEditingId(null);
   }
 
   function addChip(axis: EditableAxis) {
     if (locked) return;
-    // 빈 칩을 추가하는 것만으로는 교정 내용이 바뀌지 않는다 — 실제 값을 확정(commitEdit)할 때만 이전 후보를 폐기한다.
+    // 빈 칩을 추가하는 것만으로는 교정 내용이 바뀌지 않는다 — 실제 값을 확정(commitEdit)할 때만 담았어요 표시를 거둔다.
     newChipCounter.current += 1;
     const chip: Chip = {
       id: `new-${newChipCounter.current}`,
@@ -237,10 +233,10 @@ export function ParseInterpretationEditor({
     if (id === null) return;
     const value = editDraft.trim();
     const chip = chips.find((item) => item.id === id);
-    // 값이 그대로면(포커스만 옮김·재확정) 교정 내용이 안 바뀐 것이므로 이전 후보를 폐기하지 않는다.
-    // 새 빈 칩을 빈 값으로 확정하는 것도 실제로는 아무것도 담기지 않으므로 폐기 대상이 아니다.
+    // 값이 그대로면(포커스만 옮김·재확정) 교정 내용이 안 바뀐 것이므로 담았어요 표시를 그대로 둔다.
+    // 새 빈 칩을 빈 값으로 확정하는 것도 실제로는 아무것도 담기지 않으므로 교정 변경이 아니다.
     const changed = chip ? chip.value !== value : false;
-    if (changed) resetAfterSave();
+    if (changed) save.reset();
     setChips((prev) =>
       value
         ? prev.map((item) => (item.id === id ? { ...item, value } : item))
@@ -305,10 +301,10 @@ export function ParseInterpretationEditor({
     setDropTargetAxis(null);
     setDraggingId(null);
     if (locked) return;
-    // 같은 축에 다시 떨구거나 대상이 없으면 실제 변경이 없다 — 폐기하지 않는다.
+    // 같은 축에 다시 떨구거나 대상이 없으면 실제 변경이 없다 — 표시를 그대로 둔다.
     const target = chips.find((chip) => chip.id === id);
     if (!target || target.axis === axis) return;
-    resetAfterSave();
+    save.reset();
     setChips((prev) =>
       prev.map((chip) => (chip.id === id ? { ...chip, axis, type: defaultType(axis) } : chip)),
     );
@@ -323,6 +319,7 @@ export function ParseInterpretationEditor({
         <p className={styles.hint}>칩을 클릭해 값 수정 · ×로 삭제 · 다른 항목으로 끌어 이동</p>
         <PreviousParseCandidatesNotice
           count={previousCount}
+          hasUnsavedEdits={!save.isPending && mustDiscardFirst && descriptions.length > 0}
           isBusy={locked || discard.isPending}
           isError={candidates.isError}
           onDiscard={() => discard.mutate()}
@@ -443,7 +440,7 @@ export function ParseInterpretationEditor({
           <button
             aria-describedby={draftCountId}
             className={styles.primaryButton}
-            disabled={locked || discard.isPending || discard.isError || descriptions.length === 0}
+            disabled={locked || discard.isPending || descriptions.length === 0}
             onClick={() => save.mutate()}
             type="button"
           >
