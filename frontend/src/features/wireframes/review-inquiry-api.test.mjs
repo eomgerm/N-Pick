@@ -18,6 +18,7 @@ registerHooks({
 const {
   claimReviewInquiry,
   createTagCorrectionCandidate,
+  discardTagCorrectionCandidateEvidence,
   getReviewInquiries,
   getReviewInquiry,
   parseCommaSeparatedTags,
@@ -349,4 +350,24 @@ test('문의·태그 교정 API 경로와 요청 본문을 계약대로 보낸�
       },
     ],
   });
+});
+
+test('태그 교정 근거 하나만 신고·근거 ID 경로로 DELETE 해 폐기한다', async (context) => {
+  const requests = [];
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push({ input: String(input), init });
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok' });
+  });
+
+  await discardTagCorrectionCandidateEvidence('41', '61');
+
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0].input.endsWith('/api/v1/review/inquiries/41/tag-correction-candidate/61'));
+  assert.equal(requests[0].init.method, 'DELETE');
+  assert.equal(requests[0].init.body, undefined);
+  await assert.rejects(
+    discardTagCorrectionCandidateEvidence('41', 'abc'),
+    (error) => error instanceof ApiClientError && error.kind === 'invalid-response',
+  );
+  assert.equal(requests.length, 1);
 });

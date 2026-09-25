@@ -6,7 +6,7 @@ import { useRef, useState } from 'react';
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
   createTagCorrectionCandidate,
-  discardTagCorrectionCandidate,
+  discardTagCorrectionCandidateEvidence,
   reviewTagTypes,
   type ReviewInquiryDetail,
   type ReviewTagScope,
@@ -61,12 +61,14 @@ interface AddedTag {
   scope: ReviewTagScope;
   tagType: ReviewTagType;
   value: string;
+  /** 이 추가가 서버에 만든 대기 근거. 추가 취소는 이 근거만 지운다. */
+  evidenceIds: string[];
 }
 
 interface CandidateSubmission {
   operations: TagCorrectionOperation[];
   draftId?: string;
-  added?: AddedTag;
+  added?: Omit<AddedTag, 'evidenceIds'>;
   removedTaggingId?: string;
   restoredTaggingId?: string;
 }
@@ -104,12 +106,12 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     mutationFn: ({ operations }: CandidateSubmission) =>
       createTagCorrectionCandidate(inquiry.feedbackId, operations, createIdempotencyKey()),
     // 서버 반영이 성공한 뒤에만 로컬 상태를 바꾼다 — 실패 시 UI 와 서버가 어긋나지 않는다.
-    onSuccess: (_response, submission) => {
+    onSuccess: (response, submission) => {
       if (submission.draftId) {
         setDrafts((current) => current.filter((draft) => draft.id !== submission.draftId));
       }
       if (submission.added) {
-        const next = submission.added;
+        const next = { ...submission.added, evidenceIds: response.evidenceIds };
         setAdded((current) => [...current, next]);
       }
       if (submission.removedTaggingId) {
@@ -128,38 +130,20 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     },
   });
 
-  // 추가 취소: 후보 하나만 지우는 서버 API 가 없어, 이 신고의 대기 태그 후보를 모두 폐기하고 남은 것만
-  // 한 번에 다시 올린다. WITHDRAW 를 더 쌓지 않으므로 서버 후보 수가 실제로 줄고 50개 상한에 걸리지
-  // 않는다 (S15P21A501-309). 폐기가 실패하면 로컬 상태를 바꾸지 않아 UI 와 서버가 어긋나지 않는다.
+  // 추가 취소: 그 추가가 만든 대기 근거(evidenceIds)만 지운다. 다른 대기 후보는 그대로 두고 다시 올리지도
+  // 않으므로 서버 후보 수가 실제로 줄고 다른 교정이 사라지지 않는다 (S15P21A501-309). 서버 삭제는
+  // 멱등이라 실패 뒤 다시 눌러도 안전하고, 성공한 뒤에만 로컬 칩을 지워 UI 와 서버가 어긋나지 않는다.
   const cancelAdded = useMutation({
     mutationFn: async (tag: AddedTag) => {
-      const nextAdded = added.filter((item) => item.id !== tag.id);
-      await discardTagCorrectionCandidate(inquiry.feedbackId);
-      const operations: TagCorrectionOperation[] = [
-        ...nextAdded.map((item) => ({
-          action: 'APPROVE' as const,
-          scope: item.scope,
-          tagType: item.tagType,
-          matchValue: item.value,
-          displayName: item.value,
-        })),
-        ...inquiry.evidence
-          .filter((evidence) => removed.has(evidence.taggingId))
-          .map((evidence) => ({
-            action: 'REJECT' as const,
-            scope: evidence.scope,
-            tagType: evidence.tagType,
-            matchValue: evidence.matchValue,
-            displayName: evidence.tagName,
-          })),
-      ];
-      if (operations.length > 0) {
-        await createTagCorrectionCandidate(inquiry.feedbackId, operations, createIdempotencyKey());
+      for (const evidenceId of tag.evidenceIds) {
+        await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
       }
-      return nextAdded;
     },
-    onSuccess: (nextAdded) => setAdded(nextAdded),
+    onSuccess: (_result, tag) =>
+      setAdded((current) => current.filter((item) => item.id !== tag.id)),
   });
+  // 후보를 바꾸는 요청은 한 번에 하나만 보낸다 — 취소 중 새 후보가 끼어들어 서로의 결과를 덮지 않게 한다.
+  const isBusy = mutation.isPending || cancelAdded.isPending;
 
   const pendingCount = drafts.length + added.length;
 
@@ -258,7 +242,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
           <div className="flex flex-wrap gap-2">
             <button
               className={addButtonClass}
-              disabled={mutation.isPending || pendingCount >= MAX_TAG_DRAFTS}
+              disabled={isBusy || pendingCount >= MAX_TAG_DRAFTS}
               onClick={() => addDraft('SCENE')}
               type="button"
             >
@@ -266,7 +250,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
             </button>
             <button
               className={addButtonClass}
-              disabled={mutation.isPending || pendingCount >= MAX_TAG_DRAFTS}
+              disabled={isBusy || pendingCount >= MAX_TAG_DRAFTS}
               onClick={() => addDraft('CLIP')}
               type="button"
             >
@@ -296,7 +280,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                 <button
                   aria-label={`‘${evidence.tagName}’ 삭제 후보`}
                   className={`${iconButtonClass} hover:text-(--danger)`}
-                  disabled={mutation.isPending}
+                  disabled={isBusy}
                   onClick={() => markRemoved(evidence)}
                   type="button"
                 >
@@ -315,7 +299,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
               <button
                 aria-label={`‘${tag.value}’ 추가 취소`}
                 className={`${iconButtonClass} hover:text-(--danger)`}
-                disabled={mutation.isPending || cancelAdded.isPending}
+                disabled={isBusy}
                 onClick={() => removeAdded(tag)}
                 type="button"
               >
@@ -336,7 +320,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                   <select
                     aria-label="태그 유형"
                     className="bg-transparent text-xs font-bold text-(--accent-strong) outline-none"
-                    disabled={mutation.isPending}
+                    disabled={isBusy}
                     onChange={(event) =>
                       updateDraft(draft.id, { tagType: event.target.value as ReviewTagType })
                     }
@@ -352,7 +336,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                     aria-label="태그 값"
                     autoFocus
                     className="w-24 bg-transparent text-sm font-semibold text-(--accent-strong) outline-none placeholder:text-(--muted)"
-                    disabled={mutation.isPending}
+                    disabled={isBusy}
                     maxLength={20}
                     onChange={(event) => updateDraft(draft.id, { value: event.target.value })}
                     onKeyDown={(event) => {
@@ -372,7 +356,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                   <button
                     aria-label="태그 추가 확정"
                     className={`${iconButtonClass} hover:text-(--positive)`}
-                    disabled={mutation.isPending}
+                    disabled={isBusy}
                     onClick={() => submitDraft(draft)}
                     type="button"
                   >
@@ -381,7 +365,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                   <button
                     aria-label="태그 추가 취소"
                     className={`${iconButtonClass} hover:text-(--danger)`}
-                    disabled={mutation.isPending}
+                    disabled={isBusy}
                     onClick={() => removeDraft(draft.id)}
                     type="button"
                   >
@@ -409,7 +393,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                 <button
                   aria-label={`‘${evidence.tagName}’ 삭제 취소`}
                   className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
-                  disabled={mutation.isPending}
+                  disabled={isBusy}
                   onClick={() => restoreRemoved(evidence)}
                   type="button"
                 >
@@ -436,6 +420,12 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       {mutation.isError ? (
         <div className="mt-3">
           <ApiErrorNotice error={mutation.error} />
+        </div>
+      ) : null}
+
+      {cancelAdded.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={cancelAdded.error} />
         </div>
       ) : null}
     </section>
