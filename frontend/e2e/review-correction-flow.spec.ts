@@ -1,0 +1,168 @@
+import { expect, test, type Page, type Route } from '@playwright/test';
+
+const parsedQueryJson = JSON.stringify({
+  schema_version: 'resolution-v1',
+  intent: 'scene_search',
+  date_windows: [],
+  incident_names: [{ value: '추석', origin: 'explicit_query', query_span: null, confidence: 1 }],
+  entities: [],
+  locations: [],
+  expanded_terms: ['귀성 차량', '고속도로 정체'],
+  confidence: 0.92,
+});
+
+function inquiry() {
+  return {
+    feedbackId: '41',
+    status: 'REVIEWING',
+    resolution: 'correction',
+    resolutionNote: null,
+    createdAt: '2026-09-09T01:00:00Z',
+    queryText: '귀성길 정체',
+    sceneId: '31',
+    scene: {
+      sceneId: '31',
+      clipId: '21',
+      clipTitle: '저녁 뉴스',
+      startTimeMs: 42000,
+      endTimeMs: 49000,
+      pipelineRunId: '11',
+      processingNo: 1,
+    },
+    hasComment: true,
+    comment: '다른 장면 같습니다.',
+    resultRank: 1,
+    resultExplainJson: '{"score":0.8}',
+    execution: {
+      queryText: '귀성길 정체',
+      explicitFiltersJson: '{}',
+      parsedQueryJson,
+      resolverOutputJson: null,
+      appliedRulesJson: '[]',
+      appliedExcludesJson: '[]',
+    },
+    evidence: [],
+    history: {
+      reviewedById: '2',
+      reviewerName: 'E2E 검수자',
+      reviewerLoginId: 'e2e-reviewer',
+      reviewStartedAt: '2026-09-09T02:00:00Z',
+      verifiedByExecutionId: null,
+    },
+  };
+}
+
+async function success(route: Route, data?: unknown) {
+  await route.fulfill({
+    json: { isSuccess: true, code: 'COMM_200', message: '요청에 성공했습니다.', data },
+  });
+}
+
+async function openInquiry(page: Page) {
+  await page.context().addCookies([
+    { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
+    { name: 'XSRF-TOKEN', value: 'review-csrf', url: 'http://127.0.0.1:3116' },
+  ]);
+  await page.route('**/api/v1/auth/csrf', (route) => success(route));
+  await page.route('**/api/v1/review/inquiries/41', (route) => success(route, inquiry()));
+  await page.goto('/review?inquiry=41');
+}
+
+async function addSceneTag(page: Page, value: string) {
+  await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  await page.getByRole('textbox', { name: '태그 값', exact: true }).fill(value);
+  await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
+  await expect(page.getByRole('button', { name: `‘${value}’ 추가 취소` })).toBeVisible();
+}
+
+test('태그 추가 취소는 그 추가의 근거만 지우고 다른 후보는 남긴다 (S15P21A501-309)', async ({
+  page,
+}) => {
+  const posts: unknown[] = [];
+  const deletes: string[] = [];
+  let nextEvidenceId = 61;
+  let failNextDelete = true;
+  await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
+    if (route.request().method() !== 'POST') {
+      deletes.push(`bulk:${route.request().method()}`);
+      await success(route);
+      return;
+    }
+    posts.push(route.request().postDataJSON());
+    await success(route, {
+      feedbackId: '41',
+      created: 1,
+      evidenceIds: [String(nextEvidenceId++)],
+    });
+  });
+  await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate/*', async (route) => {
+    deletes.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+    if (failNextDelete) {
+      failNextDelete = false;
+      await route.fulfill({
+        status: 409,
+        json: { isSuccess: false, code: 'TAG_409_999', message: '요청을 처리할 수 없습니다.' },
+      });
+      return;
+    }
+    await success(route);
+  });
+  await openInquiry(page);
+
+  await addSceneTag(page, '서울');
+  await addSceneTag(page, '부산');
+
+  // 첫 취소는 실패한다 — 오류를 보여 주고 칩은 그대로 남는다.
+  const cancelSeoul = page.getByRole('button', { name: '‘서울’ 추가 취소' });
+  await cancelSeoul.click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: '요청을 처리할 수 없습니다' }),
+  ).toBeVisible();
+  await expect(cancelSeoul).toBeVisible();
+
+  // 다시 누르면 같은 근거만 지우고, 다시 올리는 POST 없이 칩이 사라진다.
+  await cancelSeoul.click();
+  await expect(cancelSeoul).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '‘부산’ 추가 취소' })).toBeVisible();
+  expect(deletes).toEqual([
+    'DELETE /api/v1/review/inquiries/41/tag-correction-candidate/61',
+    'DELETE /api/v1/review/inquiries/41/tag-correction-candidate/61',
+  ]);
+  expect(posts).toHaveLength(2);
+});
+
+test('해석 교정 저장 중에는 칩 편집이 잠긴다 (S15P21A501-309)', async ({ page }) => {
+  let releaseSave: () => void = () => {};
+  const saveHeld = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const bodies: unknown[] = [];
+  await page.route('**/api/v1/review/inquiries/41/parse-patch-candidate', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await success(route);
+      return;
+    }
+    bodies.push(route.request().postDataJSON());
+    await saveHeld;
+    await success(route, { searchRuleId: '72', feedbackId: '41', active: false });
+  });
+  await openInquiry(page);
+
+  await page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true }).click();
+  await page.getByRole('button', { name: '교정 담기', exact: true }).click();
+  await expect(page.getByRole('button', { name: '담는 중…', exact: true })).toBeDisabled();
+
+  const remaining = page.getByRole('button', { name: "'고속도로 정체' 삭제", exact: true });
+  await expect(remaining).toBeDisabled();
+  await expect(page.getByRole('button', { name: '검색 의미어에 항목 추가' })).toBeDisabled();
+  const chip = page.getByRole('button', { name: /^고속도로 정체/ }).first();
+  await expect(chip).toHaveAttribute('aria-disabled', 'true');
+  await expect(chip).toHaveAttribute('draggable', 'false');
+  await chip.click({ force: true });
+  await expect(page.getByRole('textbox', { name: /값 수정$/ })).toHaveCount(0);
+
+  releaseSave();
+  await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
+  await expect(remaining).toBeEnabled();
+  expect(bodies).toHaveLength(1);
+});
