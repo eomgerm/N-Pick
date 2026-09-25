@@ -26,4 +26,20 @@ public final class StructuredScorePolicy {
     public double contribution(AxisCount axis, double denominator) {
         return denominator == 0 ? 0 : axis.score() * (axis.weight() / denominator);
     }
+
+    /**
+     * 키워드 태그 가산점 (S15P21A501-321). {@link #denominator} 에 넣지 않는 별도 항이다.
+     *
+     * <p>가중평균에 넣으면 분모가 커져 개체 축만 맞은 장면의 점수가 깎인다(서울역 장소 태그 장면 1.0 → 0.67). 키워드는 VLM 추정이 대부분이라 개체보다 불확실하므로 낮은 가중치로 더하기만
+     * 한다.
+     *
+     * @param requested 질의 명사로 만든 키워드 조건 수. 확장어 조건은 세지 않는다
+     * @param matched 그중 유효 키워드 태그와 맞은 수. 같은 조건에 태그가 여럿이어도 한 번이다
+     */
+    public double keywordBonus(int requested, int matched, double weight) {
+        if (requested < 0 || matched < 0 || matched > requested || !Double.isFinite(weight) || weight < 0) {
+            throw new IllegalArgumentException("Invalid keyword count or weight");
+        }
+        return requested == 0 ? 0 : (double) matched / requested * weight;
+    }
 }
