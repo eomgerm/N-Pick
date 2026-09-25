@@ -110,6 +110,12 @@ def test_backfill_doc_updates_only_rows_whose_source_text_is_unchanged() -> None
     ):
         assert f"{source} = p.text" in update
         assert "= p.old_tokens" in update
+    # changed=0 재실행에서는 패치 파일이 0개다. Bash 는 매치되지 않은 glob 을
+    # 문자 그대로 한 번 넘기므로, 루프마다 파일 존재를 확인해야
+    # apply_patch 가 없는 파일을 열지 않는다.
+    loops = [line for line in doc.splitlines() if line.startswith('for f in "$WORK"/patch/')]
+    assert len(loops) == 3
+    assert all('[[ -f "$f" ]] || continue; apply_patch' in line for line in loops)
 
 
 def test_rekey_refuses_when_the_stored_fingerprint_cannot_be_reproduced(tmp_path: Path) -> None:

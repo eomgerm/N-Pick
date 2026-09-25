@@ -154,6 +154,8 @@ done
 
 도구는 실행할 때마다 같은 `--name` 의 옛 패치 파일(`<name>.NNNN.csv`)을 먼저 지운다. ⑦ 에서 `changed=0`
 이거나 배치 수가 줄어도 ③ 의 파일이 남아 아래 루프에 섞이지 않는다.
+그 결과 한 종류의 패치 파일이 하나도 없을 수 있어, 루프마다 `[[ -f "$f" ]] || continue` 로 매치되지 않은
+glob(Bash 는 패턴 문자열을 그대로 한 번 넘긴다)을 건너뛴다.
 
 ```bash
 apply_patch() {  # $1 = 파일, $2 = UPDATE 문
@@ -163,14 +165,14 @@ apply_patch() {  # $1 = 파일, $2 = UPDATE 문
     -c "\copy patch FROM pstdin WITH (FORMAT csv, HEADER)" \
     -c "$2" < "$1"
 }
-for f in "$WORK"/patch/scene_caption.*.csv; do apply_patch "$f" "UPDATE npick.scene s
+for f in "$WORK"/patch/scene_caption.*.csv; do [[ -f "$f" ]] || continue; apply_patch "$f" "UPDATE npick.scene s
   SET caption_tokens = p.new_tokens FROM patch p
   WHERE s.scene_id = p.id AND s.caption = p.text AND coalesce(s.caption_tokens, '') = p.old_tokens"; done
-for f in "$WORK"/patch/scene_transcript.*.csv; do apply_patch "$f" "UPDATE npick.scene s
+for f in "$WORK"/patch/scene_transcript.*.csv; do [[ -f "$f" ]] || continue; apply_patch "$f" "UPDATE npick.scene s
   SET transcript_tokens = p.new_tokens FROM patch p
   WHERE s.scene_id = p.id AND s.transcript_text = p.text
     AND coalesce(s.transcript_tokens, '') = p.old_tokens"; done
-for f in "$WORK"/patch/ocr_observation.*.csv; do apply_patch "$f" "UPDATE npick.ocr_observation o
+for f in "$WORK"/patch/ocr_observation.*.csv; do [[ -f "$f" ]] || continue; apply_patch "$f" "UPDATE npick.ocr_observation o
   SET tokens = p.new_tokens FROM patch p
   WHERE o.ocr_observation_id = p.id AND o.raw_text = p.text AND o.tokens = p.old_tokens"; done
 ```
