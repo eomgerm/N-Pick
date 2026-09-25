@@ -1,6 +1,7 @@
 # Jenkins CI 초기 세팅 (S15P21A501-22)
 
-EC2에 Docker로 Jenkins를 올리고, GitLab push가 자동으로 빌드를 트리거하게 만드는 절차서다.
+EC2에 Docker로 Jenkins를 올리고,
+GitLab push가 자동으로 빌드를 트리거하게 만드는 절차서다.
 
 **근거 문서**: SSAFY 제공 `[CI/CD] Jenkins 설치 가이드` 의 **1. docker 방식 설치**.
 1~6장은 가이드를 그대로 따르고(2장 Docker 설치는 추가), 7장부터(플러그인 추가·GitLab 연동·웹훅·파이프라인)가
