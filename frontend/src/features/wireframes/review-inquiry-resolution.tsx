@@ -33,6 +33,7 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
 
   const mutation = useMutation({
+    mutationKey: ['resolution-save', inquiry.feedbackId],
     mutationFn: (resolution: InquiryResolution) =>
       resolveReviewInquiry(inquiry.feedbackId, resolution, note),
     onSuccess: async () => {

@@ -6,8 +6,12 @@ import { useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { releaseReviewInquiry } from '@/features/wireframes/review-inquiry-api';
-import { getReleaseErrorMessage } from '@/features/wireframes/review-claim-release-view';
+import {
+  isCorrectionMutation,
+  releaseErrorMessages,
+} from '@/features/wireframes/review-claim-release-view';
 import { useSuccessToast } from '@/features/wireframes/success-toast';
+import { ApiClientError } from '@/lib/api/error';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 
 interface ClaimReleaseControlProps {
@@ -21,21 +25,26 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
   const queryClient = useQueryClient();
   const { showSuccess } = useSuccessToast();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  // 교정 저장·태그 후보 변경이 진행 중이면 취소가 그 요청과 엇갈리지 않도록 막는다(편집기·태그와 공유하는 키).
-  const parseSavePending = useIsMutating({ mutationKey: ['parse-patch-save', feedbackId] }) > 0;
-  const tagChangePending = useIsMutating({ mutationKey: ['tag-candidate-change', feedbackId] }) > 0;
+  // 교정·판정을 바꾸는 요청이 진행 중이면 취소가 그 요청과 엇갈리지 않도록 막는다.
+  const correctionPending =
+    useIsMutating({
+      predicate: (mutation) => isCorrectionMutation(mutation.options.mutationKey, feedbackId),
+    }) > 0;
   const release = useMutation({
     mutationFn: () => releaseReviewInquiry(feedbackId),
     retry: false,
-    onSuccess: async () => {
-      showSuccess('검수를 취소했습니다.');
+    onSuccess: () => showSuccess('검수를 취소했습니다.'),
+    // 실패해도 다시 불러온다 — 응답을 잃고 재시도해 409 를 받은 경우 등 이미 풀린 상태로 화면을 맞춘다.
+    onSettled: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['review-inquiries'] }),
         queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] }),
       ]);
     },
   });
-  const disabled = release.isPending || parseSavePending || tagChangePending;
+  const disabled = release.isPending || correctionPending;
+  const errorMessage =
+    release.error instanceof ApiClientError ? releaseErrorMessages[release.error.code] : undefined;
 
   return (
     <section className="mt-5 space-y-3" aria-label="검수 취소">
@@ -50,9 +59,7 @@ export function ClaimReleaseControl({ feedbackId }: ClaimReleaseControlProps) {
       >
         <Undo2 aria-hidden="true" /> {release.isPending ? '검수 취소 중…' : '검수 취소'}
       </button>
-      {release.isError ? (
-        <ApiErrorNotice error={release.error} message={getReleaseErrorMessage(release.error)} />
-      ) : null}
+      {release.isError ? <ApiErrorNotice error={release.error} message={errorMessage} /> : null}
 
       {confirmOpen ? (
         <div

@@ -101,6 +101,7 @@ export function CorrectionVerificationPanel({
   } | null>(null);
   // 같은 executionId 재요청은 서버가 멱등 성공으로 돌려주므로 재시도만 막는다.
   const confirmation = useMutation({
+    mutationKey: ['confirm-correction', feedbackId],
     mutationFn: (executionId: string) => confirmCorrection(feedbackId, executionId),
     retry: false,
     onSuccess: async () => {
@@ -112,6 +113,7 @@ export function CorrectionVerificationPanel({
   });
   // ponytail: 후보 조회 GET 이 없어 검증 결과는 세션 한정. 새로고침 후에는 다시 검증으로 복구한다.
   const verification = useMutation({
+    mutationKey: ['verification-run', feedbackId],
     mutationFn: () => verifyCorrectionCandidates(feedbackId),
     retry: false,
     onSuccess: onVerified,
