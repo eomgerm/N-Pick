@@ -1,0 +1,133 @@
+"""`tools/retokenize_index.py`·`tools/rekey_scene_exclusions.py` (S15P21A501-320).
+
+두 도구는 운영 DB 의 저장 값을 덮어쓴다. 어긋나면 증상이 조용하다 — 토큰이 틀리면
+검색이 0 건, 지문이 틀리면 장면 제외가 안 걸린다 — 그래서 모양을 여기서 고정한다.
+"""
+
+import csv
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+
+from rekey_scene_exclusions import fingerprint, rekey
+from retokenize_index import retokenize
+
+from npick_worker import korean_tokens
+from npick_worker.query_normalization import normalize
+
+
+def _write(path: Path, header: list[str], rows: list[list[str]]) -> Path:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(header)
+        writer.writerows(rows)
+    return path
+
+
+def test_fingerprint_matches_the_backend_value_object() -> None:
+    """BE `NormalizedSearch.of(...).fingerprint()` 를 jshell 로 돌려 얻은 값이다.
+
+    두 번째는 필터 키 정렬(Java `compareTo`: 대문자 < 한글)·값 목록까지 먹인 경우다.
+    """
+    version = "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0:encpos2"
+    assert fingerprint("경기 축구", {}, version) == (
+        "02d49191cd006a775308189e1165bcf554f25a6b649786610f298b94e05cb6a7"
+    )
+    filters = {"tag": ["부산", "서울"], "Zeta": ["b"], "가": ["x"]}
+    assert fingerprint("걷 모습 사람", filters, "v") == (
+        "20297fd1773a7017082faf5dac7ff2d456ea1745ca5afcc23532a0250f2a85a3"
+    )
+
+
+def test_retokenize_writes_only_changed_rows_and_keeps_empty_tokens_distinct(
+    tmp_path: Path,
+) -> None:
+    current = " ".join(korean_tokens.index_tokens("비 내리는 길"))
+    source = _write(
+        tmp_path / "in.csv",
+        ["id", "text", "tokens"],
+        [
+            ["1", "사람들이 걷는 모습", "사람/nng 모습/nng"],  # 옛 규칙 — 걷 이 빠졌다
+            ["2", "비 내리는 길", current],  # 이미 새 규칙과 같다
+            ["3", "...", "stale/nng"],  # 내용어가 없다 — '' 가 되어야 한다
+        ],
+    )
+    counts = retokenize(source, tmp_path / "out", "scene_caption", batch_size=1)
+    assert counts["rows"] == 3
+    assert counts["changed"] == 2
+    assert counts["batches"] == 2
+
+    patch = sorted((tmp_path / "out").glob("scene_caption.*.csv"))
+    lines = [line for path in patch for line in path.read_text(encoding="utf-8").splitlines()[1:]]
+    assert lines == [
+        '"1","사람/nng 모습/nng","사람/nng 걷/vv 모습/nng"',
+        # COPY csv 에서 따옴표 없는 빈 칸은 NULL 이다. 빈 토큰은 '' 로 남아야 한다
+        '"3","stale/nng",""',
+    ]
+
+
+def test_rekey_refuses_when_the_stored_fingerprint_cannot_be_reproduced(tmp_path: Path) -> None:
+    header = [
+        "search_rule_id",
+        "query_text",
+        "normalized_query",
+        "normalized_filters_json",
+        "normalization_version",
+        "query_fingerprint",
+    ]
+    source = _write(
+        tmp_path / "rules.csv", header, [["1", "축구경기", "경기 축구", "{}", "v", "0" * 64]]
+    )
+    with pytest.raises(SystemExit):
+        rekey(source, tmp_path / "out.csv")
+    assert not (tmp_path / "out.csv").exists()
+
+
+def test_rekey_recomputes_query_version_and_fingerprint(tmp_path: Path) -> None:
+    header = [
+        "search_rule_id",
+        "query_text",
+        "normalized_query",
+        "normalized_filters_json",
+        "normalization_version",
+        "query_fingerprint",
+    ]
+    old_version = "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0:encpos2"
+    old = fingerprint("모습 사람", {}, old_version)
+    source = _write(
+        tmp_path / "rules.csv",
+        header,
+        [["7", "사람들이 걷는 모습", "모습 사람", "{}", old_version, old]],
+    )
+    rekey(source, tmp_path / "out.csv")
+
+    expected = normalize("사람들이 걷는 모습")
+    with (tmp_path / "out.csv").open(encoding="utf-8", newline="") as handle:
+        (row,) = list(csv.DictReader(handle))
+    assert row["normalized_query"] == expected.normalized_query == "걷 모습 사람"
+    assert row["normalization_version"] == expected.normalization_version
+    assert row["query_fingerprint"] == fingerprint(
+        expected.normalized_query, {}, expected.normalization_version
+    )
+    assert row["old_fingerprint"] == old
+
+    # 다시 돌리면 쓸 것이 없다
+    rerun = _write(
+        tmp_path / "rules2.csv",
+        header,
+        [
+            [
+                "7",
+                "사람들이 걷는 모습",
+                row["normalized_query"],
+                "{}",
+                row["normalization_version"],
+                row["query_fingerprint"],
+            ]
+        ],
+    )
+    report = rekey(rerun, tmp_path / "out2.csv")
+    assert [r["changed"] for r in report] == ["False"]
