@@ -1,4 +1,4 @@
-"""Re-key active `exclude_scene` rules to the current query normalization.
+"""Re-key `exclude_scene` rules to the current query normalization.
 
 An `exclude_scene` rule is matched exactly on `(query_fingerprint, normalized_query,
 normalization_version, normalized_filters_json)` (BE `ActiveSceneExclusionQueryAdapter`).
@@ -17,6 +17,15 @@ filter count, then each filter key, its value count and its values. Keys are in 
 match, so a divergence from BE's hashing cannot silently produce dead rules.
 
     cd ai && uv run python tools/rekey_scene_exclusions.py --in rules.csv --out rekey.csv
+
+Which rules: active ones and pending candidates of a report still under review — a
+candidate keeps its keys when it is approved, so it would go live already dead.
+
+**Rules whose source text cannot be trusted are skipped, not re-keyed.** A query text
+with U+FFFD (a replacement character — the bytes were decoded with the wrong charset
+before they reached us) normalises to whatever the garbage happens to be; re-keying it
+revives a rule nobody can type. They are listed as `skipped` so a person deactivates them
+through the BE rule API. The same goes for a query that no longer normalises at all.
 
 Idempotent: a rule already on the current version with the same key is not written.
 The procedure (export/apply SQL) is in `ai/docs/index-token-backfill.md`.
@@ -62,6 +71,17 @@ def fingerprint(normalized_query: str, filters: dict[str, list[str]], version: s
     return digest.hexdigest()
 
 
+#: The character a decoder substitutes for bytes it could not read.
+_REPLACEMENT_CHARACTER = "\ufffd"
+
+
+def _untrusted(query_text: str) -> str | None:
+    """Why the source query cannot be re-normalised faithfully, or None."""
+    if _REPLACEMENT_CHARACTER in query_text:
+        return "query_text contains U+FFFD"
+    return None
+
+
 def rekey(source: Path, out: Path) -> list[dict[str, str]]:
     with source.open(encoding="utf-8", newline="") as rows:
         rules = list(csv.DictReader(rows))
@@ -90,11 +110,22 @@ def rekey(source: Path, out: Path) -> list[dict[str, str]]:
             ]
         )
         for rule in rules:
-            try:
-                normalized = normalize(rule["query_text"])
-            except ValueError as error:
-                # 내용어가 없는 질의. 원래 규칙도 만들어질 수 없었던 입력이라 손대지 않고 알린다.
-                print(f"rule={rule['search_rule_id']} skipped: {error}", file=sys.stderr)
+            reason = _untrusted(rule["query_text"])
+            if reason is None:
+                try:
+                    normalized = normalize(rule["query_text"])
+                except ValueError as error:
+                    reason = f"not normalisable: {error}"
+            if reason is not None:
+                report.append(
+                    {
+                        "search_rule_id": rule["search_rule_id"],
+                        "old_query": rule["normalized_query"],
+                        "new_query": "",
+                        "old_version": rule["normalization_version"],
+                        "status": f"skipped ({reason})",
+                    }
+                )
                 continue
             new_fingerprint = fingerprint(
                 normalized.normalized_query,
@@ -118,7 +149,7 @@ def rekey(source: Path, out: Path) -> list[dict[str, str]]:
                     "old_query": rule["normalized_query"],
                     "new_query": normalized.normalized_query,
                     "old_version": rule["normalization_version"],
-                    "changed": str(changed),
+                    "status": "changed" if changed else "unchanged",
                 }
             )
     return report
@@ -138,12 +169,17 @@ def main() -> None:
     report = rekey(args.source, args.out)
     for row in report:
         print(
-            f"rule={row['search_rule_id']} changed={row['changed']} "
+            f"rule={row['search_rule_id']} {row['status']} "
             f"{row['old_query']!r} ({row['old_version']}) -> {row['new_query']!r}",
             file=sys.stderr,
         )
-    changed = sum(row["changed"] == "True" for row in report)
-    print(f"rules={len(report)} changed={changed} unchanged={len(report) - changed}")
+    changed = sum(row["status"] == "changed" for row in report)
+    skipped = [row["search_rule_id"] for row in report if row["status"].startswith("skipped")]
+    unchanged = len(report) - changed - len(skipped)
+    print(f"rules={len(report)} changed={changed} unchanged={unchanged} skipped={len(skipped)}")
+    if skipped:
+        # 재키하지 않은 규칙은 옛 버전에 남아 어차피 안 걸린다. 사람이 BE API 로 사용 중단한다.
+        print(f"deactivate via BE rule API: {' '.join(skipped)}")
 
 
 if __name__ == "__main__":

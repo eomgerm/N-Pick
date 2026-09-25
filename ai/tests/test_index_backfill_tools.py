@@ -130,4 +130,30 @@ def test_rekey_recomputes_query_version_and_fingerprint(tmp_path: Path) -> None:
         ],
     )
     report = rekey(rerun, tmp_path / "out2.csv")
-    assert [r["changed"] for r in report] == ["False"]
+    assert [r["status"] for r in report] == ["unchanged"]
+
+
+def test_rekey_skips_rules_whose_source_query_was_garbled(tmp_path: Path) -> None:
+    """U+FFFD 가 든 원 질의는 다시 정규화해도 그 쓰레기 글자의 지문이 나올 뿐이다.
+
+    재키하면 아무도 칠 수 없는 질의에 규칙이 되살아난다. 쓰지 않고 `skipped` 로 알린다.
+    """
+    version = "query-norm/v1:b0d96c0c:kiwi0.23.2:model0.23.0"
+    garbled = "ȸ\ufffd\ufffd ǥ"
+    header = [
+        "search_rule_id",
+        "query_text",
+        "normalized_query",
+        "normalized_filters_json",
+        "normalization_version",
+        "query_fingerprint",
+    ]
+    source = _write(
+        tmp_path / "rules.csv",
+        header,
+        [["9", garbled, "ǥ ȸ", "{}", version, fingerprint("ǥ ȸ", {}, version)]],
+    )
+    report = rekey(source, tmp_path / "out.csv")
+
+    assert [r["status"] for r in report] == ["skipped (query_text contains U+FFFD)"]
+    assert (tmp_path / "out.csv").read_text(encoding="utf-8").count("\n") == 1  # 머리글만
