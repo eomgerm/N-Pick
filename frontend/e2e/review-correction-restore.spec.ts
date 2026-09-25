@@ -293,3 +293,92 @@ test('검증이 끝나면 이번 검증에 적용된 후보 수와 영향 없는
   await expect(page.getByText(/태그 후보가 모두 검색 결과에 영향을 주지 않는 유형/)).toBeVisible();
   expect(calls).toEqual(['POST scene-exclude', 'POST verify']);
 });
+
+test('개입 해제 후보는 삭제 후보와 따로 모아 보여 주고 취소하면 그 근거를 지운다', async ({
+  page,
+}) => {
+  const state = restoredState();
+  state.tags.push({
+    evidenceId: '63',
+    taggingId: '502',
+    action: 'WITHDRAW',
+    scope: 'CLIP',
+    tagType: 'person',
+    matchValue: '홍길동',
+    displayName: '홍길동',
+  });
+  const calls = await mockServer(page, state);
+  await page.goto('/review?inquiry=41');
+
+  await expect(page.getByRole('heading', { name: '개입 해제 후보', exact: true })).toBeVisible();
+  const cancel = page.getByRole('button', { name: '‘홍길동’ 개입 해제 취소' });
+  await expect(cancel).toBeVisible();
+  await expect(page.getByRole('button', { name: '‘서울역’ 삭제 취소' })).toBeVisible();
+
+  await cancel.click();
+  await expect(cancel).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '개입 해제 후보', exact: true })).toHaveCount(0);
+  expect(calls).toEqual(['DELETE 63']);
+});
+
+test('검증 재검색 중에는 태그·장면 제외 후보를 바꾸지 못한다', async ({ page }) => {
+  await mockServer(page, restoredState());
+  let releaseVerify: () => void = () => {};
+  const verifyHeld = new Promise<void>((resolve) => {
+    releaseVerify = resolve;
+  });
+  await page.route('**/api/v1/review/inquiries/41/verify', async (route) => {
+    await verifyHeld;
+    await success(route, {
+      execution_id: '900',
+      entered_scenes: [],
+      dropped_scenes: [],
+      verification_rule_set: [],
+    });
+  });
+  await page.goto('/review?inquiry=41');
+  const addScene = page.getByRole('button', { name: '+ 이 장면', exact: true });
+  const cancelAdded = page.getByRole('button', { name: '‘부산’ 추가 취소' });
+  const sceneToggle = page.getByRole('button', { name: '제외 취소', exact: true });
+  await expect(cancelAdded).toBeEnabled();
+  await expect(sceneToggle).toBeEnabled();
+
+  await page.getByRole('button', { name: '후보 검증', exact: true }).click();
+  await expect(addScene).toBeDisabled();
+  await expect(cancelAdded).toBeDisabled();
+  await expect(page.getByRole('button', { name: '‘서울역’ 삭제 취소' })).toBeDisabled();
+  await expect(sceneToggle).toBeDisabled();
+
+  releaseVerify();
+  await expect(
+    page.getByText('이번 검증에 적용된 후보: 태그 2 · 해석 규칙 0 · 장면 제외 1'),
+  ).toBeVisible();
+  await expect(addScene).toBeEnabled();
+  await expect(sceneToggle).toBeEnabled();
+});
+
+test('대기 후보를 불러오지 못하면 장면 제외 토글을 잠그고 다시 불러오기를 안내한다', async ({
+  page,
+}) => {
+  await mockServer(page, restoredState());
+  let failing = true;
+  await page.route('**/api/v1/review/inquiries/41/correction-candidates', async (route) => {
+    if (failing) {
+      await route.fulfill({
+        status: 500,
+        json: { isSuccess: false, code: 'COMM_500', message: '서버 오류가 발생했습니다.' },
+      });
+      return;
+    }
+    await success(route, restoredState());
+  });
+  await page.goto('/review?inquiry=41');
+
+  await expect(page.getByText('저장해 둔 장면 제외 후보를 불러오지 못했습니다.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '이 장면 제외', exact: true })).toBeDisabled();
+
+  failing = false;
+  await page.getByRole('button', { name: '다시 불러오기' }).first().click();
+  await expect(page.getByRole('button', { name: '제외 취소', exact: true })).toBeEnabled();
+  await expect(page.getByText('저장해 둔 장면 제외 후보를 불러오지 못했습니다.')).toHaveCount(0);
+});
