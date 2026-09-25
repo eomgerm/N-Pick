@@ -32,13 +32,14 @@ import com.npick.feedback.application.error.ConfirmCorrectionErrorCode;
 import com.npick.feedback.application.port.CurrentCorrectionStatePort;
 import com.npick.feedback.domain.error.FeedbackErrorCode;
 import com.npick.support.NpickPostgres;
+import com.npick.tag.application.DiscardTagCorrectionUseCase;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doAnswer;
 
 /**
- * 검수 취소(claim 해제, S15P21A501-289)를 실제 PostgreSQL 로 검증한다. 대기 교정 후보 3종 폐기와 신고 초기화가 한 트랜잭션으로 일어나고, 확정·다른 검수자의 claim 과
- * 교정 상태 잠금·CAS 로 직렬화되는지 본다.
+ * 검수 취소(claim 해제, S15P21A501-289)를 실제 PostgreSQL 로 검증한다. 대기 교정 후보 3종 폐기와 신고 초기화가 한 트랜잭션으로 일어나고, 확정·다른 검수자의 claim 과 교정
+ * 상태 잠금·CAS 로 직렬화되는지 본다.
  */
 @SpringBootTest
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -75,6 +76,9 @@ class ReviewClaimReleaseDbTest {
     @MockitoSpyBean
     private CorrectionStateLock correctionStateLock;
 
+    @MockitoSpyBean
+    private DiscardTagCorrectionUseCase discardTagCorrection;
+
     @DynamicPropertySource
     static void provisionDatabase(DynamicPropertyRegistry properties) {
         String url = NpickPostgres.freshDatabase("npick_review_claim_release");
@@ -84,7 +88,7 @@ class ReviewClaimReleaseDbTest {
 
     @AfterEach
     void cleanup() {
-        Mockito.reset(correctionStateLock);
+        Mockito.reset(correctionStateLock, discardTagCorrection);
         jdbc.execute("TRUNCATE TABLE npick.member, npick.tag CASCADE");
     }
 
@@ -104,7 +108,8 @@ class ReviewClaimReleaseDbTest {
         assertThat(pendingRuleCount()).isZero();
         assertThat(pendingEvidenceCount()).isZero();
         // 이 신고와 무관한 기존 AI 근거는 건드리지 않는다.
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM npick.tag_evidence WHERE evidence_id = 7902", Integer.class))
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM npick.tag_evidence WHERE evidence_id = 7902", Integer.class))
                 .isEqualTo(1);
 
         claimInquiry.claim(FEEDBACK_ID, REVIEWER_B);
@@ -208,8 +213,8 @@ class ReviewClaimReleaseDbTest {
 
     @Test
     @Timeout(15)
-    @DisplayName("검수 취소 도중 다른 검수자의 claim 은 CAS 로 지고(FEEDBACK_409_001), 취소 커밋 뒤에는 claim 이 성공한다")
-    void claimDuringReleaseLosesThenSucceedsAfterCommit() throws Exception {
+    @DisplayName("검수 취소가 UPDATE 전(잠금만 잡음)이면 claim 은 아직 REVIEWING 을 보고 FEEDBACK_409_001 로 지고, 취소 커밋 뒤 재시도는 성공한다")
+    void claimBeforeReleaseUpdateLosesThenRetrySucceeds() throws Exception {
         seed();
         LockGate gate = gateFirst("release-first");
         ExecutorService executor = Executors.newFixedThreadPool(1);
@@ -217,16 +222,71 @@ class ReviewClaimReleaseDbTest {
             Future<ErrorCode> release = executor.submit(() -> named("release-first", () -> releaseAttempt(REVIEWER_A)));
             assertThat(gate.firstAcquired().await(5, TimeUnit.SECONDS)).isTrue();
 
-            // claim 은 교정 상태 잠금을 쓰지 않고 status='OPEN' CAS 만 건다. 취소가 커밋되기 전이라 아직 REVIEWING 이다.
+            // claim 은 교정 상태 잠금을 쓰지 않고 status='OPEN' CAS 만 건다. 취소의 UPDATE 전이라 행은 아직 REVIEWING 이다.
             assertThat(claimAttempt(REVIEWER_B)).isEqualTo(FeedbackErrorCode.ALREADY_CLAIMED);
 
             gate.releaseFirst().countDown();
             assertThat(release.get(5, TimeUnit.SECONDS)).isNull();
 
             assertThat(claimAttempt(REVIEWER_B)).isNull();
-            assertThat(((Number) feedbackRow().get("reviewed_by_id")).longValue()).isEqualTo(REVIEWER_B);
+            assertThat(((Number) feedbackRow().get("reviewed_by_id")).longValue())
+                    .isEqualTo(REVIEWER_B);
         } finally {
             gate.releaseFirst().countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @Timeout(15)
+    @DisplayName("검수 취소가 UPDATE 후 커밋 전이어도 claim 은 행 잠금을 기다리지 않고 FEEDBACK_409_001 로 지며, 취소 커밋 뒤 재시도는 성공한다")
+    void claimAfterReleaseUpdateBeforeCommitFailsFastThenRetrySucceeds() throws Exception {
+        seed();
+        CountDownLatch updated = new CountDownLatch(1);
+        CountDownLatch resume = new CountDownLatch(1);
+        // 취소는 CAS UPDATE 직후 후보 폐기를 호출한다. 그 지점에서 멈추면 feedback 행이 UPDATE 로 잠긴 채 커밋 전 상태가 된다.
+        doAnswer(invocation -> {
+                    if ("release-first".equals(Thread.currentThread().getName())) {
+                        updated.countDown();
+                        if (!resume.await(10, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("timed out while holding feedback row lock");
+                        }
+                    }
+                    return invocation.callRealMethod();
+                })
+                .when(discardTagCorrection)
+                .discardPending(FEEDBACK_ID);
+        ExecutorService executor = Executors.newFixedThreadPool(1);
+        try {
+            Future<ErrorCode> release = executor.submit(() -> named("release-first", () -> releaseAttempt(REVIEWER_A)));
+            assertThat(updated.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(jdbc.queryForObject(
+                            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+                                    + " AND state = 'idle in transaction' AND query ILIKE 'UPDATE feedback SET status = ''OPEN''%'",
+                            Integer.class))
+                    .isEqualTo(1);
+
+            // READ COMMITTED 에서 UPDATE 는 스냅샷의 커밋된 행 버전이 WHERE 를 만족할 때만 그 행의 잠금을 기다린다(EvalPlanQual).
+            // 커밋된 버전은 아직 REVIEWING 이라 claim 의 status='OPEN' 과 맞지 않으므로 대기 없이 0행 → 재조회도 REVIEWING(A) → 409.
+            long startedAt = System.nanoTime();
+            assertThat(claimAttempt(REVIEWER_B)).isEqualTo(FeedbackErrorCode.ALREADY_CLAIMED);
+            assertThat(TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startedAt))
+                    .isLessThan(3);
+            assertThat(release.isDone()).isFalse();
+
+            resume.countDown();
+            assertThat(release.get(5, TimeUnit.SECONDS)).isNull();
+
+            assertThat(claimAttempt(REVIEWER_B)).isNull();
+            Map<String, Object> row = feedbackRow();
+            assertThat(row.get("status")).isEqualTo("REVIEWING");
+            assertThat(((Number) row.get("reviewed_by_id")).longValue()).isEqualTo(REVIEWER_B);
+            assertThat(row.get("resolution")).isNull();
+            assertThat(row.get("resolution_note")).isNull();
+            assertThat(pendingRuleCount()).isZero();
+            assertThat(pendingEvidenceCount()).isZero();
+        } finally {
+            resume.countDown();
             executor.shutdownNow();
         }
     }

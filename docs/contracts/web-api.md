@@ -543,6 +543,7 @@ body는 생략하거나 다음처럼 보낸다.
 - 교정 후보가 있어도 취소할 수 있다. 이 문의 아래 **대기 중인 교정 후보를 모두 폐기**한다 — 미확정 태그 근거(`tag_evidence.confirmed=false`), 미확정 규칙 후보(`search_rule.active=false`의 `patch_parse`·`exclude_scene`). `no_action`·`deferred` 종료와 같은 폐기 경로다. 이미 확정된 근거·활성 규칙은 건드리지 않는다.
 - 신고는 `OPEN`으로 돌아가고 담당자(`reviewed_by`)·검수 시작 시각·처리 결과(`resolution`)·사유(`resolution_note`)를 비운다. 다음 검수자는 처음부터 판단한다. 과거 검증 재검색 실행 기록은 보존하지만 후보 폐기로 교정 상태 지문이 바뀌므로 확정 근거로 재사용되지 않는다.
 - 후보 폐기와 상태 복귀는 후보 생성·판정 변경·확정과 같은 교정 상태 잠금 안의 한 트랜잭션이다. 확정과 겹치면 먼저 잠금을 잡은 쪽이 끝난 뒤 다른 쪽이 최신 상태로 판정한다(확정이 먼저면 취소는 `FEEDBACK_409_003`, 취소가 먼저면 확정은 `CONFIRM_403_002`).
+- 다른 검수자의 `POST .../claim`은 교정 상태 잠금을 쓰지 않고 `status='OPEN'` CAS만 건다. 취소 트랜잭션이 **커밋되기 전**에 시작한 claim은 취소의 UPDATE 이전이든 이후든 대기 없이 `FEEDBACK_409_001`로 실패한다 — PostgreSQL READ COMMITTED에서 UPDATE는 커밋된 행 버전이 WHERE를 만족할 때만 행 잠금을 기다리는데, 커밋 전까지 커밋된 버전은 `REVIEWING`이라 `status='OPEN'`과 맞지 않기 때문이다. 취소 **커밋 후**의 claim(재시도 포함)은 성공한다. 어느 경우에도 이중 배정은 생기지 않는다.
 - `OPEN`이 되면 편집자의 문의 설명 수정(`PATCH /inquiries/{feedbackId}`)도 다시 가능해진다.
 - 성공은 `200`이고 claim과 같이 body에 `data`가 없다. FE는 상세·목록을 다시 조회해 갱신한다.
 
