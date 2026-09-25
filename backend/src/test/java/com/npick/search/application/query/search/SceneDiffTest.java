@@ -83,7 +83,8 @@ class SceneDiffTest {
             List<SearchCandidates.ScoredScene> scenes,
             List<ActiveSceneExclusionResult.ExcludedScene> appliedExcludes,
             FalseHitGuardResult guard) {
-        return new SearchCandidates(scenes, null, guard, appliedExcludes, null, List.of(), List.of(), List.of());
+        return new SearchCandidates(
+                scenes, null, guard, appliedExcludes, null, List.of(), List.of(), List.of(), List.of());
     }
 
     private static FalseHitGuardResult noGuardExclusions() {

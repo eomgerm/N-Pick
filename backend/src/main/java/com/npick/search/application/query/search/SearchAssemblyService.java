@@ -177,7 +177,8 @@ public class SearchAssemblyService implements ExecuteSearchUseCase, InterpretSea
         // 두 출처를 합치지 않고 끝까지 따로 들고 간다. 확장어도 근거 대조에는 넣되 (빼면 확장어로만 걸린
         // 장면의 matched_keywords 가 비어 「왜 나왔는지 모르는 결과」가 된다), 어느 것이 확장어였는지는
         // matched_keywords 의 origin 으로 구분해 싣는다 (web-api §5.1, F-05·F-07).
-        List<String> userTokens = resolved.normalization().searchTokens();
+        // 원 질의 토큰은 정규화 결과가 아니라 후보 조회가 실제로 건 것이다 — 범용어를 뺀 값 (S15P21A501-320).
+        List<String> userTokens = candidates.searchTokens();
         List<String> expandedTokens = candidates.expandedTokens();
         List<Long> resultIds = snapshotRecorded
                 ? completeRecord(

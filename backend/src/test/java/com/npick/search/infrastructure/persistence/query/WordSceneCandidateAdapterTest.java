@@ -319,7 +319,7 @@ class WordSceneCandidateAdapterTest {
     private WordSceneCandidateAdapter adapter(double caption, double transcript, double ocr, int poolSize) {
         return new WordSceneCandidateAdapter(
                 new NamedParameterJdbcTemplate(dataSource),
-                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, poolSize));
+                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, poolSize, List.of()));
     }
 
     private static List<Long> sceneIds(List<SceneCandidateResult> candidates) {

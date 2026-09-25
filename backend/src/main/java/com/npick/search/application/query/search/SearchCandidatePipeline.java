@@ -40,6 +40,7 @@ import com.npick.search.application.query.structured.StructuredScoresResult;
 import com.npick.search.application.resolution.SearchDegradedReason;
 import com.npick.search.domain.model.FusionChannel;
 import com.npick.search.domain.model.FusionSettings;
+import com.npick.search.domain.model.LexicalSearchSettings;
 import com.npick.search.domain.model.ShortageReason;
 import com.npick.tag.application.query.ResolveSceneTagsUseCase;
 import com.npick.tag.domain.model.EffectiveTag;
@@ -59,6 +60,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     private final FindDenseCandidatesQueryPort denseCandidates;
     private final ObjectProvider<DenseSearchSettings> denseSettings;
     private final FusionSettings fusionSettings;
+    private final LexicalSearchSettings lexicalSettings;
     private final ScoreStructuredScenesUseCase structuredScores;
     private final FuseSearchRankingUseCase fusion;
     private final AdjustSoftRankingUseCase softRanking;
@@ -73,6 +75,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
             FindDenseCandidatesQueryPort denseCandidates,
             ObjectProvider<DenseSearchSettings> denseSettings,
             FusionSettings fusionSettings,
+            LexicalSearchSettings lexicalSettings,
             ScoreStructuredScenesUseCase structuredScores,
             FuseSearchRankingUseCase fusion,
             AdjustSoftRankingUseCase softRanking,
@@ -85,6 +88,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         this.denseCandidates = denseCandidates;
         this.denseSettings = denseSettings;
         this.fusionSettings = fusionSettings;
+        this.lexicalSettings = lexicalSettings;
         this.structuredScores = structuredScores;
         this.fusion = fusion;
         this.softRanking = softRanking;
@@ -104,8 +108,12 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     public SearchCandidates rank(Query query) {
         List<SearchDegradedReason> degraded = new ArrayList<>();
 
-        List<List<String>> expandedPhrases = expandedPhrases(query);
-        List<SceneCandidateResult> lexical = lexical(query, expandedPhrases);
+        // 범용어를 뺀 토큰을 조회·근거 설명이 함께 쓴다 (S15P21A501-320). 조회에서만 빼면 캡션의 「장면」 이
+        // matched_keywords 에 떠서, 그 말 때문에 나온 것처럼 보인다.
+        List<String> searchTokens =
+                lexicalSettings.searchQueryTokens(query.normalization().searchTokens());
+        List<List<String>> expandedPhrases = expandedPhrases(query, searchTokens);
+        List<SceneCandidateResult> lexical = lexical(searchTokens, expandedPhrases);
         DenseCandidatesResult dense = dense(query, degraded);
 
         StructuredScoresResult structured = structuredScores.score(
@@ -136,7 +144,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                 fused.config(),
                 degraded,
                 shortageReasons(scenes.size(), guarded, excluded),
-                flattenForEvidence(query, expandedPhrases),
+                searchTokens,
+                flattenForEvidence(searchTokens, expandedPhrases),
                 excluded.hasMore());
     }
 
@@ -148,11 +157,11 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      *
      * <p>dense 와 달리 사유를 남기지 않는다. 끈 채널은 장애가 아니고, 설정으로 끈 것을 사용자에게 「일부 기능 누락」으로 안내하면 매 검색이 degraded 가 된다.
      */
-    private List<SceneCandidateResult> lexical(Query query, List<List<String>> expandedPhrases) {
+    private List<SceneCandidateResult> lexical(List<String> searchTokens, List<List<String>> expandedPhrases) {
         if (!fusionSettings.isActive(FusionChannel.LEXICAL)) {
             return List.of();
         }
-        return lexicalCandidates.findByWords(query.normalization().searchTokens(), expandedPhrases);
+        return lexicalCandidates.findByWords(searchTokens, expandedPhrases);
     }
 
     /**
@@ -187,17 +196,20 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      * 겹치는 묶음은 <b>통째로 남긴다</b> — 구에서 토큰 하나를 빼면 {@code must} 가 그만큼 헐거워져 이 티켓이 없애려는 넓은 매칭이 되살아난다.
      *
      * <p>규칙 적용 <b>뒤</b>의 확장어를 토큰화한다. 교정으로 검수자가 넣은 값은 리졸버가 모르고, 백엔드에는 Kiwi 가 없다 (S15P21A501-205 의 창구).
+     *
+     * <p>범용어는 원 질의와 겹치는지 보기 <b>전에</b> 뺀다 (S15P21A501-320). 「화재 장면」 에 확장어 「화재 장면」 이 오면 범용어를 뺀 뒤 둘 다 {@code 화재} 라 같은 절이 두
+     * 번 가산되지 않는다.
      */
-    private List<List<String>> expandedPhrases(Query query) {
+    private List<List<String>> expandedPhrases(Query query, List<String> searchTokens) {
         if (query.finalResolution() == null
                 || query.finalResolution().expandedTerms().isEmpty()) {
             return List.of();
         }
-        Set<String> queryTokens = Set.copyOf(query.normalization().searchTokens());
-        return expandedTerms
-                .tokenize(
+        Set<String> queryTokens = Set.copyOf(searchTokens);
+        return lexicalSettings
+                .searchPhrases(expandedTerms.tokenize(
                         query.finalResolution().expandedTerms(),
-                        query.normalization().normalizationVersion())
+                        query.normalization().normalizationVersion()))
                 .stream()
                 .filter(phrase -> !queryTokens.containsAll(phrase))
                 .toList();
@@ -209,9 +221,9 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
      *
      * <p>원 질의와 겹치는 토큰은 조립이 {@code distinct} 로 합치므로 여기서 다시 뺄 필요는 없지만, 「확장어가 기여한 토큰」이라는 의미를 유지하려고 뺀다.
      */
-    private static List<String> flattenForEvidence(Query query, List<List<String>> phrases) {
+    private static List<String> flattenForEvidence(List<String> searchTokens, List<List<String>> phrases) {
         if (phrases.isEmpty()) return List.of();
-        Set<String> queryTokens = Set.copyOf(query.normalization().searchTokens());
+        Set<String> queryTokens = Set.copyOf(searchTokens);
         return phrases.stream()
                 .flatMap(List::stream)
                 .filter(token -> !queryTokens.contains(token))
