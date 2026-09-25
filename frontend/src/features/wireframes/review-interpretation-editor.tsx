@@ -19,15 +19,18 @@ import {
   draftLimitStatus,
   MAX_PARSE_RULE_DRAFTS,
 } from '@/features/wireframes/parse-rule-draft-limit';
+import { ruleIdempotencyKey } from '@/features/wireframes/parse-rule-idempotency';
+import { PreviousParseCandidatesNotice } from '@/features/wireframes/previous-parse-candidates-notice';
+import { correctionCandidatesQueryKey } from '@/features/wireframes/review-inquiry-api';
 import {
   createParsePatchCandidate,
   discardParsePatchCandidate,
   parseRuleErrorMessage,
   resolutionAxisLabels,
   validateParseRuleBody,
-  type ParseRuleCandidateBody,
 } from '@/features/wireframes/review-parse-rule-api';
 import { parseResolution } from '@/features/wireframes/reviewer-resolution-state';
+import { useCorrectionCandidates } from '@/features/wireframes/use-correction-candidates';
 import styles from '@/features/wireframes/review-interpretation-editor.module.css';
 import { ApiClientError } from '@/lib/api/error';
 
@@ -60,24 +63,6 @@ function computeGuard(original: Chip[]): { axis: EditableAxis; value: string } |
   return null;
 }
 
-/**
- * 규칙 내용으로부터 결정론적 멱등성 키를 만든다. 같은 내용은 매번 같은 키가 되어, 중간 실패 뒤
- * 재시도해도 이미 만든 후보를 새로 만들지 않고 서버가 기존 후보를 그대로 돌려준다 — 재시도마다 후보가
- * 쌓여 신고당 후보 상한(SRCH_409_204)에 닿는 것을 막는다.
- */
-async function ruleIdempotencyKey(
-  feedbackId: string,
-  body: ParseRuleCandidateBody,
-): Promise<string> {
-  const bytes = new TextEncoder().encode(`${feedbackId}:${JSON.stringify(body)}`);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
-  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
-    '',
-  );
-  // 서버 상한은 64자 (docs/contracts/web-api.md); 'parse:' 접두 + 48자 해시로 여유 있게 맞춘다.
-  return `parse:${hex.slice(0, 48)}`;
-}
-
 export function ParseInterpretationEditor({
   feedbackId,
   parsedQueryJson,
@@ -95,7 +80,10 @@ export function ParseInterpretationEditor({
   // 서버에 이 화면이 보낸 후보가 남아 있을 수 있는지. POST 를 보내는 순간 참이 된다 — 서버가 저장했는데
   // 응답만 유실되거나 여러 건 중 일부만 저장되고 실패해도, 그 뒤 편집하면 이전 후보를 폐기하기 위함이다.
   // 일괄 폐기 DELETE 는 멱등이라 실제로 남은 후보가 없어도 무해하다. 폐기가 성공했을 때만 거짓으로 돌린다.
+  // 새로고침 뒤에는 서버의 대기 후보 목록으로 이를 안다 (S15P21A501-317, 아래 previousCount).
   const mayHaveServerCandidates = useRef(false);
+  const candidates = useCorrectionCandidates(feedbackId, true);
+  const previousCount = candidates.data?.parsePatches.length ?? 0;
   const suppressBlur = useRef(false);
 
   const guard = computeGuard(originalChips);
@@ -172,14 +160,17 @@ export function ParseInterpretationEditor({
       // 담은 뒤에도 편집 상태를 그대로 둔다 — '바뀌는 점'이 남아 무엇을 담았는지 계속 보인다.
       // 재클릭해도 규칙별 결정적 idempotency key 로 서버가 같은 후보를 돌려주어 중복이 생기지 않는다.
       queryClient.invalidateQueries({ queryKey: ['review-inquiry', feedbackId] });
+      return queryClient.invalidateQueries({ queryKey: correctionCandidatesQueryKey(feedbackId) });
     },
   });
 
+  // 폐기 뒤 대기 후보를 다시 읽을 때까지 진행 중으로 둔다 — 옛 건수로 다시 폐기하지 않게 한다.
   const discard = useMutation({
     mutationKey: ['parse-patch-discard', feedbackId],
     mutationFn: () => discardParsePatchCandidate(feedbackId),
     onSuccess: () => {
       mayHaveServerCandidates.current = false;
+      return queryClient.invalidateQueries({ queryKey: correctionCandidatesQueryKey(feedbackId) });
     },
   });
 
@@ -187,14 +178,15 @@ export function ParseInterpretationEditor({
   // 내용을 가리키고, 이전 후보 폐기가 아직 끝나지 않은 POST 와 엇갈린다 — 그동안 편집을 잠근다.
   // 검증 재검색 중에도 잠가, 검증 대상 후보가 도중에 바뀌지 않게 한다 (S15P21A501-317).
   const verifyPending = useIsMutating({ mutationKey: ['verification-run', feedbackId] }) > 0;
-  const locked = save.isPending || verifyPending;
+  // 대기 후보를 아직 못 읽었으면(조회 중·실패) 서버에 남은 교정을 모르므로 편집도 잠근다.
+  const locked = save.isPending || verifyPending || !candidates.isSuccess;
 
   // 저장을 시도한 뒤(성공·일부 성공·응답 유실 포함) 다시 편집하면 서버에 남았을 수 있는 이전 후보를
   // 모두 폐기한다. 그러지 않으면 다음 저장이 새 후보를 더 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서
   // 이미 고친 이전 후보가 새 후보와 함께 검증·확정된다. 폐기가 실패하면 표시가 남아 다음 편집에서도 다시
   // 폐기하고, 저장은 폐기가 성공할 때까지 막힌다.
   function resetAfterSave() {
-    if (!mayHaveServerCandidates.current) return;
+    if (!mayHaveServerCandidates.current && previousCount === 0) return;
     save.reset();
     discard.mutate();
   }
@@ -329,6 +321,13 @@ export function ParseInterpretationEditor({
       <section className={styles.card}>
         <h3 className={styles.heading}>검색 해석 교정</h3>
         <p className={styles.hint}>칩을 클릭해 값 수정 · ×로 삭제 · 다른 항목으로 끌어 이동</p>
+        <PreviousParseCandidatesNotice
+          count={previousCount}
+          isBusy={locked || discard.isPending}
+          isError={candidates.isError}
+          onDiscard={() => discard.mutate()}
+          onRetry={() => void candidates.refetch()}
+        />
 
         <div className={styles.rows}>
           {EDITABLE_AXES.map((axis) => (
