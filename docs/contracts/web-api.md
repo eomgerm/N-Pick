@@ -30,6 +30,7 @@
 | 검수 문의 목록             | GET    | `/review/inquiries`                         | BE 구현   | 검수 게시판 바인딩                  |
 | 검수 문의 상세             | GET    | `/review/inquiries/{feedbackId}`            | BE 구현   | 검수 상세 바인딩                    |
 | 검수 시작                  | POST   | `/review/inquiries/{feedbackId}/claim`      | BE 구현   | 검수 흐름 바인딩                    |
+| 검수 취소                  | DELETE | `/review/inquiries/{feedbackId}/claim`      | BE 구현   | 검수 취소 버튼 바인딩               |
 | 처리 결과 선택             | PUT    | `/review/inquiries/{feedbackId}/resolution` | BE 구현   | 검수 흐름 바인딩                    |
 | 내 문의 기록 목록          | GET    | `/inquiries`                                | 연결됨    | 없음                               |
 | 내 문의 기록 상세          | GET    | `/inquiries/{feedbackId}`                   | 연결됨    | 없음                               |
@@ -533,6 +534,24 @@ body는 생략하거나 다음처럼 보낸다.
 - 선택 header: `Idempotency-Key`
 - 같은 검수자가 이미 잡은 `REVIEWING` 문의의 재요청은 성공한다.
 - 다른 검수자가 잡았거나 종료된 문의는 `FEEDBACK_409_001`이다.
+
+`DELETE /review/inquiries/{feedbackId}/claim` (검수 취소, S15P21A501-289)
+
+담당 검수자가 잡은 검수를 풀어 문의를 검수 전 상태로 되돌린다. 다른 검수자가 이어서 `POST .../claim`으로 정상 시작할 수 있다.
+
+- 담당 검수자 본인(`REVIEWING`이고 `reviewed_by = 나`)만 취소할 수 있다. 판정은 CAS로 한다.
+- 교정 후보가 있어도 취소할 수 있다. 이 문의 아래 **대기 중인 교정 후보를 모두 폐기**한다 — 미확정 태그 근거(`tag_evidence.confirmed=false`), 미확정 규칙 후보(`search_rule.active=false`의 `patch_parse`·`exclude_scene`). `no_action`·`deferred` 종료와 같은 폐기 경로다. 이미 확정된 근거·활성 규칙은 건드리지 않는다.
+- 신고는 `OPEN`으로 돌아가고 담당자(`reviewed_by`)·검수 시작 시각·처리 결과(`resolution`)·사유(`resolution_note`)를 비운다. 다음 검수자는 처음부터 판단한다. 과거 검증 재검색 실행 기록은 보존하지만 후보 폐기로 교정 상태 지문이 바뀌므로 확정 근거로 재사용되지 않는다.
+- 후보 폐기와 상태 복귀는 후보 생성·판정 변경·확정과 같은 교정 상태 잠금 안의 한 트랜잭션이다. 확정과 겹치면 먼저 잠금을 잡은 쪽이 끝난 뒤 다른 쪽이 최신 상태로 판정한다(확정이 먼저면 취소는 `FEEDBACK_409_003`, 취소가 먼저면 확정은 `CONFIRM_403_002`).
+- `OPEN`이 되면 편집자의 문의 설명 수정(`PATCH /inquiries/{feedbackId}`)도 다시 가능해진다.
+- 성공은 `200`이고 claim과 같이 body에 `data`가 없다. FE는 상세·목록을 다시 조회해 갱신한다.
+
+| 오류               | HTTP | 의미                                      |
+| ------------------ | ---- | ----------------------------------------- |
+| `COMM_403`         | 403  | 검수자 역할 아님                          |
+| `FEEDBACK_403_002` | 403  | 담당 검수자 아님                          |
+| `FEEDBACK_404_002` | 404  | 문의 없음                                 |
+| `FEEDBACK_409_003` | 409  | 검수 중이 아님(이미 취소·종료됨, 경합 포함) |
 
 `PUT /review/inquiries/{feedbackId}/resolution`
 
