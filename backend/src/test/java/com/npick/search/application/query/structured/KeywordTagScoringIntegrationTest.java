@@ -86,6 +86,45 @@ class KeywordTagScoringIntegrationTest {
     }
 
     @Test
+    void keywordTagDoesNotSatisfyEntityAxisCondition() {
+        // 반대 방향: 사건 조건 전세사기는 같은 값의 keyword 태그(장면 33)로 채워지지 않는다 (고유 조건 = 타입 + 값, F-05).
+        var result = scoring.score(new ScoreStructuredScenesQuery(incident("전세 사기"), List.of(), List.of(), List.of()));
+
+        assertThat(result.scenes())
+                .extracting(StructuredScoresResult.SceneScore::sceneId)
+                .doesNotContain(33L);
+        assertThat(result.scenes()).isEmpty();
+    }
+
+    @Test
+    void keywordAdmittedSceneGetsNoEntityAxisCreditFromKeywordTag() {
+        // 키워드로 들어온 장면 33 이라도 사건 축 점수는 keyword 태그로 받지 않는다 — 가산점만 붙는다.
+        var result = scoring.score(
+                new ScoreStructuredScenesQuery(incident("전세 사기"), List.of(), List.of("전세/nng", "사기/nng"), List.of()));
+
+        assertThat(result.scenes()).singleElement().satisfies(scene -> {
+            assertThat(scene.sceneId()).isEqualTo(33);
+            assertThat(scene.denominator()).isEqualTo(1);
+            assertThat(scene.axes().getFirst().axis()).isEqualTo(StructuredAxis.EVENT);
+            assertThat(scene.axes().getFirst().contribution()).isZero();
+            assertThat(scene.score()).isCloseTo(0.5 / 3, within(1e-12));
+        });
+    }
+
+    private static QueryResolution incident(String name) {
+        return new QueryResolution(
+                "query-resolver/v2",
+                QueryResolution.Intent.SCENE_SEARCH,
+                List.of(),
+                List.of(new QueryResolution.IncidentName(name, QueryResolution.Origin.EXPLICIT_QUERY, null, 1)),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                1);
+    }
+
+    @Test
     void eventAxisScoreIsKeptAndKeywordBonusIsAdded() {
         // 사건 태그로 1.0 인 장면 30 에 키워드 포항이 더해진다. 가중평균이었다면 분모가 늘어 1.0 아래로 떨어진다.
         var event = new QueryResolution(
