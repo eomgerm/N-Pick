@@ -24,7 +24,11 @@ import com.npick.tag.application.DiscardTagCorrectionUseCase;
 
 @Service
 public class InquiryReviewService
-        implements ListInquiriesUseCase, GetInquiryDetailUseCase, ClaimInquiryUseCase, ResolveInquiryUseCase {
+        implements ListInquiriesUseCase,
+                GetInquiryDetailUseCase,
+                ClaimInquiryUseCase,
+                ReleaseInquiryClaimUseCase,
+                ResolveInquiryUseCase {
 
     private final InquiryListQuery listQuery;
     private final InquiryDetailQuery detailQuery;
@@ -80,6 +84,33 @@ public class InquiryReviewService
                 throw new FeedbackException(FeedbackErrorCode.ALREADY_CLAIMED);
             }
         }
+    }
+
+    /**
+     * 검수를 취소해 claim 을 풀고 문의를 검수 전(open)으로 되돌린다(S15P21A501-289, F-09). 담당 검수자 본인만 풀 수 있다.
+     *
+     * <p>검수 중 만든 대기 교정 후보(태그 근거·patch_parse·exclude_scene)는 이 담당자의 작업이라 함께 폐기한다 — 남기면 다음 검수자가 모르는 후보가 검증·확정에 섞인다. 처리
+     * 결과·사유·시작 시각도 비워 다음 검수자가 처음부터 판단하게 한다. 후보 생성·판정 변경·확정과 같은 교정 상태 잠금 안에서 CAS 와 폐기를 한 트랜잭션으로 처리해 부분 상태(후보만 지워지고 claim
+     * 은 남음 등)와 확정과의 끼어들기를 막는다.
+     */
+    @Override
+    @Transactional
+    public void release(long feedbackId, long reviewerId) {
+        correctionStateLock.acquire();
+        Feedback feedback = repository
+                .findById(feedbackId)
+                .orElseThrow(() -> new FeedbackException(FeedbackErrorCode.FEEDBACK_NOT_FOUND));
+        if (feedback.status() != FeedbackStatus.REVIEWING) {
+            throw new FeedbackException(FeedbackErrorCode.NOT_RESOLVABLE);
+        }
+        if (feedback.reviewedById() == null || feedback.reviewedById() != reviewerId) {
+            throw new FeedbackException(FeedbackErrorCode.NOT_REVIEWER);
+        }
+        if (repository.release(feedbackId, reviewerId, Instant.now()) == 0) {
+            throw new FeedbackException(FeedbackErrorCode.NOT_RESOLVABLE); // 조회~갱신 사이 경합
+        }
+        discardTagCorrection.discardPending(feedbackId);
+        discardSearchRuleCandidates.discardPending(feedbackId);
     }
 
     /**

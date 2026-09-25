@@ -34,8 +34,11 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -203,6 +206,68 @@ class ReviewInquiryControllerTest {
                         .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
                         .with(csrf()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("담당 검수자는 검수를 취소한다(200, data 없음)")
+    void reviewerReleasesClaim() throws Exception {
+        mockMvc.perform(delete("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.data").doesNotExist());
+        verify(reviewService).release(1L, 200L);
+    }
+
+    @Test
+    @DisplayName("편집기자는 검수 취소 접근이 403(COMM_403)")
+    void editorForbiddenOnRelease() throws Exception {
+        mockMvc.perform(delete("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(20L, "editor01", "h", "EDITOR")))
+                        .with(csrf()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("COMM_403"));
+        verify(reviewService, never()).release(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("담당이 아닌 검수자의 검수 취소는 403(FEEDBACK_403_002)")
+    void nonAssignedReviewerReleaseIs403() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.NOT_REVIEWER))
+                .given(reviewService)
+                .release(anyLong(), anyLong());
+        mockMvc.perform(delete("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
+                        .with(csrf()))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FEEDBACK_403_002"));
+    }
+
+    @Test
+    @DisplayName("검수 중이 아닌 문의의 검수 취소는 409(FEEDBACK_409_003)")
+    void releaseNotReviewingIs409() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.NOT_RESOLVABLE))
+                .given(reviewService)
+                .release(anyLong(), anyLong());
+        mockMvc.perform(delete("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
+                        .with(csrf()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("FEEDBACK_409_003"));
+    }
+
+    @Test
+    @DisplayName("없는 문의의 검수 취소는 404(FEEDBACK_404_002)")
+    void releaseNotFoundIs404() throws Exception {
+        willThrow(new FeedbackException(FeedbackErrorCode.FEEDBACK_NOT_FOUND))
+                .given(reviewService)
+                .release(anyLong(), anyLong());
+        mockMvc.perform(delete("/api/v1/review/inquiries/1/claim")
+                        .with(user(new AuthenticatedMember(200L, "reviewer01", "h", "REVIEWER")))
+                        .with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("FEEDBACK_404_002"));
     }
 
     private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder resolvePut(String body) {

@@ -2,6 +2,7 @@ package com.npick.feedback.presentation;
 
 import jakarta.validation.Valid;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,6 +19,7 @@ import com.npick.common.security.resolver.LoginMember;
 import com.npick.feedback.application.ClaimInquiryUseCase;
 import com.npick.feedback.application.GetInquiryDetailUseCase;
 import com.npick.feedback.application.ListInquiriesUseCase;
+import com.npick.feedback.application.ReleaseInquiryClaimUseCase;
 import com.npick.feedback.application.ResolveInquiryUseCase;
 import com.npick.feedback.presentation.request.ResolveInquiryRequest;
 import com.npick.feedback.presentation.response.InquiryDetailResponse;
@@ -30,16 +32,19 @@ public class ReviewInquiryController {
     private final ListInquiriesUseCase listInquiriesUseCase;
     private final GetInquiryDetailUseCase getInquiryDetailUseCase;
     private final ClaimInquiryUseCase claimInquiryUseCase;
+    private final ReleaseInquiryClaimUseCase releaseInquiryClaimUseCase;
     private final ResolveInquiryUseCase resolveInquiryUseCase;
 
     public ReviewInquiryController(
             ListInquiriesUseCase listInquiriesUseCase,
             GetInquiryDetailUseCase getInquiryDetailUseCase,
             ClaimInquiryUseCase claimInquiryUseCase,
+            ReleaseInquiryClaimUseCase releaseInquiryClaimUseCase,
             ResolveInquiryUseCase resolveInquiryUseCase) {
         this.listInquiriesUseCase = listInquiriesUseCase;
         this.getInquiryDetailUseCase = getInquiryDetailUseCase;
         this.claimInquiryUseCase = claimInquiryUseCase;
+        this.releaseInquiryClaimUseCase = releaseInquiryClaimUseCase;
         this.resolveInquiryUseCase = resolveInquiryUseCase;
     }
 
@@ -67,6 +72,13 @@ public class ReviewInquiryController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @LoginMember CurrentMember member) {
         claimInquiryUseCase.claim(feedbackId, member.memberId());
+        return ApiResponse.success();
+    }
+
+    // 검수 취소(S15P21A501-289). claim 을 풀고 대기 교정 후보를 폐기해 open 으로 되돌린다. 응답은 claim 과 같이 data 가 없다.
+    @DeleteMapping("/inquiries/{feedbackId}/claim")
+    public ApiResponse<Void> release(@PathVariable long feedbackId, @LoginMember CurrentMember member) {
+        releaseInquiryClaimUseCase.release(feedbackId, member.memberId());
         return ApiResponse.success();
     }
 

@@ -24,6 +24,7 @@ import com.npick.tag.application.DiscardTagCorrectionUseCase;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
@@ -338,5 +339,63 @@ class InquiryReviewServiceTest {
         FeedbackException ex =
                 catchThrowableOfType(FeedbackException.class, () -> service.resolve(1L, 9L, "patch_parse", null));
         assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOT_RESOLVABLE);
+    }
+
+    @Test
+    @DisplayName("검수 취소는 잠금 후 상태를 확인하고 CAS 해제 뒤 대기 후보를 모두 폐기한다")
+    void releaseLocksReleasesAndDiscardsPendingCandidates() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.release(eq(1L), eq(9L), org.mockito.ArgumentMatchers.any()))
+                .willReturn(1);
+
+        service.release(1L, 9L);
+
+        var ordered = inOrder(correctionStateLock, repository, discardTagCorrection, discardSearchRuleCandidates);
+        ordered.verify(correctionStateLock).acquire();
+        ordered.verify(repository).findById(1L);
+        ordered.verify(repository).release(eq(1L), eq(9L), org.mockito.ArgumentMatchers.any());
+        ordered.verify(discardTagCorrection).discardPending(1L);
+        ordered.verify(discardSearchRuleCandidates).discardPending(1L);
+    }
+
+    @Test
+    @DisplayName("없는 문의의 검수 취소는 404(FEEDBACK_NOT_FOUND)")
+    void releaseNotFound() {
+        given(repository.findById(1L)).willReturn(Optional.empty());
+        FeedbackException ex = catchThrowableOfType(FeedbackException.class, () -> service.release(1L, 9L));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.FEEDBACK_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("reviewing이 아닌 문의의 검수 취소는 409(NOT_RESOLVABLE)이고 후보를 건드리지 않는다")
+    void releaseRejectsWhenNotReviewing() {
+        given(repository.findById(1L)).willReturn(Optional.of(Feedback.open(5L, 20L, null)));
+        FeedbackException ex = catchThrowableOfType(FeedbackException.class, () -> service.release(1L, 9L));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOT_RESOLVABLE);
+        verify(repository, never()).release(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(discardTagCorrection, never()).discardPending(anyLong());
+        verify(discardSearchRuleCandidates, never()).discardPending(anyLong());
+    }
+
+    @Test
+    @DisplayName("담당 검수자가 아니면 검수 취소는 403(NOT_REVIEWER)이고 후보를 건드리지 않는다")
+    void releaseRejectsNonAssignedReviewer() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(7L)));
+        FeedbackException ex = catchThrowableOfType(FeedbackException.class, () -> service.release(1L, 9L));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOT_REVIEWER);
+        verify(repository, never()).release(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(discardTagCorrection, never()).discardPending(anyLong());
+    }
+
+    @Test
+    @DisplayName("CAS 0행(조회~해제 사이 경합)이면 409(NOT_RESOLVABLE)이고 후보를 폐기하지 않는다")
+    void releaseLostRaceConflict() {
+        given(repository.findById(1L)).willReturn(Optional.of(reviewing(9L)));
+        given(repository.release(eq(1L), eq(9L), org.mockito.ArgumentMatchers.any()))
+                .willReturn(0);
+        FeedbackException ex = catchThrowableOfType(FeedbackException.class, () -> service.release(1L, 9L));
+        assertThat(ex.errorCode()).isEqualTo(FeedbackErrorCode.NOT_RESOLVABLE);
+        verify(discardTagCorrection, never()).discardPending(anyLong());
+        verify(discardSearchRuleCandidates, never()).discardPending(anyLong());
     }
 }
