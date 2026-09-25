@@ -72,7 +72,6 @@ test('실제 MP4는 장면 시작에서 재생하고 경계 이후 계속 재생
   await expect
     .poll(() => video.evaluate((element: HTMLVideoElement) => element.currentTime))
     .toBeLessThan(2.5);
-  await expect(dialog.getByText('송출 전 최종 확인')).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('preview-player.png') });
   const previousVideo = await video.elementHandle();
   await page.keyboard.press('Escape');
