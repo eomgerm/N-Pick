@@ -195,6 +195,10 @@ final class StructuredScoreCalculator {
 
     private static boolean matches(TagCondition condition, EffectiveTag tag) {
         // matchValue는 #161·#169가 제공한 정규화 정본이다. 별칭 확장이나 검증 상태 승격을 하지 않는다.
+        if (condition.ignoreCase()) {
+            // 키워드 조건 (S15P21A501-321). 두 끝이 같으므로 한 값과 비교한다. SQL 의 lower() 비교와 짝이다.
+            return tag.matchValue().equalsIgnoreCase(condition.fromInclusive());
+        }
         return tag.matchValue().compareTo(condition.fromInclusive()) >= 0
                 && tag.matchValue().compareTo(condition.toInclusive()) <= 0;
     }

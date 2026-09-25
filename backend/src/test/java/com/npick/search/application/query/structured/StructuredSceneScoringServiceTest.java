@@ -307,9 +307,9 @@ class StructuredSceneScoringServiceTest {
         assertThat(scene.keyword().matchedTags()).containsExactly(matched);
         verify(candidates)
                 .find(List.of(
-                        TagCondition.exact(TagType.KEYWORD, "전세"),
-                        TagCondition.exact(TagType.KEYWORD, "사기"),
-                        TagCondition.exact(TagType.KEYWORD, "전세사기")));
+                        TagCondition.exactIgnoreCase(TagType.KEYWORD, "전세"),
+                        TagCondition.exactIgnoreCase(TagType.KEYWORD, "사기"),
+                        TagCondition.exactIgnoreCase(TagType.KEYWORD, "전세사기")));
     }
 
     @Test

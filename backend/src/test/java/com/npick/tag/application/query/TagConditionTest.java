@@ -85,4 +85,35 @@ class TagConditionTest {
         assertThatThrownBy(() -> new TagCondition(TagType.EVENT, " ", " ")).isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> new TagCondition(null, "a", "a")).isInstanceOf(BusinessException.class);
     }
+
+    @Test
+    @DisplayName("대소문자 무시 조건은 정규화된 한 값에 플래그를 세운다 (S15P21A501-321)")
+    void exactIgnoreCaseSetsFlag() {
+        var condition = TagCondition.exactIgnoreCase(TagType.KEYWORD, " Ｋ Ｂ Ｓ ");
+
+        assertThat(condition.fromInclusive()).isEqualTo("KBS");
+        assertThat(condition.toInclusive()).isEqualTo("KBS");
+        assertThat(condition.ignoreCase()).isTrue();
+        assertThat(condition).isNotEqualTo(TagCondition.exact(TagType.KEYWORD, "KBS"));
+    }
+
+    @Test
+    @DisplayName("기존 3인자 생성과 exact·dates 는 대소문자를 구분한다 - 개체 축과 날짜는 그대로 정확 일치다")
+    void threeArgumentConstructorKeepsCaseSensitivity() {
+        assertThat(new TagCondition(TagType.EVENT, "a", "a").ignoreCase()).isFalse();
+        assertThat(TagCondition.exact(TagType.EVENT, "포항지진").ignoreCase()).isFalse();
+        assertThat(TagCondition.dates(
+                                TagType.BROADCAST_DATE, LocalDate.parse("2026-03-01"), LocalDate.parse("2026-04-01"))
+                        .ignoreCase())
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("대소문자 무시는 범위와 함께 쓸 수 없다 - 대소문자를 접은 사전순 범위는 정의하지 않는다")
+    void rejectsIgnoreCaseRange() {
+        assertThatThrownBy(() -> new TagCondition(TagType.KEYWORD, "a", "b", true))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        failure -> assertThat(failure.errorCode().code()).isEqualTo("TAG_500_002"));
+    }
 }

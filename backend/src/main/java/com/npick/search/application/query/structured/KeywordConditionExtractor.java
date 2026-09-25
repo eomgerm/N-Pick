@@ -1,7 +1,7 @@
 package com.npick.search.application.query.structured;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -21,6 +21,9 @@ import com.npick.tag.domain.model.TagType;
  * <p>순서가 곧 상한이 자르는 우선순위다 — 질의 명사(단독 → 인접 2개 → 인접 3개) 다음에 확장어 명사. 확장어 조건은 편입 전용이며 점수를 받지 않는다 (S15P21A501-48).
  *
  * <p>값은 태그 {@code match_value} 와 같은 {@link TagMatchValue#normalize} 로 접는다. 판정 규칙을 둘로 만들지 않는다 (S15P21A501-169).
+ *
+ * <p>조건은 대소문자를 무시한다({@link TagCondition#exactIgnoreCase}). 워커가 질의 토큰을 소문자로 접으므로({@code kbs/sl}) 그렇지 않으면 대문자로 저장된
+ * {@code KBS} 태그에 닿지 못한다. 같은 이유로 중복 제거도 대소문자를 무시한다 — {@code kbs} 와 전각에서 접힌 {@code KBS} 가 둘이면 분모가 부푼다.
  */
 final class KeywordConditionExtractor {
 
@@ -52,48 +55,49 @@ final class KeywordConditionExtractor {
         if (!settings.enabled()) {
             return Conditions.NONE;
         }
-        LinkedHashSet<String> queryValues = values(searchTokens, settings);
-        var expandedValues = new LinkedHashSet<String>();
+        var queryValues = new LinkedHashMap<String, String>();
+        addValues(queryValues, searchTokens, settings);
+        var expandedValues = new LinkedHashMap<String, String>();
         for (List<String> phrase : expandedPhrases) {
-            expandedValues.addAll(values(phrase, settings));
+            addValues(expandedValues, phrase, settings);
         }
         // 상한으로 잘린 질의 명사도 확장어로 되살리지 않는다 — 사용자가 친 말을 확장어 출처로 표시하게 된다.
-        expandedValues.removeAll(queryValues);
-        List<TagCondition> query = queryValues.stream()
+        expandedValues.keySet().removeAll(queryValues.keySet());
+        List<TagCondition> query = queryValues.values().stream()
                 .limit(settings.conditionCap())
-                .map(value -> TagCondition.exact(TagType.KEYWORD, value))
+                .map(value -> TagCondition.exactIgnoreCase(TagType.KEYWORD, value))
                 .toList();
-        List<TagCondition> expanded = expandedValues.stream()
+        List<TagCondition> expanded = expandedValues.values().stream()
                 .limit(Math.max(0, settings.conditionCap() - query.size()))
-                .map(value -> TagCondition.exact(TagType.KEYWORD, value))
+                .map(value -> TagCondition.exactIgnoreCase(TagType.KEYWORD, value))
                 .toList();
         return new Conditions(query, expanded);
     }
 
-    /** 단독 → 인접 2개 → 인접 3개 순. 빈 값과 제외 목록 값은 버린다. */
-    private static LinkedHashSet<String> values(List<String> tokens, KeywordTagSettings settings) {
+    /** 단독 → 인접 2개 → 인접 3개 순으로 {@code values} 에 더한다. 빈 값과 제외 목록 값은 버린다. 키는 소문자 값이고, 같은 키가 이미 있으면 먼저 본 표기를 남긴다. */
+    private static void addValues(
+            LinkedHashMap<String, String> values, List<String> tokens, KeywordTagSettings settings) {
         List<List<String>> runs = nounRuns(tokens, settings);
-        var values = new LinkedHashSet<String>();
         for (int width = 1; width <= MAX_JOINED; width++) {
             for (List<String> run : runs) {
                 for (int start = 0; start + width <= run.size(); start++) {
                     String value = TagMatchValue.normalize(String.join("", run.subList(start, start + width)));
                     if (!value.isEmpty() && !settings.stopped(value)) {
-                        values.add(value);
+                        values.putIfAbsent(value.toLowerCase(Locale.ROOT), value);
                     }
                 }
             }
         }
-        return values;
     }
 
-    /** 명사류가 아니거나 제외 목록에 걸린 명사에서 실을 끊는다. */
+    /** 명사류가 아니거나, 정규화하면 빈 값이거나, 제외 목록에 걸린 명사에서 실을 끊는다. 빈 값을 실에 끼우면 폭만 먹는 유령 원소가 된다. */
     private static List<List<String>> nounRuns(List<String> tokens, KeywordTagSettings settings) {
         var runs = new ArrayList<List<String>>();
         var current = new ArrayList<String>();
         for (String token : tokens) {
             String form = nounForm(token);
-            if (form == null || settings.stopped(TagMatchValue.normalize(form))) {
+            String normalized = form == null ? "" : TagMatchValue.normalize(form);
+            if (normalized.isEmpty() || settings.stopped(normalized)) {
                 if (!current.isEmpty()) {
                     runs.add(List.copyOf(current));
                     current.clear();

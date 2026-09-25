@@ -123,6 +123,43 @@ class KeywordConditionExtractorTest {
         assertThat(result).isEqualTo(KeywordConditionExtractor.Conditions.NONE);
     }
 
+    @Test
+    void conditionsIgnoreCase() {
+        // 워커가 질의를 소문자로 접으므로(kbs/sl) 대문자로 저장된 KBS 태그에 닿으려면 대소문자를 무시해야 한다.
+        var result = extractor.extract(List.of("kbs/sl"), List.of(List.of("뉴스/nng")), ON);
+
+        assertThat(result.all())
+                .containsExactly(
+                        TagCondition.exactIgnoreCase(TagType.KEYWORD, "kbs"),
+                        TagCondition.exactIgnoreCase(TagType.KEYWORD, "뉴스"));
+    }
+
+    @Test
+    void valuesDifferingOnlyInCaseAreDeduplicated() {
+        // 전각 ＫＢＳ 는 KBS 로 접힌다. 대소문자를 무시해 맞추므로 kbs 와 한 조건이다 — 둘이면 분모가 부푼다. 먼저 본 표기를 남긴다.
+        var result = extractor.extract(
+                List.of("kbs/sl", "보/vv", "ＫＢＳ/sl"), List.of(List.of("Kbs/sl"), List.of("뉴스/nng")), ON);
+
+        assertThat(values(result.query())).containsExactly("kbs");
+        assertThat(values(result.expanded())).containsExactly("뉴스");
+    }
+
+    @Test
+    void nounEmptiedByNormalizationBreaksRun() {
+        // 보이지 않는 문자뿐인 명사는 정규화하면 빈 값이다. 실에 끼우면 「전세」「전세사기」 가 폭을 하나 더 먹는 유령 원소가 된다.
+        var result = extractor.extract(List.of("전세/nng", "\u200B/nng", "사기/nng"), List.of(), ON);
+
+        assertThat(values(result.query())).containsExactly("전세", "사기");
+    }
+
+    @Test
+    void joinNormalizingToStoplistedValueIsDropped() {
+        // 낱말은 제외 목록에 없어도 붙인 값(북부)이 걸리면 버린다.
+        var result = extractor.extract(List.of("북/nng", "부/nng"), List.of(), ON);
+
+        assertThat(values(result.query())).containsExactly("북", "부");
+    }
+
     private static List<String> values(List<TagCondition> conditions) {
         return conditions.stream().map(TagCondition::fromInclusive).toList();
     }

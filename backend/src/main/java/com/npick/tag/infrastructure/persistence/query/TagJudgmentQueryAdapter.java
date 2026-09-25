@@ -105,23 +105,35 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
         if (conditions.isEmpty()) return List.of();
 
         // 조건 수만큼 번호 붙인 파라미터를 만든다. 값은 전부 바인딩되고 SQL 에 끼워 넣는 것은 번호뿐이다.
-        // 조건은 리졸버 출력에서 나오므로 개수가 한 자릿수다.
+        // 조건은 리졸버 출력(개체 축, 한 자릿수)에 키워드 조건(상한 conditionCap, 기본 12)이 더해진 것이라
+        // 수십 개를 넘지 않는다. 몇 개든 OR 로 묶은 한 SQL 이다.
         StringBuilder predicate = new StringBuilder();
         MapSqlParameterSource parameters = new MapSqlParameterSource();
         for (int index = 0; index < conditions.size(); index++) {
             TagCondition condition = conditions.get(index);
             if (index > 0) predicate.append(" OR ");
-            predicate
-                    .append("(t.tag_type = :type")
-                    .append(index)
-                    .append(" AND t.match_value BETWEEN :from")
-                    .append(index)
-                    .append(" AND :to")
-                    .append(index)
-                    .append(')');
+            if (condition.ignoreCase()) {
+                // 키워드 조건 (S15P21A501-321). 두 끝이 같다는 것은 TagCondition 이 보장한다.
+                // lower() 라 uq_tag_type_match_value 의 match_value 부분은 타지 않고 tag_type 까지만 탄다.
+                predicate
+                        .append("(t.tag_type = :type")
+                        .append(index)
+                        .append(" AND lower(t.match_value) = lower(:from")
+                        .append(index)
+                        .append("))");
+            } else {
+                predicate
+                        .append("(t.tag_type = :type")
+                        .append(index)
+                        .append(" AND t.match_value BETWEEN :from")
+                        .append(index)
+                        .append(" AND :to")
+                        .append(index)
+                        .append(')');
+                parameters.addValue("to" + index, condition.toInclusive());
+            }
             parameters.addValue("type" + index, condition.type().storedValue());
             parameters.addValue("from" + index, condition.fromInclusive());
-            parameters.addValue("to" + index, condition.toInclusive());
         }
 
         return query("(" + predicate + ")", parameters);

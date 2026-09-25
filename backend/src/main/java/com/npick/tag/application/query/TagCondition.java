@@ -18,9 +18,12 @@ import com.npick.tag.domain.model.TagType;
  *
  * @param type 태그 종류
  * @param fromInclusive 시작값. 포함
+ *     <p>{@code ignoreCase} 는 정확 일치에만 쓴다 (S15P21A501-321). 워커가 질의 토큰을 소문자로 접는데 태그 {@code match_value} 는 대소문자를 보존하므로,
+ *     키워드 조건은 대소문자를 무시해야 {@code KBS} 태그에 닿는다. 대소문자를 접은 사전순 범위는 정의하지 않으므로 범위와 함께 쓰면 거부한다. 개체 축과 날짜는 그대로 정확 일치다.
  * @param toInclusive 끝값. <b>포함</b>
+ * @param ignoreCase 대소문자를 무시하고 비교하는가. 두 끝이 같을 때만 참일 수 있다
  */
-public record TagCondition(TagType type, String fromInclusive, String toInclusive) {
+public record TagCondition(TagType type, String fromInclusive, String toInclusive, boolean ignoreCase) {
 
     public TagCondition {
         boolean malformed = type == null
@@ -28,11 +31,17 @@ public record TagCondition(TagType type, String fromInclusive, String toInclusiv
                 || toInclusive == null
                 || fromInclusive.isBlank()
                 || toInclusive.isBlank()
-                || fromInclusive.compareTo(toInclusive) > 0;
+                || fromInclusive.compareTo(toInclusive) > 0
+                || (ignoreCase && !fromInclusive.equals(toInclusive));
         // 뒤집힌 범위는 SQL 에서 오류 없이 0건이 된다. 그러면 배선 실수가 "검색 결과 없음" 으로 위장된다.
         if (malformed) {
             throw new BusinessException(TagErrorCode.INVALID_TAG_CONDITION);
         }
+    }
+
+    /** 대소문자를 구분하는 조건. {@code ignoreCase} 가 생기기 전의 모든 호출부가 이 형태다. */
+    public TagCondition(TagType type, String fromInclusive, String toInclusive) {
+        this(type, fromInclusive, toInclusive, false);
     }
 
     /**
@@ -49,6 +58,12 @@ public record TagCondition(TagType type, String fromInclusive, String toInclusiv
     public static TagCondition exact(TagType type, String matchValue) {
         String normalized = TagMatchValue.normalize(matchValue);
         return new TagCondition(type, normalized, normalized);
+    }
+
+    /** {@link #exact} 와 같되 대소문자를 무시하고 맞춘다. 키워드 조건용이다 (S15P21A501-321). 정규화·빈 값 규칙은 {@link #exact} 와 같다. */
+    public static TagCondition exactIgnoreCase(TagType type, String matchValue) {
+        String normalized = TagMatchValue.normalize(matchValue);
+        return new TagCondition(type, normalized, normalized, true);
     }
 
     /**
