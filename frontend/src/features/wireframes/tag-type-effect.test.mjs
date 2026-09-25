@@ -33,12 +33,15 @@ test('유형별 검색 효과는 검색 채널이 실제로 읽는 범위와 같
   for (const tagType of ['event', 'person', 'organization', 'location', 'facility', 'scene_type']) {
     assert.equal(tagTypeEffect(tagType), 'search');
   }
-  assert.equal(tagTypeEffect('broadcast_date'), 'date-filter');
-  assert.equal(tagTypeEffect('filmed_date'), 'date-filter');
+  assert.equal(tagTypeEffect('broadcast_date'), 'date-query');
+  assert.equal(tagTypeEffect('filmed_date'), 'date-query');
   assert.equal(tagTypeEffect('season'), 'rank-minor');
   assert.equal(tagTypeEffect('weather'), 'rank-minor');
   assert.equal(tagTypeEffect('keyword'), 'none');
   assert.equal(tagTypeEffectHint('keyword'), '이 유형은 현재 검색 결과에 영향을 주지 않습니다.');
+  // 날짜는 질의에 날짜가 있으면 구조 점수 축에 반영된다 — "검색에 안 쓰인다"고 안내하면 안 된다.
+  assert.match(tagTypeEffectHint('broadcast_date'), /질의에 날짜가 있으면 .*점수에 반영/);
+  assert.doesNotMatch(tagTypeEffectHint('filmed_date'), /쓰이지 않습니다/);
 });
 
 test('태그가 있고 모두 영향 없는 유형일 때만 영향 없음으로 본다', () => {

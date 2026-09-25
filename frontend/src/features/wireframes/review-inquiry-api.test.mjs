@@ -241,6 +241,14 @@ test('대기 교정 후보 응답은 태그·해석·장면 제외 후보를 그
     parsePatches: [],
     sceneExcludes: [],
   });
+  // 교체 대상이 없으면 replacesRuleId 가 빠져 와도 null 로 읽는다.
+  const withoutReplaces = { ...candidates.parsePatches[0] };
+  delete withoutReplaces.replacesRuleId;
+  assert.equal(
+    parseCorrectionCandidates({ ...candidates, parsePatches: [withoutReplaces] }).parsePatches[0]
+      .replacesRuleId,
+    null,
+  );
 });
 
 test('대기 교정 후보의 잘못된 ID·어휘·모양은 안전하지 않은 응답으로 거절한다 (S15P21A501-317)', () => {
@@ -254,7 +262,6 @@ test('대기 교정 후보의 잘못된 ID·어휘·모양은 안전하지 않�
     { ...candidates, tags: [{ ...tag, displayName: null }] },
     { ...candidates, parsePatches: [{ ...patch, condition: '{}' }] },
     { ...candidates, parsePatches: [{ ...patch, patch: [] }] },
-    { ...candidates, parsePatches: [{ ...patch, replacesRuleId: undefined }] },
     { ...candidates, sceneExcludes: [{ searchRuleId: '6603', targetSceneId: '0' }] },
     { tags: [], parsePatches: [] },
   ]) {

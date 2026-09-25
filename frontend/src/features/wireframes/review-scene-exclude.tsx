@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 
 import {
@@ -41,13 +41,25 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
     false;
   const idempotencyKey = useRef<string | null>(null);
 
+  // 후보 조회가 실패해 서버 상태를 모르면 토글을 잠근다 — 이미 제외했는데 "이 장면 제외"로 보이지 않게 한다.
+  const isUnknown = localExcluded === null && !candidates.data && candidates.isError;
+
+  // 대기 후보 다시 읽기가 끝날 때까지 요청을 진행 중으로 둔다 — 검증이 옛 후보 수로 돌지 않게 한다.
   function refresh() {
-    queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
-    queryClient.invalidateQueries({ queryKey: correctionCandidatesQueryKey(inquiry.feedbackId) });
+    void queryClient.invalidateQueries({ queryKey: ['review-inquiry', inquiry.feedbackId] });
+    return queryClient.invalidateQueries({
+      queryKey: correctionCandidatesQueryKey(inquiry.feedbackId),
+    });
   }
 
+  // 후보를 바꾸는 요청은 같은 키를 단다 — 검증 패널이 감시해 진행 중에는 검증을 막는다.
+  const changeKey = ['scene-exclude-change', inquiry.feedbackId];
+  // 검증 재검색 중에는 후보를 바꾸지 않는다 — 검증에 들어간 후보와 표시한 후보 수가 어긋나지 않게 한다.
+  const verifyPending =
+    useIsMutating({ mutationKey: ['verification-run', inquiry.feedbackId] }) > 0;
+
   const register = useMutation({
-    mutationKey: ['scene-exclude-change', inquiry.feedbackId],
+    mutationKey: changeKey,
     mutationFn: () => {
       idempotencyKey.current ??= createIdempotencyKey();
       return createSceneExcludeCandidate(
@@ -59,22 +71,22 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
     onSuccess: () => {
       setLocalExcluded(true);
       showSuccess('제외 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
-      refresh();
+      return refresh();
     },
   });
 
   const cancel = useMutation({
-    mutationKey: ['scene-exclude-change', inquiry.feedbackId],
+    mutationKey: changeKey,
     mutationFn: () => discardSceneExcludeCandidate(inquiry.feedbackId),
     onSuccess: () => {
       setLocalExcluded(false);
       idempotencyKey.current = null;
       showSuccess('장면 제외 후보를 취소했습니다.');
-      refresh();
+      return refresh();
     },
   });
 
-  const pending = register.isPending || cancel.isPending;
+  const pending = register.isPending || cancel.isPending || verifyPending || isUnknown;
   const error = register.error ?? cancel.error;
 
   return (
@@ -104,6 +116,18 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
           {register.isPending ? '제외 중…' : '이 장면 제외'}
         </button>
       )}
+      {isUnknown ? (
+        <p className="w-full text-sm text-(--muted)">
+          저장해 둔 장면 제외 후보를 불러오지 못했습니다.{' '}
+          <button
+            className="font-bold text-(--accent-strong) underline"
+            onClick={() => void candidates.refetch()}
+            type="button"
+          >
+            다시 불러오기
+          </button>
+        </p>
+      ) : null}
       {error ? (
         <p className="w-full text-sm text-(--danger)" role="alert">
           {getSceneExcludeMessage(error)}

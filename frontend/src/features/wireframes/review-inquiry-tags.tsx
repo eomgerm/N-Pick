@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -41,6 +41,9 @@ const MAX_TAG_DRAFTS = 10;
 
 const addButtonClass =
   'rounded-lg border border-(--line) bg-(--surface) px-3 py-1.5 text-sm font-bold text-(--accent-strong) transition-colors hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40';
+const candidatePillClass =
+  'inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full border border-dashed border-(--line) py-1.5 pr-2 pl-3 text-sm text-(--muted)';
+
 type Evidence = ReviewInquiryDetail['evidence'][number];
 
 const otherActionLabels: Record<OtherTagCandidate['action'], string> = {
@@ -189,7 +192,11 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     },
   });
   // 후보를 바꾸는 요청은 한 번에 하나만 보낸다 — 취소 중 새 후보가 끼어들어 서로의 결과를 덮지 않게 한다.
+  // 검증 재검색 중에도 잠근다 — 검증에 들어간 후보와 표시한 후보 수가 어긋나지 않게 한다.
+  const verifyPending =
+    useIsMutating({ mutationKey: ['verification-run', inquiry.feedbackId] }) > 0;
   const isBusy =
+    verifyPending ||
     mutation.isPending ||
     cancelAdded.isPending ||
     restoreRemoved.isPending ||
@@ -278,6 +285,32 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
 
   const activeTags = inquiry.evidence.filter((evidence) => !removed.has(evidence.taggingId));
   const removedTags = inquiry.evidence.filter((evidence) => removed.has(evidence.taggingId));
+  const otherRemoved = other.filter((candidate) => candidate.action === 'REJECT');
+  const withdrawn = other.filter((candidate) => candidate.action === 'WITHDRAW');
+  // 칩을 붙일 현재 태그가 없는 후보. 삭제는 취소선, 개입 해제는 따로 모아 취소선 없이 보여 준다.
+  function renderOther(candidate: OtherTagCandidate) {
+    const isRemoval = candidate.action === 'REJECT';
+    return (
+      <li className={`${candidatePillClass} ${isRemoval ? 'line-through' : ''}`} key={candidate.id}>
+        <strong className="truncate font-semibold">{candidate.value}</strong>
+        <span className="shrink-0 text-xs no-underline">
+          {tagTypeLabels[candidate.tagType]} · {tagScopeLabels[candidate.scope]}
+        </span>
+        <button
+          aria-label={`‘${candidate.value}’ ${otherActionLabels[candidate.action]} 취소`}
+          className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
+          disabled={isBusy}
+          onClick={() => {
+            cancelOther.reset();
+            cancelOther.mutate(candidate);
+          }}
+          type="button"
+        >
+          {isRemoval ? '+' : '×'}
+        </button>
+      </li>
+    );
+  }
   const hasTop = activeTags.length > 0 || added.length > 0 || drafts.length > 0;
 
   return (
@@ -370,13 +403,13 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
         </ul>
       )}
 
-      {removedTags.length > 0 || other.length > 0 ? (
+      {removedTags.length > 0 || otherRemoved.length > 0 ? (
         <div className="mt-5 border-t border-(--line) pt-5">
           <h4 className="text-sm font-bold text-(--muted)">삭제 후보</h4>
           <ul className="mt-3 grid gap-2">
             {removedTags.map((evidence, index) => (
               <li
-                className="inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full border border-dashed border-(--line) py-1.5 pr-2 pl-3 text-sm text-(--muted) line-through"
+                className={`${candidatePillClass} line-through`}
                 key={`removed-${evidence.taggingId}-${index}`}
               >
                 <strong className="truncate font-semibold">{evidence.tagName}</strong>
@@ -394,30 +427,15 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                 </button>
               </li>
             ))}
-            {other.map((candidate) => (
-              <li
-                className="inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full border border-dashed border-(--line) py-1.5 pr-2 pl-3 text-sm text-(--muted) line-through"
-                key={candidate.id}
-              >
-                <strong className="truncate font-semibold">{candidate.value}</strong>
-                <span className="shrink-0 text-xs no-underline">
-                  {tagTypeLabels[candidate.tagType]} · {otherActionLabels[candidate.action]}
-                </span>
-                <button
-                  aria-label={`‘${candidate.value}’ ${otherActionLabels[candidate.action]} 취소`}
-                  className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
-                  disabled={isBusy}
-                  onClick={() => {
-                    cancelOther.reset();
-                    cancelOther.mutate(candidate);
-                  }}
-                  type="button"
-                >
-                  +
-                </button>
-              </li>
-            ))}
+            {otherRemoved.map(renderOther)}
           </ul>
+        </div>
+      ) : null}
+
+      {withdrawn.length > 0 ? (
+        <div className="mt-5 border-t border-(--line) pt-5">
+          <h4 className="text-sm font-bold text-(--muted)">개입 해제 후보</h4>
+          <ul className="mt-3 grid gap-2">{withdrawn.map(renderOther)}</ul>
         </div>
       ) : null}
 

@@ -363,7 +363,7 @@ export function parseCorrectionCandidates(value: unknown): CorrectionCandidates 
         searchRuleId: identifier(item.searchRuleId),
         condition: record(item.condition),
         patch: record(item.patch),
-        replacesRuleId: item.replacesRuleId === null ? null : identifier(item.replacesRuleId),
+        replacesRuleId: item.replacesRuleId == null ? null : identifier(item.replacesRuleId),
       };
     }),
     sceneExcludes: list(data.sceneExcludes).map((value) => {

@@ -98,7 +98,9 @@ export function CorrectionVerificationPanel({
   // (편집기·태그 교정과 공유하는 키).
   const parseSavePending = useIsMutating({ mutationKey: ['parse-patch-save', feedbackId] }) > 0;
   const tagChangePending = useIsMutating({ mutationKey: ['tag-candidate-change', feedbackId] }) > 0;
-  const savePending = parseSavePending || tagChangePending;
+  const sceneExcludePending =
+    useIsMutating({ mutationKey: ['scene-exclude-change', feedbackId] }) > 0;
+  const savePending = parseSavePending || tagChangePending || sceneExcludePending;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [previewScene, setPreviewScene] = useState<{
     scene: VerificationScene;
@@ -119,6 +121,7 @@ export function CorrectionVerificationPanel({
   // 검증 결과 자체는 세션 한정이다. 새로고침 후에는 복원된 후보로 다시 검증한다.
   // 검증과 같은 시점에 대기 후보를 다시 읽어, 이번 검증에 들어간 후보 수를 함께 보여 준다 (S15P21A501-317).
   // 후보 조회가 실패해도 검증 결과는 그대로 보여 주고 후보 수만 생략한다.
+  // 태그·장면 제외 교정은 이 키를 감시해 검증 중에는 후보를 바꾸지 못하게 잠근다.
   const verification = useMutation({
     mutationKey: ['verification-run', feedbackId],
     mutationFn: async () => {

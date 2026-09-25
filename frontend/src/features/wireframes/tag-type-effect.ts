@@ -18,9 +18,11 @@ export const tagTypeLabels: Record<ReviewTagType, string> = {
  * 태그 유형이 검색 결과에 주는 효과 (S15P21A501-317, "기본값 없음 + 유형별 효과 표시").
  * 근거(BE): 구조 채널은 EVENT·PERSON·ORG·LOCATION·FACILITY·SCENE_TYPE 만 읽고
  * (StructuredScoreCalculator), 계절·날씨는 동점 정렬에만 쓰이며(SoftRankingService),
- * 날짜는 필터·F-06 오탐 가드로만 쓰인다. 키워드는 어느 경로에서도 읽지 않는다.
+ * 날짜는 질의에 날짜 구간이 있을 때 구조 점수 축(BROADCAST_DATE·FILMED_DATE)으로 반영되지만 후보
+ * 검색 조건에서는 빠져 태그만으로 새 후보를 끌어오지 못하고, 필터·F-06 오탐 가드에도 쓰인다.
+ * 키워드는 어느 경로에서도 읽지 않는다.
  */
-export type TagTypeEffect = 'search' | 'date-filter' | 'rank-minor' | 'none';
+export type TagTypeEffect = 'search' | 'date-query' | 'rank-minor' | 'none';
 
 export const tagTypeEffectGroups: ReadonlyArray<{
   effect: TagTypeEffect;
@@ -35,9 +37,9 @@ export const tagTypeEffectGroups: ReadonlyArray<{
     types: ['event', 'person', 'organization', 'location', 'facility', 'scene_type'],
   },
   {
-    effect: 'date-filter',
-    label: '날짜 필터·오탐 제외용',
-    hint: '날짜 필터와 오탐 제외 판단에만 쓰이고 검색어 일치에는 쓰이지 않습니다.',
+    effect: 'date-query',
+    label: '날짜가 있는 검색에 반영',
+    hint: '질의에 날짜가 있으면 그 날짜와 맞을 때 점수에 반영됩니다(태그만으로 새 후보가 되지는 않음). 날짜 필터·오탐 제외 판단에도 쓰입니다.',
     types: ['broadcast_date', 'filmed_date'],
   },
   {
