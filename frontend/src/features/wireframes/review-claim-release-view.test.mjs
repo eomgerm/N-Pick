@@ -15,7 +15,8 @@ registerHooks({
   },
 });
 
-const { canReleaseClaim, getReleaseErrorMessage } = await import('./review-claim-release-view.ts');
+const { canReleaseClaim, isCorrectionMutation, releaseErrorMessages } =
+  await import('./review-claim-release-view.ts');
 
 function inquiry(status, reviewerLoginId) {
   return { status, history: { reviewerLoginId } };
@@ -31,11 +32,28 @@ test('검수 취소는 검수 중인 문의의 담당자 본인에게만 보인�
   assert.equal(canReleaseClaim(inquiry('reviewing', ''), ''), false);
 });
 
-test('검수 취소 오류는 HTTP 상태별 안내로 바꾸고 나머지는 서버 문구에 맡긴다', () => {
-  assert.match(getReleaseErrorMessage(new ApiClientError('api', 403)), /담당자만/);
-  assert.match(getReleaseErrorMessage(new ApiClientError('api', 409)), /검수 중인 상태가 아닙니다/);
-  assert.match(getReleaseErrorMessage(new ApiClientError('api', 404)), /더 이상 존재하지 않습니다/);
-  assert.equal(getReleaseErrorMessage(new ApiClientError('api', 500)), undefined);
-  assert.equal(getReleaseErrorMessage(new ApiClientError('network', 0)), undefined);
-  assert.equal(getReleaseErrorMessage(new Error('boom')), undefined);
+test('검수 취소 오류는 코드로만 안내를 고르고 보안 계층 403 은 서버 문구에 맡긴다', () => {
+  const message = (code) => releaseErrorMessages[new ApiClientError('api', 0, { code }).code];
+  assert.match(message('FEEDBACK_403_002'), /담당자만/);
+  assert.match(message('FEEDBACK_409_003'), /이미 검수가 취소되었거나/);
+  assert.match(message('FEEDBACK_404_002'), /더 이상 존재하지 않습니다/);
+  // 역할·CSRF 거부(COMM_403)를 담당자 문제로 안내하지 않는다.
+  assert.equal(message('COMM_403'), undefined);
+  assert.equal(message('FEEDBACK_409_001'), undefined);
+});
+
+test('교정·판정 요청 키가 같은 문의로 진행 중일 때만 검수 취소를 잠근다', () => {
+  for (const key of [
+    'parse-patch-save',
+    'tag-candidate-change',
+    'scene-exclude-change',
+    'resolution-save',
+    'verification-run',
+    'confirm-correction',
+  ]) {
+    assert.equal(isCorrectionMutation([key, '41'], '41'), true, key);
+    assert.equal(isCorrectionMutation([key, '42'], '41'), false, key);
+  }
+  assert.equal(isCorrectionMutation(['claim-release', '41'], '41'), false);
+  assert.equal(isCorrectionMutation(undefined, '41'), false);
 });

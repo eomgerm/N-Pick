@@ -380,7 +380,7 @@ test('검수 취소는 선점 경로로 DELETE 하고 오류 상태를 그대로
     requests.push({ input: String(input), init });
     if (failWith) {
       return Response.json(
-        { isSuccess: false, code: 'FEEDBACK_409_002', message: '검수 중인 문의가 아닙니다.' },
+        { isSuccess: false, code: 'FEEDBACK_409_003', message: '검수 중인 문의가 아닙니다.' },
         { status: failWith },
       );
     }
