@@ -9,6 +9,7 @@ import {
   ResolutionToggle,
   type ResolutionToggleMode,
 } from '@/features/wireframes/review-resolution-toggle';
+import { resolutionModeFromValue } from '@/features/wireframes/review-resolution-toggle-mode';
 import {
   resolveReviewInquiry,
   type ReviewInquiryDetail,
@@ -26,9 +27,7 @@ export function InquiryResolutionForm({ inquiry, memberLoginId }: InquiryResolut
   const queryClient = useQueryClient();
   const { showSuccess } = useSuccessToast();
   const persisted = inquiry.resolution;
-  const [mode, setMode] = useState<ResolutionToggleMode>(
-    persisted === 'correction' ? 'correction' : 'no_action',
-  );
+  const [mode, setMode] = useState<ResolutionToggleMode>(resolutionModeFromValue(persisted));
   const [note, setNote] = useState(inquiry.resolutionNote ?? '');
   const [validationError, setValidationError] = useState('');
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;

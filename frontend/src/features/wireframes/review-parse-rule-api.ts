@@ -100,6 +100,8 @@ const errorMessages: Record<string, string> = {
   SRCH_409_203: '문의 당시 검색에 교정할 해석 결과가 없습니다.',
   SRCH_409_204:
     '이 문의에 저장해 둔 규칙 후보가 너무 많습니다. 새로 만들기 전에 지금 후보로 검증을 진행해 주세요.',
+  SRCH_409_205:
+    '같은 규칙을 교체하는 대기 후보가 이미 있습니다. 이전 교정 후보를 폐기한 뒤 다시 저장해 주세요.',
 };
 
 /** 이 화면이 직접 안내할 수 있는 오류인지. 아니면 공통 오류 문구를 그대로 쓴다. */
@@ -266,6 +268,18 @@ function parseCandidate(value: unknown): ParsePatchCandidate {
     feedbackId: identifier(data.feedbackId),
     active: data.active,
   };
+}
+
+/** 대기 중인 이 문의의 해석 교정 후보를 폐기한다. 확정된 규칙·장면 제외는 건드리지 않는다. 200 반환. */
+export async function discardParsePatchCandidate(
+  feedbackId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  identifier(feedbackId);
+  await fetchJson<unknown>(`/review/inquiries/${feedbackId}/parse-patch-candidate`, {
+    method: 'DELETE',
+    signal,
+  });
 }
 
 /**

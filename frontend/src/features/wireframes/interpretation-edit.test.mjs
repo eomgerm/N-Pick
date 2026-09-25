@@ -302,6 +302,32 @@ test('add: guard 없으면 규칙 없음, 있으면 guard 조건', () => {
   ]);
 });
 
+test('deriveParseRules: 서로 다른 축의 독립 편집은 자기 조건만 가진 규칙 본문으로 각각 나뉜다', () => {
+  // 조건을 한 규칙에 합치면 서버가 모든 조건을 동시에 요구해, 한쪽 값만 가진 해석에는 교정이 안 걸린다.
+  const rules = deriveParseRules(
+    [
+      { kind: 'edit', axis: 'incident_names', from: '추석', to: '설날' },
+      { kind: 'remove', axis: 'locations', value: '경부고속도로', type: 'location' },
+    ],
+    null,
+  );
+  assert.equal(rules.length, 2);
+  assert.deepEqual(rules[0].condition.all, [
+    { axis: 'incident_names', op: 'has_value', value: '추석' },
+  ]);
+  assert.deepEqual(rules[0].patch.operations, [
+    { op: 'remove_item', axis: 'incident_names', value: '추석' },
+    { op: 'add_item', axis: 'incident_names', value: '설날' },
+  ]);
+  assert.deepEqual(rules[1].condition.all, [
+    { axis: 'locations', op: 'has_value', value: '경부고속도로' },
+  ]);
+  assert.deepEqual(rules[1].patch.operations, [
+    { op: 'remove_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+  ]);
+  for (const rule of rules) assert.equal(validateParseRuleBody(rule), null);
+});
+
 const { describeEdits } = await import('./interpretation-edit.ts');
 
 test('편집을 사람 문장으로 요약한다', () => {

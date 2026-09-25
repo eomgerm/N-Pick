@@ -273,10 +273,15 @@ test('교정 후보 오류 코드는 검수자가 읽을 한국어 문구로 바
     'SRCH_409_202',
     'SRCH_409_203',
     'SRCH_409_204',
+    'SRCH_409_205',
   ]) {
     const message = parseRuleErrorMessage(new ApiClientError('api', 400, { code }));
     assert.ok(message && /[가-힣]/.test(message), code);
   }
+  assert.match(
+    parseRuleErrorMessage(new ApiClientError('api', 409, { code: 'SRCH_409_205' })),
+    /폐기/,
+  );
   assert.equal(parseRuleErrorMessage(new ApiClientError('api', 500, { code: 'COMM_500' })), null);
   assert.equal(parseRuleErrorMessage(new Error('boom')), null);
 });

@@ -16,6 +16,7 @@ import {
 } from '@/features/wireframes/interpretation-edit';
 import {
   createParsePatchCandidate,
+  discardParsePatchCandidate,
   parseRuleErrorMessage,
   resolutionAxisLabels,
   validateParseRuleBody,
@@ -57,7 +58,8 @@ function computeGuard(original: Chip[]): { axis: EditableAxis; value: string } |
 
 /**
  * 규칙 내용으로부터 결정론적 멱등성 키를 만든다. 같은 내용은 매번 같은 키가 되어, 중간 실패 뒤
- * 재시도해도 이미 만든 후보를 새로 만들지 않고 서버가 기존 후보를 그대로 돌려준다 (SRCH_409_204 방지).
+ * 재시도해도 이미 만든 후보를 새로 만들지 않고 서버가 기존 후보를 그대로 돌려준다 — 재시도마다 후보가
+ * 쌓여 신고당 후보 상한(SRCH_409_204)에 닿는 것을 막는다.
  */
 async function ruleIdempotencyKey(
   feedbackId: string,
@@ -86,6 +88,10 @@ export function ParseInterpretationEditor({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetAxis, setDropTargetAxis] = useState<EditableAxis | null>(null);
   const newChipCounter = useRef(0);
+  // 서버에 이 화면이 보낸 후보가 남아 있을 수 있는지. POST 를 보내는 순간 참이 된다 — 서버가 저장했는데
+  // 응답만 유실되거나 여러 건 중 일부만 저장되고 실패해도, 그 뒤 편집하면 이전 후보를 폐기하기 위함이다.
+  // 일괄 폐기 DELETE 는 멱등이라 실제로 남은 후보가 없어도 무해하다. 폐기가 성공했을 때만 거짓으로 돌린다.
+  const mayHaveServerCandidates = useRef(false);
   const suppressBlur = useRef(false);
 
   const guard = computeGuard(originalChips);
@@ -102,7 +108,9 @@ export function ParseInterpretationEditor({
   const rules = deriveParseRules(edits, guard);
   const draftCount = rules.length + chips.filter((chip) => chip.isNew && !chip.value.trim()).length;
 
+  // 검증(재검색)이 저장 진행 중에 끼어들지 않도록, 검증 패널이 useIsMutating 으로 감시할 키를 단다.
   const save = useMutation({
+    mutationKey: ['parse-patch-save', feedbackId],
     mutationFn: async () => {
       if (rules.length === 0) {
         throw new ApiClientError('api', 0, {
@@ -118,7 +126,9 @@ export function ParseInterpretationEditor({
       }
       if (
         edits.some((edit) => {
-          if (edit.kind === 'remove') return false;
+          // remove 는 값을 새로 넣지 않고, move 는 원본 칩을 옮길 뿐이라 길이 상한을 검사하지 않는다.
+          // add·edit 의 새로 입력한 값만 검사한다 (입력창 maxLength 로 이미 20자 이하로 제한된다).
+          if (edit.kind === 'remove' || edit.kind === 'move') return false;
           const value = edit.kind === 'edit' ? edit.to : edit.value;
           return value.length > MAX_CHIP_VALUE_LENGTH;
         })
@@ -128,9 +138,11 @@ export function ParseInterpretationEditor({
           message: '교정 값은 20자 이하여야 합니다.',
         });
       }
-      // 일부만 POST 되는 상황을 막기 위해, 하나라도 POST 하기 전에 전체 규칙을 먼저 검증한다.
-      for (const body of rules) {
-        const problem = validateParseRuleBody(body);
+      // 편집마다 독립 후보로 보낸다. 한 규칙에 조건을 합치면 서버가 모든 조건을 동시에 요구해, 한쪽 값만
+      // 가진 해석에는 교정이 걸리지 않는다 (FRD F-11 "독립 규칙은 함께 적용"). 일부만 저장된 채 멈추지
+      // 않도록 모든 본문을 POST 전에 먼저 검증한다.
+      for (const rule of rules) {
+        const problem = validateParseRuleBody(rule);
         if (problem) {
           throw new ApiClientError('api', 0, {
             code: 'CLIENT_PARSE_RULE_INVALID',
@@ -138,12 +150,13 @@ export function ParseInterpretationEditor({
           });
         }
       }
-      for (const body of rules) {
-        await createParsePatchCandidate(
-          feedbackId,
-          body,
-          await ruleIdempotencyKey(feedbackId, body),
-        );
+      // 순서대로 보낸다. 중간에 실패하면 다시 눌러 전부 재전송하면 된다 — 이미 저장된 규칙은 같은 결정적
+      // 멱등성 키라 서버가 기존 후보를 돌려주어 중복이 생기지 않는다.
+      for (const rule of rules) {
+        const key = await ruleIdempotencyKey(feedbackId, rule);
+        // 응답을 받기 전에 표시한다 — 요청이 서버에 닿았는지는 응답이 유실되면 알 수 없다.
+        mayHaveServerCandidates.current = true;
+        await createParsePatchCandidate(feedbackId, rule, key);
       }
       return rules.length;
     },
@@ -154,6 +167,27 @@ export function ParseInterpretationEditor({
     },
   });
 
+  const discard = useMutation({
+    mutationFn: () => discardParsePatchCandidate(feedbackId),
+    onSuccess: () => {
+      mayHaveServerCandidates.current = false;
+    },
+  });
+
+  // 저장 POST 는 누른 시점의 규칙을 담는다. 진행 중에 칩을 바꾸면 성공 뒤 '담았어요'가 실제로 담지 않은
+  // 내용을 가리키고, 이전 후보 폐기가 아직 끝나지 않은 POST 와 엇갈린다 — 그동안 편집을 잠근다.
+  const locked = save.isPending;
+
+  // 저장을 시도한 뒤(성공·일부 성공·응답 유실 포함) 다시 편집하면 서버에 남았을 수 있는 이전 후보를
+  // 모두 폐기한다. 그러지 않으면 다음 저장이 새 후보를 더 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서
+  // 이미 고친 이전 후보가 새 후보와 함께 검증·확정된다. 폐기가 실패하면 표시가 남아 다음 편집에서도 다시
+  // 폐기하고, 저장은 폐기가 성공할 때까지 막힌다.
+  function resetAfterSave() {
+    if (!mayHaveServerCandidates.current) return;
+    save.reset();
+    discard.mutate();
+  }
+
   if (!seeded) {
     return (
       <section className={styles.card}>
@@ -163,6 +197,7 @@ export function ParseInterpretationEditor({
   }
 
   function startEdit(chip: Chip) {
+    if (locked) return;
     // 이전 Escape 취소가 blur 를 못 만나 남겨둔 억제 플래그가 다음 편집까지 새지 않게 한다.
     suppressBlur.current = false;
     setEditingId(chip.id);
@@ -170,13 +205,17 @@ export function ParseInterpretationEditor({
   }
 
   function removeChip(id: string) {
-    if (save.isSuccess) save.reset();
+    if (locked) return;
+    // 값을 담은 적 없는 새 빈 칩을 지우는 건 교정 변경이 아니다. 실제 칩(값 있음/기존)만 폐기를 유발한다.
+    const target = chips.find((chip) => chip.id === id);
+    if (target && !(target.isNew && !target.value.trim())) resetAfterSave();
     setChips((prev) => prev.filter((chip) => chip.id !== id));
     if (editingId === id) setEditingId(null);
   }
 
   function addChip(axis: EditableAxis) {
-    if (save.isSuccess) save.reset();
+    if (locked) return;
+    // 빈 칩을 추가하는 것만으로는 교정 내용이 바뀌지 않는다 — 실제 값을 확정(commitEdit)할 때만 이전 후보를 폐기한다.
     newChipCounter.current += 1;
     const chip: Chip = {
       id: `new-${newChipCounter.current}`,
@@ -193,12 +232,16 @@ export function ParseInterpretationEditor({
   function commitEdit() {
     const id = editingId;
     if (id === null) return;
-    if (save.isSuccess) save.reset();
     const value = editDraft.trim();
+    const chip = chips.find((item) => item.id === id);
+    // 값이 그대로면(포커스만 옮김·재확정) 교정 내용이 안 바뀐 것이므로 이전 후보를 폐기하지 않는다.
+    // 새 빈 칩을 빈 값으로 확정하는 것도 실제로는 아무것도 담기지 않으므로 폐기 대상이 아니다.
+    const changed = chip ? chip.value !== value : false;
+    if (changed) resetAfterSave();
     setChips((prev) =>
       value
-        ? prev.map((chip) => (chip.id === id ? { ...chip, value } : chip))
-        : prev.filter((chip) => chip.id !== id),
+        ? prev.map((item) => (item.id === id ? { ...item, value } : item))
+        : prev.filter((item) => item.id !== id),
     );
     setEditingId(null);
   }
@@ -234,6 +277,10 @@ export function ParseInterpretationEditor({
   }
 
   function onChipDragStart(event: DragEvent<HTMLSpanElement>, chip: Chip) {
+    if (locked) {
+      event.preventDefault();
+      return;
+    }
     event.dataTransfer.setData('text/plain', chip.id);
     event.dataTransfer.effectAllowed = 'move';
     setDraggingId(chip.id);
@@ -254,11 +301,13 @@ export function ParseInterpretationEditor({
     const id = event.dataTransfer.getData('text/plain');
     setDropTargetAxis(null);
     setDraggingId(null);
-    if (save.isSuccess) save.reset();
+    if (locked) return;
+    // 같은 축에 다시 떨구거나 대상이 없으면 실제 변경이 없다 — 폐기하지 않는다.
+    const target = chips.find((chip) => chip.id === id);
+    if (!target || target.axis === axis) return;
+    resetAfterSave();
     setChips((prev) =>
-      prev.map((chip) =>
-        chip.id === id && chip.axis !== axis ? { ...chip, axis, type: defaultType(axis) } : chip,
-      ),
+      prev.map((chip) => (chip.id === id ? { ...chip, axis, type: defaultType(axis) } : chip)),
     );
   }
 
@@ -297,8 +346,9 @@ export function ParseInterpretationEditor({
                       />
                     ) : (
                       <span
+                        aria-disabled={locked || undefined}
                         className={`${styles.chip} ${draggingId === chip.id ? styles.dragging : ''}`}
-                        draggable
+                        draggable={!locked}
                         key={chip.id}
                         onClick={() => startEdit(chip)}
                         onDragEnd={onChipDragEnd}
@@ -316,6 +366,7 @@ export function ParseInterpretationEditor({
                         <button
                           aria-label={`'${chip.value}' 삭제`}
                           className={styles.chipRemove}
+                          disabled={locked}
                           onClick={(event) => {
                             event.stopPropagation();
                             removeChip(chip.id);
@@ -330,7 +381,7 @@ export function ParseInterpretationEditor({
                 <button
                   aria-label={`${resolutionAxisLabels[axis]}에 항목 추가`}
                   className={styles.addButton}
-                  disabled={!guard || draftCount >= MAX_PARSE_RULE_DRAFTS}
+                  disabled={locked || !guard || draftCount >= MAX_PARSE_RULE_DRAFTS}
                   onClick={() => addChip(axis)}
                   title={
                     guard ? undefined : '대표 항목(사건명·인물·장소)이 없어 추가할 수 없습니다.'
@@ -380,12 +431,30 @@ export function ParseInterpretationEditor({
 
         <button
           className={styles.primaryButton}
-          disabled={save.isPending || descriptions.length === 0}
+          disabled={
+            save.isPending || discard.isPending || discard.isError || descriptions.length === 0
+          }
           onClick={() => save.mutate()}
           type="button"
         >
-          {save.isPending ? '담는 중…' : '교정 담기'}
+          {discard.isPending ? '이전 교정 폐기 중…' : save.isPending ? '담는 중…' : '교정 담기'}
         </button>
+
+        {discard.isError ? (
+          <div className={styles.errorGroup}>
+            <p className={styles.hint} role="alert">
+              이전 교정을 폐기하지 못했어요. 잠시 후 다시 시도해 주세요.
+            </p>
+            <button
+              className={styles.secondaryButton}
+              disabled={discard.isPending}
+              onClick={() => discard.mutate()}
+              type="button"
+            >
+              폐기 다시 시도
+            </button>
+          </div>
+        ) : null}
 
         {save.isError ? (
           <div className={styles.errorGroup}>

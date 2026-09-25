@@ -353,6 +353,7 @@ export async function resolveReviewInquiry(
 export async function createTagCorrectionCandidate(
   feedbackId: string,
   operations: TagCorrectionOperation[],
+  idempotencyKey: string,
   signal?: AbortSignal,
 ): Promise<TagCorrectionCandidate> {
   identifier(feedbackId);
@@ -361,7 +362,25 @@ export async function createTagCorrectionCandidate(
     await fetchJson<unknown>(`/review/inquiries/${feedbackId}/tag-correction-candidate`, {
       method: 'POST',
       body: { operations },
+      idempotencyKey,
       signal,
     }),
+  );
+}
+
+/**
+ * 이 신고의 대기 중인 태그 교정 근거 하나만 폐기한다 (S15P21A501-309). 확정된 근거는 건드리지 않고,
+ * 이미 없는 근거를 다시 지워도 서버는 성공으로 답한다(멱등).
+ */
+export async function discardTagCorrectionCandidateEvidence(
+  feedbackId: string,
+  evidenceId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  identifier(feedbackId);
+  identifier(evidenceId);
+  await fetchJson<unknown>(
+    `/review/inquiries/${feedbackId}/tag-correction-candidate/${evidenceId}`,
+    { method: 'DELETE', signal },
   );
 }

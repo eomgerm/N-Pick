@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Play, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 
@@ -89,6 +89,11 @@ export function CorrectionVerificationPanel({
   onVerified,
 }: CorrectionVerificationPanelProps) {
   const queryClient = useQueryClient();
+  // 해석 교정 저장이나 태그 후보 변경이 진행 중이면 검증 재검색이 옛 후보로 돌아가지 않도록 막는다
+  // (편집기·태그 교정과 공유하는 키).
+  const parseSavePending = useIsMutating({ mutationKey: ['parse-patch-save', feedbackId] }) > 0;
+  const tagChangePending = useIsMutating({ mutationKey: ['tag-candidate-change', feedbackId] }) > 0;
+  const savePending = parseSavePending || tagChangePending;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [previewScene, setPreviewScene] = useState<{
     scene: VerificationScene;
@@ -136,7 +141,7 @@ export function CorrectionVerificationPanel({
           <button
             aria-label={result ? '후보 다시 검증' : '후보 검증'}
             className="grid size-8 place-items-center rounded-full border border-(--line) text-(--accent-strong) transition-colors hover:border-(--accent) hover:bg-(--accent-soft) disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={verification.isPending}
+            disabled={verification.isPending || savePending}
             onClick={() => {
               confirmation.reset();
               setPreviewScene(null);
