@@ -17,44 +17,8 @@ export interface Resolution {
   confidence: number;
 }
 
-export type ResolutionTermField = 'incident_names' | 'entities' | 'locations' | 'expanded_terms';
-
-// The editor owns only readable terms; the full snapshot and date/filter metadata survive each edit.
 export function parseResolution(value: string): Resolution {
   return JSON.parse(value) as Resolution;
-}
-
-export function updateResolutionTerms(
-  value: string,
-  field: ResolutionTermField,
-  input: string,
-  entityType?: 'person' | 'organization',
-): string {
-  const resolution = parseResolution(value);
-  const terms = input === '' ? [] : input.split(',');
-  if (field === 'expanded_terms') {
-    resolution[field] = terms;
-  } else {
-    const previous = resolution[field].filter((item) => !entityType || item.type === entityType);
-    const updated = terms.map((term, index) => {
-      const unchanged = previous.find((item) => item.value.trim() === term.trim());
-      if (unchanged) return { ...unchanged, value: term };
-      return {
-        ...(field === 'entities'
-          ? { type: entityType ?? previous[index]?.type ?? 'organization' }
-          : {}),
-        ...(field === 'locations' ? { type: previous[index]?.type ?? 'location' } : {}),
-        value: term,
-        origin: 'inferred',
-        query_span: null,
-        confidence: 1,
-      };
-    });
-    resolution[field] = entityType
-      ? [...resolution[field].filter((item) => item.type !== entityType), ...updated]
-      : updated;
-  }
-  return JSON.stringify(resolution, null, 2);
 }
 
 export function displayEndDate(exclusive: string): string {
@@ -62,56 +26,6 @@ export function displayEndDate(exclusive: string): string {
   const date = new Date(`${exclusive}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().slice(0, 10);
-}
-
-export function updateResolutionDate(
-  value: string,
-  field: string,
-  boundary: 'start' | 'end_exclusive',
-  input: string,
-): string {
-  const resolution = parseResolution(value);
-  const period = resolution.date_windows.find((item) => item.field === field);
-  if (period?.origin === 'explicit_filter') return value;
-  const next = {
-    ...period,
-    field,
-    start: period?.start ?? '',
-    end_exclusive: period?.end_exclusive ?? '',
-    origin: 'inferred',
-    query_span: null,
-    confidence: 1,
-  };
-  if (boundary === 'end_exclusive' && input) {
-    const date = new Date(`${input}T00:00:00Z`);
-    date.setUTCDate(date.getUTCDate() + 1);
-    next[boundary] = date.toISOString().slice(0, 10);
-  } else {
-    next[boundary] = input;
-  }
-  resolution.date_windows = resolution.date_windows.filter((item) => item.field !== field);
-  if (next.start || next.end_exclusive) resolution.date_windows.push(next);
-  return JSON.stringify(resolution, null, 2);
-}
-
-export function hasValidResolutionDates(value: string): boolean {
-  return parseResolution(value).date_windows.every(
-    (period) =>
-      /^\d{4}-\d{2}-\d{2}$/.test(period.start) &&
-      /^\d{4}-\d{2}-\d{2}$/.test(period.end_exclusive) &&
-      period.start < period.end_exclusive,
-  );
-}
-
-export function normalizeResolution(value: string): string {
-  const resolution = parseResolution(value);
-  for (const field of ['incident_names', 'entities', 'locations'] as const) {
-    resolution[field] = resolution[field]
-      .filter((item) => item.value.trim())
-      .map((item) => ({ ...item, value: item.value.trim() }));
-  }
-  resolution.expanded_terms = resolution.expanded_terms.map((term) => term.trim()).filter(Boolean);
-  return JSON.stringify(resolution, null, 2);
 }
 
 export function getResolutionSummary(value: string) {

@@ -266,6 +266,7 @@ test('교정 후보 오류 코드는 검수자가 읽을 한국어 문구로 바
   for (const code of [
     'SRCH_400_201',
     'SRCH_400_202',
+    'SRCH_400_203',
     'SRCH_403_201',
     'SRCH_403_202',
     'SRCH_404_201',
@@ -281,6 +282,10 @@ test('교정 후보 오류 코드는 검수자가 읽을 한국어 문구로 바
   assert.match(
     parseRuleErrorMessage(new ApiClientError('api', 409, { code: 'SRCH_409_205' })),
     /폐기/,
+  );
+  assert.match(
+    parseRuleErrorMessage(new ApiClientError('api', 400, { code: 'SRCH_400_203' })),
+    /새로 입력한 값은 20자, 원본 항목은 100자/,
   );
   assert.equal(parseRuleErrorMessage(new ApiClientError('api', 500, { code: 'COMM_500' })), null);
   assert.equal(parseRuleErrorMessage(new Error('boom')), null);

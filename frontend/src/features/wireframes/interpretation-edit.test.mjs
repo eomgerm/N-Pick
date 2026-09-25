@@ -186,7 +186,7 @@ test('edit: has_value(옛값) 조건 + remove 옛값 + add 새값', () => {
   ]);
 });
 
-test('move 비TYPED→TYPED: add 에 기본 type 을 채운다', () => {
+test('값을 고치지 않은 move 비TYPED→TYPED: add 는 원본 항목을 value_from 으로 가리키고 기본 type 을 채운다', () => {
   const [rule] = deriveParseRules(
     [
       {
@@ -204,7 +204,12 @@ test('move 비TYPED→TYPED: add 에 기본 type 을 채운다', () => {
   ]);
   assert.deepEqual(rule.patch.operations, [
     { op: 'remove_item', axis: 'incident_names', value: '경부고속도로' },
-    { op: 'add_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+    {
+      op: 'add_item',
+      axis: 'locations',
+      value_from: { axis: 'incident_names', value: '경부고속도로' },
+      type: 'location',
+    },
   ]);
 });
 
@@ -255,7 +260,12 @@ test('move locations→entities(typed→typed, 드롭 핸들러 재현): remove 
   const [rule] = deriveParseRules(edits, null);
   assert.deepEqual(rule.patch.operations, [
     { op: 'remove_item', axis: 'locations', value: '경부고속도로', type: 'location' },
-    { op: 'add_item', axis: 'entities', value: '경부고속도로', type: 'organization' },
+    {
+      op: 'add_item',
+      axis: 'entities',
+      value_from: { axis: 'locations', value: '경부고속도로', type: 'location' },
+      type: 'organization',
+    },
   ]);
   assert.equal(validateParseRuleBody(rule), null);
 });
@@ -280,9 +290,53 @@ test('move entities→incident_names(typed→비TYPED, 드롭 핸들러 재현):
   const [rule] = deriveParseRules(edits, null);
   assert.deepEqual(rule.patch.operations, [
     { op: 'remove_item', axis: 'entities', value: '한국도로공사', type: 'organization' },
-    { op: 'add_item', axis: 'incident_names', value: '한국도로공사' },
+    {
+      op: 'add_item',
+      axis: 'incident_names',
+      value_from: { axis: 'entities', value: '한국도로공사', type: 'organization' },
+    },
   ]);
   assert.equal(validateParseRuleBody(rule), null);
+});
+
+test('20자를 넘는 원본 값을 그대로 옮기면 리터럴 대신 value_from 으로 보내고, 고쳐서 옮기면 리터럴로 보낸다', () => {
+  const longValue = '서울특별시 중구 세종대로 110 서울시청 본관';
+  assert.ok(longValue.length > 20);
+  const [unedited] = deriveParseRules(
+    [
+      {
+        kind: 'move',
+        from: 'expanded_terms',
+        to: 'incident_names',
+        value: longValue,
+        fromValue: longValue,
+      },
+    ],
+    null,
+  );
+  const add = unedited.patch.operations[1];
+  assert.equal(add.value, undefined);
+  assert.deepEqual(add.value_from, { axis: 'expanded_terms', value: longValue });
+  assert.equal(validateParseRuleBody(unedited), null);
+
+  const [edited] = deriveParseRules(
+    [
+      {
+        kind: 'move',
+        from: 'expanded_terms',
+        to: 'incident_names',
+        value: '서울시청',
+        fromValue: longValue,
+      },
+    ],
+    null,
+  );
+  assert.deepEqual(edited.patch.operations[1], {
+    op: 'add_item',
+    axis: 'incident_names',
+    value: '서울시청',
+  });
+  assert.equal(validateParseRuleBody(edited), null);
 });
 
 test('add: guard 없으면 규칙 없음, 있으면 guard 조건', () => {

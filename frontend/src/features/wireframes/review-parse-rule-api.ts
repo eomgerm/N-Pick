@@ -91,6 +91,8 @@ const TYPED_AXES: ReadonlySet<ResolutionAxis> = new Set<ResolutionAxis>([
 
 const errorMessages: Record<string, string> = {
   SRCH_400_201: '규칙 후보 내용이 올바르지 않습니다. 조건과 변경 항목을 다시 확인해 주세요.',
+  SRCH_400_203:
+    '교정 조건이나 값이 허용 범위를 넘었습니다. 새로 입력한 값은 20자, 원본 항목은 100자 이하여야 합니다. 편집을 줄이거나 값을 줄여 주세요.',
   SRCH_400_202: '교체할 규칙을 찾을 수 없습니다. 교체 대상 규칙 번호를 확인해 주세요.',
   SRCH_403_201: '검수 권한이 없습니다. 아카이브 팀 계정으로 로그인해 주세요.',
   SRCH_403_202: '담당 검수자만 규칙 후보를 저장할 수 있습니다.',
