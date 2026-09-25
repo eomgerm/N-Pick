@@ -163,14 +163,18 @@ for (const width of [1440, 1024, 390]) {
     expect(await note.evaluate((element) => element.clientHeight)).toBeGreaterThan(40);
     await note.focus();
     const resultHeading = page.getByRole('heading', { name: '처리 결과', exact: true });
-    const headingOffsetBefore =
-      (await resultHeading.boundingBox())!.y - (await actions.boundingBox())!.y;
+    // 두 좌표를 한 프레임에서 함께 읽는다. 좁은 화면에서는 focus 가 문서를 smooth 스크롤하므로
+    // boundingBox 를 따로 부르면 그 사이 문서가 움직여 오프셋이 어긋나 보인다.
+    const headingOffset = () =>
+      resultHeading.evaluate(
+        (heading) =>
+          heading.getBoundingClientRect().top -
+          heading.closest('aside')!.getBoundingClientRect().top,
+      );
+    const headingOffsetBefore = await headingOffset();
     await note.press('PageDown');
     await expect.poll(() => note.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-    expect((await resultHeading.boundingBox())!.y - (await actions.boundingBox())!.y).toBeCloseTo(
-      headingOffsetBefore,
-      0,
-    );
+    expect(await headingOffset()).toBeCloseTo(headingOffsetBefore, 0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     await page.screenshot({ path: testInfo.outputPath('inquiry-note-scroll.png'), fullPage: true });
   });
