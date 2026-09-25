@@ -886,6 +886,9 @@ for (const width of [1440, 390, 320]) {
     await tabs.nth(2).hover();
     await expect(record).toContainText('처리 실패');
     await expect(record).not.toContainText('WORKER_BUSY');
+    // 키보드 조작 전에 포인터를 단계 목록 밖으로 뺀다. 좁은 화면에서는 focus 가 가로 스크롤을
+    // 움직여 멈춰 있는 포인터 아래로 다른 단계가 지나가고, 그 pointerenter 가 선택을 되돌린다.
+    await page.mouse.move(0, 0);
     await firstStage.focus();
     await firstStage.press('ArrowRight');
     await expect(tabs.nth(1)).toBeFocused();
