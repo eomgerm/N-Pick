@@ -1,0 +1,119 @@
+package com.npick.search.application.query.structured;
+
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Stream;
+
+import com.npick.search.domain.model.KeywordTagSettings;
+import com.npick.tag.application.query.TagCondition;
+import com.npick.tag.domain.model.TagMatchValue;
+import com.npick.tag.domain.model.TagType;
+
+/**
+ * 검색어 토큰에서 {@code keyword} 태그 조건을 만든다 (S15P21A501-321). DB·리졸버 호출 없이 검증 가능하다.
+ *
+ * <p>입력 토큰은 워커 {@code encode_token} 이 만든 {@code 형태/품사} 소문자다. 명사류(nng·nnp·sl·sn)만 쓰고, 그 밖의 품사나 품사가 없는 옛 형식 토큰은 명사 연결을
+ * 끊는다. 제외 목록 명사도 연결을 끊는다 — 「건물앞」 같은 키워드 태그는 거의 없고, 위치어를 붙인 값은 정보가 없다.
+ *
+ * <p>순서가 곧 상한이 자르는 우선순위다 — 질의 명사(단독 → 인접 2개 → 인접 3개) 다음에 확장어 명사. 확장어 조건은 편입 전용이며 점수를 받지 않는다 (S15P21A501-48).
+ *
+ * <p>값은 태그 {@code match_value} 와 같은 {@link TagMatchValue#normalize} 로 접는다. 판정 규칙을 둘로 만들지 않는다 (S15P21A501-169).
+ */
+final class KeywordConditionExtractor {
+
+    /** 워커 query_normalization keep_pos 중 명사류. VV·VA 는 여기 없고 연결을 끊는다. */
+    private static final Set<String> NOUN_TAGS = Set.of("nng", "nnp", "sl", "sn");
+
+    /** 인접 명사를 최대 몇 개까지 붙이는가. 「전세 사기 피해」 → 전세사기피해. */
+    private static final int MAX_JOINED = 3;
+
+    /** @param query 질의 명사 조건. 점수 분모다 @param expanded 확장어 명사 조건. 편입 전용 */
+    record Conditions(List<TagCondition> query, List<TagCondition> expanded) {
+        static final Conditions NONE = new Conditions(List.of(), List.of());
+
+        Conditions {
+            query = List.copyOf(query);
+            expanded = List.copyOf(expanded);
+        }
+
+        boolean isEmpty() {
+            return query.isEmpty() && expanded.isEmpty();
+        }
+
+        List<TagCondition> all() {
+            return Stream.concat(query.stream(), expanded.stream()).toList();
+        }
+    }
+
+    Conditions extract(List<String> searchTokens, List<List<String>> expandedPhrases, KeywordTagSettings settings) {
+        if (!settings.enabled()) {
+            return Conditions.NONE;
+        }
+        LinkedHashSet<String> queryValues = values(searchTokens, settings);
+        var expandedValues = new LinkedHashSet<String>();
+        for (List<String> phrase : expandedPhrases) {
+            expandedValues.addAll(values(phrase, settings));
+        }
+        // 상한으로 잘린 질의 명사도 확장어로 되살리지 않는다 — 사용자가 친 말을 확장어 출처로 표시하게 된다.
+        expandedValues.removeAll(queryValues);
+        List<TagCondition> query = queryValues.stream()
+                .limit(settings.conditionCap())
+                .map(value -> TagCondition.exact(TagType.KEYWORD, value))
+                .toList();
+        List<TagCondition> expanded = expandedValues.stream()
+                .limit(Math.max(0, settings.conditionCap() - query.size()))
+                .map(value -> TagCondition.exact(TagType.KEYWORD, value))
+                .toList();
+        return new Conditions(query, expanded);
+    }
+
+    /** 단독 → 인접 2개 → 인접 3개 순. 빈 값과 제외 목록 값은 버린다. */
+    private static LinkedHashSet<String> values(List<String> tokens, KeywordTagSettings settings) {
+        List<List<String>> runs = nounRuns(tokens, settings);
+        var values = new LinkedHashSet<String>();
+        for (int width = 1; width <= MAX_JOINED; width++) {
+            for (List<String> run : runs) {
+                for (int start = 0; start + width <= run.size(); start++) {
+                    String value = TagMatchValue.normalize(String.join("", run.subList(start, start + width)));
+                    if (!value.isEmpty() && !settings.stopped(value)) {
+                        values.add(value);
+                    }
+                }
+            }
+        }
+        return values;
+    }
+
+    /** 명사류가 아니거나 제외 목록에 걸린 명사에서 실을 끊는다. */
+    private static List<List<String>> nounRuns(List<String> tokens, KeywordTagSettings settings) {
+        var runs = new ArrayList<List<String>>();
+        var current = new ArrayList<String>();
+        for (String token : tokens) {
+            String form = nounForm(token);
+            if (form == null || settings.stopped(TagMatchValue.normalize(form))) {
+                if (!current.isEmpty()) {
+                    runs.add(List.copyOf(current));
+                    current.clear();
+                }
+                continue;
+            }
+            current.add(form);
+        }
+        if (!current.isEmpty()) {
+            runs.add(List.copyOf(current));
+        }
+        return runs;
+    }
+
+    /** 명사류 토큰의 형태. 품사가 없거나(옛 형식) 형태·품사가 비었거나 명사류가 아니면 {@code null}. */
+    private static String nounForm(String token) {
+        if (token == null) return null;
+        int slash = token.lastIndexOf('/');
+        if (slash <= 0 || slash == token.length() - 1) return null;
+        String tag = token.substring(slash + 1).toLowerCase(Locale.ROOT);
+        return NOUN_TAGS.contains(tag) ? token.substring(0, slash) : null;
+    }
+}
