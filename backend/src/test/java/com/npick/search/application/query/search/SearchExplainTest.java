@@ -198,6 +198,54 @@ class SearchExplainTest {
         assertThat(display.get("scene_type")).isEqualTo(card.sceneType());
     }
 
+    @Test
+    @DisplayName("키워드 태그로 들어온 장면은 그 태그를 근거로 낸다")
+    void reportsKeywordTagEvidence() {
+        // 「전세 사기」 → 전세사기 태그. 질의 토큰(전세/nng)과 match_value(전세사기)가 달라 토큰 대조로는 못 찾는다.
+        // 근거가 없으면 설명 fallback 이 떠서 「왜 나왔는지 모르는 결과」 가 된다.
+        var keywordTag = tag(TagType.KEYWORD, "전세사기", false);
+        var scene = sceneWithKeywordEvidence(
+                cardWith("빌라 앞 기자", List.of("빌라/nng", "기자/nng")), List.of(keywordTag, keywordTag));
+
+        var card = SearchExplain.card(scene, 1, 801L, List.of("전세/nng", "사기/nng"), List.of());
+
+        assertThat(card.matchEvidence()).singleElement().satisfies(evidence -> {
+            assertThat(evidence.field()).isEqualTo("tag");
+            assertThat(evidence.value()).isEqualTo("전세사기");
+            assertThat(evidence.source()).isEqualTo("vlm");
+            assertThat(evidence.verificationStatus()).isEqualTo("unverified");
+        });
+        // matched_keywords 는 색인 토큰 대조 결과다 — 태그는 칩에 넣지 않는다.
+        assertThat(card.matchedKeywords()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("explain_json 의 근거도 키워드 태그를 같은 모양으로 싣는다")
+    void explainJsonCarriesKeywordTagEvidence() {
+        var scene = sceneWithKeywordEvidence(cardWith("무관", List.of()), List.of(tag(TagType.KEYWORD, "전세사기", true)));
+
+        @SuppressWarnings("unchecked")
+        var evidence = (List<Map<String, Object>>)
+                SearchExplain.match(scene, List.of(), List.of()).get("match_evidence");
+
+        assertThat(evidence)
+                .containsExactly(
+                        Map.of("field", "tag", "value", "전세사기", "source", "vlm", "verification_status", "verified"));
+    }
+
+    private static SearchCandidates.ScoredScene sceneWithKeywordEvidence(
+            SceneCard card, List<EffectiveTag> keywordEvidence) {
+        return new SearchCandidates.ScoredScene(
+                card.sceneId(),
+                card.clipId(),
+                card,
+                keywordEvidence,
+                new FusionResult.ScoredCandidate(card.sceneId(), card.clipId(), 1.0, 1.0, 0.0, 0.0, List.of()),
+                new SoftRankingResult.OrderedCandidate(card.sceneId(), card.clipId(), 1.0, 1.0, Map.of()),
+                new FalseHitGuardResult.SceneVerdict(card.sceneId(), null, List.of()),
+                keywordEvidence);
+    }
+
     private static SearchExecutionResult.MatchedKeyword userKeyword(String keyword) {
         return new SearchExecutionResult.MatchedKeyword(keyword, SearchExecutionResult.MatchedKeyword.ORIGIN_USER);
     }
