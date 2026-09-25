@@ -95,4 +95,71 @@ class DiscardTagCorrectionCandidateServiceTest {
                         ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.NOT_REVIEWER));
         verify(confirmationRepository, never()).discardPending(1L);
     }
+
+    @Test
+    @DisplayName("개별 취소는 전제가 맞으면 지정한 근거 하나만 지운다")
+    void discardsOnePendingCandidate() {
+        reviewingCorrection();
+        when(confirmationRepository.discardPendingOne(1L, 5001L)).thenReturn(1);
+
+        int discarded = service.discardOne(1L, 5001L, 9L, true);
+
+        verify(correctionStateLock).acquire();
+        assertThat(discarded).isEqualTo(1);
+        verify(confirmationRepository).discardPendingOne(1L, 5001L);
+        verify(confirmationRepository, never()).discardPending(1L);
+    }
+
+    @Test
+    @DisplayName("개별 취소도 대상 근거가 없으면 0건으로 조용히 끝난다 (멱등)")
+    void discardOneIsIdempotent() {
+        reviewingCorrection();
+        when(confirmationRepository.discardPendingOne(1L, 5001L)).thenReturn(0);
+
+        assertThat(service.discardOne(1L, 5001L, 9L, true)).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("개별 취소도 편집기자면 잠금 전에 거부한다")
+    void discardOneRejectsEditor() {
+        assertThatThrownBy(() -> service.discardOne(1L, 5001L, 9L, false))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.EDITOR_FORBIDDEN));
+        verify(correctionStateLock, never()).acquire();
+        verify(confirmationRepository, never()).discardPendingOne(1L, 5001L);
+    }
+
+    @Test
+    @DisplayName("개별 취소도 없는 신고면 거부한다")
+    void discardOneRejectsMissingFeedback() {
+        when(tagContextPort.find(1L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.discardOne(1L, 5001L, 9L, true))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.FEEDBACK_NOT_FOUND));
+        verify(confirmationRepository, never()).discardPendingOne(1L, 5001L);
+    }
+
+    @Test
+    @DisplayName("개별 취소도 검수 중이 아니면 거부한다")
+    void discardOneRejectsNotReviewing() {
+        when(tagContextPort.find(1L)).thenReturn(Optional.of(new TagContext("CLOSED", "correction", 9L, 300L, 100L)));
+        assertThatThrownBy(() -> service.discardOne(1L, 5001L, 9L, true))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.NOT_REVIEWING));
+        verify(confirmationRepository, never()).discardPendingOne(1L, 5001L);
+    }
+
+    @Test
+    @DisplayName("개별 취소도 담당 검수자가 아니면 거부한다")
+    void discardOneRejectsNonOwnerReviewer() {
+        reviewingCorrection();
+        assertThatThrownBy(() -> service.discardOne(1L, 5001L, 7L, true))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(TagCorrectionCandidateErrorCode.NOT_REVIEWER));
+        verify(confirmationRepository, never()).discardPendingOne(1L, 5001L);
+    }
 }

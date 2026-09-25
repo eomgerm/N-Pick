@@ -96,6 +96,49 @@ class TagCorrectionConfirmationRepositoryAdapterDbTest {
         assertThat(repository.discardPending(9902L)).isEqualTo(0);
     }
 
+    @Test
+    @Transactional
+    @DisplayName("discardPendingOne 은 지정한 대기 근거 하나만 지우고 같은 신고의 다른 대기·확정 근거와 다른 신고의 근거는 남긴다 (S15P21A501-309)")
+    void discardPendingOneDeletesOnlyTargetEvidence() {
+        seed(9901L, 7901L, false);
+        // 같은 신고의 다른 대기 근거, 같은 신고의 확정 근거
+        insertEvidence(7902L, 9901L, false);
+        insertEvidence(7903L, 9901L, true);
+        // 다른 신고(같은 결과 행, 다른 신고자)의 대기 근거
+        exec("INSERT INTO npick.member (member_id, login_id, password_hash, name, role, created_at, updated_at)"
+                + " VALUES (9002, 'editor-9002', 'hash', '편집기자2', 'editor', now(), now())");
+        exec("INSERT INTO npick.feedback (feedback_id, search_result_id, created_by_id, status, reviewed_by_id,"
+                + " resolution, created_at, review_started_at, updated_at) VALUES (9902, 9801, 9002,"
+                + " 'REVIEWING', 9001, 'tag_correction', now(), now(), now())");
+        insertEvidence(7904L, 9902L, false);
+
+        int discarded = repository.discardPendingOne(9901L, 7901L);
+
+        assertThat(discarded).isEqualTo(1);
+        assertThat(existsEvidence(7901L)).isFalse();
+        assertThat(existsEvidence(7902L)).isTrue();
+        assertThat(existsEvidence(7903L)).isTrue();
+        assertThat(existsEvidence(7904L)).isTrue();
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("discardPendingOne 은 확정 근거·다른 신고의 근거·없는 근거면 0행으로 조용히 통과한다")
+    void discardPendingOneIsNoopForConfirmedOrForeignEvidence() {
+        seed(9901L, 7901L, true);
+
+        assertThat(repository.discardPendingOne(9901L, 7901L)).isEqualTo(0);
+        assertThat(repository.discardPendingOne(8888L, 7901L)).isEqualTo(0);
+        assertThat(repository.discardPendingOne(9901L, 1L)).isEqualTo(0);
+        assertThat(existsEvidence(7901L)).isTrue();
+    }
+
+    private void insertEvidence(long evidenceId, long feedbackId, boolean confirmed) {
+        exec("INSERT INTO npick.tag_evidence (evidence_id, tagging_id, source, confidence, verification_status,"
+                + " source_feedback_id, confirmed, created_at) VALUES (" + evidenceId + ", 7801, 'reviewer_feedback',"
+                + " NULL, 'verified', " + feedbackId + ", " + confirmed + ", now())");
+    }
+
     private boolean existsEvidence(long evidenceId) {
         return !em.createNativeQuery("SELECT 1 FROM tag_evidence WHERE evidence_id = :id")
                 .setParameter("id", evidenceId)

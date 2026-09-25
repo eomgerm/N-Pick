@@ -17,9 +17,12 @@ import com.npick.tag.domain.repository.TagCorrectionConfirmationRepository;
  * 판정(resolution)·본문 검증은 하지 않는다.
  *
  * <p>같은 교정 상태 잠금을 잡은 짧은 트랜잭션 안에서 전제를 다시 읽고 후보를 지운다 — 확정(-84)과 동시에 실행돼도 stale 한 상태를 건드리지 않는다.
+ *
+ * <p>근거 하나만 지우는 개별 취소도 같은 전제·순서를 따른다.
  */
 @Service
-public class DiscardTagCorrectionCandidateService implements DiscardTagCorrectionCandidateUseCase {
+public class DiscardTagCorrectionCandidateService
+        implements DiscardTagCorrectionCandidateUseCase, DiscardOneTagCorrectionCandidateUseCase {
 
     private final TagContextPort tagContextPort;
     private final TagCorrectionConfirmationRepository confirmationRepository;
@@ -37,6 +40,19 @@ public class DiscardTagCorrectionCandidateService implements DiscardTagCorrectio
     @Override
     @Transactional
     public int discard(long feedbackId, long reviewerId, boolean reviewerRole) {
+        verifyDiscardable(feedbackId, reviewerId, reviewerRole);
+        return confirmationRepository.discardPending(feedbackId);
+    }
+
+    @Override
+    @Transactional
+    public int discardOne(long feedbackId, long evidenceId, long reviewerId, boolean reviewerRole) {
+        verifyDiscardable(feedbackId, reviewerId, reviewerRole);
+        return confirmationRepository.discardPendingOne(feedbackId, evidenceId);
+    }
+
+    // 검수자 역할 → 교정 상태 잠금 → 신고 존재 → 검수 중 → 담당 검수자 순서. 잠금은 호출한 트랜잭션이 끝날 때 풀린다.
+    private void verifyDiscardable(long feedbackId, long reviewerId, boolean reviewerRole) {
         if (!reviewerRole) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.EDITOR_FORBIDDEN);
         }
@@ -50,6 +66,5 @@ public class DiscardTagCorrectionCandidateService implements DiscardTagCorrectio
         if (context.reviewedById() == null || context.reviewedById() != reviewerId) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.NOT_REVIEWER);
         }
-        return confirmationRepository.discardPending(feedbackId);
     }
 }
