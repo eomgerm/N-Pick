@@ -78,6 +78,25 @@ public class TagCorrectionCandidateRepositoryAdapter implements TagCorrectionCan
         return rows.stream().findFirst().map(Number::longValue);
     }
 
+    @Override
+    public int discardConflictingPending(ReviewerTagJudgment judgment) {
+        entityManager.flush();
+        return entityManager
+                .createNativeQuery("DELETE FROM tag_evidence te USING tagging tg, tag t "
+                        + "WHERE tg.tagging_id = te.tagging_id AND t.tag_id = tg.tag_id "
+                        + "AND te.source_feedback_id = :feedbackId AND te.source = 'reviewer_feedback' "
+                        + "AND te.confirmed = false AND te.verification_status <> :status "
+                        + "AND tg.clip_id = :clipId AND tg.scene_id IS NOT DISTINCT FROM :sceneId "
+                        + "AND t.tag_type = :tagType AND t.match_value = :matchValue")
+                .setParameter("feedbackId", judgment.sourceFeedbackId())
+                .setParameter("status", judgment.verificationStatus())
+                .setParameter("clipId", judgment.clipId())
+                .setParameter("sceneId", judgment.sceneId())
+                .setParameter("tagType", judgment.tagType())
+                .setParameter("matchValue", judgment.matchValue())
+                .executeUpdate();
+    }
+
     // 확정(-84)은 confirmed 만 올리고 행을 지우지 않으므로 confirmed 여부와 무관하게 이 신고가 만든 근거를 전부 센다.
     @Override
     public int countByFeedback(long sourceFeedbackId) {

@@ -28,6 +28,9 @@ import com.npick.tag.domain.repository.TagCorrectionCandidateRepository;
  *
  * <p>이 엔드포인트에는 멱등 키가 없는 대신 자연 키로 중복을 막는다 (S15P21A501-317). 같은 신고·같은 태깅(유형·값·장면/클립 범위)·같은 판단으로 대기 중인 근거가 이미 있으면 새로 넣지 않고
  * 그 근거 id 를 돌려준다 — 새로고침 뒤 복원한 편집을 다시 보내거나 응답을 잃고 재시도해도 근거가 쌓이지 않는다. 확정된 근거는 재사용하지 않는다.
+ *
+ * <p>한 신고·한 태깅에 대기 판단은 <b>하나만</b> 남긴다. 판단이 바뀌면(승인→반려 등) 반대 판단의 대기 근거를 지우고 새 판단을 재사용하거나 만든다. 확정(-84)은 대기 근거를 모두 올리고 해석기는
+ * 최신 판단을 쓰므로, 옛 판단을 재사용해 두 판단이 함께 남으면 최종 의도와 반대 판단이 이길 수 있다. 한 요청 안에서 같은 태깅에 판단이 여럿 오면 마지막 변경안이 이긴다.
  */
 @Service
 public class CreateTagCorrectionCandidateService implements CreateTagCorrectionCandidateUseCase {
@@ -87,33 +90,37 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
                 .map(operation -> toJudgment(command.feedbackId(), context, operation))
                 .toList();
 
-        // 자연 키마다 한 번만 조회한다. 같은 요청 안의 중복 변경안도 한 근거로 모인다.
-        Map<JudgmentKey, Long> reusable = new HashMap<>();
-        Map<JudgmentKey, ReviewerTagJudgment> toCreate = new LinkedHashMap<>();
+        // 태깅마다 최종 판단 하나. 한 요청 안에서 같은 태깅에 판단이 여럿 오면 마지막 변경안이 이긴다(LinkedHashMap 은 첫 등장 순서를 지킨다).
+        Map<TaggingKey, ReviewerTagJudgment> finalJudgments = new LinkedHashMap<>();
         for (ReviewerTagJudgment judgment : judgments) {
-            JudgmentKey key = JudgmentKey.of(judgment);
-            if (reusable.containsKey(key) || toCreate.containsKey(key)) {
-                continue;
-            }
+            finalJudgments.put(TaggingKey.of(judgment), judgment);
+        }
+
+        // 반대 판단의 대기 근거를 먼저 지우고, 같은 판단이 남아 있으면 재사용한다. 아래 상한 초과로 거부되면 트랜잭션이 이 삭제도 되돌린다.
+        Map<TaggingKey, Long> ids = new HashMap<>();
+        Map<TaggingKey, ReviewerTagJudgment> toCreate = new LinkedHashMap<>();
+        finalJudgments.forEach((key, judgment) -> {
+            candidateRepository.discardConflictingPending(judgment);
             Optional<Long> pending = candidateRepository.findPendingJudgment(judgment);
             if (pending.isPresent()) {
-                reusable.put(key, pending.get());
+                ids.put(key, pending.get());
             } else {
                 toCreate.put(key, judgment);
             }
-        }
+        });
 
-        // 부분 저장을 남기지 않으려고 저장 루프 전에 이번 요청으로 새로 만들 것까지 더해 판정한다. 재사용분은 새 근거가 아니라 세지 않는다.
+        // 부분 저장을 남기지 않으려고 저장 루프 전에 이번 요청으로 새로 만들 것까지 더해 판정한다. 재사용분은 새 근거가 아니라 세지 않고,
+        // 방금 지운 반대 판단은 이미 빠진 수로 센다.
         if (candidateRepository.countByFeedback(command.feedbackId()) + toCreate.size() > MAX_JUDGMENTS_PER_FEEDBACK) {
             throw new BusinessException(TagCorrectionCandidateErrorCode.JUDGMENT_LIMIT_EXCEEDED);
         }
 
-        Map<JudgmentKey, Long> ids = new HashMap<>(reusable);
         toCreate.forEach((key, judgment) -> ids.put(key, candidateRepository.addJudgment(judgment)));
 
+        // 변경안마다 그 태깅에 최종으로 남은 근거 id 를 준다. 뒤 변경안에 진 앞 변경안도 살아남은 근거 id 를 받는다.
         List<Long> evidenceIds = new ArrayList<>();
         for (ReviewerTagJudgment judgment : judgments) {
-            evidenceIds.add(ids.get(JudgmentKey.of(judgment)));
+            evidenceIds.add(ids.get(TaggingKey.of(judgment)));
         }
         return new CreateTagCorrectionCandidateResult(evidenceIds, toCreate.size());
     }
@@ -132,12 +139,12 @@ public class CreateTagCorrectionCandidateService implements CreateTagCorrectionC
                 operation.action().verificationStatus());
     }
 
-    // 중복 판정의 자연 키. 신고·클립은 한 요청 안에서 같으므로 범위·태그·판단만 담는다. 표시 이름은 태그 사전 값이라 키가 아니다.
-    private record JudgmentKey(Long sceneId, String tagType, String matchValue, String verificationStatus) {
+    // 대기 판단을 하나로 모으는 태깅 키. 신고·클립은 한 요청 안에서 같으므로 범위·태그만 담는다. 판단은 키가 아니다 — 태깅당 판단 하나만 남긴다.
+    // 표시 이름은 태그 사전 값이라 키가 아니다.
+    private record TaggingKey(Long sceneId, String tagType, String matchValue) {
 
-        static JudgmentKey of(ReviewerTagJudgment judgment) {
-            return new JudgmentKey(
-                    judgment.sceneId(), judgment.tagType(), judgment.matchValue(), judgment.verificationStatus());
+        static TaggingKey of(ReviewerTagJudgment judgment) {
+            return new TaggingKey(judgment.sceneId(), judgment.tagType(), judgment.matchValue());
         }
     }
 

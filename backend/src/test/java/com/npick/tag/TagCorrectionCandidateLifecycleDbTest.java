@@ -102,12 +102,8 @@ class TagCorrectionCandidateLifecycleDbTest {
     void reuseDoesNotConsumeAccumulatedLimit() throws Exception {
         seed();
         postReplace(9901L, 2);
-        // 다른 판단(withdrawn) 48건을 채워 누적 50 을 만든다. 교체 본문의 반려·승인과 판단이 달라 재사용 대상과 겹치지 않는다.
-        jdbc.update("INSERT INTO tag_evidence (evidence_id, tagging_id, source, confidence, verification_status,"
-                + " source_feedback_id, confirmed, created_at)"
-                + " SELECT 7000000 + g, te.tagging_id, 'reviewer_feedback', NULL, 'withdrawn', 9901, false, now()"
-                + " FROM generate_series(1, 48) g, (SELECT tagging_id FROM tag_evidence WHERE source_feedback_id = 9901"
-                + " AND verification_status = 'rejected' LIMIT 1) te");
+        // 교체 본문과 무관한 태깅에 대기 판단 48건을 채워 누적 50 을 만든다 — 같은 태깅이면 반대 판단 정리에 지워진다.
+        fillPending(9901L, 48);
         assertThat(pendingCount(9901L)).isEqualTo(50);
 
         postReplace(9901L, 0);
@@ -160,6 +156,96 @@ class TagCorrectionCandidateLifecycleDbTest {
         assertThat(other).doesNotContainAnyElementsOf(first);
         assertThat(pendingCount(9901L)).isEqualTo(2);
         assertThat(pendingCount(9902L)).isEqualTo(2);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("승인→반려→승인을 차례로 보내면 그 태깅에는 대기 승인 하나만 남는다 — 옛 반려가 최신으로 살아나지 않는다 (S15P21A501-317)")
+    void approveRejectApproveLeavesSinglePendingApprove() throws Exception {
+        seed();
+
+        String firstApprove = postOps(9901L, op("APPROVE", "SCENE", "서울"), 1).get(0);
+        postOps(9901L, op("REJECT", "SCENE", "서울"), 1);
+        List<String> finalApprove = postOps(9901L, op("APPROVE", "SCENE", "서울"), 1);
+
+        assertThat(pendingStatuses(9901L, "서울", true)).containsExactly("verified");
+        assertThat(finalApprove).doesNotContain(firstApprove); // 첫 승인은 반려 때 지워졌다
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("반려 후 승인을 보내면 대기 승인 하나만 남고, 다른 태깅의 대기 판단은 그대로다 (S15P21A501-317)")
+    void rejectThenApproveKeepsOnlyApproveAndLeavesOtherTaggings() throws Exception {
+        seed();
+        postReplace(9901L, 2); // 장면 서울 REJECT + 장면 제주도 APPROVE
+        postOps(9901L, op("REJECT", "CLIP", "서울"), 1); // 같은 값의 클립 태깅은 다른 태깅이다
+
+        postOps(9901L, op("APPROVE", "SCENE", "서울"), 1);
+
+        assertThat(pendingStatuses(9901L, "서울", true)).containsExactly("verified");
+        assertThat(pendingStatuses(9901L, "서울", false)).containsExactly("rejected");
+        assertThat(pendingStatuses(9901L, "제주도", true)).containsExactly("verified");
+        assertThat(pendingCount(9901L)).isEqualTo(3);
+    }
+
+    @Test
+    @Transactional
+    @DisplayName("상한(50)이 찬 뒤에도 판단 뒤집기는 반대 판단을 지운 수로 세어 성공한다 (S15P21A501-317)")
+    void flippingJudgmentAtLimitDoesNotExceed() throws Exception {
+        seed();
+        postReplace(9901L, 2);
+        fillPending(9901L, 48);
+
+        postOps(9901L, op("APPROVE", "SCENE", "서울"), 1);
+
+        assertThat(pendingCount(9901L)).isEqualTo(50);
+        assertThat(pendingStatuses(9901L, "서울", true)).containsExactly("verified");
+    }
+
+    private static String op(String action, String scope, String value) {
+        return "{\"action\":\"" + action + "\",\"scope\":\"" + scope + "\",\"tagType\":\"location\",\"matchValue\":\""
+                + value + "\",\"displayName\":\"" + value + "\"}";
+    }
+
+    private List<String> postOps(long feedbackId, String operation, int expectedNewlyCreated) throws Exception {
+        String body = mockMvc.perform(post("/api/v1/review/inquiries/" + feedbackId + "/tag-correction-candidate")
+                        .with(user(REVIEWER))
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"operations\":[" + operation + "]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.newlyCreated").value(expectedNewlyCreated))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return JsonPath.read(body, "$.data.evidenceIds");
+    }
+
+    private List<String> pendingStatuses(long feedbackId, String matchValue, boolean sceneScope) {
+        return jdbc.queryForList(
+                "SELECT te.verification_status FROM tag_evidence te JOIN tagging tg ON tg.tagging_id = te.tagging_id"
+                        + " JOIN tag t ON t.tag_id = tg.tag_id WHERE te.source_feedback_id = ? AND te.confirmed = false"
+                        + " AND te.source = 'reviewer_feedback' AND t.match_value = ? AND (tg.scene_id IS NOT NULL) = ?",
+                String.class,
+                feedbackId,
+                matchValue,
+                sceneScope);
+    }
+
+    // 요청과 무관한 태깅 하나에 같은 판단(withdrawn) 대기 근거를 count 건 넣는다.
+    private void fillPending(long feedbackId, int count) {
+        jdbc.execute(
+                "INSERT INTO tag (tag_id, tag_type, match_value, name) VALUES (9499, 'keyword', 'filler', 'filler')"
+                        + " ON CONFLICT DO NOTHING");
+        jdbc.execute("INSERT INTO tagging (tagging_id, clip_id, scene_id, tag_id, created_at)"
+                + " VALUES (9599, 9101, 9301, 9499, now()) ON CONFLICT DO NOTHING");
+        jdbc.update(
+                "INSERT INTO tag_evidence (evidence_id, tagging_id, source, confidence, verification_status,"
+                        + " source_feedback_id, confirmed, created_at)"
+                        + " SELECT 7000000 + g, 9599, 'reviewer_feedback', NULL, 'withdrawn', ?, false, now()"
+                        + " FROM generate_series(1, ?) g",
+                feedbackId,
+                count);
     }
 
     private static final AuthenticatedMember REVIEWER = new AuthenticatedMember(9002L, "reviewer01", "h", "REVIEWER");
