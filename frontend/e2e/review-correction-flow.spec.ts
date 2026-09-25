@@ -228,15 +228,20 @@ interface ParseCall {
 async function mockParseCandidates(
   page: Page,
   failOnce: (call: ParseCall) => boolean = () => false,
+  // 참이면 후보는 저장하되 응답을 끊는다(응답 유실). 한 번만 적용한다.
+  dropOnce: (call: ParseCall) => boolean = () => false,
 ) {
   const calls: ParseCall[] = [];
   const created = new Map<string, string>();
+  const stored = new Map<string, unknown>();
   let failed = false;
+  let dropped = false;
   await page.route('**/api/v1/review/inquiries/41/parse-patch-candidate', async (route) => {
     const request = route.request();
     if (request.method() !== 'POST') {
       calls.push({ method: request.method(), key: null, all: [] });
       created.clear();
+      stored.clear();
       await success(route);
       return;
     }
@@ -254,9 +259,15 @@ async function mockParseCandidates(
     }
     const searchRuleId = created.get(key) ?? String(80 + created.size);
     created.set(key, searchRuleId);
+    stored.set(key, body);
+    if (!dropped && dropOnce(call)) {
+      dropped = true;
+      await route.abort('connectionreset');
+      return;
+    }
     await success(route, { searchRuleId, feedbackId: '41', active: false });
   });
-  return { calls, created };
+  return { calls, created, stored };
 }
 
 test('서로 다른 축의 두 편집은 각자 조건 1개인 후보 2건으로 저장된다 (S15P21A501-309)', async ({
@@ -323,4 +334,46 @@ test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들
     [{ axis: 'incident_names', op: 'has_value', value: '추석' }],
     [{ axis: 'expanded_terms', op: 'has_value', value: '귀성 차량' }],
   ]);
+});
+
+test('저장 응답이 유실된 뒤 다시 편집하면 이전 후보를 폐기하고 새 규칙만 저장한다 (S15P21A501-309)', async ({
+  page,
+}) => {
+  const { calls, stored } = await mockParseCandidates(
+    page,
+    () => false,
+    () => true,
+  );
+  await openInquiry(page);
+
+  const editChip = async (from: string, to: string) => {
+    await page
+      .getByRole('button', { name: new RegExp(`^${from}`) })
+      .first()
+      .click();
+    const input = page.getByRole('textbox', { name: '검색 의미어 값 수정' });
+    await input.fill(to);
+    await input.press('Enter');
+  };
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
+
+  await editChip('고속도로 정체', '고속 정체');
+  await save.click();
+  // 서버는 후보를 저장했지만 응답이 끊겨 화면은 실패로 안다.
+  await expect(save).toBeEnabled();
+  await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toBeVisible();
+  await expect(page.getByText('교정을 담았어요.', { exact: false })).toHaveCount(0);
+  expect(stored.size).toBe(1);
+
+  await editChip('고속 정체', '정체');
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
+
+  expect(calls.map((call) => call.method)).toEqual(['POST', 'DELETE', 'POST']);
+  // 서버에는 새 규칙만 남는다 — 화면에서 고쳐 버린 '고속 정체' 규칙이 섞이지 않는다.
+  const remaining = JSON.stringify([...stored.values()]);
+  expect(stored.size).toBe(1);
+  expect(remaining).toContain('"정체"');
+  expect(remaining).not.toContain('고속 정체');
 });
