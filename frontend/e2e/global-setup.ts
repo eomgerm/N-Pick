@@ -114,6 +114,21 @@ export default async function globalSetup() {
       return;
     }
 
+    // 대기 교정 후보가 없는 기본 응답 (S15P21A501-317). 교정 화면은 이 조회가 성공해야 조작을 연다 —
+    // 후보를 다루는 spec 은 page.route 로 덮어쓴다.
+    if (
+      request.method === 'GET' &&
+      /^\/api\/v1\/review\/inquiries\/\d+\/correction-candidates$/.test(url.pathname)
+    ) {
+      sendJson(response, 200, {
+        isSuccess: true,
+        code: 'COMM_200',
+        message: '성공',
+        data: { tags: [], parsePatches: [], sceneExcludes: [] },
+      });
+      return;
+    }
+
     sendJson(response, 404, {
       isSuccess: false,
       code: 'COMM_404',

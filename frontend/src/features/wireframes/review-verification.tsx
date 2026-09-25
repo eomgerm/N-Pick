@@ -6,6 +6,10 @@ import { useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import { confirmCorrection, confirmErrorMessages } from '@/features/wireframes/review-confirm-api';
+import {
+  correctionCandidatesQueryKey,
+  getCorrectionCandidates,
+} from '@/features/wireframes/review-inquiry-api';
 import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import {
   formatMediaTime,
@@ -13,6 +17,7 @@ import {
   getSceneThumbnailUrl,
 } from '@/features/wireframes/scene-preview-media';
 import { SceneThumbnail } from '@/features/wireframes/scene-thumbnail';
+import { allWithoutSearchEffect } from '@/features/wireframes/tag-type-effect';
 import {
   verificationErrorMessages,
   verifyCorrectionCandidates,
@@ -93,7 +98,12 @@ export function CorrectionVerificationPanel({
   // (편집기·태그 교정과 공유하는 키).
   const parseSavePending = useIsMutating({ mutationKey: ['parse-patch-save', feedbackId] }) > 0;
   const tagChangePending = useIsMutating({ mutationKey: ['tag-candidate-change', feedbackId] }) > 0;
-  const savePending = parseSavePending || tagChangePending;
+  const sceneExcludePending =
+    useIsMutating({ mutationKey: ['scene-exclude-change', feedbackId] }) > 0;
+  const parseDiscardPending =
+    useIsMutating({ mutationKey: ['parse-patch-discard', feedbackId] }) > 0;
+  const savePending =
+    parseSavePending || tagChangePending || sceneExcludePending || parseDiscardPending;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [previewScene, setPreviewScene] = useState<{
     scene: VerificationScene;
@@ -111,14 +121,30 @@ export function CorrectionVerificationPanel({
       ]);
     },
   });
-  // ponytail: 후보 조회 GET 이 없어 검증 결과는 세션 한정. 새로고침 후에는 다시 검증으로 복구한다.
+  // 검증 결과 자체는 세션 한정이다. 새로고침 후에는 복원된 후보로 다시 검증한다.
+  // 검증과 같은 시점에 대기 후보를 다시 읽어, 이번 검증에 들어간 후보 수를 함께 보여 준다 (S15P21A501-317).
+  // 후보 조회가 실패해도 검증 결과는 그대로 보여 주고 후보 수만 생략한다.
+  // 태그·장면 제외 교정은 이 키를 감시해 검증 중에는 후보를 바꾸지 못하게 잠근다.
   const verification = useMutation({
     mutationKey: ['verification-run', feedbackId],
-    mutationFn: () => verifyCorrectionCandidates(feedbackId),
+    mutationFn: async () => {
+      const [verified, applied] = await Promise.all([
+        verifyCorrectionCandidates(feedbackId),
+        queryClient
+          .fetchQuery({
+            queryKey: correctionCandidatesQueryKey(feedbackId),
+            queryFn: ({ signal }) => getCorrectionCandidates(feedbackId, signal),
+            staleTime: 0,
+          })
+          .catch(() => null),
+      ]);
+      return { verified, applied };
+    },
     retry: false,
-    onSuccess: onVerified,
+    onSuccess: ({ verified }) => onVerified?.(verified),
   });
-  const result = verification.data;
+  const result = verification.data?.verified;
+  const applied = verification.data?.applied ?? null;
   const guidance =
     verification.error instanceof ApiClientError
       ? verificationErrorMessages[verification.error.code]
@@ -193,6 +219,20 @@ export function CorrectionVerificationPanel({
               <dd className="font-bold">{result.verificationRuleSet.length}</dd>
             </div>
           </dl>
+          {applied ? (
+            <div className="grid gap-1 text-xs text-(--muted)">
+              <p>
+                이번 검증에 적용된 후보: 태그 {applied.tags.length} · 해석 규칙{' '}
+                {applied.parsePatches.length} · 장면 제외 {applied.sceneExcludes.length}
+              </p>
+              {allWithoutSearchEffect(applied.tags.map((tag) => tag.tagType)) ? (
+                <p>
+                  태그 후보가 모두 검색 결과에 영향을 주지 않는 유형이라, 태그 교정만으로는 검증
+                  결과가 달라지지 않습니다.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {visibleEntered.length > 0 ? (
             <div className="grid gap-2">
               <ul className="grid gap-2">

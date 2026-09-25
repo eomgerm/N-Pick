@@ -1,5 +1,11 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+import {
+  addPendingTags,
+  mockCorrectionCandidates,
+  removePendingTag,
+} from './correction-candidates-mock';
+
 const parsedQueryJson = JSON.stringify({
   schema_version: 'resolution-v1',
   intent: 'scene_search',
@@ -80,6 +86,8 @@ async function openInquiry(page: Page, parsed?: string) {
 
 async function addSceneTag(page: Page, value: string) {
   await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  // 새 초안은 유형 기본값이 없다 (S15P21A501-317) — 유형을 먼저 고른다.
+  await page.getByRole('combobox', { name: '태그 유형', exact: true }).selectOption('location');
   await page.getByRole('textbox', { name: '태그 값', exact: true }).fill(value);
   await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
   await expect(page.getByRole('button', { name: `‘${value}’ 추가 취소` })).toBeVisible();
@@ -92,18 +100,18 @@ test('태그 추가 취소는 그 추가의 근거만 지우고 다른 후보는
   const deletes: string[] = [];
   let nextEvidenceId = 61;
   let failNextDelete = true;
+  const candidates = await mockCorrectionCandidates(page);
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
     if (route.request().method() !== 'POST') {
       deletes.push(`bulk:${route.request().method()}`);
       await success(route);
       return;
     }
-    posts.push(route.request().postDataJSON());
-    await success(route, {
-      feedbackId: '41',
-      created: 1,
-      evidenceIds: [String(nextEvidenceId++)],
-    });
+    const body = route.request().postDataJSON();
+    posts.push(body);
+    const evidenceIds = [String(nextEvidenceId++)];
+    addPendingTags(candidates, body.operations, evidenceIds);
+    await success(route, { feedbackId: '41', created: 1, evidenceIds });
   });
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate/*', async (route) => {
     deletes.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
@@ -115,6 +123,7 @@ test('태그 추가 취소는 그 추가의 근거만 지우고 다른 후보는
       });
       return;
     }
+    removePendingTag(candidates, route.request().url());
     await success(route);
   });
   await openInquiry(page);
@@ -150,13 +159,17 @@ test('삭제 취소는 REJECT 근거만 지우고, 지우는 동안 태그 조�
   const deleteHeld = new Promise<void>((resolve) => {
     releaseDelete = resolve;
   });
+  const candidates = await mockCorrectionCandidates(page);
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate', async (route) => {
-    posts.push(route.request().postDataJSON());
+    const body = route.request().postDataJSON();
+    posts.push(body);
+    addPendingTags(candidates, body.operations, ['71'], { 서울역: '51' });
     await success(route, { feedbackId: '41', created: 1, evidenceIds: ['71'] });
   });
   await page.route('**/api/v1/review/inquiries/41/tag-correction-candidate/*', async (route) => {
     deletes.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
     await deleteHeld;
+    removePendingTag(candidates, route.request().url());
     await success(route);
   });
   await openInquiry(page);
@@ -313,7 +326,7 @@ test('일부만 저장된 뒤 다시 담으면 같은 키로 재전송해 중복
   expect(created.size).toBe(2);
 });
 
-test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들을 저장한다 (S15P21A501-309)', async ({
+test('담은 뒤 다시 편집하면 담기를 누를 때 이전 후보를 폐기하고 새 후보들을 저장한다 (S15P21A501-317)', async ({
   page,
 }) => {
   const { calls } = await mockParseCandidates(page);
@@ -326,6 +339,14 @@ test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들
 
   await page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true }).click();
   await expect(save).toBeEnabled();
+  // 편집만으로는 폐기하지 않는다 — 담기 전까지 이전 후보가 서버에 남고, 아직 담지 않았다고 알린다.
+  await expect(
+    page.getByText(
+      '편집한 내용은 아직 담지 않았어요. 교정 담기를 누르면 이전 교정을 폐기하고 새로 담습니다.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('교정을 담았어요.', { exact: false })).toHaveCount(0);
+  expect(calls.map((call) => call.method)).toEqual(['POST']);
   await save.click();
   await expect(page.getByText('2개 교정을 담았어요.', { exact: false })).toBeVisible();
 
@@ -336,7 +357,7 @@ test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들
   ]);
 });
 
-test('저장 응답이 유실된 뒤 다시 편집하면 이전 후보를 폐기하고 새 규칙만 저장한다 (S15P21A501-309)', async ({
+test('저장 응답이 유실된 뒤 다시 편집해 담으면 이전 후보를 폐기하고 새 규칙만 저장한다 (S15P21A501-309)', async ({
   page,
 }) => {
   const { calls, stored } = await mockParseCandidates(
@@ -367,6 +388,8 @@ test('저장 응답이 유실된 뒤 다시 편집하면 이전 후보를 폐기
 
   await editChip('고속 정체', '정체');
   await expect(save).toBeEnabled();
+  expect(calls.map((call) => call.method)).toEqual(['POST']);
+  expect(stored.size).toBe(1);
   await save.click();
   await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
 

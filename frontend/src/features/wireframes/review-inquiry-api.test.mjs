@@ -19,9 +19,11 @@ const {
   claimReviewInquiry,
   createTagCorrectionCandidate,
   discardTagCorrectionCandidateEvidence,
+  getCorrectionCandidates,
   getReviewInquiries,
   getReviewInquiry,
   parseCommaSeparatedTags,
+  parseCorrectionCandidates,
   parseReviewInquiryDetail,
   parseReviewInquiryList,
   parseTagCorrectionCandidate,
@@ -183,6 +185,102 @@ test('태그 교정 후보 응답은 생성 수와 근거 ID 개수가 같아야
       }),
     ApiClientError,
   );
+});
+
+test('태그 교정 후보 응답의 newlyCreated 는 선택이며 생성 수를 넘을 수 없다 (S15P21A501-317)', () => {
+  assert.deepEqual(
+    parseTagCorrectionCandidate({
+      feedbackId: '41',
+      created: 1,
+      newlyCreated: 0,
+      evidenceIds: ['61'],
+    }),
+    { feedbackId: '41', created: 1, newlyCreated: 0, evidenceIds: ['61'] },
+  );
+  for (const newlyCreated of [2, -1, '1']) {
+    assert.throws(
+      () =>
+        parseTagCorrectionCandidate({
+          feedbackId: '41',
+          created: 1,
+          newlyCreated,
+          evidenceIds: ['61'],
+        }),
+      ApiClientError,
+    );
+  }
+});
+
+const candidates = {
+  tags: [
+    {
+      evidenceId: '5001',
+      taggingId: '5501',
+      action: 'REJECT',
+      scope: 'SCENE',
+      tagType: 'location',
+      matchValue: '서울',
+      displayName: '서울',
+    },
+  ],
+  parsePatches: [
+    {
+      searchRuleId: '6602',
+      condition: { version: 'parse-rule/v1' },
+      patch: { version: 'parse-rule/v1', ops: [] },
+      replacesRuleId: null,
+    },
+  ],
+  sceneExcludes: [{ searchRuleId: '6603', targetSceneId: '9301' }],
+};
+
+test('대기 교정 후보 응답은 태그·해석·장면 제외 후보를 그대로 읽는다 (S15P21A501-317)', () => {
+  assert.deepEqual(parseCorrectionCandidates(candidates), candidates);
+  assert.deepEqual(parseCorrectionCandidates({ tags: [], parsePatches: [], sceneExcludes: [] }), {
+    tags: [],
+    parsePatches: [],
+    sceneExcludes: [],
+  });
+  // 교체 대상이 없으면 replacesRuleId 가 빠져 와도 null 로 읽는다.
+  const withoutReplaces = { ...candidates.parsePatches[0] };
+  delete withoutReplaces.replacesRuleId;
+  assert.equal(
+    parseCorrectionCandidates({ ...candidates, parsePatches: [withoutReplaces] }).parsePatches[0]
+      .replacesRuleId,
+    null,
+  );
+});
+
+test('대기 교정 후보의 잘못된 ID·어휘·모양은 안전하지 않은 응답으로 거절한다 (S15P21A501-317)', () => {
+  const tag = candidates.tags[0];
+  const patch = candidates.parsePatches[0];
+  for (const invalid of [
+    { ...candidates, tags: [{ ...tag, evidenceId: 5001 }] },
+    { ...candidates, tags: [{ ...tag, action: 'DELETE' }] },
+    { ...candidates, tags: [{ ...tag, scope: 'VIDEO' }] },
+    { ...candidates, tags: [{ ...tag, tagType: 'mood' }] },
+    { ...candidates, tags: [{ ...tag, displayName: null }] },
+    { ...candidates, parsePatches: [{ ...patch, condition: '{}' }] },
+    { ...candidates, parsePatches: [{ ...patch, patch: [] }] },
+    { ...candidates, sceneExcludes: [{ searchRuleId: '6603', targetSceneId: '0' }] },
+    { tags: [], parsePatches: [] },
+  ]) {
+    assert.throws(() => parseCorrectionCandidates(invalid), ApiClientError);
+  }
+});
+
+test('대기 교정 후보는 신고 ID 경로로 GET 한다 (S15P21A501-317)', async (context) => {
+  const requests = [];
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push({ input: String(input), init });
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data: candidates });
+  });
+
+  assert.deepEqual(await getCorrectionCandidates('41'), candidates);
+  assert.ok(requests[0].input.endsWith('/api/v1/review/inquiries/41/correction-candidates'));
+  assert.equal(requests[0].init.method ?? 'GET', 'GET');
+  await assert.rejects(getCorrectionCandidates('abc'), ApiClientError);
+  assert.equal(requests.length, 1);
 });
 
 test('누락·불일치 ID와 모르는 상태는 안전하지 않은 응답으로 거절한다', () => {
