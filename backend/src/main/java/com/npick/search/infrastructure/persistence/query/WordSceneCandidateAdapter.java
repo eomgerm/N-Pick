@@ -55,7 +55,8 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
      * 화면 글자는 다른 표의 다른 인덱스라 점수가 따로 나오기 때문이다.
      *
      * <p>화면 글자를 {@code max} 로 모으는 것은 장면당 키프레임 수가 다르기 때문이다. 합으로 모으면 키프레임이 많은 장면이 내용과 무관하게 이기고, 이는 BM25 가 문서 길이 정규화로 막는
-     * 편향을 밖에서 되살리는 것이다.
+     * 편향을 밖에서 되살리는 것이다. 점수가 실제 BM25 가 된 뒤로는(S15P21A501-320) 질의 토큰이 한 관측에 함께 있으면 합산되고, 서로 다른 키프레임에
+     * 나뉘어 있으면 가장 높은 관측 하나만 반영된다 — 같은 토큰을 덮어도 순위가 갈릴 수 있다는 뜻이며, 키프레임 수 편향을 막는 대가로 받아들인다.
      */
     private static final String FIND_CANDIDATES_SQL = """
             WITH query_tokens AS (
