@@ -29,6 +29,8 @@ import {
   SearchInterpretation,
   SnapshotCount,
 } from '@/features/wireframes/review-inquiry-snapshots';
+import { ClaimReleaseControl } from '@/features/wireframes/review-claim-release';
+import { canReleaseClaim } from '@/features/wireframes/review-claim-release-view';
 import { InquiryResolutionForm } from '@/features/wireframes/review-inquiry-resolution';
 import { resolutionModeFromValue } from '@/features/wireframes/review-resolution-toggle-mode';
 import { ReviewInquiryTags } from '@/features/wireframes/review-inquiry-tags';
@@ -41,6 +43,7 @@ import {
   formatInquiryTimecode,
   inquiryResolutionClasses,
 } from '@/features/wireframes/review-inquiry-view';
+import { useClaimReleaseFocus } from '@/features/wireframes/use-claim-release-focus';
 import { ReviewInquiryPreview } from '@/features/wireframes/reviewer-scene-preview';
 import styles from '@/features/wireframes/review-inquiry-detail.module.css';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
@@ -63,6 +66,7 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
     queryFn: ({ signal }) => getReviewInquiry(feedbackId, signal),
   });
   const loadedFeedbackId = detail.data?.feedbackId;
+  const { claimButtonRef, markReleaseConfirmed } = useClaimReleaseFocus(detail.data?.status);
   const claim = useMutation({
     mutationFn: async () => {
       claimKey.current ??= createIdempotencyKey();
@@ -258,6 +262,7 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
                   className={styles.primaryButton}
                   disabled={claim.isPending}
                   onClick={() => claim.mutate()}
+                  ref={claimButtonRef}
                   type="button"
                 >
                   <UserCheck aria-hidden="true" /> {claim.isPending ? '검수 시작 중…' : '검수 시작'}
@@ -303,6 +308,13 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
                     : '시작 시각 확인 중'}
                 </span>
               </section>
+            ) : null}
+            {canReleaseClaim(inquiry, member.loginId) ? (
+              <ClaimReleaseControl
+                feedbackId={inquiry.feedbackId}
+                key={inquiry.feedbackId}
+                onConfirm={markReleaseConfirmed}
+              />
             ) : null}
             {inquiry.status === 'reviewing' ? (
               <InquiryResolutionForm
@@ -367,7 +379,7 @@ export function InquiryDetail({ feedbackId, theme, onBack }: InquiryDetailProps)
             <div className={styles.currentTags}>
               <ReviewInquiryTags
                 inquiry={inquiry}
-                key={inquiry.feedbackId}
+                key={`${inquiry.feedbackId}-${inquiry.status}`}
                 memberLoginId={member.loginId}
               />
             </div>

@@ -25,6 +25,7 @@ const {
   parseReviewInquiryDetail,
   parseReviewInquiryList,
   parseTagCorrectionCandidate,
+  releaseReviewInquiry,
   resolveReviewInquiry,
 } = await import('./review-inquiry-api.ts');
 
@@ -370,4 +371,37 @@ test('태그 교정 근거 하나만 신고·근거 ID 경로로 DELETE 해 폐�
     (error) => error instanceof ApiClientError && error.kind === 'invalid-response',
   );
   assert.equal(requests.length, 1);
+});
+
+test('검수 취소는 선점 경로로 DELETE 하고 오류 상태를 그대로 던진다 (S15P21A501-289)', async (context) => {
+  const requests = [];
+  let failWith = null;
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push({ input: String(input), init });
+    if (failWith) {
+      return Response.json(
+        { isSuccess: false, code: 'FEEDBACK_409_003', message: '검수 중인 문의가 아닙니다.' },
+        { status: failWith },
+      );
+    }
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data: null });
+  });
+
+  await releaseReviewInquiry('41');
+
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0].input.endsWith('/api/v1/review/inquiries/41/claim'));
+  assert.equal(requests[0].init.method, 'DELETE');
+  assert.equal(requests[0].init.body, undefined);
+
+  failWith = 409;
+  await assert.rejects(
+    releaseReviewInquiry('41'),
+    (error) => error instanceof ApiClientError && error.status === 409,
+  );
+  await assert.rejects(
+    releaseReviewInquiry('abc'),
+    (error) => error instanceof ApiClientError && error.kind === 'invalid-response',
+  );
+  assert.equal(requests.length, 2);
 });

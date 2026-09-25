@@ -176,6 +176,7 @@ export function ParseInterpretationEditor({
   });
 
   const discard = useMutation({
+    mutationKey: ['parse-patch-discard', feedbackId],
     mutationFn: () => discardParsePatchCandidate(feedbackId),
     onSuccess: () => {
       mayHaveServerCandidates.current = false;

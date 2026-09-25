@@ -26,6 +26,7 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
   const idempotencyKey = useRef<string | null>(null);
 
   const register = useMutation({
+    mutationKey: ['scene-exclude-change', inquiry.feedbackId],
     mutationFn: () => {
       idempotencyKey.current ??= createIdempotencyKey();
       return createSceneExcludeCandidate(
@@ -42,6 +43,7 @@ export function SceneExcludeCandidateForm({ inquiry }: SceneExcludeCandidateForm
   });
 
   const cancel = useMutation({
+    mutationKey: ['scene-exclude-change', inquiry.feedbackId],
     mutationFn: () => discardSceneExcludeCandidate(inquiry.feedbackId),
     onSuccess: () => {
       setExcluded(false);

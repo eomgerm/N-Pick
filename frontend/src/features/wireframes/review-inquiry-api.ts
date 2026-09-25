@@ -336,6 +336,19 @@ export async function claimReviewInquiry(
   });
 }
 
+/**
+ * 담당 검수자가 선점을 풀어 문의를 미담당(OPEN) 상태로 되돌린다 (S15P21A501-289). 서버는 대기 중인
+ * 교정 후보(태그·해석·장면 제외)를 모두 폐기하고 담당자·판정을 비운다. 응답 본문은 선점과 같은 모양이라
+ * 선점처럼 읽지 않고, 화면은 상세를 다시 불러와 최신 상태를 따른다.
+ */
+export async function releaseReviewInquiry(
+  feedbackId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  identifier(feedbackId);
+  await fetchJson<void>(`/review/inquiries/${feedbackId}/claim`, { method: 'DELETE', signal });
+}
+
 export async function resolveReviewInquiry(
   feedbackId: string,
   selectedResolution: InquiryResolution,

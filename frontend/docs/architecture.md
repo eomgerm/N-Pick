@@ -76,6 +76,8 @@ src/
 │     ├─ review-inquiry-list.tsx 문의 목록·상태 필터·페이지 이동
 │     ├─ review-inquiry-detail.tsx 문의 상세 조회·선점·오류 복구와 캐시 갱신
 │     ├─ review-inquiry-resolution.tsx 담당자 판정 입력·사유 검증·저장과 캐시 갱신
+│     ├─ review-claim-release.tsx 담당자 검수 취소 확인 단계·교정 진행 중 잠금·캐시 갱신
+│     ├─ review-claim-release-view.ts 검수 취소 노출 조건·오류 안내
 │     ├─ review-inquiry-snapshots.tsx 당시 필터·검색 해석·결과 기록 표시
 │     ├─ review-inquiry-view.ts 화면 매핑·목록 URL 상태·페이지 보정·처리 결과 색상
 │     ├─ reviewer-scene-preview.tsx 문의 장면 카드와 공통 영상 팝업 연결
