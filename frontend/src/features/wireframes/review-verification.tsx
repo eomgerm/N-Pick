@@ -89,8 +89,11 @@ export function CorrectionVerificationPanel({
   onVerified,
 }: CorrectionVerificationPanelProps) {
   const queryClient = useQueryClient();
-  // 해석 교정 저장이 진행 중이면 검증 재검색이 옛 후보로 돌아가지 않도록 막는다 (편집기와 공유하는 키).
-  const savePending = useIsMutating({ mutationKey: ['parse-patch-save', feedbackId] }) > 0;
+  // 해석 교정 저장이나 태그 후보 변경이 진행 중이면 검증 재검색이 옛 후보로 돌아가지 않도록 막는다
+  // (편집기·태그 교정과 공유하는 키).
+  const parseSavePending = useIsMutating({ mutationKey: ['parse-patch-save', feedbackId] }) > 0;
+  const tagChangePending = useIsMutating({ mutationKey: ['tag-candidate-change', feedbackId] }) > 0;
+  const savePending = parseSavePending || tagChangePending;
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [previewScene, setPreviewScene] = useState<{
     scene: VerificationScene;

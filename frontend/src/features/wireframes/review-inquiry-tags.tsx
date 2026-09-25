@@ -70,7 +70,6 @@ interface CandidateSubmission {
   draftId?: string;
   added?: Omit<AddedTag, 'evidenceIds'>;
   removedTaggingId?: string;
-  restoredTaggingId?: string;
 }
 
 interface ReviewInquiryTagsProps {
@@ -95,14 +94,19 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
   const { showSuccess } = useSuccessToast();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [added, setAdded] = useState<AddedTag[]>([]);
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  // 삭제 후보로 만든 기존 태그 → 그 REJECT 가 서버에 만든 대기 근거. 삭제 취소는 이 근거만 지운다.
+  const [removed, setRemoved] = useState<Map<string, string[]>>(new Map());
   const seq = useRef(0);
   const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
   const canCorrect =
     inquiry.status === 'reviewing' &&
     isOwner &&
     resolutionModeFromValue(inquiry.resolution) === 'correction';
+  // 후보를 바꾸는 태그 요청은 모두 같은 키를 단다 — 검증 패널이 useIsMutating 으로 감시해, 진행 중에는
+  // 검증 재검색이 옛 후보로 돌지 않게 막는다.
+  const changeKey = ['tag-candidate-change', inquiry.feedbackId];
   const mutation = useMutation({
+    mutationKey: changeKey,
     mutationFn: ({ operations }: CandidateSubmission) =>
       createTagCorrectionCandidate(inquiry.feedbackId, operations, createIdempotencyKey()),
     // 서버 반영이 성공한 뒤에만 로컬 상태를 바꾼다 — 실패 시 UI 와 서버가 어긋나지 않는다.
@@ -116,15 +120,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       }
       if (submission.removedTaggingId) {
         const id = submission.removedTaggingId;
-        setRemoved((current) => new Set(current).add(id));
-      }
-      if (submission.restoredTaggingId) {
-        const id = submission.restoredTaggingId;
-        setRemoved((current) => {
-          const next = new Set(current);
-          next.delete(id);
-          return next;
-        });
+        setRemoved((current) => new Map(current).set(id, response.evidenceIds));
       }
       showSuccess('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
     },
@@ -134,6 +130,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
   // 않으므로 서버 후보 수가 실제로 줄고 다른 교정이 사라지지 않는다 (S15P21A501-309). 서버 삭제는
   // 멱등이라 실패 뒤 다시 눌러도 안전하고, 성공한 뒤에만 로컬 칩을 지워 UI 와 서버가 어긋나지 않는다.
   const cancelAdded = useMutation({
+    mutationKey: changeKey,
     mutationFn: async (tag: AddedTag) => {
       for (const evidenceId of tag.evidenceIds) {
         await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
@@ -142,8 +139,31 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     onSuccess: (_result, tag) =>
       setAdded((current) => current.filter((item) => item.id !== tag.id)),
   });
+
+  // 삭제 취소: APPROVE 를 새로 올리면 REJECT 와 APPROVE 가 함께 대기하다 함께 확정된다. 대신 그 REJECT 가
+  // 만든 대기 근거만 지운다 — 추가 취소와 같은 방식(멱등 DELETE, 성공 뒤에만 로컬 상태 변경).
+  const restoreRemoved = useMutation({
+    mutationKey: changeKey,
+    mutationFn: async (taggingId: string) => {
+      for (const evidenceId of removed.get(taggingId) ?? []) {
+        await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
+      }
+    },
+    onSuccess: (_result, taggingId) =>
+      setRemoved((current) => {
+        const next = new Map(current);
+        next.delete(taggingId);
+        return next;
+      }),
+  });
   // 후보를 바꾸는 요청은 한 번에 하나만 보낸다 — 취소 중 새 후보가 끼어들어 서로의 결과를 덮지 않게 한다.
-  const isBusy = mutation.isPending || cancelAdded.isPending;
+  const isBusy = mutation.isPending || cancelAdded.isPending || restoreRemoved.isPending;
+
+  function resetMutations() {
+    mutation.reset();
+    cancelAdded.reset();
+    restoreRemoved.reset();
+  }
 
   const pendingCount = drafts.length + added.length;
 
@@ -154,14 +174,14 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       ...current,
       { id: `draft-${seq.current}`, scope, tagType: 'keyword', value: '', error: '' },
     ]);
-    mutation.reset();
+    resetMutations();
   }
 
   function updateDraft(id: string, patch: Partial<Draft>) {
     setDrafts((current) =>
       current.map((draft) => (draft.id === id ? { ...draft, ...patch, error: '' } : draft)),
     );
-    mutation.reset();
+    resetMutations();
   }
 
   function removeDraft(id: string) {
@@ -214,20 +234,9 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
     });
   }
 
-  function restoreRemoved(evidence: Evidence) {
-    mutation.reset();
-    mutation.mutate({
-      operations: [
-        {
-          action: 'APPROVE',
-          scope: evidence.scope,
-          tagType: evidence.tagType,
-          matchValue: evidence.matchValue,
-          displayName: evidence.tagName,
-        },
-      ],
-      restoredTaggingId: evidence.taggingId,
-    });
+  function restore(evidence: Evidence) {
+    restoreRemoved.reset();
+    restoreRemoved.mutate(evidence.taggingId);
   }
 
   const activeTags = inquiry.evidence.filter((evidence) => !removed.has(evidence.taggingId));
@@ -394,7 +403,7 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
                   aria-label={`‘${evidence.tagName}’ 삭제 취소`}
                   className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
                   disabled={isBusy}
-                  onClick={() => restoreRemoved(evidence)}
+                  onClick={() => restore(evidence)}
                   type="button"
                 >
                   +
@@ -426,6 +435,12 @@ export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsP
       {cancelAdded.isError ? (
         <div className="mt-3">
           <ApiErrorNotice error={cancelAdded.error} />
+        </div>
+      ) : null}
+
+      {restoreRemoved.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={restoreRemoved.error} />
         </div>
       ) : null}
     </section>
