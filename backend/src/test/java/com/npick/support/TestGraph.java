@@ -149,6 +149,39 @@ public final class TestGraph {
     }
 
     /**
+     * {@link #insertReviewerTagCandidate} 와 같되 {@code keyword} 태그다 (S15P21A501-321). 값이 검색어 명사와 같아야 키워드 편입이 걸린다.
+     *
+     * @return 생성한 tagging_id (evidenceId 와 같은 값)
+     */
+    public static long insertReviewerKeywordTagCandidate(
+            JdbcTemplate jdbc, long sceneId, long clipId, long feedbackId, long evidenceId, String matchValue) {
+        OffsetDateTime now = OffsetDateTime.now();
+        jdbc.update(
+                "INSERT INTO npick.tag(tag_id, tag_type, match_value, name) VALUES (?, 'keyword', ?, ?) "
+                        + "ON CONFLICT DO NOTHING",
+                evidenceId,
+                matchValue,
+                matchValue);
+        jdbc.update(
+                "INSERT INTO npick.tagging(tagging_id, clip_id, scene_id, tag_id, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+                evidenceId,
+                clipId,
+                sceneId,
+                evidenceId,
+                now);
+        jdbc.update(
+                "INSERT INTO npick.tag_evidence(evidence_id, tagging_id, source, confidence, "
+                        + "verification_status, source_feedback_id, confirmed, created_at) "
+                        + "VALUES (?, ?, 'reviewer_feedback', NULL, 'verified', ?, false, ?) ON CONFLICT DO NOTHING",
+                evidenceId,
+                evidenceId,
+                feedbackId,
+                now);
+        return evidenceId;
+    }
+
+    /**
      * 검증 인가 가드(Task 6, S15P21A501-83)를 통과시키기 위한 담당 검수자 클레임: {@code reviewed_by_id} 지정 + {@code REVIEWING} 상태 보장.
      * {@code verify()} 는 이 둘을 먼저 검사한 뒤에야 대기 후보 존재를 본다.
      */
