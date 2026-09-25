@@ -5,7 +5,6 @@ import { type DragEvent, type KeyboardEvent, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
-  combineParseRules,
   defaultType,
   deriveEdits,
   deriveParseRules,
@@ -89,6 +88,9 @@ export function ParseInterpretationEditor({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetAxis, setDropTargetAxis] = useState<EditableAxis | null>(null);
   const newChipCounter = useRef(0);
+  // 이 화면에서 저장한 후보가 서버에 하나라도 있는지. 여러 건 중 일부만 저장되고 실패해도 참이 되어,
+  // 그 뒤 편집하면 이미 저장된 일부도 폐기한다 (save.isSuccess 는 전부 성공했을 때만 참이다).
+  const hasSavedCandidates = useRef(false);
   const suppressBlur = useRef(false);
 
   const guard = computeGuard(originalChips);
@@ -135,21 +137,28 @@ export function ParseInterpretationEditor({
           message: '교정 값은 20자 이하여야 합니다.',
         });
       }
-      // 편집이 여러 개여도 후보 1건으로 합쳐 보낸다 — 저장 1회가 후보 1건이어야 재저장 때 이전 후보를
-      // 깔끔히 폐기·교체할 수 있다. 합친 본문도 서버가 거부할 수 있으니 POST 전에 검증한다.
-      const combined = combineParseRules(rules);
-      const problem = validateParseRuleBody(combined);
-      if (problem) {
-        throw new ApiClientError('api', 0, {
-          code: 'CLIENT_PARSE_RULE_INVALID',
-          message: problem,
-        });
+      // 편집마다 독립 후보로 보낸다. 한 규칙에 조건을 합치면 서버가 모든 조건을 동시에 요구해, 한쪽 값만
+      // 가진 해석에는 교정이 걸리지 않는다 (FRD F-11 "독립 규칙은 함께 적용"). 일부만 저장된 채 멈추지
+      // 않도록 모든 본문을 POST 전에 먼저 검증한다.
+      for (const rule of rules) {
+        const problem = validateParseRuleBody(rule);
+        if (problem) {
+          throw new ApiClientError('api', 0, {
+            code: 'CLIENT_PARSE_RULE_INVALID',
+            message: problem,
+          });
+        }
       }
-      await createParsePatchCandidate(
-        feedbackId,
-        combined,
-        await ruleIdempotencyKey(feedbackId, combined),
-      );
+      // 순서대로 보낸다. 중간에 실패하면 다시 눌러 전부 재전송하면 된다 — 이미 저장된 규칙은 같은 결정적
+      // 멱등성 키라 서버가 기존 후보를 돌려주어 중복이 생기지 않는다.
+      for (const rule of rules) {
+        await createParsePatchCandidate(
+          feedbackId,
+          rule,
+          await ruleIdempotencyKey(feedbackId, rule),
+        );
+        hasSavedCandidates.current = true;
+      }
       return rules.length;
     },
     onSuccess: () => {
@@ -164,13 +173,15 @@ export function ParseInterpretationEditor({
   });
 
   // 저장 POST 는 누른 시점의 규칙을 담는다. 진행 중에 칩을 바꾸면 성공 뒤 '담았어요'가 실제로 담지 않은
-  // 내용을 가리키고, resetAfterSave 도 아직 성공 전이라 이전 후보를 폐기하지 못한다 — 그동안 편집을 잠근다.
+  // 내용을 가리키고, 이전 후보 폐기가 아직 끝나지 않은 POST 와 엇갈린다 — 그동안 편집을 잠근다.
   const locked = save.isPending;
 
-  // 담은 뒤 다시 편집하면 서버에 남은 이전 후보를 폐기한다. 그러지 않으면 다음 저장이 두 번째 후보를
-  // 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서 이미 고친 이전 후보가 새 후보와 함께 검증·확정된다.
+  // 담은 뒤(일부만 담긴 경우 포함) 다시 편집하면 서버에 남은 이전 후보를 모두 폐기한다. 그러지 않으면
+  // 다음 저장이 새 후보를 더 만들고(내용이 달라 멱등성 키도 달라짐), 화면에서 이미 고친 이전 후보가 새
+  // 후보와 함께 검증·확정된다.
   function resetAfterSave() {
-    if (!save.isSuccess) return;
+    if (!hasSavedCandidates.current) return;
+    hasSavedCandidates.current = false;
     save.reset();
     discard.mutate();
   }

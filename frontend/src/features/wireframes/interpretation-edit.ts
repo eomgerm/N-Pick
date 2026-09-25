@@ -208,27 +208,6 @@ export function deriveParseRules(
   return rules;
 }
 
-/**
- * 여러 규칙을 후보 1건으로 합친다. 저장 1회가 후보 1건이 되어야, 다시 편집해 저장할 때 이전 후보를
- * 통째로 폐기·교체할 수 있고 멱등성 키도 저장 단위로 하나만 유지된다. 조건(`all`)은 동일 술어를
- * 합치고(중복 제거), 변경 연산(`operations`)은 순서를 지켜 이어 붙인다 — 백엔드가 순차 적용한다.
- */
-export function combineParseRules(rules: ParseRuleCandidateBody[]): ParseRuleCandidateBody {
-  const all: ParseRuleCandidateBody['condition']['all'] = [];
-  const seen = new Set<string>();
-  const operations: PatchOperation[] = [];
-  for (const rule of rules) {
-    for (const predicate of rule.condition.all) {
-      const key = JSON.stringify(predicate);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      all.push(predicate);
-    }
-    operations.push(...rule.patch.operations);
-  }
-  return body(all, operations);
-}
-
 export function describeEdits(edits: ChipEdit[]): { key: string; text: string }[] {
   return edits.map((edit) => {
     if (edit.kind === 'remove')

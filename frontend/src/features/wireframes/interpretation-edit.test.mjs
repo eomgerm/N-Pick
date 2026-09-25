@@ -302,34 +302,30 @@ test('add: guard 없으면 규칙 없음, 있으면 guard 조건', () => {
   ]);
 });
 
-const { combineParseRules } = await import('./interpretation-edit.ts');
-
-test('combineParseRules: 여러 규칙을 후보 1건으로 합치고 조건 중복을 제거한다', () => {
-  const guard = { axis: 'incident_names', value: '추석' };
+test('deriveParseRules: 서로 다른 축의 독립 편집은 자기 조건만 가진 규칙 본문으로 각각 나뉜다', () => {
+  // 조건을 한 규칙에 합치면 서버가 모든 조건을 동시에 요구해, 한쪽 값만 가진 해석에는 교정이 안 걸린다.
   const rules = deriveParseRules(
     [
-      { kind: 'add', axis: 'expanded_terms', value: '나들이' },
-      { kind: 'add', axis: 'locations', value: '서울', type: 'location' },
-      { kind: 'remove', axis: 'entities', value: '한국도로공사', type: 'organization' },
+      { kind: 'edit', axis: 'incident_names', from: '추석', to: '설날' },
+      { kind: 'remove', axis: 'locations', value: '경부고속도로', type: 'location' },
     ],
-    guard,
+    null,
   );
-  assert.equal(rules.length, 3);
-
-  const combined = combineParseRules(rules);
-  // 두 add 는 같은 guard 조건을 공유 → 조건은 dedup 되어 guard 1건 + remove 조건 1건 = 2건.
-  assert.deepEqual(combined.condition.all, [
+  assert.equal(rules.length, 2);
+  assert.deepEqual(rules[0].condition.all, [
     { axis: 'incident_names', op: 'has_value', value: '추석' },
-    { axis: 'entities', op: 'has_value', value: '한국도로공사' },
   ]);
-  // 연산은 원래 순서를 지켜 이어 붙인다.
-  assert.deepEqual(combined.patch.operations, [
-    { op: 'add_item', axis: 'expanded_terms', value: '나들이' },
-    { op: 'add_item', axis: 'locations', value: '서울', type: 'location' },
-    { op: 'remove_item', axis: 'entities', value: '한국도로공사', type: 'organization' },
+  assert.deepEqual(rules[0].patch.operations, [
+    { op: 'remove_item', axis: 'incident_names', value: '추석' },
+    { op: 'add_item', axis: 'incident_names', value: '설날' },
   ]);
-  // 합친 본문도 그대로 검증을 통과해야 한다.
-  assert.equal(validateParseRuleBody(combined), null);
+  assert.deepEqual(rules[1].condition.all, [
+    { axis: 'locations', op: 'has_value', value: '경부고속도로' },
+  ]);
+  assert.deepEqual(rules[1].patch.operations, [
+    { op: 'remove_item', axis: 'locations', value: '경부고속도로', type: 'location' },
+  ]);
+  for (const rule of rules) assert.equal(validateParseRuleBody(rule), null);
 });
 
 const { describeEdits } = await import('./interpretation-edit.ts');
