@@ -217,3 +217,110 @@ test('해석 교정 저장 중에는 칩 편집이 잠긴다 (S15P21A501-309)', 
   await expect(remaining).toBeEnabled();
   expect(bodies).toHaveLength(1);
 });
+
+interface ParseCall {
+  method: string;
+  key: string | null;
+  all: unknown[];
+}
+
+// 멱등성 키별로 후보를 기억하는 목 서버. 같은 키 재요청은 기존 후보를 돌려준다(200 재생).
+async function mockParseCandidates(
+  page: Page,
+  failOnce: (call: ParseCall) => boolean = () => false,
+) {
+  const calls: ParseCall[] = [];
+  const created = new Map<string, string>();
+  let failed = false;
+  await page.route('**/api/v1/review/inquiries/41/parse-patch-candidate', async (route) => {
+    const request = route.request();
+    if (request.method() !== 'POST') {
+      calls.push({ method: request.method(), key: null, all: [] });
+      created.clear();
+      await success(route);
+      return;
+    }
+    const body = request.postDataJSON() as { condition: { all: unknown[] } };
+    const key = (await request.headerValue('idempotency-key')) ?? '';
+    const call = { method: 'POST', key, all: body.condition.all };
+    calls.push(call);
+    if (!failed && !created.has(key) && failOnce(call)) {
+      failed = true;
+      await route.fulfill({
+        status: 409,
+        json: { isSuccess: false, code: 'SRCH_409_201', message: '요청을 처리할 수 없습니다.' },
+      });
+      return;
+    }
+    const searchRuleId = created.get(key) ?? String(80 + created.size);
+    created.set(key, searchRuleId);
+    await success(route, { searchRuleId, feedbackId: '41', active: false });
+  });
+  return { calls, created };
+}
+
+test('서로 다른 축의 두 편집은 각자 조건 1개인 후보 2건으로 저장된다 (S15P21A501-309)', async ({
+  page,
+}) => {
+  const { calls, created } = await mockParseCandidates(page);
+  await openInquiry(page);
+
+  await page.getByRole('button', { name: "'추석' 삭제", exact: true }).click();
+  await page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true }).click();
+  await page.getByRole('button', { name: '교정 담기', exact: true }).click();
+  await expect(page.getByText('2개 교정을 담았어요.', { exact: false })).toBeVisible();
+
+  expect(calls.map((call) => call.all)).toEqual([
+    [{ axis: 'incident_names', op: 'has_value', value: '추석' }],
+    [{ axis: 'expanded_terms', op: 'has_value', value: '귀성 차량' }],
+  ]);
+  expect(new Set(calls.map((call) => call.key)).size).toBe(2);
+  expect(created.size).toBe(2);
+});
+
+test('일부만 저장된 뒤 다시 담으면 같은 키로 재전송해 중복 후보가 생기지 않는다 (S15P21A501-309)', async ({
+  page,
+}) => {
+  const { calls, created } = await mockParseCandidates(page, (call) =>
+    JSON.stringify(call.all).includes('귀성 차량'),
+  );
+  await openInquiry(page);
+
+  await page.getByRole('button', { name: "'추석' 삭제", exact: true }).click();
+  await page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true }).click();
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
+  await save.click();
+  await expect(page.getByRole('alert').filter({ hasText: '검수 중인 문의만' })).toBeVisible();
+  await expect(page.getByText('교정을 담았어요.', { exact: false })).toHaveCount(0);
+  expect(created.size).toBe(1);
+
+  await save.click();
+  await expect(page.getByText('2개 교정을 담았어요.', { exact: false })).toBeVisible();
+  expect(calls).toHaveLength(4);
+  expect(calls[2].key).toBe(calls[0].key);
+  expect(calls[3].key).toBe(calls[1].key);
+  expect(created.size).toBe(2);
+});
+
+test('담은 뒤 다시 편집하면 이전 후보를 폐기하고 새 후보들을 저장한다 (S15P21A501-309)', async ({
+  page,
+}) => {
+  const { calls } = await mockParseCandidates(page);
+  await openInquiry(page);
+
+  await page.getByRole('button', { name: "'추석' 삭제", exact: true }).click();
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
+  await save.click();
+  await expect(page.getByText('1개 교정을 담았어요.', { exact: false })).toBeVisible();
+
+  await page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true }).click();
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.getByText('2개 교정을 담았어요.', { exact: false })).toBeVisible();
+
+  expect(calls.map((call) => call.method)).toEqual(['POST', 'DELETE', 'POST', 'POST']);
+  expect(calls.slice(2).map((call) => call.all)).toEqual([
+    [{ axis: 'incident_names', op: 'has_value', value: '추석' }],
+    [{ axis: 'expanded_terms', op: 'has_value', value: '귀성 차량' }],
+  ]);
+});
