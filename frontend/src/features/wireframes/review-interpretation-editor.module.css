@@ -270,6 +270,40 @@
   opacity: 0.45;
 }
 
+.saveRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.saveRow .primaryButton {
+  margin-top: 0;
+}
+
+.draftCount {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.draftCount[data-at-limit] {
+  color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.draftLimitNotice {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.draftLimitNotice:empty {
+  margin: 0;
+}
+
 .errorGroup {
   display: grid;
   gap: 6px;

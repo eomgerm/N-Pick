@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { type DragEvent, type KeyboardEvent, useRef, useState } from 'react';
+import { type DragEvent, type KeyboardEvent, useId, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
@@ -14,6 +14,11 @@ import {
   type Chip,
   type EditableAxis,
 } from '@/features/wireframes/interpretation-edit';
+import {
+  countParseRuleDrafts,
+  draftLimitStatus,
+  MAX_PARSE_RULE_DRAFTS,
+} from '@/features/wireframes/parse-rule-draft-limit';
 import {
   createParsePatchCandidate,
   discardParsePatchCandidate,
@@ -31,7 +36,6 @@ interface ParseInterpretationEditorProps {
   parsedQueryJson: string | null;
 }
 
-const MAX_PARSE_RULE_DRAFTS = 10;
 const MAX_CHIP_VALUE_LENGTH = 20;
 
 /** 문의 당시 해석 스냅샷을 칩으로 씨딩한다. 없거나 깨졌으면 편집할 것이 없다. */
@@ -106,7 +110,9 @@ export function ParseInterpretationEditor({
     items: descriptions.filter((description) => description.key === group.key),
   }));
   const rules = deriveParseRules(edits, guard);
-  const draftCount = rules.length + chips.filter((chip) => chip.isNew && !chip.value.trim()).length;
+  const draftCount = countParseRuleDrafts(rules.length, chips);
+  const draftLimit = draftLimitStatus(draftCount);
+  const draftCountId = useId();
 
   // 검증(재검색)이 저장 진행 중에 끼어들지 않도록, 검증 패널이 useIsMutating 으로 감시할 키를 단다.
   const save = useMutation({
@@ -381,7 +387,7 @@ export function ParseInterpretationEditor({
                 <button
                   aria-label={`${resolutionAxisLabels[axis]}에 항목 추가`}
                   className={styles.addButton}
-                  disabled={locked || !guard || draftCount >= MAX_PARSE_RULE_DRAFTS}
+                  disabled={locked || !guard || draftLimit.isAtLimit}
                   onClick={() => addChip(axis)}
                   title={
                     guard ? undefined : '대표 항목(사건명·인물·장소)이 없어 추가할 수 없습니다.'
@@ -429,16 +435,30 @@ export function ParseInterpretationEditor({
           <p className={styles.empty}>칩을 수정하면 바뀌는 점이 여기 표시됩니다.</p>
         )}
 
-        <button
-          className={styles.primaryButton}
-          disabled={
-            save.isPending || discard.isPending || discard.isError || descriptions.length === 0
-          }
-          onClick={() => save.mutate()}
-          type="button"
-        >
-          {discard.isPending ? '이전 교정 폐기 중…' : save.isPending ? '담는 중…' : '교정 담기'}
-        </button>
+        <div className={styles.saveRow}>
+          <button
+            aria-describedby={draftCountId}
+            className={styles.primaryButton}
+            disabled={
+              save.isPending || discard.isPending || discard.isError || descriptions.length === 0
+            }
+            onClick={() => save.mutate()}
+            type="button"
+          >
+            {discard.isPending ? '이전 교정 폐기 중…' : save.isPending ? '담는 중…' : '교정 담기'}
+          </button>
+          <span
+            className={styles.draftCount}
+            data-at-limit={draftLimit.isAtLimit || undefined}
+            id={draftCountId}
+          >
+            <span className="sr-only">담을 교정 수 </span>
+            {draftLimit.label}
+          </span>
+        </div>
+        <p aria-live="polite" className={styles.draftLimitNotice} role="status">
+          {draftLimit.message}
+        </p>
 
         {discard.isError ? (
           <div className={styles.errorGroup}>

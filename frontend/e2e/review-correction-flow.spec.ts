@@ -377,3 +377,39 @@ test('저장 응답이 유실된 뒤 다시 편집하면 이전 후보를 폐기
   expect(remaining).toContain('"정체"');
   expect(remaining).not.toContain('고속 정체');
 });
+
+test('교정 담기 옆에 담을 교정 수를 보여주고 10개가 되면 추가를 막는다 (S15P21A501-290)', async ({
+  page,
+}) => {
+  await openInquiry(page);
+
+  const save = page.getByRole('button', { name: '교정 담기', exact: true });
+  await expect(save).toHaveAccessibleDescription('담을 교정 수 0/10');
+
+  await page.getByRole('button', { name: "'귀성 차량' 삭제", exact: true }).click();
+  await expect(save).toHaveAccessibleDescription('담을 교정 수 1/10');
+
+  const addLocation = page.getByRole('button', { name: '장소·시설에 항목 추가' });
+  for (let index = 1; index <= 9; index += 1) {
+    await addLocation.click();
+    // 값을 입력 중인 빈 칩도 한 자리를 차지한다.
+    await expect(save).toHaveAccessibleDescription(`담을 교정 수 ${index + 1}/10`);
+    await page.getByRole('textbox', { name: '장소·시설 값 수정' }).fill(`장소${index}`);
+    await page.keyboard.press('Enter');
+    await expect(
+      page.getByRole('button', { name: `'장소${index}' 삭제`, exact: true }),
+    ).toBeVisible();
+  }
+
+  await expect(save).toHaveAccessibleDescription('담을 교정 수 10/10');
+  await expect(page.getByText('10/10', { exact: false })).toBeVisible();
+  for (const axis of ['사건명', '인물·기관', '장소·시설', '검색 의미어']) {
+    await expect(page.getByRole('button', { name: `${axis}에 항목 추가` })).toBeDisabled();
+  }
+  await expect(page.getByRole('status').filter({ hasText: '모두 채웠습니다' })).toBeVisible();
+
+  // 하나를 지우면 다시 추가할 수 있다.
+  await page.getByRole('button', { name: "'장소9' 삭제", exact: true }).click();
+  await expect(save).toHaveAccessibleDescription('담을 교정 수 9/10');
+  await expect(addLocation).toBeEnabled();
+});
