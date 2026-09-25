@@ -38,6 +38,21 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
     // Idempotency-Key 가 바뀌어 행이 늘어나므로(F-12 5) 그 반복분까지 덮는 값으로 둔다 (S15P21A501-255).
     private static final int MAX_CANDIDATES_PER_FEEDBACK = 10;
 
+    // 후보 하나의 크기 상한 (S15P21A501-290). FE 편집기가 같은 값으로 막지만 직접 호출은 FE 를 거치지 않는다.
+    // 길이는 String.length()(UTF-16 단위)로 센다 — FE 의 JS string.length 와 같은 단위이고, 한글 음절은 1 단위다.
+    private static final int MAX_PREDICATES_PER_CANDIDATE = 10;
+    private static final int MAX_OPERATIONS_PER_CANDIDATE = 10;
+    // 패치가 새로 적는 리터럴 값(set 값, value_from 없는 add_item 값). FE 칩 값 상한(20자)과 같다.
+    private static final int MAX_NEW_VALUE_LENGTH = 20;
+    // AI 원본 해석의 값과 대조되는 값(조건 value, remove_item 값, value_from 값). 원본 값을 그대로 옮겨 적으므로 새 값보다 넉넉히 둔다.
+    private static final int MAX_MATCH_VALUE_LENGTH = 100;
+    // 저장되는 condition·patch JSON 문자열 길이 합의 상한. 위 필드별 상한은 문법이 읽는 필드만 보므로, 문법이 무시하는
+    // 필드(모르는 키, unset·set 의 type 등)에 큰 값을 실어도 원문 그대로 저장된다 — 그 우회를 전부 막는 바닥이다.
+    // 필드별 상한 안에서 가장 긴 정상 본문(조건 10개 incident_names has_value 100자 + 연산 10개 entities
+    // add_item value_from 100자)이 약 3,900자이고, 값 문자가 모두 JSON 이스케이프로 두 배가 돼도 약 5,900자라
+    // 필드별 상한을 지킨 본문은 이 상한에 걸리지 않는다.
+    private static final int MAX_STORED_JSON_LENGTH = 8192;
+
     private final ParseContextPort parseContextPort;
     private final ParseRuleCandidateRepository candidateRepository;
     private final ParseRuleJsonPort jsonMapper;
@@ -94,9 +109,20 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
             // 원본 해석이 없으면 본문을 대조할 대상이 없다. 본문 오류가 아니라 전제 부재이므로 별도 코드로 정직하게 알린다.
             throw new BusinessException(ParseRuleCandidateErrorCode.RESOLVER_OUTPUT_ABSENT);
         }
+        // 파싱 전에 원문 길이부터 본다 — 큰 본문은 문법과 무관하게 저장 크기 초과이고, 읽기 전에 거절하는 편이 싸다.
+        if (command.conditionJson().length() + command.patchJson().length() > MAX_STORED_JSON_LENGTH) {
+            throw new BusinessException(ParseRuleCandidateErrorCode.CANDIDATE_TOO_LARGE);
+        }
         ParseRule rule = jsonMapper.toDomain(0L, command.conditionJson(), command.patchJson());
-        if (rule.parseError() != null || rule.incompatibleReason(probe(context.resolverOutputJson())) != null) {
+        if (rule.parseError() != null
+                || rule.incompatibleReason(probe(context.resolverOutputJson())) != null
+                || literalBesideValueFrom(rule)) {
             throw new BusinessException(ParseRuleCandidateErrorCode.INVALID_CANDIDATE);
+        }
+        // 필드별 크기 검사는 문법 검사 뒤에 둔다 — 파싱된 본문이 있어야 셀 수 있고, 문법이 틀린 본문은 크기와 무관하게 400_201 이다.
+        // 멱등 재생보다 뒤인 것도 문법 검사와 같다: 재생은 이미 저장된 후보를 돌려줄 뿐 이번 본문을 저장하지 않는다.
+        if (exceedsSizeLimit(rule)) {
+            throw new BusinessException(ParseRuleCandidateErrorCode.CANDIDATE_TOO_LARGE);
         }
         if (command.replacesRuleId() != null && !candidateRepository.existsActivePatchParse(command.replacesRuleId())) {
             throw new BusinessException(ParseRuleCandidateErrorCode.REPLACES_NOT_FOUND);
@@ -123,6 +149,53 @@ public class CreateParsePatchCandidateService implements CreateParsePatchCandida
                 .findId(command.feedbackId(), command.requestKey())
                 .map(ParseCandidateOutcome::existing)
                 .orElseThrow(() -> new IllegalStateException("insert conflict but no existing candidate found"));
+    }
+
+    private boolean exceedsSizeLimit(ParseRule rule) {
+        if (rule.condition().all().size() > MAX_PREDICATES_PER_CANDIDATE
+                || rule.patch().operations().size() > MAX_OPERATIONS_PER_CANDIDATE) {
+            return true;
+        }
+        for (ParseRule.Condition.Predicate predicate : rule.condition().all()) {
+            if (longerThan(predicate.value(), MAX_MATCH_VALUE_LENGTH)) {
+                return true;
+            }
+        }
+        for (ParseRule.Patch.Operation operation : rule.patch().operations()) {
+            if (operation.valueFrom() != null) {
+                // value_from 은 원본 항목을 가리키는 참조이고, 새 값은 그 원본 값을 승계한다.
+                if (longerThan(operation.valueFrom().value(), MAX_MATCH_VALUE_LENGTH)) {
+                    return true;
+                }
+                continue;
+            }
+            int limit =
+                    operation.op() == ParseRule.Patch.Op.REMOVE_ITEM ? MAX_MATCH_VALUE_LENGTH : MAX_NEW_VALUE_LENGTH;
+            if (longerThan(operation.target().value(), limit)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * {@code value_from} 과 리터럴 {@code value} 를 함께 적었는가. 도메인 문법({@code valueFromProblem})은 공백뿐인 값을 "없음"으로 보고 통과시키는데, 그러면
+     * 공백으로 채운 거대한 {@code value} 가 크기 검사(value_from 쪽만 센다)를 피해 원문 그대로 저장된다. 생성 시점에는 값이 없거나({@code null}) 빈 문자열일 때만 허용한다
+     * — FE 는 value_from 연산에 value 를 보내지 않는다. 문법 위반이므로 크기 초과가 아니라 {@code INVALID_CANDIDATE} 다. 도메인 문법을 바꾸지 않는 이유는 그 검사가
+     * 발화 시점에도 쓰여, 이미 저장된 규칙의 적용 여부까지 바뀌기 때문이다.
+     */
+    private static boolean literalBesideValueFrom(ParseRule rule) {
+        for (ParseRule.Patch.Operation operation : rule.patch().operations()) {
+            String literal = operation.target().value();
+            if (operation.valueFrom() != null && literal != null && !literal.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean longerThan(String value, int limit) {
+        return value != null && value.length() > limit;
     }
 
     /**

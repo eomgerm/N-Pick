@@ -28,6 +28,11 @@ public enum ParseRuleCandidateErrorCode implements ErrorCode {
     INVALID_CANDIDATE(ErrorType.BAD_REQUEST, "SRCH_400_201", "규칙 후보 본문이 올바르지 않다"),
     /** 교체 대상이 켜져 있는 patch_parse 규칙이 아니다 (없음·비활성·다른 action). */
     REPLACES_NOT_FOUND(ErrorType.BAD_REQUEST, "SRCH_400_202", "교체 대상 규칙을 찾을 수 없다"),
+    /**
+     * 후보 하나의 크기가 상한을 넘었다 (S15P21A501-290): 조건 10개·연산 10개, 새로 적는 값 20자, 원본 해석과 대조하는 값 100자. 문법은 맞지만 크기만 넘은 경우라
+     * {@link #INVALID_CANDIDATE} 와 나눠 FE 가 사유를 구분해 보여 줄 수 있게 한다.
+     */
+    CANDIDATE_TOO_LARGE(ErrorType.BAD_REQUEST, "SRCH_400_203", "해석 교정 후보가 허용 크기를 넘었다"),
     /** 원 검색에 교정 전 AI 해석(resolver_output)이 없어 후보 본문을 대조할 수 없다. */
     RESOLVER_OUTPUT_ABSENT(ErrorType.CONFLICT, "SRCH_409_203", "원 검색에 교정할 해석 출력이 없다"),
     /** 이 신고에서 만든 해석 교정 후보가 개수 상한에 닿았다 (S15P21A501-255). */
