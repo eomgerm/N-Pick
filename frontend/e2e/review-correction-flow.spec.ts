@@ -80,6 +80,8 @@ async function openInquiry(page: Page, parsed?: string) {
 
 async function addSceneTag(page: Page, value: string) {
   await page.getByRole('button', { name: '+ 이 장면', exact: true }).click();
+  // 새 초안은 유형 기본값이 없다 (S15P21A501-317) — 유형을 먼저 고른다.
+  await page.getByRole('combobox', { name: '태그 유형', exact: true }).selectOption('location');
   await page.getByRole('textbox', { name: '태그 값', exact: true }).fill(value);
   await page.getByRole('button', { name: '태그 추가 확정', exact: true }).click();
   await expect(page.getByRole('button', { name: `‘${value}’ 추가 취소` })).toBeVisible();
