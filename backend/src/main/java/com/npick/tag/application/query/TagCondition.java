@@ -10,16 +10,18 @@ import com.npick.tag.domain.model.TagType;
 /**
  * 찾을 태그의 조건 하나. 정확히 맞추기와 날짜 범위를 <b>한 형태</b> 로 합쳤다.
  *
- * <p>정확히 맞추기는 {@code fromInclusive == toInclusive} 이고, 날짜창은 두 끝이 다르다. 술어를 두 종류로 나누지 않으므로 SQL 에는 {@code tag_type = ? AND
- * match_value BETWEEN ? AND ?} 하나만 있고, {@code uq_tag_type_match_value} 를 그대로 탄다.
+ * <p>정확히 맞추기는 {@code fromInclusive == toInclusive} 이고, 날짜창은 두 끝이 다르다. 술어는 두 형태다: 기본은 {@code tag_type = ? AND
+ * match_value BETWEEN ? AND ?} 로 {@code uq_tag_type_match_value} 를 그대로 타고, {@code ignoreCase} 가 참이면 {@code tag_type = ?
+ * AND lower(match_value) = lower(?)} 로 바뀐다 (키워드 조건 전용).
+ *
+ * <p>{@code ignoreCase} 는 정확 일치에만 쓴다 (S15P21A501-321). 워커가 질의 토큰을 소문자로 접는데 태그 {@code match_value} 는 대소문자를 보존하므로, 키워드
+ * 조건은 대소문자를 무시해야 {@code KBS} 태그에 닿는다. 대소문자를 접은 사전순 범위는 정의하지 않으므로 범위와 함께 쓰면 거부한다. 개체 축과 날짜는 그대로 정확 일치다.
  *
  * <p>날짜 비교가 문자열로 되는 것은 {@code ck_tag_date} 가 {@code YYYY-MM-DD} 를 강제하기 때문이다. ISO 8601 은 사전순이 시간순이라 범위 비교가 성립한다. 그 형식이
  * 깨지면 범위 비교가 무너진다 — {@code tag.match_value} 컬럼 주석이 경고하는 내용이다.
  *
  * @param type 태그 종류
  * @param fromInclusive 시작값. 포함
- *     <p>{@code ignoreCase} 는 정확 일치에만 쓴다 (S15P21A501-321). 워커가 질의 토큰을 소문자로 접는데 태그 {@code match_value} 는 대소문자를 보존하므로,
- *     키워드 조건은 대소문자를 무시해야 {@code KBS} 태그에 닿는다. 대소문자를 접은 사전순 범위는 정의하지 않으므로 범위와 함께 쓰면 거부한다. 개체 축과 날짜는 그대로 정확 일치다.
  * @param toInclusive 끝값. <b>포함</b>
  * @param ignoreCase 대소문자를 무시하고 비교하는가. 두 끝이 같을 때만 참일 수 있다
  */

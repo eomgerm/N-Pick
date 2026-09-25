@@ -21,6 +21,15 @@ class KeywordTagSettingsTest {
     }
 
     @Test
+    void stoplistMatchesCaseInsensitively() {
+        // 키워드 조건은 equalsIgnoreCase/lower() 로 대소문자 구분 없이 매칭되므로 제외 목록도 같은 규칙을 따라야 한다.
+        var settings = new KeywordTagSettings(0.5, 12, List.of("CCTV"));
+
+        assertThat(settings.stopped("cctv")).isTrue();
+        assertThat(settings.stopped("CCTV")).isTrue();
+    }
+
+    @Test
     void enabledOnlyWhenWeightAndCapArePositive() {
         assertThat(new KeywordTagSettings(0.5, 12, List.of()).enabled()).isTrue();
         assertThat(new KeywordTagSettings(0.0, 12, List.of()).enabled()).isFalse();

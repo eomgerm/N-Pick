@@ -50,6 +50,7 @@ public record StructuredScoresResult(
             Objects.requireNonNull(keyword, "keyword");
         }
 
+        /** 테스트·레거시 호출부 전용. 운영 코드는 8인자 생성자를 써야 한다 — 아니면 keyword 점수가 사라진다. */
         public SceneScore(
                 long sceneId,
                 long clipId,

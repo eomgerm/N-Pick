@@ -100,6 +100,7 @@ public record SearchCandidates(
             keywordEvidence = List.copyOf(keywordEvidence);
         }
 
+        /** 테스트·레거시 호출부 전용. 운영 코드는 8인자 생성자를 써야 한다 — 아니면 keywordEvidence 가 사라진다. */
         public ScoredScene(
                 long sceneId,
                 long clipId,

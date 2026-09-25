@@ -1,6 +1,7 @@
 package com.npick.search.domain.model;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 import com.npick.tag.domain.model.TagMatchValue;
@@ -35,7 +36,7 @@ public record KeywordTagSettings(double weight, int conditionCap, List<String> s
                     if (normalized.isEmpty()) {
                         throw new IllegalArgumentException("Keyword stoplist must not contain blank values");
                     }
-                    return normalized;
+                    return normalized.toLowerCase(Locale.ROOT);
                 })
                 .distinct()
                 .toList();
@@ -45,8 +46,8 @@ public record KeywordTagSettings(double weight, int conditionCap, List<String> s
         return weight > 0 && conditionCap > 0;
     }
 
-    /** @param matchValue {@link TagMatchValue#normalize} 를 거친 값 */
+    /** @param matchValue {@link TagMatchValue#normalize} 를 거친 값. 키워드 조건 매칭과 같이 대소문자 구분 없이 비교한다 */
     public boolean stopped(String matchValue) {
-        return stoplist.contains(matchValue);
+        return stoplist.contains(matchValue.toLowerCase(Locale.ROOT));
     }
 }

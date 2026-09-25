@@ -197,6 +197,9 @@ final class StructuredScoreCalculator {
         // matchValue는 #161·#169가 제공한 정규화 정본이다. 별칭 확장이나 검증 상태 승격을 하지 않는다.
         if (condition.ignoreCase()) {
             // 키워드 조건 (S15P21A501-321). 두 끝이 같으므로 한 값과 비교한다. SQL 의 lower() 비교와 짝이다.
+            // 대소문자 접기 방식이 셋 다 다르다 — 여기는 equalsIgnoreCase, SQL 은 lower(), 제외 목록 중복 제거는
+            // toLowerCase(Locale.ROOT) (KeywordTagSettings). ASCII·한글은 동일하게 접히지만 터키어 İ, 독일어 ß 같은
+            // 예외적인 문자에서는 갈릴 수 있다.
             return tag.matchValue().equalsIgnoreCase(condition.fromInclusive());
         }
         return tag.matchValue().compareTo(condition.fromInclusive()) >= 0
