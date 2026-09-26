@@ -26,10 +26,4 @@ public record SceneCandidateResult(
         int matchedQueryTokenCount,
         int queryTokenCount,
         double coverageRatio,
-        double coverageBonus) {
-
-    /** SQL row mapper 가 10개 필드로 전환될 때 제거할 임시 호환 생성자. */
-    public SceneCandidateResult(long sceneId, long clipId, double score, double textScore, double ocrScore) {
-        this(sceneId, clipId, score, score, textScore, ocrScore, 0, 0, 0, 0);
-    }
-}
+        double coverageBonus) {}

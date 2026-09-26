@@ -23,6 +23,7 @@ import com.npick.search.application.query.expansion.TokenizeExpandedTermsPort;
 import com.npick.search.application.query.fusion.FuseSearchRankingUseCase;
 import com.npick.search.application.query.fusion.FusionResult;
 import com.npick.search.application.query.fusion.SearchConfigSnapshot;
+import com.npick.search.application.query.fusion.SearchRankingFusionService;
 import com.npick.search.application.query.guard.ApplyFalseHitGuardUseCase;
 import com.npick.search.application.query.guard.FalseHitGuardResult;
 import com.npick.search.application.query.soft.AdjustSoftRankingUseCase;
@@ -237,6 +238,52 @@ class SearchCandidatePipelineTest {
                 .findByWords(List.of("화재/nng"), List.of(List.of("자료/nng", "화면/nng"), List.of("소방/nng", "장면/nng")));
         // 칩에는 범용어를 싣지 않는다 — 같은 구의 자료·소방이 이유를 설명한다.
         assertThat(result.expandedTokens()).containsExactly("자료/nng", "소방/nng");
+    }
+
+    @Test
+    @DisplayName("일반 검색은 실제 단어 후보와 커버리지 설정을 순위·기록 경로에 함께 넘긴다")
+    void carriesCoverageCandidateAndSettingThroughNormalRanking() {
+        lexicalSettings = new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, 0.2, 200, List.of("장면/nng"));
+        SceneCandidateResult candidate = new SceneCandidateResult(9301, 9101, 1.15, 1.05, 1.05, 0, 1, 2, 0.5, 0.1);
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of(candidate));
+        givenRankingOf(9301L);
+        when(structured.score(any()))
+                .thenReturn(new StructuredScoresResult(
+                        resolution(),
+                        structuredSettings(),
+                        List.of(new StructuredScoresResult.SceneScore(9301, 9101, true, false, 0, 0, List.of())),
+                        List.of()));
+        SearchCandidatePipeline pipeline = new SearchCandidatePipeline(
+                lexical,
+                dense,
+                provider(),
+                lexicalOnly(),
+                lexicalSettings,
+                structured,
+                new SearchRankingFusionService(lexicalOnly(), lexicalSettings, softSettings()),
+                soft,
+                tags,
+                guard,
+                exclusions,
+                cards,
+                expandedTerms);
+
+        SearchCandidates result = pipeline.rank(query(List.of("화재/nng", "출동/nng", "장면/nng")));
+
+        verify(lexical).findByWords(List.of("화재/nng", "출동/nng"), List.of());
+        FusionResult.ScoredCandidate fused = result.scenes().getFirst().score();
+        assertThat(fused.baseScore()).isEqualTo(1.0);
+        assertThat(fused.channels().getFirst().channel()).isEqualTo(FusionChannel.LEXICAL);
+        assertThat(fused.channels().getFirst().state()).isEqualTo(FusionResult.ChannelState.MATCHED);
+        assertThat(fused.channels().getFirst().rank()).isEqualTo(1);
+        assertThat(result.config().payload().get("lexical"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("coverage_weight", 0.2);
+        assertThat(SearchRecordPayload.candidates(result).lexical().getFirst())
+                .containsEntry("ranking_score", 1.15)
+                .containsEntry("raw_score", 1.05)
+                .containsEntry("coverage_ratio", 0.5)
+                .containsEntry("coverage_bonus", 0.1);
     }
 
     private RankSearchCandidatesUseCase.Query queryWithExpandedTerms() {

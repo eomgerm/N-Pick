@@ -87,7 +87,7 @@ class WordSceneCandidateAdapterTest {
         assertThat(only.clipId()).isEqualTo(11L);
         assertThat(only.textScore()).isZero();
         assertThat(only.ocrScore()).isPositive();
-        assertThat(only.score()).isEqualTo(only.ocrScore());
+        assertThat(only.rawScore()).isEqualTo(only.ocrScore());
     }
 
     /** 원인 은 표본에서 대사에만 있다. */
@@ -187,7 +187,7 @@ class WordSceneCandidateAdapterTest {
         var twoHits = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("화재"), List.of()), 34L);
         var oneHit = onlyCandidate(adapter(0, 0, 1, 10).findByWords(List.of("속보"), List.of()), 34L);
 
-        assertThat(twoHits.ocrScore()).as("같은 토큰이 키프레임 둘에 걸려도 최대값 하나만 쓴다").isEqualTo(twoHits.score());
+        assertThat(twoHits.ocrScore()).as("같은 토큰이 키프레임 둘에 걸려도 최대값 하나만 쓴다").isEqualTo(twoHits.rawScore());
         assertThat(twoHits.ocrScore()).isLessThan(oneHit.ocrScore() * 2);
     }
 
@@ -199,7 +199,7 @@ class WordSceneCandidateAdapterTest {
 
         assertThat(candidate.textScore()).isPositive();
         assertThat(candidate.ocrScore()).isZero();
-        assertThat(candidate.score()).isEqualTo(candidate.textScore());
+        assertThat(candidate.rawScore()).isEqualTo(candidate.textScore());
     }
 
     /** null 은 빈 목록과 다르다. 호출부 배선 실수를 "결과 없음" 으로 위장하지 않는다. */
@@ -376,9 +376,9 @@ class WordSceneCandidateAdapterTest {
         insertScenes("(89,11,22,0,1000,'고래 바다 사람 헤엄',NULL,'b_roll',now(),now())");
 
         double once = onlyCandidate(adapter(1, 1, 1, 10).findByWords(List.of("고래"), List.of()), 89L)
-                .score();
+                .rawScore();
         double twice = onlyCandidate(adapter(1, 1, 1, 10).findByWords(List.of("고래", "고래"), List.of()), 89L)
-                .score();
+                .rawScore();
 
         assertThat(twice).isEqualTo(once);
     }
@@ -415,7 +415,8 @@ class WordSceneCandidateAdapterTest {
     private WordSceneCandidateAdapter adapter(double caption, double transcript, double ocr, int poolSize) {
         return new WordSceneCandidateAdapter(
                 new NamedParameterJdbcTemplate(dataSource),
-                new SceneCandidateProperties("test-candidate", caption, transcript, ocr, 0.3, 0.0, poolSize, List.of()));
+                new SceneCandidateProperties(
+                        "test-candidate", caption, transcript, ocr, 0.3, 0.0, poolSize, List.of()));
     }
 
     private static List<Long> sceneIds(List<SceneCandidateResult> candidates) {
