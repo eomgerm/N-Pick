@@ -51,3 +51,54 @@ def test_rain_query_does_not_share_token_with_empty_classroom_caption() -> None:
 
     overlap = rain_query & empty_caption
     assert not overlap, f"품사 다른 동형이의가 같은 토큰으로 충돌한다: {overlap}"
+
+
+def test_irregular_verbs_and_adjectives_are_kept_with_the_base_tag() -> None:
+    """불규칙 활용 용언이 토큰에서 사라지면 안 된다 (S15P21A501-320).
+
+    Kiwi 는 `걷는` 을 `걷/VV-I`, `파란` 을 `파랗/VA-I` 로 태깅한다. 접미째로 `keep_pos`
+    와 대조하면 걸러져서, 캡션 229 개에 `걷/걸어` 가 있는데 색인 토큰에는 `걷` 이 하나도
+    없었다(로컬 운영 복사본 실측). 기본 태그로 접어 정규 용언과 같은 모양으로 만든다.
+    """
+    cases = {
+        "사람들이 걷는 모습": "걷/vv",
+        "음악을 듣는 학생": "듣/vv",
+        "서로 돕는 이웃": "돕/vv",
+        "새로 지어진 건물": "짓/vv",
+        "빨간 옷": "빨갛/va",
+        "파란 하늘": "파랗/va",
+        "아름다운 풍경": "아름답/va",
+        "가까운 거리": "가깝/va",
+        "옷을 입은 사람": "입/vv",  # `-R`: 규칙 활용이지만 Kiwi 가 접미를 붙인다
+    }
+    for text, expected in cases.items():
+        tokens = korean_tokens.index_tokens(text)
+        assert expected in tokens, f"{text!r} -> {tokens}"
+        assert not [t for t in tokens if t.endswith(("-i", "-r"))], f"접미가 남았다: {tokens}"
+
+
+def test_regular_verbs_keep_their_tokens() -> None:
+    """정규 용언 경로는 그대로다 — 접미 접기는 원래 걸리던 토큰을 바꾸지 않는다."""
+    assert korean_tokens.index_tokens("비 내리는 길") == ("비/nng", "내리/vv", "길/nng")
+    assert korean_tokens.index_tokens("빈 교실") == ("비/vv", "교실/nng")
+
+
+def test_fingerprint_includes_irregular_forms_and_stopwords_match_the_base_tag() -> None:
+    """질의 지문(`normalized_query`)에도 불규칙 용언이 들어간다.
+
+    불용어·별칭은 `하/VV` 처럼 기본 태그로 적혀 있다. 접은 태그로 대조하므로 활용 접미가
+    붙은 토큰에도 그대로 걸린다.
+    """
+    red = normalize("빨간 옷 입은 사람")
+    assert red.normalized_query == "빨갛 사람 옷 입"
+    # 뒤에 붙는 색 명사(`빨간색/nng` 등)는 `test_search_token_synonyms.py` 가 본다
+    assert red.search_tokens[:4] == ("빨갛/va", "옷/nng", "입/vv", "사람/nng")
+
+    assert normalize("사람들이 걷는 모습").normalized_query == "걷 모습 사람"
+    # 불용어 `보/VV` 는 빠지고 불규칙 `듣` 은 남는다
+    assert normalize("음악을 듣는 학생 보여 줘").normalized_query == "듣 음악 학생"
+
+
+def test_tokenizer_version_marks_the_folding_rule() -> None:
+    """접기 전 색인·질의와 구분되도록 엔진 판이 올라간다."""
+    assert korean_tokens.engine_version().endswith(":encpos3")

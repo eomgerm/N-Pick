@@ -753,7 +753,8 @@ ai/
 │   │   ├── ocr.v1.toml               임계값 정본 (실측 후 확정)
 │   │   ├── ocr-merge.v1.toml         frame 간 병합 임계값 정본 (기본 1.0 = 정규화 일치)
 │   │   ├── transcript_selection.v1.toml  ASR 호출 최소 구간 (기본 0 = 필터 없음)
-│   │   ├── query_normalization.v1.toml  정규화 규칙 정본
+│   │   ├── query_normalization.v1.toml  정규화 규칙 v1 (옛 버전 재현용)
+│   │   ├── query_normalization.v2.toml  정규화 규칙 정본 (S15P21A501-320 색 묶음)
 │   │   ├── query_resolver.v1.toml    프롬프트 v1 (회귀 비교용)
 │   │   └── query_resolver.v2.toml    프롬프트 정본 (S15P21A501-102 실측 반영)
 │   ├── scene_detection/ [워커] 장면 분할. detect_scenes() 순수 함수

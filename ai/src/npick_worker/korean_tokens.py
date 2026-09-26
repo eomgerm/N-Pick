@@ -49,7 +49,16 @@ __all__ = [
 # 이 함께 바뀌게 해야 구 색인(옛 형식)과 신 질의가 다른 규칙으로 인식된다.
 #   pos1: `형태/품사` (S15P21A501, 품사 다른 동형이의 충돌 해소). 그전 판은 `형태` 만.
 #   pos2: 태그를 소문자로. pos1 은 대문자 태그라 소문자로 색인하는 BM25 와 안 맞았다.
-_ENCODING_VERSION = "pos2"
+#   pos3: 활용 유형 접미(`-I`·`-R`)를 떼어 기본 태그로 접는다 (S15P21A501-320). 그전 판은
+#         `걷/VV-I`·`빨갛/VA-I`·`입/VV-R` 이 `keep_pos` 에 안 걸려 양쪽에서 사라졌다.
+_ENCODING_VERSION = "pos3"
+
+#: Kiwi 가 용언 태그 뒤에 붙이는 활용 유형 접미. `-I` 는 불규칙 활용(`걷는` -> `걷/VV-I`,
+#: `파란` -> `파랗/VA-I`), `-R` 은 규칙 활용인데 불규칙과 헷갈릴 수 있는 어간(`입은` ->
+#: `입/VV-R`)이다. 둘 다 품사는 그대로 동사·형용사라 `keep_pos` 와 불용어·별칭은
+#: 기본 태그(`VV`·`VA`)로 적는다. 접미를 남기면 `keep_pos` 에 `VV-I` 를 따로 적어야 하고
+#: 불용어 `하/VV` 가 `하/VV-R` 에 안 걸리며, 같은 동사가 활용형에 따라 다른 토큰이 된다.
+_CONJUGATION_SUFFIXES = ("-I", "-R")
 
 
 @lru_cache(maxsize=1)
@@ -114,6 +123,14 @@ def prepare(text: str) -> str:
     return unicodedata.normalize("NFKC", text).casefold().strip()
 
 
+def _base_tag(tag: str) -> str:
+    """`VV-I` -> `VV`. 접미가 없는 태그는 그대로 둔다."""
+    for suffix in _CONJUGATION_SUFFIXES:
+        if tag.endswith(suffix):
+            return tag.removesuffix(suffix)
+    return tag
+
+
 def analyze(
     text: str, config: "QueryNormalizationConfig | None" = None
 ) -> tuple[tuple[str, str], ...]:
@@ -123,11 +140,15 @@ def analyze(
     `("찾", "VV")` 처럼 태그까지 보고 걸린다. 색인 토큰(`index_tokens`)도 태그를
     형태에 붙여 쓴다 — 형태만 담으면 품사가 다른 동형이의(`비`=rain NNG 와
     `비`=비다 VV 어간)가 한 토큰으로 뭉개져 검색이 잘못 매칭한다 (S15P21A501).
+
+    태그는 **기본 태그로 접은 뒤** 거르고 돌려준다(`걷/VV-I` -> `("걷", "VV")`,
+    `_CONJUGATION_SUFFIXES` 참고). 색인·질의·불용어가 모두 이 값을 보므로 한 곳에서 접는다.
     """
     settings = _config(config)
     keep_pos = frozenset(settings.keep_pos)
     tokens = _kiwi(settings.user_words, settings.user_word_score).tokenize(prepare(text))
-    return tuple((token.form, token.tag) for token in tokens if token.tag in keep_pos)
+    tagged = ((token.form, _base_tag(token.tag)) for token in tokens)
+    return tuple((form, tag) for form, tag in tagged if tag in keep_pos)
 
 
 def encode_token(form: str, tag: str) -> str:
