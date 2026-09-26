@@ -26,6 +26,7 @@ const STAGE_RESULT_TITLES = [
   '검색 표현 생성 결과',
   '검색 반영 결과',
 ] as const;
+const COMPLETION_ONLY_STAGES = new Set([4, 8, 9]);
 
 async function success(route: Route, data: unknown) {
   await route.fulfill({ json: { isSuccess: true, code: 'COMM_200', message: '성공', data } });
@@ -237,7 +238,13 @@ for (const width of [1440, 390]) {
       await expect(
         stageResult.getByRole('heading', { name: STAGE_RESULT_TITLES[index] }),
       ).toBeVisible();
-      await expect(stageResult.getByRole('article')).toHaveCount(1);
+      if (COMPLETION_ONLY_STAGES.has(index)) {
+        await expect(stageResult.getByRole('article')).toHaveCount(0);
+        await expect(stageResult.getByText('처리 완료', { exact: true })).toBeVisible();
+        await expect(stageResult.getByText('검색 미반영 결과', { exact: true })).toHaveCount(0);
+      } else {
+        await expect(stageResult.getByRole('article')).toHaveCount(1);
+      }
       if (width === 1440) {
         await stageResult.screenshot({
           path: testInfo.outputPath(

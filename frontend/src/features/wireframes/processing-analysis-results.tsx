@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, ImageOff, Play, RefreshCw } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, ImageOff, Play, RefreshCw } from 'lucide-react';
 import { type KeyboardEvent, type TouchEvent, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
@@ -20,6 +20,7 @@ import {
 import type { ProcessingStage } from '@/features/wireframes/clip-processing-api';
 import {
   processingStageLabel,
+  processingStageResultMode,
   processingStageResultTitle,
   processingTranscriptLabel,
   stageStatusLabels,
@@ -76,15 +77,7 @@ export function ProcessingSceneTags({ scene }: { scene: ClipAnalysisScene }) {
   );
 }
 
-function StageOutput({
-  scene,
-  searchApplied,
-  stageName,
-}: {
-  scene: ClipAnalysisScene;
-  searchApplied: boolean;
-  stageName: string;
-}) {
+function StageOutput({ scene, stageName }: { scene: ClipAnalysisScene; stageName: string }) {
   switch (stageName) {
     case 'scene_detection':
       return (
@@ -113,16 +106,6 @@ function StageOutput({
           <p>{scene.transcript?.text ?? '이 장면에 연결할 대사 출처가 없습니다.'}</p>
         </>
       );
-    case 'asr':
-      return scene.transcript?.source === 'asr' ? (
-        <p>{scene.transcript.text}</p>
-      ) : (
-        <p>
-          {scene.transcript
-            ? '제공 자막이 채택되어 이 장면에는 음성 인식 대사를 사용하지 않았습니다.'
-            : '이 장면에서 사용할 수 있는 음성 인식 대사가 없습니다.'}
-        </p>
-      );
     case 'scene_transcript_mapping':
       return (
         <>
@@ -136,22 +119,6 @@ function StageOutput({
       return <p>{scene.caption ?? '생성된 영상 설명이 없습니다.'}</p>;
     case 'entity_extraction':
       return <ProcessingSceneTags scene={scene} />;
-    case 'text_embedding':
-      return (
-        <p>
-          {scene.embedding_ready
-            ? '이 장면의 검색 표현이 생성되어 유사 장면 비교에 사용할 수 있습니다.'
-            : '이 장면의 검색 표현이 생성되지 않았습니다.'}
-        </p>
-      );
-    case 'indexing':
-      return (
-        <p>
-          {searchApplied
-            ? '이 처리 결과가 현재 장면 검색에 반영되어 있습니다.'
-            : '처리는 완료됐지만 현재 장면 검색에는 아직 반영되지 않았습니다.'}
-        </p>
-      );
     default:
       return <p>표시할 처리 결과가 없습니다.</p>;
   }
@@ -181,10 +148,12 @@ export function ProcessingStageResults({
   const [scenePosition, setScenePosition] = useState(0);
   const touchStartX = useRef<number | null>(null);
   const page = Math.floor(scenePosition / PAGE_SIZE);
+  const isSucceeded = stage?.status === 'succeeded';
+  const resultMode = processingStageResultMode(stageName);
   const analysis = useQuery({
     queryKey: ['clip-analysis-scenes', clipId, pipelineRunId, page, isProcessing],
     queryFn: ({ signal }) => getClipAnalysisScenes(clipId, pipelineRunId!, page, PAGE_SIZE, signal),
-    enabled: pipelineRunId !== null,
+    enabled: pipelineRunId !== null && isSucceeded && resultMode === 'scene',
     placeholderData: (previous) => previous,
     refetchInterval: isProcessing ? 5_000 : false,
   });
@@ -193,7 +162,6 @@ export function ProcessingStageResults({
   const totalScenes = data?.total_elements ?? 0;
   const hasPrevious = scenePosition > 0;
   const hasNext = totalScenes > 0 && scenePosition + 1 < totalScenes;
-  const isSucceeded = stage?.status === 'succeeded';
 
   function moveScene(direction: 'previous' | 'next') {
     if (direction === 'previous' && hasPrevious) setScenePosition((current) => current - 1);
@@ -227,7 +195,7 @@ export function ProcessingStageResults({
             <span className={styles.eyebrow}>{processingStageLabel(stageName)} 결과</span>
             <h2>{processingStageResultTitle(stageName)}</h2>
           </div>
-          {data && !data.search_applied ? (
+          {resultMode === 'scene' && data && !data.search_applied ? (
             <span className={styles.unpublished}>검색 미반영 결과</span>
           ) : null}
         </div>
@@ -236,6 +204,11 @@ export function ProcessingStageResults({
           <StageRecord stage={stage} />
         ) : pipelineRunId === null ? (
           <p className={styles.empty}>처리가 시작되면 단계별 결과가 여기에 표시됩니다.</p>
+        ) : resultMode === 'completion' ? (
+          <div className={styles.completion} role="status">
+            <CheckCircle2 aria-hidden="true" />
+            <strong>처리 완료</strong>
+          </div>
         ) : analysis.isPending || (!data && analysis.isFetching) ? (
           <p className={styles.empty} role="status">
             분석 결과를 불러오는 중…
@@ -298,11 +271,7 @@ export function ProcessingStageResults({
                   </button>
                 </div>
                 <div className={styles.resultBlock}>
-                  <StageOutput
-                    scene={scene}
-                    searchApplied={data.search_applied}
-                    stageName={stageName}
-                  />
+                  <StageOutput scene={scene} stageName={stageName} />
                 </div>
               </div>
             </article>

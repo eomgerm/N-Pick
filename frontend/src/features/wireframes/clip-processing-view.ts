@@ -67,6 +67,20 @@ export function processingStageResultTitle(name: string) {
   return stageResultTitles[name] ?? '처리 결과';
 }
 
+const sceneResultStages = new Set([
+  'scene_detection',
+  'frame_extraction',
+  'ocr',
+  'transcript_selection',
+  'scene_transcript_mapping',
+  'vlm_metadata',
+  'entity_extraction',
+]);
+
+export function processingStageResultMode(name: string): 'scene' | 'completion' {
+  return sceneResultStages.has(name) ? 'scene' : 'completion';
+}
+
 export function defaultProcessingStage(
   stages: ReadonlyArray<{ name: string; status: ProcessingStageStatus }>,
 ) {

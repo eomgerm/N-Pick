@@ -17,6 +17,7 @@ const {
   clipFilterCounts,
   clipFilterStatuses,
   defaultProcessingStage,
+  processingStageResultMode,
   processingStageResultTitle,
   selectClipFilter,
   clipFilterUpdates,
@@ -90,4 +91,21 @@ test('성공한 파이프라인 단계는 해당 산출물 이름으로 연결�
   assert.equal(processingStageResultTitle('entity_extraction'), '추출한 검색 태그');
   assert.equal(processingStageResultTitle('text_embedding'), '검색 표현 생성 결과');
   assert.equal(processingStageResultTitle('indexing'), '검색 반영 결과');
+});
+
+test('확실한 장면 산출물이 없는 단계는 완료 여부만 표시한다', () => {
+  for (const stage of ['asr', 'text_embedding', 'indexing']) {
+    assert.equal(processingStageResultMode(stage), 'completion');
+  }
+  for (const stage of [
+    'scene_detection',
+    'frame_extraction',
+    'ocr',
+    'transcript_selection',
+    'scene_transcript_mapping',
+    'vlm_metadata',
+    'entity_extraction',
+  ]) {
+    assert.equal(processingStageResultMode(stage), 'scene');
+  }
 });
