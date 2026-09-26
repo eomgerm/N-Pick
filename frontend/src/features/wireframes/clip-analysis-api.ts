@@ -141,7 +141,7 @@ function parseScene(value: unknown): ClipAnalysisScene {
     const data = record(value);
     return {
       text: text(data.text),
-      source: nullable(data.source, (source) => choice(source, ['provided', 'asr'])),
+      source: nullable(data.source, (source) => choice(source, ['provided', 'asr'] as const)),
     };
   });
   const tags = array(item.tags, parseTag);

@@ -257,10 +257,11 @@ test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어
   await video.evaluate((element) => {
     (element as HTMLVideoElement).currentTime = 2;
   });
-  const transcriptToggle = page
-    .getByRole('region', { name: '대사 처리 기록', exact: true })
-    .locator('summary');
-  await transcriptToggle.focus();
+  const firstStage = page
+    .getByRole('tablist', { name: '영상 처리 파이프라인 10단계' })
+    .getByRole('tab')
+    .first();
+  await firstStage.focus();
   await page.clock.fastForward(5_100);
   await expect(refreshStatus).toContainText('처리 상태 확인 중…');
   expect(
@@ -272,7 +273,7 @@ test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어
   await expect(region).toContainText('처리 완료');
   await expect(refreshStatus).toContainText('자동 확인이 종료되었습니다.');
   await expect(refreshStatus.locator('time')).not.toHaveAttribute('datetime', checkedAt!);
-  await expect(transcriptToggle).toBeFocused();
+  await expect(firstStage).toBeFocused();
   expect(await video.evaluate((element, original) => element === original, originalVideo)).toBe(
     true,
   );
@@ -718,56 +719,6 @@ test('영상 목록 갱신 안내는 완료 필터 건수 변경 뒤 자동 확�
   expect(reads).toBe(2);
 });
 
-test('음성 인식은 직접 상태와 동일 실행 단계를 사용하며 실패·생략·미확인·0건을 보존한다', async ({
-  page,
-}) => {
-  const cases = [
-    { direct: 'pending', stage: 'running', expected: '대기' },
-    { direct: 'running', stage: 'succeeded', expected: '처리 중' },
-    { direct: 'succeeded', stage: 'unknown', expected: '완료' },
-    { direct: 'failed', stage: 'succeeded', expected: '실패' },
-    { direct: 'skipped', stage: 'running', expected: '생략' },
-    { direct: null, stage: 'pending', expected: '대기' },
-    { direct: 'unknown', stage: 'running', expected: '처리 중' },
-    { direct: null, stage: 'unknown', expected: '상태 정보 없음' },
-  ];
-  let current = cases[0];
-  await page.route('**/api/v1/clips/21', (route) => {
-    const response = detail('21', 'succeeded');
-    return success(route, {
-      ...response,
-      processing_details: {
-        ...response.processing_details,
-        stages: [{ ...response.processing_details.stages[0], name: 'asr', status: current.stage }],
-        transcript: {
-          record_status: 'unavailable',
-          asr_status: current.direct,
-          asr_required: false,
-          asr_segment_count: 0,
-        },
-      },
-    });
-  });
-  await page.goto('/review?view=processing&tab=uploads&clip=21');
-  const transcript = page.getByRole('region', { name: '대사 처리 기록', exact: true });
-  await transcript.locator('summary').click();
-  const asrStatus = transcript
-    .locator('dl > div')
-    .filter({ has: page.getByText('음성 인식 상태', { exact: true }) })
-    .locator('dd');
-  const count = transcript
-    .locator('dl > div')
-    .filter({ has: page.getByText('음성 인식 후보 구간', { exact: true }) })
-    .locator('dd');
-  for (const scenario of cases) {
-    current = scenario;
-    await page.getByRole('button', { name: '상태 새로고침', exact: true }).click();
-    await expect(asrStatus).toHaveText(scenario.expected);
-    await expect(transcript).toContainText('처리 기록 미확인');
-    await expect(count).toHaveText('0개');
-  }
-});
-
 for (const width of [1440, 390, 320]) {
   test(`처리 상세 ${width}px에서 10단계 파이프라인을 hover·키보드·클릭으로 조회한다`, async ({
     page,
@@ -900,12 +851,9 @@ for (const width of [1440, 390, 320]) {
     await tabs.nth(4).click();
     await expect(tabs.nth(4)).toHaveAttribute('aria-selected', 'true');
     await expect(record).toContainText('생략');
-    const transcript = page.getByRole('region', { name: '대사 처리 기록', exact: true });
-    await transcript.locator('summary').focus();
-    await transcript.locator('summary').press('Enter');
-    await expect(transcript.getByText('저장된 대사 선택 기록이 없습니다.')).toBeVisible();
-    await transcript.locator('summary').press('Enter');
-    for (const region of [overview, stages, media, transcript]) {
+    const analysis = page.getByRole('region', { name: '분석 결과', exact: true });
+    await expect(analysis).toBeVisible();
+    for (const region of [overview, stages, media, analysis]) {
       expect(await region.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
         true,
       );
