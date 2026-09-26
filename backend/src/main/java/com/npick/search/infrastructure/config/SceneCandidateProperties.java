@@ -16,9 +16,8 @@ import org.springframework.validation.annotation.Validated;
 /**
  * npick.search.candidate — 단어 검색 실행 설정 (FRD §11 "실행 환경 설정: 개발하면서 실측으로 정함").
  *
- * <p>여기의 기본값은 <b>확정값이 아니다.</b> 순위 가중치와 후보 개수를 문서나 코드에서 임의 숫자로 확정하지 않기로 정해져 있어(§11), 실제 색인에서 측정한
- * 뒤 조정한다. 숫자를 바꿀 때는 {@code config-version} 도 함께 올려야 한다 — 그러지 않으면 다른 설정으로 돌린 두 실행이 {@code search_execution} 에서 같은 설정으로
- * 보인다 (F-05 완료 기준).
+ * <p>커버리지 가중치 외의 기본값은 <b>확정값이 아니다.</b> 순위 가중치와 후보 개수를 실제 색인에서 측정한 뒤 조정한다(§11). 숫자를 바꿀 때는
+ * {@code config-version} 도 함께 올려야 한다 — 그러지 않으면 다른 설정으로 돌린 두 실행이 {@code search_execution} 에서 같은 설정으로 보인다 (F-05 완료 기준).
  *
  * <p>가중치 0 은 "그 필드를 검색 대상에서 뺀다" 는 뜻이다. 필드 목록을 따로 두지 않는 이유는 대상 필드가 곧 BM25 인덱스의 칸 구성이라 바꾸려면 마이그레이션이 함께 필요하고, 설정만으로 늘릴 수
  * 있는 값이 아니기 때문이다.
@@ -30,7 +29,7 @@ import org.springframework.validation.annotation.Validated;
  * @param captionWeight {@code scene.caption_tokens} 가중치. 0 이면 장면 설명을 검색하지 않는다
  * @param transcriptWeight {@code scene.transcript_tokens} 가중치. 0 이면 대사를 검색하지 않는다
  * @param ocrWeight {@code ocr_observation.tokens} 가중치. 0 이면 화면 글자를 검색하지 않는다
- * @param coverageWeight 질의 토큰 커버리지 가중치. 평가 전 기본값은 0 이다
+ * @param coverageWeight 질의 토큰 커버리지 가중치. 기본값은 0.1 이다
  * @param poolSize 다음 단계로 넘길 후보 상한. 최종 반환 10개(F-05 6항)가 아니라 재순위·제외 전의 pool 크기다. {@code @Max} 는 실측으로 정한 운영값이 아니라 <b>설정
  *     오타를 잡는 선</b>이다 — 0 을 하나 더 찍으면 한 요청이 수십만 행을 메모리로 올리는데, 부팅도 되고 검색도 되어 아무 신호가 없다. 이보다 큰 pool 이 필요해지면 왜 필요한지를 함께 적고 이
  *     값을 올린다
