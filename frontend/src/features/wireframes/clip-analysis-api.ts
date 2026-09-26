@@ -36,6 +36,7 @@ export interface ClipAnalysisScene {
   shot_type: string;
   transcript: { text: string; source: ClipAnalysisTranscriptSource | null } | null;
   tags: ClipAnalysisTag[];
+  embedding_ready: boolean;
   ocr_texts: string[];
 }
 
@@ -48,6 +49,7 @@ export interface ClipAnalysisScenes {
     captioned_scenes: number;
     transcript_scenes: number;
     tagged_scenes: number;
+    embedded_scenes: number;
   };
   items: ClipAnalysisScene[];
   page: number;
@@ -158,6 +160,7 @@ function parseScene(value: unknown): ClipAnalysisScene {
     shot_type: text(item.shot_type),
     transcript,
     tags,
+    embedding_ready: boolean(item.embedding_ready),
     ocr_texts: ocrTexts,
   };
 }
@@ -170,6 +173,7 @@ export function parseClipAnalysisScenes(value: unknown): ClipAnalysisScenes {
     captioned_scenes: integer(summaryValue.captioned_scenes),
     transcript_scenes: integer(summaryValue.transcript_scenes),
     tagged_scenes: integer(summaryValue.tagged_scenes),
+    embedded_scenes: integer(summaryValue.embedded_scenes),
   };
   const result: ClipAnalysisScenes = {
     clip_id: identifier(item.clip_id),
@@ -186,9 +190,12 @@ export function parseClipAnalysisScenes(value: unknown): ClipAnalysisScenes {
   if (result.size < 1 || result.size > 100 || result.items.length > result.size) fail();
   if (summary.total_scenes !== result.total_elements) fail();
   if (
-    [summary.captioned_scenes, summary.transcript_scenes, summary.tagged_scenes].some(
-      (count) => count > summary.total_scenes,
-    )
+    [
+      summary.captioned_scenes,
+      summary.transcript_scenes,
+      summary.tagged_scenes,
+      summary.embedded_scenes,
+    ].some((count) => count > summary.total_scenes)
   ) {
     fail();
   }

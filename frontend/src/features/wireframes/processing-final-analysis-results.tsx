@@ -115,6 +115,10 @@ export function ProcessingFinalAnalysisResults({
               <dt>태그 생성</dt>
               <dd>{data.summary.tagged_scenes}개</dd>
             </div>
+            <div>
+              <dt>검색 표현</dt>
+              <dd>{data.summary.embedded_scenes}개</dd>
+            </div>
           </dl>
           <div className={styles.sceneNavigation}>
             <p aria-live="polite">

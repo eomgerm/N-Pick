@@ -24,6 +24,7 @@ const response = {
     captioned_scenes: 1,
     transcript_scenes: 1,
     tagged_scenes: 1,
+    embedded_scenes: 1,
   },
   items: [
     {
@@ -47,6 +48,7 @@ const response = {
         },
       ],
       ocr_texts: ['서울역', '1번 출구'],
+      embedding_ready: true,
     },
     {
       scene_id: '42',
@@ -59,6 +61,7 @@ const response = {
       transcript: null,
       tags: [],
       ocr_texts: [],
+      embedding_ready: false,
     },
   ],
   page: 0,
@@ -74,9 +77,11 @@ test('bigint ID와 부분 분석 결과를 손실 없이 읽는다', () => {
   assert.equal(parsed.items[0].representative_frame_timestamp_ms, 1600);
   assert.equal(parsed.items[0].transcript.source, 'provided');
   assert.equal(parsed.items[0].tags[0].verification, 'unverified');
+  assert.equal(parsed.items[0].embedding_ready, true);
   assert.equal(parsed.items[1].caption, null);
   assert.equal(parsed.items[1].transcript, null);
   assert.equal(parsed.items[1].representative_frame_timestamp_ms, null);
+  assert.equal(parsed.items[1].embedding_ready, false);
 });
 
 test('장면 구간·순번·식별자·OCR·태그가 모순된 응답을 거부한다', () => {

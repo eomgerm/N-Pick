@@ -100,6 +100,7 @@ function analysisResult() {
       captioned_scenes: 1,
       transcript_scenes: 1,
       tagged_scenes: 1,
+      embedded_scenes: 1,
     },
     items: [
       {
@@ -133,6 +134,7 @@ function analysisResult() {
           },
         ],
         ocr_texts: ['서울역', '1번 출구'],
+        embedding_ready: true,
       },
       {
         scene_id: '42',
@@ -145,6 +147,7 @@ function analysisResult() {
         transcript: null,
         tags: [],
         ocr_texts: [],
+        embedding_ready: false,
       },
     ],
     page: 0,

@@ -69,7 +69,8 @@ GET /api/v1/clips/{clipId}/runs/{pipelineRunId}/scenes?page=0&size=20
     "total_scenes": 12,
     "captioned_scenes": 12,
     "transcript_scenes": 9,
-    "tagged_scenes": 11
+    "tagged_scenes": 11,
+    "embedded_scenes": 12
   },
   "items": [
     {
@@ -92,6 +93,7 @@ GET /api/v1/clips/{clipId}/runs/{pipelineRunId}/scenes?page=0&size=20
           "verification": "unverified"
         }
       ],
+      "embedding_ready": true,
       "ocr_texts": ["서울역"]
     }
   ],

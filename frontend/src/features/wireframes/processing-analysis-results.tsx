@@ -137,7 +137,13 @@ function StageOutput({
     case 'entity_extraction':
       return <ProcessingSceneTags scene={scene} />;
     case 'text_embedding':
-      return <p>이 장면의 설명·대사·태그를 검색에서 비교할 수 있는 표현으로 변환했습니다.</p>;
+      return (
+        <p>
+          {scene.embedding_ready
+            ? '이 장면의 검색 표현이 생성되어 유사 장면 비교에 사용할 수 있습니다.'
+            : '이 장면의 검색 표현이 생성되지 않았습니다.'}
+        </p>
+      );
     case 'indexing':
       return (
         <p>
