@@ -61,7 +61,7 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
      */
     private static final String FIND_CANDIDATES_SQL = """
             WITH query_tokens AS (
-                SELECT DISTINCT token FROM unnest(string_to_array(:tokens, ' ')) AS token
+                SELECT token FROM unnest(string_to_array(:tokens, ' ')) AS token
             ),
             text_hits AS (
                 SELECT s.scene_id, s.clip_id, paradedb.score(s) AS score
@@ -100,29 +100,36 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                 FROM text_hits t
                 FULL JOIN ocr_hits o ON o.scene_id = t.scene_id
             ),
-            candidates AS (
+            candidates AS MATERIALIZED (
                 SELECT * FROM merged WHERE raw_score > 0
             ),
             text_token_hits AS (
                 SELECT s.scene_id, q.token
                 FROM query_tokens q
                 JOIN npick.scene s ON s @@@ %s
-                JOIN npick.clip c ON c.clip_id = s.clip_id
-                    AND c.active_pipeline_run_id = s.pipeline_run_id
-                    AND c.deleted_at IS NULL
+                JOIN candidates candidate ON candidate.scene_id = s.scene_id
+            ),
+            ocr_documents AS MATERIALIZED (
+                SELECT o.keyframe_id, o.tokens
+                FROM npick.ocr_observation o
+                WHERE CAST(:ocrWeight AS real) > 0
+                  AND o @@@ paradedb.boolean(should => ARRAY(
+                      SELECT paradedb.term('tokens', token)
+                      FROM query_tokens))
+            ),
+            ocr_token_observations AS MATERIALIZED (
+                SELECT document.keyframe_id, q.token
+                FROM ocr_documents document
+                JOIN query_tokens q
+                  ON q.token = ANY(pdb.tokenize_whitespace(document.tokens::pdb.whitespace))
             ),
             ocr_token_hits AS (
-                SELECT k.scene_id, q.token
-                FROM query_tokens q
-                JOIN npick.ocr_observation o ON o @@@ paradedb.term('tokens', q.token)
-                JOIN npick.keyframe k ON k.keyframe_id = o.keyframe_id
-                JOIN npick.scene s ON s.scene_id = k.scene_id
-                JOIN npick.clip c ON c.clip_id = s.clip_id
-                    AND c.active_pipeline_run_id = s.pipeline_run_id
-                    AND c.deleted_at IS NULL
-                WHERE CAST(:ocrWeight AS real) > 0
+                SELECT candidate.scene_id, observation.token
+                FROM ocr_token_observations observation
+                JOIN npick.keyframe k ON k.keyframe_id = observation.keyframe_id
+                JOIN candidates candidate ON candidate.scene_id = k.scene_id
             ),
-            matched_tokens AS (
+            matched_tokens AS MATERIALIZED (
                 SELECT scene_id, count(DISTINCT token)::integer AS matched_query_token_count
                 FROM (
                     SELECT scene_id, token FROM text_token_hits

@@ -3,14 +3,20 @@ package com.npick.search.infrastructure.persistence.query;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import com.npick.search.application.query.candidate.SceneCandidateResult;
 import com.npick.search.infrastructure.config.SceneCandidateProperties;
@@ -51,6 +57,48 @@ class WordSceneCandidateCoverageTest {
                 connection.close();
             }
         }
+    }
+
+    @Test
+    void zeroWeightPreservesOrderedTokenBm25RawScore() throws Exception {
+        var tokens = java.util.stream.IntStream.rangeClosed(1, 24)
+                .mapToObj(index -> "term" + index)
+                .toList();
+        insertScenes("(90,11,22,0,1000,'" + String.join(" ", tokens) + "', '"
+                + String.join(" ", tokens.reversed()) + "', 'b_roll',now(),now()),"
+                + "(91,11,22,0,1000,'" + String.join(" ", tokens.subList(0, 12)) + "', '"
+                + String.join(" ", tokens.subList(12, 24)) + "', 'b_roll',now(),now())");
+        execute("INSERT INTO scene (scene_id,clip_id,pipeline_run_id,start_time_ms,end_time_ms,"
+                + "caption_tokens,transcript_tokens,shot_type,created_at,updated_at) "
+                + "SELECT 100 + n * 100 + m, 11, 22, 0, 1000, 'term' || n, NULL, 'b_roll', now(), now() "
+                + "FROM generate_series(1, 24) n, generate_series(1, n) m");
+        var actual = adapter(1, 1, 0, 0, 1000).findByWords(tokens, List.of());
+        var parameters = new MapSqlParameterSource("tokens", String.join(" ", tokens));
+        var expected = new NamedParameterJdbcTemplate(dataSource).query("""
+                WITH query_tokens AS (
+                    SELECT token FROM unnest(string_to_array(:tokens, ' ')) AS token
+                )
+                SELECT s.scene_id, paradedb.score(s) AS raw_score
+                FROM npick.scene s
+                JOIN npick.clip c ON c.clip_id = s.clip_id
+                    AND c.active_pipeline_run_id = s.pipeline_run_id
+                    AND c.deleted_at IS NULL
+                WHERE s @@@ paradedb.boolean(should => ARRAY[
+                    paradedb.boost(1.0::real, paradedb.boolean(should => ARRAY(
+                        SELECT paradedb.term('caption_tokens', token) FROM query_tokens))),
+                    paradedb.boost(1.0::real, paradedb.boolean(should => ARRAY(
+                        SELECT paradedb.term('transcript_tokens', token) FROM query_tokens)))])
+                ORDER BY raw_score DESC, s.scene_id ASC
+                """, parameters, (row, number) ->
+                new Object[] {row.getLong("scene_id"), row.getDouble("raw_score")});
+
+        assertThat(sceneIds(actual))
+                .containsExactlyElementsOf(
+                        expected.stream().map(row -> (Long) row[0]).toList());
+        assertThat(actual)
+                .extracting(SceneCandidateResult::rawScore)
+                .containsExactlyElementsOf(
+                        expected.stream().map(row -> (Double) row[1]).toList());
     }
 
     @Test
@@ -155,10 +203,12 @@ class WordSceneCandidateCoverageTest {
 
     @Test
     void disabledOcrFieldCannotContributeCoverage() {
-        var candidate = only(adapter(1, 1, 0, 0.5, 1000).findByWords(List.of("화재", "단독"), List.of()), 30);
+        var explaining = new ExplainingJdbcTemplate(dataSource);
+        var candidate = only(adapter(explaining, 1, 1, 0, 0.5, 1000).findByWords(List.of("화재", "단독"), List.of()), 30);
         assertThat(candidate.ocrScore()).isZero();
         assertThat(candidate.matchedQueryTokenCount()).isEqualTo(1);
         assertThat(candidate.coverageRatio()).isEqualTo(0.5);
+        assertThat(explaining.executedOcrParadeDbCustomScanCount()).isEqualTo(1);
     }
 
     @Test
@@ -185,6 +235,49 @@ class WordSceneCandidateCoverageTest {
             assertThat(candidate.matchedQueryTokenCount()).isEqualTo(1);
             assertThat(candidate.coverageBonus()).isEqualTo(0.25);
         });
+    }
+
+    @Test
+    void broadOcrScanAndNativeTokenizerPreservePerTokenHits() throws Exception {
+        insertScenes("(90,11,22,0,1000,NULL,NULL,'b_roll',now(),now())");
+        execute("INSERT INTO keyframe VALUES (90,90,0,'test/f90'),(91,90,500,'test/f91')");
+        execute("INSERT INTO ocr_observation VALUES "
+                + "(90,90,'mixed case','FIRE   alert alert',0.9,'{}'),"
+                + "(91,91,'mixed whitespace',E'alert\\n\\tfire',0.9,'{}')");
+        var parameters = new MapSqlParameterSource("tokens", "fire alert absent");
+        var perToken = queryOcrTokenHits(PER_TOKEN_OCR_HITS_SQL, parameters);
+        var broad = queryOcrTokenHits(BROAD_OCR_HITS_SQL, parameters);
+
+        assertThat(broad)
+                .containsExactlyElementsOf(perToken)
+                .containsExactly("90:alert", "90:fire", "91:alert", "91:fire");
+        var candidate =
+                only(adapter(0, 0, 1, 0.5, 1000).findByWords(List.of("fire", "alert", "absent"), List.of()), 90);
+        assertThat(candidate.matchedQueryTokenCount()).isEqualTo(2);
+        assertThat(candidate.queryTokenCount()).isEqualTo(3);
+    }
+
+    @Test
+    void coverageOcrUsesOneBroadParadeDbScanInsteadOfOneScanPerToken() {
+        var explaining = new ExplainingJdbcTemplate(dataSource);
+        adapter(explaining, 0, 0, 1, 0.5, 1000).findByWords(List.of("화재", "현장", "속보", "단독"), List.of());
+
+        assertThat(explaining.ocrParadeDbCustomScanCount()).isEqualTo(2);
+    }
+
+    @Test
+    void matchedTokenAggregateExecutesOnceForManyCandidates() throws Exception {
+        execute("INSERT INTO scene (scene_id,clip_id,pipeline_run_id,start_time_ms,end_time_ms,"
+                + "caption_tokens,transcript_tokens,shot_type,created_at,updated_at) "
+                + "SELECT 100 + n, 11, 22, 0, 1000, '대통령 연설', NULL, 'b_roll', now(), now() "
+                + "FROM generate_series(1, 407) n");
+        var explaining = new ExplainingJdbcTemplate(dataSource);
+
+        var candidates = adapter(explaining, 1, 1, 1, 0.5, 1000).findByWords(List.of("대통령", "연설"), List.of());
+
+        assertThat(candidates).hasSize(407);
+        assertThat(explaining.maxSceneAggregateLoops()).isEqualTo(1);
+        assertThat(explaining.materializedMatchedTokenAggregateLoops()).isEqualTo(1);
     }
 
     @Test
@@ -237,10 +330,25 @@ class WordSceneCandidateCoverageTest {
 
     private WordSceneCandidateAdapter adapter(
             double caption, double transcript, double ocr, double coverage, int pool) {
+        return adapter(new NamedParameterJdbcTemplate(dataSource), caption, transcript, ocr, coverage, pool);
+    }
+
+    private WordSceneCandidateAdapter adapter(
+            NamedParameterJdbcTemplate template,
+            double caption,
+            double transcript,
+            double ocr,
+            double coverage,
+            int pool) {
         return new WordSceneCandidateAdapter(
-                new NamedParameterJdbcTemplate(dataSource),
+                template,
                 new SceneCandidateProperties(
                         "test-coverage", caption, transcript, ocr, 0.3, coverage, pool, List.of()));
+    }
+
+    private List<String> queryOcrTokenHits(String sql, MapSqlParameterSource parameters) {
+        return new NamedParameterJdbcTemplate(dataSource)
+                .query(sql, parameters, (row, number) -> row.getLong("keyframe_id") + ":" + row.getString("token"));
     }
 
     private static SceneCandidateResult only(List<SceneCandidateResult> candidates, long sceneId) {
@@ -269,6 +377,124 @@ class WordSceneCandidateCoverageTest {
         try (var stream = WordSceneCandidateCoverageTest.class.getClassLoader().getResourceAsStream(path)) {
             if (stream == null) throw new IllegalArgumentException("Missing resource: " + path);
             return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static final String PER_TOKEN_OCR_HITS_SQL = """
+            WITH query_tokens AS (
+                SELECT token FROM unnest(string_to_array(:tokens, ' ')) AS token
+            )
+            SELECT o.keyframe_id, q.token
+            FROM query_tokens q
+            JOIN npick.ocr_observation o ON o @@@ paradedb.term('tokens', q.token)
+            ORDER BY o.keyframe_id, q.token
+            """;
+
+    private static final String BROAD_OCR_HITS_SQL = """
+            WITH query_tokens AS (
+                SELECT token FROM unnest(string_to_array(:tokens, ' ')) AS token
+            ),
+            ocr_documents AS MATERIALIZED (
+                SELECT o.keyframe_id, o.tokens
+                FROM npick.ocr_observation o
+                WHERE o @@@ paradedb.boolean(should => ARRAY(
+                    SELECT paradedb.term('tokens', token) FROM query_tokens))
+            )
+            SELECT o.keyframe_id, q.token
+            FROM ocr_documents o
+            JOIN query_tokens q
+                ON q.token = ANY(pdb.tokenize_whitespace(o.tokens::pdb.whitespace))
+            ORDER BY o.keyframe_id, q.token
+            """;
+
+    private static final class ExplainingJdbcTemplate extends NamedParameterJdbcTemplate {
+        private final NamedParameterJdbcTemplate explainer;
+        private String plan;
+
+        ExplainingJdbcTemplate(SingleConnectionDataSource dataSource) {
+            super(dataSource);
+            explainer = new NamedParameterJdbcTemplate(dataSource);
+        }
+
+        @Override
+        public <T> List<T> query(String sql, SqlParameterSource parameters, RowMapper<T> rowMapper) {
+            plan = explainer.queryForObject(
+                    "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql, parameters, (row, number) -> row.getString(1));
+            return super.query(sql, parameters, rowMapper);
+        }
+
+        int ocrParadeDbCustomScanCount() {
+            try {
+                JsonNode root = new ObjectMapper().readTree(plan).get(0).path("Plan");
+                List<JsonNode> nodes = new ArrayList<>();
+                collectPlanNodes(root, nodes);
+                return (int) nodes.stream()
+                        .filter(node -> "ocr_observation"
+                                .equals(node.path("Relation Name").asString()))
+                        .filter(node -> "ParadeDB Base Scan"
+                                .equals(node.path("Custom Plan Provider").asString()))
+                        .count();
+            } catch (Exception exception) {
+                throw new AssertionError("실행 계획 JSON을 읽지 못했다", exception);
+            }
+        }
+
+        int executedOcrParadeDbCustomScanCount() {
+            try {
+                JsonNode root = new ObjectMapper().readTree(plan).get(0).path("Plan");
+                List<JsonNode> nodes = new ArrayList<>();
+                collectPlanNodes(root, nodes);
+                return (int) nodes.stream()
+                        .filter(node -> "ocr_observation"
+                                .equals(node.path("Relation Name").asString()))
+                        .filter(node -> "ParadeDB Base Scan"
+                                .equals(node.path("Custom Plan Provider").asString()))
+                        .filter(node -> node.path("Actual Loops").asInt() > 0)
+                        .count();
+            } catch (Exception exception) {
+                throw new AssertionError("실행 계획 JSON을 읽지 못했다", exception);
+            }
+        }
+
+        int maxSceneAggregateLoops() {
+            try {
+                JsonNode root = new ObjectMapper().readTree(plan).get(0).path("Plan");
+                List<JsonNode> nodes = new ArrayList<>();
+                collectPlanNodes(root, nodes);
+                return nodes.stream()
+                        .filter(node ->
+                                "Aggregate".equals(node.path("Node Type").asString()))
+                        .filter(node -> node.path("Group Key").toString().contains("scene_id"))
+                        .mapToInt(node -> node.path("Actual Loops").asInt())
+                        .max()
+                        .orElseThrow();
+            } catch (Exception exception) {
+                throw new AssertionError("실행 계획 JSON을 읽지 못했다", exception);
+            }
+        }
+
+        int materializedMatchedTokenAggregateLoops() {
+            try {
+                JsonNode root = new ObjectMapper().readTree(plan).get(0).path("Plan");
+                List<JsonNode> nodes = new ArrayList<>();
+                collectPlanNodes(root, nodes);
+                return nodes.stream()
+                        .filter(node ->
+                                "Aggregate".equals(node.path("Node Type").asString()))
+                        .filter(node -> "CTE matched_tokens"
+                                .equals(node.path("Subplan Name").asString()))
+                        .findFirst()
+                        .orElseThrow()
+                        .path("Actual Loops")
+                        .asInt();
+            } catch (Exception exception) {
+                throw new AssertionError("실행 계획 JSON을 읽지 못했다", exception);
+            }
+        }
+
+        private static void collectPlanNodes(JsonNode node, List<JsonNode> nodes) {
+            nodes.add(node);
+            for (JsonNode child : node.path("Plans")) collectPlanNodes(child, nodes);
         }
     }
 }
