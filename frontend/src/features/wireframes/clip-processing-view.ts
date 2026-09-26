@@ -49,6 +49,37 @@ const stageLabels: Record<string, string> = {
 export function processingStageLabel(name: string) {
   return stageLabels[name] ?? '기타 처리 단계';
 }
+
+const stageResultTitles: Record<string, string> = {
+  scene_detection: '나눈 장면',
+  frame_extraction: '추출한 대표 화면',
+  ocr: '읽어낸 화면 글자',
+  transcript_selection: '선택한 대사 출처',
+  asr: '음성 인식 결과',
+  scene_transcript_mapping: '연결한 장면 대사',
+  vlm_metadata: '생성한 영상 설명',
+  entity_extraction: '추출한 검색 태그',
+  text_embedding: '검색 표현 생성 결과',
+  indexing: '검색 반영 결과',
+};
+
+export function processingStageResultTitle(name: string) {
+  return stageResultTitles[name] ?? '처리 결과';
+}
+
+export function defaultProcessingStage(
+  stages: ReadonlyArray<{ name: string; status: ProcessingStageStatus }>,
+) {
+  return (
+    processingStageOrder.find((name) =>
+      stages.some((stage) => stage.name === name && stage.status === 'failed'),
+    ) ??
+    processingStageOrder.find((name) =>
+      stages.some((stage) => stage.name === name && stage.status === 'running'),
+    ) ??
+    processingStageOrder[0]
+  );
+}
 export function processingRecordLabel(status: ProcessingRecordStatus | undefined) {
   return status === 'available'
     ? '처리 기록 확인됨'

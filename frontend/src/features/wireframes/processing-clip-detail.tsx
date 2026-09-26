@@ -9,11 +9,13 @@ import { getProcessingClip } from '@/features/wireframes/clip-processing-api';
 import {
   clipDetailPollInterval,
   clipRunLabels,
+  defaultProcessingStage,
   processingProgressLabel,
   processingRecordLabel,
   processingStageLabel,
 } from '@/features/wireframes/clip-processing-view';
-import { ProcessingAnalysisResults } from '@/features/wireframes/processing-analysis-results';
+import { ProcessingStageResults } from '@/features/wireframes/processing-analysis-results';
+import { ProcessingFinalAnalysisResults } from '@/features/wireframes/processing-final-analysis-results';
 import { ProcessingPipeline } from '@/features/wireframes/processing-pipeline';
 import {
   ProcessingRefreshStatus,
@@ -56,6 +58,15 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
   const title = displayClipTitle(clip?.title ?? null);
   const run = clip?.latest_run;
   const processing = data?.processing_details;
+  const [stageSelection, setStageSelection] = useState<{ runId: string; name: string } | null>(
+    null,
+  );
+  const runId = run?.pipeline_run_id ?? null;
+  const activeStageName =
+    stageSelection?.runId === runId
+      ? stageSelection.name
+      : defaultProcessingStage(processing?.stages ?? []);
+  const activeStage = processing?.stages.find((stage) => stage.name === activeStageName);
   const registrationWindow = !run && clip ? `${clipId}:${clip.created_at}` : null;
   const registrationDeadline = !run && clip ? Date.parse(clip.created_at) + 60_000 : null;
   const [expiredRegistrationWindow, setExpiredRegistrationWindow] = useState<string | null>(null);
@@ -228,7 +239,22 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                   {processingRecordLabel(processing.record_status)}
                 </p>
               )}
-            <ProcessingPipeline stages={processing?.stages ?? []} />
+            <ProcessingPipeline
+              activeName={activeStageName}
+              onActiveNameChange={(name) => {
+                if (runId) setStageSelection({ runId, name });
+              }}
+              stages={processing?.stages ?? []}
+            />
+            <ProcessingStageResults
+              key={`${clipId}:${runId ?? 'no-run'}`}
+              clipId={clipId}
+              isProcessing={run?.status === 'queued' || run?.status === 'running'}
+              onSeek={seekToScene}
+              pipelineRunId={runId}
+              stage={activeStage}
+              stageName={activeStageName}
+            />
             <dl className={styles.facts}>
               <div>
                 <dt>실패·중단 단계</dt>
@@ -252,13 +278,13 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
               </div>
             </dl>
           </section>
-          <ProcessingAnalysisResults
-            key={`${clipId}:${run?.pipeline_run_id ?? 'no-run'}`}
+          <ProcessingFinalAnalysisResults
+            key={`${clipId}:${runId ?? 'no-run'}:final`}
             className={`${styles.panel} ${styles.detailSection}`}
             clipId={clipId}
             isProcessing={run?.status === 'queued' || run?.status === 'running'}
             onSeek={seekToScene}
-            pipelineRunId={run?.pipeline_run_id ?? null}
+            pipelineRunId={runId}
           />
         </>
       )}

@@ -43,3 +43,9 @@ export function tagVerificationLabel(verification: ClipAnalysisTagVerification) 
       ? '근거 확인'
       : '자동 분석';
 }
+
+export function sceneSwipeDirection(startX: number, endX: number) {
+  const distance = endX - startX;
+  if (Math.abs(distance) < 48) return null;
+  return distance < 0 ? ('next' as const) : ('previous' as const);
+}

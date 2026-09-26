@@ -15,6 +15,7 @@ registerHooks({
 
 const {
   formatSceneInterval,
+  sceneSwipeDirection,
   tagScopeLabel,
   tagTypeLabel,
   tagVerificationLabel,
@@ -37,4 +38,10 @@ test('대사 출처와 태그 판정은 사용자가 이해할 수 있는 말로
   assert.equal(tagVerificationLabel('reviewer_verified'), '검수 확인');
   assert.equal(tagVerificationLabel('verified'), '근거 확인');
   assert.equal(tagVerificationLabel('unverified'), '자동 분석');
+});
+
+test('충분한 가로 스와이프만 장면 이동으로 해석한다', () => {
+  assert.equal(sceneSwipeDirection(180, 80), 'next');
+  assert.equal(sceneSwipeDirection(80, 180), 'previous');
+  assert.equal(sceneSwipeDirection(100, 70), null);
 });

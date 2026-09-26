@@ -12,8 +12,15 @@ registerHooks({
     );
   },
 });
-const { CLIP_FILTERS, clipFilterCounts, clipFilterStatuses, selectClipFilter, clipFilterUpdates } =
-  await import('./clip-processing-view.ts');
+const {
+  CLIP_FILTERS,
+  clipFilterCounts,
+  clipFilterStatuses,
+  defaultProcessingStage,
+  processingStageResultTitle,
+  selectClipFilter,
+  clipFilterUpdates,
+} = await import('./clip-processing-view.ts');
 
 const runCounts = { queued: 2, running: 1, failed: 3, succeeded: 8, no_run: 4 };
 
@@ -59,4 +66,28 @@ test('칩 키는 문의 화면의 status 와 겹치지 않는다', () => {
   for (const inquiryToken of ['open', 'reviewing', 'closed']) {
     assert.equal(selectClipFilter(inquiryToken), 'all');
   }
+});
+
+test('파이프라인은 실패, 진행 중, 첫 단계 순으로 기본 선택한다', () => {
+  const stages = [
+    { name: 'scene_detection', status: 'succeeded' },
+    { name: 'frame_extraction', status: 'running' },
+    { name: 'ocr', status: 'failed' },
+  ];
+  assert.equal(defaultProcessingStage(stages), 'ocr');
+  assert.equal(defaultProcessingStage(stages.slice(0, 2)), 'frame_extraction');
+  assert.equal(defaultProcessingStage([]), 'scene_detection');
+});
+
+test('성공한 파이프라인 단계는 해당 산출물 이름으로 연결한다', () => {
+  assert.equal(processingStageResultTitle('scene_detection'), '나눈 장면');
+  assert.equal(processingStageResultTitle('frame_extraction'), '추출한 대표 화면');
+  assert.equal(processingStageResultTitle('ocr'), '읽어낸 화면 글자');
+  assert.equal(processingStageResultTitle('transcript_selection'), '선택한 대사 출처');
+  assert.equal(processingStageResultTitle('asr'), '음성 인식 결과');
+  assert.equal(processingStageResultTitle('scene_transcript_mapping'), '연결한 장면 대사');
+  assert.equal(processingStageResultTitle('vlm_metadata'), '생성한 영상 설명');
+  assert.equal(processingStageResultTitle('entity_extraction'), '추출한 검색 태그');
+  assert.equal(processingStageResultTitle('text_embedding'), '검색 표현 생성 결과');
+  assert.equal(processingStageResultTitle('indexing'), '검색 반영 결과');
 });

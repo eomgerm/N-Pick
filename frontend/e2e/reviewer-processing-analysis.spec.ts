@@ -14,6 +14,18 @@ const PIPELINE_STAGES = [
   'text_embedding',
   'indexing',
 ] as const;
+const STAGE_RESULT_TITLES = [
+  '나눈 장면',
+  '추출한 대표 화면',
+  '읽어낸 화면 글자',
+  '선택한 대사 출처',
+  '음성 인식 결과',
+  '연결한 장면 대사',
+  '생성한 영상 설명',
+  '추출한 검색 태그',
+  '검색 표현 생성 결과',
+  '검색 반영 결과',
+] as const;
 
 async function success(route: Route, data: unknown) {
   await route.fulfill({ json: { isSuccess: true, code: 'COMM_200', message: '성공', data } });
@@ -184,27 +196,28 @@ for (const width of [1440, 390]) {
       }),
     ).toBeVisible();
     await expect(page.getByRole('tablist', { name: '영상 처리 파이프라인 10단계' })).toBeVisible();
-    const result = page.getByRole('region', { name: '분석 결과', exact: true });
-    await expect(result).toBeVisible();
+    const stageResult = page.getByRole('region', { name: '단계별 처리 결과', exact: true });
+    const finalResult = page.getByRole('region', { name: '최종 분석 결과', exact: true });
+    await expect(stageResult).toBeVisible();
+    await expect(finalResult).toBeVisible();
     await expect(page.getByRole('region', { name: '대사 처리 기록', exact: true })).toHaveCount(0);
-    await expect(result).toContainText('총 2개 장면');
-    await expect(result).toContainText('캡션 1/2');
-    await expect(result).toContainText('대사 1/2');
-    await expect(result).toContainText('태그 1/2');
-    await expect(result).toContainText(
+    await expect(stageResult.getByRole('article')).toHaveCount(1);
+    await expect(stageResult.getByRole('heading', { name: '나눈 장면' })).toBeVisible();
+    await expect(finalResult.getByRole('heading', { name: '최종 분석 결과' })).toBeVisible();
+    await expect(finalResult.getByRole('article')).toHaveCount(1);
+    await expect(finalResult).toContainText('장면 1 / 2');
+    await expect(finalResult).toContainText(
       '서울역 앞 도로를 가득 채운 차량 사이로 취재 기자가 현재 교통 상황을 설명하고 있다.',
     );
-    await expect(result).toContainText('현재 서울역 주변 교통 상황입니다.');
-    await expect(result).toContainText('제공 자막');
-    await expect(result).toContainText('서울역');
-    await expect(result).toContainText('추석 귀성길');
-    await expect(result).toContainText('1번 출구');
-    await expect(result).toContainText('생성된 캡션이 없습니다.');
-    await result.getByRole('heading', { name: '장면 01' }).scrollIntoViewIfNeeded();
-    await expect(result.locator('[data-thumbnail-state="ready"]')).toHaveCount(1);
-    expect(await result.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
-      true,
-    );
+    await expect(finalResult).toContainText('현재 서울역 주변 교통 상황입니다.');
+    await expect(finalResult).toContainText('서울역');
+    await expect(finalResult).toContainText('1번 출구');
+    await expect(finalResult).not.toContainText('생성된 영상 설명이 없습니다.');
+    await finalResult.scrollIntoViewIfNeeded();
+    await expect(finalResult.locator('[data-thumbnail-state="ready"]')).toHaveCount(1);
+    expect(
+      await finalResult.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
@@ -213,21 +226,38 @@ for (const width of [1440, 390]) {
       path: testInfo.outputPath(`processing-analysis-${width}.png`),
       fullPage: true,
     });
-    if (width === 1440) {
-      const stages = page.getByRole('region', { name: '최신 처리 단계', exact: true });
-      const tabs = stages.getByRole('tablist').getByRole('tab');
-      for (let index = 0; index < PIPELINE_STAGES.length; index++) {
-        await tabs.nth(index).click();
-        await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
-        await stages.screenshot({
-          path: testInfo.outputPath(`processing-stage-${String(index + 1).padStart(2, '0')}.png`),
+    const stages = page.getByRole('region', { name: '최신 처리 단계', exact: true });
+    const tabs = stages.getByRole('tablist').getByRole('tab');
+    for (let index = 0; index < PIPELINE_STAGES.length; index++) {
+      await tabs.nth(index).click();
+      await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
+      await expect(
+        stageResult.getByRole('heading', { name: STAGE_RESULT_TITLES[index] }),
+      ).toBeVisible();
+      await expect(stageResult.getByRole('article')).toHaveCount(1);
+      if (width === 1440) {
+        await stageResult.screenshot({
+          path: testInfo.outputPath(
+            `processing-result-stage-${String(index + 1).padStart(2, '0')}.png`,
+          ),
         });
       }
     }
 
+    await expect(finalResult.getByRole('button', { name: '이전 장면' })).toBeDisabled();
+    await finalResult.getByRole('button', { name: '다음 장면' }).click();
+    await expect(finalResult).toContainText('장면 2 / 2');
+    await expect(finalResult.getByRole('article')).toHaveCount(1);
+    await expect(finalResult).not.toContainText('현재 서울역 주변 교통 상황입니다.');
+    await finalResult.getByRole('button', { name: '이전 장면' }).click();
+    await expect(finalResult).toContainText('장면 1 / 2');
+
+    await tabs.nth(1).click();
+    await expect(stageResult.locator('[data-thumbnail-state="ready"]')).toHaveCount(1);
+
     const video = page.locator('video');
     const originalVideo = await video.elementHandle();
-    await result.getByRole('button', { name: '장면 1 영상에서 보기' }).click();
+    await finalResult.getByRole('button', { name: '장면 1 영상에서 보기' }).click();
     await expect
       .poll(() => video.evaluate((element) => element.currentTime))
       .toBeGreaterThanOrEqual(1);

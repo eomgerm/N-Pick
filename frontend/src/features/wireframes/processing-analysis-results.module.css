@@ -1,5 +1,13 @@
 .root {
   min-width: 0;
+  margin-top: 20px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+.finalRoot {
+  min-width: 0;
 }
 .heading {
   display: flex;
@@ -8,12 +16,12 @@
   gap: 16px;
 }
 .heading h2 {
-  margin-bottom: 4px;
+  margin: 3px 0 0;
 }
-.heading p {
-  margin: 0;
+.eyebrow {
   color: var(--muted);
-  font-size: 14px;
+  font-size: 12px;
+  font-weight: 700;
 }
 .unpublished {
   flex: none;
@@ -24,23 +32,15 @@
   font-size: 12px;
   font-weight: 700;
 }
-.notice {
-  margin: 22px 0 0;
-  padding: 13px 16px;
-  border-left: 3px solid #8b663a;
-  background: #f8efe3;
-  color: #684820;
-  font-size: 14px;
-}
 .summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 24px 0 0;
+  margin: 22px 0 0;
   border-block: 1px solid var(--line);
 }
 .summary > div {
   min-width: 0;
-  padding: 18px 20px;
+  padding: 15px 18px;
 }
 .summary > div + div {
   border-left: 1px solid var(--line);
@@ -54,15 +54,46 @@
   font-size: 16px;
   font-weight: 700;
 }
-.scenes {
-  display: grid;
-  gap: 18px;
-  margin: 24px 0 0;
-  padding: 0;
-  list-style: none;
+.sceneNavigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 22px;
 }
-.scenes[aria-busy='true'] {
-  opacity: 0.65;
+.sceneNavigation p {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 750;
+}
+.sceneNavigation p span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sceneNavigation > div {
+  display: flex;
+  gap: 8px;
+}
+.sceneNavigation button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #c9d8e5;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--accent-strong);
+}
+.sceneNavigation button:disabled {
+  opacity: 0.35;
+}
+.sceneNavigation svg {
+  width: 19px;
+  height: 19px;
 }
 .scene {
   display: grid;
@@ -72,6 +103,12 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgb(255 255 255 / 80%);
+  margin-top: 12px;
+  touch-action: pan-y;
+}
+.scene:focus-visible {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 3px;
 }
 .frame {
   position: relative;
@@ -106,16 +143,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 16px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
 .sceneHeading h3 {
   font-size: 17px;
-}
-.sceneHeading p {
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 13px;
 }
 .seekButton,
 .error button {
@@ -143,7 +175,7 @@
 }
 .seekButton:focus-visible,
 .error button:focus-visible,
-.pagination button:focus-visible {
+.sceneNavigation button:focus-visible {
   outline: 3px solid var(--accent-strong);
   outline-offset: 2px;
 }
@@ -164,20 +196,21 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.blockHeading {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.blockHeading span {
-  margin-bottom: 6px;
+.source {
+  display: inline-block;
+  margin-bottom: 7px;
   padding: 3px 7px;
   border-radius: 5px;
   background: #e4edf7;
   color: #36597c;
   font-size: 11px;
   font-weight: 700;
+}
+.outputValue {
+  display: block;
+  margin-bottom: 7px;
+  color: #36597c;
+  font-size: 15px;
 }
 .tags {
   display: flex;
@@ -229,20 +262,28 @@
 .error button {
   margin-top: 12px;
 }
-.pagination {
-  display: flex;
-  justify-content: center;
-  margin-top: 24px;
+.stageRecord {
+  margin-top: 22px;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--surface-muted);
 }
-.pagination button {
-  min-width: 38px;
-  min-height: 38px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text);
+.stageRecord > * {
+  margin: 0;
+}
+.stageRecord > * + * {
+  margin-top: 7px;
+}
+.swipeHint {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
 }
 @media (max-width: 760px) {
+  .root {
+    padding: 18px 14px;
+  }
   .heading {
     align-items: stretch;
     flex-direction: column;
@@ -275,9 +316,12 @@
   .seekButton {
     width: 100%;
   }
-}
-@media (prefers-reduced-motion: reduce) {
-  .scenes {
-    scroll-behavior: auto;
+  .sceneNavigation {
+    align-items: flex-end;
+  }
+  .sceneNavigation p {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
 }
