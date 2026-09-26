@@ -232,6 +232,8 @@ test('내 영상만 보기는 mine 을 싣고 끄면 파라미터를 지운다',
 
 test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어 URL을 사용한다', async ({ page }) => {
   let reads = 0;
+  let completionReleased = false;
+  let settledAnalysisReads = 0;
   let completeRead: (() => void) | undefined;
   const responseReady = new Promise<void>((resolve) => {
     completeRead = resolve;
@@ -242,6 +244,26 @@ test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어
     reads++;
     if (reads === 2) await responseReady;
     return success(route, detail('21', reads === 1 ? 'running' : 'succeeded'));
+  });
+  await page.route('**/api/v1/clips/21/runs/32/scenes?*', (route) => {
+    if (completionReleased) settledAnalysisReads++;
+    return success(route, {
+      clip_id: '21',
+      pipeline_run_id: '32',
+      search_applied: false,
+      summary: {
+        total_scenes: 0,
+        captioned_scenes: 0,
+        transcript_scenes: 0,
+        tagged_scenes: 0,
+      },
+      items: [],
+      page: 0,
+      size: 20,
+      total_elements: 0,
+      total_pages: 0,
+      has_next: false,
+    });
   });
   await page.goto('/review?view=processing&clip=21');
   const region = page.getByRole('region', { name: '영상 처리 상세', exact: true });
@@ -269,8 +291,10 @@ test('상세는 실행 중 polling하고 완료되면 멈추며 실제 미디어
       .locator('svg')
       .evaluate((element) => getComputedStyle(element).animationName),
   ).toBe('none');
+  completionReleased = true;
   completeRead!();
   await expect(region).toContainText('처리 완료');
+  await expect.poll(() => settledAnalysisReads).toBeGreaterThan(0);
   await expect(refreshStatus).toContainText('자동 확인이 종료되었습니다.');
   await expect(refreshStatus.locator('time')).not.toHaveAttribute('datetime', checkedAt!);
   await expect(firstStage).toBeFocused();

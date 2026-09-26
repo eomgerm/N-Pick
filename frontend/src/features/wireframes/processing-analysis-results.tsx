@@ -121,7 +121,7 @@ export function ProcessingAnalysisResults({
 }: ProcessingAnalysisResultsProps) {
   const [page, setPage] = useState(0);
   const analysis = useQuery({
-    queryKey: ['clip-analysis-scenes', clipId, pipelineRunId, page],
+    queryKey: ['clip-analysis-scenes', clipId, pipelineRunId, page, isProcessing],
     queryFn: ({ signal }) => getClipAnalysisScenes(clipId, pipelineRunId!, page, PAGE_SIZE, signal),
     enabled: pipelineRunId !== null,
     placeholderData: (previous) => previous,
