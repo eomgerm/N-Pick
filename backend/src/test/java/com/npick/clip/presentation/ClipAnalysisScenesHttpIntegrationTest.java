@@ -85,6 +85,9 @@ class ClipAnalysisScenesHttpIntegrationTest {
         jdbc.update("UPDATE npick.clip SET active_pipeline_run_id=7620 WHERE clip_id=7610");
         scene(7632, 7610, 7620, 4_000, 8_000, null, null, null);
         scene(7631, 7610, 7620, 0, 4_000, "서울역 앞 도로", "현재 교통 상황입니다.", "provided");
+        jdbc.update(
+                "UPDATE npick.scene SET embedding=CAST(? AS public.vector) WHERE scene_id=7631",
+                "[" + "0,".repeat(1023) + "0]");
         jdbc.update("INSERT INTO npick.keyframe VALUES (7652, 7631, 2500, 'private/later.jpg')");
         jdbc.update("INSERT INTO npick.keyframe VALUES (7651, 7631, 1800, 'private/representative.jpg')");
         jdbc.update("INSERT INTO npick.ocr_observation VALUES (7661, 7651, '서울역', '서울역', 0.9, '{}')");
@@ -113,6 +116,7 @@ class ClipAnalysisScenesHttpIntegrationTest {
                 .andExpect(jsonPath("$.data.summary.captioned_scenes").value(1))
                 .andExpect(jsonPath("$.data.summary.transcript_scenes").value(1))
                 .andExpect(jsonPath("$.data.summary.tagged_scenes").value(1))
+                .andExpect(jsonPath("$.data.summary.embedded_scenes").value(1))
                 .andExpect(jsonPath("$.data.items[0].scene_id").value("7631"))
                 .andExpect(jsonPath("$.data.items[0].scene_index").value(1))
                 .andExpect(jsonPath("$.data.items[0].representative_frame_timestamp_ms")
@@ -126,6 +130,7 @@ class ClipAnalysisScenesHttpIntegrationTest {
                 .andExpect(jsonPath("$.data.items[0].tags[0].verification").value("unverified"))
                 .andExpect(jsonPath("$.data.items[0].ocr_texts[0]").value("서울역"))
                 .andExpect(jsonPath("$.data.items[0].ocr_texts[1]").value("출구"))
+                .andExpect(jsonPath("$.data.items[0].embedding_ready").value(true))
                 .andExpect(jsonPath("$.data.page").value(0))
                 .andExpect(jsonPath("$.data.total_elements").value(2))
                 .andExpect(jsonPath("$.data.total_pages").value(2))
@@ -140,7 +145,8 @@ class ClipAnalysisScenesHttpIntegrationTest {
                 .andExpect(jsonPath("$.data.items[0].representative_frame_timestamp_ms")
                         .value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.items[0].tags").isEmpty())
-                .andExpect(jsonPath("$.data.items[0].ocr_texts").isEmpty());
+                .andExpect(jsonPath("$.data.items[0].ocr_texts").isEmpty())
+                .andExpect(jsonPath("$.data.items[0].embedding_ready").value(false));
     }
 
     @Test

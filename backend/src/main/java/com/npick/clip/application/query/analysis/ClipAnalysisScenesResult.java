@@ -20,7 +20,8 @@ public record ClipAnalysisScenesResult(
         return (long) (page + 1) * size < totalElements;
     }
 
-    public record Summary(long totalScenes, long captionedScenes, long transcriptScenes, long taggedScenes) {}
+    public record Summary(
+            long totalScenes, long captionedScenes, long transcriptScenes, long taggedScenes, long embeddedScenes) {}
 
     public record Scene(
             long sceneId,
@@ -32,6 +33,7 @@ public record ClipAnalysisScenesResult(
             String shotType,
             Transcript transcript,
             List<Tag> tags,
+            boolean embeddingReady,
             List<String> ocrTexts) {}
 
     public record Transcript(String text, String source) {}

@@ -38,13 +38,15 @@ public record ClipAnalysisScenesResponse(
             @JsonProperty("total_scenes") long totalScenes,
             @JsonProperty("captioned_scenes") long captionedScenes,
             @JsonProperty("transcript_scenes") long transcriptScenes,
-            @JsonProperty("tagged_scenes") long taggedScenes) {
+            @JsonProperty("tagged_scenes") long taggedScenes,
+            @JsonProperty("embedded_scenes") long embeddedScenes) {
         static SummaryResponse from(ClipAnalysisScenesResult.Summary summary) {
             return new SummaryResponse(
                     summary.totalScenes(),
                     summary.captionedScenes(),
                     summary.transcriptScenes(),
-                    summary.taggedScenes());
+                    summary.taggedScenes(),
+                    summary.embeddedScenes());
         }
     }
 
@@ -61,6 +63,7 @@ public record ClipAnalysisScenesResponse(
             @JsonProperty("shot_type") String shotType,
             TranscriptResponse transcript,
             List<TagResponse> tags,
+            @JsonProperty("embedding_ready") boolean embeddingReady,
             @JsonProperty("ocr_texts") List<String> ocrTexts) {
         static SceneResponse from(ClipAnalysisScenesResult.Scene scene) {
             return new SceneResponse(
@@ -73,6 +76,7 @@ public record ClipAnalysisScenesResponse(
                     scene.shotType(),
                     TranscriptResponse.from(scene.transcript()),
                     scene.tags().stream().map(TagResponse::from).toList(),
+                    scene.embeddingReady(),
                     scene.ocrTexts());
         }
     }

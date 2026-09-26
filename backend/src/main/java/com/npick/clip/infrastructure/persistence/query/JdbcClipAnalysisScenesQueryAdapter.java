@@ -38,13 +38,17 @@ public class JdbcClipAnalysisScenesQueryAdapter implements ClipAnalysisScenesQue
                 """
                 SELECT scene_id,
                        NULLIF(BTRIM(caption), '') IS NOT NULL AS captioned,
-                       NULLIF(BTRIM(transcript_text), '') IS NOT NULL AS transcripted
+                       NULLIF(BTRIM(transcript_text), '') IS NOT NULL AS transcripted,
+                       embedding IS NOT NULL AS embedded
                 FROM npick.scene
                 WHERE clip_id = ? AND pipeline_run_id = ?
                 ORDER BY start_time_ms, scene_id
                 """,
                 (row, rowNumber) -> new SceneCoverage(
-                        row.getLong("scene_id"), row.getBoolean("captioned"), row.getBoolean("transcripted")),
+                        row.getLong("scene_id"),
+                        row.getBoolean("captioned"),
+                        row.getBoolean("transcripted"),
+                        row.getBoolean("embedded")),
                 clipId,
                 pipelineRunId);
     }
@@ -69,6 +73,7 @@ public class JdbcClipAnalysisScenesQueryAdapter implements ClipAnalysisScenesQue
                        s.shot_type,
                        NULLIF(BTRIM(s.transcript_text), '') AS transcript_text,
                        s.transcript_source,
+                       s.embedding IS NOT NULL AS embedding_ready,
                        ARRAY(
                            SELECT observed.raw_text
                            FROM (
@@ -96,6 +101,7 @@ public class JdbcClipAnalysisScenesQueryAdapter implements ClipAnalysisScenesQue
                         row.getString("shot_type"),
                         row.getString("transcript_text"),
                         row.getString("transcript_source"),
+                        row.getBoolean("embedding_ready"),
                         strings(row.getArray("ocr_texts"))),
                 clipId,
                 pipelineRunId,

@@ -138,7 +138,7 @@ class ClipQuerySecurityTest {
                         10,
                         20,
                         false,
-                        new com.npick.clip.application.query.analysis.ClipAnalysisScenesResult.Summary(0, 0, 0, 0),
+                        new com.npick.clip.application.query.analysis.ClipAnalysisScenesResult.Summary(0, 0, 0, 0, 0),
                         List.of(),
                         0,
                         20,

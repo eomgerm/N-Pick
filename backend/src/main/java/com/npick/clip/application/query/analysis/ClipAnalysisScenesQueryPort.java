@@ -13,7 +13,7 @@ public interface ClipAnalysisScenesQueryPort {
 
     record RunScope(boolean searchApplied) {}
 
-    record SceneCoverage(long sceneId, boolean captioned, boolean transcripted) {}
+    record SceneCoverage(long sceneId, boolean captioned, boolean transcripted, boolean embedded) {}
 
     record SceneRow(
             long sceneId,
@@ -25,5 +25,6 @@ public interface ClipAnalysisScenesQueryPort {
             String shotType,
             String transcriptText,
             String transcriptSource,
+            boolean embeddingReady,
             List<String> ocrTexts) {}
 }

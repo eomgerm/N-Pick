@@ -50,6 +50,7 @@ public class ClipAnalysisScenesQueryService implements GetClipAnalysisScenesUseC
                         resolvedTags.getOrDefault(row.sceneId(), List.of()).stream()
                                 .map(ClipAnalysisScenesQueryService::tag)
                                 .toList(),
+                        row.embeddingReady(),
                         row.ocrTexts()))
                 .toList();
         return new ClipAnalysisScenesResult(
@@ -68,6 +69,9 @@ public class ClipAnalysisScenesQueryService implements GetClipAnalysisScenesUseC
                                 .filter(sceneId -> !resolvedTags
                                         .getOrDefault(sceneId, List.of())
                                         .isEmpty())
+                                .count(),
+                        coverage.stream()
+                                .filter(ClipAnalysisScenesQueryPort.SceneCoverage::embedded)
                                 .count()),
                 items,
                 page,
