@@ -47,10 +47,18 @@ public class StructuredSceneScoringService implements ScoreStructuredScenesUseCa
         // 키워드 조건은 해석 축과 같은 후보 조회 한 번에 합친다 — 조회를 따로 돌리면 N+1 이고 같은 스냅샷을 못 본다 (S15P21A501-321).
         var keyword = keywordConditions.extract(query.searchTokens(), query.expandedPhrases(), settings.keyword());
         var tagIds = new TreeSet<Long>();
-        var candidateConditions = new ArrayList<TagCondition>(calculator.candidateConditions(conditions, settings));
-        candidateConditions.addAll(keyword.all());
+        var directConditions = new ArrayList<TagCondition>(calculator.candidateConditions(conditions, settings));
+        directConditions.addAll(keyword.query());
+        var candidateConditions = new ArrayList<>(directConditions);
+        candidateConditions.addAll(keyword.expanded());
         if (!candidateConditions.isEmpty()) {
-            tagCandidates.find(candidateConditions).forEach(candidate -> tagIds.add(candidate.sceneId()));
+            tagCandidates.find(candidateConditions).stream()
+                    .filter(candidate -> keyword.expandedPhrases().isEmpty()
+                            || candidate.matchedTags().stream()
+                                    .anyMatch(tag -> directConditions.stream()
+                                            .anyMatch(condition -> StructuredScoreCalculator.matches(condition, tag)))
+                            || keyword.admitsExpanded(candidate.matchedTags()))
+                    .forEach(candidate -> tagIds.add(candidate.sceneId()));
         }
         var inputIds = new TreeSet<>(query.candidateSceneIds());
         var allIds = new TreeSet<>(inputIds);

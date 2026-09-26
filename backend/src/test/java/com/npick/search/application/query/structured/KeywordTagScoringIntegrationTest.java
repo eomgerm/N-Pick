@@ -162,6 +162,22 @@ class KeywordTagScoringIntegrationTest {
     }
 
     @Test
+    void expandedPhraseDoesNotAdmitSceneMatchingOnlyOneWord() {
+        jdbc.getJdbcTemplate().execute("""
+                INSERT INTO tag (tag_id,tag_type,match_value,name) VALUES (23,'keyword','전세','전세');
+                INSERT INTO tagging (tagging_id,clip_id,scene_id,tag_id,created_at) VALUES (124,11,35,23,now());
+                INSERT INTO tag_evidence (evidence_id,tagging_id,source,confidence,verification_status,created_at)
+                VALUES (224,124,'vlm',0.7000,'unverified',now());
+                """);
+
+        var result = scoring.score(query(List.of(), List.of(List.of("전세/nng", "사기/nng"))));
+
+        assertThat(result.scenes())
+                .extracting(StructuredScoresResult.SceneScore::sceneId)
+                .containsExactly(33L);
+    }
+
+    @Test
     void pendingReviewerKeywordCandidateCountsOnlyAfterFlip() {
         // 검증 A/B 는 후보를 같은 트랜잭션에서 confirmed=true 로 바꾸고 검색한 뒤 되돌린다 (F-12). 키워드도 그 흐름을 따라야 한다.
         jdbc.getJdbcTemplate().execute("""

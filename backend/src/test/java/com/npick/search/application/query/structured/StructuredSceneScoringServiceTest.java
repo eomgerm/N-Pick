@@ -345,8 +345,9 @@ class StructuredSceneScoringServiceTest {
     void expandedTermsAdmitButNeverScore() {
         // S15P21A501-48: 확장어는 구조화 점수에 쓰지 않는다. 후보 편입만 한다.
         var r = resolution(List.of(), List.of(), List.of(), List.of(), List.of(), List.of("전세사기"));
-        when(candidates.find(any())).thenReturn(List.of(new TagMatchedScene(30, 10, List.of())));
-        arrange(List.of(tag(1, TagType.KEYWORD, "전세사기", EffectiveTag.Verification.UNVERIFIED)));
+        var matched = tag(1, TagType.KEYWORD, "전세사기", EffectiveTag.Verification.UNVERIFIED);
+        when(candidates.find(any())).thenReturn(List.of(new TagMatchedScene(30, 10, List.of(matched))));
+        arrange(List.of(matched));
 
         var scene = service(keywordSettings())
                 .score(new ScoreStructuredScenesQuery(r, List.of(), List.of(), List.of(List.of("전세사기/nng"))))

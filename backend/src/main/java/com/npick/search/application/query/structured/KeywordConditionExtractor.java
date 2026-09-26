@@ -5,10 +5,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.npick.search.domain.model.KeywordTagSettings;
 import com.npick.tag.application.query.TagCondition;
+import com.npick.tag.domain.model.EffectiveTag;
 import com.npick.tag.domain.model.TagMatchValue;
 import com.npick.tag.domain.model.TagType;
 
@@ -34,12 +36,13 @@ final class KeywordConditionExtractor {
     private static final int MAX_JOINED = 3;
 
     /** @param query 질의 명사 조건. 점수 분모다 @param expanded 확장어 명사 조건. 편입 전용 */
-    record Conditions(List<TagCondition> query, List<TagCondition> expanded) {
-        static final Conditions NONE = new Conditions(List.of(), List.of());
+    record Conditions(List<TagCondition> query, List<TagCondition> expanded, List<ExpandedPhrase> expandedPhrases) {
+        static final Conditions NONE = new Conditions(List.of(), List.of(), List.of());
 
         Conditions {
             query = List.copyOf(query);
             expanded = List.copyOf(expanded);
+            expandedPhrases = List.copyOf(expandedPhrases);
         }
 
         boolean isEmpty() {
@@ -48,6 +51,39 @@ final class KeywordConditionExtractor {
 
         List<TagCondition> all() {
             return Stream.concat(query.stream(), expanded.stream()).toList();
+        }
+
+        boolean admitsExpanded(List<EffectiveTag> matchedTags) {
+            return expandedPhrases.stream().anyMatch(phrase -> phrase.matches(matchedTags));
+        }
+    }
+
+    /** 확장어 한 구. 구 안은 최대 3개 인접 명사 태그의 조합으로 끝까지 덮여야 후보가 된다. */
+    record ExpandedPhrase(List<List<String>> nounRuns) {
+        ExpandedPhrase {
+            nounRuns = nounRuns.stream().map(List::copyOf).toList();
+        }
+
+        boolean matches(List<EffectiveTag> tags) {
+            Set<String> values = tags.stream()
+                    .filter(tag -> tag.tagType() == TagType.KEYWORD)
+                    .map(tag -> tag.matchValue().toLowerCase(Locale.ROOT))
+                    .collect(Collectors.toSet());
+            return nounRuns.stream().allMatch(run -> covered(run, values));
+        }
+
+        private static boolean covered(List<String> run, Set<String> values) {
+            boolean[] covered = new boolean[run.size() + 1];
+            covered[0] = true;
+            for (int start = 0; start < run.size(); start++) {
+                if (!covered[start]) continue;
+                for (int width = 1; width <= MAX_JOINED && start + width <= run.size(); width++) {
+                    String value = TagMatchValue.normalize(String.join("", run.subList(start, start + width)))
+                            .toLowerCase(Locale.ROOT);
+                    if (values.contains(value)) covered[start + width] = true;
+                }
+            }
+            return covered[run.size()];
         }
     }
 
@@ -58,8 +94,13 @@ final class KeywordConditionExtractor {
         var queryValues = new LinkedHashMap<String, String>();
         addValues(queryValues, searchTokens, settings);
         var expandedValues = new LinkedHashMap<String, String>();
+        var expandedPhraseGroups = new ArrayList<ExpandedPhrase>();
         for (List<String> phrase : expandedPhrases) {
-            addValues(expandedValues, phrase, settings);
+            var runs = nounRuns(phrase, settings);
+            if (!runs.isEmpty()) {
+                expandedPhraseGroups.add(new ExpandedPhrase(runs));
+                addRunValues(expandedValues, runs, settings);
+            }
         }
         // 상한으로 잘린 질의 명사도 확장어로 되살리지 않는다 — 사용자가 친 말을 확장어 출처로 표시하게 된다.
         expandedValues.keySet().removeAll(queryValues.keySet());
@@ -71,13 +112,17 @@ final class KeywordConditionExtractor {
                 .limit(Math.max(0, settings.conditionCap() - query.size()))
                 .map(value -> TagCondition.exactIgnoreCase(TagType.KEYWORD, value))
                 .toList();
-        return new Conditions(query, expanded);
+        return new Conditions(query, expanded, expandedPhraseGroups);
     }
 
     /** 단독 → 인접 2개 → 인접 3개 순으로 {@code values} 에 더한다. 빈 값과 제외 목록 값은 버린다. 키는 소문자 값이고, 같은 키가 이미 있으면 먼저 본 표기를 남긴다. */
     private static void addValues(
             LinkedHashMap<String, String> values, List<String> tokens, KeywordTagSettings settings) {
-        List<List<String>> runs = nounRuns(tokens, settings);
+        addRunValues(values, nounRuns(tokens, settings), settings);
+    }
+
+    private static void addRunValues(
+            LinkedHashMap<String, String> values, List<List<String>> runs, KeywordTagSettings settings) {
         for (int width = 1; width <= MAX_JOINED; width++) {
             for (List<String> run : runs) {
                 for (int start = 0; start + width <= run.size(); start++) {
