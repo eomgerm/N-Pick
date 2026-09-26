@@ -150,6 +150,34 @@ class TagJudgmentQueryAdapterTest {
     }
 
     @Test
+    @DisplayName("대소문자 무시 조건은 대문자 키워드 태그를 찾고, 정확 조건은 찾지 않는다 (S15P21A501-321)")
+    void ignoreCaseConditionFindsKeywordTagRegardlessOfCase() throws Exception {
+        try (var statement = connection.createStatement()) {
+            statement.execute("INSERT INTO tag VALUES (6101, 'keyword', 'KBS', 'KBS')");
+            statement.execute("INSERT INTO tagging VALUES (6102, 10, 30, 6101, now())");
+            statement.execute("INSERT INTO tag_evidence (evidence_id, tagging_id, source, confidence,"
+                    + " verification_status, source_feedback_id, confirmed, created_at)"
+                    + " VALUES (6103, 6102, 'ocr', 0.9, 'unverified', NULL, true, now())");
+        }
+
+        assertThat(service().find(List.of(TagCondition.exactIgnoreCase(TagType.KEYWORD, "kbs"))))
+                .extracting(TagMatchedScene::sceneId)
+                .containsExactly(30L);
+        assertThat(service().find(List.of(TagCondition.exact(TagType.KEYWORD, "kbs"))))
+                .as("정확 조건은 대소문자를 구분한다")
+                .isEmpty();
+        assertThat(service()
+                        .find(List.of(
+                                TagCondition.exact(TagType.EVENT, "포항지진"),
+                                TagCondition.exactIgnoreCase(TagType.KEYWORD, "kbs"))))
+                .as("두 형태가 한 SQL 의 OR 로 섞인다")
+                .singleElement()
+                .satisfies(scene -> assertThat(scene.matchedTags())
+                        .extracting(EffectiveTag::matchValue)
+                        .containsExactlyInAnyOrder("포항지진", "KBS"));
+    }
+
+    @Test
     @DisplayName("장면 방향 판정이 태그 방향 판정과 같은 결과를 낸다")
     void bothDirectionsAgree() {
         var resolved = service().resolve(List.of(30L, 31L, 32L, 34L));

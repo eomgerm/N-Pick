@@ -16,7 +16,7 @@ import com.npick.search.application.query.structured.StructuredScoresResult;
  *
  * @param lexicalCandidates -51 의 후보. 점수 내림차순이며 그 순서가 곧 lexical 채널의 순위다
  * @param denseCandidates -53 의 결과. dense 채널이 꺼져 있어 실행하지 않았으면 {@code null} 이다. 실행했다가 실패한 것과 구분해야 하므로 빈 결과로 대신하지 않는다
- * @param structuredScores -52 의 결과. 적격 후보 집합과 [0,1] 축 점수를 함께 들고 온다
+ * @param structuredScores -52 의 결과. 적격 후보 집합과 축 점수(키워드 가산점 포함, -321)를 함께 들고 온다
  */
 public record FuseSearchRankingQuery(
         List<SceneCandidateResult> lexicalCandidates,

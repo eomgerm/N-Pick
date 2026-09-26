@@ -116,8 +116,12 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
         List<SceneCandidateResult> lexical = lexical(searchTokens, expandedPhrases);
         DenseCandidatesResult dense = dense(query, degraded);
 
-        StructuredScoresResult structured = structuredScores.score(
-                new ScoreStructuredScenesQuery(query.finalResolution(), candidateSceneIds(lexical, dense)));
+        // 키워드 태그 매칭은 범용어 제외 전 토큰을 쓴다 — 자기 제외 목록이 따로 있다 (S15P21A501-321).
+        StructuredScoresResult structured = structuredScores.score(new ScoreStructuredScenesQuery(
+                query.finalResolution(),
+                candidateSceneIds(lexical, dense),
+                query.normalization().searchTokens(),
+                expandedPhrases));
         FuseSearchRankingQuery fuseQuery = new FuseSearchRankingQuery(lexical, dense, structured);
         FusionResult fused = fusion.fuse(fuseQuery);
 
@@ -135,7 +139,7 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
 
         // 부족 사유는 실제로 내보내는 수로 센다. 제외 뒤 개수로 세면 카드가 없어 빠진 장면이
         // 누락돼 «9개인데 사유 없음» 이 나가고 계약 §5.1 이 깨진다.
-        List<ScoredScene> scenes = scenes(excluded.sceneIds(), ordered, fused, guarded, tags);
+        List<ScoredScene> scenes = scenes(excluded.sceneIds(), ordered, fused, guarded, tags, structured);
         return new SearchCandidates(
                 scenes,
                 fuseQuery,
@@ -185,8 +189,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
     /**
      * 확장어를 <b>구 단위 묶음</b>으로 토큰화한다 (S15P21A501-302).
      *
-     * <p>평탄화하지 않는 것이 핵심이다. 펼쳐 넘기면 어댑터가 원 질의 토큰처럼 토큰마다 OR({@code should}) 로 걸어 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되고, 짜장면 검색에
-     * 중국 경제 뉴스가 올라온다 (운영 실측 19건). 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지르지 않게 하는 것은 종전대로 낮은 가중의 별도 절이 맡는다.
+     * <p>평탄화하지 않는 것이 핵심이다. 펼쳐 넘기면 어댑터가 원 질의 토큰처럼 토큰마다 OR({@code should}) 로 걸어 「중국 음식」이 {@code 중국} OR {@code 음식} 이 되고,
+     * 짜장면 검색에 중국 경제 뉴스가 올라온다 (운영 실측 19건). 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지르지 않게 하는 것은 종전대로 낮은 가중의 별도 절이 맡는다.
      *
      * <p>흔한 토큰을 문서빈도로 걸러내는 것은 이 티켓에서 <b>뺐다.</b> Elasticsearch 가 같은 것({@code cutoff_frequency}·{@code common_terms})을
      * 폐기했고, 그 구현조차 고빈도 토큰을 지운 것이 아니라 {@code must} 에서 {@code should} 로 강등했을 뿐이다. 임계가 문서 증감에 따라 낡는 것이 폐기 사유였고 우리 코퍼스에서 더
@@ -283,13 +287,19 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
             SoftRankingResult ordered,
             FusionResult fused,
             FalseHitGuardResult guarded,
-            Map<Long, List<EffectiveTag>> tags) {
+            Map<Long, List<EffectiveTag>> tags,
+            StructuredScoresResult structured) {
         Map<Long, SoftRankingResult.OrderedCandidate> soft = new LinkedHashMap<>();
         ordered.candidates().forEach(candidate -> soft.put(candidate.sceneId(), candidate));
         Map<Long, FusionResult.ScoredCandidate> scores = new LinkedHashMap<>();
         fused.candidates().forEach(candidate -> scores.put(candidate.sceneId(), candidate));
         Map<Long, FalseHitGuardResult.SceneVerdict> verdicts = new LinkedHashMap<>();
         guarded.verdicts().forEach(verdict -> verdicts.put(verdict.sceneId(), verdict));
+        Map<Long, List<EffectiveTag>> keywordEvidence = new LinkedHashMap<>();
+        structured
+                .scenes()
+                .forEach(scene ->
+                        keywordEvidence.put(scene.sceneId(), scene.keyword().matchedTags()));
 
         Map<Long, SceneCard> cards = sceneCards.find(sceneIds);
         List<ScoredScene> scenes = new ArrayList<>();
@@ -308,7 +318,8 @@ public class SearchCandidatePipeline implements RankSearchCandidatesUseCase {
                     tags.getOrDefault(sceneId, List.of()),
                     scores.get(sceneId),
                     candidate,
-                    verdicts.get(sceneId)));
+                    verdicts.get(sceneId),
+                    keywordEvidence.getOrDefault(sceneId, List.of())));
         }
         return scenes;
     }

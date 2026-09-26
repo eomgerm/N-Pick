@@ -130,9 +130,15 @@ public record SearchConfigSnapshot(
     private Map<String, Object> structuredPayload() {
         var weights = new TreeMap<String, Object>();
         structured.weights().forEach((axis, weight) -> weights.put(axis.name(), weight));
+        var keyword = new LinkedHashMap<String, Object>();
+        keyword.put("weight", structured.keyword().weight());
+        keyword.put("condition_cap", structured.keyword().conditionCap());
+        keyword.put("stoplist", structured.keyword().stoplist());
         var value = new LinkedHashMap<String, Object>();
         value.put("weight_status", structured.weightStatus().name());
         value.put("weights", weights);
+        // S15P21A501-321. 키워드 가산점이 구조화 점수에 더해지므로 그 설정도 버전을 가른다.
+        value.put("keyword", keyword);
         return value;
     }
 }

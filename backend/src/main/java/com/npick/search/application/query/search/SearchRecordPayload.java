@@ -74,6 +74,14 @@ final class SearchRecordPayload {
             value.put("scene_id", Long.toString(scene.sceneId()));
             value.put("score", scene.score());
             value.put("denominator", scene.denominator());
+            // S15P21A501-321: score 에 합쳐진 키워드 가산점과 그 근거 태그. 따로 남겨야 개체 축 점수와 가를 수 있다.
+            value.put("keyword_bonus", scene.keyword().bonus());
+            value.put(
+                    "keyword_tag_ids",
+                    scene.keyword().matchedTags().stream()
+                            .map(tag -> Long.toString(tag.tagId()))
+                            .distinct()
+                            .toList());
             scored.add(value);
         }
         var ineligible = new ArrayList<Map<String, Object>>();

@@ -3,6 +3,7 @@ package com.npick.search.application.query.search;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -296,8 +297,21 @@ final class SearchExplain {
                         FIELD_OCR, ocr.rawText(), "keyframe_ocr", "unverified"));
             }
         }
+        Set<Long> reportedTagIds = new HashSet<>();
         for (EffectiveTag tag : scene.tags()) {
             if (tokens.contains(tag.matchValue())) {
+                reportedTagIds.add(tag.tagId());
+                evidence.add(new SearchExecutionResult.MatchEvidence(
+                        FIELD_TAG,
+                        tag.name(),
+                        tag.source(),
+                        tag.verification().trustedForConflict() ? "verified" : "unverified"));
+            }
+        }
+        // 키워드 태그는 연결형(전세+사기 → 전세사기)과 품사 태그 때문에 토큰 대조로 되짚지 못한다. 구조화 점수가 맞춘 태그를
+        // 그대로 싣는다 (S15P21A501-321). 같은 태그가 장면·클립 범위로 두 번 와도 근거는 하나다.
+        for (EffectiveTag tag : scene.keywordEvidence()) {
+            if (reportedTagIds.add(tag.tagId())) {
                 evidence.add(new SearchExecutionResult.MatchEvidence(
                         FIELD_TAG,
                         tag.name(),
