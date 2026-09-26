@@ -65,6 +65,27 @@ class KeywordConditionExtractorTest {
     }
 
     @Test
+    void stoppedNounDiscardsWholeExpandedPhrase() {
+        var settings = new KeywordTagSettings(0.5, 12, List.of("화면"));
+
+        var result = extractor.extract(List.of(), List.of(List.of("자료/nng", "화면/nng")), settings);
+
+        assertThat(result.isEmpty()).isTrue();
+        assertThat(result.expandedPhrases()).isEmpty();
+    }
+
+    @Test
+    void stoppedExpandedPhraseDoesNotDiscardOtherWholePhrases() {
+        var settings = new KeywordTagSettings(0.5, 12, List.of("화면"));
+
+        var result = extractor.extract(
+                List.of(), List.of(List.of("자료/nng", "화면/nng"), List.of("전세/nng", "사기/nng")), settings);
+
+        assertThat(values(result.expanded())).containsExactly("전세", "사기", "전세사기");
+        assertThat(result.expandedPhrases()).hasSize(1);
+    }
+
+    @Test
     void ignoresUntaggedAndMalformedTokens() {
         // Review Focus 1: 품사 없는 옛 형식(검증 DB 테스트 스텁이 이렇다)과 깨진 토큰은 명사로 치지 않는다. 대문자 품사는 받는다.
         var result = extractor.extract(List.of("원본질의", "/nng", "abc/", "서울역/NNP", "광장/nng"), List.of(), ON);

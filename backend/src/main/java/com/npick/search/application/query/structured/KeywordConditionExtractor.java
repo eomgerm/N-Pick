@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -96,6 +97,12 @@ final class KeywordConditionExtractor {
         var expandedValues = new LinkedHashMap<String, String>();
         var expandedPhraseGroups = new ArrayList<ExpandedPhrase>();
         for (List<String> phrase : expandedPhrases) {
+            // 제외 대상 명사를 빼고 남은 토큰만 쓰면 구 전체 충족 조건이 단일 명사로 약해진다.
+            if (phrase.stream()
+                    .map(KeywordConditionExtractor::nounForm)
+                    .filter(Objects::nonNull)
+                    .map(TagMatchValue::normalize)
+                    .anyMatch(settings::stopped)) continue;
             var runs = nounRuns(phrase, settings);
             if (!runs.isEmpty()) {
                 expandedPhraseGroups.add(new ExpandedPhrase(runs));
