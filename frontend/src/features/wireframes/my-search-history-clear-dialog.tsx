@@ -3,7 +3,7 @@
 import { TriangleAlert } from 'lucide-react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
-import { SceneDialog } from '@/features/wireframes/scene-dialogs';
+import { SceneDialog } from '@/features/wireframes/scene-dialog';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/search-history.module.css';
 

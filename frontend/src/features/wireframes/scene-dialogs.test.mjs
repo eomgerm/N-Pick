@@ -14,6 +14,8 @@ const localFiles = {
   '@/features/wireframes/scene-download': './scene-download.ts',
   '@/features/wireframes/scene-preview-player': './scene-preview-player.tsx',
   '@/features/wireframes/scene-preview-media': './scene-preview-media.ts',
+  '@/features/wireframes/scene-dialog': './scene-dialog.tsx',
+  '@/features/wireframes/inquiry-dialog': './inquiry-dialog.tsx',
   '@/features/wireframes/media-time': './media-time.ts',
   '@/lib/api/client': '../../lib/api/client.ts',
   '@/lib/api/log': '../../lib/api/log.ts',
@@ -32,7 +34,8 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     if (
       specifier === '@/features/wireframes/wireframe.module.css' ||
-      specifier === '@/features/wireframes/shinhan-search.module.css'
+      specifier === '@/features/wireframes/shinhan-search.module.css' ||
+      specifier === '@/features/wireframes/scene-preview-dialog.module.css'
     ) {
       return { url: cssModuleUrl, shortCircuit: true };
     }
@@ -55,8 +58,8 @@ registerHooks({
   },
 });
 
-const { buildInquiryComment, InquiryDialog, ScenePreviewDialog } =
-  await import('./scene-dialogs.tsx');
+const { ScenePreviewDialog } = await import('./scene-dialogs.tsx');
+const { buildInquiryComment, InquiryDialog } = await import('./inquiry-dialog.tsx');
 const { getDemoSearchExecution } = await import('./search-execution-status.ts');
 const { results } = await import('./demo-scenes.ts');
 const sceneDialogsSource = readFileSync(new URL('./scene-dialogs.tsx', import.meta.url), 'utf8');
@@ -203,15 +206,47 @@ test('경로나 비정상 장면 ID를 thumbnail URL로 만들지 않는다', ()
 
 test('정상 Preview는 문의를 허용한다', () => {
   const html = renderPreview();
-  const playerStart = html.indexOf('class="previewPlayer"');
+  const headerMetaRowStart = html.indexOf('class="previewHeaderMetaRow"');
   const inquiryButton = html.indexOf('>이상해요</button>');
-  const sidebarStart = html.indexOf('class="previewSidebar"');
+  const bodyStart = html.indexOf('class="previewModalBody"');
 
   assert.match(html, /data-state="ready"/);
   assert.ok(html.includes('이상해요'));
   assert.ok(!html.includes('문의 불가'));
-  assert.ok(playerStart >= 0 && playerStart < inquiryButton);
-  assert.ok(inquiryButton < sidebarStart);
+  assert.ok(headerMetaRowStart >= 0 && headerMetaRowStart < inquiryButton);
+  assert.ok(inquiryButton < bodyStart);
+});
+
+test('Preview 제목과 원본 클립명은 서로 다른 행에서 툴팁 없이 전체 내용을 제공한다', () => {
+  const title = '한 줄에 담기 어려울 만큼 긴 장면 설명이더라도 상세 화면에서는 전부 읽을 수 있다';
+  const clip = 'KBC_20260214_뉴스9_아주_긴_원본_클립_제목_전체본.mp4';
+  const html = renderPreview({
+    result: { ...results[0], title, clip, searchResultId: '987' },
+  });
+  const header = html.slice(
+    html.indexOf('class="previewModalHeader"'),
+    html.indexOf('class="previewModalBody"'),
+  );
+
+  assert.match(
+    header,
+    new RegExp(`<h2 id="preview-title">${title}</h2><p class="previewClipName">${clip}</p>`),
+  );
+  assert.ok(!header.includes(`title="${clip}"`));
+  assert.ok(header.includes('00:42 – 00:49'));
+  assert.ok(header.includes('7초'));
+});
+
+test('Preview는 검색 근거를 장면 정보보다 먼저 보여주고 이상 신고 아이콘을 명확히 구분한다', () => {
+  const readyHtml = renderPreview();
+  const unavailableHtml = renderPreview({
+    result: { ...results[0], searchResultId: null },
+  });
+
+  assert.ok(readyHtml.indexOf('검색 근거') < readyHtml.indexOf('장면 정보'));
+  assert.ok(readyHtml.includes('lucide-triangle-alert'));
+  assert.ok(!readyHtml.includes('lucide-flag'));
+  assert.ok(unavailableHtml.includes('lucide-circle-slash'));
 });
 
 test('Preview는 샷 유형만 표시하고 장면 유형은 표시하지 않는다', () => {

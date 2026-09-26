@@ -10,11 +10,8 @@ import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import { PageNumbers } from '@/features/wireframes/list-pagination-controls';
 import { getMyInquiries, getMyInquiry, myInquiryKeys } from '@/features/wireframes/my-inquiry-api';
 import { resolveInquiryResultTitle } from '@/features/wireframes/my-inquiry-view';
-import {
-  InquiryDialog,
-  SceneDialog,
-  type InquiryDetails,
-} from '@/features/wireframes/scene-dialogs';
+import { InquiryDialog, type InquiryDetails } from '@/features/wireframes/inquiry-dialog';
+import { SceneDialog } from '@/features/wireframes/scene-dialog';
 import { formatMediaTime } from '@/features/wireframes/scene-preview-media';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/search-history.module.css';

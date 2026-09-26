@@ -1,0 +1,32 @@
+.previewClipName {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.previewHeaderMetaRow {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.previewSceneMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.previewHeaderMetaRow .previewSceneMeta {
+  margin: 0;
+}
+
+.previewSceneMeta span + span::before {
+  margin-right: 14px;
+  color: var(--line);
+  content: '|';
+}
