@@ -2,6 +2,18 @@ import { expect, test, type Route } from '@playwright/test';
 import path from 'node:path';
 
 const CLIP_TITLE = '추석 귀성길, 서울역과 주요 고속도로 현장을 연결한 오늘의 교통 상황 종합 보도';
+const PIPELINE_STAGES = [
+  'scene_detection',
+  'frame_extraction',
+  'ocr',
+  'transcript_selection',
+  'asr',
+  'scene_transcript_mapping',
+  'vlm_metadata',
+  'entity_extraction',
+  'text_embedding',
+  'indexing',
+] as const;
 
 async function success(route: Route, data: unknown) {
   await route.fulfill({ json: { isSuccess: true, code: 'COMM_200', message: '성공', data } });
@@ -46,20 +58,22 @@ function clipDetail() {
       missing_channels: [],
       retryable: null,
       transcript: null,
-      stages: [
-        {
-          name: 'scene_detection',
+      stages: PIPELINE_STAGES.map((name, index) => {
+        const minute = String(index).padStart(2, '0');
+        const nextMinute = String(index + 1).padStart(2, '0');
+        return {
+          name,
           status: 'succeeded',
           attempts: 1,
           max_attempts: 2,
           automatic_retryable: false,
-          started_at: '2026-09-16T01:00:00Z',
-          finished_at: '2026-09-16T01:01:00Z',
+          started_at: `2026-09-16T01:${minute}:00Z`,
+          finished_at: `2026-09-16T01:${nextMinute}:00Z`,
           error_code: null,
           reason_code: null,
           failed_attempts: [],
-        },
-      ],
+        };
+      }),
     },
   };
 }
@@ -199,6 +213,17 @@ for (const width of [1440, 390]) {
       path: testInfo.outputPath(`processing-analysis-${width}.png`),
       fullPage: true,
     });
+    if (width === 1440) {
+      const stages = page.getByRole('region', { name: '최신 처리 단계', exact: true });
+      const tabs = stages.getByRole('tablist').getByRole('tab');
+      for (let index = 0; index < PIPELINE_STAGES.length; index++) {
+        await tabs.nth(index).click();
+        await expect(tabs.nth(index)).toHaveAttribute('aria-selected', 'true');
+        await stages.screenshot({
+          path: testInfo.outputPath(`processing-stage-${String(index + 1).padStart(2, '0')}.png`),
+        });
+      }
+    }
 
     const video = page.locator('video');
     const originalVideo = await video.elementHandle();
