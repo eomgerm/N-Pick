@@ -102,7 +102,40 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
             ),
             candidates AS MATERIALIZED (
                 SELECT * FROM merged WHERE raw_score > 0
+            ),%s
+            scored AS (
+                SELECT candidates.*, %s AS matched_query_token_count,
+                       (SELECT count(*) FROM query_tokens)::integer AS query_token_count,
+                       max(raw_score) OVER () AS max_raw_score
+                FROM candidates%s
             ),
+            coverage_scored AS (
+                SELECT scored.*,
+                       CASE WHEN query_token_count <= 1 THEN 0.0
+                            WHEN CAST(:coverageWeight AS double precision) = 0 OR matched_query_token_count = 0 THEN 0.0
+                            WHEN CAST(:coverageWeight AS double precision) < 2.2250738585072014e-308::double precision
+                                THEN CASE WHEN (CAST(:coverageWeight AS double precision) / 4.9e-324::double precision)
+                                               * (matched_query_token_count::double precision / query_token_count) <= 0.5
+                                          THEN 0.0
+                                          ELSE CAST(:coverageWeight AS double precision)
+                                               * (matched_query_token_count::double precision / query_token_count) END
+                            ELSE CAST(:coverageWeight AS double precision)
+                                 * (matched_query_token_count::double precision / query_token_count) END AS coverage_bonus
+                FROM scored
+            )
+            SELECT scene_id, clip_id, text_score, ocr_score, raw_score,
+                   matched_query_token_count, query_token_count,
+                   matched_query_token_count::double precision / query_token_count AS coverage_ratio,
+                   coverage_bonus,
+                   raw_score::double precision / nullif(max_raw_score, 0)
+                       + coverage_bonus AS ranking_score
+            FROM coverage_scored
+            ORDER BY ranking_score DESC, raw_score DESC, scene_id ASC
+            LIMIT :poolSize
+            """;
+
+    private static final String COVERAGE_CTES_SQL = """
+
             text_token_hits AS (
                 SELECT s.scene_id, q.token
                 FROM query_tokens q
@@ -138,36 +171,6 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                 ) hits
                 GROUP BY scene_id
             ),
-            scored AS (
-                SELECT candidates.*, coalesce(m.matched_query_token_count, 0) AS matched_query_token_count,
-                       (SELECT count(*) FROM query_tokens)::integer AS query_token_count,
-                       max(raw_score) OVER () AS max_raw_score
-                FROM candidates
-                LEFT JOIN matched_tokens m USING (scene_id)
-            ),
-            coverage_scored AS (
-                SELECT scored.*,
-                       CASE WHEN query_token_count <= 1 THEN 0.0
-                            WHEN CAST(:coverageWeight AS double precision) = 0 OR matched_query_token_count = 0 THEN 0.0
-                            WHEN CAST(:coverageWeight AS double precision) < 2.2250738585072014e-308::double precision
-                                THEN CASE WHEN (CAST(:coverageWeight AS double precision) / 4.9e-324::double precision)
-                                               * (matched_query_token_count::double precision / query_token_count) <= 0.5
-                                          THEN 0.0
-                                          ELSE CAST(:coverageWeight AS double precision)
-                                               * (matched_query_token_count::double precision / query_token_count) END
-                            ELSE CAST(:coverageWeight AS double precision)
-                                 * (matched_query_token_count::double precision / query_token_count) END AS coverage_bonus
-                FROM scored
-            )
-            SELECT scene_id, clip_id, text_score, ocr_score, raw_score,
-                   matched_query_token_count, query_token_count,
-                   matched_query_token_count::double precision / query_token_count AS coverage_ratio,
-                   coverage_bonus,
-                   raw_score::double precision / nullif(max_raw_score, 0)
-                       + coverage_bonus AS ranking_score
-            FROM coverage_scored
-            ORDER BY ranking_score DESC, raw_score DESC, scene_id ASC
-            LIMIT :poolSize
             """;
 
     /**
@@ -212,9 +215,13 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                 .addValue("coverageWeight", properties.coverageWeight())
                 .addValue("poolSize", properties.poolSize());
 
+        boolean coverageEnabled = properties.coverageWeight() > 0;
         return jdbcTemplate.query(
                 FIND_CANDIDATES_SQL.formatted(
-                        expandedClauses(usablePhrases(expandedPhrases), parameters), coverageTextQuery()),
+                        expandedClauses(usablePhrases(expandedPhrases), parameters),
+                        coverageEnabled ? COVERAGE_CTES_SQL.formatted(coverageTextQuery()) : "\n",
+                        coverageEnabled ? "coalesce(m.matched_query_token_count, 0)" : "0",
+                        coverageEnabled ? "\n                LEFT JOIN matched_tokens m USING (scene_id)" : ""),
                 parameters,
                 (row, rowNumber) -> new SceneCandidateResult(
                         row.getLong("scene_id"),
