@@ -1375,11 +1375,6 @@
   padding-top: 8px;
 }
 
-.previewPlayerActions .previewReportButton {
-  min-height: 40px;
-  white-space: nowrap;
-}
-
 .previewPlayer [data-preview-state='error'] > div:first-child {
   width: 100%;
   min-height: 220px;
@@ -2877,14 +2872,18 @@
   }
 
   .previewInquiryTooltip {
-    right: auto;
-    left: 0;
+    right: 0;
+    left: auto;
   }
 
-  .previewHeaderActions .iconButton {
+  .previewHeaderActions {
     position: absolute;
     top: 18px;
     right: 18px;
+  }
+
+  .previewHeaderActions .iconButton {
+    position: static;
   }
 
   .previewSceneTitle {

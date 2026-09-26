@@ -82,6 +82,24 @@ for (const viewport of [
     const dialogReportButton = dialog.getByRole('button', { name: '이상해요' });
     await expect(dialogReportButton).toBeInViewport({ ratio: 1 });
     await expect(dialogReportButton.locator('svg')).toHaveClass(/lucide-triangle-alert/);
-    await page.screenshot({ path: testInfo.outputPath(`preview-${viewport.name}.png`) });
+    const reportBounds = (await dialogReportButton.boundingBox())!;
+    const closeBounds = (await dialog.getByRole('button', { name: 'Preview 닫기' }).boundingBox())!;
+    const sceneMetaBounds = (await dialog
+      .getByText('00:01 – 00:02', { exact: true })
+      .locator('..')
+      .boundingBox())!;
+    const playerBounds = (await dialog.locator('video').boundingBox())!;
+    expect(reportBounds.y + reportBounds.height).toBeLessThan(playerBounds.y);
+    expect(
+      Math.abs(reportBounds.x + reportBounds.width - (closeBounds.x + closeBounds.width)),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(
+        reportBounds.y + reportBounds.height / 2 - (sceneMetaBounds.y + sceneMetaBounds.height / 2),
+      ),
+    ).toBeLessThanOrEqual(1);
+    await page.screenshot({
+      path: testInfo.outputPath(`preview-${viewport.name}-meta-row-aligned.png`),
+    });
   });
 }

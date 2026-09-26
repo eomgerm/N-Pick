@@ -206,15 +206,15 @@ test('경로나 비정상 장면 ID를 thumbnail URL로 만들지 않는다', ()
 
 test('정상 Preview는 문의를 허용한다', () => {
   const html = renderPreview();
-  const playerStart = html.indexOf('class="previewPlayer"');
+  const headerMetaRowStart = html.indexOf('class="previewHeaderMetaRow"');
   const inquiryButton = html.indexOf('>이상해요</button>');
-  const sidebarStart = html.indexOf('class="previewSidebar"');
+  const bodyStart = html.indexOf('class="previewModalBody"');
 
   assert.match(html, /data-state="ready"/);
   assert.ok(html.includes('이상해요'));
   assert.ok(!html.includes('문의 불가'));
-  assert.ok(playerStart >= 0 && playerStart < inquiryButton);
-  assert.ok(inquiryButton < sidebarStart);
+  assert.ok(headerMetaRowStart >= 0 && headerMetaRowStart < inquiryButton);
+  assert.ok(inquiryButton < bodyStart);
 });
 
 test('Preview 제목과 원본 클립명은 서로 다른 행에서 툴팁 없이 전체 내용을 제공한다', () => {

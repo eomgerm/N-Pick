@@ -246,12 +246,6 @@ export function ScenePreviewDialog({
           <span>{contextLabel ?? `구간 영상 정보 · 장면 #${result.id}`}</span>
           <h2 id="preview-title">{result.title}</h2>
           {result.clip ? <p className={previewStyles.previewClipName}>{result.clip}</p> : null}
-          <p className={previewStyles.previewSceneMeta}>
-            <span>
-              {formatMediaTime(result.sceneStart)} – {formatMediaTime(result.sceneEnd)}
-            </span>
-            <span>{result.duration}</span>
-          </p>
           {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
         </div>
         <div className={styles.previewHeaderActions}>
@@ -266,6 +260,66 @@ export function ScenePreviewDialog({
             <X aria-hidden="true" />
           </button>
         </div>
+        <div className={previewStyles.previewHeaderMetaRow}>
+          <p className={previewStyles.previewSceneMeta}>
+            <span>
+              {formatMediaTime(result.sceneStart)} – {formatMediaTime(result.sceneEnd)}
+            </span>
+            <span>{result.duration}</span>
+          </p>
+          {onInquiry ? (
+            <div className={styles.previewInquiryAction}>
+              <button
+                aria-busy={isSubmitting}
+                aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
+                aria-disabled={isInquiryUnavailable || undefined}
+                className={styles.previewReportButton}
+                data-state={
+                  isSubmitted
+                    ? 'submitted'
+                    : isSubmitting
+                      ? 'submitting'
+                      : isInquiryUnavailable
+                        ? 'unavailable'
+                        : 'ready'
+                }
+                disabled={isSubmitted || isSubmitting}
+                onClick={() => {
+                  if (!isInquiryUnavailable) onInquiry();
+                }}
+                type="button"
+              >
+                {isSubmitted ? (
+                  <Check aria-hidden="true" />
+                ) : isSubmitting ? (
+                  <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                ) : isInquiryUnavailable ? (
+                  <CircleSlash aria-hidden="true" />
+                ) : (
+                  <TriangleAlert aria-hidden="true" />
+                )}
+                {isSubmitted
+                  ? '접수됨'
+                  : isSubmitting
+                    ? '접수 중'
+                    : isInquiryUnavailable
+                      ? '문의 불가'
+                      : '이상해요'}
+              </button>
+              {isInquiryUnavailable ? (
+                <span
+                  className={styles.previewInquiryTooltip}
+                  id={inquiryUnavailableReasonId}
+                  role="tooltip"
+                >
+                  {!canCreateInquiry(searchExecution)
+                    ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+                    : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className={styles.previewModalBody}>
@@ -278,100 +332,46 @@ export function ScenePreviewDialog({
             title={result.title}
             autoPlay={autoPlay}
           />
-          {clipDownloadUrl || sceneDownloadUrl || onInquiry ? (
+          {clipDownloadUrl || sceneDownloadUrl ? (
             <div className={styles.previewPlayerActions}>
-              {clipDownloadUrl || sceneDownloadUrl ? (
-                <div
-                  className={styles.previewDownloadActions}
-                  aria-label="영상 다운로드"
-                  role="group"
-                >
-                  {sceneDownloadUrl ? (
-                    <button
-                      aria-busy={isSceneDownloading || undefined}
-                      className={styles.previewDownloadButton}
-                      disabled={isSceneDownloading}
-                      onClick={() => void handleSceneDownload()}
-                      type="button"
-                    >
-                      {isSceneDownloading ? (
-                        <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-                      ) : (
-                        <Download aria-hidden="true" />
-                      )}
-                      {isSceneDownloading ? '장면 준비 중…' : '장면 다운로드'}
-                    </button>
-                  ) : null}
-                  {clipDownloadUrl ? (
-                    <button
-                      aria-busy={isClipDownloadChecking || undefined}
-                      className={styles.previewDownloadButton}
-                      disabled={isClipDownloadChecking}
-                      onClick={() => void handleClipDownload()}
-                      type="button"
-                    >
-                      {isClipDownloadChecking ? (
-                        <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-                      ) : (
-                        <Download aria-hidden="true" />
-                      )}
-                      {isClipDownloadChecking ? '원본 확인 중…' : '원본 클립 다운로드'}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              {onInquiry ? (
-                <div className={styles.previewInquiryAction}>
+              <div
+                className={styles.previewDownloadActions}
+                aria-label="영상 다운로드"
+                role="group"
+              >
+                {sceneDownloadUrl ? (
                   <button
-                    aria-busy={isSubmitting}
-                    aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
-                    aria-disabled={isInquiryUnavailable || undefined}
-                    className={styles.previewReportButton}
-                    data-state={
-                      isSubmitted
-                        ? 'submitted'
-                        : isSubmitting
-                          ? 'submitting'
-                          : isInquiryUnavailable
-                            ? 'unavailable'
-                            : 'ready'
-                    }
-                    disabled={isSubmitted || isSubmitting}
-                    onClick={() => {
-                      if (!isInquiryUnavailable) onInquiry();
-                    }}
+                    aria-busy={isSceneDownloading || undefined}
+                    className={styles.previewDownloadButton}
+                    disabled={isSceneDownloading}
+                    onClick={() => void handleSceneDownload()}
                     type="button"
                   >
-                    {isSubmitted ? (
-                      <Check aria-hidden="true" />
-                    ) : isSubmitting ? (
+                    {isSceneDownloading ? (
                       <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-                    ) : isInquiryUnavailable ? (
-                      <CircleSlash aria-hidden="true" />
                     ) : (
-                      <TriangleAlert aria-hidden="true" />
+                      <Download aria-hidden="true" />
                     )}
-                    {isSubmitted
-                      ? '접수됨'
-                      : isSubmitting
-                        ? '접수 중'
-                        : isInquiryUnavailable
-                          ? '문의 불가'
-                          : '이상해요'}
+                    {isSceneDownloading ? '장면 준비 중…' : '장면 다운로드'}
                   </button>
-                  {isInquiryUnavailable ? (
-                    <span
-                      className={styles.previewInquiryTooltip}
-                      id={inquiryUnavailableReasonId}
-                      role="tooltip"
-                    >
-                      {!canCreateInquiry(searchExecution)
-                        ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
-                        : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
+                ) : null}
+                {clipDownloadUrl ? (
+                  <button
+                    aria-busy={isClipDownloadChecking || undefined}
+                    className={styles.previewDownloadButton}
+                    disabled={isClipDownloadChecking}
+                    onClick={() => void handleClipDownload()}
+                    type="button"
+                  >
+                    {isClipDownloadChecking ? (
+                      <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                    ) : (
+                      <Download aria-hidden="true" />
+                    )}
+                    {isClipDownloadChecking ? '원본 확인 중…' : '원본 클립 다운로드'}
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
           {sceneDownloadError || clipDownloadError ? (
