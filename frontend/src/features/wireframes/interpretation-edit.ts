@@ -130,14 +130,16 @@ export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
   const seen = new Set<string>();
   const edits: ChipEdit[] = [];
   for (const chip of current) {
-    const value = chip.value.trim();
     if (chip.isNew) {
+      const value = chip.value.trim();
       if (value) edits.push({ kind: 'add', axis: chip.axis, value, type: chip.type });
       continue;
     }
     const before = originalById.get(chip.id);
     if (!before) continue;
     seen.add(chip.id);
+    if (chip.axis === before.axis && chip.value === before.value) continue;
+    const value = chip.value.trim();
     if (!value) {
       edits.push({ kind: 'remove', axis: before.axis, value: before.value, type: before.type });
       continue;
