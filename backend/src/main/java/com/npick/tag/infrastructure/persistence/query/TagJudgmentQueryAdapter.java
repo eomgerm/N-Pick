@@ -54,11 +54,11 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             JOIN npick.tag t ON t.tag_id = tg.tag_id
             JOIN npick.scene s ON s.clip_id = tg.clip_id
                 AND (tg.scene_id IS NULL OR tg.scene_id = s.scene_id)
-            JOIN npick.clip c ON c.clip_id = s.clip_id
-                AND c.active_pipeline_run_id = s.pipeline_run_id
-                AND c.deleted_at IS NULL
+            JOIN npick.clip c ON c.clip_id = s.clip_id AND c.deleted_at IS NULL
             JOIN npick.tag_evidence e ON e.tagging_id = tg.tagging_id AND e.confirmed
             WHERE""";
+
+    private static final String ACTIVE_SCENE = "c.active_pipeline_run_id = s.pipeline_run_id AND ";
 
     private static final RowMapper<TagJudgment> ROW_MAPPER = (row, rowNumber) -> new TagJudgment(
             row.getLong("scene_id"),
@@ -96,7 +96,20 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
         // 제한하지 않으므로(FindTagMatchedScenesUseCase) 그 후보가 그대로 넘어오면 상한을 넘길 수 있고,
         // 그러면 태그가 빠지는 것이 아니라 질의가 죽는다. 배열은 파라미터 하나이고 실행 계획도 같다.
         return query(
-                "s.scene_id = ANY(:sceneIds)", new MapSqlParameterSource("sceneIds", sceneIds.toArray(Long[]::new)));
+                ACTIVE_SCENE + "s.scene_id = ANY(:sceneIds)",
+                new MapSqlParameterSource("sceneIds", sceneIds.toArray(Long[]::new)));
+    }
+
+    @Override
+    public List<TagJudgment> findByRunScenes(long clipId, long pipelineRunId, Collection<Long> sceneIds) {
+        Objects.requireNonNull(sceneIds, "sceneIds");
+        if (sceneIds.isEmpty()) return List.of();
+        return query(
+                "c.clip_id = :clipId AND s.pipeline_run_id = :pipelineRunId " + "AND s.scene_id = ANY(:sceneIds)",
+                new MapSqlParameterSource()
+                        .addValue("clipId", clipId)
+                        .addValue("pipelineRunId", pipelineRunId)
+                        .addValue("sceneIds", sceneIds.toArray(Long[]::new)));
     }
 
     @Override
@@ -136,7 +149,7 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             parameters.addValue("from" + index, condition.fromInclusive());
         }
 
-        return query("(" + predicate + ")", parameters);
+        return query(ACTIVE_SCENE + "(" + predicate + ")", parameters);
     }
 
     /**

@@ -22,4 +22,7 @@ public interface ResolveSceneTagsUseCase {
      *     {@link FindTagMatchedScenesUseCase} 방향은 애초에 그런 장면을 후보로 내지 않으므로 이 문제가 없다.
      */
     Map<Long, List<EffectiveTag>> resolve(Collection<Long> sceneIds);
+
+    /** 검색 반영 여부와 무관하게 지정한 클립 처리의 장면들을 같은 판정 규칙으로 해석한다. */
+    Map<Long, List<EffectiveTag>> resolveForRun(long clipId, long pipelineRunId, Collection<Long> sceneIds);
 }

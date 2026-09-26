@@ -187,6 +187,15 @@ class TagJudgmentQueryAdapterTest {
     }
 
     @Test
+    @DisplayName("처리 결과 검수는 비활성 처리도 지정한 clip과 run 범위 안에서 판정한다")
+    void resolvesAnExplicitInactiveRunWithoutMixingOtherRuns() {
+        var resolved = service().resolveForRun(10, 20, List.of(30L, 32L, 33L));
+
+        assertThat(resolved).containsOnlyKeys(32L);
+        assertThat(resolved.get(32L)).extracting(EffectiveTag::matchValue).containsExactly("포항지진");
+    }
+
+    @Test
     @DisplayName("추정 근거는 verified 로 저장돼 있어도 미검증으로 나온다")
     void demotesInferenceEvidenceStoredAsVerified() {
         var person = service().resolve(List.of(30L)).get(30L).stream()

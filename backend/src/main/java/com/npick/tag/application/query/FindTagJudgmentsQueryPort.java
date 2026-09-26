@@ -29,6 +29,9 @@ public interface FindTagJudgmentsQueryPort {
      */
     List<TagJudgment> findByScenes(Collection<Long> sceneIds);
 
+    /** 처리 결과 검수용. active run 제한 대신 요청한 clip/run 소속을 명시한다. */
+    List<TagJudgment> findByRunScenes(long clipId, long pipelineRunId, Collection<Long> sceneIds);
+
     /**
      * 조건에 맞는 태그가 붙은 장면들의 근거.
      *
