@@ -277,7 +277,7 @@ class DenseSceneCandidateAdapterTest {
                     .isEqualTo(1);
             var words = new WordSceneCandidateAdapter(
                     new NamedParameterJdbcTemplate(dataSource),
-                    new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 0.3, 10, List.of()));
+                    new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 0.3, 0.0, 10, List.of()));
             assertThat(words.findByWords(List.of("제설"), List.of()))
                     .extracting(c -> c.sceneId())
                     .containsExactly(35L);
@@ -299,7 +299,7 @@ class DenseSceneCandidateAdapterTest {
     private WordSceneCandidateAdapter words() {
         return new WordSceneCandidateAdapter(
                 new NamedParameterJdbcTemplate(source),
-                new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 0.3, 10, List.of()));
+                new SceneCandidateProperties("test", 1.0, 1.0, 1.0, 0.3, 0.0, 10, List.of()));
     }
 
     private void vector(long id, float x, float y) {

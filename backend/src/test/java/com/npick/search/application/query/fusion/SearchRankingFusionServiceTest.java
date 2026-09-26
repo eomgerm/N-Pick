@@ -26,12 +26,13 @@ import com.npick.search.domain.model.StructuredScoreSettings;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
+import static org.assertj.core.api.InstanceOfAssertFactories.MAP;
 
 /** 두 RRF 채널과 구조화 점수의 결과 fixture 기반 검증. 실제 조회·트랜잭션 연결은 조립(-59)의 몫이라 여기서 다루지 않는다. */
 class SearchRankingFusionServiceTest {
     private static final String MODEL = "arctic-ko@" + "a".repeat(40);
     private static final LexicalSearchSettings LEXICAL =
-            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, List.of());
+            new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of());
 
     @Test
     void combinesChannelRanksAndAddsTheStructuredTermWithoutAssigningAFinalRank() {
@@ -222,7 +223,7 @@ class SearchRankingFusionServiceTest {
     void excludedQueryTokensAreTrackedByTheConfigVersion() {
         var query = new FuseSearchRankingQuery(
                 List.of(candidate(30)), dense(), structured(List.of(scene(30, 0.0)), List.of()));
-        var excluding = new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, List.of("장면/nng"));
+        var excluding = new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of("장면/nng"));
 
         var result = new SearchRankingFusionService(settings(1.0, 1.0, 1.0), excluding, SOFT).fuse(query);
 
@@ -232,6 +233,20 @@ class SearchRankingFusionServiceTest {
                 .isEqualTo(List.of("장면/nng"));
         assertThat(result.configVersion())
                 .isNotEqualTo(service(settings(1.0, 1.0, 1.0)).fuse(query).configVersion());
+    }
+
+    @Test
+    void coverageWeightChangesTheRecordedSearchConfigVersion() {
+        var query = new FuseSearchRankingQuery(
+                List.of(candidate(30)), dense(), structured(List.of(scene(30, 0.0)), List.of()));
+        var on = new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, 0.2, 200, List.of());
+        var off = new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of());
+
+        var onConfig = new SearchRankingFusionService(settings(1.0, 1.0, 1.0), on, SOFT).fuse(query).config();
+        var offConfig = new SearchRankingFusionService(settings(1.0, 1.0, 1.0), off, SOFT).fuse(query).config();
+
+        assertThat(onConfig.payload().get("lexical")).asInstanceOf(MAP).containsEntry("coverage_weight", 0.2);
+        assertThat(onConfig.version()).isNotEqualTo(offConfig.version());
     }
 
     private SearchRankingFusionService service(FusionSettings settings) {
@@ -272,7 +287,7 @@ class SearchRankingFusionServiceTest {
     }
 
     private static SceneCandidateResult candidate(long sceneId) {
-        return new SceneCandidateResult(sceneId, 10, 1, 1, 0);
+        return new SceneCandidateResult(sceneId, 10, 1, 1, 1, 0, 0, 0, 0, 0);
     }
 
     private static DenseCandidatesResult.Candidate denseHit(long sceneId, int rank) {

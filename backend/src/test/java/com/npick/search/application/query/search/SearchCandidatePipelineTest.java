@@ -100,7 +100,7 @@ class SearchCandidatePipelineTest {
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
         Long[] ten = {9301L, 9302L, 9303L, 9304L, 9305L, 9306L, 9307L, 9308L, 9309L, 9310L};
         when(lexical.findByWords(anyList(), anyList()))
-                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 0)));
+                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 1, 0, 0, 0, 0, 0)));
         givenRankingOf(ten);
         // 열 중 하나만 카드가 없다. 제외 뒤 개수는 10 이지만 실제로 내보내는 것은 9 다.
         when(cards.find(any())).thenReturn(cardsFor(9302L, 9303L, 9304L, 9305L, 9306L, 9307L, 9308L, 9309L, 9310L));
@@ -266,7 +266,7 @@ class SearchCandidatePipelineTest {
         // 대부분 장면이 무태그라, 그런 장면이 상위에 드는 순간 그 질의가 항상 500 이 된다.
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
         when(lexical.findByWords(anyList(), anyList()))
-                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 0)));
+                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 1, 0, 0, 0, 0, 0)));
         givenRankingOf(9301L);
         // resolve 가 그 장면을 아예 담지 않는다 — 실제 정책이 하는 그대로다.
         when(tags.resolve(any())).thenReturn(Map.of());
@@ -426,7 +426,7 @@ class SearchCandidatePipelineTest {
     }
 
     private static LexicalSearchSettings lexicalSettings(List<String> excludedQueryTokens) {
-        return new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, excludedQueryTokens);
+        return new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.0, 200, excludedQueryTokens);
     }
 
     private static StructuredScoreSettings structuredSettings() {

@@ -6,6 +6,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import com.npick.search.application.query.candidate.SceneCandidateResult;
 import com.npick.search.application.query.fusion.FuseSearchRankingQuery;
 import com.npick.search.application.query.guard.FalseHitGuardResult;
 import com.npick.search.application.query.structured.StructuredScoresResult;
@@ -71,5 +72,32 @@ class SearchRecordPayloadTest {
         for (StructuredAxis axis : StructuredAxis.values()) weights.put(axis, 1.0);
         return new StructuredScoreSettings(
                 StructuredScoreSettings.WeightStatus.EXPERIMENTAL, weights, new KeywordTagSettings(0.5, 12, List.of()));
+    }
+
+    @Test
+    void lexicalCandidateRecordKeepsRawCoverageAndRankingScores() {
+        var candidate = new SceneCandidateResult(30L, 11L, 1.12, 8.0, 5.0, 3.0, 3, 4, 0.75, 0.12);
+
+        Map<String, Object> lexical = onlyLexicalRecord(candidate);
+
+        assertThat(lexical).containsEntry("score", 1.12)
+                .containsEntry("ranking_score", 1.12)
+                .containsEntry("raw_score", 8.0)
+                .containsEntry("text_score", 5.0)
+                .containsEntry("ocr_score", 3.0)
+                .containsEntry("matched_query_token_count", 3)
+                .containsEntry("query_token_count", 4)
+                .containsEntry("coverage_ratio", 0.75)
+                .containsEntry("coverage_bonus", 0.12);
+    }
+
+    private static Map<String, Object> onlyLexicalRecord(SceneCandidateResult candidate) {
+        var query = new FuseSearchRankingQuery(
+                List.of(candidate),
+                null,
+                new StructuredScoresResult(QueryResolution.withoutAiInterpretation(), null, List.of(), List.of()));
+        var candidates = new SearchCandidates(
+                List.of(), query, null, List.of(), null, List.of(), List.of(), List.of(), List.of());
+        return SearchRecordPayload.candidates(candidates).lexical().getFirst();
     }
 }

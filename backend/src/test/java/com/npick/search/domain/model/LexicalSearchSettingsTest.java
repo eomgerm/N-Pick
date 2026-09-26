@@ -15,7 +15,7 @@ class LexicalSearchSettingsTest {
     private static final List<String> GENERIC = List.of("장면/nng", "보이/vv", "화면/nng", "모습/nng");
 
     private final LexicalSearchSettings settings =
-            new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, GENERIC);
+            new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 0.0, 200, GENERIC);
 
     @Test
     @DisplayName("원 질의 토큰에서 범용어만 뺀다")
@@ -37,7 +37,7 @@ class LexicalSearchSettingsTest {
     @DisplayName("설정 토큰은 공백을 떼고 소문자로 맞춰 소문자 질의 토큰과 맞춘다")
     void normalizesConfiguredTokensToTheQueryEncoding() {
         // Kiwi 태그는 대문자라 운영자가 `장면/NNG` 로 적기 쉽다. 그대로 두면 제외가 조용히 꺼진다.
-        var upper = new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, List.of(" 장면/NNG ", "보이/VV"));
+        var upper = new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of(" 장면/NNG ", "보이/VV"));
 
         assertThat(upper.excludedQueryTokens()).containsExactly("장면/nng", "보이/vv");
         assertThat(upper.searchQueryTokens(List.of("화재/nng", "장면/nng", "보이/vv")))
@@ -49,7 +49,7 @@ class LexicalSearchSettingsTest {
     void rejectsMalformedConfiguredTokens() {
         for (String malformed : List.of("장면", " ", "/nng", "장면/")) {
             assertThatThrownBy(() ->
-                            new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, List.of(malformed)))
+                            new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of(malformed)))
                     .as(malformed)
                     .isInstanceOf(IllegalArgumentException.class);
         }
@@ -80,8 +80,20 @@ class LexicalSearchSettingsTest {
     @Test
     @DisplayName("목록이 비어 있으면 아무것도 빼지 않는다 — 제외를 끄는 스위치다")
     void anEmptyListExcludesNothing() {
-        var none = new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, List.of());
+        var none = new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of());
         assertThat(none.searchQueryTokens(List.of("화재/nng", "장면/nng"))).containsExactly("화재/nng", "장면/nng");
         assertThat(none.excludes("장면/nng")).isFalse();
+    }
+
+    @Test
+    void coverageWeightMustBeFiniteAndNonnegative() {
+        assertThat(new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 0.2, 200, List.of())
+                        .coverageWeight())
+                .isEqualTo(0.2);
+        for (double invalid : new double[] {-0.1, Double.NaN, Double.POSITIVE_INFINITY}) {
+            assertThatThrownBy(() -> new LexicalSearchSettings(
+                            "candidate-v3", 1.0, 1.0, 1.0, 0.3, invalid, 200, List.of()))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
     }
 }

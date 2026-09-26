@@ -2,6 +2,7 @@ package com.npick.search.infrastructure.config;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -24,6 +25,7 @@ class SceneCandidateConfigurationTest {
             assertThat(settings.captionWeight()).isPositive();
             assertThat(settings.transcriptWeight()).isPositive();
             assertThat(settings.ocrWeight()).isPositive();
+            assertThat(settings.coverageWeight()).isZero();
             assertThat(settings.isAnyFieldSearched()).isTrue();
             assertThat(settings.excludedQueryTokens())
                     .containsExactly(
@@ -101,6 +103,19 @@ class SceneCandidateConfigurationTest {
         runnerWithApplicationYaml()
                 .withPropertyValues("npick.search.candidate.ocr-weight=-1.0")
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void bindsCoverageWeightAndRejectsUnsafeValues() {
+        runnerWithApplicationYaml()
+                .withPropertyValues("npick.search.candidate.coverage-weight=0.2")
+                .run(context -> assertThat(context.getBean(SceneCandidateProperties.class).coverageWeight())
+                        .isEqualTo(0.2));
+        for (String invalid : List.of("-0.1", "NaN", "Infinity")) {
+            runnerWithApplicationYaml()
+                    .withPropertyValues("npick.search.candidate.coverage-weight=" + invalid)
+                    .run(context -> assertThat(context).hasFailed());
+        }
     }
 
     private static ApplicationContextRunner runnerWithApplicationYaml() {

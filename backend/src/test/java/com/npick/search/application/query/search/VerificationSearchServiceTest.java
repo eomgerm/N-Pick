@@ -259,7 +259,7 @@ class VerificationSearchServiceTest {
                 List.of(),
                 new SearchConfigSnapshot(
                         fusionSettings(),
-                        new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, List.of()),
+                        new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of()),
                         null,
                         structuredSettings(),
                         softSettings()),
