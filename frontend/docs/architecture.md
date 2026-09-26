@@ -65,7 +65,9 @@ src/
 │     ├─ my-inquiry-history.tsx   내 문의 조회·페이지 이동·상세·오류 복구
 │     ├─ search-history.module.css 기록 목록·상태 칩·펼침 레이아웃
 │     ├─ demo-scenes.ts          예시 장면과 공통 장면 표시 모델
-│     ├─ scene-dialogs.tsx        구간 영상·문의 공통 팝업과 상태별 조회
+│     ├─ scene-dialog.tsx         native dialog·포커스 복귀·배경 잠금 공통 경계
+│     ├─ scene-dialogs.tsx        구간 영상 Preview와 장면별 조회
+│     ├─ inquiry-dialog.tsx       문의 입력·상태별 문의 상세 dialog
 │     ├─ inquiry-api.ts          문의 제출 snapshot·응답 검증·접수 API
 │     ├─ entry-chrome.tsx         로그인 헤더와 로그인·검색 공통 푸터
 │     ├─ entry.module.css         신한 로그인·검색 반응형 레이아웃
@@ -134,7 +136,7 @@ src/
 
 선점한 검수자는 `PUT /review/inquiries/{feedbackId}/resolution`으로 판정과 최대 2,000자의 사유를 저장합니다. `no_action/deferred`는 사유가 필수이며 즉시 `closed`로 종료됩니다. `tag_correction/patch_parse/exclude_scene`는 판정만 저장하고 후속 교정·검증 API가 완료될 때까지 `reviewing`을 유지합니다. 프론트는 서버 응답 뒤 목록과 상세를 다시 읽어 상태를 확정하고 요청 중 중복 입력과 다른 검수자의 저장을 막습니다.
 
-검색 결과의 문의 입력은 Preview의 `이상해요`에서만 열며 `POST /search/results/{resultId}/inquiries`로 선택 설명을 전송합니다. 화면 장면 ID와 서버의 저장된 결과 ID를 분리하고 `SearchResult.searchResultId`만 API 경로에 사용합니다. 데모 결과에는 서버 ID를 만들지 않으며 저장 ID가 없거나 snapshot 저장에 실패하면 이유와 함께 문의를 비활성화합니다. 실제 검색 응답의 저장 결과 ID를 Preview에서 문의 접수로 전달하며, 접수 상태도 이 ID로 구분해 재검색의 새 결과에 이전 접수 상태가 붙지 않도록 합니다. 제출은 trim한 설명과 frozen snapshot·UUID 멱등성 키를 보존하며 자동 재시도하지 않습니다. 실패 후 설명을 바꾸지 않은 수동 재시도는 같은 snapshot/key를 사용하고 입력 변경 시 새 요청으로 바꿉니다. 제출 중에는 입력·중복 제출·dialog 닫기를 잠급니다. 성공 응답의 양의 `feedbackId`와 `OPEN/REVIEWING/CLOSED`를 확인한 뒤 접수 확인과 현재 상태를 표시하며 접수 자체로 현재 결과를 숨기거나 즉시 개선하지 않습니다. 백엔드는 동일한 검색 결과·신고자의 기존 문의를 현재 상태로 반환할 수 있으므로 재전송 응답을 새 접수나 `open`으로 바꾸지 않습니다.
+검색 결과의 문의 입력은 Preview의 `이상해요`에서만 열며 `POST /search/results/{resultId}/inquiries`로 선택 설명을 전송합니다. 결과 카드와 Preview의 정상 신고 액션은 같은 경고 삼각형 아이콘을 사용하고, 문의 불가는 금지 아이콘으로 구분합니다. Preview 헤더는 장면 설명을 한 행 전체 너비에서 줄바꿈해 모두 보여 주고 원본 클립명과 장면 구간·길이를 다음 행에 표시하며 말줄임이나 전체 제목 툴팁에 의존하지 않습니다. 오른쪽 정보는 검색 근거를 장면 정보보다 먼저 표시합니다. 화면 장면 ID와 서버의 저장된 결과 ID를 분리하고 `SearchResult.searchResultId`만 API 경로에 사용합니다. 데모 결과에는 서버 ID를 만들지 않으며 저장 ID가 없거나 snapshot 저장에 실패하면 이유와 함께 문의를 비활성화합니다. 실제 검색 응답의 저장 결과 ID를 Preview에서 문의 접수로 전달하며, 접수 상태도 이 ID로 구분해 재검색의 새 결과에 이전 접수 상태가 붙지 않도록 합니다. 제출은 trim한 설명과 frozen snapshot·UUID 멱등성 키를 보존하며 자동 재시도하지 않습니다. 실패 후 설명을 바꾸지 않은 수동 재시도는 같은 snapshot/key를 사용하고 입력 변경 시 새 요청으로 바꿉니다. 제출 중에는 입력·중복 제출·dialog 닫기를 잠급니다. 성공 응답의 양의 `feedbackId`와 `OPEN/REVIEWING/CLOSED`를 확인한 뒤 접수 확인과 현재 상태를 표시하며 접수 자체로 현재 결과를 숨기거나 즉시 개선하지 않습니다. 백엔드는 동일한 검색 결과·신고자의 기존 문의를 현재 상태로 반환할 수 있으므로 재전송 응답을 새 접수나 `open`으로 바꾸지 않습니다.
 
 검수 화면 왼쪽 사이드바는 URL로 선택 상태를 계산합니다. 파라미터가 없는 `/review`는 개요, `view=processing`은 처리, `view=upload`는 영상 등록, 그 밖의 파라미터가 있으면(`view=inquiries`·`status`·`inquiry` 등) 문의로 표시합니다. 기존 `?status=`·`?inquiry=` 링크는 그대로 문의를 엽니다. 문의 화면에서 마지막 조건을 지워 query가 비면 개요로 넘어가지 않도록 `getReviewUrl`이 `view=inquiries`를 남깁니다. 개요는 `GET /review/inquiries`와 `GET /clips` 첫 페이지를 문의·처리 목록과 같은 query key로 조회해 `statusCounts`·`run_counts` 요약 카드와 최근 5건씩을 보여 주며, 카드의 상태 항목은 해당 필터가 걸린 목록으로 연결합니다. 새 집계 API는 사용하지 않습니다. 문의·처리 이동은 `getReviewTabUrl`로 상세 선택(`inquiry/clip`)과 처리 하위 `tab`을 지우고 목록 조건과 나머지 query를 유지합니다. 처리 하위 탭은 기존 `tab=uploads/completed`를 사용하며 생략하거나 알 수 없는 값이면 문의 처리 중을 표시합니다. 문의·처리 이동은 브라우저 이력에 남고 새로고침·뒤로가기·앞으로가기로 복원됩니다. 서버에 저장한 검수 상태는 이동 후 재조회하며 등록 취소는 문의 목록으로 돌아갑니다.
 

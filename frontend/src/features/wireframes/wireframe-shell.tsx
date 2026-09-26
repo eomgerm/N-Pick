@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { results as demoResults, type SearchResult } from '@/features/wireframes/demo-scenes';
-import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
+import { InquiryDialog } from '@/features/wireframes/inquiry-dialog';
+import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import { SearchResultCard } from '@/features/wireframes/search-result-card';
 import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
 import { useSuccessToast } from '@/features/wireframes/success-toast';

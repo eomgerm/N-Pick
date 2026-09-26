@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Check, Flag, Play } from 'lucide-react';
+import { Check, CircleSlash, Play, TriangleAlert } from 'lucide-react';
 
 import {
   getKeywordOriginLabel,
@@ -96,7 +96,7 @@ export function SearchResultCard({
             <button
               aria-describedby={inquiryUnavailableReason ? inquiryReasonId : undefined}
               aria-disabled={inquiryUnavailableReason ? true : undefined}
-              aria-label={`${result.title} 문의하기`}
+              aria-label={`${result.title} 이상 신고하기`}
               className={styles.cardInquiryButton}
               data-state={
                 isInquirySubmitted
@@ -116,9 +116,9 @@ export function SearchResultCard({
               {isInquirySubmitted ? (
                 <Check aria-hidden="true" />
               ) : inquiryUnavailableReason ? (
-                <AlertTriangle aria-hidden="true" />
+                <CircleSlash aria-hidden="true" />
               ) : (
-                <Flag aria-hidden="true" />
+                <TriangleAlert aria-hidden="true" />
               )}
             </button>
             {inquiryUnavailableReason ? (

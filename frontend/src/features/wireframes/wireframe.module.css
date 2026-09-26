@@ -1174,28 +1174,6 @@
   text-wrap: pretty;
 }
 
-.previewTitleRow {
-  display: flex;
-  align-items: baseline;
-  gap: 6px 16px;
-  min-width: 0;
-}
-
-.previewTitleRow h2 {
-  min-width: 0;
-}
-
-.previewClipName {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .previewModalHeader > div > p {
   margin: 6px 0 0;
   color: var(--muted);
@@ -1341,7 +1319,6 @@
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 12px;
 }
 
 .previewDownloadButton {
@@ -1392,8 +1369,10 @@
 
 .previewPlayerActions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  padding-top: 10px;
+  gap: 8px;
+  padding-top: 8px;
 }
 
 .previewPlayerActions .previewReportButton {
@@ -1679,6 +1658,18 @@
 .previewReportButton:hover:not(:disabled):not([aria-disabled='true']) {
   background: rgb(255 255 255 / 80%);
   color: var(--accent);
+}
+
+.previewReportButton[data-state='ready'] {
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, rgb(255 255 255 / 48%));
+  color: var(--danger);
+}
+
+.previewReportButton[data-state='ready']:hover {
+  border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+  background: color-mix(in srgb, var(--danger) 13%, rgb(255 255 255 / 70%));
+  color: var(--danger);
 }
 
 .previewReportButton:disabled,
@@ -2883,10 +2874,6 @@
 
   .previewModalHeader h2 {
     font-size: 20px;
-  }
-
-  .previewTitleRow {
-    flex-wrap: wrap;
   }
 
   .previewInquiryTooltip {

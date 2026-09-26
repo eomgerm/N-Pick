@@ -165,10 +165,12 @@ test('onInquiry 가 있으면 썸네일에 문의 버튼을 아이콘으로 렌�
 
   assert.ok(html.includes('cardInquiryButton'));
   assert.match(html, /data-state="ready"/);
-  assert.match(html, /aria-label="설 연휴 첫날, 서울역 귀성 인파 문의하기"/);
   // 텍스트 없이 아이콘만. ready 상태는 비활성이 아니다.
   assert.ok(!html.includes('이상해요'));
   assert.ok(!html.includes('aria-disabled'));
+  assert.ok(html.includes('lucide-triangle-alert'));
+  assert.ok(!html.includes('lucide-flag'));
+  assert.match(html, /aria-label="설 연휴 첫날, 서울역 귀성 인파 이상 신고하기"/);
 });
 
 test('문의 불가 사유가 있으면 버튼을 비활성으로 두고 사유를 안내한다', () => {
@@ -180,6 +182,7 @@ test('문의 불가 사유가 있으면 버튼을 비활성으로 두고 사유�
   assert.match(html, /data-state="unavailable"/);
   assert.ok(html.includes('aria-disabled="true"'));
   assert.ok(html.includes('저장된 검색 결과가 아니므로 문의할 수 없습니다.'));
+  assert.ok(html.includes('lucide-circle-slash'));
 });
 
 test('onInquiry 가 없으면 문의 버튼 없이 Preview 진입점만 제공한다', () => {
