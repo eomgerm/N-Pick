@@ -13,6 +13,7 @@ import java.util.Objects;
  * <p>{@code configVersion} 은 사람이 읽는 라벨이다. 검색 설정 버전은 이 문자열이 아니라 아래 값들을 해시해서 만든다 — 가중치를 바꾸고 라벨 갱신을 빠뜨려도 버전이 달라져야 한다
  * ({@link SearchConfigVersion}).
  *
+ * @param coverageWeight 질의 토큰 커버리지 가중치. 0 이면 해당 점수 보정이 꺼진다
  * @param excludedQueryTokens BM25 질의에서 뺄 범용어 토큰 ({@code 형태/품사} 소문자, 예: {@code 장면/nng}). VLM 캡션이 「~하는 장면이다」·「화면에 ~가 보인다」
  *     식으로 써서 이 말들은 활성 장면 3분의 1 가까이에 들어 있다 (S15P21A501-320, 운영 복원본 7,712 장면 실측: {@code 장면/nng} 33.4%). 「~를 표시·설명하는 내용」
  *     같은 캡션 서술어({@code 표시}·{@code 설명}·{@code 관련} 등, 4~10%)도 같은 경우다. 질의에 남기면 토큰 사이 OR 로 그만큼이 후보가 된다. 목록 순서도 버전 해시에 들어간다.
@@ -24,6 +25,7 @@ public record LexicalSearchSettings(
         double transcriptWeight,
         double ocrWeight,
         double expandedWeight,
+        double coverageWeight,
         int poolSize,
         List<String> excludedQueryTokens) {
 
@@ -32,7 +34,8 @@ public record LexicalSearchSettings(
         excludedQueryTokens = normalized(Objects.requireNonNull(excludedQueryTokens, "excludedQueryTokens"));
         if (!finiteNonNegative(captionWeight)
                 || !finiteNonNegative(transcriptWeight)
-                || !finiteNonNegative(ocrWeight)) {
+                || !finiteNonNegative(ocrWeight)
+                || !finiteNonNegative(coverageWeight)) {
             throw new IllegalArgumentException("Lexical field weights must be finite and nonnegative");
         }
         if (poolSize <= 0) throw new IllegalArgumentException("poolSize must be positive");

@@ -64,6 +64,12 @@ class DeploymentSearchConfigVersionAdapterTest {
                 .isEqualTo(Map.of("weight", 0.5, "condition_cap", 12, "stoplist", List.of("앞")));
     }
 
+    @Test
+    void changingCoverageWeightChangesTheDeploymentConfigVersion() {
+        assertThat(coverageAdapter(0.2).currentConfigVersion())
+                .isNotEqualTo(coverageAdapter(0.0).currentConfigVersion());
+    }
+
     private static DeploymentSearchConfigVersionAdapter keywordAdapter(KeywordTagSettings keyword) {
         return new DeploymentSearchConfigVersionAdapter(fusion(), lexical(), structured(keyword), soft());
     }
@@ -76,7 +82,7 @@ class DeploymentSearchConfigVersionAdapterTest {
     }
 
     private static LexicalSearchSettings lexical() {
-        return new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, 200, List.of());
+        return new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of());
     }
 
     private static StructuredScoreSettings structured(KeywordTagSettings keyword) {
@@ -91,6 +97,14 @@ class DeploymentSearchConfigVersionAdapterTest {
         return new SoftRankingSettings(weights, 0, FusionSettings.WeightStatus.EXPERIMENTAL);
     }
 
+    private static DeploymentSearchConfigVersionAdapter coverageAdapter(double coverageWeight) {
+        return new DeploymentSearchConfigVersionAdapter(
+                fusion(),
+                new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, coverageWeight, 200, List.of()),
+                structured(KeywordTagSettings.OFF),
+                soft());
+    }
+
     private static DeploymentSearchConfigVersionAdapter adapter(List<String> excludedQueryTokens) {
         var channels = new EnumMap<FusionChannel, Double>(FusionChannel.class);
         channels.put(FusionChannel.LEXICAL, 1.0);
@@ -101,7 +115,7 @@ class DeploymentSearchConfigVersionAdapterTest {
         for (SoftSignal signal : SoftSignal.values()) soft.put(signal, 0.0);
         return new DeploymentSearchConfigVersionAdapter(
                 new FusionSettings(60, 0.0, channels, FusionSettings.WeightStatus.EXPERIMENTAL),
-                new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 200, excludedQueryTokens),
+                new LexicalSearchSettings("candidate-v3", 1.0, 1.0, 1.0, 0.3, 0.0, 200, excludedQueryTokens),
                 new StructuredScoreSettings(StructuredScoreSettings.WeightStatus.EXPERIMENTAL, structured),
                 new SoftRankingSettings(soft, 0, FusionSettings.WeightStatus.EXPERIMENTAL));
     }

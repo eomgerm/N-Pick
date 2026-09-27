@@ -2,6 +2,7 @@ package com.npick.search.infrastructure.config;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -13,13 +14,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** 실행 설정이 실제 application.yml 에서 바인딩되는지, 잘못된 값이 부팅을 멈추는지 검증한다. */
 class SceneCandidateConfigurationTest {
 
-    /** 기본값 자체는 실측 전 잠정값이지만(FRD §11), 바인딩이 깨지면 검색이 조용히 0건 나므로 값이 실제로 들어오는지는 고정한다. */
+    /** 활성화된 커버리지 설정 기본값이 실제 application.yml 에서 바인딩되는지 고정한다. */
     @Test
     void bindsSceneCandidateDefaultsFromApplicationYaml() {
         runnerWithApplicationYaml().run(context -> {
             assertThat(context).hasNotFailed();
             var settings = context.getBean(SceneCandidateProperties.class);
-            assertThat(settings.configVersion()).isNotBlank();
+            assertThat(settings.coverageWeight()).isEqualTo(0.1);
+            assertThat(settings.configVersion()).isEqualTo("candidate-v5");
             assertThat(settings.poolSize()).isPositive();
             assertThat(settings.captionWeight()).isPositive();
             assertThat(settings.transcriptWeight()).isPositive();
@@ -101,6 +103,19 @@ class SceneCandidateConfigurationTest {
         runnerWithApplicationYaml()
                 .withPropertyValues("npick.search.candidate.ocr-weight=-1.0")
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void bindsCoverageWeightAndRejectsUnsafeValues() {
+        runnerWithApplicationYaml()
+                .withPropertyValues("npick.search.candidate.coverage-weight=0.2")
+                .run(context -> assertThat(context.getBean(SceneCandidateProperties.class).coverageWeight())
+                        .isEqualTo(0.2));
+        for (String invalid : List.of("-0.1", "NaN", "Infinity")) {
+            runnerWithApplicationYaml()
+                    .withPropertyValues("npick.search.candidate.coverage-weight=" + invalid)
+                    .run(context -> assertThat(context).hasFailed());
+        }
     }
 
     private static ApplicationContextRunner runnerWithApplicationYaml() {

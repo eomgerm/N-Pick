@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.npick.common.error.BusinessException;
@@ -21,6 +22,7 @@ import com.npick.search.application.port.QueryNormalization;
 import com.npick.search.application.port.QueryResolutionResult;
 import com.npick.search.application.port.SearchExecutionRecordPort;
 import com.npick.search.application.port.StartSearchExecution;
+import com.npick.search.application.query.candidate.SceneCandidateResult;
 import com.npick.search.application.query.fusion.FuseSearchRankingQuery;
 import com.npick.search.application.query.fusion.SearchConfigSnapshot;
 import com.npick.search.application.query.guard.FalseHitGuardResult;
@@ -41,6 +43,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -212,6 +215,42 @@ class VerificationSearchServiceTest {
         assertThat((List<Long>) verifiedIds.get("tag_evidence_ids")).containsExactly(501L);
     }
 
+    @Test
+    @DisplayName("검증 검색은 대조군이 아닌 실험군의 커버리지 설정과 점수 근거를 기록한다")
+    void recordsTreatmentCoverageEvidenceInReplay() {
+        when(excludeContextPort.find(FEEDBACK_ID)).thenReturn(Optional.of(reviewingContext(9L)));
+        when(candidatesPort.load(FEEDBACK_ID))
+                .thenReturn(new PendingCandidates("tag_correction", List.of(501L), List.of()));
+        when(inputPort.load(FEEDBACK_ID))
+                .thenReturn(new VerificationInput("설 연휴 서울역", ExecuteSearchQuery.DateFilters.none()));
+        when(inputPort.loadOriginalResultScenes(FEEDBACK_ID)).thenReturn(List.of());
+        when(record.start(any())).thenReturn(900L);
+        QueryResolutionResult resolved = resolvedResult();
+        when(interpreter.resolve(any())).thenReturn(new InterpretSearchQueryUseCase.Resolution(resolved, resolved, 10));
+        when(interpreter.interpretFromResolution(any(), any())).thenReturn(interpretedQuery(resolved));
+        when(ranker.rank(any())).thenReturn(emptySearchCandidates(), coverageSearchCandidates());
+        when(candidateState.readActivePatchRuleIds()).thenReturn(List.of());
+        when(fingerprint.compute(eq(FEEDBACK_ID), anyList(), anyList())).thenReturn("fp-coverage");
+
+        service.verify(FEEDBACK_ID, 9L);
+
+        InOrder searchOrder = inOrder(ranker, candidateState);
+        searchOrder.verify(ranker).rank(any());
+        searchOrder.verify(candidateState).flip(any());
+        searchOrder.verify(ranker).rank(any());
+        ArgumentCaptor<CompleteSearchExecution> completeCaptor = ArgumentCaptor.forClass(CompleteSearchExecution.class);
+        verify(record).complete(completeCaptor.capture());
+        CompleteSearchExecution completed = completeCaptor.getValue();
+        assertThat(completed.config().payload().get("lexical"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("coverage_weight", 0.2);
+        assertThat(completed.candidates().lexical().getFirst())
+                .containsEntry("ranking_score", 1.15)
+                .containsEntry("raw_score", 1.05)
+                .containsEntry("coverage_ratio", 0.5)
+                .containsEntry("coverage_bonus", 0.1);
+    }
+
     private static QueryResolutionResult resolvedResult() {
         return new QueryResolutionResult(
                 new QueryNormalization("설 연휴 서울역", List.of("설", "연휴", "서울역"), "norm/v1"),
@@ -259,7 +298,28 @@ class VerificationSearchServiceTest {
                 List.of(),
                 new SearchConfigSnapshot(
                         fusionSettings(),
-                        new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, List.of()),
+                        new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.0, 200, List.of()),
+                        null,
+                        structuredSettings(),
+                        softSettings()),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of());
+    }
+
+    private static SearchCandidates coverageSearchCandidates() {
+        SearchCandidates base = emptySearchCandidates();
+        var candidate = new SceneCandidateResult(9301, 9101, 1.15, 1.05, 1.05, 0, 1, 2, 0.5, 0.1);
+        return new SearchCandidates(
+                List.of(),
+                new FuseSearchRankingQuery(
+                        List.of(candidate), null, base.candidates().structuredScores()),
+                base.guard(),
+                List.of(),
+                new SearchConfigSnapshot(
+                        fusionSettings(),
+                        new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, 0.2, 200, List.of()),
                         null,
                         structuredSettings(),
                         softSettings()),

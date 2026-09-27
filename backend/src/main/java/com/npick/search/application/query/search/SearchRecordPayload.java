@@ -38,8 +38,14 @@ final class SearchRecordPayload {
             value.put("scene_id", Long.toString(candidate.sceneId()));
             value.put("clip_id", Long.toString(candidate.clipId()));
             value.put("score", candidate.score());
+            value.put("ranking_score", candidate.score());
+            value.put("raw_score", candidate.rawScore());
             value.put("text_score", candidate.textScore());
             value.put("ocr_score", candidate.ocrScore());
+            value.put("matched_query_token_count", candidate.matchedQueryTokenCount());
+            value.put("query_token_count", candidate.queryTokenCount());
+            value.put("coverage_ratio", candidate.coverageRatio());
+            value.put("coverage_bonus", candidate.coverageBonus());
             lexical.add(value);
         }
         return new CompleteSearchExecution.CandidateRecord(

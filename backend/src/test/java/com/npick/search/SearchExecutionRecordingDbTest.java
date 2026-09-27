@@ -280,7 +280,7 @@ class SearchExecutionRecordingDbTest {
                         value -> value, value -> 0.0, (left, right) -> left, () -> new EnumMap<>(SoftSignal.class)));
         return new SearchConfigSnapshot(
                 new FusionSettings(60, 0.1, channels, FusionSettings.WeightStatus.EXPERIMENTAL),
-                new LexicalSearchSettings("lexical/v1", 1, 1, 1, 0.3, 100, List.of()),
+                new LexicalSearchSettings("lexical/v1", 1, 1, 1, 0.3, 0.0, 100, List.of()),
                 new DenseSearchSettings("model@0123456789012345678901234567890123456789", 100, 2.0).snapshot(),
                 new StructuredScoreSettings(StructuredScoreSettings.WeightStatus.EXPERIMENTAL, axes),
                 new SoftRankingSettings(signals, 0.01, FusionSettings.WeightStatus.EXPERIMENTAL));

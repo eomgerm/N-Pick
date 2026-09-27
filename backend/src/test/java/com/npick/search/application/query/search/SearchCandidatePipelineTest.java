@@ -23,6 +23,7 @@ import com.npick.search.application.query.expansion.TokenizeExpandedTermsPort;
 import com.npick.search.application.query.fusion.FuseSearchRankingUseCase;
 import com.npick.search.application.query.fusion.FusionResult;
 import com.npick.search.application.query.fusion.SearchConfigSnapshot;
+import com.npick.search.application.query.fusion.SearchRankingFusionService;
 import com.npick.search.application.query.guard.ApplyFalseHitGuardUseCase;
 import com.npick.search.application.query.guard.FalseHitGuardResult;
 import com.npick.search.application.query.soft.AdjustSoftRankingUseCase;
@@ -100,7 +101,7 @@ class SearchCandidatePipelineTest {
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
         Long[] ten = {9301L, 9302L, 9303L, 9304L, 9305L, 9306L, 9307L, 9308L, 9309L, 9310L};
         when(lexical.findByWords(anyList(), anyList()))
-                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 0)));
+                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 1, 0, 0, 0, 0, 0)));
         givenRankingOf(ten);
         // 열 중 하나만 카드가 없다. 제외 뒤 개수는 10 이지만 실제로 내보내는 것은 9 다.
         when(cards.find(any())).thenReturn(cardsFor(9302L, 9303L, 9304L, 9305L, 9306L, 9307L, 9308L, 9309L, 9310L));
@@ -239,6 +240,52 @@ class SearchCandidatePipelineTest {
         assertThat(result.expandedTokens()).containsExactly("자료/nng", "소방/nng");
     }
 
+    @Test
+    @DisplayName("일반 검색은 실제 단어 후보와 커버리지 설정을 순위·기록 경로에 함께 넘긴다")
+    void carriesCoverageCandidateAndSettingThroughNormalRanking() {
+        lexicalSettings = new LexicalSearchSettings("candidate-v4", 1.0, 1.0, 1.0, 0.3, 0.2, 200, List.of("장면/nng"));
+        SceneCandidateResult candidate = new SceneCandidateResult(9301, 9101, 1.15, 1.05, 1.05, 0, 1, 2, 0.5, 0.1);
+        when(lexical.findByWords(anyList(), anyList())).thenReturn(List.of(candidate));
+        givenRankingOf(9301L);
+        when(structured.score(any()))
+                .thenReturn(new StructuredScoresResult(
+                        resolution(),
+                        structuredSettings(),
+                        List.of(new StructuredScoresResult.SceneScore(9301, 9101, true, false, 0, 0, List.of())),
+                        List.of()));
+        SearchCandidatePipeline pipeline = new SearchCandidatePipeline(
+                lexical,
+                dense,
+                provider(),
+                lexicalOnly(),
+                lexicalSettings,
+                structured,
+                new SearchRankingFusionService(lexicalOnly(), lexicalSettings, softSettings()),
+                soft,
+                tags,
+                guard,
+                exclusions,
+                cards,
+                expandedTerms);
+
+        SearchCandidates result = pipeline.rank(query(List.of("화재/nng", "출동/nng", "장면/nng")));
+
+        verify(lexical).findByWords(List.of("화재/nng", "출동/nng"), List.of());
+        FusionResult.ScoredCandidate fused = result.scenes().getFirst().score();
+        assertThat(fused.baseScore()).isEqualTo(1.0);
+        assertThat(fused.channels().getFirst().channel()).isEqualTo(FusionChannel.LEXICAL);
+        assertThat(fused.channels().getFirst().state()).isEqualTo(FusionResult.ChannelState.MATCHED);
+        assertThat(fused.channels().getFirst().rank()).isEqualTo(1);
+        assertThat(result.config().payload().get("lexical"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.MAP)
+                .containsEntry("coverage_weight", 0.2);
+        assertThat(SearchRecordPayload.candidates(result).lexical().getFirst())
+                .containsEntry("ranking_score", 1.15)
+                .containsEntry("raw_score", 1.05)
+                .containsEntry("coverage_ratio", 0.5)
+                .containsEntry("coverage_bonus", 0.1);
+    }
+
     private RankSearchCandidatesUseCase.Query queryWithExpandedTerms() {
         return queryWithExpandedTerms(new QueryNormalization("질의", List.of("질의"), "norm/v1"));
     }
@@ -266,7 +313,7 @@ class SearchCandidatePipelineTest {
         // 대부분 장면이 무태그라, 그런 장면이 상위에 드는 순간 그 질의가 항상 500 이 된다.
         SearchCandidatePipeline pipeline = pipeline(lexicalOnly());
         when(lexical.findByWords(anyList(), anyList()))
-                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 0)));
+                .thenReturn(List.of(new SceneCandidateResult(9301, 9101, 1, 1, 1, 0, 0, 0, 0, 0)));
         givenRankingOf(9301L);
         // resolve 가 그 장면을 아예 담지 않는다 — 실제 정책이 하는 그대로다.
         when(tags.resolve(any())).thenReturn(Map.of());
@@ -426,7 +473,7 @@ class SearchCandidatePipelineTest {
     }
 
     private static LexicalSearchSettings lexicalSettings(List<String> excludedQueryTokens) {
-        return new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 200, excludedQueryTokens);
+        return new LexicalSearchSettings("candidate-v1", 1.0, 1.0, 1.0, 0.3, 0.0, 200, excludedQueryTokens);
     }
 
     private static StructuredScoreSettings structuredSettings() {

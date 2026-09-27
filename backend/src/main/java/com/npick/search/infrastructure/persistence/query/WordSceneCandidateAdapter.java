@@ -1,5 +1,6 @@
 package com.npick.search.infrastructure.persistence.query;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -55,12 +56,12 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
      * 화면 글자는 다른 표의 다른 인덱스라 점수가 따로 나오기 때문이다.
      *
      * <p>화면 글자를 {@code max} 로 모으는 것은 장면당 키프레임 수가 다르기 때문이다. 합으로 모으면 키프레임이 많은 장면이 내용과 무관하게 이기고, 이는 BM25 가 문서 길이 정규화로 막는
-     * 편향을 밖에서 되살리는 것이다. 점수가 실제 BM25 가 된 뒤로는(S15P21A501-320) 질의 토큰이 한 관측에 함께 있으면 합산되고, 서로 다른 키프레임에
-     * 나뉘어 있으면 가장 높은 관측 하나만 반영된다 — 같은 토큰을 덮어도 순위가 갈릴 수 있다는 뜻이며, 키프레임 수 편향을 막는 대가로 받아들인다.
+     * 편향을 밖에서 되살리는 것이다. 점수가 실제 BM25 가 된 뒤로는(S15P21A501-320) 질의 토큰이 한 관측에 함께 있으면 합산되고, 서로 다른 키프레임에 나뉘어 있으면 가장 높은 관측 하나만
+     * 반영된다 — 같은 토큰을 덮어도 순위가 갈릴 수 있다는 뜻이며, 키프레임 수 편향을 막는 대가로 받아들인다.
      */
     private static final String FIND_CANDIDATES_SQL = """
             WITH query_tokens AS (
-                SELECT string_to_array(:tokens, ' ') AS tokens
+                SELECT token FROM unnest(string_to_array(:tokens, ' ')) AS token
             ),
             text_hits AS (
                 SELECT s.scene_id, s.clip_id, paradedb.score(s) AS score
@@ -71,10 +72,10 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                 WHERE s @@@ paradedb.boolean(should => ARRAY[
                     paradedb.boost(CAST(:captionWeight AS real), paradedb.boolean(should => ARRAY(
                         SELECT paradedb.term('caption_tokens', token)
-                        FROM unnest((SELECT tokens FROM query_tokens)) AS token))),
+                        FROM query_tokens))),
                     paradedb.boost(CAST(:transcriptWeight AS real), paradedb.boolean(should => ARRAY(
                         SELECT paradedb.term('transcript_tokens', token)
-                        FROM unnest((SELECT tokens FROM query_tokens)) AS token)))%s])
+                        FROM query_tokens)))%s])
             ),
             ocr_hits AS (
                 SELECT k.scene_id, s.clip_id, max(paradedb.score(o)) AS score
@@ -86,23 +87,90 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                     AND c.deleted_at IS NULL
                 WHERE o @@@ paradedb.boolean(should => ARRAY(
                     SELECT paradedb.term('tokens', token)
-                    FROM unnest((SELECT tokens FROM query_tokens)) AS token))
+                    FROM query_tokens))
                 GROUP BY k.scene_id, s.clip_id
-            )
-            SELECT scene_id, clip_id, text_score, ocr_score, total
-            FROM (
+            ),
+            merged AS (
                 SELECT coalesce(t.scene_id, o.scene_id) AS scene_id,
                        coalesce(t.clip_id, o.clip_id) AS clip_id,
                        coalesce(t.score, 0) AS text_score,
                        CAST(:ocrWeight AS real) * coalesce(o.score, 0) AS ocr_score,
                        coalesce(t.score, 0)
-                           + CAST(:ocrWeight AS real) * coalesce(o.score, 0) AS total
+                           + CAST(:ocrWeight AS real) * coalesce(o.score, 0) AS raw_score
                 FROM text_hits t
                 FULL JOIN ocr_hits o ON o.scene_id = t.scene_id
-            ) merged
-            WHERE total > 0
-            ORDER BY total DESC, scene_id
+            ),
+            candidates AS MATERIALIZED (
+                SELECT * FROM merged WHERE raw_score > 0
+            ),%s
+            scored AS (
+                SELECT candidates.*, %s AS matched_query_token_count,
+                       (SELECT count(*) FROM query_tokens)::integer AS query_token_count,
+                       max(raw_score) OVER () AS max_raw_score
+                FROM candidates%s
+            ),
+            coverage_scored AS (
+                SELECT scored.*,
+                       CASE WHEN query_token_count <= 1 THEN 0.0
+                            WHEN CAST(:coverageWeight AS double precision) = 0 OR matched_query_token_count = 0 THEN 0.0
+                            WHEN CAST(:coverageWeight AS double precision) < 2.2250738585072014e-308::double precision
+                                THEN CASE WHEN (CAST(:coverageWeight AS double precision) / 4.9e-324::double precision)
+                                               * (matched_query_token_count::double precision / query_token_count) <= 0.5
+                                          THEN 0.0
+                                          ELSE CAST(:coverageWeight AS double precision)
+                                               * (matched_query_token_count::double precision / query_token_count) END
+                            ELSE CAST(:coverageWeight AS double precision)
+                                 * (matched_query_token_count::double precision / query_token_count) END AS coverage_bonus
+                FROM scored
+            )
+            SELECT scene_id, clip_id, text_score, ocr_score, raw_score,
+                   matched_query_token_count, query_token_count,
+                   matched_query_token_count::double precision / query_token_count AS coverage_ratio,
+                   coverage_bonus,
+                   raw_score::double precision / nullif(max_raw_score, 0)
+                       + coverage_bonus AS ranking_score
+            FROM coverage_scored
+            ORDER BY ranking_score DESC, raw_score DESC, scene_id ASC
             LIMIT :poolSize
+            """;
+
+    private static final String COVERAGE_CTES_SQL = """
+
+            text_token_hits AS (
+                SELECT s.scene_id, q.token
+                FROM query_tokens q
+                JOIN npick.scene s ON s @@@ %s
+                JOIN candidates candidate ON candidate.scene_id = s.scene_id
+            ),
+            ocr_documents AS MATERIALIZED (
+                SELECT o.keyframe_id, o.tokens
+                FROM npick.ocr_observation o
+                WHERE CAST(:ocrWeight AS real) > 0
+                  AND o @@@ paradedb.boolean(should => ARRAY(
+                      SELECT paradedb.term('tokens', token)
+                      FROM query_tokens))
+            ),
+            ocr_token_observations AS MATERIALIZED (
+                SELECT document.keyframe_id, q.token
+                FROM ocr_documents document
+                JOIN query_tokens q
+                  ON q.token = ANY(pdb.tokenize_whitespace(document.tokens::pdb.whitespace))
+            ),
+            ocr_token_hits AS (
+                SELECT candidate.scene_id, observation.token
+                FROM ocr_token_observations observation
+                JOIN npick.keyframe k ON k.keyframe_id = observation.keyframe_id
+                JOIN candidates candidate ON candidate.scene_id = k.scene_id
+            ),
+            matched_tokens AS MATERIALIZED (
+                SELECT scene_id, count(DISTINCT token)::integer AS matched_query_token_count
+                FROM (
+                    SELECT scene_id, token FROM text_token_hits
+                    UNION ALL
+                    SELECT scene_id, token FROM ocr_token_hits
+                ) hits
+                GROUP BY scene_id
+            ),
             """;
 
     /**
@@ -144,17 +212,38 @@ class WordSceneCandidateAdapter implements FindSceneCandidatesQueryPort {
                 .addValue("transcriptWeight", properties.transcriptWeight())
                 .addValue("expandedWeight", properties.expandedWeight())
                 .addValue("ocrWeight", properties.ocrWeight())
+                .addValue("coverageWeight", properties.coverageWeight())
                 .addValue("poolSize", properties.poolSize());
 
+        boolean coverageEnabled = properties.coverageWeight() > 0;
         return jdbcTemplate.query(
-                FIND_CANDIDATES_SQL.formatted(expandedClauses(usablePhrases(expandedPhrases), parameters)),
+                FIND_CANDIDATES_SQL.formatted(
+                        expandedClauses(usablePhrases(expandedPhrases), parameters),
+                        coverageEnabled ? COVERAGE_CTES_SQL.formatted(coverageTextQuery()) : "\n",
+                        coverageEnabled ? "coalesce(m.matched_query_token_count, 0)" : "0",
+                        coverageEnabled ? "\n                LEFT JOIN matched_tokens m USING (scene_id)" : ""),
                 parameters,
                 (row, rowNumber) -> new SceneCandidateResult(
                         row.getLong("scene_id"),
                         row.getLong("clip_id"),
-                        row.getDouble("total"),
+                        row.getDouble("ranking_score"),
+                        row.getDouble("raw_score"),
                         row.getDouble("text_score"),
-                        row.getDouble("ocr_score")));
+                        row.getDouble("ocr_score"),
+                        row.getInt("matched_query_token_count"),
+                        row.getInt("query_token_count"),
+                        row.getDouble("coverage_ratio"),
+                        row.getDouble("coverage_bonus")));
+    }
+
+    /** 비활성 필드는 점수가 0인 적중으로도 세지 않는다. 확장어는 원 질의 커버리지에 넣지 않는다. */
+    private String coverageTextQuery() {
+        List<String> clauses = new ArrayList<>();
+        if (properties.captionWeight() > 0) clauses.add("paradedb.term('caption_tokens', q.token)");
+        if (properties.transcriptWeight() > 0) clauses.add("paradedb.term('transcript_tokens', q.token)");
+        return clauses.isEmpty()
+                ? "paradedb.empty()"
+                : "paradedb.boolean(should => ARRAY[" + String.join(", ", clauses) + "])";
     }
 
     /**
