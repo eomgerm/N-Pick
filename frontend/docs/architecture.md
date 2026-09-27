@@ -168,6 +168,8 @@ src/
 
 신한 Preview의 `ScenePreviewPlayer`는 ID 기반 MP4를 HTML video로 직접 요청하고, 장면 시작점 seek 후 재생합니다. 기본적으로 장면 끝 이후에도 계속 재생하며 전체 위치·IN/OUT·구간 다시 재생을 제공합니다. `구간 반복`을 켜면 선택한 IN/OUT 구간을 반복하며 원본 끝과 OUT이 같아도 이어집니다. 반복 토글은 미디어를 다시 불러오지 않고 일시 정지를 유지하며, 미리보기를 다시 열거나 장면이 바뀌면 꺼짐으로 시작합니다. 미디어 요청은 세션 credentials와 브라우저 Range를 사용하고 JSON client를 통과하지 않습니다. 자동 재생 차단·로딩/이동 실패·구간 불일치를 안내하며 닫기와 장면 교체 시 이전 미디어를 정리합니다. ID 없는 기록 데모는 재생 불가로 표시합니다. 실제 검색 adapter는 `clipId`를 보존하고 `toScenePreviewMedia`로 밀리초를 초로 변환합니다. `preview=loading`의 타이머 기반 가짜 로딩은 제거했습니다. `/review?view=processing`은 `GET /review/inquiries?status=REVIEWING`과 `GET /clips`를 병렬 조회합니다. 문의의 `statusCounts`와 영상의 `run_counts`를 요약·탭 건수에 사용하며, 목록은 서버 필터와 10건 pagination을 사용합니다. 페이지는 기존 문의 게시판의 `page`와 분리한 `progressPage`로 URL에 보존하고 탭 변경 시 초기화합니다. 영상 등록 성공 시 실제 ID의 `GET /clips/{id}`로 이동하므로 새로고침에도 기록을 다시 조회합니다. 최신 처리 상태와 활성 검색 제공 여부를 분리하고 partial/unavailable/unsupported_version의 null 단계 수를 0이나 추정 진행률로 바꾸지 않습니다. 영상 목록은 전체 queued/running이 있을 때, 상세는 해당 run이 queued/running일 때 5초마다 갱신하며 terminal·오류에서 중단합니다. 문의 현황은 REVIEWING이 있을 때 15초마다 갱신합니다. 오류는 영역별로 표시하고 명시적으로 다시 조회할 수 있습니다. 상세는 단계·실패·자동 재시도 이력·대사 채택 기록을 표시하며 원본 영상은 세션 credentials를 포함한 `GET /media/{clipId}`로 재생합니다. 문의 상세·선점·판정은 기존 실제 API 컴포넌트를 재사용합니다. 수동 재처리, 장면 목록·썸네일, 제공되지 않는 파일 메타데이터는 합성하지 않습니다. 추가 BE 계약은 `docs/contracts/web-api.md` §6.5와 §7을 따릅니다. `registration-processing.ts`의 구 mock 변환은 제품 경로에서 사용하지 않습니다.
 
+영상 처리 상세의 10단계 파이프라인은 선택 상태를 단계별 장면 결과와 공유합니다. 성공 단계를 선택하면 실제 산출물을 장면 한 건씩만 렌더링하고, 실패·진행 중 단계는 상태와 재시도 정보를 표시합니다. 파이프라인 아래의 독립된 최종 분석 결과는 대표 프레임·캡션·최종 대사·태그·OCR을 한 장면씩 조합해 보여 줍니다. 두 영역 모두 좌우 버튼·방향키·모바일 스와이프로 이동합니다.
+
 ## 계층별 책임
 
 | 계층         | 책임                                                | 포함하지 않는 것                        |

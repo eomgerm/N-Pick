@@ -7,8 +7,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.npick.clip.application.query.analysis.GetClipAnalysisScenesUseCase;
 import com.npick.clip.application.query.detail.GetClipUseCase;
 import com.npick.clip.application.query.list.GetClipsUseCase;
+import com.npick.clip.presentation.response.ClipAnalysisScenesResponse;
 import com.npick.clip.presentation.response.ClipDetailResponse;
 import com.npick.clip.presentation.response.ClipPageResponse;
 import com.npick.common.response.ApiResponse;
@@ -19,10 +21,13 @@ import com.npick.common.security.resolver.LoginMember;
 public class ClipQueryController {
     private final GetClipsUseCase list;
     private final GetClipUseCase detail;
+    private final GetClipAnalysisScenesUseCase analysisScenes;
 
-    public ClipQueryController(GetClipsUseCase list, GetClipUseCase detail) {
+    public ClipQueryController(
+            GetClipsUseCase list, GetClipUseCase detail, GetClipAnalysisScenesUseCase analysisScenes) {
         this.list = list;
         this.detail = detail;
+        this.analysisScenes = analysisScenes;
     }
 
     @GetMapping("/api/v1/clips")
@@ -55,5 +60,18 @@ public class ClipQueryController {
                     "기본 대사 출처는 활성 run 기준. processing_details는 latest_run.pipeline_run_id 기준으로 저장된 단계/채택 기록을 조회한다. 구버전·누락 기록은 성공으로 추정하지 않는다.")
     public ApiResponse<ClipDetailResponse> detail(@PathVariable @Positive(message = "클립 ID는 양수여야 합니다.") long id) {
         return ApiResponse.success(ClipDetailResponse.from(detail.getClip(id)));
+    }
+
+    @GetMapping("/api/v1/clips/{clipId}/runs/{pipelineRunId}/scenes")
+    @io.swagger.v3.oas.annotations.Operation(
+            summary = "클립 처리 장면 분석 결과 조회",
+            description = "검수자 전용. 지정한 처리의 장면을 시간순으로 조회하며 대표 프레임 시각, 캡션, 채택 대사, 유효 태그, OCR 원문을 반환한다.")
+    public ApiResponse<ClipAnalysisScenesResponse> analysisScenes(
+            @PathVariable @Positive(message = "클립 ID는 양수여야 합니다.") long clipId,
+            @PathVariable @Positive(message = "처리 ID는 양수여야 합니다.") long pipelineRunId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(
+                ClipAnalysisScenesResponse.from(analysisScenes.get(clipId, pipelineRunId, page, size)));
     }
 }

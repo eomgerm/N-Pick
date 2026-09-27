@@ -306,10 +306,6 @@
 .detailHeading h1:focus {
   outline: none;
 }
-.detailTitle:focus-visible {
-  outline: 3px solid #386cb0;
-  outline-offset: 3px;
-}
 .facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -543,94 +539,11 @@
   background: #fff3eb;
   color: #913b2b;
 }
-.pipelineDetail .detailHeading {
-  justify-content: space-between;
-  gap: 8px 12px;
-  min-height: 36px;
-}
-.panel .pipelineDetail {
-  margin-top: 20px;
-  padding: 22px 24px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-}
-.pipelineFacts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin: 20px 0;
-}
-.pipelineFacts dt {
-  color: var(--muted);
-  font-size: 13px;
-}
-.pipelineFacts dd {
-  margin: 4px 0 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-.stageMeta {
-  color: var(--muted);
-  font-size: 14px;
-}
 .stageError {
   padding: 10px 12px;
   border-radius: 8px;
   background: #fff0e8;
   color: #913b2b;
-  font-size: 14px;
-}
-.transcriptDetails summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 44px;
-  border-radius: 6px;
-  color: var(--accent-strong);
-  font-size: 14px;
-  font-weight: 600;
-  list-style: none;
-  cursor: pointer;
-}
-.transcriptDetails summary::-webkit-details-marker {
-  display: none;
-}
-.transcriptDetails summary:hover {
-  background: #eaf0f7;
-}
-.transcriptDetails summary svg {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  transition: transform 180ms;
-}
-.transcriptDetails[open] > summary svg {
-  transform: rotate(180deg);
-}
-.attemptList {
-  display: grid;
-  gap: 8px;
-  padding: 12px 12px 12px 28px;
-  border-radius: 8px;
-  background: #edf1f6;
-  color: var(--muted);
-  font-size: 13px;
-}
-.transcriptDetails {
-  margin-top: 24px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-}
-.transcriptPanel .facts {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-.emptyRecord {
-  padding: 20px 16px;
-  border-radius: 10px;
-  background: #edf1f6;
-  color: var(--muted);
   font-size: 14px;
 }
 .detailPage :is(button, summary, [role='tabpanel']):focus-visible {
@@ -664,13 +577,6 @@
   }
   .detailPage {
     gap: 16px;
-  }
-  .pipelineFacts,
-  .transcriptPanel .facts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .panel .pipelineDetail {
-    padding: 18px 14px;
   }
   .detailColumns {
     grid-template-columns: minmax(0, 1fr);
@@ -717,8 +623,7 @@
 @media (prefers-reduced-motion: reduce) {
   .detailButton,
   .detailHeader .backButton,
-  .pipelineStep button,
-  .transcriptDetails summary svg {
+  .pipelineStep button {
     transition: none;
   }
 }

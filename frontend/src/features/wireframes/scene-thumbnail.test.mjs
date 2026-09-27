@@ -57,6 +57,20 @@ test('장면 대표 이미지를 받으면 표시할 objectUrl을 돌려준다',
   }
 });
 
+test('이미지 성공과 JSON 실패 응답을 모두 받을 수 있게 요청한다', async () => {
+  let requestedAccept;
+  const restore = stubFetch(async (_src, options) => {
+    requestedAccept = options.headers.accept;
+    return failure(404, 'SCENE_404_003');
+  });
+  try {
+    await loadSceneThumbnail('/api/v1/scenes/21/thumbnail', new AbortController().signal);
+    assert.equal(requestedAccept, 'image/*, application/json');
+  } finally {
+    restore();
+  }
+});
+
 test('이미지 없음과 파일 누락은 서로 다른 대체 안내를 준다', async () => {
   const cases = [
     ['SCENE_404_002', '대표 이미지를 아직 준비하고 있습니다.'],

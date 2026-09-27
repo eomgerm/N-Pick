@@ -34,9 +34,8 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
      * <p><b>장면 조인 한 줄이 상속이다.</b> {@code tg.scene_id IS NULL} 인 클립 전체 태그는 그 클립의 장면마다 한 줄로 펼쳐지고, 값이 있으면 그 장면에만 붙는다 (F-04
      * "영상 전체 태그는 해당 영상의 장면에 상속된다"). 판정기는 이 펼쳐진 결과를 {@code (scene_id, tag_id)} 로 묶기만 한다.
      *
-     * <p><b>클립 조인 두 조건이 검색 대상을 정한다.</b> FRD §6.1 — 「영상의 검색 가능 여부는 현재 제공 중인 {@code active_pipeline_run_id} 와 논리 삭제 여부로
-     * 판단한다」. 앞이 세대 격리고(재처리하면 같은 클립에 새 {@code pipeline_run} 과 새 장면이 생긴다) 뒤가 논리 삭제다. 단어 검색보다 여기서 더 위험하다 — 클립 태그 하나가 그 클립의
-     * 장면 <b>전부</b> 를 끌어올리므로, 빼면 삭제된 영상의 장면이 태그 하나로 통째로 올라온다.
+     * <p><b>클립 조인은 논리 삭제를 공통으로 제외한다.</b> 일반 검색 조회는 추가로 {@code active_pipeline_run_id} 와 일치하는 장면만 읽고, 처리 결과 검수 조회는 요청한
+     * clip/run에 속한 장면만 읽는다. 클립 태그 하나가 장면 전부에 상속되므로 둘 중 어느 제한도 빠져서는 안 된다.
      *
      * <p>{@code tag_evidence} 를 {@code INNER JOIN} 으로 붙인다. 근거가 하나도 없는 태깅은 어차피 유효하지 않으므로(F-04 "값만 저장하지 않고 출처와 확인 가능한 근거
      * 위치를 연결한다") 줄을 만들 필요가 없다.
@@ -54,11 +53,11 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             JOIN npick.tag t ON t.tag_id = tg.tag_id
             JOIN npick.scene s ON s.clip_id = tg.clip_id
                 AND (tg.scene_id IS NULL OR tg.scene_id = s.scene_id)
-            JOIN npick.clip c ON c.clip_id = s.clip_id
-                AND c.active_pipeline_run_id = s.pipeline_run_id
-                AND c.deleted_at IS NULL
+            JOIN npick.clip c ON c.clip_id = s.clip_id AND c.deleted_at IS NULL
             JOIN npick.tag_evidence e ON e.tagging_id = tg.tagging_id AND e.confirmed
             WHERE""";
+
+    private static final String ACTIVE_SCENE = "c.active_pipeline_run_id = s.pipeline_run_id AND ";
 
     private static final RowMapper<TagJudgment> ROW_MAPPER = (row, rowNumber) -> new TagJudgment(
             row.getLong("scene_id"),
@@ -96,7 +95,20 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
         // 제한하지 않으므로(FindTagMatchedScenesUseCase) 그 후보가 그대로 넘어오면 상한을 넘길 수 있고,
         // 그러면 태그가 빠지는 것이 아니라 질의가 죽는다. 배열은 파라미터 하나이고 실행 계획도 같다.
         return query(
-                "s.scene_id = ANY(:sceneIds)", new MapSqlParameterSource("sceneIds", sceneIds.toArray(Long[]::new)));
+                ACTIVE_SCENE + "s.scene_id = ANY(:sceneIds)",
+                new MapSqlParameterSource("sceneIds", sceneIds.toArray(Long[]::new)));
+    }
+
+    @Override
+    public List<TagJudgment> findByRunScenes(long clipId, long pipelineRunId, Collection<Long> sceneIds) {
+        Objects.requireNonNull(sceneIds, "sceneIds");
+        if (sceneIds.isEmpty()) return List.of();
+        return query(
+                "c.clip_id = :clipId AND s.pipeline_run_id = :pipelineRunId " + "AND s.scene_id = ANY(:sceneIds)",
+                new MapSqlParameterSource()
+                        .addValue("clipId", clipId)
+                        .addValue("pipelineRunId", pipelineRunId)
+                        .addValue("sceneIds", sceneIds.toArray(Long[]::new)));
     }
 
     @Override
@@ -136,7 +148,7 @@ class TagJudgmentQueryAdapter implements FindTagJudgmentsQueryPort {
             parameters.addValue("from" + index, condition.fromInclusive());
         }
 
-        return query("(" + predicate + ")", parameters);
+        return query(ACTIVE_SCENE + "(" + predicate + ")", parameters);
     }
 
     /**

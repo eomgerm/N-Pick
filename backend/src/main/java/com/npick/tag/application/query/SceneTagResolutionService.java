@@ -44,6 +44,12 @@ public class SceneTagResolutionService implements ResolveSceneTagsUseCase, FindT
     }
 
     @Override
+    public Map<Long, List<EffectiveTag>> resolveForRun(long clipId, long pipelineRunId, Collection<Long> sceneIds) {
+        if (sceneIds != null && sceneIds.isEmpty()) return Map.of();
+        return policy.resolve(judgments.findByRunScenes(clipId, pipelineRunId, sceneIds));
+    }
+
+    @Override
     public List<TagMatchedScene> find(List<TagCondition> conditions) {
         if (conditions != null && conditions.isEmpty()) {
             return List.of();

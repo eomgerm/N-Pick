@@ -1,21 +1,21 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { ChevronDown, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
-import { Tooltip } from '@/components/tooltip';
 import { getProcessingClip } from '@/features/wireframes/clip-processing-api';
 import {
   clipDetailPollInterval,
   clipRunLabels,
-  processingAsrStatusLabel,
+  defaultProcessingStage,
   processingProgressLabel,
   processingRecordLabel,
   processingStageLabel,
-  processingTranscriptLabel as transcriptLabel,
 } from '@/features/wireframes/clip-processing-view';
+import { ProcessingStageResults } from '@/features/wireframes/processing-analysis-results';
+import { ProcessingFinalAnalysisResults } from '@/features/wireframes/processing-final-analysis-results';
 import { ProcessingPipeline } from '@/features/wireframes/processing-pipeline';
 import {
   ProcessingRefreshStatus,
@@ -35,6 +35,7 @@ function dateLabel(value: string | null) {
 
 export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const mediaRef = useRef<HTMLVideoElement>(null);
   const [hasMediaError, setHasMediaError] = useState(false);
   const detail = useQuery({
     queryKey: ['processing-clip', clipId],
@@ -55,12 +56,17 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
   const data = detail.data;
   const clip = data?.clip;
   const title = displayClipTitle(clip?.title ?? null);
-  const titleCharacters = Array.from(title);
-  const headingTitle =
-    titleCharacters.length > 40 ? `${titleCharacters.slice(0, 40).join('')}...` : title;
   const run = clip?.latest_run;
   const processing = data?.processing_details;
-  const transcript = processing?.transcript;
+  const [stageSelection, setStageSelection] = useState<{ runId: string; name: string } | null>(
+    null,
+  );
+  const runId = run?.pipeline_run_id ?? null;
+  const activeStageName =
+    stageSelection?.runId === runId
+      ? stageSelection.name
+      : defaultProcessingStage(processing?.stages ?? []);
+  const activeStage = processing?.stages.find((stage) => stage.name === activeStageName);
   const registrationWindow = !run && clip ? `${clipId}:${clip.created_at}` : null;
   const registrationDeadline = !run && clip ? Date.parse(clip.created_at) + 60_000 : null;
   const [expiredRegistrationWindow, setExpiredRegistrationWindow] = useState<string | null>(null);
@@ -87,6 +93,14 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
     hasError: detail.isError,
     fetchStatus: detail.fetchStatus,
   });
+
+  function seekToScene(startTimeMs: number) {
+    const media = mediaRef.current;
+    if (!media) return;
+    media.currentTime = startTimeMs / 1000;
+    media.scrollIntoView({ behavior: 'auto', block: 'center' });
+    void media.play().catch(() => undefined);
+  }
 
   return (
     <div className={`${styles.page} ${styles.detailPage}`}>
@@ -124,17 +138,7 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
               <div className={styles.detailHeading}>
                 <div className={styles.titleCopy}>
                   <h1 ref={headingRef} tabIndex={-1} aria-label={title}>
-                    <Tooltip content={title} placement="bottom">
-                      {(descriptionId) => (
-                        <span
-                          className={styles.detailTitle}
-                          tabIndex={0}
-                          aria-describedby={descriptionId}
-                        >
-                          {headingTitle}
-                        </span>
-                      )}
-                    </Tooltip>
+                    {title}
                   </h1>
                   <p className={styles.registrationMeta}>
                     {clip.source_type === 'broadcast' ? '방송 영상' : '자료 영상'}
@@ -200,6 +204,7 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
             >
               <h2>원본 영상</h2>
               <video
+                ref={mediaRef}
                 key={clipId}
                 aria-label={title + ' 원본 영상'}
                 className={styles.media}
@@ -234,7 +239,22 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                   {processingRecordLabel(processing.record_status)}
                 </p>
               )}
-            <ProcessingPipeline stages={processing?.stages ?? []} />
+            <ProcessingPipeline
+              activeName={activeStageName}
+              onActiveNameChange={(name) => {
+                if (runId) setStageSelection({ runId, name });
+              }}
+              stages={processing?.stages ?? []}
+            />
+            <ProcessingStageResults
+              key={`${clipId}:${runId ?? 'no-run'}`}
+              clipId={clipId}
+              isProcessing={run?.status === 'queued' || run?.status === 'running'}
+              onSeek={seekToScene}
+              pipelineRunId={runId}
+              stage={activeStage}
+              stageName={activeStageName}
+            />
             <dl className={styles.facts}>
               <div>
                 <dt>실패·중단 단계</dt>
@@ -258,111 +278,14 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
               </div>
             </dl>
           </section>
-          <section
-            className={`${styles.panel} ${styles.detailSection} ${styles.transcriptPanel}`}
-            aria-label="대사 처리 기록"
-          >
-            <h2>대사 처리 기록</h2>
-            <h3>현재 검색 제공 결과</h3>
-            <dl className={styles.facts}>
-              <div>
-                <dt>기본 대사 출처</dt>
-                <dd>{transcriptLabel(data.default_transcript_source)}</dd>
-              </div>
-              <div>
-                <dt>첨부 자막</dt>
-                <dd>{data.has_subtitle ? '있음' : '없음'}</dd>
-              </div>
-              <div>
-                <dt>첨부 대본</dt>
-                <dd>{data.has_script ? '있음' : '없음'}</dd>
-              </div>
-            </dl>
-            <details className={styles.transcriptDetails}>
-              <summary>
-                최신 처리 시도의 대사 선택 <ChevronDown aria-hidden="true" />
-              </summary>
-              <dl className={styles.facts}>
-                <div>
-                  <dt>음성 인식 상태</dt>
-                  <dd>{processingAsrStatusLabel(data)}</dd>
-                </div>
-              </dl>
-              {transcript ? (
-                <>
-                  {transcript.record_status !== 'legacy' && (
-                    <p>{processingRecordLabel(transcript.record_status)}</p>
-                  )}
-                  <dl className={styles.facts}>
-                    <div>
-                      <dt>선택 단계</dt>
-                      <dd>
-                        {transcript.selection_stage
-                          ? processingStageLabel(transcript.selection_stage)
-                          : '미확인'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>채택 출처</dt>
-                      <dd>
-                        {transcript.used_sources === null
-                          ? '미확인'
-                          : transcript.used_sources.length
-                            ? transcript.used_sources.map(transcriptLabel).join(', ')
-                            : '없음'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>대표 출처</dt>
-                      <dd>{transcriptLabel(transcript.representative_source)}</dd>
-                    </div>
-                    <div>
-                      <dt>채택 사유</dt>
-                      <dd>
-                        {transcript.adoption_reasons === null
-                          ? '미확인'
-                          : transcript.adoption_reasons.length
-                            ? transcript.adoption_reasons.map(transcriptLabel).join(', ')
-                            : '기록 없음'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>음성 인식 필요</dt>
-                      <dd>
-                        {transcript.asr_required === null
-                          ? '미확인'
-                          : transcript.asr_required
-                            ? '필요'
-                            : '불필요'}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>선택 사유</dt>
-                      <dd>{transcriptLabel(transcript.selection_reason)}</dd>
-                    </div>
-                    <div>
-                      <dt>음성 인식 사유</dt>
-                      <dd>{transcriptLabel(transcript.asr_reason)}</dd>
-                    </div>
-                    <div>
-                      <dt>음성 인식 후보 구간</dt>
-                      <dd>
-                        {transcript.asr_segment_count === null
-                          ? '미확인'
-                          : `${transcript.asr_segment_count}개`}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>내장 자막</dt>
-                      <dd>{transcriptLabel(transcript.embedded_status)}</dd>
-                    </div>
-                  </dl>
-                </>
-              ) : (
-                <p className={styles.emptyRecord}>저장된 대사 선택 기록이 없습니다.</p>
-              )}
-            </details>
-          </section>
+          <ProcessingFinalAnalysisResults
+            key={`${clipId}:${runId ?? 'no-run'}:final`}
+            className={`${styles.panel} ${styles.detailSection}`}
+            clipId={clipId}
+            isProcessing={run?.status === 'queued' || run?.status === 'running'}
+            onSeek={seekToScene}
+            pipelineRunId={runId}
+          />
         </>
       )}
     </div>

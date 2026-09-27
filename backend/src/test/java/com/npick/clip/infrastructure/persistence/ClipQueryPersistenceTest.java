@@ -91,7 +91,11 @@ class ClipQueryPersistenceTest {
     void setup() {
         jdbc.update(
                 "INSERT INTO npick.member VALUES (1, 'query-reviewer', 'test-only', '검수자', 'reviewer', now(), now())");
-        mvc = MockMvcBuilders.standaloneSetup(new ClipQueryController(list, detail))
+        mvc = MockMvcBuilders.standaloneSetup(new ClipQueryController(
+                        list,
+                        detail,
+                        org.mockito.Mockito.mock(
+                                com.npick.clip.application.query.analysis.GetClipAnalysisScenesUseCase.class)))
                 .setCustomArgumentResolvers(new com.npick.common.security.resolver.CurrentMemberArgumentResolver())
                 .setControllerAdvice(new GlobalExceptionHandler(new ErrorTypeHttpStatusMapper()))
                 .build();

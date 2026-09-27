@@ -60,7 +60,7 @@ export async function loadSceneThumbnail(
     // 기본 cache mode라야 `private, no-cache` + ETag 재검증(304)이 그대로 동작한다.
     const response = await fetch(src, {
       credentials: 'include',
-      headers: { accept: 'image/*' },
+      headers: { accept: 'image/*, application/json' },
       redirect: 'error',
       signal,
     });

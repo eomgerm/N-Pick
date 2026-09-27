@@ -15,6 +15,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.npick.clip.application.query.ClipQueryResult;
+import com.npick.clip.application.query.analysis.GetClipAnalysisScenesUseCase;
 import com.npick.clip.application.query.detail.GetClipUseCase;
 import com.npick.clip.application.query.list.GetClipsResult;
 import com.npick.clip.application.query.list.GetClipsUseCase;
@@ -75,6 +76,9 @@ class ClipQuerySecurityTest {
     @MockitoBean
     GetClipUseCase detail;
 
+    @MockitoBean
+    GetClipAnalysisScenesUseCase analysis;
+
     @BeforeEach
     void setup() {
         org.mockito.Mockito.when(refreshLogin.register(
@@ -89,24 +93,25 @@ class ClipQuerySecurityTest {
 
     @Test
     void anonymousCannotReadEitherEndpoint() throws Exception {
-        for (String path : List.of("/api/v1/clips", "/api/v1/clips/10")) {
+        for (String path : List.of("/api/v1/clips", "/api/v1/clips/10", "/api/v1/clips/10/runs/20/scenes")) {
             mvc.perform(get(path))
                     .andExpect(status().isUnauthorized())
                     .andExpect(jsonPath("$.code").value("COMM_401"));
         }
-        verifyNoInteractions(list, detail);
+        verifyNoInteractions(list, detail, analysis);
     }
 
     @Test
     void editorAndUnrelatedRoleCannotReadEitherEndpoint() throws Exception {
         MockHttpSession session = login("editor");
-        for (String path : List.of("/api/v1/clips", "/api/v1/clips/10", "/api/v1/clips?mine=true")) {
+        for (String path : List.of(
+                "/api/v1/clips", "/api/v1/clips/10", "/api/v1/clips?mine=true", "/api/v1/clips/10/runs/20/scenes")) {
             mvc.perform(get(path).session(session))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("COMM_403"));
             mvc.perform(get(path).with(user("other").roles("OTHER"))).andExpect(status().isForbidden());
         }
-        verifyNoInteractions(list, detail);
+        verifyNoInteractions(list, detail, analysis);
     }
 
     @Test
@@ -128,6 +133,16 @@ class ClipQuerySecurityTest {
                         new com.npick.member.application.query.MemberSummary(7, "reviewer"),
                         null,
                         null));
+        when(analysis.get(10, 20, 0, 20))
+                .thenReturn(new com.npick.clip.application.query.analysis.ClipAnalysisScenesResult(
+                        10,
+                        20,
+                        false,
+                        new com.npick.clip.application.query.analysis.ClipAnalysisScenesResult.Summary(0, 0, 0, 0, 0),
+                        List.of(),
+                        0,
+                        20,
+                        0));
         MockHttpSession session = login("reviewer");
         mvc.perform(get("/api/v1/clips").session(session))
                 .andExpect(status().isOk())
@@ -135,6 +150,9 @@ class ClipQuerySecurityTest {
         mvc.perform(get("/api/v1/clips/10").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.clip.clip_id").value("10"));
+        mvc.perform(get("/api/v1/clips/10/runs/20/scenes").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pipeline_run_id").value("20"));
     }
 
     @Test
