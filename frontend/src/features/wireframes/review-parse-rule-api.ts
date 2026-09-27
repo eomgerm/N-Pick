@@ -217,6 +217,15 @@ function withText<Key extends string>(
   if (!blank(value)) target[key] = value!.trim();
 }
 
+/** 원본 해석 항목을 가리키는 대조값은 서버의 정확 일치와 같게 공백까지 보존한다. */
+function withExactText<Key extends string>(
+  target: Record<string, unknown>,
+  key: Key,
+  value: string | undefined,
+): void {
+  if (!blank(value)) target[key] = value;
+}
+
 function toRequestBody(body: ParseRuleCandidateBody): Record<string, unknown> {
   const request: Record<string, unknown> = {
     condition: {
@@ -225,7 +234,7 @@ function toRequestBody(body: ParseRuleCandidateBody): Record<string, unknown> {
       all: body.condition.all.map((predicate) => {
         const sent: Record<string, unknown> = { axis: predicate.axis, op: predicate.op };
         withText(sent, 'type', predicate.type);
-        withText(sent, 'value', predicate.value);
+        withExactText(sent, 'value', predicate.value);
         return sent;
       }),
     },
@@ -234,13 +243,14 @@ function toRequestBody(body: ParseRuleCandidateBody): Record<string, unknown> {
       operations: body.patch.operations.map((operation) => {
         const sent: Record<string, unknown> = { op: operation.op, axis: operation.axis };
         withText(sent, 'type', operation.type);
-        withText(sent, 'value', operation.value);
+        if (operation.op === 'remove_item') withExactText(sent, 'value', operation.value);
+        else withText(sent, 'value', operation.value);
         withText(sent, 'start', operation.start);
         withText(sent, 'end_exclusive', operation.end_exclusive);
         if (operation.value_from) {
           const from: Record<string, unknown> = { axis: operation.value_from.axis };
           withText(from, 'type', operation.value_from.type);
-          withText(from, 'value', operation.value_from.value);
+          withExactText(from, 'value', operation.value_from.value);
           sent.value_from = from;
         }
         return sent;

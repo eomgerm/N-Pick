@@ -5,7 +5,7 @@ import {
   RESOLUTION_SCHEMA_VERSION,
   resolutionAxisLabels,
 } from '@/features/wireframes/review-parse-rule-api';
-import { type Resolution } from '@/features/wireframes/reviewer-resolution-state';
+import { parseResolution, type Resolution } from '@/features/wireframes/reviewer-resolution-state';
 
 export type EditableAxis = 'incident_names' | 'entities' | 'locations' | 'expanded_terms';
 
@@ -25,6 +25,56 @@ export interface Chip {
   type?: string;
   origin?: string;
   isNew?: boolean;
+}
+
+export interface AdditionGuardOption {
+  id: string;
+  axis: EditableAxis;
+  value: string;
+  isExplicit: boolean;
+}
+
+const MAX_ADDITION_GUARD_LENGTH = 100;
+
+/** 새 항목이 다른 검색에 무조건 붙지 않도록, 원본 해석에서 적용 조건으로 고를 수 있는 값. */
+export function additionGuardOptions(original: Chip[]): AdditionGuardOption[] {
+  const indexByCondition = new Map<string, number>();
+  const options: AdditionGuardOption[] = [];
+  for (const chip of original) {
+    const value = chip.value;
+    if (chip.isNew || !value.trim() || value.length > MAX_ADDITION_GUARD_LENGTH) continue;
+    const key = `${chip.axis}\u0000${value}`;
+    const option = {
+      id: chip.id,
+      axis: chip.axis,
+      value,
+      isExplicit: chip.origin?.startsWith('explicit') ?? false,
+    };
+    const duplicateIndex = indexByCondition.get(key);
+    if (duplicateIndex === undefined) {
+      indexByCondition.set(key, options.length);
+      options.push(option);
+    } else if (option.isExplicit && !options[duplicateIndex].isExplicit) {
+      options[duplicateIndex] = option;
+    }
+  }
+  return options;
+}
+
+export function hasOversizedAdditionGuard(original: Chip[]): boolean {
+  return original.some(
+    (chip) =>
+      !chip.isNew && Boolean(chip.value.trim()) && chip.value.length > MAX_ADDITION_GUARD_LENGTH,
+  );
+}
+
+/** 자동 선택은 재해석 뒤에도 비교적 안정적인 명시값에만 한다. 추론값은 검수자가 직접 골라야 한다. */
+export function defaultAdditionGuard(options: AdditionGuardOption[]): AdditionGuardOption | null {
+  for (const axis of ['incident_names', 'entities', 'locations'] as const) {
+    const option = options.find((item) => item.axis === axis && item.isExplicit);
+    if (option) return option;
+  }
+  return null;
 }
 
 export function seedChips(resolution: Resolution): Chip[] {
@@ -51,6 +101,16 @@ export function seedChips(resolution: Resolution): Chip[] {
   return chips;
 }
 
+/** 문의 당시 해석 스냅샷을 칩으로 바꾼다. 없거나 깨진 스냅샷은 편집할 수 없다. */
+export function seedChipsFromJson(json: string | null): Chip[] | null {
+  if (!json) return null;
+  try {
+    return seedChips(parseResolution(json));
+  } catch {
+    return null;
+  }
+}
+
 export type ChipEdit =
   | { kind: 'remove'; axis: EditableAxis; value: string; type?: string }
   | { kind: 'edit'; axis: EditableAxis; from: string; to: string; type?: string }
@@ -70,14 +130,16 @@ export function deriveEdits(original: Chip[], current: Chip[]): ChipEdit[] {
   const seen = new Set<string>();
   const edits: ChipEdit[] = [];
   for (const chip of current) {
-    const value = chip.value.trim();
     if (chip.isNew) {
+      const value = chip.value.trim();
       if (value) edits.push({ kind: 'add', axis: chip.axis, value, type: chip.type });
       continue;
     }
     const before = originalById.get(chip.id);
     if (!before) continue;
     seen.add(chip.id);
+    if (chip.axis === before.axis && chip.value === before.value) continue;
+    const value = chip.value.trim();
     if (!value) {
       edits.push({ kind: 'remove', axis: before.axis, value: before.value, type: before.type });
       continue;
@@ -239,4 +301,15 @@ export function describeEdits(edits: ChipEdit[]): { key: string; text: string }[
       };
     return { key: '추가', text: `${resolutionAxisLabels[edit.axis]}에 ‘${edit.value}’` };
   });
+}
+
+export function groupEditDescriptions(descriptions: { key: string; text: string }[]) {
+  return [
+    { key: '추가', tone: 'add' },
+    { key: '삭제', tone: 'remove' },
+    { key: '수정', tone: 'edit' },
+  ].map((group) => ({
+    ...group,
+    items: descriptions.filter((description) => description.key === group.key),
+  }));
 }

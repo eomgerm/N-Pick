@@ -5,15 +5,20 @@ import { type DragEvent, type KeyboardEvent, useId, useRef, useState } from 'rea
 
 import { ApiErrorNotice } from '@/components/api-error-notice';
 import {
+  additionGuardOptions,
+  defaultAdditionGuard,
   defaultType,
   deriveEdits,
   deriveParseRules,
   describeEdits,
-  seedChips,
+  groupEditDescriptions,
+  hasOversizedAdditionGuard,
+  seedChipsFromJson,
   EDITABLE_AXES,
   type Chip,
   type EditableAxis,
 } from '@/features/wireframes/interpretation-edit';
+import { InterpretationAdditionGuard } from '@/features/wireframes/review-interpretation-addition-guard';
 import {
   countParseRuleDrafts,
   draftLimitStatus,
@@ -29,7 +34,6 @@ import {
   resolutionAxisLabels,
   validateParseRuleBody,
 } from '@/features/wireframes/review-parse-rule-api';
-import { parseResolution } from '@/features/wireframes/reviewer-resolution-state';
 import { useCorrectionCandidates } from '@/features/wireframes/use-correction-candidates';
 import styles from '@/features/wireframes/review-interpretation-editor.module.css';
 import { ApiClientError } from '@/lib/api/error';
@@ -41,34 +45,12 @@ interface ParseInterpretationEditorProps {
 
 const MAX_CHIP_VALUE_LENGTH = 20;
 
-/** 문의 당시 해석 스냅샷을 칩으로 씨딩한다. 없거나 깨졌으면 편집할 것이 없다. */
-function seedFromJson(json: string | null): Chip[] | null {
-  if (!json) return null;
-  try {
-    return seedChips(parseResolution(json));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * add 규칙의 적용 조건이 될 대표 값. 사건명 우선, 없으면 인물·기관, 없으면 장소·시설의 첫 값.
- * 추론값(`inferred`)은 리졸버가 재실행되면 흔들릴 수 있어 후보에서 뺀다 — 명시(`explicit*`) 칩만 본다.
- */
-function computeGuard(original: Chip[]): { axis: EditableAxis; value: string } | null {
-  for (const axis of ['incident_names', 'entities', 'locations'] as const) {
-    const chip = original.find((item) => item.axis === axis && item.origin?.startsWith('explicit'));
-    if (chip) return { axis, value: chip.value };
-  }
-  return null;
-}
-
 export function ParseInterpretationEditor({
   feedbackId,
   parsedQueryJson,
 }: ParseInterpretationEditorProps) {
   const queryClient = useQueryClient();
-  const seeded = seedFromJson(parsedQueryJson);
+  const seeded = seedChipsFromJson(parsedQueryJson);
   // 원본 스냅샷은 다시 세팅하지 않는 값이라 state 로 보존한다 (렌더 중 ref.current 를 읽지 않기 위함).
   const [originalChips] = useState<Chip[]>(() => seeded ?? []);
   const [chips, setChips] = useState<Chip[]>(() => seeded ?? []);
@@ -77,6 +59,11 @@ export function ParseInterpretationEditor({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetAxis, setDropTargetAxis] = useState<EditableAxis | null>(null);
   const newChipCounter = useRef(0);
+  const guardOptions = additionGuardOptions(originalChips);
+  const [selectedGuardId, setSelectedGuardId] = useState<string | null>(
+    () => defaultAdditionGuard(guardOptions)?.id ?? null,
+  );
+  const [guardPicker, setGuardPicker] = useState<{ addAxis: EditableAxis | null } | null>(null);
   // 이 화면이 마지막으로 POST 를 보내기 시작한 규칙 묶음. 첫 POST 전에 기록한다 — 응답이 유실되거나 일부만
   // 저장돼도 서버에 남았을 수 있다고 본다 (S15P21A501-309). 새로고침 뒤에는 서버 목록(previousCount)으로 안다.
   const [lastAttempt, setLastAttempt] = useState<string | null>(null);
@@ -84,17 +71,11 @@ export function ParseInterpretationEditor({
   const previousCount = candidates.data?.parsePatches.length ?? 0;
   const suppressBlur = useRef(false);
 
-  const guard = computeGuard(originalChips);
+  const selectedGuard = guardOptions.find((option) => option.id === selectedGuardId) ?? null;
+  const guard = selectedGuard ? { axis: selectedGuard.axis, value: selectedGuard.value } : null;
   const edits = deriveEdits(originalChips, chips);
   const descriptions = describeEdits(edits);
-  const descriptionGroups = [
-    { key: '추가', tone: 'add' },
-    { key: '삭제', tone: 'remove' },
-    { key: '수정', tone: 'edit' },
-  ].map((group) => ({
-    ...group,
-    items: descriptions.filter((description) => description.key === group.key),
-  }));
+  const descriptionGroups = groupEditDescriptions(descriptions);
   const rules = deriveParseRules(edits, guard);
   const draftCount = countParseRuleDrafts(rules.length, chips);
   const draftLimit = draftLimitStatus(draftCount);
@@ -226,6 +207,25 @@ export function ParseInterpretationEditor({
     setChips((prev) => [...prev, chip]);
     setEditingId(chip.id);
     setEditDraft('');
+  }
+
+  function requestAddChip(axis: EditableAxis) {
+    if (locked || draftLimit.isAtLimit || guardOptions.length === 0) return;
+    if (selectedGuard) {
+      addChip(axis);
+      return;
+    }
+    setGuardPicker({ addAxis: axis });
+  }
+
+  function selectAdditionGuard(id: string) {
+    const option = guardOptions.find((item) => item.id === id);
+    if (!option) return;
+    const addAxis = guardPicker?.addAxis ?? null;
+    if (id !== selectedGuardId && edits.some((edit) => edit.kind === 'add')) save.reset();
+    setSelectedGuardId(id);
+    setGuardPicker(null);
+    if (addAxis && !draftLimit.isAtLimit) addChip(addAxis);
   }
 
   function commitEdit() {
@@ -388,11 +388,8 @@ export function ParseInterpretationEditor({
                 <button
                   aria-label={`${resolutionAxisLabels[axis]}에 항목 추가`}
                   className={styles.addButton}
-                  disabled={locked || !guard || draftLimit.isAtLimit}
-                  onClick={() => addChip(axis)}
-                  title={
-                    guard ? undefined : '대표 항목(사건명·인물·장소)이 없어 추가할 수 없습니다.'
-                  }
+                  disabled={locked || guardOptions.length === 0 || draftLimit.isAtLimit}
+                  onClick={() => requestAddChip(axis)}
                   type="button"
                 >
                   +
@@ -402,11 +399,16 @@ export function ParseInterpretationEditor({
           ))}
         </div>
 
-        {!guard ? (
-          <p className={styles.guardNotice}>
-            사건명·인물·장소 항목이 없어 새 항목을 추가할 수 없습니다.
-          </p>
-        ) : null}
+        <InterpretationAdditionGuard
+          hasOversized={hasOversizedAdditionGuard(originalChips)}
+          isBusy={locked}
+          isChoosing={guardPicker !== null}
+          onCancel={() => setGuardPicker(null)}
+          onChange={() => setGuardPicker({ addAxis: null })}
+          onSelect={selectAdditionGuard}
+          options={guardOptions}
+          selected={selectedGuard}
+        />
       </section>
 
       <section

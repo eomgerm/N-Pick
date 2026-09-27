@@ -141,6 +141,17 @@ test('변화 없으면 빈 배열', () => {
   );
 });
 
+test('원본 공백을 보존한 칩에 새 항목을 추가해도 원본 칩은 수정으로 분류하지 않는다', () => {
+  const original = [{ id: 'expanded_terms#0', axis: 'expanded_terms', value: ' 정체 ' }];
+  assert.deepEqual(
+    deriveEdits(original, [
+      { ...original[0] },
+      { id: 'new-1', axis: 'expanded_terms', value: ' 나들이 ', isNew: true },
+    ]),
+    [{ kind: 'add', axis: 'expanded_terms', value: '나들이', type: undefined }],
+  );
+});
+
 const { deriveParseRules } = await import('./interpretation-edit.ts');
 
 test('remove: 비TYPED 축은 type 없이, TYPED 축은 type 포함', () => {

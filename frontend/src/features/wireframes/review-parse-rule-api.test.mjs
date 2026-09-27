@@ -210,6 +210,37 @@ test('계약대로 경로·메서드·멱등성 키를 보내고 빈 값 키는 
   });
 });
 
+test('원본 항목 대조값은 공백까지 보존하고 새 리터럴만 정리해 보낸다', async (context) => {
+  const requests = [];
+  stubOk(context, requests);
+  const originalValue = ' 정체 ';
+
+  await createParsePatchCandidate(
+    '41',
+    draft({
+      condition: { all: [{ axis: 'locations', op: 'has_value', value: originalValue }] },
+      patch: {
+        operations: [
+          { op: 'remove_item', axis: 'locations', type: 'location', value: originalValue },
+          {
+            op: 'add_item',
+            axis: 'incident_names',
+            value_from: { axis: 'locations', type: 'location', value: originalValue },
+          },
+          { op: 'add_item', axis: 'incident_names', value: ' 새 사건 ' },
+        ],
+      },
+    }),
+    'parse-key-exact-source-value',
+  );
+
+  const sent = JSON.parse(requests[0].init.body);
+  assert.equal(sent.condition.all[0].value, originalValue);
+  assert.equal(sent.patch.operations[0].value, originalValue);
+  assert.equal(sent.patch.operations[1].value_from.value, originalValue);
+  assert.equal(sent.patch.operations[2].value, '새 사건');
+});
+
 test('교체 대상을 적으면 그때만 replacesRuleId 를 보낸다', async (context) => {
   const requests = [];
   stubOk(context, requests);
