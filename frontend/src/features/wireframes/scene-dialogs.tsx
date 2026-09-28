@@ -1,77 +1,43 @@
 'use client';
-
 import {
-  AlertTriangle,
   Check,
   ChevronLeft,
   ChevronRight,
-  Clock3,
-  Flag,
+  CircleSlash,
+  Download,
   LoaderCircle,
-  Pause,
   Play,
-  RotateCcw,
+  TriangleAlert,
   X,
 } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
-import { formatTimestamp, type SearchResult } from '@/features/wireframes/demo-scenes';
+import { getVerificationStatusLabel, type SearchResult } from '@/features/wireframes/demo-scenes';
+import {
+  formatMediaTime,
+  getClipDownloadUrl,
+  getSceneDownloadUrl,
+} from '@/features/wireframes/scene-preview-media';
+import {
+  checkClipDownload,
+  ClipDownloadError,
+  fetchSceneDownload,
+  saveSceneDownload,
+  SceneDownloadError,
+  startClipDownload,
+} from '@/features/wireframes/scene-download';
+import {
+  canCreateInquiry,
+  type SearchExecutionPresentation,
+  successfulSearchExecution,
+} from '@/features/wireframes/search-execution-status';
+import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
 import shinhanStyles from '@/features/wireframes/shinhan-search.module.css';
-
-interface SceneDialogProps {
-  children: ReactNode;
-  className: string;
-  labelledBy: string;
-  theme: WireframeTheme;
-  onClose: () => void;
-}
-
-function SceneDialog({ children, className, labelledBy, theme, onClose }: SceneDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    const previousFocus = document.activeElement;
-    const previousOverflow = document.body.style.overflow;
-    dialog?.showModal();
-    document.body.style.overflow = 'hidden';
-    return () => {
-      dialog?.close();
-      document.body.style.overflow = previousOverflow;
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
-        previousFocus.focus({ preventScroll: true });
-      }
-    };
-  }, []);
-
-  return (
-    <dialog
-      aria-labelledby={labelledBy}
-      className={`${styles.dialogTheme} ${styles.dialog} ${className}`}
-      data-theme={theme}
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onMouseDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        const bounds = event.currentTarget.getBoundingClientRect();
-        if (
-          event.clientX < bounds.left ||
-          event.clientX > bounds.right ||
-          event.clientY < bounds.top ||
-          event.clientY > bounds.bottom
-        )
-          onClose();
-      }}
-      ref={dialogRef}
-    >
-      {children}
-    </dialog>
-  );
-}
+import { ScenePreviewPlayer } from '@/features/wireframes/scene-preview-player';
+import { SceneDialog } from '@/features/wireframes/scene-dialog';
+import previewStyles from '@/features/wireframes/scene-preview-dialog.module.css';
 
 type ScenePreviewResult = Pick<
   SearchResult,
@@ -87,12 +53,17 @@ type ScenePreviewResult = Pick<
   Partial<
     Pick<
       SearchResult,
+      | 'additionalEvidence'
+      | 'clipId'
       | 'clip'
+      | 'sceneId'
+      | 'searchResultId'
       | 'totalSeconds'
       | 'totalDuration'
       | 'broadcastDate'
-      | 'filmingDate'
+      | 'filmedDate'
       | 'filmingState'
+      | 'matchEvidence'
       | 'shotType'
     >
   > & {
@@ -105,12 +76,13 @@ interface ScenePreviewDialogProps {
   scenes?: ScenePreviewResult[];
   theme: WireframeTheme;
   isSubmitted?: boolean;
+  isSubmitting?: boolean;
   onInquiry?: () => void;
   contextLabel?: string;
   notice?: string;
   autoPlay?: boolean;
+  searchExecution?: SearchExecutionPresentation;
   onClose: () => void;
-  keepLoading?: boolean;
 }
 
 export function ScenePreviewDialog({
@@ -118,27 +90,54 @@ export function ScenePreviewDialog({
   scenes,
   theme,
   isSubmitted,
+  isSubmitting = false,
   onInquiry,
   onClose,
-  keepLoading = false,
   contextLabel,
   notice,
-  autoPlay = false,
+  autoPlay = true,
+  searchExecution = successfulSearchExecution,
 }: ScenePreviewDialogProps) {
   const [selectedSceneId, setSelectedSceneId] = useState(initialResult.id);
+  const [downloadingSceneId, setDownloadingSceneId] = useState<string | null>(null);
+  const [sceneDownloadFailure, setSceneDownloadFailure] = useState<{
+    sceneId: string;
+    message: string;
+  } | null>(null);
+  const sceneDownloadControllerRef = useRef<AbortController | null>(null);
+  const [checkingClipId, setCheckingClipId] = useState<string | null>(null);
+  const [clipDownloadFailure, setClipDownloadFailure] = useState<{
+    clipId: string;
+    message: string;
+  } | null>(null);
+  const clipDownloadControllerRef = useRef<AbortController | null>(null);
   const result = scenes?.find((scene) => scene.id === selectedSceneId) ?? initialResult;
+  const filmingStatus = result.filmedDate ? (result.filmingState ?? 'unknown') : 'unknown';
+  const evidenceField = result.matchEvidence?.field ?? result.evidenceType;
+  const evidenceValue = result.matchEvidence?.value ?? result.evidence;
+  const evidenceSource = result.matchEvidence?.source ?? result.source;
   const selectedSceneIndex = scenes?.findIndex((scene) => scene.id === result.id) ?? -1;
-  const [loadedSceneId, setLoadedSceneId] = useState<string | number | null>(null);
-  const isLoading = keepLoading || loadedSceneId !== result.id;
-  const [isPlaying, setIsPlaying] = useState(autoPlay);
-  const [replayCount, setReplayCount] = useState(0);
   const sceneListRef = useRef<HTMLOListElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const inquiryUnavailableReasonId = useId();
+  const hasSavedResult =
+    typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
+  // 문의 가능 여부는 선택한 결과 자신의 저장 상태로 판단한다. 더보기로 이어 붙인 실행 상태가
+  // 다른 페이지의 snapshot 실패로 degraded 여도, 이 결과에 search_result_id 가 있으면 문의할 수
+  // 있다. snapshot 실패한 페이지의 결과는 id 자체가 없어 hasSavedResult 로 이미 걸러진다
+  // (web-api §5.1, S15P21A501-251 P1). 전역 canCreateInquiry 게이트는 문구 안내에만 쓴다.
+  const isInquiryUnavailable = !isSubmitted && !hasSavedResult;
+  const clipDownloadUrl = getClipDownloadUrl(result.clipId);
+  const sceneDownloadUrl = getSceneDownloadUrl(result.sceneId);
+  const isSceneDownloading = downloadingSceneId === result.sceneId;
+  const sceneDownloadError =
+    sceneDownloadFailure?.sceneId === result.sceneId ? sceneDownloadFailure?.message : null;
+  const isClipDownloadChecking = checkingClipId === result.clipId;
+  const clipDownloadError =
+    clipDownloadFailure?.clipId === result.clipId ? clipDownloadFailure?.message : null;
   useEffect(() => {
-    if (keepLoading) return;
-    // 미디어 API 연결 전, 로딩 → 준비 화면 전환을 보여 주는 데모입니다.
-    const timer = window.setTimeout(() => setLoadedSceneId(result.id), 1000);
-    return () => window.clearTimeout(timer);
-  }, [keepLoading, result.id]);
+    closeButtonRef.current?.focus({ preventScroll: true });
+  }, []);
   useEffect(() => {
     const list = sceneListRef.current;
     const selected = list?.querySelector<HTMLElement>('[aria-current="true"]');
@@ -151,26 +150,88 @@ export function ScenePreviewDialog({
       list.scrollTop += selectedBounds.bottom - listBounds.bottom;
     }
   }, [result.id]);
-  const previewTimelineStyle = {
-    '--scene-start': result.totalSeconds
-      ? `${(result.sceneStart / result.totalSeconds) * 100}%`
-      : '0%',
-    '--scene-width': result.totalSeconds
-      ? `${((result.sceneEnd - result.sceneStart) / result.totalSeconds) * 100}%`
-      : '100%',
-  } as CSSProperties;
+  useEffect(() => {
+    return () => {
+      const controller = sceneDownloadControllerRef.current;
+      controller?.abort();
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
+    };
+  }, [result.sceneId]);
+  useEffect(() => {
+    return () => {
+      const controller = clipDownloadControllerRef.current;
+      controller?.abort();
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
+      }
+    };
+  }, [result.clipId]);
 
-  function handleReplay() {
-    setReplayCount((current) => current + 1);
-    setIsPlaying(true);
+  async function handleSceneDownload() {
+    if (!sceneDownloadUrl || !result.sceneId || sceneDownloadControllerRef.current) return;
+    const sceneId = result.sceneId;
+    const controller = new AbortController();
+    sceneDownloadControllerRef.current = controller;
+    setDownloadingSceneId(sceneId);
+    setSceneDownloadFailure(null);
+    setClipDownloadFailure(null);
+    try {
+      const download = await fetchSceneDownload(sceneDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) {
+        saveSceneDownload(download.blob, download.fileName ?? `scene-${sceneId}.mp4`);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setSceneDownloadFailure({
+          sceneId,
+          message:
+            error instanceof SceneDownloadError
+              ? error.message
+              : '장면 영상을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (sceneDownloadControllerRef.current === controller) {
+        sceneDownloadControllerRef.current = null;
+        setDownloadingSceneId(null);
+      }
+    }
   }
-
+  async function handleClipDownload() {
+    if (!clipDownloadUrl || !result.clipId || clipDownloadControllerRef.current) return;
+    const clipId = result.clipId;
+    const controller = new AbortController();
+    clipDownloadControllerRef.current = controller;
+    setCheckingClipId(clipId);
+    setClipDownloadFailure(null);
+    setSceneDownloadFailure(null);
+    try {
+      await checkClipDownload(clipDownloadUrl, controller.signal);
+      if (!controller.signal.aborted) startClipDownload(clipDownloadUrl);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setClipDownloadFailure({
+          clipId,
+          message:
+            error instanceof ClipDownloadError
+              ? error.message
+              : '원본 클립을 다운로드하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+      }
+    } finally {
+      if (clipDownloadControllerRef.current === controller) {
+        clipDownloadControllerRef.current = null;
+        setCheckingClipId(null);
+      }
+    }
+  }
   function handleSceneSelect(scene: ScenePreviewResult) {
     if (scene.id === result.id) return;
     setSelectedSceneId(scene.id);
-    setLoadedSceneId(null);
-    setIsPlaying(autoPlay);
-    setReplayCount(0);
   }
 
   return (
@@ -184,131 +245,141 @@ export function ScenePreviewDialog({
         <div>
           <span>{contextLabel ?? `구간 영상 정보 · 장면 #${result.id}`}</span>
           <h2 id="preview-title">{result.title}</h2>
-          {result.clip ? <p>{result.clip}</p> : null}
+          {result.clip ? <p className={previewStyles.previewClipName}>{result.clip}</p> : null}
           {notice ? <p className={styles.previewNotice}>{notice}</p> : null}
         </div>
         <div className={styles.previewHeaderActions}>
-          {onInquiry ? (
-            <button
-              className={styles.previewReportButton}
-              disabled={isSubmitted}
-              onClick={onInquiry}
-              type="button"
-            >
-              {isSubmitted ? <Check aria-hidden="true" /> : <Flag aria-hidden="true" />}
-              {isSubmitted ? '접수됨' : '이상해요'}
-            </button>
-          ) : null}
           <button
             aria-label="Preview 닫기"
             className={styles.iconButton}
             onClick={onClose}
+            ref={closeButtonRef}
             title="Preview 닫기"
             type="button"
           >
             <X aria-hidden="true" />
           </button>
         </div>
+        <div className={previewStyles.previewHeaderMetaRow}>
+          <p className={previewStyles.previewSceneMeta}>
+            <span>
+              {formatMediaTime(result.sceneStart)} – {formatMediaTime(result.sceneEnd)}
+            </span>
+            <span>{result.duration}</span>
+          </p>
+          {onInquiry ? (
+            <div className={styles.previewInquiryAction}>
+              <button
+                aria-busy={isSubmitting}
+                aria-describedby={isInquiryUnavailable ? inquiryUnavailableReasonId : undefined}
+                aria-disabled={isInquiryUnavailable || undefined}
+                className={styles.previewReportButton}
+                data-state={
+                  isSubmitted
+                    ? 'submitted'
+                    : isSubmitting
+                      ? 'submitting'
+                      : isInquiryUnavailable
+                        ? 'unavailable'
+                        : 'ready'
+                }
+                disabled={isSubmitted || isSubmitting}
+                onClick={() => {
+                  if (!isInquiryUnavailable) onInquiry();
+                }}
+                type="button"
+              >
+                {isSubmitted ? (
+                  <Check aria-hidden="true" />
+                ) : isSubmitting ? (
+                  <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                ) : isInquiryUnavailable ? (
+                  <CircleSlash aria-hidden="true" />
+                ) : (
+                  <TriangleAlert aria-hidden="true" />
+                )}
+                {isSubmitted
+                  ? '접수됨'
+                  : isSubmitting
+                    ? '접수 중'
+                    : isInquiryUnavailable
+                      ? '문의 불가'
+                      : '이상해요'}
+              </button>
+              {isInquiryUnavailable ? (
+                <span
+                  className={styles.previewInquiryTooltip}
+                  id={inquiryUnavailableReasonId}
+                  role="tooltip"
+                >
+                  {!canCreateInquiry(searchExecution)
+                    ? '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.'
+                    : '저장된 검색 결과가 아니므로 문의할 수 없습니다.'}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className={styles.previewModalBody}>
         <div className={styles.previewPlayer}>
-          {isLoading ? (
-            <div aria-busy="true" className={shinhanStyles.previewLoading} role="status">
-              <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
-              <strong>장면을 불러오고 있어요</strong>
-              <p>
-                {formatTimestamp(result.sceneStart)}부터 시작하는 영상을 준비하고 있어요.
-                <br />
-                잠시만 기다려 주세요.
-              </p>
-            </div>
-          ) : (
-            <div
-              aria-label={result.imageLabel}
-              className={`${styles.previewMedia} ${result.imageClass}`}
-              key={`media-${result.id}-${replayCount}`}
-              role="group"
-            >
-              <button
-                aria-label={isPlaying ? '일시정지' : '재생'}
-                className={styles.previewPlay}
-                onClick={() => setIsPlaying((current) => !current)}
-                title={isPlaying ? '일시정지' : '재생'}
-                type="button"
+          <ScenePreviewPlayer
+            key={`${result.id}:${result.clipId ?? ''}`}
+            clipId={result.clipId}
+            sceneStart={result.sceneStart}
+            sceneEnd={result.sceneEnd}
+            title={result.title}
+            autoPlay={autoPlay}
+          />
+          {clipDownloadUrl || sceneDownloadUrl ? (
+            <div className={styles.previewPlayerActions}>
+              <div
+                className={styles.previewDownloadActions}
+                aria-label="영상 다운로드"
+                role="group"
               >
-                {isPlaying ? (
-                  <Pause aria-hidden="true" fill="currentColor" />
-                ) : (
-                  <Play aria-hidden="true" fill="currentColor" />
-                )}
-              </button>
-              <span className={styles.playingBadge} data-playing={isPlaying}>
-                <span aria-hidden="true" /> {isPlaying ? '재생 중' : '일시 정지'}
-              </span>
+                {sceneDownloadUrl ? (
+                  <button
+                    aria-busy={isSceneDownloading || undefined}
+                    className={styles.previewDownloadButton}
+                    disabled={isSceneDownloading}
+                    onClick={() => void handleSceneDownload()}
+                    type="button"
+                  >
+                    {isSceneDownloading ? (
+                      <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                    ) : (
+                      <Download aria-hidden="true" />
+                    )}
+                    {isSceneDownloading ? '장면 준비 중…' : '장면 다운로드'}
+                  </button>
+                ) : null}
+                {clipDownloadUrl ? (
+                  <button
+                    aria-busy={isClipDownloadChecking || undefined}
+                    className={styles.previewDownloadButton}
+                    disabled={isClipDownloadChecking}
+                    onClick={() => void handleClipDownload()}
+                    type="button"
+                  >
+                    {isClipDownloadChecking ? (
+                      <LoaderCircle aria-hidden="true" className={shinhanStyles.spinner} />
+                    ) : (
+                      <Download aria-hidden="true" />
+                    )}
+                    {isClipDownloadChecking ? '원본 확인 중…' : '원본 클립 다운로드'}
+                  </button>
+                ) : null}
+              </div>
             </div>
-          )}
-          {!notice ? (
-            <p className={shinhanStyles.previewNote}>
-              화면 미리보기용 영상 상태입니다. 실제 영상 재생은 연결 전이에요.
+          ) : null}
+          {sceneDownloadError || clipDownloadError ? (
+            <p className={styles.previewDownloadError} role="alert">
+              {sceneDownloadError ?? clipDownloadError}
             </p>
           ) : null}
-
-          <div
-            aria-label={`${result.totalDuration ? `전체 ${result.totalDuration} 중 ` : ''}${formatTimestamp(
-              result.sceneStart,
-            )}부터 ${formatTimestamp(result.sceneEnd)}까지 재생 구간`}
-            className={`${styles.timelinePanel} ${isPlaying && !isLoading ? styles.timelinePlaying : ''}`}
-            key={`timeline-${result.id}-${replayCount}`}
-            style={previewTimelineStyle}
-          >
-            <div className={styles.timelineHeading}>
-              <strong>{result.totalSeconds ? '전체 영상' : '문의한 영상 구간'}</strong>
-              <span>
-                선택 구간 <b>{result.duration}</b>
-              </span>
-            </div>
-            {result.totalSeconds ? (
-              <div className={styles.timelineTrack}>
-                <span className={styles.sceneRange}>
-                  <span className={styles.sceneProgress} />
-                  <span className={styles.timelinePlayhead} />
-                </span>
-              </div>
-            ) : null}
-            {result.totalDuration ? (
-              <div className={styles.timelineLabels}>
-                <span>00:00</span>
-                <span>{result.totalDuration}</span>
-              </div>
-            ) : null}
-            <div className={styles.sceneBounds}>
-              <span>IN {formatTimestamp(result.sceneStart)}</span>
-              <span>OUT {formatTimestamp(result.sceneEnd)}</span>
-            </div>
-          </div>
-
-          <div className={`${styles.previewControls} ${shinhanStyles.playbackControls}`}>
-            <div className={styles.previewControlButtons}>
-              <button
-                className={styles.playbackButton}
-                disabled={isLoading}
-                onClick={() => setIsPlaying((current) => !current)}
-                type="button"
-              >
-                {isPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                {isPlaying ? '일시정지' : '재생'}
-              </button>
-              <button disabled={isLoading} onClick={handleReplay} type="button">
-                <RotateCcw aria-hidden="true" /> 구간 다시 재생
-              </button>
-            </div>
-            {result.totalDuration ? (
-              <span>
-                <Clock3 aria-hidden="true" /> 원본 {result.totalDuration}
-              </span>
-            ) : null}
-          </div>
+          <SearchResultNotices execution={searchExecution} variant="preview" />
         </div>
 
         <div className={styles.previewSidebar}>
@@ -346,7 +417,7 @@ export function ScenePreviewDialog({
                   <li key={scene.id}>
                     <button
                       aria-current={scene.id === result.id ? 'true' : undefined}
-                      aria-label={`구간 ${index + 1}: ${scene.title}, ${formatTimestamp(scene.sceneStart)}부터 ${formatTimestamp(scene.sceneEnd)}까지`}
+                      aria-label={`구간 ${index + 1}: ${scene.title}, ${formatMediaTime(scene.sceneStart)}부터 ${formatMediaTime(scene.sceneEnd)}까지`}
                       onClick={() => handleSceneSelect(scene)}
                       type="button"
                     >
@@ -356,7 +427,7 @@ export function ScenePreviewDialog({
                       <span className={styles.sceneListInfo}>
                         <strong>{scene.title}</strong>
                         <span>
-                          {formatTimestamp(scene.sceneStart)} – {formatTimestamp(scene.sceneEnd)} ·{' '}
+                          {formatMediaTime(scene.sceneStart)} – {formatMediaTime(scene.sceneEnd)} ·{' '}
                           {scene.duration}
                         </span>
                       </span>
@@ -367,180 +438,62 @@ export function ScenePreviewDialog({
               </ol>
             </section>
           ) : null}
-          <div className={styles.previewDetails}>
-            <p>장면 정보</p>
+          <section
+            className={styles.previewEvidenceSection}
+            aria-labelledby="preview-evidence-title"
+          >
+            <h3 id="preview-evidence-title">{onInquiry ? '검색 근거' : '확인 근거'}</h3>
+            <div className={styles.previewEvidence}>
+              <div className={styles.previewEvidenceHeading}>
+                <span>
+                  {evidenceField}
+                  {onInquiry ? ' 일치' : ''}
+                </span>
+                {result.matchEvidence ? (
+                  <span className={styles.statusBadge} data-status={result.matchEvidence.status}>
+                    {getVerificationStatusLabel(result.matchEvidence.status)}
+                  </span>
+                ) : null}
+              </div>
+              <strong>{evidenceValue}</strong>
+              <p>{result.matchEvidence ? `출처 · ${evidenceSource}` : evidenceSource}</p>
+            </div>
+            {result.additionalEvidence?.map((evidence, index) => (
+              <div className={styles.previewEvidence} key={index}>
+                <div className={styles.previewEvidenceHeading}>
+                  <span>{evidence.field}</span>
+                  <span className={styles.statusBadge} data-status={evidence.status}>
+                    {getVerificationStatusLabel(evidence.status)}
+                  </span>
+                </div>
+                <strong>{evidence.value}</strong>
+                <p>출처 · {evidence.source}</p>
+              </div>
+            ))}
+          </section>
+          <section className={styles.previewDetails} aria-labelledby="preview-details-title">
+            <h3 id="preview-details-title">장면 정보</h3>
             <dl>
               <div>
                 <dt>방송일</dt>
-                <dd>{result.broadcastDate ?? '정보 없음'}</dd>
+                <dd>{result.broadcastDate ?? '미상'}</dd>
               </div>
               <div>
                 <dt>촬영일</dt>
                 <dd>
-                  {result.filmingDate ? (
-                    <>
-                      {result.filmingDate} ·{' '}
-                      {result.filmingState === 'verified'
-                        ? '검증됨'
-                        : result.filmingState === 'unknown'
-                          ? '정보 없음'
-                          : '미검증'}
-                    </>
-                  ) : (
-                    '정보 없음'
-                  )}
+                  {result.filmedDate
+                    ? `${result.filmedDate} · ${getVerificationStatusLabel(filmingStatus)}`
+                    : getVerificationStatusLabel(filmingStatus)}
                 </dd>
               </div>
               <div>
-                <dt>장면 유형</dt>
+                <dt>샷 유형</dt>
                 <dd>{result.shotType ?? '정보 없음'}</dd>
               </div>
-              <div>
-                <dt>근거</dt>
-                <dd>{result.evidenceType}</dd>
-              </div>
             </dl>
-            <div className={styles.previewEvidence}>
-              <span>
-                {result.evidenceType}
-                {onInquiry ? ' 일치' : ''}
-              </span>
-              <strong>{result.evidence}</strong>
-              <p>{result.source}</p>
-            </div>
-          </div>
-          <div className={styles.safetyNotice}>
-            <AlertTriangle aria-hidden="true" />
-            <p>
-              <strong>송출 전 최종 확인</strong>
-              내용·최신성·권리·사용 적합성을 확인하세요.
-            </p>
-          </div>
-        </div>
-      </div>
-    </SceneDialog>
-  );
-}
-
-export type InquiryDetails = {
-  comment: string;
-} & ({ status: 'pending' | 'reviewing' } | { status: 'resolved'; resolution: string });
-
-const inquiryStatusLabels = {
-  pending: '대기',
-  reviewing: '처리 중',
-  resolved: '완료',
-} as const;
-
-interface InquiryDialogProps {
-  result: SearchResult;
-  theme: WireframeTheme;
-  query: string;
-  history?: InquiryDetails;
-  onSubmit: (comment: string) => void;
-  onClose: () => void;
-}
-
-export function InquiryDialog({
-  result,
-  theme,
-  query,
-  history,
-  onSubmit,
-  onClose,
-}: InquiryDialogProps) {
-  const [comment, setComment] = useState(history?.comment ?? '');
-  const canEdit = !history || history.status === 'pending';
-  const statusMessage = !history
-    ? '접수 후 검수자가 확인합니다. 현재 검색 결과나 다른 검색은 즉시 변경되지 않습니다.'
-    : history.status === 'pending'
-      ? '검수자가 확인하기 전까지 문의 내용을 수정할 수 있어요.'
-      : history.status === 'reviewing'
-        ? '검수자가 처리 중인 문의입니다. 문의 내용을 수정할 수 없어요.'
-        : '처리가 완료된 문의입니다. 문의 내용과 처리 내용을 확인하세요.';
-
-  return (
-    <SceneDialog
-      theme={theme}
-      className={styles.modal}
-      labelledBy="inquiry-title"
-      onClose={onClose}
-    >
-      <div className={styles.modalHeader}>
-        <div>
-          <span>{history ? '문의 기록' : '결과 문의'}</span>
-          <h2 id="inquiry-title">{history ? '문의 상세' : '이 장면에 이상이 있나요?'}</h2>
-        </div>
-        <button
-          aria-label="문의 창 닫기"
-          className={styles.iconButton}
-          onClick={onClose}
-          type="button"
-        >
-          <X aria-hidden="true" />
-        </button>
-      </div>
-      {history ? (
-        <span className={styles.inquiryStatus} data-status={history.status}>
-          {inquiryStatusLabels[history.status]}
-        </span>
-      ) : null}
-      <div className={styles.modalResult}>
-        <span>#{result.id}</span>
-        <div>
-          <strong>{result.title}</strong>
-          <p>
-            {result.time} · {result.evidenceType} 일치
-          </p>
-        </div>
-      </div>
-      <dl className={styles.inquiryContext}>
-        <dt>당시 검색어</dt>
-        <dd>{query}</dd>
-      </dl>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (canEdit) onSubmit(comment);
-        }}
-      >
-        <label htmlFor="inquiry-comment">{history ? '문의 내용' : '설명 (선택)'}</label>
-        <textarea
-          aria-describedby="inquiry-status-message"
-          id="inquiry-comment"
-          onChange={(event) => {
-            if (canEdit) setComment(event.target.value);
-          }}
-          placeholder={
-            canEdit
-              ? '무엇이 이상했는지 알려주세요. 비워두어도 접수할 수 있어요.'
-              : '작성한 설명이 없습니다.'
-          }
-          readOnly={!canEdit}
-          rows={4}
-          value={comment}
-        />
-        <p id="inquiry-status-message">{statusMessage}</p>
-        {history?.status === 'resolved' ? (
-          <section aria-labelledby="inquiry-resolution-title" className={styles.inquiryResolution}>
-            <h3 id="inquiry-resolution-title">
-              <Check aria-hidden="true" /> 처리 내용
-            </h3>
-            <p>{history.resolution}</p>
           </section>
-        ) : null}
-        <div className={styles.modalActions}>
-          <button onClick={onClose} type="button">
-            {canEdit ? '취소' : '닫기'}
-          </button>
-          {canEdit ? (
-            <button className={styles.submitInquiry} type="submit">
-              {history ? <Check aria-hidden="true" /> : <Flag aria-hidden="true" />}
-              {history ? '수정 내용 저장' : '문의 접수'}
-            </button>
-          ) : null}
         </div>
-      </form>
+      </div>
     </SceneDialog>
   );
 }

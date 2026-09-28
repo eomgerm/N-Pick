@@ -1,31 +1,45 @@
 'use client';
 
-import { routes } from '@/lib/routes';
-import { AppShell } from '@/components/app-shell';
-
-import { CheckCircle2, ChevronDown, ListFilter, Play, Search, Sparkles } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Clock3 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import {
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from 'react';
+import { type FormEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
-import { getKeyframeTimes, results } from '@/features/wireframes/demo-scenes';
-import { InquiryDialog, ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
+import { results as demoResults, type SearchResult } from '@/features/wireframes/demo-scenes';
+import { InquiryDialog } from '@/features/wireframes/inquiry-dialog';
+import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
+import { SearchResultCard } from '@/features/wireframes/search-result-card';
+import { SearchErrorToast } from '@/features/wireframes/search-error-toast';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
+import { SceneSearchField } from '@/features/wireframes/scene-search-field';
+import { SearchLayout } from '@/features/wireframes/search-layout';
+import { useSearchArrival } from '@/features/wireframes/search-transition';
+import { SEARCH_QUERY_MIN_LENGTH } from '@/features/wireframes/search-api-contract';
+import {
+  createSearchResultsHref,
+  isSameSearchDestination,
+} from '@/features/wireframes/search-navigation';
+import {
+  createInquirySubmission,
+  isSameInquiryRequest,
+  submitInquiry,
+  type InquirySubmission,
+} from '@/features/wireframes/inquiry-api';
+import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
+import { myInquiryKeys } from '@/features/wireframes/my-inquiry-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
-import { DateRangePicker } from '@/features/wireframes/date-range-picker';
-import {
-  type DateRange,
-  emptyDateRange,
-  matchesDateRange,
-  readDateRange,
-} from '@/features/wireframes/date-range';
+import { type DateRange, emptyDateRange, readDateRange } from '@/features/wireframes/date-range';
 import { SearchResultState } from '@/features/wireframes/search-result-state';
+import {
+  canCreateInquiry,
+  getDemoSearchExecution,
+  getSearchExecutionAnnouncement,
+  successfulSearchExecution,
+  type SearchExecutionPresentation,
+} from '@/features/wireframes/search-execution-status';
+import { SearchResultNotices } from '@/features/wireframes/search-result-notices';
+import { type SearchResultDetails } from '@/features/wireframes/search-result-details';
 
 export interface SearchScreenParams {
   q?: string;
@@ -38,107 +52,245 @@ export interface SearchScreenParams {
 }
 
 interface WireframeShellProps {
+  api?: {
+    validationMessage?: string;
+    presentation?: {
+      results: SearchResult[];
+      execution: SearchExecutionPresentation;
+      details: SearchResultDetails;
+    };
+    state: 'loading' | 'failed' | 'ready';
+    error: unknown;
+    /** 실패가 서버 왕복 때문이 아닐 때 그 이유. 일시적 연결 문제로 안내하면 사실이 아니다. */
+    failureReason?: string;
+    /**
+     * 실패 시 검색어·기간을 이 화면이 알고 있는지. 기본은 안다(false) — 진입 화면에서 넘어온
+     * 검색은 실패해도 요청했던 조건을 그대로 쥐고 있다. 검색 기록 스냅샷처럼 서버 응답이
+     * 와야만 조건을 알 수 있는 화면은, 그 응답 자체가 실패하면 조건도 모른다 — 「입력한
+     * 검색어와 기간은 유지돼요」가 거짓이 된다.
+     */
+    conditionsUnknown?: boolean;
+    retry: () => void;
+    /**
+     * 같은 검색어를 다시 조회(refetch)하는 중. useInfiniteQuery 는 첫 로딩에만 isLoading 을
+     * 세우므로 재검색은 state='loading' 에 잡히지 않는다. 이 값이 없으면 재검색이 끝나도
+     * 네비게이션 잠금이 풀리지 않아 다음 검색이 막힌다 (S15P21A501-251). 더보기는 제외한다.
+     */
+    isRevalidating?: boolean;
+    /** 다음 페이지(더보기)가 있으면 참. 없으면 버튼을 숨긴다 (S15P21A501-251). */
+    hasMore?: boolean;
+    /** 더보기 추가 조회가 도는 중. 버튼만 로딩으로 표시하고 결과 그리드는 유지한다. */
+    isLoadingMore?: boolean;
+    /** 더보기 조회가 실패함. 불러온 결과는 그대로 두고 더보기 영역에서만 재시도를 안내한다. */
+    loadMoreError?: boolean;
+    onLoadMore?: () => void;
+  };
   initialQuery?: string;
   theme: WireframeTheme;
   initialParams?: SearchScreenParams;
+  execution?: SearchExecutionPresentation;
+  resultDetails?: SearchResultDetails;
+  /** 결과 그리드 위에 한 줄로 띄우는 배지(예: 검색 기록 스냅샷 날짜). 실시간 검색과 섞이지 않게 구분한다. */
+  historyBadge?: string;
+  /**
+   * 「저장된 당시 결과예요」 재검색 고지 노출 여부. 배지(날짜)와 따로 가른다 —
+   * 스냅샷이 없는(unavailable) 기록도 날짜는 사실이라 배지는 뜨지만, 당시 결과가
+   * 없으므로 「저장된 당시 결과예요」는 바로 아래 실패 안내와 모순된다 (S15P21A501-262).
+   */
+  showHistoryNotice?: boolean;
 }
 
-export function WireframeShell({ initialQuery, theme, initialParams = {} }: WireframeShellProps) {
+export function WireframeShell({
+  initialQuery,
+  theme,
+  initialParams = {},
+  api,
+  execution,
+  resultDetails,
+  historyBadge,
+  showHistoryNotice = false,
+}: WireframeShellProps) {
+  const results = api ? (api.presentation?.results ?? []) : demoResults;
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { searchFieldRef, workspaceRef } = useSearchArrival();
   const [isNavigating, startNavigation] = useTransition();
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const broadcastRange = readDateRange(initialParams.broadcastFrom, initialParams.broadcastTo);
-  const filmingRange = readDateRange(initialParams.filmingFrom, initialParams.filmingTo);
+  const navigationLockRef = useRef(false);
+  const hasObservedNavigationRef = useRef(false);
+  const revalidationSeenRef = useRef(false);
+  const broadcastRange = readDateRange(
+    initialParams.broadcastFrom,
+    initialParams.broadcastTo,
+  ).range;
+  const filmingRange = readDateRange(initialParams.filmingFrom, initialParams.filmingTo).range;
   const demoState = initialParams.state;
+  const demoSearchExecution = getDemoSearchExecution(demoState);
   const [query, setQuery] = useState(
-    (typeof initialQuery === 'string' && initialQuery.trim()) ||
-      '2025년 추석 경부고속도로 귀성길 정체',
+    initialQuery?.trim() ?? (api ? '' : '2025년 추석 경부고속도로 귀성길 정체'),
   );
   const [submittedQuery] = useState(query);
   const [selectedResultId, setSelectedResultId] = useState(1);
   const [isPreviewOpen, setIsPreviewOpen] = useState(initialParams.preview === 'loading');
   const [inquiryResultId, setInquiryResultId] = useState<number | null>(null);
-  const [submittedInquiryIds, setSubmittedInquiryIds] = useState<number[]>([]);
-  const [sortOrder, setSortOrder] = useState<'accuracy' | 'latest'>('accuracy');
+  const [submittedInquiryIds, setSubmittedInquiryIds] = useState<string[]>([]);
+  const isSearchPending = isNavigating || api?.state === 'loading';
+  const [inquirySubmission, setInquirySubmission] = useState<InquirySubmission | null>(null);
+  const [inquiryError, setInquiryError] = useState<unknown>();
+  const [isInquirySubmitting, setIsInquirySubmitting] = useState(false);
+  const { showSuccess } = useSuccessToast();
+  const inquirySubmittingRef = useRef(false);
+
+  useEffect(() => {
+    if (isSearchPending) {
+      hasObservedNavigationRef.current = true;
+      return;
+    }
+    if (hasObservedNavigationRef.current) {
+      navigationLockRef.current = false;
+      hasObservedNavigationRef.current = false;
+    }
+  }, [isSearchPending]);
+
+  useEffect(() => {
+    // 같은 검색어 재검색(refetch)은 useInfiniteQuery 가 isLoading 을 세우지 않아 isSearchPending
+    // 에 잡히지 않는다. 재검색이 시작됐다가 끝나면 네비게이션 잠금을 여기서 푼다 — 안 그러면
+    // 다음 검색이 계속 막힌다 (S15P21A501-251). isSearchPending 에 합치면 검색창이 배경
+    // 재검증마다 busy·disabled 로 깜빡이므로 잠금 해제 전용 신호로 분리한다.
+    if (api?.isRevalidating) {
+      revalidationSeenRef.current = true;
+      return;
+    }
+    if (revalidationSeenRef.current) {
+      revalidationSeenRef.current = false;
+      navigationLockRef.current = false;
+    }
+  }, [api?.isRevalidating]);
 
   const selectedResult = useMemo(
     () => results.find(({ id }) => id === selectedResultId) ?? results[0],
-    [selectedResultId],
+    [results, selectedResultId],
   );
   const inquiryResult = results.find(({ id }) => id === inquiryResultId);
-  const filteredResults = results.filter(
-    (result) =>
-      matchesDateRange(result.broadcastDate, broadcastRange) &&
-      matchesDateRange(result.filmingDate, filmingRange, result.filmingState === 'verified'),
-  );
-  const displayedResults = demoState === 'empty' ? [] : filteredResults;
-  const resultState = isNavigating
-    ? 'loading'
-    : demoState === 'failed'
-      ? 'failed'
-      : displayedResults.length === 0
-        ? 'empty'
-        : 'populated';
-  const sortedResults =
-    sortOrder === 'accuracy'
-      ? displayedResults
-      : [...displayedResults].sort((a, b) => b.broadcastDate.localeCompare(a.broadcastDate));
-  const resolutionTokens = useMemo(
-    () => submittedQuery.split(/\s+/).filter(Boolean).slice(0, 3),
-    [submittedQuery],
-  );
-
+  const displayedResults = !api && demoState === 'empty' ? [] : results;
+  const resultState =
+    isNavigating || api?.state === 'loading'
+      ? 'loading'
+      : api?.state === 'failed' || (!api && demoState === 'failed')
+        ? 'failed'
+        : displayedResults.length === 0
+          ? 'empty'
+          : 'populated';
+  const searchExecution =
+    resultState === 'populated' || resultState === 'empty'
+      ? (api?.presentation?.execution ?? execution ?? demoSearchExecution)
+      : successfulSearchExecution;
+  const effectiveResultDetails = api?.presentation?.details ?? resultDetails;
+  const details: SearchResultDetails = {
+    ...effectiveResultDetails,
+    resolverStatus:
+      searchExecution.status === 'degraded' &&
+      searchExecution.degradedReasons.includes('resolver-fallback')
+        ? 'fallback'
+        : effectiveResultDetails?.resolverStatus,
+  };
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedQuery = query.trim();
 
-    if (normalizedQuery) {
+    // 진입 화면과 같은 하한을 결과 화면 재검색에도 적용한다(S15P21A501-243). 1글자면
+    // 이동하지 않고 SceneSearchField 힌트로 안내한다 — 이동시키면 결과 화면이 맨 오류만 낸다.
+    if (normalizedQuery.length >= SEARCH_QUERY_MIN_LENGTH) {
       handleSearchNavigation(normalizedQuery, broadcastRange, filmingRange);
     }
   }
 
   function handleSearchNavigation(nextQuery: string, broadcast: DateRange, filming: DateRange) {
-    if (isNavigating) return;
-    const params = new URLSearchParams({ q: nextQuery });
-    if (broadcast.from && broadcast.to) {
-      params.set('broadcastFrom', broadcast.from);
-      params.set('broadcastTo', broadcast.to);
-    }
-    if (filming.from && filming.to) {
-      params.set('filmingFrom', filming.from);
-      params.set('filmingTo', filming.to);
-    }
-    startNavigation(() =>
-      router.push(`${routes.searchResults}?${params.toString()}`, { scroll: false }),
-    );
-  }
+    if (navigationLockRef.current || isSearchPending) return;
 
-  const rangeFields = (
-    <>
-      <DateRangePicker
-        label="방송일"
-        value={broadcastRange}
-        isDisabled={isNavigating}
-        onChange={(range) => handleSearchNavigation(submittedQuery, range, filmingRange)}
-      />
-      <DateRangePicker
-        label="촬영일"
-        value={filmingRange}
-        isDisabled={isNavigating}
-        onChange={(range) => handleSearchNavigation(submittedQuery, broadcastRange, range)}
-      />
-    </>
-  );
-
-  function handleInquirySubmit() {
-    if (inquiryResultId === null) {
+    const href = createSearchResultsHref({ query: nextQuery, broadcast, filming });
+    if (!href) return;
+    if (
+      typeof window !== 'undefined' &&
+      isSameSearchDestination(`${window.location.pathname}${window.location.search}`, href)
+    ) {
+      if (api) {
+        navigationLockRef.current = true;
+        try {
+          api.retry();
+        } catch (error) {
+          navigationLockRef.current = false;
+          throw error;
+        }
+      }
       return;
     }
 
-    setSubmittedInquiryIds((current) =>
-      current.includes(inquiryResultId) ? current : [...current, inquiryResultId],
-    );
+    navigationLockRef.current = true;
+    try {
+      startNavigation(() => router.push(href, { scroll: false }));
+    } catch (error) {
+      navigationLockRef.current = false;
+      throw error;
+    }
+  }
+
+  async function handleInquirySubmit(comment: string) {
+    if (
+      inquirySubmittingRef.current ||
+      inquiryResultId === null ||
+      !inquiryResult ||
+      !inquiryResult.searchResultId
+    ) {
+      return;
+    }
+
+    const submission =
+      inquirySubmission &&
+      isSameInquiryRequest(inquirySubmission, inquiryResult.searchResultId, comment)
+        ? inquirySubmission
+        : createInquirySubmission(inquiryResult.searchResultId, comment);
+
+    inquirySubmittingRef.current = true;
+    setInquirySubmission(submission);
+    setInquiryError(undefined);
+    setIsInquirySubmitting(true);
+
+    try {
+      const response = await submitInquiry(submission);
+      void queryClient.invalidateQueries({ queryKey: myInquiryKeys.all });
+      setSubmittedInquiryIds((current) =>
+        current.includes(submission.snapshot.resultId)
+          ? current
+          : [...current, submission.snapshot.resultId],
+      );
+      showSuccess(
+        `문의 #${response.inquiryId}의 접수가 확인되었습니다. 현재 상태: ${inquiryStatusLabels[response.status]}. 문의 접수 자체로 검색 결과는 변경되지 않습니다.`,
+      );
+      setInquirySubmission(null);
+      setInquiryResultId(null);
+    } catch (error) {
+      setInquiryError(error);
+    } finally {
+      inquirySubmittingRef.current = false;
+      setIsInquirySubmitting(false);
+    }
+  }
+
+  function handleInquiryOpen(resultId: number) {
+    const result = results.find(({ id }) => id === resultId);
+    // 문의 가능 여부는 이 결과 자신의 저장 상태(searchResultId)로 판단한다. 더보기로 합쳐진 실행
+    // 상태가 다른 페이지 snapshot 실패로 degraded 여도 저장된 결과는 문의할 수 있다 (S15P21A501-251 P1).
+    if (!result?.searchResultId || submittedInquiryIds.includes(result.searchResultId)) return;
+    setInquiryResultId(resultId);
+    setInquirySubmission(null);
+    setInquiryError(undefined);
+  }
+
+  function handleInquiryClose() {
+    if (inquirySubmittingRef.current) return;
     setInquiryResultId(null);
+    setInquirySubmission(null);
+    setInquiryError(undefined);
   }
 
   function handlePreviewSelect(resultId: number) {
@@ -150,203 +302,160 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
     setIsPreviewOpen(false);
   }
 
+  // 문의(신고) 진입점은 결과 카드 썸네일에 있지만, Preview 를 열어 근거를 확인한 뒤에도
+  // 바로 문의할 수 있어야 한다 (S15P21A501-294). Preview 를 닫고 문의 다이얼로그를 연다
+  // — 두 다이얼로그가 겹치지 않게 한다. 문의 가능 여부는 handleInquiryOpen 이 결과 자신의
+  // 저장 상태로 판단하므로 여기서 또 거르지 않는다.
   function handlePreviewInquiry() {
+    if (!selectedResult) return;
     setIsPreviewOpen(false);
-    setInquiryResultId(selectedResult.id);
+    handleInquiryOpen(selectedResult.id);
+  }
+
+  function inquiryUnavailableReason(result: SearchResult): string | undefined {
+    const hasSavedResult =
+      typeof result.searchResultId === 'string' && /^[1-9]\d*$/.test(result.searchResultId);
+    if (hasSavedResult) return undefined;
+    return canCreateInquiry(searchExecution)
+      ? '저장된 검색 결과가 아니므로 문의할 수 없습니다.'
+      : '검색 기록을 저장하지 못해 이 결과에서는 문의할 수 없습니다.';
   }
 
   return (
-    <AppShell className={styles.shell} data-theme={theme}>
-      <div className={`${styles.workspace} ${styles.workspaceNoPreview}`}>
-        <aside className={styles.filterRail} aria-label="검색 필터">
-          <div className={styles.railHeading}>
-            <ListFilter aria-hidden="true" />
-            <strong>상세 필터</strong>
-          </div>
-          {rangeFields}
-          <fieldset className={styles.filterGroup}>
-            <legend>검색할 내용</legend>
-            {['장면 설명', '화면 속 글자', '음성 내용'].map((label) => (
-              <label key={label}>
-                <input defaultChecked type="checkbox" />
-                <span>{label}</span>
-              </label>
-            ))}
-          </fieldset>
-          <div className={styles.railNote}>
-            <CheckCircle2 aria-hidden="true" />
-            <span>검증된 날짜 충돌만 결과에서 제외됩니다.</span>
-          </div>
-        </aside>
-
+    <SearchLayout
+      className={styles.shell}
+      theme={theme}
+      isResults
+      broadcastRange={broadcastRange}
+      filmingRange={filmingRange}
+      isDisabled={isSearchPending}
+      onDateRangesChange={({ broadcast, filming }) =>
+        handleSearchNavigation(submittedQuery, broadcast, filming)
+      }
+      searchField={
+        <SceneSearchField
+          variant="compact"
+          query={query}
+          onQueryChange={setQuery}
+          onSubmit={handleSearch}
+          placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
+          formLabel="뉴스 장면 검색"
+          inputLabel="뉴스 장면 검색어"
+          isBusy={isSearchPending}
+          isDisabled={isSearchPending}
+          fieldRef={searchFieldRef}
+          classes={{
+            form: styles.searchForm,
+            field: styles.searchField,
+            submitButton: styles.searchButton,
+          }}
+        />
+      }
+    >
+      <div className={styles.workspace} data-state={resultState} ref={workspaceRef}>
         <main className={styles.mainContent}>
-          <section className={styles.searchIntro}>
-            <div className={styles.titleBlock}>
-              <p className={styles.eyebrow}>SCENE SEARCH</p>
-              <h1>필요한 뉴스 장면을 바로 찾으세요</h1>
-              <p>원고 문장이나 장면의 특징을 입력하면 영상 속 몇 초까지 찾아드립니다.</p>
-            </div>
-
-            <form className={styles.searchForm} onSubmit={handleSearch}>
-              <label className={styles.searchField}>
-                <Search aria-hidden="true" />
-                <span className={styles.visuallyHidden}>검색어</span>
-                <input
-                  aria-label="뉴스 장면 검색어"
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="예: 2025년 추석 경부고속도로 귀성길 정체"
-                  value={query}
-                  ref={searchInputRef}
-                />
-              </label>
-              <button
-                className={styles.searchButton}
-                disabled={!query.trim() || isNavigating}
-                type="submit"
-              >
-                <Search aria-hidden="true" />
-                <span>{isNavigating ? '검색 중' : '검색'}</span>
-              </button>
-            </form>
-          </section>
-
-          <section className={styles.resolution} aria-label="검색 해석">
-            <div className={styles.resolutionIcon}>
-              <Sparkles aria-hidden="true" />
-            </div>
-            <div>
-              <span>검색 해석</span>
-              <strong>{submittedQuery}</strong>
-            </div>
-            <div className={styles.resolutionTokens}>
-              {resolutionTokens.map((token, index) => (
-                <span key={`${token}-${index}`}>{token}</span>
-              ))}
-            </div>
-            <span className={styles.searchHealth}>
-              {resultState === 'populated' || resultState === 'empty' ? (
-                <CheckCircle2 aria-hidden="true" />
-              ) : null}
-              {resultState === 'failed'
-                ? '검색 연결 실패'
-                : resultState === 'loading'
-                  ? '검색 중'
-                  : '정상 검색'}
-            </span>
-          </section>
-
+          <h1 className={styles.visuallyHidden}>뉴스 장면 검색 결과</h1>
           <section className={styles.resultsSection} id="search-results">
+            {/* 검색 기록(스냅샷) 모드. 같은 결과 화면이지만 라이브 검색과 다르게 — 당시 저장분임을
+                배지로 알리고, 다시 검색하면 지금 기준 새 결과가 나온다는 것을 고지한다
+                (S15P21A501-262). 제외 수 같은 감사 정보는 일반 사용자에게 오히려 혼란이라 싣지 않는다. */}
+            {historyBadge ? (
+              <div className={styles.historyContext} role="status">
+                <p className={styles.historyBadge}>
+                  <Clock3 aria-hidden="true" />
+                  {historyBadge}
+                </p>
+                {showHistoryNotice ? (
+                  <p className={styles.historyNotice}>
+                    저장된 당시 결과예요. 다시 검색하면 지금 기준으로 새로 찾은 결과가 나와요.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div className={styles.resultsHeading}>
               <div>
                 <p>검색 결과</p>
                 <h2>
                   {resultState === 'failed'
-                    ? '검색을 완료하지 못했어요'
+                    ? api?.validationMessage
+                      ? '검색어를 확인해 주세요'
+                      : '검색을 완료하지 못했어요'
                     : resultState === 'loading'
                       ? '검색 중'
                       : `관련 장면 ${displayedResults.length}개`}
                 </h2>
               </div>
-              <div className={styles.resultsMeta}>
-                <span>화면 미리보기 · 예시 데이터</span>
-                <label className={styles.sortControl}>
-                  <span className={styles.visuallyHidden}>검색 결과 정렬</span>
-                  <select
-                    value={sortOrder}
-                    onChange={(event) =>
-                      setSortOrder(event.target.value === 'latest' ? 'latest' : 'accuracy')
-                    }
-                    disabled={resultState !== 'populated'}
-                  >
-                    <option value="accuracy">정확도순</option>
-                    <option value="latest">최신순</option>
-                  </select>
-                  <ChevronDown aria-hidden="true" />
-                </label>
-              </div>
+              {!api && (
+                <div className={styles.resultsMeta}>
+                  <span>화면 미리보기 · 예시 데이터</span>
+                </div>
+              )}
             </div>
 
-            {resultState !== 'populated' ? (
+            {api?.error ? <SearchErrorToast error={api.error} /> : null}
+            {resultState === 'empty' || resultState === 'populated' ? (
+              <SearchResultNotices execution={searchExecution} variant="results" />
+            ) : null}
+
+            {api?.validationMessage ? (
+              <p role="alert" className="p-4 text-sm wrap-anywhere">
+                {api.validationMessage}
+              </p>
+            ) : resultState !== 'populated' ? (
               <SearchResultState
                 state={resultState}
                 query={submittedQuery}
                 broadcastRange={broadcastRange}
                 filmingRange={filmingRange}
-                excludedCount={results.length - filteredResults.length}
+                details={details}
+                reason={api?.failureReason}
+                conditionsUnknown={api?.conditionsUnknown}
                 onReset={() =>
                   handleSearchNavigation(submittedQuery, emptyDateRange, emptyDateRange)
                 }
-                onRetry={() => handleSearchNavigation(submittedQuery, broadcastRange, filmingRange)}
-                onEditQuery={() => {
-                  searchInputRef.current?.focus();
-                  searchInputRef.current?.select();
-                }}
+                onRetry={
+                  api?.retry ??
+                  (() => handleSearchNavigation(submittedQuery, broadcastRange, filmingRange))
+                }
               />
             ) : (
-              <div className={styles.resultsGrid}>
-                {sortedResults.map((result, index) => {
-                  const isSelected = isPreviewOpen && selectedResultId === result.id;
-                  const keyframeTimes = getKeyframeTimes(result);
-
-                  return (
-                    <article
-                      aria-label={`${result.title} Preview 열기`}
-                      className={`${styles.resultCard} ${isSelected ? styles.selectedCard : ''}`}
+              <>
+                <div className={styles.resultsGrid}>
+                  {displayedResults.map((result, index) => (
+                    <SearchResultCard
+                      result={result}
+                      position={index + 1}
+                      isSelected={isPreviewOpen && selectedResultId === result.id}
                       key={result.id}
-                      onClick={() => handlePreviewSelect(result.id)}
-                      onKeyDown={(event: ReactKeyboardEvent<HTMLElement>) => {
-                        if (event.key !== 'Enter' && event.key !== ' ') return;
-                        event.preventDefault();
-                        handlePreviewSelect(result.id);
-                      }}
-                      role="button"
-                      tabIndex={0}
+                      onSelect={handlePreviewSelect}
+                      onInquiry={handleInquiryOpen}
+                      isInquirySubmitted={submittedInquiryIds.includes(result.searchResultId ?? '')}
+                      inquiryUnavailableReason={inquiryUnavailableReason(result)}
+                    />
+                  ))}
+                </div>
+                {api?.hasMore ? (
+                  <div className={styles.loadMore}>
+                    <button
+                      className={styles.loadMoreButton}
+                      type="button"
+                      disabled={api.isLoadingMore}
+                      onClick={() => api.onLoadMore?.()}
                     >
-                      <div
-                        aria-hidden="true"
-                        className={`${styles.thumbnail} ${result.imageClass}`}
-                      >
-                        <span className={styles.rank}>{index + 1}</span>
-                        <span className={styles.playButton}>
-                          <Play aria-hidden="true" fill="currentColor" />
-                        </span>
-                        <span className={styles.timecode}>{result.time}</span>
-                        <span className={styles.keyframePreview}>
-                          {keyframeTimes.map((keyframeTime) => (
-                            <span
-                              className={`${styles.keyframe} ${result.imageClass}`}
-                              key={`${result.id}-${keyframeTime}`}
-                            >
-                              <span className={styles.keyframeTime}>{keyframeTime}</span>
-                            </span>
-                          ))}
-                        </span>
-                      </div>
-
-                      <div className={styles.cardBody}>
-                        <div className={styles.cardTopline}>
-                          <span className={styles.score}>일치도 {result.score}%</span>
-                          <h3 className={styles.cardTitle}>{result.title}</h3>
-                        </div>
-                        <div className={styles.cardMetadata}>
-                          <p className={styles.filmingDate}>
-                            <span>촬영일</span>
-                            <strong>{result.filmingDate}</strong>
-                          </p>
-                          <div className={styles.matchedKeywords}>
-                            <span>키워드</span>
-                            {result.matchedKeywords.map((keyword) => (
-                              <span className={styles.keywordChip} key={keyword}>
-                                {keyword}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
+                      {api.isLoadingMore
+                        ? '불러오는 중…'
+                        : api.loadMoreError
+                          ? '다시 시도'
+                          : '더보기'}
+                    </button>
+                    {api.loadMoreError ? (
+                      <p className={styles.loadMoreError} role="alert">
+                        다음 결과를 불러오지 못했어요. 다시 시도해 주세요.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
             )}
           </section>
         </main>
@@ -354,20 +463,21 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
 
       <div aria-live="polite" className={styles.visuallyHidden}>
         {resultState === 'failed'
-          ? '검색에 실패했습니다.'
+          ? api?.validationMessage || api?.failureReason || '검색에 실패했습니다.'
           : resultState === 'loading'
             ? '검색 중입니다.'
-            : `${submittedQuery} 검색 결과 ${displayedResults.length}개`}
+            : `${submittedQuery} 검색 결과 ${displayedResults.length}개. ${getSearchExecutionAnnouncement(searchExecution)}`}
       </div>
 
-      {isPreviewOpen ? (
+      {isPreviewOpen && selectedResult ? (
         <ScenePreviewDialog
           result={selectedResult}
           theme={theme}
-          isSubmitted={submittedInquiryIds.includes(selectedResult.id)}
+          isSubmitted={submittedInquiryIds.includes(selectedResult.searchResultId ?? '')}
+          isSubmitting={isInquirySubmitting && inquiryResultId === selectedResult.id}
+          searchExecution={searchExecution}
           onInquiry={handlePreviewInquiry}
           onClose={handlePreviewClose}
-          keepLoading={initialParams.preview === 'loading'}
         />
       ) : null}
       {inquiryResult ? (
@@ -375,10 +485,16 @@ export function WireframeShell({ initialQuery, theme, initialParams = {} }: Wire
           result={inquiryResult}
           theme={theme}
           query={submittedQuery}
+          error={inquiryError}
+          isSubmitting={isInquirySubmitting}
+          onCommentChange={() => {
+            setInquirySubmission(null);
+            setInquiryError(undefined);
+          }}
           onSubmit={handleInquirySubmit}
-          onClose={() => setInquiryResultId(null)}
+          onClose={handleInquiryClose}
         />
       ) : null}
-    </AppShell>
+    </SearchLayout>
   );
 }

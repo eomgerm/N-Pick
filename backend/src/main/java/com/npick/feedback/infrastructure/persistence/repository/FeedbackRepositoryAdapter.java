@@ -6,6 +6,8 @@ import java.util.Optional;
 import org.springframework.stereotype.Repository;
 
 import com.npick.feedback.domain.model.Feedback;
+import com.npick.feedback.domain.model.FeedbackResolution;
+import com.npick.feedback.domain.model.FeedbackStatus;
 import com.npick.feedback.domain.repository.FeedbackRepository;
 import com.npick.feedback.infrastructure.persistence.mapper.FeedbackPersistenceMapper;
 
@@ -38,8 +40,8 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
     }
 
     @Override
-    public boolean existsSearchResult(long searchResultId) {
-        return jpaRepository.existsSearchResult(searchResultId);
+    public boolean existsSearchResultSearchedBy(long searchResultId, long searchedById) {
+        return jpaRepository.existsSearchResultSearchedBy(searchResultId, searchedById);
     }
 
     @Override
@@ -48,7 +50,33 @@ public class FeedbackRepositoryAdapter implements FeedbackRepository {
     }
 
     @Override
+    public int release(long feedbackId, long reviewerId, Instant now) {
+        return jpaRepository.release(feedbackId, reviewerId, now);
+    }
+
+    @Override
     public int editComment(long feedbackId, long ownerId, String comment) {
         return jpaRepository.editComment(feedbackId, ownerId, comment, Instant.now());
+    }
+
+    @Override
+    public int resolve(long feedbackId, long reviewerId, FeedbackResolution resolution, String note, Instant now) {
+        // status·closed_at 파생을 여기서 확정해 잘못된 상태 문자열이 CAS 로 흘러가는 것을 막는다.
+        String newStatus = (resolution.isTerminal() ? FeedbackStatus.CLOSED : FeedbackStatus.REVIEWING).name();
+        Instant closedAt = resolution.isTerminal() ? now : null;
+        return jpaRepository.resolve(feedbackId, reviewerId, resolution.value(), note, newStatus, closedAt, now);
+    }
+
+    @Override
+    public int confirm(
+            long feedbackId,
+            long reviewerId,
+            long executionId,
+            Long createdRuleId,
+            String expectedResolution,
+            String newResolution,
+            Instant now) {
+        return jpaRepository.confirm(
+                feedbackId, reviewerId, executionId, createdRuleId, expectedResolution, newResolution, now);
     }
 }

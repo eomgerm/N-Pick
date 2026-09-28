@@ -1,148 +1,438 @@
-.dock {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-  width: min(1160px, 100%);
-  margin: 0 auto;
-  text-align: left;
-}
-
-.slot {
-  position: relative;
-  height: 238px;
-  min-width: 0;
-}
-
-.sheet {
-  position: absolute;
-  bottom: 0;
-  width: 100%;
-  height: 238px;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-bottom: 0;
-  border-radius: var(--radius) var(--radius) 0 0;
-  background: #fff;
-  box-shadow: 0 -8px 36px color-mix(in srgb, var(--accent) 5%, transparent);
-  transition:
-    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 260ms;
-}
-
-.sheet[data-expanded='true'] {
-  z-index: 2;
-  height: min(456px, calc(100svh - 112px));
-  box-shadow: 0 -16px 55px color-mix(in srgb, var(--accent) 13%, transparent);
-}
-
-.handle {
-  display: block;
-  width: 32px;
-  height: 4px;
-  margin: 12px auto 0;
-  border-radius: 99px;
-  background: var(--line);
-}
-
-.heading {
-  margin: 0;
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 20px 26px 22px;
+.pageBackdrop {
+  position: fixed;
+  z-index: 29;
+  inset: 0;
   border: 0;
   background: transparent;
-  color: var(--text);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+.pageBackdrop[data-open='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.navDock {
+  --panel-gap: 16px;
+  position: fixed;
+  /* 헤더의 프로스티드 레이어 위에 놓아 사이드바 표면이 다시 흐려지지 않게 합니다. */
+  z-index: 41;
+  top: calc(var(--layout-top-inset) + var(--nav-collapsed-width) + var(--nav-top-gap));
+  bottom: max(64px, var(--footer-height, 0px));
+  left: 24px;
+  width: var(--nav-width);
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.navDock[data-expanded='true'] {
+  --nav-width: 224px;
+}
+.navSurface::before,
+.detailPanel {
+  border: 1px solid rgb(255 255 255 / 65%);
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
+  box-shadow:
+    0 20px 52px rgb(10 32 40 / 18%),
+    inset 0 1px 0 rgb(255 255 255 / 34%);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+.navSurface {
+  position: relative;
+  z-index: 31;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  border-radius: 34px;
+  transition: border-radius 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* 별도 표면에 블러를 두어 밖으로 펼쳐지는 달력의 backdrop을 가두지 않습니다. */
+.navSurface::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  box-shadow: 0 20px 52px rgb(10 32 40 / 18%);
+  pointer-events: none;
+}
+.navDock[data-expanded='true'] .navSurface {
+  border-radius: 28px;
+}
+
+.navAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  border-radius: 18px;
+}
+.navAction svg {
+  width: 21px;
+  height: 21px;
+  flex: none;
+  stroke-width: 1.75;
+}
+.navActions {
+  display: grid;
+  gap: 16px;
+  padding-top: 14px;
+}
+.navAction {
+  width: 100%;
+  gap: 0;
+  /* 접힌 버튼(52px)에서 21px 아이콘이 가운데 오도록 (52 - 21) / 2. */
+  padding: 0 15.5px;
+  border: 0;
+  color: #17243b;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
   text-align: left;
+  white-space: nowrap;
+  transition:
+    gap 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    padding 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 180ms ease,
+    color 180ms ease;
 }
-.toggle > svg:first-child {
-  width: 19px;
-  height: 19px;
-  color: var(--accent);
-  stroke-width: 1.7;
+.navAction:hover,
+.navAction[data-active='true'] {
+  color: #17243b;
+  background: rgb(255 255 255 / 72%);
 }
-.toggle > span {
-  font-size: 17px;
-  font-weight: 750;
-  letter-spacing: -0.6px;
+.navAction[data-applied='true'] {
+  color: #ffffff;
+  background: #687078;
 }
-.toggle small {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 500;
+.navAction[data-applied='true']:hover {
+  background: #596169;
 }
-.toggle:hover {
-  color: var(--action);
+.navAction[data-applied='true'] svg,
+.navAction[data-applied='true'] small {
+  color: #ffffff;
 }
-.toggle:focus-visible {
-  outline-offset: -5px;
+.navAction > span {
+  overflow: hidden;
+  max-width: 0;
+  opacity: 0;
+  transition:
+    max-width 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease;
 }
-.chevron {
+.navDock[data-expanded='true'] .navAction > span {
+  max-width: 160px;
+  opacity: 1;
+}
+.navDock[data-expanded='true'] .navAction {
+  justify-content: flex-start;
+  gap: 13px;
+}
+.navAction:focus-visible,
+.detailClose:focus-visible,
+.row:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 3px;
+}
+
+.detailPanel {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  left: calc(100% + var(--panel-gap));
+  display: flex;
+  flex-direction: column;
+  width: min(400px, calc(100vw - 100% - var(--panel-gap) - 48px));
+  height: 100%;
+  min-height: 0;
+  padding: 22px 14px 16px;
+  border-radius: 28px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-14px) scaleX(0.96);
+  transform-origin: left center;
+  transition:
+    opacity 260ms ease,
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 420ms;
+}
+.detailPanel[data-open='true'] {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0) scaleX(1);
+}
+.detailClose {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #17243b;
+  background: rgb(255 255 255 / 45%);
+}
+.detailClose svg {
   width: 17px;
-  height: 17px;
-  margin-left: auto;
-  color: var(--muted);
-  transition: transform 260ms;
 }
-.sheet[data-expanded='true'] .chevron {
-  transform: rotate(180deg);
+
+.section {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 4px 28px 13px 4px;
+  color: #17243b;
+  font-size: 16px;
+}
+.sectionHeading svg {
+  width: 19px;
+  color: #516477;
+}
+.sectionHeading small {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgb(23 36 59 / 8%);
+  color: #516477;
+  font-size: 10px;
+}
+
+/* 제목과 전체 삭제 버튼을 한 줄에 좌우로 둔다 (S15P21A501-291). */
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding-right: 40px;
+}
+.sectionHeader .sectionHeading {
+  margin-right: 0;
+}
+.clearAllButton {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  margin: 0 4px 13px 0;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 48%);
+  color: #516477;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.clearAllButton:hover {
+  background: rgb(176 32 42 / 12%);
+  color: #8c1620;
+}
+.clearAllButton:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 2px;
+}
+.clearAllButton svg {
+  width: 14px;
+  height: 14px;
 }
 .listViewport {
-  height: calc(100% - 80px);
-  overflow: hidden;
-  padding: 0 26px;
-}
-.sheet[data-expanded='true'] .listViewport {
-  overflow-y: auto;
+  min-height: 0;
+  overflow: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
-  padding-bottom: 14px;
+  scrollbar-color: rgb(81 100 119 / 40%) transparent;
+  scrollbar-gutter: stable;
 }
-.listViewport:focus-visible {
-  outline: 2px solid var(--action);
-  outline-offset: -3px;
+.listViewport::-webkit-scrollbar {
+  width: 6px;
+}
+.listViewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.listViewport::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(81 100 119 / 40%);
+}
+.listViewport::-webkit-scrollbar-thumb:hover {
+  background: rgb(81 100 119 / 65%);
+}
+.groupLabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 12px 8px 6px;
+  color: #516477;
+  font-size: 11px;
+  font-weight: 700;
+}
+.groupLabel::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: rgb(23 36 59 / 12%);
+}
+.groupLabel b {
+  font-weight: 500;
 }
 .list {
+  display: grid;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
+.rowItem {
+  position: relative;
+}
 .row {
   display: grid;
-  grid-template-columns: 66px minmax(0, 1fr) auto;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
-  min-height: 73px;
+  gap: 10px;
   width: 100%;
-  padding: 0;
+  min-height: 62px;
+  padding: 7px 7px 32px;
   border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--line) 65%, white);
+  border-radius: 16px;
   background: transparent;
+  color: #17243b;
   text-align: left;
 }
 .row:hover {
-  background: color-mix(in srgb, var(--accent) 5%, white);
+  background: rgb(255 255 255 / 42%);
 }
-.row:focus-visible {
-  outline: 2px solid var(--action);
-  outline-offset: -2px;
+.rowActions {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  display: inline-flex;
+  gap: 4px;
 }
-.row[data-kind='inquiry'] {
-  grid-template-columns: 66px minmax(0, 1fr) auto auto;
-  gap: 12px;
+.rowAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 48%);
+  color: #516477;
+  font-size: 10px;
+  font-weight: 700;
+}
+.rowAction:hover {
+  background: rgb(255 255 255 / 78%);
+  color: #17243b;
+}
+.rowAction:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 2px;
+}
+.rowAction svg {
+  width: 13px;
+  height: 13px;
+}
+.rowDelete:hover {
+  background: rgb(176 32 42 / 12%);
+  color: #8c1620;
+}
+
+/*
+ * 삭제 확인. 되돌릴 수 없는 동작이라 목록 위에 모달로 띄운다 (S15P21A501-277).
+ *
+ * 베이스 .dialog 와 같은 명시도로 쓰면 padding: 0 과 어느 쪽이 이길지가 스타일시트 로드 순서에 달리므로
+ * .dialog[open][data-theme] 와 같은 수준으로 명시도를 올린다.
+ *
+ * 배경과 모서리도 직접 정한다. .dialogTheme 의 --background 는 따뜻한 베이지(#efeae3)라 검색 기록 패널의
+ * 차가운 흰-파랑 계통과 어긋나고, 베이스에는 border-radius 가 없어 각진 모서리로 나간다.
+ */
+.confirmDialog[open][data-theme] {
+  width: min(360px, calc(100vw - 32px));
+  padding: 20px;
+  border: 1px solid rgb(255 255 255 / 80%);
+  border-radius: 20px;
+  background: rgb(247 250 255 / 98%);
+  box-shadow: 0 24px 70px rgb(9 26 49 / 26%);
+  backdrop-filter: blur(20px);
+}
+.confirmDialog[open]::backdrop {
+  background: rgb(12 28 47 / 48%);
+  backdrop-filter: blur(6px);
+}
+.confirmHeading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8c1620;
+}
+.confirmHeading h2 {
+  font-size: 16px;
+  font-weight: 800;
+}
+.confirmHeading svg {
+  width: 20px;
+  height: 20px;
+}
+.confirmQuery {
+  margin-top: 14px;
+  overflow: hidden;
+  color: #17243b;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.confirmDescription {
+  margin-top: 6px;
+  color: #516477;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+.confirmDelete {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid #8c1620;
+  border-radius: 10px;
+  background: #b0202a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.confirmDelete:hover {
+  background: #8c1620;
+}
+.confirmDelete:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 3px;
+}
+.confirmDelete:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .thumbnail {
   position: relative;
   display: block;
-  width: 66px;
-  height: 43px;
+  width: 54px;
+  height: 38px;
   overflow: hidden;
-  border-radius: min(var(--input-radius), 7px);
-  background: #e5eaf1 url('/images/news-scenes-triptych.png') no-repeat;
+  border-radius: 10px;
+  background: #e3e5e9 url('/images/news-scenes-triptych.png') no-repeat;
   background-size: 300% auto;
 }
 .thumbnail[data-scene='1'] {
@@ -154,178 +444,199 @@
 .thumbnail[data-scene='3'] {
   background-position: 100% 50%;
 }
-.thumbnail > span {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  padding: 8px 3px 3px;
-  background: linear-gradient(transparent, #0b172ac4);
-  color: white;
-  font-size: 8px;
-  font-weight: 650;
-  text-align: center;
-  letter-spacing: -0.2px;
+.sceneIcon {
+  display: grid;
+  width: 100%;
+  height: 38px;
+  place-items: center;
+  border-radius: 10px;
+  background: rgb(23 36 59 / 8%);
+  color: #516477;
 }
-.rowCopy {
+.sceneIcon svg {
+  width: 20px;
+  height: 20px;
+}
+.stateMessage {
+  margin: 12px 8px;
+  color: #344e6a;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.historyButton,
+.pagination button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid rgb(23 36 59 / 18%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 55%);
+  color: #17243b;
+  font-size: 12px;
+}
+.historyButton:focus-visible,
+.pagination button:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 3px;
+}
+.historyButton:disabled,
+.pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.historyButton svg,
+.pagination button svg {
+  width: 18px;
+  height: 18px;
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 12px;
+  color: #344e6a;
+  font-size: 12px;
+}
+.rowCopy,
+.rowMeta {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 7px;
 }
-.rowTitle {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: -0.25px;
+.rowCopy {
+  gap: 4px;
 }
+.rowMeta {
+  align-items: flex-end;
+  gap: 4px;
+}
+.rowTitle,
 .rowSubtitle {
   overflow: hidden;
-  color: var(--muted);
-  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.85;
+}
+.rowTitle {
+  font-size: 12px;
+  font-weight: 700;
+}
+.rowSubtitle,
+.age {
+  color: #516477;
+  font-size: 9px;
 }
 .age {
   display: flex;
   align-items: center;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 10px;
+  gap: 3px;
   white-space: nowrap;
 }
 .age svg {
-  width: 11px;
-  height: 11px;
-  opacity: 0.7;
+  width: 10px;
 }
 .status {
-  padding: 5px 7px;
-  border-radius: 6px;
-  font-size: 10px;
-  line-height: 1;
-  font-weight: 650;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgb(219 242 230 / 80%);
+  color: #275b48;
+  font-size: 9px;
   white-space: nowrap;
 }
-.status[data-status='pending'] {
-  background: #fff4dc;
-  color: #88620e;
+.status[data-status='open'] {
+  background: rgb(226 236 247 / 80%);
+  color: #344e6a;
 }
 .status[data-status='reviewing'] {
-  background: color-mix(in srgb, var(--accent) 9%, white);
-  color: var(--action);
-}
-.status[data-status='resolved'] {
-  background: #e8f6ef;
-  color: #227150;
-}
-.fade {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 44px;
-  background: linear-gradient(transparent, #fff 95%);
-  pointer-events: none;
-}
-.sheet[data-expanded='true'] .fade {
-  display: none;
-}
-.sheet[data-expanded='true'] .rowTitle {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.5;
-}
-.sheet[data-expanded='true'] .row {
-  padding: 12px 0;
+  background: rgb(248 237 199 / 80%);
+  color: #70591b;
 }
 
 .notice {
   position: fixed;
-  z-index: 5;
+  z-index: 35;
   bottom: 28px;
   left: 50%;
-  width: max-content;
   max-width: calc(100% - 40px);
   margin: 0;
   padding: 12px 18px;
   transform: translateX(-50%);
-  border: 1px solid var(--line);
-  border-radius: var(--input-radius);
-  background: white;
-  box-shadow: 0 8px 28px #17243b1a;
-  color: var(--text);
+  border-radius: 999px;
+  background: rgb(244 255 249 / 92%);
+  box-shadow: 0 12px 32px rgb(0 48 33 / 18%);
+  color: #1a5542;
   font-size: 12px;
-  line-height: 1.6;
 }
 .notice:empty {
   display: none;
 }
 
-@media (max-width: 1050px) {
-  .dock {
-    gap: 18px;
-  }
-  .toggle {
-    padding-right: 20px;
-    padding-left: 20px;
-  }
-  .listViewport {
-    padding-right: 20px;
-    padding-left: 20px;
-  }
-  .row,
-  .row[data-kind='inquiry'] {
-    gap: 9px;
-  }
-  .age svg {
-    display: none;
-  }
-}
 @media (max-width: 760px) {
-  .dock {
-    grid-template-columns: 1fr;
-    gap: 20px;
+  .navDock {
+    --panel-gap: 8px;
+    left: 8px;
   }
-  .slot,
-  .sheet {
-    height: 228px;
+  .navSurface {
+    padding: 4px;
+    border-radius: 29px;
   }
-  .sheet {
-    border-bottom: 1px solid var(--line);
+  .navDock[data-expanded='true'] {
+    --nav-width: 108px;
   }
-  .toggle > span {
-    font-size: 16px;
+  .navDock[data-expanded='true'][data-has-range='true'] {
+    --nav-width: 168px;
   }
-}
-@media (max-width: 380px) {
-  .toggle {
-    padding-right: 16px;
-    padding-left: 16px;
+  .navDock[data-expanded='true'] .navAction {
+    gap: 6px;
+    padding-inline: 8px;
+    font-size: 11px;
+    white-space: normal;
+    word-break: keep-all;
   }
-  .listViewport {
-    padding-right: 16px;
-    padding-left: 16px;
+  .detailPanel {
+    width: calc(100vw - 100% - var(--panel-gap) - 16px);
+    padding-inline: 8px;
+    padding-bottom: 12px;
   }
   .row {
-    grid-template-columns: 52px minmax(0, 1fr) auto;
-  }
-  .row[data-kind='inquiry'] {
-    grid-template-columns: 52px minmax(0, 1fr) auto auto;
-    gap: 7px;
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 6px;
   }
   .thumbnail {
-    width: 52px;
-    height: 38px;
+    width: 40px;
+  }
+  .rowMeta {
+    grid-column: 2;
+    align-items: flex-start;
+  }
+  .sectionHeading {
+    flex-wrap: wrap;
+    font-size: 14px;
+  }
+}
+@media (max-height: 500px) {
+  .navActions {
+    gap: 4px;
+    padding-top: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .navAction {
+    min-height: 44px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sheet,
-  .chevron {
+  .pageBackdrop,
+  .navDock,
+  .navSurface,
+  .detailPanel,
+  .navAction,
+  .navAction > span {
     transition: none;
   }
 }

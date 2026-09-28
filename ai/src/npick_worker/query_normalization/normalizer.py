@@ -10,15 +10,13 @@
 - `search_tokens`    : BM25 용. 색인 측과 **같은 규칙만** 적용한다. 여기까지
   뭉개면 색인된 토큰과 어긋나 검색이 0건이 된다
   (`docs/architecture/02-container.md` 의 Kiwi 설정 일치 요구).
+  예외는 `search_token_synonyms` 하나다 — 원 토큰은 그대로 두고 색인에 이미 있는
+  모양의 같은 뜻 토큰을 **끝에 더하기만** 한다(S15P21A501-320, 「빨간」↔「빨간색」).
 """
 
-import unicodedata
 from dataclasses import dataclass
-from functools import lru_cache
-from importlib.metadata import version
 
-from kiwipiepy import Kiwi
-
+from npick_worker.korean_tokens import analyze, encode_token, prepare, tokenizer_version
 from npick_worker.query_normalization.config import (
     QueryNormalizationConfig,
     get_default_config,
@@ -37,32 +35,6 @@ class NormalizedQuery:
     normalization_version: str
 
 
-@lru_cache(maxsize=1)
-def _engine_version() -> str:
-    """토큰 경계를 정하는 것은 `kiwipiepy` 가 아니라 `kiwipiepy-model` 이다.
-
-    모델만 올라가도 canonical 이 바뀌는데 `kiwipiepy.__version__` 은 그대로다. 둘 다
-    담아야 "왜 지문이 달라졌나" 를 나중에 설명할 수 있다.
-    """
-    return f"kiwi{version('kiwipiepy')}:model{version('kiwipiepy_model')}"
-
-
-def _version_id(settings: QueryNormalizationConfig) -> str:
-    return f"{settings.version_id}:{_engine_version()}"
-
-
-@lru_cache(maxsize=4)
-def _kiwi(user_words: tuple[str, ...], score: float) -> Kiwi:
-    """Kiwi 인스턴스. 초기화가 무거워 사용자 사전 조합마다 하나만 만든다.
-
-    사용자 사전이 다르면 토큰 경계가 달라지므로 인스턴스를 공유할 수 없다.
-    """
-    kiwi = Kiwi()
-    for word in user_words:
-        kiwi.add_user_word(word, "NNP", score)
-    return kiwi
-
-
 def normalize(raw_query: str, config: QueryNormalizationConfig | None = None) -> NormalizedQuery:
     """원문 질의를 canonical 형태로 만든다.
 
@@ -72,15 +44,14 @@ def normalize(raw_query: str, config: QueryNormalizationConfig | None = None) ->
     settings = config if config is not None else get_default_config()
 
     # 1. 유니코드 통일. 전각으로 친 'COVID' 와 반각 'COVID' 가 다른 지문을 만들면 안 된다.
-    text = unicodedata.normalize("NFKC", raw_query).casefold().strip()
-    if not text:
+    if not prepare(raw_query):
         msg = "질의가 비어 있다"
         raise ValueError(msg)
 
     # 2. 형태소 분석 후 품사로 거른다. 조사·어미·기호가 여기서 사라진다.
-    keep_pos = frozenset(settings.keep_pos)
-    tokens = _kiwi(settings.user_words, settings.user_word_score).tokenize(text)
-    kept = [(token.form, token.tag) for token in tokens if token.tag in keep_pos]
+    #    이 두 단계(1·2)는 색인 측과 **같은 코드**여야 한다. 규칙은
+    #    `npick_worker.korean_tokens` 하나에 있고 ocr 단계가 같은 것을 쓴다.
+    kept = list(analyze(raw_query, settings))
 
     # 3. 여기서 갈라진다. search_tokens 는 색인 측과 같은 상태로 둔다 — 별칭도
     #    불용어도 적용하지 않는다. 색인 측이 안 하는 변형을 질의에만 걸면 매칭이
@@ -105,6 +76,32 @@ def normalize(raw_query: str, config: QueryNormalizationConfig | None = None) ->
 
     return NormalizedQuery(
         normalized_query=" ".join(content),
-        search_tokens=tuple(form for form, _ in kept),
-        normalization_version=_version_id(settings),
+        search_tokens=_with_synonyms(
+            tuple(encode_token(form, tag) for form, tag in kept), settings
+        ),
+        normalization_version=tokenizer_version(settings),
     )
+
+
+def _with_synonyms(tokens: tuple[str, ...], settings: QueryNormalizationConfig) -> tuple[str, ...]:
+    """묶음에 든 토큰이 있으면 같은 묶음의 나머지를 끝에 더한다.
+
+    지문(`normalized_query`)은 이 결과를 보지 않는다. 장면 제외 규칙이 지문에 걸리므로
+    같은 뜻 토큰을 지문에 섞으면 규칙이 걸리는 질의가 넓어진다(FR-OVR-009 가 금지한 유사
+    질의 확장). 이미 있는 토큰은 다시 넣지 않는다 — BM25 가 한 뜻을 두 번 센다.
+
+    더한 토큰은 BE 에 원 질의 토큰과 구분 없이 가므로 근거 설명의 `matched_keywords` 에
+    `origin=query` 로 나온다(「빨간」 질의에 `빨간색`). 지금은 받아들인 동작이고, 나눠
+    보여야 하면 BE 가 이 묶음을 따로 받아 구분한다 (S15P21A501-320 리뷰).
+    """
+    extra: list[str] = []
+    present = set(tokens)
+    for group in settings.synonym_groups:
+        encoded = [encode_token(form, tag) for form, tag in group]
+        if present.isdisjoint(encoded):
+            continue
+        for token in encoded:
+            if token not in present:
+                present.add(token)
+                extra.append(token)
+    return tokens + tuple(extra)

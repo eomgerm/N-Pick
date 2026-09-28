@@ -21,7 +21,26 @@ import com.npick.common.error.ErrorType;
 public enum SearchErrorCode implements ErrorCode {
     NORMALIZED_QUERY_BLANK(ErrorType.BAD_REQUEST, "SRCH_400_001", "정규화된 질의가 비어 있다"),
     NORMALIZATION_VERSION_BLANK(ErrorType.BAD_REQUEST, "SRCH_400_002", "정규화 버전이 비어 있다"),
-    FILTER_CONTAINS_NULL(ErrorType.BAD_REQUEST, "SRCH_400_003", "필터에 널 값이 들어 있다");
+    FILTER_CONTAINS_NULL(ErrorType.BAD_REQUEST, "SRCH_400_003", "필터에 널 값이 들어 있다"),
+    EXPLICIT_FILTER_RANGE_INVERTED(ErrorType.BAD_REQUEST, "SRCH_400_004", "명시 필터의 시작일이 종료일보다 늦다"),
+
+    /**
+     * 「내 검색 기록」 조회 대상이 아니다 (S15P21A501-198).
+     *
+     * <p>타인 소유·미존재·대상 밖(replay/running/failed)을 <b>구분하지 않고</b> 이 하나로 응답해 존재 여부를 노출하지 않는다.
+     */
+    SEARCH_EXECUTION_NOT_FOUND(ErrorType.NOT_FOUND, "SRCH_404_001", "검색 기록을 찾을 수 없습니다."),
+
+    /**
+     * 해석 규칙에 본문과 파싱 실패 사유 중 하나만 있어야 하는데 둘 다거나 둘 다 없다.
+     *
+     * <p>규칙 JSON 의 내용 문제가 아니다 — 그것은 {@code ParseRule.incompatibleReason()} 이 사유와 함께 {@code skipped_incompatible} 로
+     * 기록한다. 이쪽은 {@code ParseRule} 을 잘못 만든 코드 버그다.
+     */
+    RULE_BODY_INCOMPLETE(ErrorType.INTERNAL_SERVER_ERROR, "SRCH_500_004", "해석 규칙 본문이 온전하지 않다"),
+
+    /** 스칼라 축({@code intent})을 목록으로 읽거나 쓰려 했다. 축과 연산의 조합은 규칙 판정 전에 걸러지므로 여기 오면 코드 버그다. */
+    RULE_AXIS_NOT_A_LIST(ErrorType.INTERNAL_SERVER_ERROR, "SRCH_500_005", "목록이 아닌 축을 목록으로 다뤘다");
 
     private final ErrorType type;
     private final String code;

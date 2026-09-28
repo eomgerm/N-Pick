@@ -12,38 +12,30 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+
+import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/** 명시적으로 제공한 빈 테스트 DB에서만 실행한다. 기존 npick 객체가 있으면 수정 전에 거부한다. Docker 실행/종료 방법은 backend README의 마이그레이션 검증 절을 따른다. */
-@EnabledIfEnvironmentVariable(named = "NPICK_MIGRATION_TEST_URL", matches = ".+")
+/**
+ * baseline 마이그레이션이 빈 DB 에 그대로 적용되는지 검증한다. Testcontainers 가 띄운 컨테이너 안에 이 테스트 전용 DB 를 새로 만들어 쓴다.
+ *
+ * <p>공유 DB({@link NpickPostgres#datasource})를 쓰지 않는 이유: 이 테스트는 「‘화재’로 검색되는 scene 이 1건」처럼 테이블 전체를 세는 단언을 한다. 다른 테스트가 커밋한
+ * 행이 보이면 깨진다. 또 migrate 가 정확히 1건 실행되는 것을 확인하려면 DB 가 비어 있어야 한다.
+ */
 class FlywayBaselineTest {
-    private static String url;
-    private static String user;
-    private static String password;
+    private static final String url = NpickPostgres.freshDatabase("npick_baseline");
+    private static final String user = NpickPostgres.username();
+    private static final String password = NpickPostgres.password();
+
     private static Flyway flyway;
     private Connection connection;
 
     @BeforeAll
-    static void migrateEmptyDatabase() throws Exception {
-        url = System.getenv("NPICK_MIGRATION_TEST_URL");
-        user = System.getenv("NPICK_MIGRATION_TEST_USER");
-        password = System.getenv("NPICK_MIGRATION_TEST_PASSWORD");
-        assertThat(user).as("전용 테스트 DB 사용자").isNotBlank();
-        assertThat(password).as("전용 테스트 DB 비밀번호").isNotBlank();
-        try (var c = DriverManager.getConnection(url, user, password);
-                var statement = c.createStatement()) {
-            try (var rows = statement.executeQuery(
-                    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'npick'")) {
-                rows.next();
-                assertThat(rows.getInt(1))
-                        .as("비어 있지 않은 npick 스키마에는 테스트를 실행하지 않는다")
-                        .isZero();
-            }
-            statement.execute("CREATE SCHEMA IF NOT EXISTS npick");
-        }
+    static void migrateEmptyDatabase() {
+        // 기존 npick 객체가 있는지 확인하던 안전장치는 없앤다. 방금 만든 일회용 DB 라 실제 개발·운영 DB 를 가리킬 방법이 없다.
+        // NpickPostgres.migrate 를 쓰지 않는다. 적용 건수와 재실행 무변경을 이 테스트가 직접 단언해야 한다.
         flyway = Flyway.configure()
                 .dataSource(url, user, password)
                 .defaultSchema("npick")
@@ -52,6 +44,9 @@ class FlywayBaselineTest {
                 .cleanDisabled(true)
                 .validateOnMigrate(true)
                 .locations("classpath:db/migration")
+                // This test pins the published ERD snapshot; later technical migrations have separate integration
+                // tests.
+                .target("20260907092019")
                 .load();
         assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);
     }

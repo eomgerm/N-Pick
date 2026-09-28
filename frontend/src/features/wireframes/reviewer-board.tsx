@@ -16,11 +16,11 @@ import { useSearchParams } from 'next/navigation';
 import { type FormEvent, useRef } from 'react';
 
 import {
-  getBoardStatus,
   selectBoardPage,
   type BoardStatus,
   type ReviewBoardItem,
 } from '@/features/wireframes/reviewer-board-state';
+import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import styles from '@/features/wireframes/reviewer-board.module.css';
 
 interface ReviewerBoardProps {
@@ -35,12 +35,10 @@ interface ReviewerBoardProps {
 
 const filters: { value: BoardStatus; label: string }[] = [
   { value: 'all', label: '전체' },
-  { value: 'pending', label: '대기' },
-  { value: 'reviewing', label: '처리중' },
-  { value: 'completed', label: '완료' },
+  { value: 'open', label: inquiryStatusLabels.open },
+  { value: 'reviewing', label: inquiryStatusLabels.reviewing },
+  { value: 'closed', label: inquiryStatusLabels.closed },
 ];
-
-const statusLabels = { pending: '대기', reviewing: '처리중', completed: '완료' };
 
 export function ReviewerBoard({
   loginId,
@@ -72,7 +70,6 @@ export function ReviewerBoard({
     <div className={styles.board}>
       <section className={styles.greeting} aria-labelledby="reviewer-greeting">
         <div>
-          <p className={styles.eyebrow}>REVIEWER WORKSPACE</p>
           <h1 id="reviewer-greeting">
             안녕하세요 {loginId}님.
             <br />
@@ -216,8 +213,8 @@ export function ReviewerBoard({
                     {item.topic}
                     <i aria-hidden="true" />
                     {item.requester}
-                    <span className={styles.statusChip} data-status={getBoardStatus(item.status)}>
-                      {statusLabels[getBoardStatus(item.status)]}
+                    <span className={styles.statusChip} data-status={item.status}>
+                      {inquiryStatusLabels[item.status]}
                     </span>
                     {item.isDegraded ? (
                       <span className={styles.warning}>일부 검색 기능 제한</span>
@@ -239,7 +236,7 @@ export function ReviewerBoard({
         {board.total === 0 ? (
           <div className={styles.empty}>
             <Inbox aria-hidden="true" />
-            <h3>조건에 맞는 문의가 없어요</h3>
+            <h3>조건에 맞는 문의 없음</h3>
             <p>검색어나 상태 필터를 바꿔 보세요.</p>
             <button
               disabled={isNavigating}

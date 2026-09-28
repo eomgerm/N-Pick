@@ -19,6 +19,7 @@ import com.npick.clip.application.command.prepare.PrepareVideoResult;
 import com.npick.clip.application.command.register.RegisterClipCommand;
 import com.npick.clip.application.command.register.RegisterClipResult;
 import com.npick.clip.application.command.register.RegisterClipUseCase;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.clip.application.command.store.StoreVideoResult;
 import com.npick.clip.application.port.ClipRegistrationContextPort;
@@ -34,6 +35,8 @@ import com.npick.common.security.config.SecurityWebMvcConfig;
 import com.npick.common.security.handler.RestAccessDeniedHandler;
 import com.npick.common.security.handler.RestAuthenticationEntryPoint;
 import com.npick.common.security.resolver.CurrentMemberArgumentResolver;
+import com.npick.member.application.command.RefreshLoginService;
+import com.npick.member.application.command.login.RegisterRefreshUseCase;
 import com.npick.member.infrastructure.security.MemberUserDetailsService;
 import com.npick.member.presentation.AuthController;
 
@@ -79,9 +82,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
     ApiErrorResponseWriter.class,
     ErrorTypeHttpStatusMapper.class,
     SessionRegistrationActorAdapter.class,
+    com.npick.pipeline.infrastructure.config.PipelineDefinitionConfiguration.class,
     ClipRegistrationConfiguration.class
 })
 class ClipRegistrationSecurityTest {
+    @MockitoBean
+    RefreshLoginService refreshLogin;
+
     @Autowired
     MockMvc mvc;
 
@@ -102,6 +109,10 @@ class ClipRegistrationSecurityTest {
 
     @BeforeEach
     void setup() {
+        org.mockito.Mockito.when(refreshLogin.register(
+                        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new RegisterRefreshUseCase.IssuedRefresh(
+                        "a".repeat(64), java.time.Instant.now().plusSeconds(28800)));
         when(members.loadUserByUsername("reviewer"))
                 .thenReturn(new AuthenticatedMember(7, "reviewer", passwords.encode("pw"), "REVIEWER"));
         when(members.loadUserByUsername("editor"))
@@ -126,7 +137,8 @@ class ClipRegistrationSecurityTest {
         when(database.register(any())).thenAnswer(call -> {
             RegisterClipCommand command = call.getArgument(0);
             assertThat(command.registeredById()).isEqualTo(7);
-            return new RegisterClipResult(command.clipId(), command.pipelineRunId(), "queued");
+            return new RegisterClipResult(
+                    command.clipId(), command.pipelineRunId(), "queued", RegistrationOutcome.CREATED);
         });
         mvc.perform(request().session(login("reviewer")).with(csrf()).param("registered_by_id", "999"))
                 .andExpect(status().isCreated());

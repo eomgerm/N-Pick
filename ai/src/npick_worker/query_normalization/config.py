@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: 패키지에 동봉된 기본 설정.
 DEFAULT_CONFIG_PATH: Final[Path] = (
-    Path(__file__).resolve().parent.parent / "config" / "query_normalization.v1.toml"
+    Path(__file__).resolve().parent.parent / "config" / "query_normalization.v2.toml"
 )
 
 #: version_id 뒤에 붙는 해시 길이. scene detection 과 맞춘다.
@@ -45,18 +45,22 @@ class QueryNormalizationConfig(BaseModel):
     #: '보건복지부 기자회견' 이 '보건'+'복지'+'부' 로 갈렸다(실측). 3.0 에서 붙는다.
     user_word_score: float = 3.0
     aliases: dict[str, str] = Field(default_factory=dict)
+    #: 질의 BM25 토큰에만 더하는 같은 뜻 토큰 묶음 (S15P21A501-320). 항목은 불용어와 같은
+    #: `형태/품사태그` 다. 지문(`normalized_query`)과 색인은 이 값을 보지 않는다.
+    search_token_synonyms: tuple[tuple[str, ...], ...] = ()
 
     @property
     def stopword_pairs(self) -> frozenset[tuple[str, str]]:
         """`("찾", "VV")` 형태의 집합. Kiwi 토큰과 직접 대조한다."""
-        pairs = []
-        for entry in self.stopwords:
-            form, separator, tag = entry.partition(_STOPWORD_SEPARATOR)
-            if not separator or not form or not tag:
-                msg = f"stopwords 항목은 '형태/품사태그' 형식이어야 한다: {entry!r}"
-                raise ValueError(msg)
-            pairs.append((form, tag))
-        return frozenset(pairs)
+        return frozenset(_pair(entry, "stopwords") for entry in self.stopwords)
+
+    @property
+    def synonym_groups(self) -> tuple[tuple[tuple[str, str], ...], ...]:
+        """`search_token_synonyms` 를 `(형태, 품사)` 묶음으로."""
+        return tuple(
+            tuple(_pair(entry, "search_token_synonyms") for entry in group)
+            for group in self.search_token_synonyms
+        )
 
     @property
     def version_id(self) -> str:
@@ -68,9 +72,16 @@ class QueryNormalizationConfig(BaseModel):
         동작은 같은데 버전만 바뀌어 그때까지 쌓인 exclude_scene 이 전멸한다.
         """
         payload = self.model_dump(by_alias=True, mode="json")
+        # 묶음이 없는 설정(v1)은 이 키가 생기기 전과 같은 해시여야 한다 — 옛 버전 문자열을
+        # 그 설정 파일로 다시 재현할 수 있어야 저장 기록을 설명할 수 있다.
+        if not payload["search_token_synonyms"]:
+            del payload["search_token_synonyms"]
         for key, value in payload.items():
             if isinstance(value, list):
-                payload[key] = sorted(value)
+                # 묶음 목록(`search_token_synonyms`)은 묶음 안의 순서도 동작을 안 바꾼다.
+                payload[key] = sorted(
+                    sorted(item) if isinstance(item, list) else item for item in value
+                )
         # sort_keys + 고정 separators: 같은 값이면 항상 같은 바이트열이어야 한다.
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -103,7 +114,33 @@ class QueryNormalizationConfig(BaseModel):
             msg = f"불용어를 별칭 키로 쓸 수 없다 — 치환된 형태로 필터를 빠져나간다: {escaping}"
             raise ValueError(msg)
 
+        # 한 토큰이 두 묶음에 있으면 어느 쪽으로 넓힐지가 묶음 순서에 달린다. 품사가 keep_pos
+        # 밖이면 그 토큰은 질의에 나오지도 색인에 들어가지도 않아 묶음이 조용히 죽는다.
+        seen: set[tuple[str, str]] = set()
+        for group in self.synonym_groups:
+            if len(set(group)) < 2:
+                msg = f"search_token_synonyms 묶음은 서로 다른 토큰이 둘 이상이어야 한다: {group}"
+                raise ValueError(msg)
+            outside = [pair for pair in group if pair[1] not in self.keep_pos]
+            if outside:
+                msg = f"search_token_synonyms 의 품사가 keep_pos 밖이다: {outside}"
+                raise ValueError(msg)
+            repeated = sorted(seen & set(group))
+            if repeated:
+                msg = f"search_token_synonyms 의 토큰이 두 묶음에 있다: {repeated}"
+                raise ValueError(msg)
+            seen |= set(group)
+
         return self
+
+
+def _pair(entry: str, key: str) -> tuple[str, str]:
+    """`"찾/VV"` -> `("찾", "VV")`."""
+    form, separator, tag = entry.partition(_STOPWORD_SEPARATOR)
+    if not separator or not form or not tag:
+        msg = f"{key} 항목은 '형태/품사태그' 형식이어야 한다: {entry!r}"
+        raise ValueError(msg)
+    return form, tag
 
 
 def load_config(path: Path | None = None) -> QueryNormalizationConfig:

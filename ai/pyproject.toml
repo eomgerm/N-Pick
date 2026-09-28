@@ -10,19 +10,36 @@ dependencies = [
     "pydantic>=2.12,<3",
     "pydantic-settings>=2.15,<3",
     "av>=18,<19",
+    # frame_extraction 이 선명도·휘도를 잰다. scenedetect-headless 가 opencv 를 통해
+    # 이미 끌어오지만 전이 의존에 기대지 않는다 — 치명 단계(stages.py 2단계)의 필수
+    # 의존이고, scene detection 을 모델 기반 detector 로 바꾸면 그 경로가 사라진다.
+    "numpy>=2,<3",
     "scenedetect-headless>=0.7.1,<0.8",
     # query_normalization 이 형태소 분석에 쓴다. 토큰 경계를 정하는 것은
     # kiwipiepy 가 아니라 kiwipiepy-model 이라 둘 다 정확히 핀한다 — 올라가면
     # canonical 이 바뀌어 쌓인 exclude_scene 이 전멸한다.
     "kiwipiepy==0.23.2",
     "kiwipiepy-model==0.23.0",
-    # query_resolver 가 Ollama HTTP 를 부른다. adapter(ollama_backend.py) 안에서만 쓴다.
-    # dev 그룹에 있었으나 런타임 경로가 생겨 기본 의존성으로 옮겼다.
+    # ocr 이 keyframe 에서 화면 글자를 읽는다. rapidocr 는 PP-OCRv5 계열 모델을
+    # onnxruntime 으로 돌린다 — paddleocr 와 **같은 한국어 인식 모델**
+    # (korean_PP-OCRv5_rec_mobile)을 쓰면서 paddlepaddle 도 torch 도 이미지에
+    # 들이지 않는다(선정 근거와 실측은 docs/ocr.md). gpu 그룹에 두지 않는 이유는
+    # 이 단계가 CPU 로 돌아야 하기 때문이다 — pipeline.yml 이 CPU 워커와 GPU 파드에
+    # 같은 이미지를 쓴다고 적었고, opt-in 그룹에 두면 배포 이미지가 OCR 을 못 한다.
+    "rapidocr>=3.9,<4",
+    # rapidocr 의 의존이 아니라 **고를 수 있는 실행기**다. 명시하지 않으면 설치되지
+    # 않아 첫 잡에서 엔진 생성이 실패한다.
+    "onnxruntime>=1.29,<2",
+    # 배포판·임포트 이름이 모두 httpx2 다(httpx 아님). 런타임 경로가 둘이다 —
+    # 워커가 잡 API 를 발신하고(jobs/client.py), query_resolver 가 Ollama HTTP 를
+    # 부른다(ollama_backend.py). dev 그룹에 두면 Dockerfile 의
+    # `uv sync --no-dev` 빌드에서 빠진다.
     "httpx2>=2,<3",
 ]
 
 [project.scripts]
 npick-worker = "npick_worker.__main__:main"
+npick-worker-drain = "npick_worker.drain:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]
@@ -35,20 +52,94 @@ packages = ["src/npick_worker"]
 # dev 는 기본 설치, gpu 는 opt-in. `uv sync` 만 하면 torch 를 받지 않는다.
 [dependency-groups]
 dev = [
-    "numpy>=2,<3",
     "ruff>=0.16,<0.17",
     "mypy>=2.3,<3",
     "pytest>=9,<10",
     "pytest-asyncio>=1.4,<2",
 ]
+# torch 는 여기 없다. CUDA 빌드는 드라이버가 정하는 값이라 아래 cu128/cu130 으로 갈랐다.
+# **이 그룹만 설치하면 transformers·sentence-transformers 가 PyPI torch 를 끌어온다.**
+# Windows 는 CPU 전용 휠이고 Linux 는 CUDA 13 번들이라 12.8 드라이버에서 GPU 를 못 잡는다.
+# 언제나 `--group gpu --group cu128` 또는 `--group cu130` 처럼 짝지어 쓴다.
 gpu = [
-    "torch>=2.13,<3",
+    # 임베딩은 GPU 노드와 EC2 리졸버가 **함께** 쓴다. 핀을 두 곳에 두면 두 노드가 서로
+    # 다른 sentence-transformers 로 같은 벡터 공간을 만들게 되므로 embedding 그룹
+    # 하나에 두고 여기서 끌어 쓴다(PEP 735 include-group). S15P21A501-187.
+    { include-group = "embedding" },
     "faster-whisper>=1.2,<2",
+    # vlm_metadata 가 장면 설명을 만든다. 모델 이름은 여기서 고르지 않는다 —
+    # NPICK_AI_VLM_MODEL 이 정하고 후보 비교는 docs/vlm-metadata.md 다(FRD §11).
+    # gpu 그룹에 두는 이유는 이 단계가 GPU 파드의 것이기 때문이다. CPU 워커는 이 단계를
+    # 배정받지 않고, 받아도 MODEL_UNAVAILABLE 로 신고한다.
+    "transformers>=5,<6",
+    # transformers 의 이미지 처리가 PIL 을 쓴다. 전이 의존에 기대지 않는다 —
+    # 어댑터가 keyframe JPEG 을 직접 열기 때문에 없으면 첫 호출에서 죽는다.
+    "pillow>=11,<13",
+    # text_embedding 이 scene 텍스트를 dense 벡터로 바꾼다. 모델 이름은 여기서 고르지
+    # 않는다 — NPICK_AI_EMBEDDING_MODEL 이 정하고 후보 비교는 S15P21A501-175 다.
+    # gpu 그룹에 두는 이유는 torch 를 끌어오기 때문이다. 이 단계 자체는 CPU 에서도
+    # 돌아가지만(실측 p95 110~120ms) torch 없이는 어느 쪽도 못 돈다.
 ]
+# 색인(GPU 노드)과 질의(EC2 리졸버)가 같이 쓰는 벡터 공간의 런타임이다. `gpu` 가 이 그룹을
+# include 하므로 GPU 노드는 `--group gpu` 한 번으로 함께 받고, 리졸버는 torch 를 CUDA 가
+# 아닌 `cpu` 그룹에서 받아 이 그룹만 얹는다 — VLM·ASR 런타임을 EC2 에 들이지 않기 위해서다.
+embedding = [
+    # 5.7 에서 `get_sentence_embedding_dimension` 이 `get_embedding_dimension` 으로
+    # 바뀌었다(옛 이름은 FutureWarning). 어댑터가 새 이름을 쓰므로 하한이 5.7 이다.
+    "sentence-transformers>=5.7,<6",
+]
+# 임베딩 모델 비교(S15P21A501-175)의 의존성은 **이 프로젝트에 두지 않는다.**
+# eval/embedding/requirements.txt 를 별도 venv 에 설치해서 쓴다.
+#
+# 의존성 그룹으로 뒀다가 되돌렸다. 그룹은 설치 여부만 가르지만 uv.lock 은 패키지당 버전이
+# 하나다 — 평가용 mlflow 를 넣자 mlflow-skinny → opentelemetry-proto 를 거쳐 protobuf 가
+# 7.36.1 에서 6.33.6 으로 내려갔고, 그 protobuf 는 런타임 의존인 onnxruntime(OCR)이 쓴다.
+# 배포 이미지는 mlflow 를 안 받지만 내려간 protobuf 는 받는다. 평가 도구가 제품 런타임의
+# 버전을 움직이는 경로라서 lock 자체를 분리했다.
+
+# ── CUDA 빌드는 배타 선택이다 ────────────────────────────────────────
+# PyTorch 휠은 **빌드된 CUDA 이상의 드라이버**를 요구한다. cu128 휠은 LibCUDA 12.8+,
+# cu130 은 CUDA 13+ 다. 그래서 하나로 고정할 수 없다 —
+#
+#   RunPod GPU 파드      실시간 구동. 드라이버 13.x 를 전제하고 cu130 을 쓴다
+#   SSAFY GPU 서버       개발 검증(`03-deployment.md`). 드라이버 570.x = CUDA 12.8 이라
+#                        cu130 휠로는 GPU 를 못 잡는다. cu128 이어야 한다
+#
+# `03-deployment.md` 가 "워커 이미지는 양쪽이 같다" 로 적었는데, torch 를 한 빌드로
+# 박으면 그 전제가 깨진다 — 검증 노드가 운영 이미지를 실행하지 못한다. 그룹을 둘로
+# 갈라 lock 하나에 두 빌드를 함께 담는 것이 uv 가 권하는 방식이고(공식 가이드의
+# conflicting extras 패턴), 그래야 코드와 lock 한 벌로 두 노드를 덮는다.
+#
+# **버전이 다른 것은 의도가 아니라 제약이다.** cu128 인덱스가 제공하는 최신이 2.11 이고
+# 2.13 빌드가 없다. 드라이버가 올라가면 cu128 쪽 상한도 함께 올린다.
+#
+# **torchvision 도 여기 있어야 한다.** Transformers 5 의 `AutoProcessor` 는 Qwen3-VL 계열
+# processor 를 조립할 때 `Qwen3VLVideoProcessor` 를 함께 불러오고, 그것이 torchvision 을
+# 요구한다. 우리가 영상을 넣지 않아도 조립 단계에서 걸리므로 선정 모델(§2)이 아예 로드되지
+# 않는다. torch 와 같은 인덱스·같은 릴리스에서 와야 해서 그룹을 함께 쓴다.
+cu128 = ["torch>=2.11,<2.12", "torchvision>=0.26,<0.27"]
+cu130 = ["torch>=2.13,<3", "torchvision>=0.28,<1"]
+# EC2 질의 리졸버용 세 번째 갈래다. GPU 가 없는 노드에 CUDA torch 를 깔면 torch 하나가
+# 4.2GB 라 쓰지도 않을 커널을 이고 간다. torchvision 은 넣지 않는다 — 그건 Qwen3-VL
+# processor 조립에만 필요하고 리졸버는 VLM 을 돌리지 않는다.
+cpu = ["torch>=2.11,<3"]
 
 [tool.uv]
 required-version = ">=0.12"
 default-groups = ["dev"] # gpu 는 --group gpu 로만 설치된다
+
+# 한 환경에 둘을 같이 깔 수 없다. 선언해 두면 uv 가 lock 에 두 해를 따로 담고
+# `--group` 으로 고른 쪽만 설치한다.
+conflicts = [[{ group = "cu128" }, { group = "cu130" }, { group = "cpu" }]]
+
+# rapidocr 는 `opencv-python` 을 요구하는데 이 저장소는 scenedetect-headless 를 통해
+# 이미 `opencv-python-headless` 를 받는다. **둘은 같은 `cv2` 패키지를 설치한다** —
+# 함께 깔면 나중에 깔린 쪽이 앞의 것을 덮어쓰고, 어느 쪽이 이겼는지는 설치 순서에
+# 달려 있어 환경마다 달라진다. 헤드리스가 아닌 쪽이 이기면 GUI 공유 라이브러리
+# (libGL 등)가 없는 slim 컨테이너에서 `import cv2` 가 죽는다.
+# 항상 거짓인 marker 로 요구 자체를 지워 headless 하나만 남긴다. rapidocr 가 쓰는
+# 것은 `import cv2` 뿐이라 구현체가 headless 여도 된다.
+override-dependencies = ["opencv-python ; python_version < '3'"]
 
 # PyPI 의 win_amd64 torch 휠은 CPU 전용이다(약 122MB). CUDA 는 이 인덱스에서만 온다.
 # explicit=true 로 torch 이외 패키지에는 절대 쓰이지 않게 막는다.
@@ -57,11 +148,35 @@ name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
+# 드라이버가 CUDA 12.8 인 노드용. SSAFY GPU 서버가 여기 해당한다.
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+# GPU 가 없는 노드용. PyPI 의 linux torch 는 CUDA 13 번들이라 4.2GB 를 받는다.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 # macOS 는 CUDA 휠이 존재하지 않으므로 marker 로 제외한다 → PyPI 의 arm64(MPS) 휠로 해석된다.
 # 이 marker 가 없으면 macOS 팀원의 `uv sync` 가 해상도 단계에서 실패한다.
+#
+# `group` 으로 인덱스를 가른다. 공식 문서는 `extra` 예시만 싣고 group 키잉을 적지 않아
+# 실측으로 확인했다 — lock 에 `2.11.0+cu128` 과 `2.13+cu130` 이 각자 marker 를 달고
+# 함께 들어간다.
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu130", group = "cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cpu", group = "cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+# torch 와 같은 인덱스에서 와야 한다. PyPI 쪽 torchvision 은 PyPI torch 를 끌어오므로
+# 여기서 갈라두지 않으면 CUDA 휠 옆에 CPU torch 가 따라 들어온다.
+torchvision = [
+    { index = "pytorch-cu128", group = "cu128", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { index = "pytorch-cu130", group = "cu130", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
 
 # ── ruff ────────────────────────────────────────────────────────────
@@ -87,10 +202,37 @@ python_version = "3.12"
 files = ["src", "tests"]
 strict = true
 warn_unused_configs = true
+# 평가 하네스는 `src/npick_worker` 밖에 있고 테스트가 sys.path 로 얹어 import 한다.
+# 여기 적어야 mypy 가 그 모듈을 **찾고 실제로 검사한다** — 적지 않으면 import-not-found
+# 로 건너뛰어서 하네스 코드의 타입 오류가 통째로 안 잡힌다.
+# `eval/embedding` 은 넣지 않는다. 넣으면 import-not-found 1건이 사라지는 대신
+# 그 파일이 strict 검사 대상이 되어 오류 9건이 새로 뜬다(type-arg 6·import-not-found
+# 1·no-any-return 1·union-attr 1). 다른 티켓(S15P21A501-175)의 하네스라 여기서
+# 고치지 않고, 통과시키려고 override 로 약화시키지도 않는다.
+# **여기 올라가는 하네스끼리는 모듈 이름이 겹치면 안 된다.** mypy 는 `metrics` 를 앞의
+# 경로 하나로만 해석하므로, 둘 다 `metrics.py` 를 두면 한쪽 테스트가 **다른 하네스를
+# 검사하고 통과한다.** 그래서 OCR 쪽은 `ocr_metrics.py`·`ocr_bench.py` 다.
+# `tools` 는 저장 토큰 백필·장면 제외 재키 도구(S15P21A501-320)를 테스트가 import 해서 올렸다.
+mypy_path = ["eval/query_resolver", "eval/ocr", "eval/search", "tools"]
 
 [[tool.mypy.overrides]]
 # gpu 그룹 미설치 환경에서도 mypy 가 돌아야 한다
-module = ["torch.*", "numpy.*"]
+module = [
+    "torch.*",
+    "numpy.*",
+    "transformers.*",
+    "sentence_transformers.*",
+    "huggingface_hub.*",
+    "PIL.*",
+    "faster_whisper.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# mlflow 는 평가 하네스 전용 venv(.venv-eval)에만 설치된다 — gpu 그룹과 같은 판단이다.
+# 프로젝트 venv 에 없어도 mypy 가 돌아야 한다. 하네스는 lazy import 라 --no-mlflow 로는
+# 이 패키지 없이도 실행된다(eval/query_resolver/requirements.txt 머리말).
+module = ["mlflow.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -134,6 +134,22 @@ class LocalVideoStorageAdapterTest {
         assertThat(uploads).isEmptyDirectory();
     }
 
+    @Test
+    void refusesSymlinkedSharedDirectoryWithoutTouchingOutsideFiles() throws Exception {
+        Path outside = Files.createDirectory(directory.resolve("outside"));
+        Path sentinel = Files.writeString(outside.resolve("sentinel"), "preserve");
+        try {
+            Files.createSymbolicLink(media.resolve("clips"), outside);
+        } catch (java.io.IOException | UnsupportedOperationException unavailable) {
+            org.junit.jupiter.api.Assumptions.abort("Symbolic links unavailable on this platform");
+        }
+        try (var video = inspection.inspect(new ByteArrayInputStream(new byte[] {1}))) {
+            assertThatThrownBy(() -> storage.store(123, video)).isInstanceOf(BusinessException.class);
+        }
+        assertThat(sentinel).hasContent("preserve");
+        assertThat(outside.resolve("123")).doesNotExist();
+    }
+
     private boolean attempt(PrepareVideoResult video) {
         try {
             storage.store(123, video);

@@ -1,0 +1,36 @@
+package com.npick.search.domain.repository;
+
+import java.util.Optional;
+
+import com.npick.search.domain.model.ParseRuleCandidate;
+
+/**
+ * patch_parse 규칙 후보를 쓴다. 읽기 전용인 {@link ParseRuleRepository}(활성 규칙 판정용)와 책임이 다르므로 별도 포트로 둔다.
+ *
+ * <p>후보는 {@code active=false} 로만 저장된다. 켜는 것(-84)과 발화(-49)는 이 포트의 일이 아니다.
+ */
+public interface ParseRuleCandidateRepository {
+
+    /**
+     * 후보를 저장하고 생성된 {@code search_rule_id} 를 준다. 같은 신고·요청키의 후보가 이미 있으면 아무것도 하지 않고 {@link Optional#empty()} 를 준다.
+     *
+     * <p>{@code ON CONFLICT DO NOTHING} 으로 충돌을 <b>예외 없이</b> 흡수한다. 그래서 유니크 위반이 호출부 트랜잭션을 오염시키지 않고, 어떤 propagation 에서도
+     * 안전하다 — 동시 재시도가 500 이 되지 않는다.
+     */
+    Optional<Long> insertIfAbsent(ParseRuleCandidate candidate);
+
+    /** 같은 신고·요청키로 이미 만든 후보의 id. 멱등 처리에 쓴다. */
+    Optional<Long> findId(long sourceFeedbackId, String requestKey);
+
+    /** 교체 대상이 켜져 있는 patch_parse 규칙인지. */
+    boolean existsActivePatchParse(long searchRuleId);
+
+    /** 이 신고에서 대기 중인 patch_parse 후보 수. 누적 개수 상한 판정에 쓴다 (S15P21A501-255). */
+    int countByFeedback(long sourceFeedbackId);
+
+    /**
+     * 이 신고의 대기 중(active=false) patch_parse 후보 중 같은 규칙을 교체 대상으로 가리키는 것이 있는지
+     * (S15P21A501-309). 같은 R1 을 겨누는 후보 2건이 함께 확정되면 충돌하므로 생성 단계에서 막는 데 쓴다.
+     */
+    boolean existsPendingReplacing(long sourceFeedbackId, long replacesRuleId);
+}

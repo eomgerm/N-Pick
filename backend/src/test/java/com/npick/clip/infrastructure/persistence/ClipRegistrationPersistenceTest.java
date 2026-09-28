@@ -3,7 +3,6 @@ package com.npick.clip.infrastructure.persistence;
 import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.DriverManager;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -11,7 +10,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -40,6 +38,7 @@ import com.npick.clip.infrastructure.media.LocalVideoInspectionAdapter;
 import com.npick.clip.infrastructure.media.LocalVideoStorageAdapter;
 import com.npick.clip.infrastructure.media.UploadedVideoValidator;
 import com.npick.clip.infrastructure.persistence.repository.JpaClipRegistrationRepository;
+import com.npick.support.NpickPostgres;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,13 +46,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-@DataJpaTest(
-        properties = {
-            "spring.autoconfigure.exclude=",
-            "spring.flyway.enabled=false",
-            "spring.jpa.hibernate.ddl-auto=validate",
-            "spring.jpa.properties.hibernate.default_schema=npick"
-        })
+@DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({
     ClipRegistrationService.class,
@@ -61,7 +54,6 @@ import static org.mockito.Mockito.when;
     ClipRegistrationPersistenceTest.JsonConfig.class
 })
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@EnabledIfEnvironmentVariable(named = "NPICK_REGISTRATION_TEST_URL", matches = ".+")
 class ClipRegistrationPersistenceTest {
     @TempDir
     Path directory;
@@ -109,7 +101,9 @@ class ClipRegistrationPersistenceTest {
                         throw new java.io.UncheckedIOException(failure);
                     }
                 })
-                .withUserConfiguration(com.npick.clip.infrastructure.config.ClipRegistrationConfiguration.class)
+                .withUserConfiguration(
+                        com.npick.clip.infrastructure.config.ClipRegistrationConfiguration.class,
+                        com.npick.pipeline.infrastructure.config.PipelineDefinitionConfiguration.class)
                 .withPropertyValues(
                         "npick.clip-registration.media-root=" + media, "npick.clip-registration.upload-root=" + uploads)
                 .withBean(tools.jackson.databind.ObjectMapper.class, tools.jackson.databind.ObjectMapper::new)
@@ -162,9 +156,9 @@ class ClipRegistrationPersistenceTest {
                                     "SELECT pipeline_version FROM npick.pipeline_run WHERE pipeline_run_id=?",
                                     String.class,
                                     runId))
-                            .isEqualTo("pipeline-v1");
+                            .startsWith("npick-pipeline/v1:");
                     assertThat(jdbc.queryForObject(
-                                    "SELECT count(*) FROM jsonb_object_keys((SELECT stage_states_json FROM npick.pipeline_run WHERE pipeline_run_id=?))",
+                                    "SELECT count(*) FROM jsonb_object_keys((SELECT stage_states_json->'stages' FROM npick.pipeline_run WHERE pipeline_run_id=?))",
                                     Integer.class,
                                     runId))
                             .isEqualTo(10);
@@ -237,38 +231,18 @@ class ClipRegistrationPersistenceTest {
 
     private static final List<String> STAGES = List.of("scene_detection", "frame_extraction");
 
+    /**
+     * 이 클래스는 {@code NOT_SUPPORTED} 로 돌아 롤백하지 않고 커밋한다. 공유 DB 를 쓰면 남은 행이 다른 클래스의 전역 단언을 깨뜨린다. 전용 DB 를 받아 스키마·검수자까지 여기서
+     * 준비한다. 컨테스트의 Flyway 는 뒤이어 무변경 validate 만 한다.
+     */
     @DynamicPropertySource
-    static void database(DynamicPropertyRegistry properties) throws Exception {
-        String url = System.getenv("NPICK_REGISTRATION_TEST_URL");
-        String user = System.getenv("NPICK_REGISTRATION_TEST_USER");
-        String password = System.getenv("NPICK_REGISTRATION_TEST_PASSWORD");
-        // 자동 DDL이나 기존 데이터 삭제 없이 빈 테스트 DB만 허용한다.
-        try (var connection = DriverManager.getConnection(url, user, password);
-                var statement = connection.createStatement()) {
-            try (var rows = statement.executeQuery(
-                    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='npick'")) {
-                rows.next();
-                if (rows.getLong(1) != 0) throw new IllegalStateException("빈 전용 테스트 DB가 필요합니다.");
-            }
-            statement.execute("CREATE SCHEMA IF NOT EXISTS npick");
-        }
-        Flyway.configure()
-                .dataSource(url, user, password)
-                .defaultSchema("npick")
-                .schemas("npick")
-                .createSchemas(false)
-                .cleanDisabled(true)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
-        try (var connection = DriverManager.getConnection(url, user, password);
-                var statement = connection.createStatement()) {
-            statement.execute(
-                    "INSERT INTO npick.member VALUES (1, 'registration-test', 'test-only', '검수자', 'reviewer', now(), now())");
-        }
-        properties.add("spring.datasource.url", () -> url);
-        properties.add("spring.datasource.username", () -> user);
-        properties.add("spring.datasource.password", () -> password);
+    static void provisionDatabase(DynamicPropertyRegistry properties) {
+        String url = NpickPostgres.freshDatabase("npick_clip_registration");
+        NpickPostgres.migrate(url);
+        NpickPostgres.execute(
+                url,
+                "INSERT INTO npick.member VALUES (1, 'registration-test', 'test-only', '검수자', 'reviewer', now(), now())");
+        NpickPostgres.datasource(properties, url);
     }
 
     @Test
@@ -297,7 +271,8 @@ class ClipRegistrationPersistenceTest {
                 .containsEntry("error_code", null);
         var states = JsonMapper.builder()
                 .build()
-                .readTree(run.get("stage_states_json").toString());
+                .readTree(run.get("stage_states_json").toString())
+                .path("stages");
         assertThat(states.size()).isEqualTo(2);
         STAGES.forEach(stage -> {
             assertThat(states.path(stage).path("status").asText()).isEqualTo("pending");
@@ -314,7 +289,7 @@ class ClipRegistrationPersistenceTest {
         dates.forEach(date -> assertThat(date)
                 .containsEntry("scene_id", null)
                 .containsEntry("source", "user_input")
-                .containsEntry("verification_status", "unverified")
+                .containsEntry("verification_status", "verified")
                 .containsEntry("confidence", null)
                 .containsEntry("source_ref_id", null));
     }

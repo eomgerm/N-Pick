@@ -3,8 +3,8 @@
 import { Play } from 'lucide-react';
 import { useState } from 'react';
 
-import { formatTimestamp } from '@/features/wireframes/demo-scenes';
 import type { ProcessingClip } from '@/features/wireframes/registration-processing';
+import { formatMediaTime, formatSceneDuration } from '@/features/wireframes/scene-preview-media';
 import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/reviewer.module.css';
@@ -25,9 +25,9 @@ export function RegisteredVideoPreview({ clip, theme }: RegisteredVideoPreviewPr
       clip: clip.fileName,
       sceneStart: scene.start,
       sceneEnd: scene.end,
-      duration: `${scene.end - scene.start}초`,
+      duration: formatSceneDuration(scene.end - scene.start),
       totalSeconds: clip.totalSeconds,
-      totalDuration: clip.totalSeconds ? formatTimestamp(clip.totalSeconds) : undefined,
+      totalDuration: clip.totalSeconds ? formatMediaTime(clip.totalSeconds) : undefined,
       broadcastDate: clip.broadcastDate,
       shotType: scene.shotType,
       evidenceType: '화면 설명',

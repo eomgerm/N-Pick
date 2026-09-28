@@ -4,6 +4,11 @@ import { Play } from 'lucide-react';
 import { useState } from 'react';
 
 import type { Inquiry } from '@/features/wireframes/reviewer-inquiries';
+import type { ReviewInquiryDetail } from '@/features/wireframes/review-inquiry-api';
+import {
+  formatSceneDuration,
+  toScenePreviewMedia,
+} from '@/features/wireframes/scene-preview-media';
 import { ScenePreviewDialog } from '@/features/wireframes/scene-dialogs';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/reviewer.module.css';
@@ -50,10 +55,11 @@ export function ReviewerScenePreview({ inquiry, theme }: ReviewerScenePreviewPro
           notice="영상 미리보기 데모입니다. 실제 영상 파일은 아직 연결되지 않았어요."
           result={{
             id: inquiry.sceneId,
+            sceneId: inquiry.sceneId,
             title: inquiry.sceneTitle,
             sceneStart,
             sceneEnd,
-            duration: `${sceneEnd - sceneStart}초`,
+            duration: formatSceneDuration(sceneEnd - sceneStart),
             evidenceType: '영상에서 확인한 내용',
             evidence: inquiry.evidence,
             source: inquiry.guard,
@@ -61,6 +67,50 @@ export function ReviewerScenePreview({ inquiry, theme }: ReviewerScenePreviewPro
             imageLabel: `${inquiry.sceneTitle} 미리보기`,
           }}
           onClose={() => setIsOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function ReviewInquiryPreview({
+  inquiry,
+  theme,
+}: {
+  inquiry: ReviewInquiryDetail;
+  theme: WireframeTheme;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <>
+      <button
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-(--accent-soft) px-3 py-1.5 text-sm font-semibold text-(--accent-strong) transition-[filter] hover:brightness-95 [&>svg]:size-4"
+        type="button"
+        aria-haspopup="dialog"
+        aria-label="문의 장면 재생"
+        onClick={() => setIsOpen(true)}
+      >
+        <Play aria-hidden="true" fill="currentColor" /> 장면 재생
+      </button>
+      {isOpen ? (
+        <ScenePreviewDialog
+          theme={theme}
+          onClose={() => setIsOpen(false)}
+          contextLabel={`문의 #${inquiry.feedbackId} · 선택된 장면`}
+          result={{
+            ...toScenePreviewMedia(inquiry.scene),
+            id: inquiry.sceneId,
+            sceneId: inquiry.sceneId,
+            title: inquiry.scene.clipTitle ?? '제목 없는 영상',
+            duration: formatSceneDuration(
+              (inquiry.scene.endTimeMs - inquiry.scene.startTimeMs) / 1000,
+            ),
+            evidenceType: '문의에 연결된 태그',
+            evidence: inquiry.evidence.map(({ tagName }) => tagName).join(', ') || '기록 없음',
+            source: '검증 상태와 출처는 문의 상세의 각 근거에서 확인해 주세요.',
+            imageClass: '',
+            imageLabel: '',
+          }}
         />
       ) : null}
     </>

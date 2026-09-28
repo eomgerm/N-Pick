@@ -1,48 +1,87 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 
-import {
-  mergeAttachments,
-  validateAttachmentFiles,
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(
+      specifier.startsWith('@/')
+        ? new URL(`../../${specifier.slice(2)}.ts`, import.meta.url).href
+        : specifier,
+      context,
+    );
+  },
+});
+
+const {
+  MAX_VIDEO_SIZE_BYTES,
+  MAX_SUBTITLE_SIZE_BYTES,
+  validateScriptFiles,
+  validateSubtitleFiles,
   validateVideoFiles,
-} from './registration-files.ts';
+} = await import('./registration-files.ts');
 
-const video = new File(['demo video bytes'], '뉴스.mp4', { type: 'video/mp4' });
-const script = new File(['뉴스 대본'], '대본.txt', { type: 'text/plain', lastModified: 1 });
-const caption = new File(['WEBVTT\n\n00:00.000 --> 00:01.000\n뉴스'], '자막.vtt', {
-  lastModified: 2,
-});
+const mp4 = new File(['demo video bytes'], '뉴스.mp4', { type: 'video/mp4' });
+const mov = new File(['demo video bytes'], '뉴스.MOV', { type: 'video/quicktime' });
+const script = new File(['뉴스 대본'], '대본.txt', { type: 'text/plain' });
+const subtitle = new File(['WEBVTT\n\n00:00.000 --> 00:01.000\n뉴스'], '자막.vtt');
 
-test('영상은 한 개만 허용하고 빈 파일과 영상이 아닌 파일은 거절한다', () => {
+test('영상은 정확히 한 개의 MP4 또는 MOV만 허용한다', () => {
   assert.notEqual(validateVideoFiles([]), '');
-  assert.notEqual(validateVideoFiles([video, video]), '');
-  assert.notEqual(validateVideoFiles([new File([], 'empty.mp4')]), '');
-  assert.notEqual(validateVideoFiles([script]), '');
-  assert.equal(validateVideoFiles([video]), '');
-});
-
-test('브라우저가 MIME을 생략한 영상과 대문자 확장자를 선택할 수 있다', () => {
-  assert.equal(validateVideoFiles([new File(['video'], '뉴스.MOV')]), '');
+  assert.notEqual(validateVideoFiles([mp4, mov]), '');
+  assert.notEqual(validateVideoFiles([new File([], 'empty.mp4', { type: 'video/mp4' })]), '');
+  assert.notEqual(validateVideoFiles([new File(['video'], '뉴스.mxf', { type: 'video/mxf' })]), '');
+  assert.notEqual(validateVideoFiles([new File(['text'], '뉴스.mp4', { type: 'text/plain' })]), '');
+  assert.equal(validateVideoFiles([mp4]), '');
+  assert.equal(validateVideoFiles([mov]), '');
+  assert.equal(validateVideoFiles([new File(['video'], '뉴스.mov')]), '');
   assert.equal(
-    validateVideoFiles([new File(['video'], '뉴스.mxf', { type: 'application/octet-stream' })]),
+    validateVideoFiles([new File(['video'], '뉴스.mov', { type: 'video/x-quicktime' })]),
     '',
   );
 });
 
-test('선택 첨부는 TXT·SRT·VTT를 허용하고 혼합 선택과 빈 파일은 검증한다', () => {
-  assert.equal(validateAttachmentFiles([]), '');
-  assert.equal(validateAttachmentFiles([script, caption, new File(['caption'], '자막.SRT')]), '');
-  assert.notEqual(validateAttachmentFiles([script, video]), '');
-  assert.notEqual(validateAttachmentFiles([new File([], '빈대본.txt')]), '');
+test('영상은 10 GiB까지 허용하고 이를 넘으면 거절한다', () => {
+  assert.equal(
+    validateVideoFiles([{ name: 'limit.mp4', size: MAX_VIDEO_SIZE_BYTES, type: 'video/mp4' }]),
+    '',
+  );
+  assert.notEqual(
+    validateVideoFiles([
+      { name: 'too-large.mp4', size: MAX_VIDEO_SIZE_BYTES + 1, type: 'video/mp4' },
+    ]),
+    '',
+  );
 });
 
-test('첨부 재선택은 중복을 추가하지 않고 기존 목록과 다른 파일은 보존한다', () => {
-  const current = [script];
-  const changedScript = new File(['수정된 대본'], '대본.txt', { lastModified: 3 });
-  assert.deepEqual(mergeAttachments(current, [script, caption, caption, changedScript]), [
-    script,
-    caption,
-    changedScript,
-  ]);
-  assert.deepEqual(current, [script]);
+test('자막은 SRT/VTT 한 개, 일반 대본은 TXT 한 개로 분리해 검증한다', () => {
+  assert.equal(validateSubtitleFiles([]), '');
+  assert.equal(validateSubtitleFiles([subtitle]), '');
+  assert.equal(validateSubtitleFiles([new File(['caption'], '자막.SRT')]), '');
+  assert.notEqual(validateSubtitleFiles([subtitle, subtitle]), '');
+  assert.notEqual(validateSubtitleFiles([script]), '');
+  assert.notEqual(validateSubtitleFiles([new File([], '빈자막.srt')]), '');
+
+  assert.equal(validateScriptFiles([]), '');
+  assert.equal(validateScriptFiles([script]), '');
+  assert.notEqual(validateScriptFiles([script, script]), '');
+  assert.notEqual(validateScriptFiles([subtitle]), '');
+  assert.notEqual(validateScriptFiles([new File([], '빈대본.txt')]), '');
+  // 빈 파일과 UTF-8 디코드 실패가 같은 문구를 쓰면 무엇을 고쳐야 할지 알 수 없다 (S15P21A501-258).
+  assert.match(validateScriptFiles([new File([], '빈대본.txt')]), /비어/);
+  assert.match(validateSubtitleFiles([new File([], '빈자막.srt')]), /비어/);
+});
+
+test('자막은 10 MiB 경계를 검사하고 승인 JSON 형식은 서버 내용 검증으로 전달한다', () => {
+  for (const name of ['자막.srt', '자막.VTT', '자막.json']) {
+    assert.equal(validateSubtitleFiles([{ name, size: MAX_SUBTITLE_SIZE_BYTES, type: '' }]), '');
+    assert.match(
+      validateSubtitleFiles([{ name, size: MAX_SUBTITLE_SIZE_BYTES + 1, type: '' }]),
+      /10 MiB/,
+    );
+  }
+  assert.notEqual(
+    validateSubtitleFiles([{ name: '자막.srt.exe', size: 1, type: 'text/plain' }]),
+    '',
+  );
 });

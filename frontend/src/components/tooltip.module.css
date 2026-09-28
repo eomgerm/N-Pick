@@ -1,0 +1,28 @@
+.anchor {
+  display: grid;
+  min-width: 0;
+}
+.anchor[data-click-only='true'] {
+  cursor: default;
+}
+.anchor[data-click-only='true'] > button:disabled {
+  pointer-events: none;
+}
+.tooltip {
+  position: fixed;
+  z-index: 100;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 10px 14px;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 12px;
+  background: rgb(23 36 59 / 94%);
+  box-shadow: 0 8px 24px rgb(6 22 35 / 18%);
+  backdrop-filter: blur(16px);
+  color: #f4faff;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}

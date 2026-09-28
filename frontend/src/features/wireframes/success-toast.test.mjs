@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import test from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ts from 'typescript';
+
+const sourceRoot = new URL('../../', import.meta.url);
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('@/')) {
+      const moduleUrl = new URL(specifier.slice(2), sourceRoot);
+      for (const extension of ['.ts', '.tsx']) {
+        const candidate = new URL(`${moduleUrl.href}${extension}`);
+        if (existsSync(fileURLToPath(candidate))) {
+          return { url: candidate.href, shortCircuit: true };
+        }
+      }
+    }
+    return nextResolve(specifier, context);
+  },
+  load(url, context, nextLoad) {
+    if (url.endsWith('.ts') || url.endsWith('.tsx')) {
+      return {
+        format: 'module',
+        source: ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
+          compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX },
+        }).outputText,
+        shortCircuit: true,
+      };
+    }
+    return nextLoad(url, context);
+  },
+});
+
+const { SuccessToastProvider, useSuccessToast } = await import('./success-toast.tsx');
+
+test('Provider는 자식과 함께 빈 라이브 영역을 상시 렌더한다', () => {
+  const html = renderToStaticMarkup(
+    createElement(SuccessToastProvider, null, createElement('main', null, '본문')),
+  );
+  // 스크린리더가 이후 성공 안내를 announce 하려면 role="status" 요소가 미리 존재해야 한다.
+  assert.match(html, /role="status"/);
+  assert.match(html, /aria-live="polite"/);
+  assert.match(html, /본문/);
+  // 아직 성공 안내가 없으므로 토스트 카드(닫기 버튼)는 나오지 않는다.
+  assert.doesNotMatch(html, /알림 닫기/);
+});
+
+test('useSuccessToast는 Provider 밖에서도 던지지 않고 no-op을 준다', () => {
+  // 단위 렌더·SSR 조각에서 Provider 없이 훅을 써도 렌더가 깨지면 안 된다.
+  function Probe() {
+    const { showSuccess } = useSuccessToast();
+    return createElement('span', null, typeof showSuccess === 'function' ? 'ok' : 'no');
+  }
+  const html = renderToStaticMarkup(createElement(Probe));
+  assert.match(html, /ok/);
+});

@@ -2,25 +2,25 @@ package com.npick.clip.infrastructure.config;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import com.npick.clip.domain.policy.VideoInputLimits;
 
-/** npick.clip-registration. 단계 목록은 배포하는 worker의 활성 실행 정의를 전달한다. */
+/** 영상 등록의 저장소·입력 검사 설정. 실행 정의는 pipeline profile이 소유한다. */
 @ConfigurationProperties("npick.clip-registration")
 public record ClipRegistrationProperties(
         Path mediaRoot,
         Path uploadRoot,
         Duration probeTimeout,
         Duration decodeTimeout,
-        String pipelineVersion,
-        List<String> stageNames,
         Input input,
-        Boolean externalProcessingRequired) {
+        Boolean externalProcessingRequired,
+
+        @org.springframework.boot.context.properties.bind.DefaultValue("10485760")
+        int subtitleMaxBytes) {
     public ClipRegistrationProperties {
-        stageNames = stageNames == null ? List.of() : List.copyOf(stageNames);
+        com.npick.clip.infrastructure.transcript.SubtitleLimits.requireValid(subtitleMaxBytes);
     }
 
     public void validateReady() {
@@ -36,13 +36,7 @@ public record ClipRegistrationProperties(
                 || probeTimeout.isNegative()
                 || decodeTimeout == null
                 || decodeTimeout.isZero()
-                || decodeTimeout.isNegative()
-                || pipelineVersion == null
-                || pipelineVersion.isBlank()
-                || pipelineVersion.length() > 128
-                || stageNames.isEmpty()
-                || stageNames.stream().anyMatch(s -> s == null || s.isBlank())
-                || stageNames.stream().distinct().count() != stageNames.size()) {
+                || decodeTimeout.isNegative()) {
             throw new IllegalArgumentException("영상 등록 실행 설정이 필요합니다.");
         }
         inputLimits();

@@ -1,0 +1,345 @@
+.root {
+  min-width: 0;
+  margin-top: 20px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+.finalRoot {
+  min-width: 0;
+}
+.heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.heading h2 {
+  margin: 3px 0 0;
+}
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.unpublished {
+  flex: none;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 700;
+}
+.summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 22px 0 0;
+  border-block: 1px solid var(--line);
+}
+.summary > div {
+  min-width: 0;
+  padding: 15px 18px;
+}
+.summary > div + div {
+  border-left: 1px solid var(--line);
+}
+.summary dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.summary dd {
+  margin: 3px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+.sceneNavigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 22px;
+}
+.sceneNavigation p {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 750;
+}
+.sceneNavigation p span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sceneNavigation > div {
+  display: flex;
+  gap: 8px;
+}
+.sceneNavigation button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #c9d8e5;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--accent-strong);
+}
+.sceneNavigation button:disabled {
+  opacity: 0.35;
+}
+.sceneNavigation svg {
+  width: 19px;
+  height: 19px;
+}
+.scene {
+  display: grid;
+  grid-template-columns: minmax(220px, 30%) minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 80%);
+  margin-top: 12px;
+  touch-action: pan-y;
+}
+.scene:focus-visible {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 3px;
+}
+.frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  align-self: start;
+  background: #17243b;
+}
+.frameEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px;
+  color: #d2dfeb;
+  font-size: 13px;
+  text-align: center;
+}
+.frameEmpty svg {
+  width: 28px;
+  height: 28px;
+}
+.sceneBody {
+  min-width: 0;
+  padding: 22px 24px;
+}
+.sceneHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.sceneHeading h3 {
+  font-size: 17px;
+}
+.seekButton,
+.error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid #c9d8e5;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--accent-strong);
+  font-size: 13px;
+  font-weight: 700;
+}
+.seekButton svg,
+.error button svg {
+  width: 15px;
+  height: 15px;
+}
+.seekButton:hover,
+.error button:hover {
+  background: var(--accent-soft);
+}
+.seekButton:focus-visible,
+.error button:focus-visible,
+.sceneNavigation button:focus-visible {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+.resultBlock {
+  padding-top: 16px;
+}
+.resultBlock h4 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.resultBlock p {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.source {
+  display: inline-block;
+  margin-bottom: 7px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #e4edf7;
+  color: #36597c;
+  font-size: 11px;
+  font-weight: 700;
+}
+.outputValue {
+  display: block;
+  margin-bottom: 7px;
+  color: #36597c;
+  font-size: 15px;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tags li {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 2px 7px;
+  padding: 7px 10px;
+  border: 1px solid #d6e1eb;
+  border-radius: 9px;
+  background: #f4f7fa;
+}
+.tags span {
+  color: #42617f;
+  font-size: 11px;
+  font-weight: 700;
+}
+.tags strong {
+  font-size: 13px;
+}
+.tags small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 10px;
+}
+.ocrText {
+  color: #36597c !important;
+  font-weight: 650;
+}
+.empty {
+  margin: 22px 0 0;
+  padding: 32px 18px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+.error {
+  margin-top: 22px;
+}
+.error button {
+  margin-top: 12px;
+}
+.stageRecord {
+  margin-top: 22px;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+.stageRecord > * {
+  margin: 0;
+}
+.stageRecord > * + * {
+  margin-top: 7px;
+}
+.completion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 22px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent-soft) 45%, white);
+  color: var(--accent-strong);
+}
+.completion svg {
+  width: 22px;
+  height: 22px;
+}
+.completion strong {
+  font-size: 15px;
+}
+.swipeHint {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+@media (max-width: 760px) {
+  .root {
+    padding: 18px 14px;
+  }
+  .heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .unpublished {
+    width: fit-content;
+  }
+  .summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .summary > div:nth-child(2n + 1) {
+    border-left: 0;
+  }
+  .summary > div:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+  .scene {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .frame {
+    align-self: auto;
+  }
+  .sceneBody {
+    padding: 20px 18px;
+  }
+  .sceneHeading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .seekButton {
+    width: 100%;
+  }
+  .sceneNavigation {
+    align-items: flex-end;
+  }
+  .sceneNavigation p {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+}

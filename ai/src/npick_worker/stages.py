@@ -16,7 +16,7 @@ class StageSpec:
     order: int
     name: str
     required_output: str
-    #: 치명 단계는 실패 시 검색 제공이 불가하다(FRD FR-PRC-002, FR-PRC-005).
+    #: 치명 단계는 실패 시 검색 제공이 불가하다(FRD F-03 `docs/frd.md:135`).
     fatal: bool
     #: FRD §5.1 "실패 분류" 열의 원문. 임의의 enum 으로 재해석하지 않는다.
     failure_classification: str
@@ -27,32 +27,32 @@ STAGES: Final[tuple[StageSpec, ...]] = (
     StageSpec(2, "frame_extraction", "복수 keyframe·thumbnail", True, "치명"),
     StageSpec(
         3,
-        "vlm_metadata",
-        "schema-valid metadata·confidence·frame evidence",
-        False,
-        "비치명, 누락 표시",
-    ),
-    StageSpec(
-        4,
         "ocr",
         "frame별 verbatim·confidence·box·evidence",
         False,
         "비치명, 누락 표시",
     ),
     StageSpec(
-        5,
+        4,
         "transcript_selection",
         "provided/CC 선택 또는 ASR 필요 판정",
         False,
         "비치명",
     ),
-    StageSpec(6, "asr", "segment start/end/text/confidence", False, "비치명"),
+    StageSpec(5, "asr", "segment start/end/text/confidence", False, "비치명"),
     StageSpec(
-        7,
+        6,
         "scene_transcript_mapping",
         "overlap 기반 scene segment 연결",
         False,
         "해당 신호 누락",
+    ),
+    StageSpec(
+        7,
+        "vlm_metadata",
+        "schema-valid metadata·confidence·image/text evidence",
+        False,
+        "비치명, 누락 표시",
     ),
     StageSpec(
         8,

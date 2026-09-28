@@ -1,0 +1,495 @@
+'use client';
+
+import { useIsMutating, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRef, useState } from 'react';
+
+import { ApiErrorNotice } from '@/components/api-error-notice';
+import {
+  appendAddedTag,
+  restoreTagCandidates,
+  type AddedTag,
+  type OtherTagCandidate,
+} from '@/features/wireframes/correction-candidate-restore';
+import {
+  correctionCandidatesQueryKey,
+  createTagCorrectionCandidate,
+  discardTagCorrectionCandidateEvidence,
+  type ReviewInquiryDetail,
+  type ReviewTagScope,
+  type ReviewTagType,
+  type TagCorrectionOperation,
+} from '@/features/wireframes/review-inquiry-api';
+import { evidenceLabel } from '@/features/wireframes/review-inquiry-view';
+import { resolutionModeFromValue } from '@/features/wireframes/review-resolution-toggle-mode';
+import {
+  iconButtonClass,
+  pillClass,
+  TagDraftChip,
+  type TagDraft,
+} from '@/features/wireframes/review-tag-draft-chip';
+import { useSuccessToast } from '@/features/wireframes/success-toast';
+import { tagTypeLabels } from '@/features/wireframes/tag-type-effect';
+import { useCorrectionCandidates } from '@/features/wireframes/use-correction-candidates';
+import { createIdempotencyKey } from '@/lib/api/idempotency';
+
+const tagScopeLabels: Record<ReviewTagScope, string> = {
+  SCENE: '이 장면',
+  CLIP: '영상 전체',
+};
+
+const MAX_TAG_DRAFTS = 10;
+
+const addButtonClass =
+  'rounded-lg border border-(--line) bg-(--surface) px-3 py-1.5 text-sm font-bold text-(--accent-strong) transition-colors hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40';
+const candidatePillClass =
+  'inline-flex w-fit max-w-full items-center gap-2 justify-self-start rounded-full border border-dashed border-(--line) py-1.5 pr-2 pl-3 text-sm text-(--muted)';
+
+type Evidence = ReviewInquiryDetail['evidence'][number];
+
+const otherActionLabels: Record<OtherTagCandidate['action'], string> = {
+  REJECT: '삭제',
+  WITHDRAW: '개입 해제',
+};
+
+interface CandidateSubmission {
+  operations: TagCorrectionOperation[];
+  draftId?: string;
+  added?: Omit<AddedTag, 'evidenceIds'>;
+  removedTaggingId?: string;
+}
+
+interface ReviewInquiryTagsProps {
+  inquiry: ReviewInquiryDetail;
+  memberLoginId: string;
+}
+
+function validateTagValue(value: string, tagType: ReviewTagType | null): string {
+  if (!tagType) return '태그 유형을 선택해 주세요.';
+  const trimmed = value.trim();
+  if (!trimmed) return '태그 값을 입력해 주세요.';
+  if (trimmed.length > 20) return '태그는 20자 이하여야 합니다.';
+  if (
+    (tagType === 'filmed_date' || tagType === 'broadcast_date') &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+  ) {
+    return '날짜 태그는 YYYY-MM-DD 형식이어야 합니다.';
+  }
+  return '';
+}
+
+export function ReviewInquiryTags({ inquiry, memberLoginId }: ReviewInquiryTagsProps) {
+  const queryClient = useQueryClient();
+  const { showSuccess } = useSuccessToast();
+  const [drafts, setDrafts] = useState<TagDraft[]>([]);
+  const [added, setAdded] = useState<AddedTag[]>([]);
+  // 삭제 후보로 만든 기존 태그 → 그 REJECT 가 서버에 만든 대기 근거. 삭제 취소는 이 근거만 지운다.
+  const [removed, setRemoved] = useState<Map<string, string[]>>(new Map());
+  // 칩을 붙일 현재 태그가 없는 대기 후보(개입 해제, 현재 태그에 없는 삭제). 서버에서 복원될 때만 생긴다.
+  const [other, setOther] = useState<OtherTagCandidate[]>([]);
+  const seq = useRef(0);
+  const isOwner = inquiry.history.reviewerLoginId === memberLoginId;
+  const canCorrect =
+    inquiry.status === 'reviewing' &&
+    isOwner &&
+    resolutionModeFromValue(inquiry.resolution) === 'correction';
+
+  // 새로고침 뒤에도 작성 중이던 태그 후보를 복원한다 (S15P21A501-317). 서버 응답이 새로 올 때마다 그
+  // 응답으로 로컬 상태를 다시 채운다 — 로컬에 먼저 붙인 칩과 겹쳐도 서버 목록이 정본이 된다.
+  const candidates = useCorrectionCandidates(inquiry.feedbackId, canCorrect);
+  const [seededAt, setSeededAt] = useState(0);
+  if (candidates.data && candidates.dataUpdatedAt !== seededAt) {
+    setSeededAt(candidates.dataUpdatedAt);
+    const restored = restoreTagCandidates(candidates.data.tags, inquiry.evidence);
+    setAdded(restored.added);
+    setRemoved(restored.removed);
+    setOther(restored.other);
+  }
+  // 태그를 바꾸는 요청이 성공하면 늘 대기 후보를 다시 읽는다 — 서버는 같은 태깅의 반대 판단을 지우거나 기존
+  // 근거를 재사용하므로 로컬 병합만으로는 서버와 어긋날 수 있다. 다시 읽기가 끝날 때까지 요청이 진행 중으로
+  // 남아, 다음 조작이 옛 상태 위에서 시작되지 않는다.
+  function refreshCandidates() {
+    return queryClient.invalidateQueries({
+      queryKey: correctionCandidatesQueryKey(inquiry.feedbackId),
+    });
+  }
+  // 후보를 바꾸는 태그 요청은 모두 같은 키를 단다 — 검증 패널이 useIsMutating 으로 감시해, 진행 중에는
+  // 검증 재검색이 옛 후보로 돌지 않게 막는다.
+  const changeKey = ['tag-candidate-change', inquiry.feedbackId];
+  const mutation = useMutation({
+    mutationKey: changeKey,
+    mutationFn: ({ operations }: CandidateSubmission) =>
+      createTagCorrectionCandidate(inquiry.feedbackId, operations, createIdempotencyKey()),
+    // 서버 반영이 성공한 뒤에만 로컬 상태를 바꾼다 — 실패 시 UI 와 서버가 어긋나지 않는다.
+    onSuccess: (response, submission) => {
+      if (submission.draftId) {
+        setDrafts((current) => current.filter((draft) => draft.id !== submission.draftId));
+      }
+      if (submission.added) {
+        const next = { ...submission.added, evidenceIds: response.evidenceIds };
+        setAdded((current) => appendAddedTag(current, next));
+      }
+      if (submission.removedTaggingId) {
+        const id = submission.removedTaggingId;
+        setRemoved((current) => new Map(current).set(id, [...new Set(response.evidenceIds)]));
+      }
+      showSuccess('태그 교정 후보를 저장했습니다. 검증과 확정 후 검색에 반영됩니다.');
+      return refreshCandidates();
+    },
+  });
+
+  // 추가 취소: 그 추가가 만든 대기 근거(evidenceIds)만 지운다. 다른 대기 후보는 그대로 두고 다시 올리지도
+  // 않으므로 서버 후보 수가 실제로 줄고 다른 교정이 사라지지 않는다 (S15P21A501-309). 서버 삭제는
+  // 멱등이라 실패 뒤 다시 눌러도 안전하고, 성공한 뒤에만 로컬 칩을 지워 UI 와 서버가 어긋나지 않는다.
+  const cancelAdded = useMutation({
+    mutationKey: changeKey,
+    mutationFn: async (tag: AddedTag) => {
+      for (const evidenceId of tag.evidenceIds) {
+        await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
+      }
+    },
+    onSuccess: (_result, tag) => {
+      // 같은 근거를 가리키는 칩이 남아 있으면 함께 지운다 — 지운 근거의 유령 칩이 남지 않게 한다.
+      const discarded = new Set(tag.evidenceIds);
+      setAdded((current) =>
+        current.filter(
+          (item) => item.id !== tag.id && !item.evidenceIds.some((id) => discarded.has(id)),
+        ),
+      );
+      return refreshCandidates();
+    },
+  });
+
+  // 삭제 취소: APPROVE 를 새로 올리면 REJECT 와 APPROVE 가 함께 대기하다 함께 확정된다. 대신 그 REJECT 가
+  // 만든 대기 근거만 지운다 — 추가 취소와 같은 방식(멱등 DELETE, 성공 뒤에만 로컬 상태 변경).
+  const restoreRemoved = useMutation({
+    mutationKey: changeKey,
+    mutationFn: async (taggingId: string) => {
+      for (const evidenceId of removed.get(taggingId) ?? []) {
+        await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
+      }
+    },
+    onSuccess: (_result, taggingId) => {
+      setRemoved((current) => {
+        const next = new Map(current);
+        next.delete(taggingId);
+        return next;
+      });
+      return refreshCandidates();
+    },
+  });
+
+  // 기타 후보 취소: 그 후보의 대기 근거만 지운다 — 추가·삭제 취소와 같은 방식.
+  const cancelOther = useMutation({
+    mutationKey: changeKey,
+    mutationFn: async (candidate: OtherTagCandidate) => {
+      for (const evidenceId of candidate.evidenceIds) {
+        await discardTagCorrectionCandidateEvidence(inquiry.feedbackId, evidenceId);
+      }
+    },
+    onSuccess: (_result, candidate) => {
+      setOther((current) => current.filter((item) => item.id !== candidate.id));
+      return refreshCandidates();
+    },
+  });
+  // 후보를 바꾸는 요청은 한 번에 하나만 보낸다 — 취소 중 새 후보가 끼어들어 서로의 결과를 덮지 않게 한다.
+  // 검증 재검색 중에도 잠근다 — 검증에 들어간 후보와 표시한 후보 수가 어긋나지 않게 한다.
+  const verifyPending =
+    useIsMutating({ mutationKey: ['verification-run', inquiry.feedbackId] }) > 0;
+  // 대기 후보를 아직 못 읽었으면(첫 조회 중·실패) 잠근다 — 서버에 이미 있는 판단을 모른 채 새 판단을
+  // 올리지 않게 한다. 조회가 성공하면 풀린다.
+  const isBusy =
+    !candidates.isSuccess ||
+    verifyPending ||
+    mutation.isPending ||
+    cancelAdded.isPending ||
+    restoreRemoved.isPending ||
+    cancelOther.isPending;
+
+  function resetMutations() {
+    mutation.reset();
+    cancelAdded.reset();
+    restoreRemoved.reset();
+    cancelOther.reset();
+  }
+
+  const pendingCount = drafts.length + added.length;
+
+  function addDraft(scope: ReviewTagScope) {
+    if (pendingCount >= MAX_TAG_DRAFTS) return;
+    seq.current += 1;
+    setDrafts((current) => [
+      ...current,
+      { id: `draft-${seq.current}`, scope, tagType: null, value: '', error: '' },
+    ]);
+    resetMutations();
+  }
+
+  function updateDraft(id: string, patch: Partial<TagDraft>) {
+    setDrafts((current) =>
+      current.map((draft) => (draft.id === id ? { ...draft, ...patch, error: '' } : draft)),
+    );
+    resetMutations();
+  }
+
+  function removeDraft(id: string) {
+    setDrafts((current) => current.filter((draft) => draft.id !== id));
+  }
+
+  // ✓: 검증 후보를 만들고, 편집 칩을 일반 태그와 같은 형태의 칩으로 남긴다.
+  function submitDraft(draft: TagDraft) {
+    const error = validateTagValue(draft.value, draft.tagType);
+    if (error || !draft.tagType) {
+      setDrafts((current) =>
+        current.map((item) => (item.id === draft.id ? { ...item, error } : item)),
+      );
+      return;
+    }
+    const value = draft.value.trim();
+    mutation.mutate({
+      operations: [
+        {
+          action: 'APPROVE',
+          scope: draft.scope,
+          tagType: draft.tagType,
+          matchValue: value,
+          displayName: value,
+        },
+      ],
+      draftId: draft.id,
+      added: { id: draft.id, scope: draft.scope, tagType: draft.tagType, value },
+    });
+  }
+
+  function removeAdded(tag: AddedTag) {
+    cancelAdded.reset();
+    cancelAdded.mutate(tag);
+  }
+
+  function markRemoved(evidence: Evidence) {
+    mutation.reset();
+    mutation.mutate({
+      operations: [
+        {
+          action: 'REJECT',
+          scope: evidence.scope,
+          tagType: evidence.tagType,
+          matchValue: evidence.matchValue,
+          displayName: evidence.tagName,
+        },
+      ],
+      removedTaggingId: evidence.taggingId,
+    });
+  }
+
+  function restore(evidence: Evidence) {
+    restoreRemoved.reset();
+    restoreRemoved.mutate(evidence.taggingId);
+  }
+
+  const activeTags = inquiry.evidence.filter((evidence) => !removed.has(evidence.taggingId));
+  const removedTags = inquiry.evidence.filter((evidence) => removed.has(evidence.taggingId));
+  const otherRemoved = other.filter((candidate) => candidate.action === 'REJECT');
+  const withdrawn = other.filter((candidate) => candidate.action === 'WITHDRAW');
+  // 칩을 붙일 현재 태그가 없는 후보. 삭제는 취소선, 개입 해제는 따로 모아 취소선 없이 보여 준다.
+  function renderOther(candidate: OtherTagCandidate) {
+    const isRemoval = candidate.action === 'REJECT';
+    return (
+      <li className={`${candidatePillClass} ${isRemoval ? 'line-through' : ''}`} key={candidate.id}>
+        <strong className="truncate font-semibold">{candidate.value}</strong>
+        <span className="shrink-0 text-xs no-underline">
+          {tagTypeLabels[candidate.tagType]} · {tagScopeLabels[candidate.scope]}
+        </span>
+        <button
+          aria-label={`‘${candidate.value}’ ${otherActionLabels[candidate.action]} 취소`}
+          className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
+          disabled={isBusy}
+          onClick={() => {
+            cancelOther.reset();
+            cancelOther.mutate(candidate);
+          }}
+          type="button"
+        >
+          {isRemoval ? '+' : '×'}
+        </button>
+      </li>
+    );
+  }
+  const hasTop = activeTags.length > 0 || added.length > 0 || drafts.length > 0;
+
+  return (
+    <section className="rounded-2xl border border-(--line) p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-bold">태그 교정</h3>
+        {canCorrect ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={addButtonClass}
+              disabled={isBusy || pendingCount >= MAX_TAG_DRAFTS}
+              onClick={() => addDraft('SCENE')}
+              type="button"
+            >
+              + 이 장면
+            </button>
+            <button
+              className={addButtonClass}
+              disabled={isBusy || pendingCount >= MAX_TAG_DRAFTS}
+              onClick={() => addDraft('CLIP')}
+              type="button"
+            >
+              + 영상 전체
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {!hasTop ? (
+        <p className="mt-3 text-sm text-(--muted)">현재 표시할 태그가 없습니다.</p>
+      ) : (
+        <ul className="mt-4 grid gap-2" aria-label="현재 장면과 영상의 태그">
+          {activeTags.map((evidence, index) => (
+            <li
+              className={pillClass}
+              key={`${evidence.taggingId}-${index}`}
+              title={`출처: ${evidence.sources.map(evidenceLabel).join('·') || '기록 없음'} · 검증: ${evidenceLabel(
+                evidence.verifiedState,
+              )} · 범위: ${tagScopeLabels[evidence.scope]}`}
+            >
+              <strong className="truncate font-semibold">{evidence.tagName}</strong>
+              <span className="shrink-0 text-xs text-(--muted)">
+                {tagTypeLabels[evidence.tagType]}
+              </span>
+              {canCorrect ? (
+                <button
+                  aria-label={`‘${evidence.tagName}’ 삭제 후보`}
+                  className={`${iconButtonClass} hover:text-(--danger)`}
+                  disabled={isBusy}
+                  onClick={() => markRemoved(evidence)}
+                  type="button"
+                >
+                  ×
+                </button>
+              ) : null}
+            </li>
+          ))}
+
+          {added.map((tag) => (
+            <li className={pillClass} key={tag.id}>
+              <strong className="truncate font-semibold">{tag.value}</strong>
+              <span className="shrink-0 text-xs text-(--muted)">
+                {tagTypeLabels[tag.tagType]} · {tagScopeLabels[tag.scope]}
+              </span>
+              <button
+                aria-label={`‘${tag.value}’ 추가 취소`}
+                className={`${iconButtonClass} hover:text-(--danger)`}
+                disabled={isBusy}
+                onClick={() => removeAdded(tag)}
+                type="button"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+
+          {canCorrect
+            ? drafts.map((draft) => (
+                <TagDraftChip
+                  draft={draft}
+                  isBusy={isBusy}
+                  key={draft.id}
+                  onChange={(patch) => updateDraft(draft.id, patch)}
+                  onRemove={() => removeDraft(draft.id)}
+                  onSubmit={() => submitDraft(draft)}
+                  scopeLabel={tagScopeLabels[draft.scope]}
+                />
+              ))
+            : null}
+        </ul>
+      )}
+
+      {removedTags.length > 0 || otherRemoved.length > 0 ? (
+        <div className="mt-5 border-t border-(--line) pt-5">
+          <h4 className="text-sm font-bold text-(--muted)">삭제 후보</h4>
+          <ul className="mt-3 grid gap-2">
+            {removedTags.map((evidence, index) => (
+              <li
+                className={`${candidatePillClass} line-through`}
+                key={`removed-${evidence.taggingId}-${index}`}
+              >
+                <strong className="truncate font-semibold">{evidence.tagName}</strong>
+                <span className="shrink-0 text-xs no-underline">
+                  {tagTypeLabels[evidence.tagType]}
+                </span>
+                <button
+                  aria-label={`‘${evidence.tagName}’ 삭제 취소`}
+                  className={`${iconButtonClass} no-underline hover:text-(--accent-strong)`}
+                  disabled={isBusy}
+                  onClick={() => restore(evidence)}
+                  type="button"
+                >
+                  +
+                </button>
+              </li>
+            ))}
+            {otherRemoved.map(renderOther)}
+          </ul>
+        </div>
+      ) : null}
+
+      {withdrawn.length > 0 ? (
+        <div className="mt-5 border-t border-(--line) pt-5">
+          <h4 className="text-sm font-bold text-(--muted)">개입 해제 후보</h4>
+          <ul className="mt-3 grid gap-2">{withdrawn.map(renderOther)}</ul>
+        </div>
+      ) : null}
+
+      {drafts.some((draft) => draft.error) ? (
+        <ul className="mt-2 grid gap-1">
+          {drafts
+            .filter((draft) => draft.error)
+            .map((draft) => (
+              <li className="text-sm text-(--danger)" key={draft.id} role="alert">
+                {draft.error}
+              </li>
+            ))}
+        </ul>
+      ) : null}
+
+      {mutation.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={mutation.error} />
+        </div>
+      ) : null}
+
+      {cancelAdded.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={cancelAdded.error} />
+        </div>
+      ) : null}
+
+      {restoreRemoved.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={restoreRemoved.error} />
+        </div>
+      ) : null}
+
+      {cancelOther.isError ? (
+        <div className="mt-3">
+          <ApiErrorNotice error={cancelOther.error} />
+        </div>
+      ) : null}
+
+      {candidates.isError ? (
+        <p className="mt-3 text-sm text-(--muted)">
+          저장해 둔 태그 후보를 불러오지 못했습니다.{' '}
+          <button
+            className="font-bold text-(--accent-strong) underline"
+            onClick={() => void candidates.refetch()}
+            type="button"
+          >
+            다시 불러오기
+          </button>
+        </p>
+      ) : null}
+    </section>
+  );
+}

@@ -1,6 +1,7 @@
 package com.npick.clip.presentation;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder;
 
 import com.npick.clip.application.command.register.RegisterClipResult;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipCommand;
 import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.clip.application.error.VideoPreparationErrorCode;
@@ -52,7 +54,7 @@ class ClipUploadRequestTest {
     void setup() {
         when(upload.upload(any())).thenAnswer(call -> {
             received = call.getArgument(0);
-            return new RegisterClipResult(101, 201, "queued");
+            return new RegisterClipResult(101, 201, "queued", RegistrationOutcome.CREATED);
         });
     }
 
@@ -156,6 +158,61 @@ class ClipUploadRequestTest {
                 .andExpect(invalidField("filmedDateValid", "촬영일은 실제 존재하는 YYYY-MM-DD 날짜로 입력해 주세요."));
     }
 
+    @Test
+    void rejectsFilmedDateAfterToday() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("filmed_date", today().plusDays(1).toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(invalidField("filmedDateNotFuture", "촬영일은 오늘 이후 날짜로 입력할 수 없습니다."));
+        verifyNoInteractions(upload);
+    }
+
+    @Test
+    void rejectsBroadcastDateAfterToday() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", today().plusDays(1).toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(invalidField("broadcastDateNotFuture", "방송일은 오늘 이후 날짜로 입력할 수 없습니다."));
+        verifyNoInteractions(upload);
+    }
+
+    @Test
+    void rejectsBroadcastDateEarlierThanFilmedDate() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", today().minusDays(1).toString())
+                        .param("filmed_date", today().toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(invalidField("broadcastDateNotBeforeFilmedDate", "방송일은 촬영일보다 빠를 수 없습니다."));
+        verifyNoInteractions(upload);
+    }
+
+    @Test
+    void acceptsVideoFilmedAndBroadcastToday() throws Exception {
+        LocalDate today = today();
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", today.toString())
+                        .param("filmed_date", today.toString()))
+                .andExpect(status().isCreated());
+        assertThat(received.broadcastDate()).isEqualTo(today);
+        assertThat(received.filmedDate()).isEqualTo(today);
+    }
+
+    @Test
+    void reportsOnlyCalendarErrorWhenDateCannotBeParsed() throws Exception {
+        mockMvc.perform(videoRequest()
+                        .param("source_type", "broadcast")
+                        .param("broadcast_date", "2026-13-01")
+                        .param("filmed_date", "2026-13-02"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.data.broadcastDateNotFuture").doesNotExist())
+                .andExpect(jsonPath("$.data.filmedDateNotFuture").doesNotExist())
+                .andExpect(jsonPath("$.data.broadcastDateNotBeforeFilmedDate").doesNotExist());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"", "   "})
     void treatsBlankOptionalFieldsAsAbsent(String blank) throws Exception {
@@ -170,15 +227,16 @@ class ClipUploadRequestTest {
         assertThat(received.filmedDate()).isNull();
     }
 
-    @Test
-    void enforcesTitleLengthFromDatabaseSchema() throws Exception {
-        String title = "가".repeat(500);
+    @ParameterizedTest
+    @CsvSource({"가, 50", "😀, 25"})
+    void enforcesTitleLimitInUtf16Units(String character, int count) throws Exception {
+        String title = character.repeat(count);
         mockMvc.perform(videoRequest().param("source_type", "broadcast").param("title", title))
                 .andExpect(status().isCreated());
         assertThat(received.title()).isEqualTo(title);
-        mockMvc.perform(videoRequest().param("source_type", "broadcast").param("title", title + "나"))
+        mockMvc.perform(videoRequest().param("source_type", "broadcast").param("title", title + character))
                 .andExpect(status().isBadRequest())
-                .andExpect(invalidField("title", "제목은 500자 이내로 입력해 주세요."));
+                .andExpect(invalidField("title", "제목은 50자 이내로 입력해 주세요."));
     }
 
     @Test
@@ -211,6 +269,10 @@ class ClipUploadRequestTest {
             jsonPath("$.code").value("COMM_400_001").match(result);
             jsonPath("$.data." + field).value(message).match(result);
         };
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(ZoneId.of("Asia/Seoul"));
     }
 
     private MockMultipartHttpServletRequestBuilder videoRequest() {

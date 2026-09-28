@@ -6,6 +6,11 @@ spring:
     name: npick
   profiles:
     default: local
+  session:
+    jdbc:
+      # 스키마는 Flyway만 관리한다. 재배포 시에도 기존 로그인 세션을 읽는다.
+      initialize-schema: never
+      table-name: npick.SPRING_SESSION
   servlet:
     multipart:
       max-file-size: ${CLIP_MAX_FILE_BYTES:10737418240}B
@@ -29,11 +34,32 @@ spring:
     validate-on-migrate: true
     clean-disabled: true
 
+  http:
+    serviceclient:
+      # 질의 리졸버(FastAPI) 호출 설정. 이 값만 바꿔 local 리졸버와 승인된 GMS 를 교체한다
+      # (S15P21A501-45, 02-container 요소 표).
+      queryResolver:
+        base-url: ${QUERY_RESOLVER_BASE_URL:http://localhost:8000}
+        connect-timeout: ${QUERY_RESOLVER_CONNECT_TIMEOUT:1s}
+        # read-timeout 은 리졸버 한 요청의 최악 소요보다 반드시 커야 한다. 작으면 BE 가
+        # 먼저 끊어서 정규화 결과(search_tokens)를 잃고, FRD v3.1 §6.2 의 원 검색어 BM25
+        # fallback 이 불가능해진다. 재시도는 하지 않으므로 이 값이 곧 상한이다.
+        #
+        # 최악 = 생성 8.0s (query_resolver.v1.toml 의 timeout_seconds)
+        #      + 모델 digest 조회 1.0s (ollama_backend.py 의 _METADATA_TIMEOUT_SECONDS, 첫 요청만)
+        #      = 9.0s. LLM timeout 하나만 보고 잡으면 첫 요청에서 그대로 잘린다.
+        # 두 값 모두 실측 후 확정 대상이다 (FRD v3.1 §11).
+        read-timeout: ${QUERY_RESOLVER_TIMEOUT:10s}
+
 server:
   port: ${SERVER_PORT:8080}
   servlet:
     session:
+      timeout: ${ACCESS_TOKEN_TTL:30m}
       cookie:
+        # Spring Session 기본 이름(SESSION) 대신 FE/SSR의 기존 계약을 유지한다.
+        name: JSESSIONID
+        path: /
         http-only: true
         secure: true
         same-site: strict
@@ -41,16 +67,23 @@ server:
 # 합의한 입력 기본값은 환경변수로 덮어쓸 수 있다.
 # 저장 경로 등 필수 설정이 비면 등록을 거부한다.
 npick:
+  auth:
+    refresh-ttl: ${REFRESH_TOKEN_TTL:8h}
+  pipeline:
+    profile: ${NPICK_PIPELINE_PROFILE:classpath:pipeline-profile.yml}
+  worker-jobs:
+    enabled: ${NPICK_WORKER_JOBS_ENABLED:false}
+    tokens: ${NPICK_WORKER_JOBS_TOKENS:}
+    fleet: ${NPICK_WORKER_JOBS_FLEET:local}
+    shared-media-volume: ${NPICK_WORKER_JOBS_SHARED_MEDIA_VOLUME:false}
   clip-registration:
+    # 파서 메모리 보호용 운영 한도(byte). 시간 허용 오차와 무관하다.
+    subtitle-max-bytes: ${CLIP_SUBTITLE_MAX_BYTES:10485760}
     media-root: ${CLIP_MEDIA_ROOT:${NPICK_MEDIA_ROOT:}}
     upload-root: ${CLIP_UPLOAD_ROOT:}
     probe-timeout: ${CLIP_PROBE_TIMEOUT:60s}
     # 개발용 잠정값. 실제 데이터셋의 전체 디코딩 시간 측정 후 조정한다.
     decode-timeout: ${CLIP_DECODE_TIMEOUT:30m}
-    # 최초 등록용 실행 정의 식별자. 실행기에서 모델·단계 설정 버전을 결합할 때 갱신한다.
-    pipeline-version: ${CLIP_PIPELINE_VERSION:pipeline-v1}
-    # ai/src/npick_worker/stages.py의 단계 순서에 맞춘 초기 실행 설정.
-    stage-names: ${CLIP_STAGE_NAMES:scene_detection,frame_extraction,vlm_metadata,ocr,transcript_selection,asr,scene_transcript_mapping,entity_extraction,text_embedding,indexing}
     # 현재 영상 분석은 자체 GPU 사용. 외부 AI를 사용하는 실행 정의에서는 true로 변경한다.
     external-processing-required: ${CLIP_EXTERNAL_PROCESSING_REQUIRED:false}
     input:
@@ -59,6 +92,156 @@ npick:
       allowed-containers: ${CLIP_ALLOWED_CONTAINERS:mp4,mov}
       allowed-video-codecs: ${CLIP_ALLOWED_VIDEO_CODECS:h264,hevc}
       allowed-audio-codecs: ${CLIP_ALLOWED_AUDIO_CODECS:aac,mp3}
+  clip-media:
+    # 등록과 같은 media root 를 같은 환경 변수 순서로 읽는다. 재생은 등록 실행 설정에 묶이지 않는다.
+    media-root: ${CLIP_MEDIA_ROOT:${NPICK_MEDIA_ROOT:}}
+    # true 면 바이트 전송을 nginx 의 location /internal-media/ 에 위임한다 (03-deployment.md §31).
+    # 로컬·테스트에는 nginx 가 없으므로 기본은 애플리케이션 직접 전송이다.
+    nginx-accel: ${CLIP_MEDIA_NGINX_ACCEL:false}
+    internal-location: ${CLIP_MEDIA_INTERNAL_LOCATION:/internal-media/}
+    # 장면 다운로드를 위한 ffmpeg 구간 추출 최대 시간.
+    extraction-timeout: ${CLIP_MEDIA_EXTRACTION_TIMEOUT:2m}
+    # 요청 스레드에서 실행하는 ffmpeg 재인코딩의 전역 동시 실행 상한. 초과 요청은 즉시 503으로 거절한다.
+    max-concurrent-extractions: ${CLIP_MEDIA_MAX_CONCURRENT_EXTRACTIONS:1}
+  search:
+    structured:
+      # 동일 가중치는 시험용이며 운영 최적값이 아니다. Gate B 실측 후 값과 상태를 함께 설정한다.
+      # 실제 설정은 결과에 포함한다. 전체 검색 설정의 버전·저장 조립은 #54·#60 소유다.
+      weight-status: ${SEARCH_STRUCTURED_WEIGHT_STATUS:experimental}
+      weights:
+        event: ${SEARCH_STRUCTURED_EVENT_WEIGHT:1.0}
+        person: ${SEARCH_STRUCTURED_PERSON_WEIGHT:1.0}
+        organization: ${SEARCH_STRUCTURED_ORGANIZATION_WEIGHT:1.0}
+        location: ${SEARCH_STRUCTURED_LOCATION_WEIGHT:1.0}
+        facility: ${SEARCH_STRUCTURED_FACILITY_WEIGHT:1.0}
+        scene-type: ${SEARCH_STRUCTURED_SCENE_TYPE_WEIGHT:1.0}
+        broadcast-date: ${SEARCH_STRUCTURED_BROADCAST_DATE_WEIGHT:1.0}
+        filmed-date: ${SEARCH_STRUCTURED_FILMED_DATE_WEIGHT:1.0}
+      # 키워드 태그 매칭 (S15P21A501-321). 검색어의 명사(nng·nnp·sl·sn)와 인접 2~3개 연결형이 keyword 태그와
+      # 정확히 같으면 그 장면을 후보로 넣고, 질의 명사로 맞은 비율 × weight 를 구조화 점수에 **따로** 더한다.
+      # 개체 축 가중평균에 넣지 않는 이유는 분모가 커져 개체만 맞은 장면이 깎이기 때문이다.
+      # 확장어 명사는 후보로만 넣고 점수는 주지 않는다 (S15P21A501-48). weight 0 이면 확장어 편입까지 끈다.
+      # 이 블록이 스냅샷에 들어가므로 값을 바꾸면 config_version 이 바뀌고 진행 중인 검증은 재검증 대상이 된다.
+      # 0.2 는 과거 검색 150건 재실행 비교로 정했다(0.5·0.2·0.1). 관련도는 셋 다 같은 수준이었고, 0.5 는 검색어 한
+      # 단어만 맞는 장면이 여러 단어가 맞는 장면을 밀어내는 회귀가 3건 있었는데 0.2 에서 2건이 사라졌다.
+      keyword:
+        weight: ${SEARCH_STRUCTURED_KEYWORD_WEIGHT:0.2}
+        # 질의 명사가 먼저 자리를 차지한다. 조건마다 태그 조회 SQL 에 OR 절이 하나씩 붙는다.
+        condition-cap: ${SEARCH_STRUCTURED_KEYWORD_CONDITION_CAP:12}
+        # 정보 없는 값. 「앞」 태그는 무엇의 앞인지 없어 무관 장면만 늘린다 (운영 복원본: 앞 0.6%).
+        # 키워드 태그 매칭에만 쓴다 — 질의 BM25·dense 의 같은 말은 그대로다. 320 의 excluded-query-tokens 와 독립이다.
+        # 태그 match_value 와 같은 규칙(NFKC·공백 제거)으로 비교하므로 형태만 쓴다(품사 없음).
+        stoplist: ${SEARCH_STRUCTURED_KEYWORD_STOPLIST:앞,뒤,위,아래,옆,안,밖,속,사이,동쪽,서쪽,남쪽,북쪽,동부,서부,남부,북부,중부,내부,외부,주변,근처,일대,인근,장면,보이,화면,모습,표시,설명,하단,내용,관련}
+    # 단어 검색(BM25) 실행 설정. 커버리지 가중치 외의 숫자는 실측 전 잠정값이다(FRD §11).
+    # 값을 바꿀 때는 config-version 도 함께 올린다 — 그러지 않으면 다른 설정으로 돌린
+    # 두 실행이 search_execution 에서 같은 설정으로 보인다.
+    candidate:
+      # candidate-v2: 확장어를 구 단위 AND 로 걸기 시작한 판 (S15P21A501-302). 설정 값 자체는
+      # 안 바뀌었지만 같은 값으로 순위가 달라지므로, 라벨을 올려 두지 않으면 전후 실행이
+      # search_execution 에서 구분되지 않는다.
+      # candidate-v3: 원 질의 토큰에서 캡션 범용어를 빼기 시작한 판 (S15P21A501-320). 확장어 구 안의 범용어는 남긴다.
+      # candidate-v4: term_set(상수 점수 1.0) 대신 토큰별 term 으로 걸어 실제 BM25 점수로 순위를 매기는 판 (S15P21A501-320).
+      # 후보 집합은 같고 순위만 바뀐다.
+      # candidate-v5: 질의 토큰 커버리지 가중치를 활성화한 판 (S15P21A501-322).
+      config-version: ${SEARCH_CANDIDATE_CONFIG_VERSION:candidate-v5}
+      # 가중치 0 은 그 필드를 검색 대상에서 제외한다는 뜻이다. 실측 전까지 세 채널을 동일 가중으로 둔다.
+      caption-weight: ${SEARCH_CANDIDATE_CAPTION_WEIGHT:1.0}
+      transcript-weight: ${SEARCH_CANDIDATE_TRANSCRIPT_WEIGHT:1.0}
+      ocr-weight: ${SEARCH_CANDIDATE_OCR_WEIGHT:1.0}
+      # 확장어는 보조 신호다. 원 질의어와 같은 가중이면 확장어만 맞은 장면이 질의어가 맞은 장면을 앞지른다.
+      # 값은 실측 전까지 확정하지 않는다 (FRD 11.1) — 낮게 두어 순서를 뒤집지 못하게만 한다.
+      expanded-weight: ${SEARCH_CANDIDATE_EXPANDED_WEIGHT:0.3}
+      # 질의 토큰 커버리지 가중치는 검증된 0.1 을 기본값으로 둔다 (S15P21A501-322).
+      coverage-weight: ${SEARCH_CANDIDATE_COVERAGE_WEIGHT:0.1}
+      # 재순위·제외 전의 후보 상한. 최종 반환 10개(F-05)와 다른 값이며 실측으로 조정한다.
+      pool-size: ${SEARCH_CANDIDATE_POOL_SIZE:200}
+      # BM25 질의 토큰에서 뺄 캡션 범용어 (S15P21A501-320). VLM 캡션이 「~하는 장면이다 / 화면에 ~가 보인다 /
+      # ~하는 모습」 식이라 활성 장면 문서빈도가 장면 33.4%·보이 30.6%·화면 27.2%·모습 16.6% 다 (운영 복원본 실측).
+      # 캡션 서술어 표시 10.3%·설명 9.9%·관련 6.1%·하단 4.9%·내용 4.4% 도 같은 이유로 뺀다. 설명·내용·관련은 질의 지문
+      # 불용어(query_normalization.v1.toml)이기도 하다. 뉴스·배경·보도는 주제어일 수 있어 넣지 않는다.
+      # 질의에 남으면 토큰 사이 OR 로 그만큼이 후보가 된다. 색인 토큰과 같은 `형태/품사` 소문자로 쓴다.
+      # 원 질의 토큰이 전부 여기 들면 빼지 않는다. 질의 지문(normalized_query)·dense 입력과는 무관하다.
+      excluded-query-tokens: ${SEARCH_CANDIDATE_EXCLUDED_QUERY_TOKENS:장면/nng,보이/vv,화면/nng,모습/nng,표시/nng,설명/nng,하단/nng,내용/nng,관련/nng}
+    # 순위 결합(RRF) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
+    # 실제 사용 값은 search_execution.search_config_json 에 남고 config_version 이 그 값들에서 나온다.
+    fusion:
+      weight-status: ${SEARCH_FUSION_WEIGHT_STATUS:experimental}
+      # RRF 원 논문의 관례값이다. 클수록 상위 순위의 우위가 완만해진다. Gate B 에서 실측으로 조정한다.
+      rrf-k: ${SEARCH_FUSION_RRF_K:60.0}
+      # 구조화 축 점수의 가산 계수. 1.0 은 구조화 만점 후보가 전 채널 1등과 동점이 된다는 뜻이다.
+      # 「구조화만으로 전 채널 1등을 이기지 않게 한다」는 제품 정책이지 FRD 가 요구하는 불변식이 아니므로
+      # 상한을 코드로 막지 않는다. 실제 세기는 Gate B 실측으로 정한다.
+      lambda: ${SEARCH_FUSION_LAMBDA:1.0}
+      # 가중치 0 이 곧 채널 off 다. 공통 배율은 R/M 에서 상쇄되므로 의미를 갖는 것은 채널 사이의 비율뿐이다.
+      # DENSE 기본값이 0 인 이유: 배선은 모두 끝났지만(S15P21A501-164·-53·-59) 이 기본값은 저장
+      # 벡터가 없는 환경 — 테스트와 갓 띄운 로컬 — 에서도 쓰인다. 벡터 없이 켜면 모든 검색이
+      # degraded 로 떨어지므로, 켜는 것은 적재를 마친 배포 환경의 설정으로 한다.
+      # 실제로 켜는 자리는 compose.yaml 의 backend environment 다 (S15P21A501-233).
+      # 켜려면 npick.search.dense.model-version 을 함께 설정해야 하며, 없으면 부팅이 막힌다.
+      channel-weights:
+        lexical: ${SEARCH_FUSION_LEXICAL_WEIGHT:1.0}
+        dense: ${SEARCH_FUSION_DENSE_WEIGHT:0.0}
+    # 보조 랭킹(soft) 실행 설정. 아래 숫자는 모두 실측 전 잠정값이며 확정값이 아니다(FRD §11).
+    # 이 신호들은 baseScore 를 바꾸지 않고 동점 구간의 순서만 가른다 — 가중치를 어떻게 잡아도
+    # 관련성이 높은 장면을 추월할 수 없다(F-05 「무조건 앞서지 않게 한다」).
+    # 예외는 tie-epsilon 하나다. 보조 점수가 순서를 가르는 폭을 그 값이 직접 정하므로 상한을 코드로 막는다.
+    soft:
+      weight-status: ${SEARCH_SOFT_WEIGHT_STATUS:experimental}
+      # 동점으로 묶는 버킷의 폭. 0 이면 정확히 같을 때만 보조 신호가 순서를 가른다.
+      # 보장은 「baseScore 차이가 이 값 이상이면 보조 점수가 순서를 뒤집지 못한다」다.
+      # 「차이가 이 값 이하면 동점」이 아니다 — 버킷 경계 양쪽은 차이가 작아도 갈린다.
+      # SoftRankingSettings.MAX_TIE_EPSILON(0.1) 이상은 부팅이 막힌다. 그 상한은 계산으로
+      # 나온 값이 아니라 보수적으로 잡은 가드레일이며 Gate B 실측에서 조정한다.
+      tie-epsilon: ${SEARCH_SOFT_TIE_EPSILON:0.0}
+      # 가중치 0 이 곧 신호 off 다. 보조 점수는 활성 신호의 가중평균이라 공통 배율은 상쇄된다 —
+      # 의미를 갖는 것은 신호 사이의 비율뿐이다.
+      weights:
+        # 검색 의도가 recent_scene 일 때만 켜진다. 상시 적용하면 최신 편향이 모든 질의에 깔린다.
+        recency: ${SEARCH_SOFT_RECENCY_WEIGHT:1.0}
+        # 의도로 게이트할 수단이 없어 상시 활성이다 (리졸버 intent 에 b-roll 값이 없다).
+        # scene.shot_type 컬럼 주석이 적은 「b_roll 에 보조 가산점」과 같은 동작이다.
+        b-roll: ${SEARCH_SOFT_B_ROLL_WEIGHT:1.0}
+        # 질의 해석의 classifications 에 그 조건이 있을 때만 켜진다.
+        season: ${SEARCH_SOFT_SEASON_WEIGHT:1.0}
+        weather: ${SEARCH_SOFT_WEATHER_WEIGHT:1.0}
+    # 텍스트 의미 검색 실행 설정. model-version 은 색인을 만든 인코더와 **정확히** 같아야 한다 —
+    # 어긋나면 DenseSceneCandidateAdapter 가 전 장면을 model_mismatch 로 걸러 dense 가 조용히
+    # 0 건을 낸다. 화면에는 아무 표시도 나지 않으므로 추측값을 넣지 않는다.
+    # 아래 값은 ai settings.py 의 embedding_model@embedding_model_revision 이고, 적재된
+    # pipeline_run.stage_states_json 의 text_embedding.versions.detail.modelVersion 과 같은
+    # 값임을 확인했다 (S15P21A501-233). 다른 인코더로 색인한 환경은 이 값을 함께 바꿔야 하며,
+    # 모델 교체는 색인 재생성과 같은 배포여야 한다 (ai/docs/query-embedding.md §9).
+    # 이 값이 있어도 dense 가중치가 0 이면 채널은 꺼진 채다 — 켜는 자리는 compose.yaml 이다.
+    dense:
+      model-version: ${SEARCH_DENSE_MODEL_VERSION:dragonkue/snowflake-arctic-embed-l-v2.0-ko@55ec6e9358a56d56af759bc8372e970caf8c305f}
+      pool-size: ${SEARCH_DENSE_POOL_SIZE:200}
+      # dense 후보의 관련성 하한선. 2.0 은 코사인 거리의 전 범위라 아무것도 거르지 않는다 —
+      # 기본값 그대로면 검색 결과는 이 설정이 없던 때와 같다. 조이는 자리는 compose.yaml 이다.
+      # 다만 「결과가 같다」이지 「기록이 같다」가 아니다. 스냅샷에 max_distance 키가 늘고
+      # 스키마가 dense-search/v2 가 되므로 값이 2.0 이어도 config_version 은 달라지고, 교정
+      # 검증 지문의 config 축이 그 값이라 진행 중인 검증은 재검증 대상이 된다 (F-13.4).
+      # 실측(S15P21A501-278, 운영 질의 27개): 거리 분포는 0.45~1.09 이고, 해당 영상이 있는
+      # 질의의 1위는 0.45~0.61, 없는 질의의 1위는 0.76~0.79, 무의미 질의는 0.83 이다.
+      # 0.75 에서 「근거 없는 결과」의 72% 가 사라진다. 근거 있는 결과는 BM25 가 계속 공급하므로
+      # 이 값으로 사라지지 않는다 — 비용은 dense 단독으로만 걸리던 후보뿐이다.
+      # 임계값 때문에 결과가 10개 미만이 되는 것은 정상이다 (F-05 「부족하면 10개 미만을 반환한다」).
+      # usable CTE 의 유효성 판정과 커버리지 집계는 이 값과 무관하다. 같이 움직이게 만들면
+      # 유사도가 낮은 장면이 invalid_vector 로 집계되어 매 검색이 PARTIAL 로 떨어진다.
+      max-distance: ${SEARCH_DENSE_MAX_DISTANCE:2.0}
+
+# PostgreSQL error details may include the failing row (script, paths, secrets).
+# API failures are reported through safe application error codes instead.
+logging:
+  level:
+    org.hibernate.orm.jdbc.error: OFF
+    org.hibernate.orm.jdbc.bind: OFF
+    org.hibernate.orm.jdbc.extract: OFF
+  # 모든 로그 라인에 request ID 를 붙여 한 요청을 역추적할 수 있게 한다 (S15P21A501-136).
+  # RequestIdFilter 가 MDC 에 넣는 값이며, 없으면 빈 값이다.
+  # job 은 워커 스테이지 처리 구간에서만 채워지는 clip·run·stage 묶음이다 (S15P21A501-204).
+  # 그 밖의 로그에서는 키가 없어 통째로 사라진다.
+  pattern:
+    level: "%5p [%X{requestId:-}]%X{job:-}"
 
 management:
   endpoints:

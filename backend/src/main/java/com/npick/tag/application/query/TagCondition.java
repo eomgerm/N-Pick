@@ -1,0 +1,89 @@
+package com.npick.tag.application.query;
+
+import java.time.LocalDate;
+
+import com.npick.common.error.BusinessException;
+import com.npick.tag.domain.error.TagErrorCode;
+import com.npick.tag.domain.model.TagMatchValue;
+import com.npick.tag.domain.model.TagType;
+
+/**
+ * 찾을 태그의 조건 하나. 정확히 맞추기와 날짜 범위를 <b>한 형태</b> 로 합쳤다.
+ *
+ * <p>정확히 맞추기는 {@code fromInclusive == toInclusive} 이고, 날짜창은 두 끝이 다르다. 술어는 두 형태다: 기본은 {@code tag_type = ? AND
+ * match_value BETWEEN ? AND ?} 로 {@code uq_tag_type_match_value} 를 그대로 타고, {@code ignoreCase} 가 참이면 {@code tag_type = ?
+ * AND lower(match_value) = lower(?)} 로 바뀐다 (키워드 조건 전용).
+ *
+ * <p>{@code ignoreCase} 는 정확 일치에만 쓴다 (S15P21A501-321). 워커가 질의 토큰을 소문자로 접는데 태그 {@code match_value} 는 대소문자를 보존하므로, 키워드
+ * 조건은 대소문자를 무시해야 {@code KBS} 태그에 닿는다. 대소문자를 접은 사전순 범위는 정의하지 않으므로 범위와 함께 쓰면 거부한다. 개체 축과 날짜는 그대로 정확 일치다.
+ *
+ * <p>날짜 비교가 문자열로 되는 것은 {@code ck_tag_date} 가 {@code YYYY-MM-DD} 를 강제하기 때문이다. ISO 8601 은 사전순이 시간순이라 범위 비교가 성립한다. 그 형식이
+ * 깨지면 범위 비교가 무너진다 — {@code tag.match_value} 컬럼 주석이 경고하는 내용이다.
+ *
+ * @param type 태그 종류
+ * @param fromInclusive 시작값. 포함
+ * @param toInclusive 끝값. <b>포함</b>
+ * @param ignoreCase 대소문자를 무시하고 비교하는가. 두 끝이 같을 때만 참일 수 있다
+ */
+public record TagCondition(TagType type, String fromInclusive, String toInclusive, boolean ignoreCase) {
+
+    public TagCondition {
+        boolean malformed = type == null
+                || fromInclusive == null
+                || toInclusive == null
+                || fromInclusive.isBlank()
+                || toInclusive.isBlank()
+                || fromInclusive.compareTo(toInclusive) > 0
+                || (ignoreCase && !fromInclusive.equals(toInclusive));
+        // 뒤집힌 범위는 SQL 에서 오류 없이 0건이 된다. 그러면 배선 실수가 "검색 결과 없음" 으로 위장된다.
+        if (malformed) {
+            throw new BusinessException(TagErrorCode.INVALID_TAG_CONDITION);
+        }
+    }
+
+    /** 대소문자를 구분하는 조건. {@code ignoreCase} 가 생기기 전의 모든 호출부가 이 형태다. */
+    public TagCondition(TagType type, String fromInclusive, String toInclusive) {
+        this(type, fromInclusive, toInclusive, false);
+    }
+
+    /**
+     * 개체·사건명·분류를 정규화값으로 정확히 맞춘다. 리졸버가 낸 값을 넣는다.
+     *
+     * <p>{@link TagMatchValue#normalize} 를 여기서 건다. 리졸버의 출력이 저장된 {@code match_value} 와 같은 형태라는 보장이 없고, 표기가 조금만 달라도 정확 일치
+     * 조회는 오류 없이 0건이 된다 — 조회 경로가 정규화를 잊을 수 없게 하려고 호출을 이 안에 둔다.
+     *
+     * <p><b>호출자가 빈 값을 걸러야 한다.</b> 여기 오는 값은 리졸버의 정규화 출력이고, 그것은 사용자가 친 검색어에서 파생된다 — LLM 이 정규화하지 못한 이름에 빈 문자열을 낼 수 있다. 그런
+     * 값을 그대로 넣으면 {@link TagErrorCode#INVALID_TAG_CONDITION} 5xx 가 되어, 사용자 질의에서 비롯된 일을 서버 결함으로 집계한다. 옳은 동작은 그 조건 하나를 빼고
+     * 나머지로 검색하는 것이다(F-05 의 축소 동작). 이 생성자의 거부는 그 필터가 빠졌을 때의 마지막 방어선이다. 정규화 후에 빈 문자열이 되는 값도 같은 곳에서 걸리도록 순서가 「정규화 → 빈 값
+     * 검사」 다.
+     */
+    public static TagCondition exact(TagType type, String matchValue) {
+        String normalized = TagMatchValue.normalize(matchValue);
+        return new TagCondition(type, normalized, normalized);
+    }
+
+    /** {@link #exact} 와 같되 대소문자를 무시하고 맞춘다. 키워드 조건용이다 (S15P21A501-321). 정규화·빈 값 규칙은 {@link #exact} 와 같다. */
+    public static TagCondition exactIgnoreCase(TagType type, String matchValue) {
+        String normalized = TagMatchValue.normalize(matchValue);
+        return new TagCondition(type, normalized, normalized, true);
+    }
+
+    /**
+     * 날짜창. 리졸버의 반열린 구간 {@code [start, endExclusive)} 을 받는다.
+     *
+     * <p>여기서 <b>닫힌 구간으로 한 번만</b> 바꾼다. 날짜 태그는 하루 단위가 {@code CHECK} 로 강제되므로 마지막 날을 하루 당기면 같은 집합이 된다. 변환이 이 한 곳에만 있어야
+     * 호출부마다 경계 해석이 갈리지 않는다.
+     *
+     * @throws BusinessException 날짜 태그가 아니거나 구간이 비면 {@link TagErrorCode#INVALID_TAG_CONDITION}
+     */
+    public static TagCondition dates(TagType type, LocalDate startInclusive, LocalDate endExclusive) {
+        if (type == null || !type.date() || startInclusive == null || endExclusive == null) {
+            throw new BusinessException(TagErrorCode.INVALID_TAG_CONDITION);
+        }
+        if (!endExclusive.isAfter(startInclusive)) {
+            throw new BusinessException(TagErrorCode.INVALID_TAG_CONDITION);
+        }
+        return new TagCondition(
+                type, startInclusive.toString(), endExclusive.minusDays(1).toString());
+    }
+}

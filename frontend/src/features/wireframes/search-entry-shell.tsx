@@ -1,14 +1,17 @@
 'use client';
 
-import { routes } from '@/lib/routes';
-import { AppShell } from '@/components/app-shell';
-
-import { ArrowRight, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useRef, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState, useTransition } from 'react';
 
+import { emptyDateRange } from '@/features/wireframes/date-range';
 import { EntryFooter } from '@/features/wireframes/entry-chrome';
-import { SearchHistory } from '@/features/wireframes/search-history';
+import { SceneSearchField } from '@/features/wireframes/scene-search-field';
+import { SearchLayout } from '@/features/wireframes/search-layout';
+import { prepareSearchTransition } from '@/features/wireframes/search-transition';
+import {
+  createSearchResultsHref,
+  isSameSearchDestination,
+} from '@/features/wireframes/search-navigation';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/entry.module.css';
 
@@ -18,72 +21,95 @@ interface SearchEntryShellProps {
 
 export function SearchEntryShell({ theme }: SearchEntryShellProps) {
   const router = useRouter();
+  const [isNavigating, startNavigation] = useTransition();
   const [query, setQuery] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [broadcastRange, setBroadcastRange] = useState(emptyDateRange);
+  const [filmingRange, setFilmingRange] = useState(emptyDateRange);
+  const searchFieldRef = useRef<HTMLDivElement>(null);
+  const navigationLockRef = useRef(false);
+  const hasObservedNavigationRef = useRef(false);
+
+  useEffect(() => {
+    if (isNavigating) {
+      hasObservedNavigationRef.current = true;
+      return;
+    }
+    if (hasObservedNavigationRef.current) {
+      navigationLockRef.current = false;
+      hasObservedNavigationRef.current = false;
+    }
+  }, [isNavigating]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (query.trim()) router.push(`${routes.searchResults}?q=${encodeURIComponent(query.trim())}`);
+    if (navigationLockRef.current || isNavigating) return;
+
+    const href = createSearchResultsHref({
+      query,
+      broadcast: broadcastRange,
+      filming: filmingRange,
+    });
+    if (!href) return;
+    if (
+      typeof window !== 'undefined' &&
+      isSameSearchDestination(`${window.location.pathname}${window.location.search}`, href)
+    )
+      return;
+
+    navigationLockRef.current = true;
+    const cancelTransition = prepareSearchTransition(searchFieldRef.current, href);
+    try {
+      startNavigation(() => router.push(href));
+    } catch (error) {
+      cancelTransition();
+      navigationLockRef.current = false;
+      throw error;
+    }
   }
 
   return (
-    <AppShell
+    <SearchLayout
       className={`${styles.shell} ${styles.searchShell}`}
-      data-theme={theme}
-      headerTone="light"
+      theme={theme}
+      broadcastRange={broadcastRange}
+      filmingRange={filmingRange}
+      isDisabled={isNavigating}
+      onDateRangesChange={({ broadcast, filming }) => {
+        setBroadcastRange(broadcast);
+        setFilmingRange(filming);
+      }}
     >
       <main className={styles.searchMain}>
-        <div className={styles.searchHero}>
-          <p className={styles.eyebrow}>FIND YOUR NEXT SCENE</p>
-          <h1>
-            오늘 필요한 장면을
-            <br />
-            <em>바로 찾아볼까요?</em>
-          </h1>
-          <p className={styles.searchDescription}>
-            찾고 싶은 뉴스 장면을 자연스럽게 설명해 주세요.
-          </p>
-          <form
-            aria-label="뉴스 장면 검색"
-            className={styles.searchForm}
-            onSubmit={handleSubmit}
-            role="search"
-          >
-            <Search aria-hidden="true" className={styles.searchIcon} />
-            <label className={styles.srOnly} htmlFor="scene-search">
-              뉴스 장면 검색어
-            </label>
-            <input
-              autoComplete="off"
-              enterKeyHint="search"
-              id="scene-search"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="예: 비 내리는 출근길 광화문 횡단보도"
-              ref={inputRef}
-              type="search"
-              value={query}
-            />
-            <button
-              aria-label="검색어 지우기"
-              className={styles.clearButton}
-              disabled={!query}
-              onClick={() => {
-                setQuery('');
-                inputRef.current?.focus();
-              }}
-              type="button"
-            >
-              <X aria-hidden="true" />
-            </button>
-            <button className={styles.primaryButton} disabled={!query.trim()} type="submit">
-              장면 찾기
-              <ArrowRight aria-hidden="true" />
-            </button>
-          </form>
+        <div className={styles.searchIntro}>
+          <h1>뉴스 장면 검색</h1>
+          <p className={styles.searchDescription}>찾는 뉴스 장면을 설명해 주세요.</p>
         </div>
-        <SearchHistory theme={theme} />
+        <div className={styles.searchHero}>
+          <SceneSearchField
+            variant="hero"
+            query={query}
+            onQueryChange={setQuery}
+            onSubmit={handleSubmit}
+            placeholder="예: 비 내리는 출근길 광화문 횡단보도"
+            formLabel="뉴스 장면 검색"
+            inputLabel="뉴스 장면 검색어"
+            isBusy={isNavigating}
+            isDisabled={isNavigating}
+            fieldRef={searchFieldRef}
+            inputId="scene-search"
+            classes={{
+              form: styles.searchPanel,
+              field: styles.searchForm,
+              icon: styles.searchIcon,
+              surface: styles.searchInputSurface,
+              clearButton: styles.clearButton,
+              submitButton: styles.primaryButton,
+              srOnly: styles.srOnly,
+            }}
+          />
+        </div>
       </main>
       <EntryFooter />
-    </AppShell>
+    </SearchLayout>
   );
 }

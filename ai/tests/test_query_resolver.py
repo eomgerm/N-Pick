@@ -282,53 +282,25 @@ def test_both_date_fields_are_accepted() -> None:
         assert validate(parse_raw(payload), "2022년").resolution.date_windows[0].field == field
 
 
-# ── entities / locations 중복 (FRD F-04~05, F-05 중복 계산 방지) ────────────────
+# ── entities / locations 교차 (FRD F-05 구조화 축 점수) ────────────────────────
 
 
-def test_duplicate_value_keeps_locations_only() -> None:
+def test_same_name_across_entities_and_locations_is_kept() -> None:
+    """이름이 같아도 종류가 다르면 다른 조건이다 (FRD F-05 구조화 축 점수).
+
+    워커는 교차 중복을 판단하지 않는다. 기관 「서울시청」 과 시설 「서울시청」 은 서로
+    다른 태그 종류라 백엔드에서 각각 하나의 고유 조건이 되며, 축 안의 중복만
+    `TagCondition` 집합이 접는다 (S15P21A501-48 계약 1·2).
+    """
     query = "서울시청 앞 인파"
     payload = _payload(
         entities=[_anchor("서울시청", 0, 4, type="organization")],
         locations=[_anchor("서울시청", 0, 4, type="facility")],
     )
     outcome = validate(parse_raw(payload), query)
-    assert outcome.resolution.entities == ()
-    assert len(outcome.resolution.locations) == 1
-    assert "F-05 중복 계산 방지" in outcome.findings[0].reason
-
-
-def test_duplicate_check_ignores_case_and_spacing() -> None:
-    payload = _payload(
-        entities=[
-            {
-                "type": "organization",
-                "value": "KBS  뉴스",
-                "origin": "inferred",
-                "query_span": None,
-                "confidence": 0.5,
-            }
-        ],
-        locations=[
-            {
-                "type": "facility",
-                "value": "kbs 뉴스",
-                "origin": "inferred",
-                "query_span": None,
-                "confidence": 0.5,
-            }
-        ],
-    )
-    assert validate(parse_raw(payload), "kbs 뉴스").resolution.entities == ()
-
-
-def test_different_values_both_survive() -> None:
-    payload = _payload(
-        entities=[_anchor("홍길동", 0, 3, type="person")],
-        locations=[_anchor("서울역", 4, 7, type="facility")],
-    )
-    outcome = validate(parse_raw(payload), "홍길동 서울역")
     assert len(outcome.resolution.entities) == 1
     assert len(outcome.resolution.locations) == 1
+    assert outcome.findings == ()
 
 
 # ── 버전 (FRD F-14, 모듈 메타데이터) ────────────────────────────────────────
@@ -351,10 +323,10 @@ def test_prompt_version_is_stable_across_loads() -> None:
 
 
 def test_versioned_config_filename_must_match_schema(tmp_path: Path) -> None:
-    target = tmp_path / "query_resolver.v2.toml"
+    target = tmp_path / "query_resolver.v9.toml"
     target.write_text(
         DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8"
-    )  # schema 는 v1 인 채로
+    )  # schema 는 기본 설정 그대로 (파일명 버전과 어긋난다)
     with pytest.raises(ValueError, match="일치하지 않는다"):
         load_config(target)
 
@@ -451,7 +423,7 @@ def test_resolve_query_reports_three_versions() -> None:
     stub = StubResolver(_payload(locations=[_anchor("서울역", 0, 3, type="facility")]))
     result = resolve_query("서울역 귀성객", stub)
     assert result.resolution_schema_version == SCHEMA_VERSION
-    assert result.prompt_version.startswith("query-resolver-prompt/v1:")
+    assert result.prompt_version.startswith("query-resolver-prompt/v2:")
     assert result.model_version == "stub-model@abc123"
 
 
@@ -769,7 +741,7 @@ def test_v2_date_contract_round_trip(field: str) -> None:
     assert serialized["date_windows"][0]["field"] == field
     assert serialized["schema_version"] == "query-resolver/v2"
     assert result.resolution_schema_version == "query-resolver/v2"
-    assert result.prompt_version.startswith("query-resolver-prompt/v1:")
+    assert result.prompt_version.startswith("query-resolver-prompt/v2:")
 
 
 def test_legacy_filming_date_is_rejected() -> None:

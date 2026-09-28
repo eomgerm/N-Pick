@@ -29,6 +29,7 @@ import com.npick.clip.application.command.ClipUploadService;
 import com.npick.clip.application.command.StoredClipRegistrationService;
 import com.npick.clip.application.command.prepare.PrepareVideoResult;
 import com.npick.clip.application.command.register.RegisterClipResult;
+import com.npick.clip.application.command.register.RegistrationOutcome;
 import com.npick.clip.application.command.register.UploadClipUseCase;
 import com.npick.clip.application.port.ClipRegistrationContextPort;
 import com.npick.clip.infrastructure.media.FfmpegVideoValidator;
@@ -85,7 +86,8 @@ class ClipUploadValidationIntegrationTest {
                 },
                 new StoredClipRegistrationService(
                         new LocalVideoStorageAdapter(media),
-                        command -> new RegisterClipResult(command.clipId(), command.pipelineRunId(), "queued")),
+                        command -> new RegisterClipResult(
+                                command.clipId(), command.pipelineRunId(), "queued", RegistrationOutcome.CREATED)),
                 (key, actor, hash, request, create) -> create.get(),
                 (subtitle, duration, id) -> {
                     throw new AssertionError("No subtitle in this request");

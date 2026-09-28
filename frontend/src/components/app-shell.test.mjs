@@ -9,6 +9,12 @@ import ts from 'typescript';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (specifier.endsWith('.module.css')) {
+      return {
+        url: 'data:text/javascript,export default new Proxy({}, {get: (_, key) => key});',
+        shortCircuit: true,
+      };
+    }
     if (specifier === 'next/navigation') {
       return {
         url: 'data:text/javascript,export function usePathname() { return globalThis.testPathname; }',
@@ -39,7 +45,7 @@ registerHooks({
 const { AppShell } = await import('./app-shell.tsx');
 const { SessionBoundary } = await import('./session-boundary.tsx');
 
-function renderShell(role, pathname, loginId = 'test-member') {
+function renderShell(role, pathname, loginId = 'test-member', isInteractionLocked = false) {
   globalThis.testPathname = pathname;
   const client = new QueryClient();
   try {
@@ -50,7 +56,11 @@ function renderShell(role, pathname, loginId = 'test-member') {
         createElement(
           SessionBoundary,
           { member: { memberId: '1', role, loginId } },
-          createElement(AppShell, { 'data-theme': 'shinhan' }, createElement('main', null, '본문')),
+          createElement(
+            AppShell,
+            { 'data-theme': 'shinhan', isInteractionLocked },
+            createElement('main', null, '본문'),
+          ),
         ),
       ),
     );
@@ -59,22 +69,22 @@ function renderShell(role, pathname, loginId = 'test-member') {
   }
 }
 
-test('편집기자 메뉴는 검색만 제공하며 계정과 역할을 실제 세션에서 표시한다', () => {
-  const html = renderShell('EDITOR', '/search', '편집자-계정');
+test('편집 기사 메뉴는 검색만 제공하며 계정과 역할을 실제 세션에서 표시한다', () => {
+  const html = renderShell('EDITOR', '/search', '편집 기사-계정');
   assert.match(html, /href="\/search"/);
   assert.doesNotMatch(html, /href="\/review"/);
-  assert.match(html, /편집자-계정/);
-  assert.match(html, /편집기자/);
+  assert.match(html, /편집 기사-계정/);
+  assert.match(html, /편집 기사/);
   assert.match(html, /로그아웃/);
 });
 
-test('검수자가 검색 화면으로 이동해도 검수자 역할과 두 메뉴를 유지한다', () => {
+test('아카이브 팀이 검색 화면으로 이동해도 아카이브 팀 역할과 두 메뉴를 유지한다', () => {
   for (const pathname of ['/search', '/search/results', '/review']) {
     const html = renderShell('REVIEWER', pathname);
     assert.match(html, /href="\/search"/);
     assert.match(html, /href="\/review"/);
-    assert.match(html, /검수자/);
-    assert.doesNotMatch(html, /편집기자/);
+    assert.match(html, /아카이브 팀/);
+    assert.doesNotMatch(html, /편집 기사/);
     const currentLink = html.match(/<a\b[^>]*aria-current="page"[^>]*>/g);
     assert.equal(currentLink.length, 1);
     assert.ok(currentLink[0].includes(`href="${pathname === '/review' ? '/review' : '/search'}"`));
@@ -90,4 +100,10 @@ test('공통 헤더와 페이지 본문은 한 번씩 렌더링하며 긴 계정
   assert.match(html, /data-theme="shinhan"/);
   assert.ok(html.includes(loginId));
   assert.match(html, /본문/);
+});
+
+test('상호작용 잠금 중에는 공통 헤더 링크와 로그아웃도 비활성 상태를 노출한다', () => {
+  const html = renderShell('REVIEWER', '/review', '아카이브 팀', true);
+  assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 2);
+  assert.match(html, /<button[^>]*disabled=""[^>]*>로그아웃<\/button>/);
 });

@@ -1,5 +1,6 @@
-export type ReviewStatus = 'pending' | 'reviewing' | 'resolved' | 'dismissed' | 'deferred';
-export type BoardStatus = 'all' | 'pending' | 'reviewing' | 'completed';
+import type { InquiryStatus } from '@/features/wireframes/inquiry-state';
+
+export type BoardStatus = 'all' | InquiryStatus;
 export type BoardSort = 'time' | 'requester' | 'topic';
 
 export interface ReviewBoardItem {
@@ -10,23 +11,17 @@ export interface ReviewBoardItem {
   requester: string;
   topic: string;
   daysAgo: number;
-  status: ReviewStatus;
+  status: InquiryStatus;
   timecode: string;
   thumbnail: 'station' | 'weather' | 'square';
   isDegraded: boolean;
-}
-
-export function getBoardStatus(status: ReviewStatus): Exclude<BoardStatus, 'all'> {
-  return status === 'pending' || status === 'reviewing' ? status : 'completed';
 }
 
 export function selectBoardPage(items: ReviewBoardItem[], params: URLSearchParams) {
   const query = (params.get('q') ?? '').trim().normalize('NFKC').toLocaleLowerCase('ko');
   const rawStatus = params.get('status');
   const status: BoardStatus =
-    rawStatus === 'pending' || rawStatus === 'reviewing' || rawStatus === 'completed'
-      ? rawStatus
-      : 'all';
+    rawStatus === 'open' || rawStatus === 'reviewing' || rawStatus === 'closed' ? rawStatus : 'all';
   const rawSort = params.get('sort');
   const sort: BoardSort = rawSort === 'requester' || rawSort === 'topic' ? rawSort : 'time';
   const matched = items.filter((item) => {
@@ -38,13 +33,11 @@ export function selectBoardPage(items: ReviewBoardItem[], params: URLSearchParam
   });
   const counts = {
     all: matched.length,
-    pending: matched.filter((item) => getBoardStatus(item.status) === 'pending').length,
-    reviewing: matched.filter((item) => getBoardStatus(item.status) === 'reviewing').length,
-    completed: matched.filter((item) => getBoardStatus(item.status) === 'completed').length,
+    open: matched.filter((item) => item.status === 'open').length,
+    reviewing: matched.filter((item) => item.status === 'reviewing').length,
+    closed: matched.filter((item) => item.status === 'closed').length,
   };
-  const filtered = matched.filter(
-    (item) => status === 'all' || getBoardStatus(item.status) === status,
-  );
+  const filtered = matched.filter((item) => status === 'all' || item.status === status);
   filtered.sort((a, b) => {
     const labelOrder = sort === 'time' ? 0 : a[sort].localeCompare(b[sort], 'ko');
     return labelOrder || a.daysAgo - b.daysAgo || a.id.localeCompare(b.id);
@@ -74,19 +67,28 @@ export function getReviewUrl(
     if (value === null || value === '') params.delete(key);
     else params.set(key, value);
   }
-  const query = params.toString();
-  return `${pathname}${query ? `?${query}` : ''}`;
+  // 빈 /review 는 개요다. 문의 화면에서 마지막 조건을 지워도 문의 화면에 머물게 view 를 남긴다.
+  const query = params.toString() || 'view=inquiries';
+  return `${pathname}?${query}`;
 }
 
-export function getReviewTabUrl(
-  pathname: string,
-  currentParams: string,
-  tab: 'inquiries' | 'processing',
-) {
+export type ReviewTab = 'overview' | 'inquiries' | 'processing';
+export type ReviewView = ReviewTab | 'upload';
+
+/** 파라미터가 하나도 없을 때만 개요다. 기존 `?status=`·`?inquiry=` 같은 링크는 문의 화면을 연다. */
+export function selectReviewView(params: URLSearchParams): ReviewView {
+  const view = params.get('view');
+  if (view === 'processing' || view === 'upload') return view;
+  return params.size === 0 ? 'overview' : 'inquiries';
+}
+
+export function getReviewTabUrl(pathname: string, currentParams: string, tab: ReviewTab) {
+  if (tab === 'overview') return pathname;
   return getReviewUrl(pathname, currentParams, {
     view: tab === 'processing' ? 'processing' : null,
     tab: null,
     clip: null,
     inquiry: null,
+    progressPage: null,
   });
 }

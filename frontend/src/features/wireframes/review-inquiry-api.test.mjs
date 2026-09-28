@@ -1,0 +1,505 @@
+import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+import test from 'node:test';
+
+import { ApiClientError } from '../../lib/api/error.ts';
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    return nextResolve(
+      specifier.startsWith('@/')
+        ? new URL(`../../${specifier.slice('@/'.length)}.ts`, import.meta.url).href
+        : specifier,
+      context,
+    );
+  },
+});
+
+const {
+  claimReviewInquiry,
+  createTagCorrectionCandidate,
+  discardTagCorrectionCandidateEvidence,
+  getCorrectionCandidates,
+  getReviewInquiries,
+  getReviewInquiry,
+  parseCommaSeparatedTags,
+  parseCorrectionCandidates,
+  parseReviewInquiryDetail,
+  parseReviewInquiryList,
+  parseTagCorrectionCandidate,
+  releaseReviewInquiry,
+  resolveReviewInquiry,
+} = await import('./review-inquiry-api.ts');
+
+const scene = {
+  sceneId: '31',
+  clipId: '21',
+  clipTitle: '저녁 뉴스',
+  startTimeMs: 42000,
+  endTimeMs: 49000,
+  pipelineRunId: '11',
+  processingNo: 1,
+};
+
+const item = {
+  feedbackId: '41',
+  status: 'OPEN',
+  resolution: null,
+  createdAt: '2026-09-09T01:00:00Z',
+  queryText: '귀성길 정체',
+  sceneId: '31',
+  scene,
+  hasComment: true,
+};
+
+test('목록 응답은 백엔드 대문자 상태를 프론트 상태로 정규화한다', () => {
+  assert.deepEqual(
+    parseReviewInquiryList({
+      items: [item],
+      page: 0,
+      size: 10,
+      totalElements: 1,
+      totalPages: 1,
+      statusCounts: { open: 1, reviewing: 0, closed: 0 },
+    }),
+    {
+      items: [{ ...item, status: 'open' }],
+      page: 0,
+      size: 10,
+      totalElements: 1,
+      totalPages: 1,
+      statusCounts: { open: 1, reviewing: 0, closed: 0 },
+    },
+  );
+});
+
+test('레거시 교정 세부 판정은 단일 교정 판정으로 정규화한다', () => {
+  for (const legacyResolution of ['tag_correction', 'patch_parse', 'exclude_scene']) {
+    const parsed = parseReviewInquiryList({
+      items: [{ ...item, resolution: legacyResolution }],
+      page: 0,
+      size: 10,
+      totalElements: 1,
+      totalPages: 1,
+      statusCounts: { open: 1, reviewing: 0, closed: 0 },
+    });
+    assert.equal(parsed.items[0].resolution, 'correction');
+  }
+});
+
+test('목록은 고른 표시 개수를 size 로 보내고 다른 크기의 응답은 받지 않는다', async (context) => {
+  const list = (size) => ({
+    items: [item],
+    page: 0,
+    size,
+    totalElements: 1,
+    totalPages: 1,
+    statusCounts: { open: 1, reviewing: 0, closed: 0 },
+  });
+  let data = list(20);
+  const fetch = context.mock.method(globalThis, 'fetch', async () =>
+    Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data }),
+  );
+  await getReviewInquiries(0, 20);
+  assert.equal(new URL(fetch.mock.calls[0].arguments[0]).searchParams.get('size'), '20');
+  data = list(10);
+  await assert.rejects(getReviewInquiries(0, 20));
+});
+
+test('영상 제목이 없으면 null을 보존하고 유효한 장면 구간은 그대로 읽는다', () => {
+  const parsed = parseReviewInquiryList({
+    items: [{ ...item, scene: { ...scene, clipTitle: null } }],
+    page: 0,
+    size: 10,
+    totalElements: 1,
+    totalPages: 1,
+    statusCounts: { open: 1, reviewing: 0, closed: 0 },
+  });
+  assert.equal(parsed.items[0].scene.clipTitle, null);
+  assert.equal(parsed.items[0].scene.startTimeMs, 42000);
+  assert.equal(parsed.items[0].scene.endTimeMs, 49000);
+});
+
+test('상세 응답은 당시 실행·근거·담당 이력을 보존한다', () => {
+  const detail = parseReviewInquiryDetail({
+    ...item,
+    comment: '다른 장면 같습니다.',
+    resultRank: 2,
+    resultExplainJson: '{"score":0.8}',
+    execution: {
+      queryText: item.queryText,
+      explicitFiltersJson: '{}',
+      parsedQueryJson: '{}',
+      resolverOutputJson: '{}',
+      appliedRulesJson: '[]',
+      appliedExcludesJson: '[]',
+    },
+    evidence: [
+      {
+        taggingId: '51',
+        tagType: 'location',
+        matchValue: '서울역',
+        tagName: '서울역',
+        sources: ['ocr', 'vlm'],
+        verifiedState: 'VERIFIED',
+        scope: 'SCENE',
+      },
+    ],
+    history: {
+      reviewedById: null,
+      reviewerName: null,
+      reviewerLoginId: null,
+      reviewStartedAt: null,
+      verifiedByExecutionId: null,
+    },
+    resolutionNote: null,
+  });
+  assert.equal(detail.status, 'open');
+  assert.equal(detail.comment, '다른 장면 같습니다.');
+  assert.equal(detail.evidence[0].taggingId, '51');
+  assert.equal(detail.evidence[0].tagType, 'location');
+  assert.equal(detail.evidence[0].matchValue, '서울역');
+  assert.deepEqual(detail.evidence[0].sources, ['ocr', 'vlm']);
+});
+
+test('쉼표 입력은 공백과 빈 값을 제거하고 중복 없이 여러 태그로 나눈다', () => {
+  assert.deepEqual(parseCommaSeparatedTags(' 서울, 부산 ,,서울, 광주 '), ['서울', '부산', '광주']);
+  assert.deepEqual(parseCommaSeparatedTags(''), []);
+});
+
+test('태그 교정 후보 응답은 생성 수와 근거 ID 개수가 같아야 한다', () => {
+  assert.deepEqual(
+    parseTagCorrectionCandidate({
+      feedbackId: '41',
+      created: 2,
+      evidenceIds: ['61', '62'],
+    }),
+    { feedbackId: '41', created: 2, evidenceIds: ['61', '62'] },
+  );
+  assert.throws(
+    () =>
+      parseTagCorrectionCandidate({
+        feedbackId: '41',
+        created: 1,
+        evidenceIds: ['61', '62'],
+      }),
+    ApiClientError,
+  );
+});
+
+test('태그 교정 후보 응답의 newlyCreated 는 선택이며 생성 수를 넘을 수 없다 (S15P21A501-317)', () => {
+  assert.deepEqual(
+    parseTagCorrectionCandidate({
+      feedbackId: '41',
+      created: 1,
+      newlyCreated: 0,
+      evidenceIds: ['61'],
+    }),
+    { feedbackId: '41', created: 1, newlyCreated: 0, evidenceIds: ['61'] },
+  );
+  for (const newlyCreated of [2, -1, '1']) {
+    assert.throws(
+      () =>
+        parseTagCorrectionCandidate({
+          feedbackId: '41',
+          created: 1,
+          newlyCreated,
+          evidenceIds: ['61'],
+        }),
+      ApiClientError,
+    );
+  }
+});
+
+const candidates = {
+  tags: [
+    {
+      evidenceId: '5001',
+      taggingId: '5501',
+      action: 'REJECT',
+      scope: 'SCENE',
+      tagType: 'location',
+      matchValue: '서울',
+      displayName: '서울',
+    },
+  ],
+  parsePatches: [
+    {
+      searchRuleId: '6602',
+      condition: { version: 'parse-rule/v1' },
+      patch: { version: 'parse-rule/v1', ops: [] },
+      replacesRuleId: null,
+    },
+  ],
+  sceneExcludes: [{ searchRuleId: '6603', targetSceneId: '9301' }],
+};
+
+test('대기 교정 후보 응답은 태그·해석·장면 제외 후보를 그대로 읽는다 (S15P21A501-317)', () => {
+  assert.deepEqual(parseCorrectionCandidates(candidates), candidates);
+  assert.deepEqual(parseCorrectionCandidates({ tags: [], parsePatches: [], sceneExcludes: [] }), {
+    tags: [],
+    parsePatches: [],
+    sceneExcludes: [],
+  });
+  // 교체 대상이 없으면 replacesRuleId 가 빠져 와도 null 로 읽는다.
+  const withoutReplaces = { ...candidates.parsePatches[0] };
+  delete withoutReplaces.replacesRuleId;
+  assert.equal(
+    parseCorrectionCandidates({ ...candidates, parsePatches: [withoutReplaces] }).parsePatches[0]
+      .replacesRuleId,
+    null,
+  );
+});
+
+test('대기 교정 후보의 잘못된 ID·어휘·모양은 안전하지 않은 응답으로 거절한다 (S15P21A501-317)', () => {
+  const tag = candidates.tags[0];
+  const patch = candidates.parsePatches[0];
+  for (const invalid of [
+    { ...candidates, tags: [{ ...tag, evidenceId: 5001 }] },
+    { ...candidates, tags: [{ ...tag, action: 'DELETE' }] },
+    { ...candidates, tags: [{ ...tag, scope: 'VIDEO' }] },
+    { ...candidates, tags: [{ ...tag, tagType: 'mood' }] },
+    { ...candidates, tags: [{ ...tag, displayName: null }] },
+    { ...candidates, parsePatches: [{ ...patch, condition: '{}' }] },
+    { ...candidates, parsePatches: [{ ...patch, patch: [] }] },
+    { ...candidates, sceneExcludes: [{ searchRuleId: '6603', targetSceneId: '0' }] },
+    { tags: [], parsePatches: [] },
+  ]) {
+    assert.throws(() => parseCorrectionCandidates(invalid), ApiClientError);
+  }
+});
+
+test('대기 교정 후보는 신고 ID 경로로 GET 한다 (S15P21A501-317)', async (context) => {
+  const requests = [];
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push({ input: String(input), init });
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data: candidates });
+  });
+
+  assert.deepEqual(await getCorrectionCandidates('41'), candidates);
+  assert.ok(requests[0].input.endsWith('/api/v1/review/inquiries/41/correction-candidates'));
+  assert.equal(requests[0].init.method ?? 'GET', 'GET');
+  await assert.rejects(getCorrectionCandidates('abc'), ApiClientError);
+  assert.equal(requests.length, 1);
+});
+
+test('누락·불일치 ID와 모르는 상태는 안전하지 않은 응답으로 거절한다', () => {
+  for (const invalid of [
+    { ...item, feedbackId: 41 },
+    { ...item, status: 'PENDING' },
+    { ...item, sceneId: '99' },
+    { ...item, createdAt: '잘못된 시각' },
+    { ...item, scene: { ...scene, endTimeMs: scene.startTimeMs } },
+    { ...item, scene: { ...scene, processingNo: 0 } },
+  ]) {
+    assert.throws(
+      () =>
+        parseReviewInquiryList({
+          items: [invalid],
+          page: 0,
+          size: 10,
+          totalElements: 1,
+          totalPages: 1,
+          statusCounts: { open: 1, reviewing: 0, closed: 0 },
+        }),
+      ApiClientError,
+    );
+  }
+});
+
+test('검색 결과 순위는 1 이상이어야 한다', () => {
+  assert.throws(
+    () =>
+      parseReviewInquiryDetail({
+        ...item,
+        comment: null,
+        resultRank: 0,
+        resultExplainJson: null,
+        execution: {
+          queryText: item.queryText,
+          explicitFiltersJson: null,
+          parsedQueryJson: null,
+          resolverOutputJson: null,
+          appliedRulesJson: null,
+          appliedExcludesJson: null,
+        },
+        evidence: [],
+        history: {
+          reviewedById: null,
+          reviewerName: null,
+          reviewerLoginId: null,
+          reviewStartedAt: null,
+          verifiedByExecutionId: null,
+        },
+        resolutionNote: null,
+      }),
+    ApiClientError,
+  );
+});
+
+test('문의·태그 교정 API 경로와 요청 본문을 계약대로 보낸다', async (context) => {
+  const requests = [];
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push({ input: String(input), init });
+    const data =
+      String(input).endsWith('/claim') || String(input).endsWith('/resolution')
+        ? undefined
+        : String(input).endsWith('/tag-correction-candidate')
+          ? { feedbackId: '41', created: 2, evidenceIds: ['61', '62'] }
+          : String(input).includes('/review/inquiries/41')
+            ? {
+                ...item,
+                comment: null,
+                resultRank: 1,
+                resultExplainJson: null,
+                execution: {
+                  queryText: item.queryText,
+                  explicitFiltersJson: null,
+                  parsedQueryJson: null,
+                  resolverOutputJson: null,
+                  appliedRulesJson: null,
+                  appliedExcludesJson: null,
+                },
+                evidence: [],
+                history: {
+                  reviewedById: null,
+                  reviewerName: null,
+                  reviewerLoginId: null,
+                  reviewStartedAt: null,
+                  verifiedByExecutionId: null,
+                },
+                resolutionNote: null,
+              }
+            : {
+                items: [item],
+                page: 1,
+                size: 10,
+                totalElements: 1,
+                totalPages: 1,
+                statusCounts: { open: 1, reviewing: 0, closed: 0 },
+              };
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data });
+  });
+
+  await getReviewInquiries(1, 10, 'open');
+  await getReviewInquiry('41');
+  await claimReviewInquiry('41', 'claim-key');
+  await resolveReviewInquiry('41', 'no_action', '문제 없음');
+  await resolveReviewInquiry('41', 'correction', '교정 후보 확인');
+  await createTagCorrectionCandidate(
+    '41',
+    [
+      {
+        action: 'APPROVE',
+        scope: 'SCENE',
+        tagType: 'location',
+        matchValue: '서울',
+        displayName: '서울',
+      },
+      {
+        action: 'REJECT',
+        scope: 'CLIP',
+        tagType: 'keyword',
+        matchValue: '교통',
+        displayName: '교통',
+      },
+    ],
+    'tag-key',
+  );
+
+  const listUrl = new URL(requests[0].input);
+  assert.equal(listUrl.pathname, '/api/v1/review/inquiries');
+  assert.equal(listUrl.searchParams.get('page'), '1');
+  assert.equal(listUrl.searchParams.get('size'), '10');
+  assert.equal(listUrl.searchParams.get('status'), 'OPEN');
+  assert.ok(requests[1].input.endsWith('/api/v1/review/inquiries/41'));
+  assert.ok(requests[2].input.endsWith('/api/v1/review/inquiries/41/claim'));
+  assert.equal(requests[2].init.method, 'POST');
+  assert.equal(new Headers(requests[2].init.headers).get('Idempotency-Key'), 'claim-key');
+  assert.ok(requests[3].input.endsWith('/api/v1/review/inquiries/41/resolution'));
+  assert.equal(requests[3].init.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests[3].init.body), {
+    resolution: 'no_action',
+    note: '문제 없음',
+  });
+  assert.ok(requests[4].input.endsWith('/api/v1/review/inquiries/41/resolution'));
+  assert.equal(requests[4].init.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests[4].init.body), {
+    resolution: 'correction',
+    note: '교정 후보 확인',
+  });
+  assert.ok(requests[5].input.endsWith('/api/v1/review/inquiries/41/tag-correction-candidate'));
+  assert.equal(requests[5].init.method, 'POST');
+  assert.equal(new Headers(requests[5].init.headers).get('Idempotency-Key'), 'tag-key');
+  assert.deepEqual(JSON.parse(requests[5].init.body), {
+    operations: [
+      {
+        action: 'APPROVE',
+        scope: 'SCENE',
+        tagType: 'location',
+        matchValue: '서울',
+        displayName: '서울',
+      },
+      {
+        action: 'REJECT',
+        scope: 'CLIP',
+        tagType: 'keyword',
+        matchValue: '교통',
+        displayName: '교통',
+      },
+    ],
+  });
+});
+
+test('태그 교정 근거 하나만 신고·근거 ID 경로로 DELETE 해 폐기한다', async (context) => {
+  const requests = [];
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push({ input: String(input), init });
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok' });
+  });
+
+  await discardTagCorrectionCandidateEvidence('41', '61');
+
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0].input.endsWith('/api/v1/review/inquiries/41/tag-correction-candidate/61'));
+  assert.equal(requests[0].init.method, 'DELETE');
+  assert.equal(requests[0].init.body, undefined);
+  await assert.rejects(
+    discardTagCorrectionCandidateEvidence('41', 'abc'),
+    (error) => error instanceof ApiClientError && error.kind === 'invalid-response',
+  );
+  assert.equal(requests.length, 1);
+});
+
+test('검수 취소는 선점 경로로 DELETE 하고 오류 상태를 그대로 던진다 (S15P21A501-289)', async (context) => {
+  const requests = [];
+  let failWith = null;
+  context.mock.method(globalThis, 'fetch', async (input, init) => {
+    requests.push({ input: String(input), init });
+    if (failWith) {
+      return Response.json(
+        { isSuccess: false, code: 'FEEDBACK_409_003', message: '검수 중인 문의가 아닙니다.' },
+        { status: failWith },
+      );
+    }
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'ok', data: null });
+  });
+
+  await releaseReviewInquiry('41');
+
+  assert.equal(requests.length, 1);
+  assert.ok(requests[0].input.endsWith('/api/v1/review/inquiries/41/claim'));
+  assert.equal(requests[0].init.method, 'DELETE');
+  assert.equal(requests[0].init.body, undefined);
+
+  failWith = 409;
+  await assert.rejects(
+    releaseReviewInquiry('41'),
+    (error) => error instanceof ApiClientError && error.status === 409,
+  );
+  await assert.rejects(
+    releaseReviewInquiry('abc'),
+    (error) => error instanceof ApiClientError && error.kind === 'invalid-response',
+  );
+  assert.equal(requests.length, 2);
+});

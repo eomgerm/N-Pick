@@ -1,4 +1,5 @@
 import { env } from '@/lib/env';
+import { logApiResponse } from '@/lib/api/log';
 import { ApiClientError, readRequestId } from '@/lib/api/error';
 
 export { ApiClientError } from '@/lib/api/error';
@@ -17,6 +18,7 @@ export interface ApiResponse<Data> {
 interface JsonRequestInit extends Omit<RequestInit, 'body' | 'cache'> {
   body?: unknown;
   cache?: RequestCache;
+  idempotencyKey?: string;
   query?: URLSearchParams;
 }
 
@@ -31,7 +33,8 @@ const parseJsonWithSource = JSON.parse as unknown as (
 
 function parseApiJson(text: string): unknown {
   return parseJsonWithSource(text, (key, value, context) => {
-    if (key === 'memberId' && typeof value === 'number') {
+    const isIdentifier = key === 'id' || key.endsWith('Id') || key.endsWith('_id');
+    if (isIdentifier && typeof value === 'number') {
       if (typeof context?.source === 'string' && /^-?\d+$/.test(context.source)) {
         return context.source;
       }
@@ -103,9 +106,59 @@ export async function fetchJson<ResponseData>(
   init: JsonRequestInit = {},
   baseUrl = env.apiBaseUrl,
 ): Promise<ResponseData> {
-  const { body, cache = 'no-store', headers, query, ...requestInit } = init;
+  const generation = refreshGeneration;
+  try {
+    return await fetchJsonOnce<ResponseData>(path, init, baseUrl);
+  } catch (error) {
+    if (
+      typeof document === 'undefined' ||
+      !(error instanceof ApiClientError) ||
+      error.status !== 401 ||
+      error.code !== 'COMM_401' ||
+      /^\/?auth\/(login|logout|csrf|refresh)(?:\?|$)/.test(path)
+    )
+      throw error;
+    if (init.signal?.aborted) throw new ApiClientError('aborted', 0);
+    if (generation === refreshGeneration) await renewBrowserSession();
+    if (init.signal?.aborted) throw new ApiClientError('aborted', 0);
+    // 인증 필터가 거부한 요청만 동일 body/멱등성 키로 한 번 다시 보낸다.
+    return fetchJsonOnce<ResponseData>(path, init, baseUrl);
+  }
+}
+
+let refreshGeneration = 0;
+let refreshInFlight: Promise<void> | undefined;
+
+export function renewBrowserSession(): Promise<void> {
+  refreshInFlight ??= fetchJsonOnce('/auth/refresh', {
+    method: 'POST',
+    signal: AbortSignal.timeout(15_000),
+  })
+    .then(() => {
+      refreshGeneration++;
+    })
+    .finally(() => {
+      refreshInFlight = undefined;
+    });
+  return refreshInFlight;
+}
+
+async function fetchJsonOnce<ResponseData>(
+  path: string,
+  init: JsonRequestInit = {},
+  baseUrl = env.apiBaseUrl,
+): Promise<ResponseData> {
+  const { body, cache = 'no-store', headers, idempotencyKey, query, ...requestInit } = init;
   const requestHeaders = new Headers(headers);
+  const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(
+    (requestInit.method ?? 'GET').toUpperCase(),
+  );
   const isFormData = body instanceof FormData;
+
+  if (idempotencyKey !== undefined) requestHeaders.set('Idempotency-Key', idempotencyKey);
+  if (!isMutation && requestHeaders.has('Idempotency-Key')) {
+    throw new Error('Idempotency-Key is only supported for mutation requests.');
+  }
 
   if (!requestHeaders.has('accept')) requestHeaders.set('accept', 'application/json');
 
@@ -119,7 +172,7 @@ export async function fetchJson<ResponseData>(
   const url = createApiUrl(path, baseUrl, query);
   if (typeof document !== 'undefined') {
     if (baseUrl !== env.apiBaseUrl) throw new Error('Browser requests must use the public API.');
-    if (!['GET', 'HEAD', 'OPTIONS'].includes((requestInit.method ?? 'GET').toUpperCase())) {
+    if (isMutation) {
       if (requestInit.signal?.aborted) throw new ApiClientError('aborted', 0);
       requestHeaders.set('X-XSRF-TOKEN', await prepareCsrf());
       if (requestInit.signal?.aborted) throw new ApiClientError('aborted', 0);
@@ -134,68 +187,94 @@ export async function fetchJson<ResponseData>(
     cache,
     headers: requestHeaders,
   };
-  let response: Response;
+  const startedAt = performance.now();
+  let response: Response | undefined;
+  let loggedResponse: unknown;
+  let loggedRequestId: string | undefined;
+  let loggedError: ApiClientError | undefined;
   try {
-    response = await fetch(url, options);
-  } catch (cause) {
-    throw new ApiClientError(requestInit.signal?.aborted ? 'aborted' : 'network', 0, {
-      diagnostics: { cause },
+    try {
+      response = await fetch(url, options);
+    } catch (cause) {
+      throw new ApiClientError(requestInit.signal?.aborted ? 'aborted' : 'network', 0, {
+        diagnostics: { cause },
+      });
+    }
+
+    // The backend currently uses the same 403 for CSRF and role denial. Prepare
+    // a fresh token on the NEXT manual attempt; never replay a mutation here.
+    if (response.status === 403) csrfReady = false;
+
+    const headerRequestId = readRequestId(response.headers.get('x-request-id'));
+    loggedRequestId = headerRequestId;
+    if (response.status === 204 || response.status === 205) return undefined as ResponseData;
+
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (cause) {
+      throw new ApiClientError(
+        requestInit.signal?.aborted ? 'aborted' : 'network',
+        response.status,
+        {
+          requestId: headerRequestId,
+          diagnostics: { cause },
+        },
+      );
+    }
+    let data: unknown;
+
+    try {
+      data = parseApiJson(text);
+      loggedResponse = data;
+    } catch (cause) {
+      throw new ApiClientError('invalid-response', response.status, {
+        requestId: headerRequestId,
+        diagnostics: { response: text, cause },
+      });
+    }
+
+    const payload =
+      data !== null && typeof data === 'object' && !Array.isArray(data)
+        ? (data as Record<string, unknown>)
+        : undefined;
+    const requestId = readRequestId(payload?.requestId) ?? headerRequestId;
+    loggedRequestId = requestId;
+    const diagnostics = { response: data };
+
+    if (!response.ok || payload?.isSuccess === false) {
+      const isFailure = payload?.isSuccess === false;
+      throw new ApiClientError(response.ok ? 'api' : 'http', response.status, {
+        // Arbitrary JSON errors are not a trusted user-message envelope.
+        message: isFailure ? payload.message : undefined,
+        code: isFailure ? payload.code : undefined,
+        requestId,
+        diagnostics,
+      });
+    }
+
+    if (
+      payload?.isSuccess !== true ||
+      typeof payload.code !== 'string' ||
+      !payload.code.trim() ||
+      typeof payload.message !== 'string'
+    ) {
+      throw new ApiClientError('invalid-response', response.status, { requestId, diagnostics });
+    }
+
+    return payload.data as ResponseData;
+  } catch (error) {
+    if (error instanceof ApiClientError) loggedError = error;
+    throw error;
+  } finally {
+    logApiResponse({
+      url,
+      method: (requestInit.method ?? 'GET').toUpperCase(),
+      startedAt,
+      status: response?.status,
+      requestId: loggedRequestId,
+      response: loggedResponse,
+      error: loggedError,
     });
   }
-
-  // The backend currently uses the same 403 for CSRF and role denial. Prepare
-  // a fresh token on the NEXT manual attempt; never replay a mutation here.
-  if (response.status === 403) csrfReady = false;
-
-  const headerRequestId = readRequestId(response.headers.get('x-request-id'));
-  if (response.status === 204 || response.status === 205) return undefined as ResponseData;
-
-  let text: string;
-  try {
-    text = await response.text();
-  } catch (cause) {
-    throw new ApiClientError(requestInit.signal?.aborted ? 'aborted' : 'network', response.status, {
-      requestId: headerRequestId,
-      diagnostics: { cause },
-    });
-  }
-  let data: unknown;
-
-  try {
-    data = parseApiJson(text);
-  } catch (cause) {
-    throw new ApiClientError('invalid-response', response.status, {
-      requestId: headerRequestId,
-      diagnostics: { response: text, cause },
-    });
-  }
-
-  const payload =
-    data !== null && typeof data === 'object' && !Array.isArray(data)
-      ? (data as Record<string, unknown>)
-      : undefined;
-  const requestId = readRequestId(payload?.requestId) ?? headerRequestId;
-  const diagnostics = { response: data };
-
-  if (!response.ok || payload?.isSuccess === false) {
-    const isFailure = payload?.isSuccess === false;
-    throw new ApiClientError(response.ok ? 'api' : 'http', response.status, {
-      // Arbitrary JSON errors are not a trusted user-message envelope.
-      message: isFailure ? payload.message : undefined,
-      code: isFailure ? payload.code : undefined,
-      requestId,
-      diagnostics,
-    });
-  }
-
-  if (
-    payload?.isSuccess !== true ||
-    typeof payload.code !== 'string' ||
-    !payload.code.trim() ||
-    typeof payload.message !== 'string'
-  ) {
-    throw new ApiClientError('invalid-response', response.status, { requestId, diagnostics });
-  }
-
-  return payload.data as ResponseData;
 }

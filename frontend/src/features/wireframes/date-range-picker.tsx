@@ -1,258 +1,329 @@
 'use client';
 
-import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { type KeyboardEvent, useId, useRef, useState } from 'react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft } from 'lucide-react';
+import { type ReactNode, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import {
+  createRecentYearRange,
+  type DateBasis,
+  dateBasisLabels,
   type DateRange,
   emptyDateRange,
   formatDateRange,
-  isCalendarDate,
-  selectRangeDate,
+  type RecentYearPreset,
+  type SearchDateRanges,
   validateDateRange,
 } from '@/features/wireframes/date-range';
+import { DateRangeCalendar } from '@/features/wireframes/date-range-calendar';
 import styles from '@/features/wireframes/shinhan-search.module.css';
+import { seoulToday } from '@/lib/seoul-date';
 
 interface DateRangePickerProps {
-  label: string;
-  value: DateRange;
+  ranges: SearchDateRanges;
+  triggerDescriptionId?: string;
   isDisabled?: boolean;
-  onChange: (value: DateRange) => void;
+  isOpen: boolean;
+  isCompact?: boolean;
+  navigationTrigger?: {
+    className: string;
+    icon: ReactNode;
+  };
+  onOpenChange: (isOpen: boolean) => void;
+  onChange: (value: SearchDateRanges) => void;
 }
 
-const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
-const iso = (date: Date) => date.toISOString().slice(0, 10);
-const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
-
-function shiftMonth(month: string, offset: number) {
-  const date = new Date(`${month}T00:00:00Z`);
-  date.setUTCMonth(date.getUTCMonth() + offset);
-  return iso(date);
-}
-
-export function DateRangePicker({ label, value, isDisabled, onChange }: DateRangePickerProps) {
+/**
+ * 달력 버튼에 붙는 기간 선택 드롭다운입니다.
+ * 화면을 덮는 모달 대신 트리거 아래에 작은 패널을 띄우고,
+ * 열림 상태와 바깥 클릭·포커스 이탈은 부모 탐색 영역에서 관리합니다.
+ * 선택 값은 "적용"에서 반영하고,
+ * 초기화는 패널을 연 채 한 번의 클릭으로 즉시 반영합니다.
+ */
+export function DateRangePicker({
+  ranges,
+  triggerDescriptionId,
+  isDisabled,
+  isOpen,
+  isCompact = false,
+  navigationTrigger,
+  onOpenChange,
+  onChange,
+}: DateRangePickerProps) {
   const id = useId();
-  const dialogRef = useRef<HTMLDialogElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [draft, setDraft] = useState(value);
-  const [month, setMonth] = useState('2026-01-01');
-  const [focusDate, setFocusDate] = useState('');
+  const [today, setToday] = useState('');
+  const [basis, setBasis] = useState<DateBasis>(
+    ranges.filming.from && !ranges.broadcast.from ? 'filming' : 'broadcast',
+  );
+  const [drafts, setDrafts] = useState(ranges);
+  const [isBasisOpen, setIsBasisOpen] = useState(false);
+  const basisRef = useRef<HTMLDivElement>(null);
+  const draft = drafts[basis];
+  const value = ranges[basis];
+  const appliedBases = (['broadcast', 'filming'] as const).filter(
+    (key) => ranges[key].from && ranges[key].to,
+  );
+  const rangeSummary =
+    appliedBases
+      .map((key) => `${dateBasisLabels[key]} ${formatDateRange(ranges[key])}`)
+      .join(' · ') || '전체 기간';
   const [error, setError] = useState('');
+  const [placement, setPlacement] = useState<'above' | 'below'>('below');
 
-  function handleOpen() {
-    const today = new Date();
-    const localToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const start = value.from || localToday;
-    setDraft(value);
-    setMonth(monthStart(start));
-    setFocusDate(start);
-    setError('');
-    dialogRef.current?.showModal();
+  function setDraft(next: DateRange | ((current: DateRange) => DateRange)) {
+    setDrafts((current) => ({
+      ...current,
+      [basis]: typeof next === 'function' ? next(current[basis]) : next,
+    }));
   }
 
-  function handleClose() {
-    dialogRef.current?.close();
-    triggerRef.current?.focus();
-  }
-
-  function handleDayKey(event: KeyboardEvent<HTMLButtonElement>, day: string) {
-    const date = new Date(`${day}T00:00:00Z`);
-    const offsets: Record<string, number> = {
-      ArrowLeft: -1,
-      ArrowRight: 1,
-      ArrowUp: -7,
-      ArrowDown: 7,
-      Home: -date.getUTCDay(),
-      End: 6 - date.getUTCDay(),
-    };
-    if (!(event.key in offsets)) return;
-    event.preventDefault();
-    date.setUTCDate(date.getUTCDate() + offsets[event.key]);
-    const next = iso(date);
-    if (next < month || next >= shiftMonth(month, 2)) setMonth(monthStart(next));
-    setFocusDate(next);
+  function openBasisOptions() {
+    setIsBasisOpen(true);
     requestAnimationFrame(() =>
-      dialogRef.current?.querySelector<HTMLButtonElement>(`[data-date="${next}"]`)?.focus(),
+      basisRef.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus(),
     );
   }
 
+  useLayoutEffect(() => {
+    if (isOpen) {
+      containerRef.current
+        ?.querySelector<HTMLButtonElement>('[data-endpoint="from"] [tabindex="0"]')
+        ?.focus({ preventScroll: true });
+    }
+  }, [isOpen]);
+
+  function handleOpen() {
+    // 사용자 이벤트에서 읽어 hydration을 피하고, 다시 열 때 날짜를 갱신합니다.
+    const currentToday = seoulToday();
+    setToday(currentToday);
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    // 아래 공간이 모자라면 위로 펼칩니다.
+    const spaceBelow = trigger ? window.innerHeight - trigger.bottom : Number.POSITIVE_INFINITY;
+    setPlacement(spaceBelow < 380 && trigger && trigger.top > spaceBelow ? 'above' : 'below');
+    setDrafts(ranges);
+    setIsBasisOpen(false);
+    setError(validateDateRange(value, currentToday));
+    onOpenChange(true);
+  }
+
+  function handleClose() {
+    onOpenChange(false);
+    triggerRef.current?.focus();
+  }
+
   return (
-    <div className={styles.dateField}>
-      <span>{label}</span>
+    <div
+      className={styles.dateField}
+      data-compact={isCompact}
+      data-navigation={Boolean(navigationTrigger)}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !isOpen) return;
+        event.stopPropagation();
+        handleClose();
+      }}
+      ref={containerRef}
+    >
+      {!navigationTrigger && <span>기간 설정</span>}
       <button
-        aria-label={`${label} 기간 선택: ${formatDateRange(value)}`}
+        aria-controls={`${id}-panel`}
+        aria-expanded={isOpen}
         aria-haspopup="dialog"
-        className={styles.rangeTrigger}
+        aria-label={`기간 설정: ${rangeSummary}`}
+        aria-describedby={triggerDescriptionId}
+        className={navigationTrigger?.className ?? styles.rangeTrigger}
+        data-active={isOpen}
+        data-applied={appliedBases.length > 0}
         disabled={isDisabled}
-        onClick={handleOpen}
+        onClick={() => (isOpen ? handleClose() : handleOpen())}
         ref={triggerRef}
         type="button"
       >
-        <CalendarDays aria-hidden="true" />
-        <span>{formatDateRange(value)}</span>
+        {navigationTrigger ? navigationTrigger.icon : <CalendarDays aria-hidden="true" />}
+        {navigationTrigger ? (
+          <span className={styles.navigationLabel}>
+            <span>기간 설정</span>
+            {appliedBases.length > 0 ? (
+              <small aria-hidden="true" className={styles.navigationRange}>
+                {appliedBases.map((key) => (
+                  <span key={key}>{dateBasisLabels[key]}</span>
+                ))}
+              </small>
+            ) : null}
+          </span>
+        ) : !isCompact ? (
+          <span>{rangeSummary}</span>
+        ) : null}
       </button>
-      <dialog
-        aria-labelledby={`${id}-title`}
-        className={styles.calendarDialog}
-        onCancel={(event) => {
-          event.preventDefault();
-          handleClose();
-        }}
-        ref={dialogRef}
-      >
-        <header className={styles.calendarHeader}>
-          <div>
-            <p>기간 선택</p>
-            <h2 id={`${id}-title`}>{label}로 장면 찾기</h2>
-          </div>
-          <button aria-label={`${label} 기간 선택 닫기`} onClick={handleClose} type="button">
-            <X aria-hidden="true" />
-          </button>
-        </header>
-        <p className={styles.calendarHint}>
-          시작일과 종료일을 선택해 주세요. 선택한 두 날짜를 모두 포함해요.
-        </p>
-        <div className={styles.dateInputs}>
-          {(['from', 'to'] as const).map((field) => (
-            <label key={field}>
-              {field === 'from' ? '시작일' : '종료일'}
-              <input
-                aria-describedby={error ? `${id}-error` : undefined}
-                aria-invalid={Boolean(error)}
-                onChange={(event) => {
-                  const next = { ...draft, [field]: event.target.value };
-                  setDraft(next);
-                  setError('');
-                  if (field === 'from' && isCalendarDate(next.from)) {
-                    setMonth(monthStart(next.from));
-                    setFocusDate(next.from);
+      {isOpen ? (
+        <div
+          aria-label="기간 설정"
+          className={styles.calendarPopover}
+          data-placement={placement}
+          id={`${id}-panel`}
+          role="dialog"
+        >
+          <div className={styles.popoverHeader}>
+            <div
+              className={styles.basisControl}
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setIsBasisOpen(false);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && isBasisOpen) {
+                  event.stopPropagation();
+                  setIsBasisOpen(false);
+                  basisRef.current?.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
+                }
+              }}
+              ref={basisRef}
+            >
+              <button
+                aria-label="기준 선택"
+                aria-haspopup="listbox"
+                aria-expanded={isBasisOpen}
+                aria-controls={`${id}-basis`}
+                className={styles.basisTrigger}
+                onClick={() => (isBasisOpen ? setIsBasisOpen(false) : openBasisOptions())}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    openBasisOptions();
                   }
                 }}
-                type="date"
-                value={draft[field]}
-              />
-            </label>
-          ))}
-        </div>
-        <div className={styles.monthNavigation}>
-          <button
-            aria-label="이전 달"
-            onClick={() => {
-              const next = shiftMonth(month, -1);
-              setMonth(next);
-              setFocusDate(next);
-            }}
-            type="button"
-          >
-            <ChevronLeft aria-hidden="true" />
-          </button>
-          <span>날짜를 눌러 기간을 선택하세요</span>
-          <button
-            aria-label="다음 달"
-            onClick={() => {
-              const next = shiftMonth(month, 1);
-              setMonth(next);
-              setFocusDate(next);
-            }}
-            type="button"
-          >
-            <ChevronRight aria-hidden="true" />
-          </button>
-        </div>
-        <div className={styles.months}>
-          {[month, shiftMonth(month, 1)].map((visibleMonth) => {
-            const first = new Date(`${visibleMonth}T00:00:00Z`);
-            const year = first.getUTCFullYear();
-            const monthNumber = first.getUTCMonth() + 1;
-            const dayCount = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-            return (
-              <section aria-label={`${year}년 ${monthNumber}월`} key={visibleMonth}>
-                <h3>
-                  {year}년 {monthNumber}월
-                </h3>
-                <div className={styles.days}>
-                  {weekdays.map((day) => (
-                    <span aria-hidden="true" className={styles.weekday} key={day}>
-                      {day}
-                    </span>
+                type="button"
+              >
+                {dateBasisLabels[basis]}
+                <ChevronDown aria-hidden="true" />
+              </button>
+              {isBasisOpen && (
+                <div
+                  aria-label="기준 선택"
+                  className={styles.basisOptions}
+                  id={`${id}-basis`}
+                  role="listbox"
+                >
+                  {(['broadcast', 'filming'] as const).map((key, index) => (
+                    <button
+                      aria-selected={basis === key}
+                      key={key}
+                      onClick={() => {
+                        setBasis(key);
+                        setError(validateDateRange(drafts[key], today));
+                        setIsBasisOpen(false);
+                        basisRef.current
+                          ?.querySelector<HTMLButtonElement>('[aria-haspopup]')
+                          ?.focus();
+                      }}
+                      onKeyDown={(event) => {
+                        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                        event.preventDefault();
+                        const next = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - index;
+                        basisRef.current
+                          ?.querySelectorAll<HTMLButtonElement>('[role="option"]')
+                          [next]?.focus();
+                      }}
+                      role="option"
+                      tabIndex={basis === key ? 0 : -1}
+                      type="button"
+                    >
+                      {dateBasisLabels[key]}
+                      {basis === key && <Check aria-hidden="true" />}
+                    </button>
                   ))}
-                  {Array.from({ length: first.getUTCDay() }, (_, index) => (
-                    <span aria-hidden="true" key={`blank-${index}`} />
-                  ))}
-                  {Array.from({ length: dayCount }, (_, index) => {
-                    const day = `${visibleMonth.slice(0, 8)}${String(index + 1).padStart(2, '0')}`;
-                    const isBoundary = day === draft.from || day === draft.to;
-                    const isWithin = Boolean(
-                      draft.from && draft.to && day >= draft.from && day <= draft.to,
-                    );
-                    return (
-                      <button
-                        aria-label={`${year}년 ${monthNumber}월 ${index + 1}일${day === draft.from ? ', 시작일' : ''}${day === draft.to ? ', 종료일' : ''}`}
-                        aria-pressed={isBoundary || isWithin}
-                        className={styles.day}
-                        data-boundary={isBoundary}
-                        data-within={isWithin}
-                        data-date={day}
-                        key={day}
-                        onClick={() => {
-                          setDraft(selectRangeDate(draft, day));
-                          setFocusDate(day);
-                          setError('');
-                        }}
-                        onKeyDown={(event) => handleDayKey(event, day)}
-                        tabIndex={day === focusDate ? 0 : -1}
-                        type="button"
-                      >
-                        {index + 1}
-                      </button>
-                    );
-                  })}
                 </div>
-              </section>
-            );
-          })}
-        </div>
-        <p aria-live="polite" className={styles.rangeSummary}>
-          {draft.from && !draft.to
-            ? `${draft.from.replaceAll('-', '.')}부터 · 종료일을 선택해 주세요`
-            : formatDateRange(draft)}
-        </p>
-        {error ? (
-          <p className={styles.fieldError} id={`${id}-error`} role="alert">
-            {error}
-          </p>
-        ) : null}
-        <footer className={styles.calendarFooter}>
-          <button
-            onClick={() => {
-              setDraft(emptyDateRange);
-              setError('');
-            }}
-            type="button"
-          >
-            전체 기간으로 초기화
-          </button>
-          <div>
-            <button onClick={handleClose} type="button">
-              취소
-            </button>
+              )}
+            </div>
+            <div aria-label="빠른 기간 선택" className={styles.datePresets} role="group">
+              {([1, 2, 3] as const).map((years: RecentYearPreset) => {
+                const preset = createRecentYearRange(years, today);
+                const isSelected = draft.from === preset.from && draft.to === preset.to;
+                return (
+                  <button
+                    aria-pressed={isSelected}
+                    data-selected={isSelected}
+                    key={years}
+                    onClick={() => {
+                      setDraft(preset);
+                      setError('');
+                    }}
+                    type="button"
+                  >
+                    최근 {years}년
+                  </button>
+                );
+              })}
+            </div>
+            <div className={styles.popoverActions}>
+              <button
+                className={styles.resetButton}
+                onClick={() => {
+                  setDraft(emptyDateRange);
+                  setError('');
+                  onChange({ ...ranges, [basis]: emptyDateRange });
+                }}
+                type="button"
+              >
+                초기화
+              </button>
+              <button
+                aria-label="기간 설정 닫기"
+                className={styles.popoverClose}
+                onClick={handleClose}
+                type="button"
+              >
+                <ChevronLeft aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <div className={styles.calendarColumns}>
+            {(['from', 'to'] as const).map((endpoint) => (
+              <DateRangeCalendar
+                endpoint={endpoint}
+                initialDate={draft[endpoint] || value[endpoint] || value.from || today}
+                maxDate={today}
+                key={`${basis}-${endpoint}`}
+                onSelect={(date) => {
+                  setDraft((current) => {
+                    const next = { ...current, [endpoint]: date };
+                    return next.from && next.to && next.from > next.to
+                      ? { from: next.to, to: next.from }
+                      : next;
+                  });
+                  setError('');
+                }}
+                range={draft}
+              />
+            ))}
+          </div>
+          {error ? (
+            <p className={styles.fieldError} id={`${id}-error`} role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className={styles.popoverFooter}>
             <button
               className={styles.primaryButton}
               onClick={() => {
-                const message = validateDateRange(draft);
-                setError(message);
-                if (!message) {
-                  handleClose();
-                  onChange(draft);
+                const currentToday = seoulToday();
+                for (const key of ['broadcast', 'filming'] as const) {
+                  const message = validateDateRange(drafts[key], currentToday);
+                  if (message) {
+                    setBasis(key);
+                    setError(message);
+                    return;
+                  }
                 }
+                handleClose();
+                onChange(drafts);
               }}
               type="button"
             >
               적용
             </button>
           </div>
-        </footer>
-      </dialog>
+        </div>
+      ) : null}
     </div>
   );
 }

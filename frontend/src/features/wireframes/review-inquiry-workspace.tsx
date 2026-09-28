@@ -1,0 +1,117 @@
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { ArrowLeft, Inbox, RefreshCw } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useEffect } from 'react';
+
+import { ApiErrorNotice } from '@/components/api-error-notice';
+import { useMember } from '@/components/session-boundary';
+import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
+import { getReviewInquiries } from '@/features/wireframes/review-inquiry-api';
+import { InquiryDetail } from '@/features/wireframes/review-inquiry-detail';
+import detailStyles from '@/features/wireframes/review-inquiry-detail.module.css';
+import { InquiryList, InquiryListHeading } from '@/features/wireframes/review-inquiry-list';
+import { selectPageSize } from '@/features/wireframes/list-pagination';
+import dashboardStyles from '@/features/wireframes/review-dashboard.module.css';
+import {
+  selectInquiryPage,
+  selectInquiryStatus,
+  normalizeInquiryPage,
+} from '@/features/wireframes/review-inquiry-view';
+import { getReviewUrl } from '@/features/wireframes/reviewer-board-state';
+import { ReviewerLayout } from '@/features/wireframes/reviewer-layout';
+import styles from '@/features/wireframes/reviewer.module.css';
+import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
+
+export function ReviewInquiryWorkspace({ theme }: { theme: WireframeTheme }) {
+  const member = useMember();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const status = selectInquiryStatus(searchParams.get('status'));
+  const page = selectInquiryPage(searchParams.get('page'));
+  const pageSize = selectPageSize(searchParams.get('size'));
+  const feedbackId = searchParams.get('inquiry');
+  const list = useQuery({
+    queryKey: ['review-inquiries', status ?? 'all', page, pageSize],
+    queryFn: ({ signal }) => getReviewInquiries(page - 1, pageSize, status, signal),
+    enabled: feedbackId === null,
+  });
+
+  const rawPageSize = searchParams.get('size');
+  // 허용하지 않는 개수와 범위 밖 쪽을 한 번의 replace 로 고친다. 따로 고치면 서로 옛 URL 을 되살린다.
+  useEffect(() => {
+    const updates: Record<string, string | null> = {};
+    if (rawPageSize !== null && rawPageSize !== String(pageSize)) updates.size = null;
+    if (feedbackId === null && list.data) {
+      const normalizedPage = normalizeInquiryPage(page, list.data.totalPages);
+      if (normalizedPage !== page)
+        updates.page = normalizedPage === 1 ? null : String(normalizedPage);
+    }
+    if (Object.keys(updates).length === 0) return;
+    router.replace(getReviewUrl(pathname, searchParams.toString(), updates), { scroll: false });
+  }, [feedbackId, list.data, page, pageSize, pathname, rawPageSize, router, searchParams]);
+
+  function handleBack() {
+    router.push(getReviewUrl(pathname, searchParams.toString(), { inquiry: null }), {
+      scroll: false,
+    });
+  }
+
+  return (
+    <ReviewerLayout
+      theme={theme}
+      headerContent={
+        feedbackId === null ? (
+          <InquiryListHeading data={list.data} />
+        ) : (
+          <section className={dashboardStyles.heading} aria-labelledby="inquiry-detail-title">
+            <h1 id="inquiry-detail-title">문의 상세</h1>
+            <button className={detailStyles.backButton} onClick={handleBack} type="button">
+              <ArrowLeft aria-hidden="true" /> 문의 목록으로
+            </button>
+          </section>
+        )
+      }
+    >
+      <main className={`${styles.page} ${feedbackId === null ? styles.inquiryPage : ''}`}>
+        {feedbackId ? (
+          <InquiryDetail feedbackId={feedbackId} theme={theme} onBack={handleBack} />
+        ) : list.isPending ? (
+          <div
+            className={`${dashboardStyles.dashboard} ${dashboardStyles.statePanel}`}
+            aria-busy="true"
+            role="status"
+          >
+            <Inbox aria-hidden="true" />
+            <h2>문의 목록을 불러오는 중…</h2>
+            <p>접수 상태와 장면 정보를 확인하고 있어요.</p>
+          </div>
+        ) : list.isError ? (
+          <div className={`${dashboardStyles.dashboard} ${dashboardStyles.statePanel}`}>
+            <Inbox aria-hidden="true" />
+            <h2>문의 목록 불러오기 실패</h2>
+            <p>
+              {status ? `${inquiryStatusLabels[status]} 상태 · ` : '전체 상태 · '}페이지 {page}
+            </p>
+            <ApiErrorNotice error={list.error} />
+            <button
+              className={dashboardStyles.primaryButton}
+              disabled={list.isFetching}
+              onClick={() => list.refetch()}
+              type="button"
+            >
+              <RefreshCw aria-hidden="true" /> {list.isFetching ? '다시 불러오는 중…' : '다시 시도'}
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="sr-only">현재 아카이브 팀 {member.loginId}</p>
+            <InquiryList currentStatus={status} data={list.data} pageSize={pageSize} />
+          </>
+        )}
+      </main>
+    </ReviewerLayout>
+  );
+}

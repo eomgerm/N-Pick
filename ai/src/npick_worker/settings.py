@@ -1,9 +1,10 @@
 """워커 설정. 모든 값은 NPICK_AI_ 접두사 환경 변수로 주입한다."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DeviceChoice = Literal["auto", "cuda", "cpu"]
@@ -11,6 +12,9 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 #: Query Resolver 가 어느 adapter 로 나가는가. local 또는 승인된 GMS 중 하나다.
 #: 배포 경계와 교체 가능성은 `docs/architecture/02-container.md` 요소 표가 정본이다.
 ResolverBackend = Literal["ollama", "gms"]
+#: VLM 장면 metadata 가 어느 어댑터로 나가는가. 자체 호스팅이 정본 경로이고(`02-container.md`
+#: 요소 표) 외부 호출은 PRD §12.4 의 조건을 전부 만족할 때만 쓰는 대체 경로다.
+VlmBackend = Literal["transformers", "external"]
 
 
 class Settings(BaseSettings):
@@ -27,6 +31,157 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: LogLevel = "INFO"
     device: DeviceChoice = "auto"
+
+    # ── 잡 수신 (파이프라인 워커 전용) ──────────────────────────────
+    # `ai/` 는 배포 단위 둘을 담는다. 아래 job_* 는 파이프라인 워커의 것이고
+    # 질의 리졸버는 쓰지 않는다(docs/architecture/02-container.md 의 *요소* 표).
+    #
+    # job_poll_enabled 는 그 둘을 가르는 이음매다. 같은 이미지가 이 값 하나로
+    # "잡을 도는 워커" 와 "폴링하지 않는 리졸버" 가 된다. 기본값이 거짓인 이유도
+    # 둘이다 — 리졸버 쪽이 기본이어야 하고, 테스트가 lifespan 을 돌 때 네트워크로
+    # 나가면 안 된다.
+    job_poll_enabled: bool = False
+    #: **origin 만 넣는다.** 예: `http://backend:8080`. httpx2 는 base path 를
+    #: 덮어쓰지 않고 이어 붙이는데 client.py 의 모든 경로가 절대 경로
+    #: `/api/v1/internal/jobs/...` 로 시작한다. `/api` 를 붙이면 `/api/api/v1/...`
+    #: 이 되어 claim·heartbeat·complete 가 전부 404 다.
+    #: 비어 있으면 폴링하지 않는다.
+    job_api_base_url: str = ""
+    #: 절대 /health 나 로그에 싣지 않는다.
+    job_api_token: SecretStr = SecretStr("")
+    #: 비어 있으면 기동 시 1회 만든다.
+    worker_id: str = ""
+    #: 워커가 속한 무리. BE 는 무리마다 다른 토큰을 발급해 개발 검증 산출물이
+    #: 운영 정본에 섞이지 않게 한다(03-deployment.md 의 미결 항목에 대한 답).
+    job_fleet: str = "local"
+
+    # 아래 수치는 **전송 파라미터**다. 소켓이 얼마나 기다리는가일 뿐 어떤 단계의
+    # 출력도 바꾸지 않으므로 실측 후 확정할 실행 설정(ai/AGENTS.md)이 아니다.
+    # 품질 수치인 단계 재시도 횟수와 단계 타임아웃은 워커가 구현하지 않는다 —
+    # infra/compose/profiles/pipeline.yml 에서 null 로 남아 있고 BE 가 소유한다.
+    #: claim 요청에 싣는 서버 대기 상한.
+    job_poll_wait_seconds: int = Field(default=25, ge=0, le=25)
+    job_connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    #: claim 이외 요청의 read timeout. claim 은 대기 시간만큼 따로 늘린다.
+    job_read_timeout_seconds: float = Field(default=30.0, gt=0)
+    #: heartbeat 주기의 상한. claim 이 준 heartbeatIntervalMs 가 이 값보다 작으면
+    #: 그 값을 쓰고, 크면 이 값으로 자른다. BE 가 lease TTL 보다 긴 주기를 줘서
+    #: lease 가 만료되는 사고를 여기서 막는다.
+    job_heartbeat_seconds: float = Field(default=10.0, gt=0)
+    job_max_backoff_seconds: float = Field(default=60.0, gt=0)
+    #: GPU 한 장을 전제한다.
+    job_concurrency: int = Field(default=1, ge=1)
+    #: **이 배포가 맡을 단계.** 쉼표로 구분한 단계 이름이고, 비우면 구현된 전부를
+    #: 선언한다(지금까지의 동작). 설치 구성이 정하는 것은 *할 수 있는 것*이고 이 값이
+    #: 정하는 것은 *맡을 것*이다 — CPU 단계 구현은 기본 의존성이라 GPU 이미지에도
+    #: 들어가므로, 이것이 없으면 CPU 워커와 GPU 파드의 선언이 겹친다.
+    #: **좁히기만 한다**: 목록에 있어도 모델 미지정·워밍업 실패인 단계는 여전히 빠진다.
+    #: 쉼표 목록이라 `list[str]` 이 아니라 `str` 이다 — pydantic-settings 는 복합 타입
+    #: 환경변수를 JSON 으로 읽으므로 `a,b` 가 기동 실패가 된다.
+    job_stages: str = ""
+
+    #: backend 와 공유하는 미디어 마운트. 없으면 입력을 HTTP 로 받는다.
+    #: compose 는 /srv/npick/media 를 준다. RunPod 파드에는 공유 볼륨이 없다.
+    media_root: Path | None = None
+
+    #: OCR 모델 가중치를 둘 곳. 비우면 rapidocr 기본값(site-packages 안)을 쓴다.
+    #: 컨테이너에서는 반드시 준다 — 기본값은 이미지 레이어라 컨테이너를 다시 만들
+    #: 때마다 모델을 새로 받는다. Dockerfile 이 /var/cache/npick/models 를 잡아 둔다.
+    #: 품질을 바꾸는 값이 아니라 경로이므로 버전이 붙는 설정 파일이 아니라 여기 있다.
+    ocr_model_dir: Path | None = None
+
+    # ── VLM 장면 metadata (7단계) ────────────────────────────────────
+    # 어느 어댑터로 장면을 설명하는가. 기본은 **자체 호스팅**이다 —
+    # `docs/architecture/02-container.md` 요소 표가 VLM 을 워커의 자체 GPU 에 두고,
+    # 외부 제공자는 PRD §12.4 의 조건을 전부 만족할 때만 쓸 수 있는 대체 경로다.
+    vlm_backend: VlmBackend = "transformers"
+    #: 가중치 식별자. **기본값을 두지 않는다.** 모델명은 결과를 바꾸는 값이고 실측 후
+    #: 확정 대상이라(FRD §11) 코드가 임의로 고르면 그게 곧 근거 없는 동결이다 —
+    #: `ollama_model` 과 같은 판단이다. 비어 있으면 이 단계는 `MODEL_UNAVAILABLE` 이다.
+    vlm_model: str = ""
+    #: 가중치 리비전(커밋 해시·태그). 같은 이름이라도 리비전이 바뀌면 출력이 달라지므로
+    #: 재현 식별자에 들어간다. 비어 있으면 `main` 을 쓴 것으로 기록한다.
+    vlm_model_revision: str = ""
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: 파드 디스크가 휘발성이라 파드를 띄울 때마다 수 GB 를 다시 받는다
+    #: (`03-deployment.md`: 모델 가중치는 네트워크 볼륨에 상주).
+    vlm_model_dir: Path | None = None
+
+    # ── 텍스트 임베딩 (9단계) ────────────────────────────────────────
+    #: 가중치 식별자. **S15P21A501-175 가 확정한 값이다** — `vlm_model` 이 기본값을 두지
+    #: 않는 것과 갈린다. 후보 비교가 끝나 더는 "코드가 고르면 근거 없는 동결" 이 아니고,
+    #: 확정값을 코드가 말해야 배포마다 다른 모델이 깔리는 일이 없다.
+    #: **바꾸면 전체 재색인이다.** 교체는 -175 의 재평가 조건(캡션을 넣은 장면 단위
+    #: 골드셋에서 PIXIE 가 유의하게 앞섬)을 만족할 때만이고, 그때도 `TextEncoder`
+    #: 어댑터 경계는 그대로 쓴다.
+    embedding_model: str = "dragonkue/snowflake-arctic-embed-l-v2.0-ko"
+    #: 가중치 리비전. **SHA 로 고정한다.** `main` 으로 두면 원격이 갱신될 때 같은 이름이
+    #: 다른 가중치를 가리키는데 기록은 그대로다 — 벡터는 사람이 보고 이상하다고 알아챌 수
+    #: 있는 산출물이 아니라서 그 교체를 검색 품질이 떨어진 뒤에야 알게 된다.
+    embedding_model_revision: str = "55ec6e9358a56d56af759bc8372e970caf8c305f"
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: `vlm_model_dir` 과 같은 이유다(`03-deployment.md`: 가중치는 네트워크 볼륨에 상주).
+    embedding_model_dir: Path | None = None
+    #: 어댑터가 한 번에 모델에 넣는 문장 수. **버전 붙는 설정 파일에 두지 않는다** —
+    #: VRAM 사정으로 움직이는 값이고 결과를 바꾸지 않는데, 설정 파일에 있으면 16→8 로
+    #: 내리는 것만으로 `config_version` 과 `stageVersion` 이 달라져 계약 §7 의 버전
+    #: 불일치가 난다. `ocr_model_dir` 과 같은 판단이다.
+    embedding_batch_size: int = Field(default=16, gt=0)
+    #: 질의측 접두 (S15P21A501-164). arctic-ko 는 질의에만 `query: ` 를 요구한다.
+    #: **설정 파일이 아니라 여기다.** `embedding_model` 과 같은 판단이다 — 이 값은 질의
+    #: 벡터만 바꾸고 색인 결과를 바꾸지 않는데, 버전 붙는 `text_embedding.v1.toml` 에
+    #: 있으면 `config_version` 과 `stageVersion` 이 함께 움직여 계약 §7 의 버전 불일치가
+    #: 난다. 모델을 바꿀 때 접두도 같이 확인한다(`docs/query-embedding.md` §2).
+    embedding_query_prefix: str = "query: "
+    #: 리졸버 기동 시 가중치를 기다릴 상한. 워밍업은 `yield` 앞이라 이 시간만큼 서버가
+    #: 연결을 받지 않는다. 캐시 볼륨이 비어 원격에서 받는 콜드 스타트가 startup probe
+    #: 유예를 넘기면 **재시작 루프**가 되므로 상한을 둔다. 넘겨도 로딩은 스레드에서
+    #: 이어지고 그 사이의 검색만 dense 채널 없이 돈다.
+    embedding_warmup_timeout_seconds: float = Field(default=60.0, gt=0)
+
+    # ── 외부 VLM 처리 (PRD §12.4) ────────────────────────────────────
+    # 아래 값이 전부 맞아도 **그것만으로 승인이 성립하지 않는다.** clip 별 외부 처리
+    # 권리 확인은 deployment 수준 허용으로 대신할 수 없고(PRD §12.4) 그 확인을 담는 DB
+    # 경로를 만들지 않기로 했다(FRD §11). 그래서 기본값은 전부 닫힘이고, 조건 중 하나라도
+    # 확인되지 않으면 전송 전에 fail-closed 한다.
+    #: 활성 deployment policy 가 있는가.
+    vlm_external_enabled: bool = False
+    #: 활성 provider profile 의 식별자. 감사 기록에 남기는 값이다(원문 대신).
+    vlm_external_provider_profile: str = ""
+    #: 승인된 endpoint. TLS 가 아니면 게이트가 거절한다.
+    vlm_external_endpoint: str = ""
+    #: allowlist 에 오른 모델 이름. `vlm_model` 과 다르면 거절한다.
+    vlm_external_model: str = ""
+    #: provider 의 보관·학습·삭제 조건을 확인하고 승인했는가.
+    vlm_external_provider_terms_confirmed: bool = False
+    #: component 별 payload 크기 상한(바이트).
+    vlm_external_max_payload_bytes: int = Field(default=0, ge=0)
+    #: 승인된 주입 방식으로 들어온 secret. 로그·예외에 싣지 않는다.
+    vlm_external_api_key: SecretStr = SecretStr("")
+
+    # ── ASR (자막·CC 미커버 구간 보완) ─────────────────────────────
+    #: 가중치 식별자. faster-whisper 가 받는 이름이거나 로컬 모델 디렉터리 경로다
+    #: (예: `large-v3-turbo`). **기본값을 두지 않는다** — 모델 크기는 결과와 처리
+    #: 시간을 바꾸는 값이고 실측 후 확정 대상이라(FRD §11), 코드가 임의로 고르면 그게
+    #: 곧 근거 없는 동결이다(`vlm_model`·`ollama_model` 과 같은 판단). 비어 있으면 이
+    #: 단계는 capabilities 에서 빠지고 배정되지 않는다.
+    asr_model: str = ""
+    #: 가중치 리비전(40자리 커밋 SHA). **크기 이름은 저장소로 풀린다** —
+    #: `large-v3-turbo` 는 `mobiuslabsgmbh/faster-whisper-large-v3-turbo` 이고 그 저장소가
+    #: 갱신되면 같은 이름이 다른 가중치를 가리키는데 `model_version` 은 그대로다. 그러면
+    #: 다른 가중치로 만든 전사가 같은 `stageVersion` 을 달고 정본에 들어간다.
+    #: `embedding_model_revision` 과 같은 판단이고, SHA 가 아니면 이 단계는
+    #: capabilities 에서 빠진다. 확정 조합은 ai/docs/asr.md §5.6 이다.
+    asr_model_revision: str = ""
+    #: 연산 정밀도(예: `float16`·`int8_float16`·`int8`). 비우면 장치 기본값을 쓴다 —
+    #: CUDA 는 `float16`, CPU 는 `int8` 이다. 이 값도 결과를 바꾸므로 재현 식별자의
+    #: `model_version` 에 함께 들어간다.
+    asr_compute_type: str = ""
+    #: 가중치를 둘 곳. 비우면 라이브러리 기본 캐시를 쓴다. 컨테이너에서는 반드시 준다 —
+    #: 파드 디스크가 휘발성이라 파드를 띄울 때마다 수 GB 를 다시 받는다
+    #: (`03-deployment.md`: 모델 가중치는 네트워크 볼륨에 상주). `vlm_model_dir` 과
+    #: 같은 성격이라 버전이 붙는 설정 파일이 아니라 여기 있다.
+    asr_model_dir: Path | None = None
 
     # ── Query Resolver LLM (local 또는 승인된 GMS) ──
     # 모델이 없어도 워커는 그대로 기동한다. 실패는 resolver 를 실제로 호출할 때만
@@ -47,6 +202,11 @@ class Settings(BaseSettings):
     # SecretStr: 로그·repr·예외 메시지로 토큰이 새는 경로를 타입으로 막는다.
     # 값을 쓰려면 .get_secret_value() 를 명시적으로 불러야 한다.
     gms_api_key: SecretStr = SecretStr("")
+    #: **기본값을 두지 않는다.** 선정은 끝났지만(`gpt-4o-mini`, S15P21A501-102) 이름을
+    #: 코드에 박지 않는 것은 `asr_model`·`ollama_model` 과 같은 규칙이다 — 그리고 여기에는
+    #: 이유가 하나 더 있다. 비어 있으면 `GmsResolver` 가 기동 시점에 거절하므로
+    #: `resolver_backend=gms` 로 뒤집으면서 모델을 안 넣은 배포가 조용히 도는 일이 없다.
+    #: 확정값과 근거는 `ai/.env.example` 과 `eval/query_resolver/README.md` 에 있다.
     gms_model: str = ""
     # 게이트웨이가 response_format 을 받지 않으면 false 로 끈다. 그러면 JSON 강제가
     # 프롬프트 지시뿐이라 RESOLVER_SCHEMA_INVALID 가 늘어난다.

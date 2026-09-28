@@ -32,7 +32,7 @@ registerHooks({
 const { ApiErrorNotice } = await import('./api-error-notice.tsx');
 const { fetchJson } = await import('../lib/api/client.ts');
 
-test('실제 client 오류를 한국어·코드·요청 ID로 렌더링하고 진단 정보는 숨긴다', async (context) => {
+test('실제 client 오류는 한국어 안내만 렌더링하고 코드·요청 ID는 오류 객체에 유지한다', async (context) => {
   const payload = {
     isSuccess: false,
     code: 'COMM_400',
@@ -51,22 +51,19 @@ test('실제 client 오류를 한국어·코드·요청 ID로 렌더링하고 �
   }
   assert.ok(error);
   const html = renderToStaticMarkup(createElement(ApiErrorNotice, { error, id: 'form-error' }));
-  for (const value of [
-    '입력한 날짜를 확인해 주세요.',
-    'COMM_400',
-    'req-123',
-    '오류 코드',
-    '요청 ID',
-  ]) {
+  for (const value of ['입력한 날짜를 확인해 주세요.']) {
     assert.ok(html.includes(value));
   }
   assert.match(html, /role="alert"/);
   assert.match(html, /id="form-error"/);
   assert.match(html, /aria-atomic="true"/);
+  assert.doesNotMatch(html, /COMM_400|req-123|오류 코드|요청 ID/);
+  assert.equal(error.code, 'COMM_400');
+  assert.equal(error.requestId, 'req-123');
   assert.doesNotMatch(html, /private|secret-password|InternalException|internal-stack|isSuccess/);
 });
 
-test('일반 예외와 임의 객체는 그대로 표시하지 않고 미제공 요청 ID를 안내한다', () => {
+test('일반 예외와 임의 객체는 일반 한국어 안내만 표시한다', () => {
   for (const error of [
     new Error('secret internal exception'),
     { message: '<script>secret</script>' },
@@ -74,8 +71,22 @@ test('일반 예외와 임의 객체는 그대로 표시하지 않고 미제공 
   ]) {
     const html = renderToStaticMarkup(createElement(ApiErrorNotice, { error }));
     assert.match(html, /서버 응답을 확인할 수 없습니다/);
-    assert.match(html, /CLIENT_INVALID_RESPONSE/);
-    assert.match(html, /제공되지 않음/);
+    assert.doesNotMatch(html, /CLIENT_INVALID_RESPONSE|제공되지 않음|요청 ID/);
     assert.doesNotMatch(html, /secret|<script>/);
   }
+});
+
+test('기능 계층이 전달한 사용자 문구와 후속 안내를 우선 표시한다', () => {
+  const error = new Error('internal message');
+  const html = renderToStaticMarkup(
+    createElement(ApiErrorNotice, {
+      error,
+      message: '입력한 내용만으로는 검색하기 어려워요.',
+      followUp: '찾으려는 대상을 포함하면 검색할 수 있어요.',
+    }),
+  );
+
+  assert.match(html, /입력한 내용만으로는 검색하기 어려워요/);
+  assert.match(html, /찾으려는 대상을 포함하면 검색할 수 있어요/);
+  assert.doesNotMatch(html, /internal message|담당자에게 문의해 주세요/);
 });

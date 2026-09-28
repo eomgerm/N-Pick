@@ -1,7 +1,7 @@
 .board {
-  width: min(1120px, 100%);
+  width: 100%;
   margin: 0 auto;
-  padding: 14px 0 40px;
+  padding: 0;
 }
 .greeting {
   display: flex;
@@ -23,13 +23,22 @@
   font-weight: 750;
   letter-spacing: -1.4px;
   line-height: 1.5;
+  color: #f0fbf7;
 }
-.greeting h1 > span {
-  color: var(--muted);
+.greetingTitle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.totalCount {
+  color: #d4e4dd;
+  font-size: 18px;
   font-weight: 500;
+  white-space: nowrap;
 }
 .greeting em {
-  color: var(--accent-strong);
+  color: #ffd3e2;
   font-style: normal;
   font-weight: 750;
 }
@@ -37,6 +46,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+.greeting.headerGreeting {
+  width: 100%;
+  margin: 0 auto;
+  align-items: center;
+  flex-direction: row;
+}
+.headerGreeting .greetingTitle {
+  flex-wrap: nowrap;
+}
+.headerGreeting h1,
+.headerGreeting .registrationLink {
+  white-space: nowrap;
 }
 .processingLink,
 .registrationLink,
@@ -73,7 +95,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 10px 35px rgb(20 40 80 / 3%);
+  box-shadow: 0 14px 34px rgb(74 56 40 / 7%);
 }
 .panelHeading {
   display: flex;
@@ -245,17 +267,17 @@
   width: 112px;
   overflow: hidden;
   border-radius: min(var(--radius-sm), 9px);
-  background: #d8e4ef;
-  color: #d4e2f0;
+  background: #e7dfd5;
+  color: #f1eae1;
 }
 .thumbnail[data-image='station'] {
-  background: #233044 url('/images/news-scenes-triptych.png') 0 50% / 300% auto no-repeat;
+  background: #2e2a26 url('/images/news-scenes-triptych.png') 0 50% / 300% auto no-repeat;
 }
 .thumbnail[data-image='weather'] {
-  background: linear-gradient(155deg, #7d96ad, #1f354b 65%, #668995);
+  background: linear-gradient(155deg, #a3968a, #332d27 65%, #8a7f70);
 }
 .thumbnail[data-image='square'] {
-  background: linear-gradient(160deg, #a1b6c6, #4b665d 65%, #263c39);
+  background: linear-gradient(160deg, #c0b4a5, #5f564a 65%, #332e27);
 }
 .thumbnail svg {
   width: 32px;
@@ -268,7 +290,7 @@
   left: 0;
   right: 0;
   padding: 10px 7px 5px;
-  background: linear-gradient(transparent, #102034a6);
+  background: linear-gradient(transparent, #2e2a26a6);
   color: white;
   font-size: 9px;
   text-align: right;
@@ -315,7 +337,7 @@
   font-size: 9px;
   font-weight: 700;
 }
-.statusChip[data-status='pending'] {
+.statusChip[data-status='open'] {
   background: var(--warning-soft);
   color: var(--warning);
 }
@@ -323,7 +345,7 @@
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
-.statusChip[data-status='completed'] {
+.statusChip[data-status='closed'] {
   background: var(--positive-soft);
   color: var(--positive);
 }
@@ -418,6 +440,90 @@
   display: block;
 }
 
+/* Soft glass tone — 검색 결과 화면과 같은 팔레트/라운드/유리질 표면 */
+.eyebrow {
+  color: var(--muted);
+  font-weight: 700;
+}
+.greeting h1 {
+  font-weight: 600;
+  letter-spacing: -1.2px;
+}
+.processingLink,
+.registrationLink,
+.backButton {
+  padding: 11px 18px;
+  border-radius: 999px;
+  border-color: var(--line);
+  background: var(--glass-strong);
+  backdrop-filter: blur(12px);
+}
+.registrationLink {
+  border-color: var(--secondary);
+  background: var(--secondary);
+  box-shadow: 0 10px 24px rgb(46 38 30 / 18%);
+}
+.panel {
+  border-color: var(--glass-line);
+  background: var(--glass-strong);
+  box-shadow: 0 24px 56px rgb(74 56 40 / 9%);
+  backdrop-filter: blur(24px) saturate(1.1);
+}
+.panelHeading h2 {
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+.searchForm {
+  padding: 8px 8px 8px 22px;
+  border-radius: 999px;
+  border-color: var(--line);
+  background: var(--surface);
+}
+.searchForm button {
+  border-radius: 999px;
+  background: var(--secondary);
+  box-shadow: 0 8px 18px rgb(46 38 30 / 18%);
+}
+.statusFilters button {
+  background: var(--surface);
+  border-color: var(--line);
+}
+.statusFilters button[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--accent) 30%, white);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+.sortControl select {
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+}
+.inquiryRow:hover {
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+}
+.thumbnail {
+  border-radius: 12px;
+}
+.rowCopy strong {
+  font-weight: 650;
+}
+.statusChip {
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+.pagination button {
+  border-radius: 999px;
+}
+.pagination button[aria-current='page'] {
+  background: var(--secondary);
+}
+.empty button {
+  border-radius: 999px;
+  border-color: var(--line);
+  color: var(--text);
+}
+
 @media (max-width: 760px) {
   .board {
     padding-top: 0;
@@ -430,6 +536,27 @@
   }
   .greeting h1 {
     font-size: 26px;
+  }
+  .greeting.headerGreeting {
+    gap: 12px;
+  }
+  .headerGreeting h1 {
+    font-size: 20px;
+  }
+  .headerGreeting .greetingTitle {
+    gap: 8px;
+  }
+  .headerGreeting .totalCount {
+    font-size: 14px;
+  }
+  .headerGreeting .registrationLink {
+    width: 40px;
+    height: 40px;
+    flex: none;
+    padding: 0;
+  }
+  .headerGreeting .registrationLink span {
+    display: none;
   }
   .panel {
     padding: 22px 18px;
@@ -447,12 +574,14 @@
     gap: 12px;
   }
   .statusFilters {
+    flex-wrap: wrap;
     gap: 5px;
   }
   .statusFilters button {
     padding: 8px 10px;
     gap: 5px;
     font-size: 11px;
+    white-space: nowrap;
   }
   .sortControl {
     margin-left: auto;
@@ -468,8 +597,8 @@
     padding: 8px 14px;
   }
   .inquiryRow {
-    grid-template-columns: 72px minmax(0, 1fr) auto;
-    gap: 12px;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px 12px;
     padding: 18px 0;
   }
   .thumbnail {
@@ -482,11 +611,15 @@
   }
   .rowCopy strong {
     font-size: 13px;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .comment {
     font-size: 11px;
   }
   .age {
+    grid-column: 2;
+    justify-self: start;
     font-size: 10px;
   }
   .age svg {

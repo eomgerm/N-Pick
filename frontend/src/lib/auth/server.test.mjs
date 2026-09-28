@@ -34,6 +34,24 @@ const success = (role) =>
     data: { memberId: '1', loginId: 'tester', role },
   });
 
+test('access 만료와 refresh 쿠키가 있으면 서버에서 토큰을 사용하지 않고 브라우저 갱신 화면으로 보낸다', async (context) => {
+  globalThis.testCookies = {
+    JSESSIONID: { value: 'expired' },
+    NPICK_REFRESH: { value: 'a'.repeat(64) },
+  };
+  const fetch = context.mock.method(globalThis, 'fetch', async (_url, init) => {
+    assert.equal(init.headers.get('cookie'), 'JSESSIONID=expired');
+    return Response.json(
+      { isSuccess: false, code: 'COMM_401', message: 'expired' },
+      { status: 401 },
+    );
+  });
+  await assert.rejects(requireMember('/review?view=upload'), {
+    location: '/session/renew?returnTo=%2Freview%3Fview%3Dupload',
+  });
+  assert.equal(fetch.mock.callCount(), 1);
+});
+
 test('세션 쿠키가 없으면 요청 없이 로그인으로 복귀 URL을 전달한다', async (context) => {
   globalThis.testCookies = {};
   const mock = context.mock.method(globalThis, 'fetch', async () => {

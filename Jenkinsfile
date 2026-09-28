@@ -5,6 +5,14 @@
 // CD 는 그 이미지를 그대로 띄운다. Container Registry 가 없지만 Jenkins 가 배포 대상
 // EC2 위에서 돌아 호스트 Docker 데몬이 저장소 역할을 대신한다.
 
+// **environment 블록에 두지 않는다.** declarative 는 그 블록의 값을 스테이지 스텝마다
+// withEnv 로 다시 주입해서, script 안에서 env.PIPELINE_MODE 를 덮어써도 그 래퍼가 도로
+// 가린다. 2026-09-16 (S15P21A501-180) 에 이 변수가 environment 로 들어간 뒤 모든 빌드가
+// PIPELINE_MODE=UNKNOWN 이 되어 Detect/Build/Deploy/Verify 가 통째로 건너뛰어졌고,
+// 빌드는 계속 SUCCESS 라 아무도 알아채지 못했다. 그 사이 dev 머지 47건이 미배포로
+// 쌓였다. 스크립트 전역 변수는 그 래퍼를 타지 않는다 (Jenkinsfile.ops 와 같은 방식).
+PIPELINE_MODE = 'UNKNOWN'
+
 pipeline {
   agent any
 
@@ -13,6 +21,9 @@ pipeline {
     timeout(time: 40, unit: 'MINUTES')
     buildDiscarder(logRotator(numToKeepStr: '30'))
     disableConcurrentBuilds()
+    // MR 빌드는 dev 의 신뢰된 Jenkinsfile 로 시작한 뒤 아래 Checkout 단계에서
+    // 소스 브랜치와 dev 를 합친 결과를 명시적으로 체크아웃한다.
+    skipDefaultCheckout(true)
     gitLabConnection('ssafy-gitlab')
   }
 
@@ -24,9 +35,15 @@ pipeline {
     // 토큰이 지워져 웹훅이 거부된다. infra/jenkins/README.md 13장 (2-2).
     gitlab(
       triggerOnPush: true,
-      triggerOnMergeRequest: false,
-      branchFilterType: 'NameBasedFilter',
-      includeBranchesSpec: 'dev',
+      triggerOnMergeRequest: true,
+      triggerOnlyIfNewCommitsPushed: true,
+      triggerOpenMergeRequestOnPush: 'both',
+      skipWorkInProgressMergeRequest: true,
+      cancelPendingBuildsOnUpdate: true,
+      cancelRunningBuildsOnUpdate: true,
+      branchFilterType: 'RegexBasedFilter',
+      sourceBranchRegex: '.*',
+      targetBranchRegex: '^dev$',
       ciSkip: true,
       secretToken: env.GITLAB_WEBHOOK_TOKEN
     )
@@ -44,8 +61,35 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        checkout scm
         script {
+          def isMergeRequest = env.gitlabActionType == 'MERGE' && env.gitlabTargetBranch == 'dev'
+          PIPELINE_MODE = isMergeRequest ? 'MR' : 'DEPLOY'
+
+          // 이전 실행이 비정상 종료돼 root 소유 산출물이 남아도 Checkout 전에 복구한다.
+          sh 'docker exec -u 0 jenkins chown -R "$(id -u):$(id -g)" "$WORKSPACE"'
+          if (isMergeRequest) {
+            // 잡 자체는 */dev 의 Jenkinsfile 을 신뢰해 시작한다. 실제 검증 대상만 MR 소스와
+            // 최신 dev 의 임시 병합 결과로 바꿔, 머지 충돌과 버전 역전을 머지 전에 잡는다.
+            checkout([
+              $class: 'GitSCM',
+              branches: [[name: "origin/${env.gitlabTargetBranch}"]],
+              userRemoteConfigs: [[
+                credentialsId: 'gitlab-repo-credentials',
+                name: 'origin',
+                refspec: '+refs/heads/*:refs/remotes/origin/*',
+                url: 'https://lab.ssafy.com/s15-ai-image-sub1/S15P21A501.git'
+              ]]
+            ])
+            withEnv([
+              "MR_SOURCE_BRANCH=${env.gitlabSourceBranch}",
+              "MR_TARGET_BRANCH=${env.gitlabTargetBranch}"
+            ]) {
+              sh 'infra/jenkins/merge-mr.sh "$MR_SOURCE_BRANCH" "$MR_TARGET_BRANCH"'
+            }
+          } else {
+            checkout scm
+          }
+
           // GIT_BRANCH 는 origin/dev 형태로 온다. fetch 인자로 쓰려면 접두사를 뗀다.
           env.DEPLOY_REF  = (env.GIT_BRANCH ?: 'dev').replaceFirst(/^origin\//, '')
           // 배포 디렉터리를 이 SHA 로 고정한다. 브랜치의 최신 커밋을 쓰면 fetch 시점에
@@ -56,7 +100,52 @@ pipeline {
           env.GIT_SUBJECT = sh(returnStdout: true, script: 'git log -1 --pretty=%s').trim()
         }
         echo "커밋 ${env.IMAGE_TAG} — ${env.GIT_SUBJECT} (${env.GIT_AUTHOR})"
-        echo "배포 ref: ${env.DEPLOY_REF} @ ${env.DEPLOY_SHA}"
+        echo "파이프라인 모드: ${PIPELINE_MODE}"
+        script {
+          if (PIPELINE_MODE == 'MR') {
+            echo "MR 검증: ${env.gitlabSourceBranch} -> ${env.gitlabTargetBranch}"
+          } else {
+            echo "배포 ref: ${env.DEPLOY_REF} @ ${env.DEPLOY_SHA}"
+          }
+        }
+      }
+    }
+
+    stage('Validate MR migrations') {
+      // 운영 DB 나 /deploy 를 건드리지 않는다. 최신 dev 에 이미 존재하는 최대 버전보다
+      // 작거나 같은 migration 이 MR 에 새로 추가되면 머지 전에 실패시킨다.
+      when {
+        expression { PIPELINE_MODE == 'MR' }
+      }
+      steps {
+        sh 'infra/jenkins/check-new-migration-versions.sh origin/dev'
+      }
+    }
+
+    stage('Test') {
+      // MR 게이트: 소스+dev 병합 워크스페이스에서 스택 테스트를 병렬로 돌린다. 하나라도
+      // 실패하면 이 stage 가 실패하고, post.failure 가 GitLab 커밋 상태를 failed 로 올린다.
+      // (실제 머지 차단은 GitLab 프로젝트의 "Pipelines must succeed" 머지 체크가 담당한다.)
+      // agent 에 툴체인이 없으므로 각 스크립트가 배포 이미지와 같은 컨테이너에서 실행한다.
+      //
+      // AI 는 아직 배선하지 않는다: torch/transformers 를 무조건 import 하는 테스트 12개가
+      // gpu 마커 없이 실패한다(uv 기본 그룹엔 torch 없음). AI 팀이 이 테스트에 gpu 마커를 달아
+      // `pytest -m "not smoke and not gpu"` 로 제외 가능해지면 test-ai.sh 를 여기 추가한다.
+      // 게이트 컨테이너가 상속할 Jenkins 컨테이너명을 명시한다. 스크립트는 미설정 시
+      // $(hostname)(컨테이너 ID) 로 폴백하지만, 운영에서 --name jenkins 로 뜨므로 명시가 안전하다.
+      environment {
+        JENKINS_CONTAINER = 'jenkins'
+      }
+      when {
+        expression { PIPELINE_MODE == 'MR' }
+      }
+      parallel {
+        stage('Backend') {
+          steps { sh 'infra/jenkins/test-backend.sh' }
+        }
+        stage('Frontend') {
+          steps { sh 'infra/jenkins/test-frontend.sh' }
+        }
       }
     }
 
@@ -65,8 +154,11 @@ pipeline {
       // .env 4개와 같은 compose 프로젝트를 쓴다. 워크스페이스에서 up 하면 프로젝트 이름이
       // 달라져 별개 스택이 뜬다.
       //
-      // 빌드 중인 브랜치를 그대로 배포한다. 머지 전에도 파이프라인 전체를 시험할 수 있고,
-      // 머지 후에는 dev 가 넘어와 같은 경로로 동작한다.
+      // dev 푸시 빌드에서만 배포 디렉터리를 동기화한다. MR 빌드는 워크스페이스에서
+      // 검증만 수행하며 /deploy 와 실행 중인 서비스에는 접근하지 않는다.
+      when {
+        expression { PIPELINE_MODE == 'DEPLOY' }
+      }
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'gitlab-repo-credentials',
@@ -81,6 +173,9 @@ pipeline {
     stage('Detect changes') {
       // 모노레포이므로 바뀐 앱만 빌드한다. 인프라 파일이 바뀌면 전체를 다시 만든다.
       // 비교 기준은 직전 커밋이 아니라 마지막 성공 배포 커밋이다(changed-paths.sh).
+      when {
+        expression { PIPELINE_MODE == 'DEPLOY' }
+      }
       steps {
         script {
           def changed = sh(returnStdout: true, script: 'infra/jenkins/changed-paths.sh').trim()
@@ -97,18 +192,34 @@ pipeline {
       }
     }
 
+    stage('Validate migrations') {
+      // 빈 DB 테스트로는 운영 DB 에 더 높은 버전이 적용된 뒤 들어온 역전을 잡을 수 없다.
+      // 실제 flyway_schema_history 와 비교해 이미지 빌드와 배포 전에 차단한다.
+      when {
+        expression { PIPELINE_MODE == 'DEPLOY' && env.BUILD_BACKEND == 'yes' }
+      }
+      steps {
+        sh 'infra/jenkins/check-migration-versions.sh'
+      }
+    }
+
     stage('Build images') {
       // 코드 빌드가 각 Dockerfile 의 build 스테이지 안에서 일어난다. 그래서 Jenkins 에
       // JDK·Node·uv 를 설치하지 않는다. 태그는 compose 의 ${IMAGE_TAG} 로 붙는다.
       when {
-        expression { env.BUILD_BACKEND == 'yes' || env.BUILD_FRONTEND == 'yes' || env.BUILD_AI == 'yes' }
+        expression {
+          PIPELINE_MODE == 'DEPLOY' &&
+            (env.BUILD_BACKEND == 'yes' || env.BUILD_FRONTEND == 'yes' || env.BUILD_AI == 'yes')
+        }
       }
       steps {
         script {
           def targets = []
           if (env.BUILD_BACKEND  == 'yes') targets << 'backend'
           if (env.BUILD_FRONTEND == 'yes') targets << 'frontend'
-          if (env.BUILD_AI       == 'yes') targets << 'ai-worker'
+          // ai/ 하나가 이미지 둘을 낸다 — 질의 리졸버와 CPU 워커. 같은 소스라
+          // 항상 함께 빌드한다 (S15P21A501-187).
+          if (env.BUILD_AI       == 'yes') targets.addAll(['ai-worker', 'ai-cpu-worker'])
           withEnv(["BUILD_TARGETS=${targets.join(' ')}"]) {
             sh 'infra/jenkins/build-images.sh'
           }
@@ -120,12 +231,18 @@ pipeline {
       // --build 를 쓰지 않는다. 앞 단계에서 만든 이미지를 그대로 띄운다.
       // 안 바뀐 앱은 실행 중 이미지에 새 태그를 붙여 compose 가 찾을 수 있게 한다.
       // backend 가 기동하면서 Flyway 가 마이그레이션을 실행한다.
+      when {
+        expression { PIPELINE_MODE == 'DEPLOY' }
+      }
       steps {
         sh 'infra/jenkins/deploy.sh'
       }
     }
 
     stage('Verify') {
+      when {
+        expression { PIPELINE_MODE == 'DEPLOY' }
+      }
       steps {
         sh 'infra/jenkins/verify.sh'
       }
@@ -136,14 +253,25 @@ pipeline {
     success {
       // 성공한 배포 커밋을 남긴다. 다음 빌드의 변경 비교 기준이 되고,
       // 이번 실행의 롤백 표시를 지워 이후 실패가 이 배포를 되돌리지 않게 한다.
-      sh 'infra/jenkins/deploy-done.sh'
+      script {
+        if (PIPELINE_MODE == 'DEPLOY') {
+          sh 'infra/jenkins/deploy-done.sh'
+        }
+      }
       updateGitlabCommitStatus name: 'jenkins', state: 'success'
     }
     failure {
       // 배포를 시작한 경우에만 되돌린다. 판단은 rollback.sh 가 .deploy-rollback 존재로 한다.
       // 이미지만 되돌린다. Flyway 마이그레이션은 롤백되지 않으므로 스키마 변경이 포함된
       // 배포가 실패하면 사람이 판단해야 한다.
-      sh 'infra/jenkins/rollback.sh || true'
+      // rollback 이 실패한 컨테이너를 재생성하기 전에 원인 로그를 Jenkins 콘솔에 보존한다.
+      // 로그 수집 자체가 실패해도 뒤의 rollback 은 반드시 실행한다.
+      script {
+        if (PIPELINE_MODE == 'DEPLOY') {
+          sh 'cd "$DEPLOY_DIR" && docker compose logs --tail=200 || true'
+          sh 'infra/jenkins/rollback.sh || true'
+        }
+      }
       updateGitlabCommitStatus name: 'jenkins', state: 'failed'
     }
     aborted {
@@ -152,7 +280,23 @@ pipeline {
     cleanup {
       // always 가 아니라 cleanup 이다. always 는 failure 보다 먼저 실행되어
       // rollback.sh 를 지워버린다(2026-09-07 실측).
-      cleanWs()
+      script {
+        if (PIPELINE_MODE == 'MR') {
+          // sh 단계가 취소돼도 sibling 테스트 컨테이너는 계속 파일을 쓸 수 있다.
+          // 이 빌드의 컨테이너가 모두 끝난 뒤 권한을 돌리고 동기적으로 정리한다.
+          sh '''
+            set -eu
+            for container in $(docker ps -q --filter "label=npick.mr.build=$BUILD_TAG"); do
+              docker stop --time 10 "$container" || true
+            done
+            test -z "$(docker ps -q --filter "label=npick.mr.build=$BUILD_TAG")"
+            docker exec -u 0 jenkins chown -R "$(id -u):$(id -g)" "$WORKSPACE"
+          '''
+          cleanWs(deleteDirs: true, disableDeferredWipeout: true)
+        } else {
+          cleanWs()
+        }
+      }
     }
   }
 }

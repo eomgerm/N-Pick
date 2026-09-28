@@ -3,6 +3,7 @@ package com.npick.clip.domain.model;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -29,6 +30,9 @@ public record InitialClipRegistration(
         PipelineDefinition pipeline,
         Instant registeredAt) {
 
+    /** 등록자와 같은 날짜 감각으로 "오늘"을 판단한다. UTC 로 보면 한국 아침 시간대의 등록이 하루를 앞선다. */
+    private static final ZoneId REGISTRATION_ZONE = ZoneId.of("Asia/Seoul");
+
     public InitialClipRegistration {
         if (clipId <= 0 || pipelineRunId <= 0 || registeredById <= 0) {
             throw new IllegalArgumentException("서버가 생성한 영상·처리 ID와 인증된 등록자 ID가 필요합니다.");
@@ -46,11 +50,32 @@ public record InitialClipRegistration(
         title = emptyToNull(title);
         transcriptFileKey = emptyToNull(transcriptFileKey);
         scriptText = emptyToNull(scriptText);
-        if (title != null && title.length() > 500) {
+        if (title != null && title.length() > 50) {
             throw new BusinessException(ClipRegistrationErrorCode.TITLE_TOO_LONG);
+        }
+        // U+FFFD 는 「이 자리에 있던 바이트를 읽지 못했다」는 표식이다. UTF-8 아닌 본문(CP949 등)을 보낸 요청에서
+        // 글자당 한 바이트씩 사라진 뒤에 남는다. 원래 글자는 복구할 수 없으므로 저장 전에 거절한다 — 받아 두면
+        // 화면에 영구히 깨진 제목이 남고, 나중에 고칠 방법도 없다 (S15P21A501-226).
+        if (title != null && title.indexOf(0xFFFD) >= 0) {
+            throw new BusinessException(ClipRegistrationErrorCode.TITLE_NOT_UTF8);
+        }
+        // 일반 대본도 같은 길로 들어오는 텍스트 파트다. 컬럼이 text 라 길이로도 걸리지 않아, 막지 않으면 되돌릴 수 없는
+        // 대본이 저장되고 VLM 이 그것을 참고 자료로 읽는다 (S15P21A501-258).
+        if (scriptText != null && scriptText.indexOf(0xFFFD) >= 0) {
+            throw new BusinessException(ClipRegistrationErrorCode.SCRIPT_TEXT_NOT_UTF8);
         }
         if (sourceType == SourceType.ARCHIVE && broadcastDate != null) {
             throw new BusinessException(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE);
+        }
+        LocalDate registeredOn = LocalDate.ofInstant(registeredAt, REGISTRATION_ZONE);
+        if (broadcastDate != null && broadcastDate.isAfter(registeredOn)) {
+            throw new BusinessException(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE);
+        }
+        if (filmedDate != null && filmedDate.isAfter(registeredOn)) {
+            throw new BusinessException(ClipRegistrationErrorCode.FUTURE_FILMED_DATE);
+        }
+        if (broadcastDate != null && filmedDate != null && broadcastDate.isBefore(filmedDate)) {
+            throw new BusinessException(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE);
         }
     }
 
@@ -129,8 +154,16 @@ public record InitialClipRegistration(
             return "user_input";
         }
 
+        /**
+         * 등록자가 직접 적어 넣은 날짜다. 관측 근거이므로 검증으로 저장한다 (F-04).
+         *
+         * <p>미검증으로 두면 {@code TagJudgment.observationVerified()} 가 거짓이 되고, 그 장면의 날짜 태그는 {@code FalseHitGuardPolicy} 에서
+         * 통째로 건너뛰어진다. 방송일·촬영일 범위를 지정해도 범위 밖 장면이 하나도 걸러지지 않았던 이유다 (S15P21A501-231).
+         *
+         * <p>F-04 가 기본 미검증으로 두는 것은 ASR·VLM·일반 추론 규칙의 <b>추정</b> 근거다. 사용자 입력은 그 목록에 없다.
+         */
         public String verificationStatus() {
-            return "unverified";
+            return "verified";
         }
 
         public BigDecimal confidence() {

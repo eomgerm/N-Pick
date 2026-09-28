@@ -4,8 +4,6 @@
 # 인증서 파일이 없으면 nginx 가 기동에 실패한다. 그래서 nginx 는 proxy 프로필 뒤에 있고
 # 인증서를 발급한 환경(EC2)에서만 뜬다. 로컬은 FE 가 BE 를 직접 호출한다(CORS 구성됨).
 
-include /etc/nginx/snippets/upstreams.conf;
-
 server {
     listen 80 default_server;
     server_name ${NPICK_DOMAIN};

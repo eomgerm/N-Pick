@@ -1,21 +1,137 @@
-# 단계별 실행 수치. Gate D 미동결.
+# 단계별 실행 수치. retry·timeout·concurrency 는 실측 전이라 아직 null 이다.
+# stage_versions 는 실측해 채웠다(아래).
 # 단계 목록·순서·fatal 은 ai/src/npick_worker/stages.py 가 정본이다(FRD §5.1 전사).
 # 여기서 다시 정의하지 않는다 — 정본이 두 곳이 되면 어긋난다.
 # 오케스트레이터(Airflow 등) 도입 시 아래 수치는 그쪽으로 옮긴다.
 
-version: 0
+version: 1
 frozen: false
 
+# 이 수치는 BE 디스패처가 소유한다. 워커는 단계 재시도도 단계 타임아웃도 구현하지
+# 않고 결과만 보고한다. null 인 동안 maxAttempts 는 1(자동 재시도 없음)로 해석한다.
 defaults:
   retry_count: null
   timeout_seconds: null
   concurrency: null
 
+# 단계별 기대 버전. BE 가 이 맵을 접어 pipeline_run.pipeline_version 을 만든다.
+# 형식과 롤업 규칙은 docs/contracts/job-api.md, 해시 규약은 docs/contracts/README.md.
+#
+# **여기 없는 단계는 "unknown" 이 되어 배정되지 않는다.** 워커가 capabilities 로 선언해도
+# BE 가 기대 버전과 대조해 거르기 때문이다(StageExecutionService 의 matches).
+#
+# 이것만으로는 부족하다. 앞에 관문이 더 있다 — WorkerExecutionBinding 이
+# StageOutputPort.supports 가 거짓인 단계를 capabilities 에서 통째로 지운다.
+# JdbcWorkerStageOutputAdapter 의 집합은 **10 단계**고, 이제 워커 구현도 10 단계가 모두
+# 있다 — 마지막이던 `transcript_selection` 은 S15P21A501-213 에서 뚫렸다.
+# 그래서 남은 관문은 이 파일 하나였고, 같은 티켓에서 그 한 줄을 채워 **열 단계가 모두
+# 여기 있다**. **여기 없는 단계는 BE 가 unknown 으로 접고 실측 해시와 절대 같아지지
+# 않아, 오류 없이 영원히 배정되지 않는다** (S15P21A501-187 리뷰 지적).
+# nextStage 는 NAMES 순서로 첫 pending 을 고르므로, 앞 단계를 비워 두면 뒤 단계를 여기
+# 적어도 순서상 닿지 않는다.
+# 배포별로 선언 범위를 좁히는 노브는 ai/.env 의 NPICK_AI_JOB_STAGES 다(S15P21A501-186).
+#
+# 아래 값은 전부 실측이다. 손으로 짓지 않는다 — 워커의 선언값과 한 글자라도 다르면
+# 그 단계는 **아무 오류 없이** 영원히 배정되지 않는다. 뽑는 명령은 노드마다 같다:
+#   EC2    docker compose exec ai-cpu-worker python -c \
+#            "from npick_worker.jobs import registry; print(registry.capability_versions())"
+#   GPU    uv run --group gpu --group cu128 python -c '...같은 것...'
+#          가중치를 쓰는 단계는 registry.warm_up([...]) 을 먼저 불러야 값이 나온다.
+#
+# `transcript_selection` 과 `scene_transcript_mapping` 두 줄은 compose 의 ai-worker
+# 컨테이너에서 재서 넣었다 (2026-09-18, S15P21A501-213). 6단계 값이 `e1d97878` 에서
+# 바뀐 것은 그 티켓이 채택 규칙을 두 단계가 공유하게 만들면서 identity 에 `selection`
+# 축을 더했기 때문이다 — 축을 더하고 이 줄을 그대로 두면 6단계가 **오류 없이** 배정에서
+# 빠진다. 두 단계 모두 가중치도 torch 도 쓰지 않아 로컬 venv 값과도 같았다.
+#
+# `transcript_selection` 이 `fdcd0780` 에서 바뀐 것은 `min_uncovered_ms` 를 0 에서 2 로
+# 올렸기 때문이다 (S15P21A501-215). 길이 축이 둘이라 전 구간을 덮는 자막을 써도 꼬리에
+# 1ms 틈이 남고, 그것 하나가 영상 전체 ASR 을 불렀다 — BE 는 ffprobe 길이로 자막을
+# 검사하고 이 단계는 프레임 기반 길이로 여집합을 구한다. 60클립 실측에서 두 축의 차이는
+# 최대 0.5ms 였고, 2 는 그 인공물을 지우는 가장 작은 정수다.
+#
+# 6단계 `scene_transcript_mapping` 은 바뀌지 않았다 — 그쪽 identity 의 `selection` 축은
+# 규칙 버전이지 이 설정이 아니다. 실측으로 확인했다.
+#
+# `vlm_metadata` 가 `45f31d7e` 에서 또 바뀐 것은 `scene_type` 을 VLM 출력에서 뺐기
+# 때문이다 (S15P21A501-217). 닫힌 어휘 밖 값 하나가 클립 전체 단계를 영구 실패시켰고
+# — 실측 영상 11편 중 6편 — 값이 맞을 때는 캡션·`event`·`shot_type` 이 같은 말을 이미
+# 하고 있었다. 프롬프트가 바뀌어 `config_version`·`prompt_version` 이 둘 다 움직였다.
+#
+# 그 앞의 `de632da5` → `45f31d7e` 는 `[call].enable_thinking` 이 설정에
+# 들어왔기 때문이다 (S15P21A501-214). 그 전에는 채팅 템플릿 기본값으로 나가
+# thinking 이 켜진 채 돌았고, 출력이 JSON 으로 시작하지 않아 **모든 클립에서**
+# 이 단계가 실패했다 — 그런데 fatal 이 아니라 run 은 성공으로 끝났다. 축을 더하고
+# 이 줄을 그대로 두면 이번에는 3단계가 오류 없이 배정에서 빠진다.
+# 값은 SSAFY GPU 서버(L40S)에서 잰 것이다.
+#
+# **노드가 갈려도 값은 같다 — 확인했다** (2026-09-18 실측, S15P21A501-187).
+# SSAFY GPU 서버(cu128/L40S)와 RunPod 파드(cu130/H100)에서 같은 소스·같은 가중치로
+# 재서 아홉 단계가 전부 같은 값을 냈다.
+#
+# 처음 재봤을 때는 `vlm_metadata` 와 `entity_extraction` 둘이 갈렸다. 두 어댑터가
+# engineVersion 에 torch 빌드를 접어 넣고 있어서다. 이 파일은 단계당 값을 하나만
+# 담으므로 그 상태에서는 두 노드 중 하나가 **아무 오류 없이** 그 단계를 배정받지
+# 못한다 — 드라이버가 노드마다 달라 torch 빌드를 맞출 수도 없다. 그래서 그쪽에서
+# torch 를 뺐다. 무엇으로 돌았는지는 결과마다 StageRuntime.torch·.cuda 가 여전히
+# 싣고, 그 값은 재현 식별자 밖이라 배정을 가르지 않는다.
+#
+# 그래도 **SSAFY GPU 서버와 RunPod 파드를 동시에 켜지 않는다.** 이제는 버전 때문이
+# 아니라 둘이 같은 단계를 선언해 잡을 서로 뺏기 때문이다.
+#
+stage_versions:
+  scene_detection: "npick.stage.scene_detection/v1:3ab4bebe"
+  frame_extraction: "npick.stage.frame_extraction/v1:5fa70a50"
+  vlm_metadata: "npick.stage.vlm_metadata/v1:9c0218ed"
+  ocr: "npick.stage.ocr/v1:209d10e1"
+  transcript_selection: "npick.stage.transcript_selection/v1:d574da00"
+  asr: "npick.stage.asr/v1:9e977661"
+  scene_transcript_mapping: "npick.stage.scene_transcript_mapping/v1:3991bb3e"
+  entity_extraction: "npick.stage.entity_extraction/v1:4d278198"
+  text_embedding: "npick.stage.text_embedding/v1:308db445"
+  indexing: "npick.stage.indexing/v1:44136fa3"
+  #
+  # asr 의 modelVersion 은 다음이다 —
+  #   faster-whisper/large-v3-turbo@0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf+float16
+  # 모델은 ai/docs/asr.md §5.6 이 확정했고, **리비전은 SHA 로 고정한다**
+  # (S15P21A501-187). 크기 이름 `large-v3-turbo` 는 HF 저장소로 풀리고 그 저장소는
+  # 갱신되므로, 고정하지 않으면 같은 modelVersion 이 다른 가중치를 가리킨다.
+  # 고정되지 않은 워커는 이 단계를 capabilities 에 싣지 않는다.
+  # compute type 은 asr.md 표에서 **미정**이라 코드의 장치 기본값(CUDA → float16)이
+  # 붙었다. GPU 노드 둘 다 CUDA 라 값이 같다. 명시하는 순간 이 해시가 바뀐다.
+
 # 단계별로 defaults 를 덮어쓸 때만 적는다. 키는 stages.py 의 name 을 쓴다.
 # 예: scene_detection: { retry_count: 3, timeout_seconds: 600 }
 stage_overrides: {}
 
-# CPU 워커 / GPU 서버 배치. S15P21A501-70(작업 수신 방식) 합의 후 채운다.
+# 잡 API §9.2의 일시 오류 허용 목록. 횟수와 독립적이며 retryable=false는 항상 제외한다.
+# 영구·미등록 오류는 이 목록에 추가해도 BE가 재시도하지 않는다.
+transient_errors:
+  - SCENE_DETECTION_FAILED
+  - OCR_FAILED
+  - ASR_FAILED
+  - INDEX_FAILED
+  - MODEL_UNAVAILABLE
+  - OUT_OF_MEMORY
+  - STAGE_TIMEOUT
+  - MEDIA_UNAVAILABLE
+  - ARTIFACT_UPLOAD_FAILED
+  - WORKER_ABORTED
+  - STAGE_FAILED
+
+# CPU 워커 / GPU 노드 배치.
+# 정적 목록으로 채우지 않는다. 워커가 claim 요청의 capabilities 로 실행 가능한 단계를
+# 선언하고 BE 가 그것으로 배정을 거른다(docs/contracts/job-api.md).
+# **워커가 capabilities 로 선언하므로** BE 쪽에는 배정 목록이 없다.
+# 어느 단계를 선언할지는 워커 쪽 NPICK_AI_JOB_STAGES 가 배포별로 좁힌다
+# (S15P21A501-186). 그 값도 여기 두지 않는다 — 워커 배포 설정이다.
+#
+# 여기 "CPU 워커와 GPU 파드가 같은 이미지를 쓰므로" 라고 적혀 있던 것을 고쳤다.
+# 사실이 아니다 — 배포 단위마다 필요한 torch 가 배타라 이미지가 갈린다
+# (S15P21A501-187). 네 단위는 이렇다:
+#   EC2 질의 리졸버   CPU torch + 임베딩 런타임. 폴링을 켜지 않는다
+#   EC2 CPU 워커      torch 없음. ocr 만 맡는다
+#   SSAFY GPU 서버    cu128. 소스 배치 실행(npick-worker-drain)
+#   RunPod 파드       cu130. 네트워크 볼륨 상주
 placement:
-  cpu_worker_stages: []
-  gpu_server_stages: []
+  declared_by: worker_capabilities

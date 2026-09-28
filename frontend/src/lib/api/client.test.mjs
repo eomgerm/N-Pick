@@ -3,6 +3,7 @@ import { registerHooks } from 'node:module';
 import test from 'node:test';
 
 import { parseApiBaseUrl } from '../env.ts';
+import { createIdempotencyKey } from './idempotency.ts';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -16,6 +17,102 @@ registerHooks({
 });
 
 const { ApiClientError, createApiUrl, fetchJson } = await import('./client.ts');
+
+const authFailure = () =>
+  Response.json(
+    { isSuccess: false, code: 'COMM_401', message: 'Authentication is required' },
+    { status: 401 },
+  );
+const authSuccess = (data) =>
+  Response.json({ isSuccess: true, code: 'COMM_200', message: 'OK', data });
+
+async function browserClient(context, name) {
+  globalThis.document = { cookie: 'XSRF-TOKEN=test-csrf' };
+  context.after(() => {
+    delete globalThis.document;
+  });
+  return import(`./client.ts?refresh-${name}`);
+}
+
+test('동시 401은 refresh 한 번으로 복구하고 원래 POST body와 멱등성 키를 보존한다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'concurrent');
+  let refreshed = false;
+  let refreshes = 0;
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url, init) => {
+    if (url.endsWith('/auth/csrf')) return authSuccess();
+    if (url.endsWith('/auth/refresh')) {
+      refreshes++;
+      assert.equal(init.method, 'POST');
+      assert.equal(init.credentials, 'include');
+      assert.equal(init.headers.get('X-XSRF-TOKEN'), 'test-csrf');
+      refreshed = true;
+      return authSuccess();
+    }
+    calls.push({ url, init });
+    return refreshed ? authSuccess({ value: 'restored' }) : authFailure();
+  });
+  const body = { text: 'same request' };
+  const result = await Promise.all([
+    request('/search', { method: 'POST', body, idempotencyKey: 'same-key' }),
+    request('/auth/me'),
+  ]);
+  assert.equal(refreshes, 1);
+  assert.equal(result[0].value, 'restored');
+  const writes = calls.filter((call) => call.url.endsWith('/search'));
+  assert.equal(writes.length, 2);
+  for (const { init } of writes) {
+    assert.equal(init.body, JSON.stringify(body));
+    assert.equal(init.headers.get('Idempotency-Key'), 'same-key');
+  }
+});
+
+test('refresh 만료는 원래 요청 재전송 없이 로그인 만료를 전달한다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'expired');
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    return url.endsWith('/auth/csrf') ? authSuccess() : authFailure();
+  });
+  await assert.rejects(request('/auth/me'), { status: 401, code: 'COMM_401' });
+  assert.equal(calls.filter((url) => url.endsWith('/auth/me')).length, 1);
+  assert.equal(calls.filter((url) => url.endsWith('/auth/refresh')).length, 1);
+});
+
+test('refresh 네트워크 실패는 로그아웃으로 바꾸지 않는다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'network');
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    if (url.endsWith('/auth/csrf')) return authSuccess();
+    if (url.endsWith('/auth/refresh')) throw new TypeError('offline');
+    return authFailure();
+  });
+  await assert.rejects(request('/auth/me'), { kind: 'network', status: 0 });
+});
+
+test('갱신 뒤 재요청도 401이면 다시 갱신하지 않는다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'bounded');
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    return url.endsWith('/auth/me') ? authFailure() : authSuccess();
+  });
+  await assert.rejects(request('/auth/me'), { status: 401 });
+  assert.equal(calls.filter((url) => url.endsWith('/auth/me')).length, 2);
+  assert.equal(calls.filter((url) => url.endsWith('/auth/refresh')).length, 1);
+});
+
+test('로그인·로그아웃·refresh 요청 자체는 401 자동 복구 대상이 아니다', async (context) => {
+  const { fetchJson: request } = await browserClient(context, 'excluded');
+  const calls = [];
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    calls.push(url);
+    return url.endsWith('/auth/csrf') ? authSuccess() : authFailure();
+  });
+  for (const path of ['/auth/login', '/auth/logout', '/auth/refresh']) {
+    await assert.rejects(request(path, { method: 'POST' }), { status: 401 });
+  }
+  assert.equal(calls.filter((url) => url.endsWith('/auth/refresh')).length, 1);
+});
 
 test('API 기본 주소는 로컬 절대 주소와 nginx 상대 경로를 지원한다', () => {
   assert.equal(parseApiBaseUrl(' http://127.0.0.1:8080/api/v1/ '), 'http://127.0.0.1:8080/api/v1');
@@ -65,6 +162,7 @@ test('다른 주소나 API prefix 바깥으로 나가는 endpoint는 거부한�
 
 test('JSON 요청은 옵션을 전달하고 성공 envelope의 data만 반환한다', async (context) => {
   const controller = new AbortController();
+  const idempotencyKey = createIdempotencyKey();
   const response = {
     isSuccess: true,
     code: 'COMM_200',
@@ -78,7 +176,8 @@ test('JSON 요청은 옵션을 전달하고 성공 envelope의 data만 반환한
       body: { title: '뉴스' },
       signal: controller.signal,
       credentials: 'include',
-      headers: { 'Idempotency-Key': 'registration-1' },
+      idempotencyKey,
+      headers: { 'X-Client-Version': '1' },
       query: new URLSearchParams({ page: '1' }),
     }),
     response.data,
@@ -89,10 +188,175 @@ test('JSON 요청은 옵션을 전달하고 성공 envelope의 data만 반환한
   assert.equal(init.body, JSON.stringify({ title: '뉴스' }));
   assert.equal(init.headers.get('content-type'), 'application/json');
   assert.equal(init.headers.get('accept'), 'application/json');
-  assert.equal(init.headers.get('idempotency-key'), 'registration-1');
+  assert.equal(init.headers.get('idempotency-key'), idempotencyKey);
+  assert.equal(init.headers.get('x-client-version'), '1');
+  assert.equal(Object.hasOwn(init, 'idempotencyKey'), false);
   assert.equal(init.cache, 'no-store');
   assert.equal(init.credentials, 'include');
   assert.equal(init.signal, controller.signal);
+});
+
+test('long 식별자는 정밀도를 잃지 않는 문자열로 읽고 일반 숫자는 유지한다', async (context) => {
+  context.mock.method(
+    globalThis,
+    'fetch',
+    async () =>
+      new Response(
+        '{"isSuccess":true,"code":"COMM_200","message":"ok","data":{"feedbackId":9223372036854775807,"sceneId":398021840012345,"valid":1,"page":2}}',
+        { headers: { 'content-type': 'application/json' } },
+      ),
+  );
+
+  assert.deepEqual(await fetchJson('/review/inquiries/1'), {
+    feedbackId: '9223372036854775807',
+    sceneId: '398021840012345',
+    valid: 1,
+    page: 2,
+  });
+});
+
+test('네트워크 실패는 한 번만 전송하고 수동 재시도는 같은 키, 새 제출은 새 키를 사용한다', async (context) => {
+  const submission = {
+    method: 'POST',
+    body: { description: '장면을 확인해 주세요.' },
+    idempotencyKey: createIdempotencyKey(),
+  };
+  const fetch = context.mock.method(globalThis, 'fetch', async () => {
+    throw new TypeError('Failed to fetch');
+  });
+
+  await assert.rejects(fetchJson('/inquiries', submission), { kind: 'network' });
+  assert.equal(fetch.mock.callCount(), 1);
+
+  fetch.mock.mockImplementation(async () => new Response(null, { status: 204 }));
+  await fetchJson('/inquiries', submission);
+  await fetchJson('/inquiries', { ...submission, idempotencyKey: createIdempotencyKey() });
+
+  assert.equal(fetch.mock.callCount(), 3);
+  const [first, retry, next] = fetch.mock.calls.map((call) => call.arguments[1]);
+  assert.equal(first.headers.get('idempotency-key'), submission.idempotencyKey);
+  assert.equal(retry.headers.get('idempotency-key'), first.headers.get('idempotency-key'));
+  assert.equal(retry.body, first.body);
+  assert.notEqual(next.headers.get('idempotency-key'), first.headers.get('idempotency-key'));
+});
+
+test('키를 생략한 조회·변경 요청에는 멱등성 키를 자동 생성하지 않는다', async (context) => {
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async () => new Response(null, { status: 204 }),
+  );
+  const randomUUID = context.mock.method(globalThis.crypto, 'randomUUID');
+
+  for (const method of [undefined, 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+    await fetchJson('/clips', { method });
+    assert.equal(fetch.mock.calls.at(-1).arguments[1].headers.has('idempotency-key'), false);
+  }
+  assert.equal(randomUUID.mock.callCount(), 0);
+});
+
+test('조회 요청의 키는 옵션·직접 헤더와 메서드 대소문자에 관계없이 fetch 전에 거부한다', async (context) => {
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async () => new Response(null, { status: 204 }),
+  );
+  const idempotencyKey = createIdempotencyKey();
+
+  for (const method of [undefined, 'GET', 'HEAD', 'OPTIONS', 'get', 'hEaD', 'options']) {
+    for (const keyOptions of [
+      { idempotencyKey },
+      { headers: { 'iDeMpOtEnCy-KeY': idempotencyKey } },
+      { idempotencyKey: '' },
+    ]) {
+      await assert.rejects(fetchJson('/clips', { method, ...keyOptions }), /Idempotency-Key/);
+    }
+  }
+  assert.equal(fetch.mock.callCount(), 0);
+});
+
+test('변경 요청의 키 옵션은 기존 헤더보다 우선하며 원본 Headers를 변경하지 않는다', async (context) => {
+  const fetch = context.mock.method(
+    globalThis,
+    'fetch',
+    async () => new Response(null, { status: 204 }),
+  );
+  const originalKey = createIdempotencyKey();
+  const idempotencyKey = createIdempotencyKey();
+  const headers = new Headers({
+    'Idempotency-Key': originalKey,
+    Accept: 'application/custom+json',
+  });
+
+  for (const method of ['POST', 'put', 'PATCH', 'delete']) {
+    await fetchJson('/clips/1', { method, headers, idempotencyKey });
+    const sentHeaders = fetch.mock.calls.at(-1).arguments[1].headers;
+    assert.equal(sentHeaders.get('idempotency-key'), idempotencyKey);
+    assert.equal(sentHeaders.get('accept'), 'application/custom+json');
+  }
+  assert.equal(headers.get('idempotency-key'), originalKey);
+
+  await fetchJson('/clips/1', { method: 'POST', headers });
+  assert.equal(fetch.mock.calls.at(-1).arguments[1].headers.get('idempotency-key'), originalKey);
+});
+
+test('멱등성 키가 있어도 HTTP 실패를 자동 재시도하지 않는다', async (context) => {
+  const fetch = context.mock.method(globalThis, 'fetch');
+  for (const status of [403, 500]) {
+    fetch.mock.mockImplementation(async () =>
+      Response.json(
+        { isSuccess: false, code: `COMM_${status}`, message: '요청을 처리하지 못했습니다.' },
+        { status },
+      ),
+    );
+    const before = fetch.mock.callCount();
+    await assert.rejects(
+      fetchJson('/inquiries', {
+        method: 'POST',
+        idempotencyKey: createIdempotencyKey(),
+      }),
+      { status },
+    );
+    assert.equal(fetch.mock.callCount(), before + 1);
+  }
+});
+
+test('브라우저 FormData 요청은 CSRF·멱등성 키·signal을 함께 보존한다', async (context) => {
+  globalThis.document = { cookie: '' };
+  context.after(() => {
+    delete globalThis.document;
+  });
+  const { fetchJson: browserFetchJson } = await import('./client.ts?idempotency-csrf');
+  const fetch = context.mock.method(globalThis, 'fetch', async (url) => {
+    if (url.endsWith('/auth/csrf')) document.cookie = 'XSRF-TOKEN=upload%2Dtoken';
+    return Response.json({ isSuccess: true, code: 'COMM_200', message: 'OK' });
+  });
+  const body = new FormData();
+  body.append('video', new File(['video'], 'news.mp4', { type: 'video/mp4' }));
+  const idempotencyKey = createIdempotencyKey();
+  const controller = new AbortController();
+
+  await browserFetchJson('/clips', {
+    method: 'POST',
+    body,
+    idempotencyKey,
+    signal: controller.signal,
+    headers: { 'Content-Type': 'multipart/form-data', 'X-Client-Version': '1' },
+  });
+
+  assert.equal(fetch.mock.callCount(), 2);
+  const [csrf, upload] = fetch.mock.calls;
+  assert.ok(csrf.arguments[0].endsWith('/auth/csrf'));
+  assert.equal(csrf.arguments[1].headers.has('idempotency-key'), false);
+  const [, init] = upload.arguments;
+  assert.equal(init.headers.get('idempotency-key'), idempotencyKey);
+  assert.equal(init.headers.get('x-xsrf-token'), 'upload-token');
+  assert.equal(init.headers.get('x-client-version'), '1');
+  assert.equal(init.headers.has('content-type'), false);
+  assert.equal(init.body, body);
+  assert.equal(init.signal, controller.signal);
+  assert.equal(init.credentials, 'include');
+  assert.equal(init.redirect, 'error');
 });
 
 test('백엔드 bigint memberId를 정밀도 손실 없이 십진 문자열로 보존한다', async (context) => {
@@ -107,6 +371,22 @@ test('백엔드 bigint memberId를 정밀도 손실 없이 십진 문자열로 �
   const data = await fetchJson('/auth/me');
   assert.equal(data.memberId, '9223372036854775807');
   assert.equal(data.page, 2);
+});
+
+test('문의 feedbackId도 정밀도 손실 없이 십진 문자열로 보존한다', async (context) => {
+  context.mock.method(
+    globalThis,
+    'fetch',
+    async () =>
+      new Response(
+        '{"isSuccess":true,"code":"COMM_200","message":"OK","data":{"feedbackId":9223372036854775807,"status":"OPEN"}}',
+      ),
+  );
+
+  const data = await fetchJson('/search/results/1/inquiries', { method: 'POST', body: {} });
+
+  assert.equal(data.feedbackId, '9223372036854775807');
+  assert.equal(data.status, 'OPEN');
 });
 
 test('reviver source를 지원하지 않는 엔진도 safe integer memberId를 문자열로 보존한다', async (context) => {

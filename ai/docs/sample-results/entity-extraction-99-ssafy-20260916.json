@@ -1,0 +1,1516 @@
+{
+  "schema": "npick.entity-extraction.sample-review/v1",
+  "summary": {
+    "identity": {
+      "algorithmVersion": "entity-extraction/v1",
+      "configVersion": "entity-extraction-config/v1:b533d483",
+      "modelVersion": "KPF/KPF-bert-ner@efff871f686098933bf76d699c437c3f53abc19e",
+      "engineVersion": "transformers5.17.0+torch2.11.0+cu128"
+    },
+    "harnessVersion": "npick.entity-extraction.harness/v1:0489c4de",
+    "corpusSha256": "15cdbae8a7ba2805b45d38b5118c158466018a1343320c04764415d62b9bdc26",
+    "device": "NVIDIA L40S",
+    "loadSeconds": 8.028,
+    "peakAllocatedBytes": 466395648,
+    "peakReservedBytes": 517996544,
+    "clips": [
+      {
+        "clip": "KNI_00001",
+        "scenes": 6,
+        "seconds": 0.392,
+        "candidates": 13
+      },
+      {
+        "clip": "KNI_00282",
+        "scenes": 8,
+        "seconds": 0.741,
+        "candidates": 90
+      },
+      {
+        "clip": "KNI_00563",
+        "scenes": 2,
+        "seconds": 0.069,
+        "candidates": 9
+      },
+      {
+        "clip": "KNI_00845",
+        "scenes": 6,
+        "seconds": 0.264,
+        "candidates": 53
+      },
+      {
+        "clip": "KNI_01126",
+        "scenes": 14,
+        "seconds": 0.303,
+        "candidates": 49
+      },
+      {
+        "clip": "KNI_01407",
+        "scenes": 8,
+        "seconds": 0.556,
+        "candidates": 84
+      },
+      {
+        "clip": "KNI_01688",
+        "scenes": 11,
+        "seconds": 1.678,
+        "candidates": 175
+      },
+      {
+        "clip": "KNI_01970",
+        "scenes": 16,
+        "seconds": 1.252,
+        "candidates": 185
+      },
+      {
+        "clip": "KNI_02252",
+        "scenes": 7,
+        "seconds": 0.123,
+        "candidates": 36
+      },
+      {
+        "clip": "KNI_02533",
+        "scenes": 5,
+        "seconds": 0.109,
+        "candidates": 12
+      }
+    ],
+    "limitations": [
+      "No human entity gold labels; no accuracy claim",
+      "Supplied sample subtitles, not a new ASR run",
+      "VLM merge is covered separately; this corpus contains text only",
+      "No backend persistence or pipeline end-to-end test"
+    ]
+  },
+  "totalScenes": 83,
+  "totalCandidates": 706,
+  "totalInferenceSeconds": 5.487,
+  "evidenceResolution": "all candidates checked against saved scene inputs",
+  "sourceTextPolicy": "no source text or media included; rights-gated corpus stays local",
+  "artifactsSha256": {
+    "KNI_00001/inputs.json": "0972f00a3c43593e94c19ccd641a585cfbb7e3a7dd2e1da8c0ad184c32bf4752",
+    "KNI_00001/output.json": "c31101d86864255e66f0e3b098e4c7e5a6f46381afd4ff70834ff9795aeb0e2f",
+    "KNI_00001/predictions.json": "1bfc478dfe7e41ccf29a954e3e0ee9407a2d4b3488411bd2a671f49191eebaf7",
+    "KNI_00001/transcript.json": "1829a8f8bbee59c9537e762367bfa562bcedcb8b978ab30074f6ce612f9be988",
+    "KNI_00282/inputs.json": "c496151986d34f3b7f12ca13372368b13d76a150e9ee68d1a00d12ba222000b4",
+    "KNI_00282/output.json": "f6c297a4330947a8cef840e8e1f9ab80c71869adb4a71bd8eedd2ce095b4f975",
+    "KNI_00282/predictions.json": "17bcfc74bafc0ba27f5fea49490db12e4ce32e4591d205a2792da4c48264bb69",
+    "KNI_00282/transcript.json": "a6515d659b4fff30f2ea2674e87bca94df74918b6e9ba72dbea81b1e10a2013b",
+    "KNI_00563/inputs.json": "9099410d0b0b2d3257cef3e3157865f4294ba378a744f418d85450fff2ad62ba",
+    "KNI_00563/output.json": "14c5a14ddca4edb7e50d36466a9b9cad873376371c3fb0a972544307b437a08b",
+    "KNI_00563/predictions.json": "fce3d454f1eae73f6303ef93cbdca68565e18f6db0140aea189758bde2469034",
+    "KNI_00563/transcript.json": "13d62b8f76cc3444a76e9155556b6ff40a7db658f83b24c032c7c78691b385c7",
+    "KNI_00845/inputs.json": "85b672f1791b4077878b0e67279de70fc646a070d6a439e506914d7e4b3d7f8c",
+    "KNI_00845/output.json": "004c51fa9aa80c784768309b341db0e5a5dd859470d8cd70f4c09af1e12fc786",
+    "KNI_00845/predictions.json": "e0e7651760f8e84a62f195e3dbe8744865214ea36575b1fae03d0ceccb1132f3",
+    "KNI_00845/transcript.json": "03f19237506f0b7b49ff5e068b7fa46b7d59349fa6667664d53ae5b64b7e9a73",
+    "KNI_01126/inputs.json": "e77ab97a86a0516c4b2bfd9e432d1cab9a7d529da1f3c5fb15254398f7a3849c",
+    "KNI_01126/output.json": "2e4bd89965fa0f632b2ceac525f775c46ff7dace8b81d85aeee0e4e40df79ff1",
+    "KNI_01126/predictions.json": "e799d606a939e25909ee2599b3a05b192bf463773bfffb13e4953a83f40fcde6",
+    "KNI_01126/transcript.json": "2893e822bc483360a7e7a066ef4160901fb1d3201ac6077efaae56063a8fa0ce",
+    "KNI_01407/inputs.json": "1ab63422a5726592c54dd5f1d7b98033d59d4bc016039f8090c554d62427a91c",
+    "KNI_01407/output.json": "42aa6ab8c726a2c59d95e2082288cb65e35318d8c8eb17f71c480a5a6e96e628",
+    "KNI_01407/predictions.json": "93f8e40b6d43bb4011b7d244766a440e1020b0ce74703600b250c611bcc0bbd1",
+    "KNI_01407/transcript.json": "c22d888386cb5277014ccf4aeba239c2247d07c105fe7749b1d9ed5a04131325",
+    "KNI_01688/inputs.json": "5c6fa3f0e56da7f1fc487ddcf6d35b7f0a6e24f97dab9e02390f524c6a96883a",
+    "KNI_01688/output.json": "e39ea229d47783ad0a90216ceb870f604055a5accddb8177b997fc7517916ff5",
+    "KNI_01688/predictions.json": "d14d1298c419e76c3b1124d95dcd2540663366be8236c80c2f4c8caaafde33e2",
+    "KNI_01688/transcript.json": "b6096dedf10a6a84771d0a0fc5854d05c33eefc247ad47124fdf209a0f86131e",
+    "KNI_01970/inputs.json": "4f155f7a263e65ff0d76fc407bf811989f3c02d7919fb6456026410a14a81b59",
+    "KNI_01970/output.json": "3dd036203a1133bc04534e1e7c642300799e6251914a1b16360c3ac5f090d509",
+    "KNI_01970/predictions.json": "5706c247ef45837cb38f27c4e95655c9f4e81674be015a72093d4c0013bffe00",
+    "KNI_01970/transcript.json": "b7d8b356012f54d067b43c4a3f50abe7bd02507d57440257f76b44d14acdf67c",
+    "KNI_02252/inputs.json": "62d1cd54b89f699ee1f0fe1188fa799d6bb97e1aac10b5c61020702d7b4e01be",
+    "KNI_02252/output.json": "b52b65b108c009fff7807def3a80d1d5a09d3776d38ba5ea472befb17766b164",
+    "KNI_02252/predictions.json": "aea0b11b67a6663ad48ffeda96b4786cb72450bd1d24a203e2336ce969d69c40",
+    "KNI_02252/transcript.json": "785628993c258bf0ccce165820434b0c0ec742924072a53f5edd7b9252ff4986",
+    "KNI_02533/inputs.json": "54229153d32fb7fc84063e4523963855ba82226ca35af4931cf2404de88edd6e",
+    "KNI_02533/output.json": "7bde3e586e0feb219b6b829073dd2649654ff708d06b74503606a56c79ac3b2d",
+    "KNI_02533/predictions.json": "ab9b519e6ffc735fe20c1b52e9640f16727792644e7bd0036db9df145d8ae77b",
+    "KNI_02533/transcript.json": "591a0ed5d27149b67d22b347aa795cc44dc43e70daa5e2e012b65a7d0d5e88cc"
+  },
+  "examples": [
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "코치",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_00001/transcript.json",
+            "segmentId": "abcac5fd5e1b9b6d",
+            "s": 5728,
+            "e": 10247,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 33
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 3,
+      "candidate": {
+        "type": "organization",
+        "value": "워시원드",
+        "source": "rule",
+        "confidence": 0.9454,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 3,
+            "timestampMs": 8342,
+            "storageKey": "s0003/kf-000008342.jpg",
+            "observationIndex": 6
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 4
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 3,
+      "candidate": {
+        "type": "person",
+        "value": "여자수",
+        "source": "rule",
+        "confidence": 0.9903,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 3,
+            "timestampMs": 9142,
+            "storageKey": "s0003/kf-000009142.jpg",
+            "observationIndex": 8
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_4",
+          "sourceChars": 6
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00001",
+      "sceneIndex": 4,
+      "candidate": {
+        "type": "event",
+        "value": "김A간다k",
+        "source": "rule",
+        "confidence": 0.4611,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 4,
+            "timestampMs": 12346,
+            "storageKey": "s0004/kf-000012346.jpg",
+            "observationIndex": 13
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 5
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "IBK창",
+        "source": "rule",
+        "confidence": 0.9989,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 267,
+            "storageKey": "s0000/kf-000000267.jpg",
+            "observationIndex": 4
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 4
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "시B퇴직연금",
+        "source": "rule",
+        "confidence": 0.9594,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 534,
+            "storageKey": "s0000/kf-000000534.jpg",
+            "observationIndex": 14
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_11",
+          "sourceChars": 6
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "정정원",
+        "source": "rule",
+        "confidence": 0.949,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 801,
+            "storageKey": "s0000/kf-000000801.jpg",
+            "observationIndex": 18
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_16",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "WNEEET",
+        "source": "rule",
+        "confidence": 0.6523,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 1301,
+            "storageKey": "s0000/kf-000001301.jpg",
+            "observationIndex": 28
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_21",
+          "sourceChars": 6
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00282",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "location",
+        "value": "R",
+        "source": "rule",
+        "confidence": 0.6742,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4338,
+            "storageKey": "s0002/kf-000004338.jpg",
+            "observationIndex": 66
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4338,
+            "storageKey": "s0002/kf-000004338.jpg",
+            "observationIndex": 65
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4338,
+            "storageKey": "s0002/kf-000004338.jpg",
+            "observationIndex": 63
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4438,
+            "storageKey": "s0002/kf-000004438.jpg",
+            "observationIndex": 76
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4438,
+            "storageKey": "s0002/kf-000004438.jpg",
+            "observationIndex": 75
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4438,
+            "storageKey": "s0002/kf-000004438.jpg",
+            "observationIndex": 73
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4605,
+            "storageKey": "s0002/kf-000004605.jpg",
+            "observationIndex": 84
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4605,
+            "storageKey": "s0002/kf-000004605.jpg",
+            "observationIndex": 86
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4605,
+            "storageKey": "s0002/kf-000004605.jpg",
+            "observationIndex": 83
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4972,
+            "storageKey": "s0002/kf-000004972.jpg",
+            "observationIndex": 93
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4972,
+            "storageKey": "s0002/kf-000004972.jpg",
+            "observationIndex": 95
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 4972,
+            "storageKey": "s0002/kf-000004972.jpg",
+            "observationIndex": 97
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_5",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_9",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_10",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_11",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_13",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_14",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_18",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_22",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_23",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_27",
+          "sourceChars": 6
+        },
+        {
+          "label": "ocr_30",
+          "sourceChars": 6
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "ULAI",
+        "source": "rule",
+        "confidence": 0.516,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 5706,
+            "storageKey": "s0001/kf-000005706.jpg",
+            "observationIndex": 4
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 5
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "event",
+        "value": "LLL",
+        "source": "rule",
+        "confidence": 0.7914,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 5706,
+            "storageKey": "s0001/kf-000005706.jpg",
+            "observationIndex": 6
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_5",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "organization",
+        "value": "KB부통산신탁",
+        "source": "rule",
+        "confidence": 0.9826,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 7841,
+            "storageKey": "s0001/kf-000007841.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_6",
+          "sourceChars": 7
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "person",
+        "value": "자준",
+        "source": "rule",
+        "confidence": 0.9973,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 12579,
+            "storageKey": "s0001/kf-000012579.jpg",
+            "observationIndex": 13
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_9",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00563",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "location",
+        "value": "의정부시",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 12579,
+            "storageKey": "s0001/kf-000012579.jpg",
+            "observationIndex": 16
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_11",
+          "sourceChars": 4
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "ALT",
+        "source": "rule",
+        "confidence": 0.9877,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 968,
+            "storageKey": "s0000/kf-000000968.jpg",
+            "observationIndex": 0
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "REA",
+        "source": "rule",
+        "confidence": 0.958,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 968,
+            "storageKey": "s0000/kf-000000968.jpg",
+            "observationIndex": 1
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "최민정",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_00845/transcript.json",
+            "segmentId": "68150ab246225cdd",
+            "s": 0,
+            "e": 13524,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 84
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "location",
+        "value": "한국",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_00845/transcript.json",
+            "segmentId": "68150ab246225cdd",
+            "s": 0,
+            "e": 13524,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 84
+        }
+      ]
+    },
+    {
+      "clip": "KNI_00845",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "빙상",
+        "source": "rule",
+        "confidence": 0.9392,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_00845/transcript.json",
+            "segmentId": "68150ab246225cdd",
+            "s": 0,
+            "e": 13524,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 84
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "SK",
+        "source": "rule",
+        "confidence": 0.9904,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 1168,
+            "storageKey": "s0000/kf-000001168.jpg",
+            "observationIndex": 5
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 2
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "NKWX",
+        "source": "rule",
+        "confidence": 0.6463,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 1168,
+            "storageKey": "s0000/kf-000001168.jpg",
+            "observationIndex": 0
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 4
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "선수",
+        "source": "rule",
+        "confidence": 0.8418,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_01126/transcript.json",
+            "segmentId": "900eb89ed33b79ab",
+            "s": 6341,
+            "e": 10911,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 36
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01126",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "person",
+        "value": "이름1",
+        "source": "rule",
+        "confidence": 0.9051,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_01126/transcript.json",
+            "segmentId": "900eb89ed33b79ab",
+            "s": 6341,
+            "e": 10911,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 36
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "unku",
+        "source": "rule",
+        "confidence": 0.7388,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 234,
+            "storageKey": "s0000/kf-000000234.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_3",
+          "sourceChars": 6
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "배구",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 234,
+            "storageKey": "s0000/kf-000000234.jpg",
+            "observationIndex": 11
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 634,
+            "storageKey": "s0000/kf-000000634.jpg",
+            "observationIndex": 35
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 801,
+            "storageKey": "s0000/kf-000000801.jpg",
+            "observationIndex": 43
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_8",
+          "sourceChars": 3
+        },
+        {
+          "label": "ocr_17",
+          "sourceChars": 3
+        },
+        {
+          "label": "ocr_23",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "흥국금융",
+        "source": "rule",
+        "confidence": 0.9814,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 434,
+            "storageKey": "s0000/kf-000000434.jpg",
+            "observationIndex": 28
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_14",
+          "sourceChars": 5
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01407",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "an",
+        "source": "rule",
+        "confidence": 0.5403,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 234,
+            "storageKey": "s0000/kf-000000234.jpg",
+            "observationIndex": 12
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_15",
+          "sourceChars": 4
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "2쿼터",
+        "source": "rule",
+        "confidence": 0.7272,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01688/transcript.json",
+            "segmentId": "3cd751761da304d2",
+            "s": 0,
+            "e": 11060,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 86
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "LG",
+        "source": "rule",
+        "confidence": 0.9998,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01688/transcript.json",
+            "segmentId": "3cd751761da304d2",
+            "s": 0,
+            "e": 11060,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 86
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "이관희",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01688/transcript.json",
+            "segmentId": "3cd751761da304d2",
+            "s": 0,
+            "e": 11060,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 86
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "LU4",
+        "source": "rule",
+        "confidence": 0.9162,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 3637,
+            "storageKey": "s0001/kf-000003637.jpg",
+            "observationIndex": 12
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_5",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01688",
+      "sceneIndex": 4,
+      "candidate": {
+        "type": "location",
+        "value": "창원",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 4,
+            "timestampMs": 14815,
+            "storageKey": "s0004/kf-000014815.jpg",
+            "observationIndex": 131
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_7",
+          "sourceChars": 2
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "event",
+        "value": "KBO",
+        "source": "rule",
+        "confidence": 0.9994,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 3904,
+            "storageKey": "s0000/kf-000003904.jpg",
+            "observationIndex": 27
+          },
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 3904,
+            "storageKey": "s0000/kf-000003904.jpg",
+            "observationIndex": 19
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 3
+        },
+        {
+          "label": "ocr_16",
+          "sourceChars": 7
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "organization",
+        "value": "cneaSd",
+        "source": "rule",
+        "confidence": 0.9289,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 2236,
+            "storageKey": "s0000/kf-000002236.jpg",
+            "observationIndex": 5
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_3",
+          "sourceChars": 6
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "BTO",
+        "source": "rule",
+        "confidence": 0.9961,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 0,
+            "timestampMs": 3904,
+            "storageKey": "s0000/kf-000003904.jpg",
+            "observationIndex": 31
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_27",
+          "sourceChars": 3
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "location",
+        "value": "잠실",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_01970/transcript.json",
+            "segmentId": "e37c4a750c6e12bb",
+            "s": 0,
+            "e": 4497,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 34
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "keyword",
+        "value": "야구",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 2,
+            "storageKey": "KNI_01970/transcript.json",
+            "segmentId": "cc33b757f7663976",
+            "s": 13093,
+            "e": 18098,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 34
+        }
+      ]
+    },
+    {
+      "clip": "KNI_01970",
+      "sceneIndex": 12,
+      "candidate": {
+        "type": "facility",
+        "value": "리아",
+        "source": "rule",
+        "confidence": 0.4332,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 12,
+            "timestampMs": 37838,
+            "storageKey": "s0012/kf-000037838.jpg",
+            "observationIndex": 230
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 6
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "facility",
+        "value": "올림픽슬라이딩센터",
+        "source": "rule",
+        "confidence": 0.9995,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 2300,
+            "storageKey": "s0001/kf-000002300.jpg",
+            "observationIndex": 2
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 9
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "location",
+        "value": "강원도",
+        "source": "rule",
+        "confidence": 1.0,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 2300,
+            "storageKey": "s0001/kf-000002300.jpg",
+            "observationIndex": 3
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 12
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "keyword",
+        "value": "루지",
+        "source": "rule",
+        "confidence": 0.9566,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 1,
+            "storageKey": "KNI_02252/transcript.json",
+            "segmentId": "cef58255ad6bc781",
+            "s": 3211,
+            "e": 7658,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_1",
+          "sourceChars": 33
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "person",
+        "value": "창",
+        "source": "rule",
+        "confidence": 0.1722,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 5933,
+            "storageKey": "s0002/kf-000005933.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 10
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 2,
+      "candidate": {
+        "type": "organization",
+        "value": "군",
+        "source": "rule",
+        "confidence": 0.2866,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 2,
+            "timestampMs": 5933,
+            "storageKey": "s0002/kf-000005933.jpg",
+            "observationIndex": 9
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 10
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02252",
+      "sceneIndex": 3,
+      "candidate": {
+        "type": "event",
+        "value": "알",
+        "source": "rule",
+        "confidence": 0.1799,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 3,
+            "timestampMs": 9567,
+            "storageKey": "s0003/kf-000009567.jpg",
+            "observationIndex": 13
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_1",
+          "sourceChars": 12
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "keyword",
+        "value": "감독",
+        "source": "rule",
+        "confidence": 0.9999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_02533/transcript.json",
+            "segmentId": "8ca6a1da4b92b143",
+            "s": 0,
+            "e": 5852,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 32
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 0,
+      "candidate": {
+        "type": "person",
+        "value": "아나스",
+        "source": "rule",
+        "confidence": 0.999,
+        "evidence": [
+          {
+            "sourceRefType": "scene",
+            "sceneIndex": 0,
+            "storageKey": "KNI_02533/transcript.json",
+            "segmentId": "8ca6a1da4b92b143",
+            "s": 0,
+            "e": 5852,
+            "sourceDetail": "uploaded"
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "tr_0",
+          "sourceChars": 32
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 1,
+      "candidate": {
+        "type": "event",
+        "value": "CEaX",
+        "source": "rule",
+        "confidence": 0.9004,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 1,
+            "timestampMs": 3133,
+            "storageKey": "s0001/kf-000003133.jpg",
+            "observationIndex": 2
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_0",
+          "sourceChars": 4
+        }
+      ]
+    },
+    {
+      "clip": "KNI_02533",
+      "sceneIndex": 4,
+      "candidate": {
+        "type": "organization",
+        "value": "나스야",
+        "source": "rule",
+        "confidence": 0.9864,
+        "evidence": [
+          {
+            "sourceRefType": "ocr_observation",
+            "sceneIndex": 4,
+            "timestampMs": 18767,
+            "storageKey": "s0004/kf-000018767.jpg",
+            "observationIndex": 22
+          }
+        ]
+      },
+      "sources": [
+        {
+          "label": "ocr_2",
+          "sourceChars": 3
+        }
+      ]
+    }
+  ]
+}

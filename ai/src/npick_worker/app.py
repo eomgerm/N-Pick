@@ -1,34 +1,69 @@
 """FastAPI 앱.
 
-HTTP 표면은 헬스·운영용이다. 작업 수신 방식(FRD §10.8 outbox claim)과
-BE 호출 인터페이스는 S15P21A501-70 에서 합의한다. 그 전에 API 를 추가하지 않는다.
+**HTTP 표면은 헬스·운영용과 검색 시점 질의 해석뿐이다.** 잡 수신은 반대 방향이다 —
+워커가 BE 의 claim/heartbeat/complete/artifacts 를 호출한다(`docs/contracts/job-api.md`).
+그래서 잡 루프는 라우트가 아니라 lifespan 태스크로 돈다. 인바운드 잡 엔드포인트를
+추가하지 않는다.
+
+질의 해석 엔드포인트(S15P21A501-45)는 잡 수신이 아니라 검색이 동기로 부르는 표면이라
+위 금지에 걸리지 않는다. 이 프로세스는 폴링을 켜지 않고 뜨는 쪽(질의 리졸버 배포 단위)
+이며, 같은 이미지가 환경 변수로 파이프라인 워커가 되기도 한다.
 """
 
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncIterator
 from dataclasses import asdict
-from importlib.metadata import PackageNotFoundError, version
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException, status
 
 from npick_worker.device import detect_device
+from npick_worker.jobs.client import JobApiClient
+from npick_worker.jobs.registry import WarmupReport, declared_stages, warm_up
+from npick_worker.jobs.runner import JobRunner, generate_worker_id
+from npick_worker.query_api import (
+    QueryNotNormalizableError,
+    QueryResolveRequest,
+    QueryResolveResponse,
+    TokenizeRequest,
+    TokenizeResponse,
+    resolve,
+    tokenize,
+    warm_query_encoder,
+)
 from npick_worker.schemas import (
     DeviceStatus,
     HealthResponse,
+    JobPollingStatus,
     PipelineRegistry,
     StageSummary,
+    WarmStageStatus,
+    WarmupStatus,
 )
-from npick_worker.settings import get_settings
+from npick_worker.settings import Settings, get_settings
 from npick_worker.stages import STAGES
+from npick_worker.versioning import service_version
+
+logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "npick-ai-worker"
 
 router = APIRouter()
 
+#: 폴링이 꺼진 프로세스의 워밍업 상태. 차가운 것이지 고장난 것이 아니다.
+_COLD = WarmupStatus(enabled=False, ready=False, stages=[])
 
-def service_version() -> str:
-    try:
-        return version("npick-worker")
-    except PackageNotFoundError:  # 설치되지 않은 채로 실행된 경우
-        return "0.0.0+unknown"
+_warmup: WarmupStatus = _COLD
+
+#: 잡 루프 태스크. /health 가 살아 있는지 보고하려면 참조를 들고 있어야 한다.
+#: 없으면 폴링이 꺼졌거나 아직 뜨지 않은 것이다.
+_job_task: "asyncio.Task[None] | None" = None
+
+
+def _polling_status() -> JobPollingStatus:
+    task = _job_task
+    return JobPollingStatus(enabled=task is not None, running=task is not None and not task.done())
 
 
 @router.get("/health", response_model=HealthResponse, summary="워커 상태·장치·단계 레지스트리")
@@ -42,15 +77,162 @@ def health() -> HealthResponse:
         pipeline=PipelineRegistry(
             stage_count=len(STAGES),
             stages=[StageSummary(order=s.order, name=s.name, fatal=s.fatal) for s in STAGES],
+            declared=list(declared_stages()),
         ),
+        warmup=_warmup,
+        polling=_polling_status(),
     )
+
+
+@router.post(
+    "/query/resolve",
+    response_model=QueryResolveResponse,
+    summary="검색어 정규화와 AI 해석",
+)
+def resolve_query_endpoint(request: QueryResolveRequest) -> QueryResolveResponse:
+    """정규화는 항상, 해석은 되는 만큼 돌려준다.
+
+    해석 실패는 200 이고 `error` 에 사유가 담긴다 — 호출부는 그 응답의
+    `search_tokens` 로 원 검색어 BM25 를 이어간다 (FRD v3.1 §6.2). 400 은 정규화가
+    불가능한 질의(빈 값·기호만·불용어만)일 때만 난다.
+
+    잡는 예외를 `QueryNotNormalizableError` 하나로 좁혀 둔 이유는 `ValueError` 를
+    통째로 잡으면 설정 오류나 우리 쪽 버그까지 "질의가 잘못됐다" 로 사용자에게 돌아가기
+    때문이다. 분류되지 않은 실패는 500 으로 두어 눈에 띄게 한다.
+    """
+    try:
+        return resolve(request)
+    except QueryNotNormalizableError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/query/tokenize",
+    response_model=TokenizeResponse,
+    summary="확장어 토큰화 (색인 측과 같은 규칙)",
+)
+def tokenize_endpoint(request: TokenizeRequest) -> TokenizeResponse:
+    """규칙 적용 뒤의 확장어를 후보 조회용 토큰으로 바꾼다 (S15P21A501-48 계약 7).
+
+    `/query/resolve` 와 달리 실패 경로가 없다. 규칙 기반이라 LLM·DB·임베딩을 부르지
+    않고, 토큰이 0 개인 항목은 빈 목록으로 나간다 — 확장어 한 건 때문에 검색을 끊지
+    않는다 (계약 9). **400 을 내는 자리가 없다.**
+
+    422 는 pydantic 이 요청을 거부한 것 전부다 — 상한 초과뿐 아니라 필드 누락·타입
+    불일치도 같은 코드로 온다. 호출부가 422 를 「상한 초과」 로만 읽으면 자기 직렬화
+    버그를 조용히 먹으므로, 가르려면 응답 본문의 `detail[].type` 을 봐야 한다.
+    """
+    return tokenize(request)
+
+
+def _to_status(report: WarmupReport) -> WarmupStatus:
+    return WarmupStatus(
+        enabled=True,
+        ready=report.ready,
+        stages=[
+            WarmStageStatus(stage=o.stage, warmed=o.warmed, detail=o.detail) for o in report.stages
+        ],
+    )
+
+
+def build_worker(settings: Settings) -> tuple[JobApiClient, JobRunner]:
+    """클라이언트와 러너를 함께 만든다.
+
+    **워커 식별자를 여기서 한 번만 정한다.** 따로 만들면 HTTP 헤더와 claim 본문이
+    서로 다른 ID 를 말하게 되고, BE 로그에서 워커를 추적할 수 없다.
+    """
+    worker_id = settings.worker_id or generate_worker_id()
+    client = _build_client(settings, worker_id)
+    return client, JobRunner.from_settings(settings, client, worker_id=worker_id)
+
+
+def _build_client(settings: Settings, worker_id: str) -> JobApiClient:
+    return JobApiClient(
+        base_url=settings.job_api_base_url,
+        token=settings.job_api_token.get_secret_value(),
+        worker_id=worker_id,
+        connect_timeout=settings.job_connect_timeout_seconds,
+        read_timeout=settings.job_read_timeout_seconds,
+        poll_wait_seconds=settings.job_poll_wait_seconds,
+        max_backoff_seconds=settings.job_max_backoff_seconds,
+    )
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """폴링이 켜져 있을 때만 잡 루프를 띄운다.
+
+    이 분기가 배포 단위 둘을 가른다 — 잡을 도는 파이프라인 워커와, 폴링하지 않고 동기
+    호출만 받는 질의 리졸버. 같은 이미지가 환경 변수 하나로 양쪽이 된다.
+
+    워밍업도 여기서만 돈다. `scenedetect`→`cv2` 임포트가 100MB 를 넘으므로 헬스체크만
+    하는 프로세스가 그 비용을 낼 이유가 없다.
+    """
+    global _warmup, _job_task  # /health 가 읽는 프로세스 단위 상태다
+    settings = get_settings()
+    if not settings.job_poll_enabled or not settings.job_api_base_url:
+        logger.info("잡 폴링 비활성 (NPICK_AI_JOB_POLL_ENABLED / NPICK_AI_JOB_API_BASE_URL)")
+        # 이 갈래가 질의 리졸버다. 단계 워밍업(`jobs.warm_up`)은 타지 않지만 질의 임베딩
+        # 가중치는 여기서 올린다 — 어댑터는 첫 `encode` 에서 모델을 읽으므로, 이게 없으면
+        # **부팅 후 첫 검색**이 1.7GB 로딩을 물고 동기 예산을 날린다.
+        #
+        # `yield` 앞이라 이 동안 서버는 연결을 받지 않는다. 그게 의도다 — 뒤로 미루면
+        # 첫 검색이 로딩과 겹친다. 대신 **상한을 둔다**: 캐시 볼륨이 비어 원격에서 받는
+        # 콜드 스타트가 startup probe 유예를 넘기면 재시작 루프가 되고, 리졸버는 사용자
+        # 검색의 동기 경로 앞단이라 그 루프가 바로 장애로 보인다.
+        #
+        # 상한을 넘겨도 버리는 일이 아니다. `wait_for` 는 대기만 끊고 스레드는 계속 돌아
+        # 로딩을 끝낸다. 그 사이의 검색은 `query_api._embed` 의 readiness 확인에 걸려
+        # dense 채널 없이 BM25 로 나간다 (FRD v3.1 §6.2) — **그 확인이 없으면 요청
+        # 스레드가 로딩을 기다린다.** 여기서 상한을 두는 것만으로는 부족하고 둘이 짝이다.
+        # 실패도 마찬가지로 기동을 막지 않는다 — `warm_query_encoder` 가 삼킨다.
+        #
+        # **끊는 것은 기동뿐이고 종료는 아니다.** 스레드는 취소할 수 없어서 계속 도는데,
+        # `asyncio.run` 의 종료가 `loop.shutdown_default_executor(THREAD_JOIN_TIMEOUT)` 로
+        # 그 스레드를 기다린다(3.12 기준 300초). 그래서 상한을 넘긴 상태에서 SIGTERM 이
+        # 오면 이번에는 **종료가** 로딩이 끝날 때까지 막힌다. 하필 이 상한이 겨냥하는
+        # 상황(캐시가 빈 콜드 스타트)이 재배포·롤백과 겹치기 쉬운 때라 짚어 둔다.
+        # k8s 기본 grace period 30초면 SIGKILL 로 잘리므로 지금은 받아들인다.
+        #
+        # **워커 갈래(아래)에는 이 상한이 없다.** `warm_up()` 도 같은 모양으로 `yield`
+        # 앞에서 무제한 블록하고 ASR·VLM 가중치를 올린다 — 같은 결함이다. 리졸버가
+        # 사용자 검색의 동기 경로 앞단이라 먼저 막았고, 워커 쪽은 이 일감에서 건드리지
+        # 않았다. 거기도 필요하다고 판단되면 별건으로 연다.
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(warm_query_encoder),
+                timeout=settings.embedding_warmup_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "질의 임베딩 워밍업이 %.1f초 안에 끝나지 않아 기동을 계속한다. "
+                "로딩은 계속되며 그때까지의 검색은 dense 채널 없이 돈다",
+                settings.embedding_warmup_timeout_seconds,
+            )
+        yield
+        return
+
+    _warmup = _to_status(await asyncio.to_thread(warm_up))
+    client, runner = build_worker(settings)
+    task = asyncio.create_task(runner.run(), name="npick-job-runner")
+    _job_task = task
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await client.aclose()
+        _warmup = _COLD
+        _job_task = None
 
 
 def create_app() -> FastAPI:
     app = FastAPI(
         title="N-Pick AI Worker",
         version=service_version(),
-        description="FRD §2.1 Pipeline Worker 의 골격. 현재는 헬스체크만 제공한다.",
+        description="파이프라인 워커와 검색 시점 질의 해석 표면. 잡은 BE 에서 받아 온다.",
+        lifespan=lifespan,
     )
     app.include_router(router)
     return app

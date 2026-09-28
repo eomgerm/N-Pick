@@ -1,0 +1,36 @@
+# Query Resolver 평가 하네스 전용 의존성 (S15P21A501-102)
+#
+# 왜 pyproject.toml 의 의존성 그룹이 아닌가
+# ----------------------------------------
+# S15P21A501-175 에서 겪은 것과 같은 이유다. 그룹은 **설치 여부**만 가르지만
+# uv.lock 은 패키지당 버전이 하나라, 평가용 mlflow 를 그룹에 넣으면
+#
+#     mlflow-skinny -> opentelemetry-proto -> protobuf   7.36.1 -> 6.33.6
+#
+# 으로 lock 전체의 protobuf 가 내려간다. 그 protobuf 는 런타임 의존인 onnxruntime
+# (rapidocr, OCR 단계)이 쓴다. 평가 도구가 제품 런타임의 버전을 움직이는 경로다.
+#
+# 왜 `-e ..` 로 프로젝트를 설치하지 않는가
+# ----------------------------------------
+# `resolver_bench.py` 는 임베딩 하네스와 달리 `npick_worker.query_resolver` 를
+# **import 한다** — 실제 프롬프트와 실제 validator 를 거치지 않으면 측정이 무의미하다.
+# 그런데 그 패키지가 실제로 끌어오는 외부 의존은 pydantic 과 httpx2 둘뿐이고
+# (나머지는 json·hashlib·tomllib·re), av·kiwipiepy·rapidocr·onnxruntime 은 안 딸려온다.
+# 그래서 프로젝트 전체를 두 번째 venv 에 재설치하는 대신 `sys.path` 에 `src/` 를 얹고
+# 이 둘만 **uv.lock 과 같은 버전으로** 핀한다. 버전이 갈리면 검증 동작이 프로덕션과
+# 달라지고, 그러면 여기서 잰 숫자를 프로덕션 근거로 쓸 수 없다.
+#
+# onnxruntime 을 안 깔기 때문에 위 protobuf 충돌은 이 venv 안에서도 재현되지 않는다.
+#
+# 사용법 (프로젝트 venv 와 섞지 않는다)
+# ------------------------------------
+#     cd ai
+#     uv venv .venv-eval
+#     uv pip install --python .venv-eval -r eval/query_resolver/requirements.txt
+#
+# 지표 단위 테스트(tests/test_resolver_eval_metrics.py)는 이 파일 없이
+# 프로젝트 기본 venv 의 pytest 로 돈다.
+
+mlflow==3.16.0
+pydantic==2.13.5
+httpx2==2.12.0

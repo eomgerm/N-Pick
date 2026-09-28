@@ -37,7 +37,13 @@ export const currentMember = cache(async () => {
 
 export async function requireMember(location: string) {
   const member = await currentMember();
-  if (!member) redirect(loginPath(location));
+  if (!member) {
+    const refresh = (await cookies()).get('NPICK_REFRESH')?.value;
+    if (refresh && /^[a-f0-9]{64}$/.test(refresh)) {
+      redirect(`/session/renew?${new URLSearchParams({ returnTo: location })}`);
+    }
+    redirect(loginPath(location));
+  }
   if (!canAccessPath(member.role, location.split('?')[0])) {
     redirect(`${postLoginPath(member.role)}?notice=forbidden`);
   }

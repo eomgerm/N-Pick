@@ -57,7 +57,7 @@ test('서버 계정 DTO는 알려진 두 역할만 허용하고 불필요한 필
   }
 });
 
-test('검색은 두 역할에 허용하고 검수 화면은 검수자만 허용한다', () => {
+test('검색은 두 역할에 허용하고 검수 화면은 아카이브 팀만 허용한다', () => {
   for (const role of ['EDITOR', 'REVIEWER']) {
     assert.equal(canAccessPath(role, '/search'), true);
     assert.equal(canAccessPath(role, '/search/results'), true);
@@ -88,7 +88,11 @@ test('복귀 URL은 로컬 보호 화면만 허용하여 우회 주소와 외부
   ]) {
     assert.equal(safeReturnTo(value), undefined, String(value));
   }
-  const location = pageLocation('/review', { view: 'processing', tab: 'uploads', clip: '123' });
+  const location = pageLocation('/review', {
+    view: 'processing',
+    clipStatus: 'attention',
+    clip: '123',
+  });
   assert.equal(postLoginPath('REVIEWER', location), location);
   assert.equal(
     new URL(loginPath(location, 'expired'), 'https://npick.invalid').searchParams.get('returnTo'),

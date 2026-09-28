@@ -1,6 +1,7 @@
 # Jenkins CI 초기 세팅 (S15P21A501-22)
 
-EC2에 Docker로 Jenkins를 올리고, GitLab push가 자동으로 빌드를 트리거하게 만드는 절차서다.
+EC2에 Docker로 Jenkins를 올리고,
+GitLab push가 자동으로 빌드를 트리거하게 만드는 절차서다.
 
 **근거 문서**: SSAFY 제공 `[CI/CD] Jenkins 설치 가이드` 의 **1. docker 방식 설치**.
 1~6장은 가이드를 그대로 따르고(2장 Docker 설치는 추가), 7장부터(플러그인 추가·GitLab 연동·웹훅·파이프라인)가
@@ -657,23 +658,24 @@ sudo grep -c secretToken /home/ubuntu/jenkins-data/jobs/npick-ci/config.xml
 > 바꾼 직후 수동 빌드를 하면 dev 에 아직 `Jenkinsfile` 이 없어 실패할 수 있다. 정상이며,
 > 머지되면 해결된다. 확인이 목적이 아니면 Save 만 하고 넘어가도 된다.
 
-`Jenkinsfile` 의 트리거는 `branchFilterType: 'NameBasedFilter'` + `includeBranchesSpec: 'dev'`
-로 **dev 푸시에만 반응**하도록 되어 있다. 그런데 Branch Specifier 가 작업 브랜치를 가리킨 채면
-dev 에 푸시해도 엉뚱한 브랜치를 빌드한다. 두 값의 짝이 맞아야 한다.
+운영 시 잡의 Branch Specifier 는 계속 **`*/dev`** 로 둔다. 이 값은 실행할 코드를 항상 dev 의
+신뢰된 `Jenkinsfile` 로 고정하는 역할을 한다. 실제 검증 대상은 `Jenkinsfile` 의 Checkout 단계가
+GitLab 웹훅 환경변수를 보고 명시적으로 선택한다.
 
-| | 트리거 (Jenkinsfile) | 체크아웃 (잡 설정) |
-|---|---|---|
-| 검증 중 (머지 전) | 임시로 `All` | `*/<작업 브랜치>` |
-| **운영 (머지 후)** | `NameBasedFilter: dev` | **`*/dev`** |
+트리거는 `RegexBasedFilter` 로 대상 브랜치가 `dev` 인 이벤트만 받는다. 그래서 일반 기능 브랜치
+push는 잡을 실행하지 않고, dev push와 dev 대상 MR 이벤트만 실행한다.
 
-> **왜 트리거를 dev 로 좁히는가.** `All` 로 두면 어느 브랜치에 푸시하든 잡이 깨어나는데,
-> 잡은 Branch Specifier 가 가리키는 **한 브랜치만** 체크아웃한다. 결과적으로 푸시한 브랜치와
-> 실제로 빌드된 코드가 달라지고, **검증되지 않은 커밋에 초록불이 찍힌다.**
-> 2026-09-01 진행 중 실제로 이 현상을 확인했다(웹훅 Test 이벤트가 `브랜치: main` 으로 들어왔는데
-> 체크아웃된 것은 작업 브랜치였다).
->
-> 기능 브랜치나 MR 도 머지 전에 검사하고 싶으면 **Multibranch Pipeline** 으로 옮겨야 한다.
-> 단일 Pipeline 잡 구조로는 "푸시한 브랜치를 그대로 빌드"가 깔끔하게 안 된다. 부록 참고.
+| 이벤트 | 모드 | 실제 체크아웃 | 이후 동작 |
+|---|---|---|---|
+| dev 대상 MR 생성·업데이트 | `MR` | MR 소스 + 최신 `origin/dev` 임시 병합 | migration 단조증가 검사만 수행, 배포 안 함 |
+| dev push(머지 포함) | `DEPLOY` | `dev` | 실제 DB 검사 → 이미지 빌드 → 배포 → 검증 |
+| 그 외 브랜치 push | - | - | 필터에서 제외 |
+
+MR 모드에서는 `/deploy` 동기화, Docker 이미지 빌드, 서비스 재기동, 롤백을 전부 건너뛴다.
+실패해도 운영 컨테이너에는 영향을 주지 않는다. Checkout 단계는 최신 `origin/dev`를 먼저 받은 뒤
+워크스페이스 저장소에 Jenkins 전용 `user.name`과 `user.email`을 설정하고 MR 소스 ref를
+`git merge --no-edit`로 명시적으로 합친다. Pipeline 잡에서 deprecated 된 `PreBuildMerge`는 쓰지
+않는다. 실제 병합 충돌이 있으면 명시적 merge가 실패하므로 같은 Checkout 단계에서 드러난다.
 
 ---
 
@@ -758,7 +760,22 @@ sudo sed -n '/<triggers>/,/<\/triggers>/p' /home/ubuntu/jenkins-data/jobs/npick-
 1. 잡 생성 후 **Build Now로 1회 수동 빌드**를 했는가 (9장의 경고)
 2. GitLab 웹훅 **Test**가 200인가 (10장)
 3. 웹훅 URL이 `/project/<잡이름>` 형태인가
-4. 푸시한 브랜치가 Branch Specifier와 맞는가 (`*/dev`인데 기능 브랜치에 푸시한 경우)
+4. GitLab 웹훅에서 **Merge request events** 가 체크되어 있는가
+5. 이벤트가 dev push 또는 dev 대상 MR인가 (`Jenkinsfile` 필터가 그 외 이벤트는 제외한다)
+
+**(3-1) MR Checkout이 `Committer identity unknown`으로 실패한다**
+
+비 fast-forward MR을 임시 병합할 때 merge commit 작성자 정보가 없는 경우다. Git 플러그인의
+`PreBuildMerge`를 사용하면 실제 충돌이 없어도 다음 오류와 함께 Checkout이 중단될 수 있다.
+
+```text
+Committer identity unknown
+fatal: unable to auto-detect email address
+```
+
+현재 `Jenkinsfile`은 대상 브랜치를 먼저 체크아웃한 다음 `infra/jenkins/merge-mr.sh`에서 저장소
+로컬 identity를 설정하고 명시적으로 병합한다. 같은 오류가 다시 보이면 잡의 Branch Specifier가
+`*/dev`인지, 실행 로그의 Jenkinsfile이 최신 `dev`에서 로드됐는지 확인한다.
 
 **(4) 빌드는 도는데 GitLab에 결과가 안 보인다**
 
@@ -785,7 +802,218 @@ du -sh /home/ubuntu/jenkins-data
 
 빌드 이력이 원인이면 잡 설정의 `Discard old builds`를 조인다. `Jenkinsfile`에 이미 30개 제한이 걸려 있다.
 
+**(7) Flyway가 `Detected resolved migration not applied`로 기동에 실패한다 — 2026-09-14 실측**
+
+이미 더 높은 버전이 적용된 DB에 그보다 낮은 버전의 migration 파일이 나중에 들어온 경우다.
+병렬 브랜치에서 만든 파일의 버전과 `dev` 머지 순서가 어긋나면 발생한다. 실제로
+`V20260915100000`이 먼저 배포된 뒤 `V20260914170000`이 머지되어 backend가 기동하지 못했다.
+`spring.flyway.out-of-order`는 켜지 않고, 버전 역전 자체를 막는다.
+
+검사는 두 겹이다.
+
+1. **MR 생성·업데이트 시** `Validate MR migrations`가 MR에 새로 추가된 파일을 최신
+   `origin/dev`의 최대 migration 버전과 비교한다. 낮거나 같은 번호면 머지 전에 실패한다.
+2. **dev 배포 시** `Validate migrations`가 실행 중인 PostgreSQL의
+   `npick.flyway_schema_history`를 직접 조회한다. 성공 적용된 최대 버전 이하의 미적용 파일이
+   있으면 이미지 빌드와 배포 전에 실패한다.
+
+첫 번째 검사는 병렬 브랜치의 머지 순서 역전을 사전에 차단하고, 두 번째 검사는 실제 DB 상태와
+Git 이력이 어긋난 경우까지 막는 최종 안전장치다. 두 검사 모두 로그에 문제 파일과 비교 기준
+버전을 출력한다.
+
+DB 적용 상태 확인:
+
+```bash
+docker compose exec postgres sh -c \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "SELECT installed_rank, version, description, success FROM npick.flyway_schema_history ORDER BY installed_rank DESC LIMIT 10;"'
+```
+
+문제 파일이 DB에 적용되지 않은 것이 확인되면 적용된 최대 버전보다 큰 값으로 파일명을 바꾼다.
+이미 성공 적용된 migration은 파일명이나 내용을 바꾸지 않는다. 이 경우에는 후속 migration으로
+수정해야 한다.
+
 ---
+
+## 14. 운영 잡 `npick-ops` (S15P21A501-187)
+
+배포 파이프라인(`Jenkinsfile`)과 **별개의 잡**이다. 시연 준비와 RunPod 파드 전원을 사람이
+눌러서 돌리고, 실패해도 배포를 막지 않아야 하므로 섞지 않는다.
+
+정의는 레포 루트의 `Jenkinsfile.ops` 다.
+
+### 14-1. 먼저 읽을 것 — 두 GPU 노드를 동시에 켜지 않는다
+
+> ⚠️ **SSAFY GPU 서버의 `npick-worker-drain` 과 RunPod 파드를 동시에 돌리지 않는다.**
+>
+> 둘이 같은 단계를 `capabilities` 로 선언하므로 **잡을 서로 뺏는다.** 코드로 막을 수단이
+> 없다 — BE 에 배정 목록이 없고 워커의 선언이 정한다(`docs/contracts/job-api.md` §4.1).
+> 한쪽이 가져간 잡은 다른 쪽에 오지 않으므로 오류도 나지 않는다. 그냥 절반씩 처리된다.
+>
+> 순서를 지킨다: **drain 을 돌릴 거면 먼저 `ACTION=RUNPOD_DOWN`**, 파드를 쓸 거면
+> SSH 로 들어가 drain 이 끝난 것을 확인한 뒤 `ACTION=RUNPOD_UP`.
+
+### 14-2. credential 2종 등록
+
+Manage Jenkins → Credentials → System → Global → Add Credentials.
+
+| ID | 종류 | 값 | 어디서 쓰나 |
+| --- | --- | --- | --- |
+| `runpod-api-key` | Secret text | RunPod 콘솔의 API 키 | `runpod.sh` 의 `RUNPOD_API_KEY` |
+| `npick-reviewer` | Username with password | 검수자 계정 아이디·비밀번호 | `SEED` 의 `scripts/seed-clips.sh` |
+
+**ID 를 그대로 써야 한다.** `Jenkinsfile.ops` 가 이 문자열로 찾는다.
+
+**파드 ID 는 credential 로 두지 않는다.** `runpod.sh` 가 이름(`RUNPOD_POD_NAME`,
+기본 `npick-worker`)으로 찾는다. 재고가 없어 파드를 다시 만들면 ID 가 바뀌는데
+(14-7), credential 에 박아 두면 그때마다 사람이 웹 UI 로 고쳐야 하고 **잊으면
+없는 파드를 끄고 성공했다고 보고한다.** 이름은 `runpod-create.sh` 가 고정한다.
+
+### 14-3. 잡 등록
+
+1. New Item → 이름 `npick-ops` → **Pipeline** → OK
+2. Pipeline → Definition: **Pipeline script from SCM**
+3. SCM: Git, Repository URL 과 Credentials 는 9장의 배포 잡과 같은 값
+4. Branch: `*/dev`
+5. **Script Path: `Jenkinsfile.ops`** (기본값 `Jenkinsfile` 이 아니다)
+6. Save → **한 번 실행한다.** declarative 의 `parameters` 와 `triggers` 는 첫 빌드가
+   돌아야 잡에 등록된다. 첫 빌드는 파라미터 없이 기본값으로 돈다 = `RUNPOD_DOWN`.
+
+### 14-4. ACTION 별 동작
+
+| ACTION | 하는 일 | 필요한 파라미터 |
+| --- | --- | --- |
+| `RUNPOD_DOWN` | 파드를 정지한다. **이미 꺼져 있으면 아무것도 하지 않고 성공이다** | 없음 |
+| `RUNPOD_UP` | 파드를 재개한다. 이미 켜져 있으면 no-op | 없음 |
+| `SEED` | `scripts/seed-clips.sh` 로 시드 영상을 등록한다 | `VIDEO_DIR` 필수, `WAIT_SECONDS` 선택 |
+
+> **`VIDEO_DIR` 은 Jenkins 컨테이너 안에서 보이는 경로여야 한다.** 이 컨테이너의 마운트는
+> `/var/jenkins_home`, Docker 소켓, 그리고 배포 디렉터리(`NPICK_DEPLOY_DIR`) 셋뿐이다(3장).
+> 그 밖의 호스트 경로를 주면 컨테이너 안에서는 **빈 폴더**로 보인다. 예전에는 그 경우
+> 아무것도 등록하지 않고 초록으로 끝났는데, 지금은 `seed-clips.sh` 가 0 건을 실패로
+> 처리한다(`등록된 영상이 0 건이다`). 시드 영상은 배포 디렉터리 아래에 두는 것이 가장 쉽다.
+
+> ⚠️ **`WAIT_SECONDS` 는 지금 0 만 쓸 수 있다.** 워커에 `transcript_selection` 구현이
+> 없어 run 이 그 단계에서 멈추므로, 기다리면 제한 시간까지 돌다 실패한다. 잡이
+> `SEED_WAIT_BLOCKED` 가드로 0 이 아닌 값을 거부한다(`Jenkinsfile.ops`). 구현이
+> 들어오고 `pipeline.yml` 에 그 단계의 `stage_versions` 가 채워지면 가드를 지운다.
+
+가드를 지운 뒤의 동작: `WAIT_SECONDS` 가 0 보다 크면 **이번 실행이 등록한 클립만**
+10초 간격으로 조회해 모두 끝날 때까지 기다린다. 전체 집계(`run_counts`)를 보지 않으므로
+예전에 실패한 클립이 남아 있어도 이번 배치 판정에 섞이지 않는다.
+
+### 14-5. cron 이 매일 새벽 4시에 파드를 내린다
+
+```groovy
+triggers {
+  cron('''TZ=Asia/Seoul
+0 4 * * *''')
+}
+```
+
+**`TZ` 를 cron 문자열 안에 적는다.** `environment` 의 `TZ` 는 빌드 실행 환경에만
+걸리고 트리거 시각은 Jenkins controller 의 시간대를 따른다. controller 가 UTC 면
+한국 시간 오후 1시에 파드가 내려간다 — 시연 도중일 수 있는 시각이다.
+
+파드는 시간당 과금이고 끄는 것을 하루 잊으면 하루치가 그대로 나간다. cron 빌드는
+파라미터 **기본값**으로 돌고 declarative 의 `choice` 기본값은 **첫 항목**이므로
+`RUNPOD_DOWN` 이 목록 맨 앞에 있어야 한다. 순서를 바꾸면 새벽마다 파드가 **켜진다.**
+
+시연 중 새벽을 넘겨야 한다면 잡을 Disable 하고, 끝나면 반드시 되돌린다.
+
+### 14-6. `SEED` 전에 Jenkins 이미지를 다시 만든다
+
+`SEED` 는 `scripts/seed-clips.sh` 를 돌리고 그 스크립트는 `jq` 를 쓴다. `jq` 는
+`infra/jenkins/Dockerfile` 에 들어 있는데 **Jenkins 는 compose 밖 컨테이너라 앱 CD 가
+이 이미지를 갱신하지 않는다.** 사람이 한 번 다시 만들어야 한다.
+
+> **진행 중인 빌드가 없는지 먼저 본다.** 재생성은 컨테이너를 내리므로 돌던 배포가
+> 중간에 끊긴다. Jenkins 화면의 실행 중 잡을 확인하고, 급하지 않으면 배포가 없는
+> 시간에 한다.
+
+```bash
+# EC2 에서. 현재 컨테이너의 실행 인자를 먼저 적어 둔다 —
+# 볼륨·포트·네트워크·재시작 정책이 여기 전부 들어 있다.
+sudo docker inspect jenkins \
+  -f '{{range .Mounts}}-v {{.Source}}:{{.Destination}} {{end}}{{println}}{{range $p, $c := .NetworkSettings.Ports}}-p {{(index $c 0).HostIp}}:{{(index $c 0).HostPort}}:{{$p}} {{end}}'
+
+# 호스트 docker 그룹 GID 를 그대로 넘긴다(3장과 같은 값이어야 소켓이 열린다).
+DOCKER_GID=$(getent group docker | cut -d: -f3)
+sudo docker build --build-arg DOCKER_GID="$DOCKER_GID" \
+  -t npick/jenkins:lts infra/jenkins
+
+sudo docker stop jenkins && sudo docker rm jenkins
+# 위에서 적어 둔 -v/-p 를 그대로 다시 준다. 특히 /home/ubuntu/jenkins-data 와
+# /var/run/docker.sock, 그리고 127.0.0.1:18080 바인딩을 빠뜨리지 않는다.
+sudo docker run -d --name jenkins --restart unless-stopped \
+  --network npick_default \
+  -e JENKINS_OPTS=--prefix=/jenkins \
+  -v /home/ubuntu/jenkins-data:/var/jenkins_home \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /home/ubuntu/S15P21A501:/home/ubuntu/S15P21A501 \
+  -p 127.0.0.1:18080:8080 \
+  npick/jenkins:lts
+
+# 확인 — 잡·설정·플러그인은 볼륨에 있으므로 그대로 남아 있어야 한다.
+sudo docker exec jenkins jq --version
+sudo docker exec jenkins docker version --format '{{.Client.Version}}'
+```
+
+> ⚠️ **`--network npick_default` 와 `JENKINS_OPTS` 를 빠뜨리지 않는다.** 3장의 원본
+> 명령에는 있는데 재생성할 때 흘리기 쉽다. 네트워크를 빠뜨리면 nginx 가 `jenkins` 를
+> 못 풀어 `/jenkins/` 가 통째로 502 가 되고 **GitLab 웹훅도 같이 죽는다** — 빌드가
+> 아예 걸리지 않으므로 배포가 멈춘 것을 한참 뒤에 안다(2026-09-18 실측).
+> 접두를 빠뜨리면 Jenkins 가 자기 URL 을 `/` 로 알아 정적 리소스가 깨진다.
+>
+> 되돌리는 것은 한 줄이다: `sudo docker network connect npick_default jenkins`
+>
+> 재생성 뒤에는 **웹훅 경로까지** 확인한다. 컨테이너가 healthy 여도 nginx 경유가
+> 죽어 있을 수 있고, 그 사이 도착한 웹훅은 재전송하지 않으면 사라진다.
+>
+> ```bash
+> curl -s -o /dev/null -w '%{http_code}\n' https://j15a501.p.ssafy.io/jenkins/login   # 200
+> ```
+
+**데이터는 `/home/ubuntu/jenkins-data` 볼륨에 있다.** 컨테이너를 지워도 잡·크리덴셜·
+플러그인은 남는다. 그 볼륨을 지우지 않는 한 되돌릴 수 있다. URL 설정(5장)과 웹훅
+토큰은 그 안에 있으므로 다시 넣을 필요가 없다.
+
+### 14-7. 파드가 안 켜질 때 — 재고 부족
+
+`RUNPOD_UP` 이 이렇게 끝나는 경우가 있다.
+
+```
+start pod: There are not enough free GPUs on the host machine to start this pod.
+```
+
+**정지된 파드는 특정 호스트에 묶여 있다.** 그 호스트의 GPU 를 남이 가져가면 재개가
+막힌다 — 리전 전체 재고와는 무관하다.
+
+`runpod.sh` 는 이것을 **오류가 아니라 기다릴 상태**로 본다. `RUNPOD_RESUME_TIMEOUT`
+(기본 600초) 안에서 계속 다시 청하고, 그 사이 재고가 나면 그대로 이어간다. 인증·파드 ID
+문제(4xx)는 기다려도 낫지 않으므로 그 자리에서 실패한다.
+
+끝내 안 나면 **파드를 새로 만든다.** 다른 호스트에 붙으므로 대개 이걸로 풀린다.
+
+```bash
+RUNPOD_API_KEY=... RUNPOD_VOLUME_ID=<가중치가 든 볼륨> RUNPOD_PUBLIC_KEY="$(cat ~/.ssh/id_ed25519.pub)"   infra/jenkins/runpod-create.sh npick-worker
+```
+
+- **볼륨을 재사용하는 것이 요점이다.** 모델 가중치 20GB·venv·uv 캐시가 그대로라 재생성이
+  10분 안에 끝난다. 파드는 버려도 되는 물건으로 취급한다.
+- GPU 는 **32GB 이상 16종을 싼 순으로** 시도한다(`gpuTypePriority: custom`). 한 종류만
+  지정하면 그 종류의 재고에 운을 걸게 된다.
+- 끝나면 **Jenkins credential `runpod-pod-id` 를 새 파드 ID 로 갱신한다.** 스크립트가
+  마지막 줄에 그 값을 출력한다.
+
+리전 전체가 말랐으면 **SSAFY GPU 서버로 돌린다**(`npick-worker-drain`). 비용이 0이고,
+워커가 pull 방식이라 어느 노드가 가져가든 결과가 같다. RunPod 은 빠르면 좋은 자원이지
+없으면 안 되는 자원이 아니다.
+
+### 14-8. Jenkins 는 SSAFY GPU 서버로 나가지 않는다
+
+`npick-worker-drain` 은 **사람이 SSH 로 돌린다.** Jenkins 에이전트를 GPU 서버에 붙이는
+안은 보류했다 — 아키텍처 SSOT 의 "그 서버에 상주 서버를 올릴 수 없다"와 충돌하므로 팀
+합의가 먼저다. 절차는 [ai/README.md](../../ai/README.md) 의 GPU 노드 설치 절에 있다.
 
 ## 부록. ssh key 주의 (가이드 경고 사항)
 
@@ -817,9 +1045,10 @@ cat id_rsa.pub >> ~/.ssh/authorized_keys
 | Docker-outside-of-Docker | 이미지에 docker CLI 설치 + `/var/run/docker.sock` 마운트 + docker 그룹 GID 매칭 | **컨테이너 재생성 필요.** 데이터는 `jenkins-data` 볼륨에 있어 보존된다 |
 | SSH 배포 | Jenkins가 호스트에 SSH로 접속해 배포 스크립트 실행 | 재생성 불필요. 단 `authorized_keys` 를 건드리면 pem 인증이 깨질 수 있다(부록 ssh key 참고) |
 
-**2. 브랜치별 분기 구조** — "모든 브랜치는 빌드, dev만 배포"를 하려면 지금의 단일 Pipeline 잡
-구조가 불편하다. 잡을 2개로 나누거나 **Multibranch Pipeline** 으로 옮긴다. Multibranch로 가면
-13장 (2-2)의 트리거 덮어쓰기 문제도 구조적으로 사라지고, `**` 브랜치 문법도 정상 동작한다.
+**2. 브랜치별 분기 구조** — 현재 단일 Pipeline 잡은 dev 대상 MR에서 migration 단조증가 검사만
+수행하고, dev push에서 전체 빌드·배포를 수행한다. 모든 MR에서 백엔드 테스트와 프론트엔드 빌드까지
+돌리려면 MR 모드를 확장하거나 CI 잡과 CD 잡을 분리한다. GitLab 플러그인의 MR 환경변수는
+Multibranch Pipeline에서 제공되지 않으므로 전환 전 플러그인 동작을 다시 검토해야 한다.
 
 **3. 앱 비밀값** — DB 비밀번호, API 키 등이 생긴다. Jenkins Credentials + `withCredentials` 로
 주입한다. **레포에 커밋하지 않는다**는 제약이 그대로 이어진다.

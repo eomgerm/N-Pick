@@ -19,7 +19,12 @@ class ClipRegistrationConfigurationTest {
         var beans = new StaticListableBeanFactory();
         beans.addBean("actor", (RegistrationActorPort) () -> 7);
         var context = new ClipRegistrationConfiguration()
-                .clipRegistrationContext(ready(), beans.getBeanProvider(RegistrationActorPort.class));
+                .clipRegistrationContext(
+                        ready(),
+                        beans.getBeanProvider(RegistrationActorPort.class),
+                        () ->
+                                new com.npick.pipeline.application.query.definition.GetPipelineDefinitionUseCase
+                                        .Definition("test-v1", List.of("scene_detection"), java.util.Map.of()));
         var first = context.requireAuthorizedContext();
         var second = context.requireAuthorizedContext();
         assertThat(first.registeredById()).isEqualTo(7);
@@ -34,9 +39,14 @@ class ClipRegistrationConfigurationTest {
     void refusesMissingSettingsAfterAuthentication() {
         var beans = new StaticListableBeanFactory();
         beans.addBean("actor", (RegistrationActorPort) () -> 7);
-        var settings = new ClipRegistrationProperties(null, null, null, null, null, null, null, null);
+        var settings = new ClipRegistrationProperties(null, null, null, null, null, null, 10485760);
         var context = new ClipRegistrationConfiguration()
-                .clipRegistrationContext(settings, beans.getBeanProvider(RegistrationActorPort.class));
+                .clipRegistrationContext(
+                        settings,
+                        beans.getBeanProvider(RegistrationActorPort.class),
+                        () ->
+                                new com.npick.pipeline.application.query.definition.GetPipelineDefinitionUseCase
+                                        .Definition("test-v1", List.of("scene_detection"), java.util.Map.of()));
         assertThatThrownBy(context::requireAuthorizedContext)
                 .isInstanceOfSatisfying(
                         BusinessException.class,
@@ -59,7 +69,9 @@ class ClipRegistrationConfigurationTest {
                         throw new java.io.UncheckedIOException(failure);
                     }
                 })
-                .withUserConfiguration(ClipRegistrationConfiguration.class)
+                .withUserConfiguration(
+                        ClipRegistrationConfiguration.class,
+                        com.npick.pipeline.infrastructure.config.PipelineDefinitionConfiguration.class)
                 .withBean(tools.jackson.databind.ObjectMapper.class, tools.jackson.databind.ObjectMapper::new)
                 .withBean(
                         com.npick.clip.application.command.register.RegisterClipUseCase.class,
@@ -71,6 +83,7 @@ class ClipRegistrationConfigurationTest {
                             context.getBean(com.npick.clip.infrastructure.config.ClipRegistrationProperties.class);
                     assertThat(settings.inputLimits().maxFileBytes()).isEqualTo(10L * 1024 * 1024 * 1024);
                     assertThat(settings.inputLimits().maxDurationSeconds()).isEqualByComparingTo("3600");
+                    assertThat(settings.subtitleMaxBytes()).isEqualTo(10485760);
                     assertThat(settings.probeTimeout()).isEqualTo(java.time.Duration.ofSeconds(60));
                     assertThat(settings.decodeTimeout()).isEqualTo(java.time.Duration.ofMinutes(30));
                     assertThat(settings.inputLimits().allowedContainers()).containsExactlyInAnyOrder("mp4", "mov");
@@ -130,14 +143,13 @@ class ClipRegistrationConfigurationTest {
                 Path.of("uploads").toAbsolutePath(),
                 Duration.ofSeconds(10),
                 Duration.ofSeconds(20),
-                "test-v1",
-                List.of("scene_detection"),
                 new ClipRegistrationProperties.Input(
                         1024L,
                         java.math.BigDecimal.TEN,
                         java.util.Set.of("mp4"),
                         java.util.Set.of("h264"),
                         java.util.Set.of("aac")),
-                true);
+                true,
+                10485760);
     }
 }

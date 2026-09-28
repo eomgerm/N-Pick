@@ -1,4 +1,5 @@
 .dateField {
+  position: relative;
   display: grid;
   gap: 10px;
   min-width: 0;
@@ -14,7 +15,7 @@
   width: 100%;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: white;
   color: var(--text);
   text-align: left;
@@ -28,181 +29,441 @@
   width: 18px;
   height: 18px;
   flex-shrink: 0;
-  color: #0046ff;
+  color: #23578d;
 }
-.calendarDialog {
-  position: fixed;
-  inset: 0;
-  width: min(720px, calc(100vw - 32px));
-  max-height: calc(100dvh - 32px);
-  margin: auto;
-  padding: 28px;
-  border: 1px solid #e3e8f2;
-  border-radius: 20px;
-  box-shadow: 0 24px 90px #142a5840;
-  background: white;
-  color: #15284b;
+.dateField[data-compact='true'] {
+  display: block;
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+.dateField[data-compact='true'] > span:first-child {
+  display: none;
+}
+.dateField[data-compact='true'] .rangeTrigger {
+  justify-content: center;
+  width: 52px;
+  max-width: none;
+  min-height: 52px;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 28px;
+  background: rgb(255 255 255 / 95%);
+  box-shadow:
+    0 2px 8px rgb(8 14 24 / 16%),
+    inset 0 0 0 1px rgb(255 255 255 / 72%);
+  white-space: nowrap;
+}
+.dateField[data-compact='true'] .rangeTrigger span {
+  display: none;
+}
+.dateField[data-compact='true'] .rangeTrigger svg {
+  color: var(--accent);
+}
+/* 시작일과 종료일을 독립적으로 탐색하는 기간 선택 패널. */
+.calendarPopover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 10px);
+  left: 0;
+  width: 620px;
+  max-width: calc(100vw - 32px);
+  padding: 16px;
+  border: 1px solid rgb(255 255 255 / 74%);
+  border-radius: 18px;
+  box-shadow: 0 20px 48px rgb(74 56 40 / 22%);
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 78%);
+  -webkit-backdrop-filter: blur(36px) saturate(115%);
+  backdrop-filter: blur(36px) saturate(115%);
+  color: #2a2521;
   font:
-    14px Arial,
+    13px Arial,
     'Noto Sans KR',
     sans-serif;
+  text-align: left;
+}
+.dateField[data-compact='true'] .calendarPopover {
+  left: auto;
+  right: 0;
+}
+.calendarPopover[data-placement='above'] {
+  top: auto;
+  bottom: calc(100% + 10px);
+}
+.dateField[data-navigation='true'] {
+  position: static;
+  display: block;
+  margin: 0;
+}
+.navigationLabel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.navigationLabel > span {
+  flex: none;
+}
+.navigationRange {
+  display: grid;
+  flex: none;
+  gap: 3px;
+  color: #516477;
+  font-size: 9px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: right;
+  white-space: nowrap;
+}
+.dateField[data-navigation='true'] .calendarPopover {
+  top: 0;
+  bottom: auto;
+  right: auto;
+  left: calc(100% + var(--panel-gap));
+  width: min(620px, calc(100vw - 100% - var(--panel-gap) - 48px));
+  max-height: 100%;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
-.calendarDialog::backdrop {
-  background: #12244680;
+@media (max-width: 760px) {
+  .dateField[data-navigation='true'] .calendarPopover {
+    left: 0;
+    width: calc(100vw - 16px);
+    max-width: none;
+    padding: 10px;
+  }
 }
-.calendarDialog button {
+.calendarPopover button {
   font: inherit;
   cursor: pointer;
 }
-.calendarDialog button:focus-visible,
-.calendarDialog input:focus-visible {
-  outline: 3px solid #759bff;
-  outline-offset: 3px;
+.calendarPopover button:focus-visible {
+  outline: 2px solid #23578d;
+  outline-offset: 2px;
 }
-.calendarHeader,
-.calendarFooter,
+.popoverHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.popoverHeader h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.popoverActions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+.popoverClose {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f6f1ea;
+  color: #5f564e;
+}
+.popoverClose svg {
+  width: 16px;
+  height: 16px;
+}
+.calendarColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 18px;
+}
+.endpointCalendar {
+  min-width: 0;
+}
+.endpointCalendar + .endpointCalendar {
+  border-left: 1px solid #e4ded4;
+  padding-left: 24px;
+}
+.endpointHeading h3 {
+  margin: 0;
+  font-size: 13px;
+}
+.resetButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #7a7067;
+  font-size: 12px;
+  text-decoration: none;
+}
+.resetButton:hover {
+  color: #2a2521;
+}
+.datePresets {
+  display: flex;
+  gap: 10px;
+  margin-right: auto;
+}
+.datePresets button {
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: white;
+  color: #5f564e;
+  font-size: 12px;
+}
+.datePresets button:hover,
+.datePresets button[data-selected='true'] {
+  background: #2e2a26;
+  color: white;
+}
+.basisControl {
+  position: relative;
+}
+.calendarPopover .basisTrigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #17243b;
+  font-weight: 700;
+}
+.basisTrigger svg,
+.basisOptions svg {
+  width: 14px;
+  height: 14px;
+}
+.basisOptions {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 130px;
+  padding: 5px;
+  border: 1px solid rgb(255 255 255 / 74%);
+  border-radius: 12px;
+  background: rgb(244 250 255 / 96%);
+  box-shadow: 0 8px 24px rgb(6 22 35 / 16%);
+  backdrop-filter: blur(20px);
+}
+.basisOptions button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #17243b;
+  font-weight: 700;
+  text-align: left;
+}
+.basisOptions button:hover,
+.basisOptions button[aria-selected='true'] {
+  background: #e1ebf6;
+  color: #23578d;
+}
 .monthNavigation {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px;
+  margin: 14px 0 6px;
+  color: #2a2521;
+  font-size: 13px;
+  font-weight: 700;
 }
-.calendarHeader p {
-  margin: 0 0 8px;
-  color: #0046ff;
-  font-size: 12px;
-}
-.calendarHeader h2 {
-  margin: 0;
-  font-size: 23px;
-}
-.calendarHeader button,
 .monthNavigation button {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid #e3e8f2;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 9px;
   background: white;
+  color: #5f564e;
 }
-.calendarHeader svg,
-.monthNavigation svg {
-  width: 18px;
-  height: 18px;
+.monthNavigation button:hover {
+  background: #f6f1ea;
 }
-.calendarHint {
-  margin: 14px 0 20px;
-  color: #69788f;
-  line-height: 1.7;
-}
-.dateInputs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.dateInputs label {
-  display: grid;
-  gap: 8px;
-  font-size: 12px;
-}
-.dateInputs input {
+.monthNavigation .periodTitle {
+  flex: 1;
+  width: auto;
   min-width: 0;
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #dce3ef;
-  border-radius: 8px;
-  background: #f7f9fd;
-  color: #15284b;
-  font: inherit;
+  border: 0;
+  font-weight: 700;
+  white-space: nowrap;
 }
-.monthNavigation {
-  margin: 20px 0 4px;
-  color: #69788f;
-  font-size: 12px;
+.monthNavigation button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
-.months {
+.monthNavigation .periodTitle[aria-disabled='true'] {
+  cursor: default;
+}
+.periodGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 28px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(4, 1fr);
+  gap: 6px;
+  min-height: 246px;
+  border-radius: 10px;
 }
-.months h3 {
-  text-align: center;
-  font-size: 15px;
-  margin: 12px 0 18px;
+.periodGrid button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #5f564e;
+}
+.periodGrid button:hover,
+.periodGrid button[aria-pressed='true'] {
+  color: #23578d;
+}
+.periodGrid button[aria-pressed='true'] {
+  font-weight: 700;
+}
+.monthNavigation svg {
+  width: 15px;
+  height: 15px;
 }
 .days {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px 0;
+  min-height: 246px;
+  grid-auto-rows: 32px;
+  align-content: start;
 }
 .weekday {
-  padding-block: 8px;
+  padding-block: 6px;
   text-align: center;
-  color: #7e899c;
+  color: #8e8379;
   font-size: 11px;
 }
 .day {
   position: relative;
-  min-height: 36px;
-  padding: 6px 0;
+  min-height: 32px;
+  padding: 4px 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
-  color: #243754;
-  font-size: 13px;
+  color: #2a2521;
+  font-size: 12px;
 }
 .day:hover {
-  background: #f0f4ff;
+  background: #f6f1ea;
 }
 .day[data-within='true'] {
   border-radius: 0;
-  background: #edf2ff;
-  color: #0046ff;
+  background: #e1ebf6;
+  color: #23578d;
+}
+.day[data-range-start='true'] {
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+.day[data-range-end='true'] {
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
 }
 .day[data-boundary='true'] {
-  border-radius: 8px;
-  background: #0046ff;
+  isolation: isolate;
+  background: transparent;
   color: white;
   font-weight: 700;
 }
-.rangeSummary {
-  min-height: 22px;
-  padding: 12px;
-  margin: 20px 0 0;
-  border-radius: 8px;
-  background: #f5f8ff;
-  color: #0046ff;
-  text-align: center;
-  font-size: 13px;
+.day[data-boundary='true']:enabled::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border-radius: 10px;
+  background: #23578d;
+  content: '';
+}
+.day[data-range-edge]:enabled::after {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  border-radius: inherit;
+  background: #e1ebf6;
+  content: '';
+}
+.day:disabled,
+.periodGrid button:disabled {
+  background: transparent;
+  color: #8e9399;
+  opacity: 0.45;
+  cursor: default;
 }
 .fieldError {
-  color: #b7283d;
-  font-size: 13px;
+  margin: 8px 0 0;
+  color: #c0453f;
+  font-size: 12px;
 }
-.calendarFooter {
-  margin-top: 20px;
-  padding-top: 18px;
-  border-top: 1px solid #e3e8f2;
+@media (max-width: 760px) {
+  .calendarColumns {
+    gap: 12px;
+  }
+  .endpointCalendar + .endpointCalendar {
+    padding-left: 12px;
+  }
+  .monthNavigation {
+    gap: 2px;
+    font-size: 11px;
+  }
+  .monthNavigation button {
+    width: 24px;
+  }
+  .calendarPopover {
+    padding: 12px;
+  }
+  .periodGrid {
+    gap: 4px;
+    font-size: 11px;
+  }
 }
-.calendarFooter > div {
+.popoverFooter {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
+  margin-top: 12px;
 }
-.calendarFooter button,
 .stateActions button {
   min-height: 42px;
   padding: 10px 16px;
-  border: 1px solid #dce3ef;
-  border-radius: 8px;
+  border: 1px solid #e4ded4;
+  border-radius: 12px;
   background: white;
-  color: #465770;
+  color: #5f564e;
 }
-.calendarFooter .primaryButton,
-.stateActions .primaryButton {
-  border-color: #0046ff;
-  background: #0046ff;
+.popoverFooter button {
+  min-height: 36px;
+  padding: 8px 14px;
+  border: 1px solid #e4ded4;
+  border-radius: 10px;
+  background: white;
+  color: #5f564e;
+  font-size: 12px;
+}
+.popoverFooter .primaryButton {
+  border-color: #2e2a26;
+  background: #2e2a26;
   color: white;
 }
 .filterFields {
@@ -216,70 +477,117 @@
 }
 .statePanel {
   display: grid;
-  justify-items: center;
-  padding: clamp(32px, 6vw, 72px) 24px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: white;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: clamp(32px, 5vw, 80px);
+  padding: clamp(32px, 6vw, 72px) clamp(24px, 4vw, 56px);
+  border: 0;
+  border-radius: 24px;
+  background: url('/textures/frosted-grain.svg') rgb(244 250 255 / 66%);
+  box-shadow: 0 20px 52px rgb(10 32 40 / 18%);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  color: #17243b;
+  text-align: left;
+}
+.statePanel[data-state='loading'] {
+  grid-template-columns: minmax(0, 1fr);
   text-align: center;
+}
+.statePanel[data-state='failed'] {
+  min-height: 0;
+  flex: 1;
+  align-content: safe center;
+  padding-block: clamp(16px, 3dvh, 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.stateSummary,
+.stateDetails {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+}
+.stateSummary {
+  justify-items: center;
+  text-align: center;
+}
+.stateDetails {
+  width: min(100%, 460px);
+  justify-self: end;
+  gap: 16px;
 }
 .stateIcon {
   display: grid;
   place-items: center;
-  width: 76px;
-  height: 76px;
+  width: 56px;
+  height: 56px;
   margin-bottom: 24px;
-  border-radius: 24px;
-  background: #edf3ff;
-  color: #0046ff;
+  border-radius: 18px;
+  background: rgb(255 255 255 / 42%);
+  color: #0756c6;
 }
 .stateIcon svg {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
 }
 .statePanel[data-state='failed'] .stateIcon {
-  background: #fff3ed;
-  color: #b95a19;
+  background: rgb(251 241 226 / 72%);
+  color: #9a6b2f;
 }
 .statePanel h3 {
   margin: 0 0 12px;
-  font-size: clamp(20px, 3vw, 26px);
-  letter-spacing: -0.04em;
+  font-size: clamp(23px, 2.4vw, 30px);
+  font-weight: 650;
+  letter-spacing: -0.045em;
+  line-height: 1.4;
+  text-wrap: balance;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
-.statePanel > p {
+.stateSummary > p {
   max-width: 480px;
   margin: 0;
-  color: #64748b;
+  color: #4d5462;
+  font-size: 14px;
   line-height: 1.8;
   word-break: keep-all;
+  text-wrap: pretty;
 }
 .searchConditions {
   display: grid;
-  gap: 12px;
-  width: min(100%, 460px);
-  padding: 20px;
-  margin: 26px 0;
-  border-radius: 10px;
-  background: #f7f9fc;
+  gap: 0;
+  width: 100%;
+  padding: 8px 20px;
+  margin: 0;
+  border-radius: 16px;
+  background: rgb(255 255 255 / 26%);
   text-align: left;
   font-size: 13px;
+  line-height: 1.65;
 }
 .searchConditions > div {
   display: grid;
-  grid-template-columns: 85px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr);
   gap: 12px;
+  padding-block: 12px;
+}
+.searchConditions > div + div {
+  border-top: 1px solid rgb(23 36 59 / 8%);
 }
 .searchConditions dt {
-  color: #738199;
+  color: #516477;
 }
 .searchConditions dd {
   margin: 0;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 .stateActions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  width: 100%;
   gap: 10px;
 }
 .stateActions button {
@@ -287,9 +595,58 @@
   font: inherit;
   font-size: 13px;
 }
+.stateActions .primaryButton {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #0756c6;
+  color: #ffffff;
+  font-weight: 600;
+  transition: background-color 160ms ease;
+}
+.stateActions .primaryButton:hover {
+  background: #06459d;
+}
+.stateActions .primaryButton:active {
+  background: #05377e;
+}
+.stateActions .primaryButton:focus-visible {
+  outline: 3px solid #0756c6;
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .statePanel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+    padding-inline: 20px;
+  }
+  .stateIcon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 18px;
+  }
+  .stateSummary > p {
+    font-size: 13px;
+    line-height: 1.75;
+  }
+  .stateDetails {
+    width: 100%;
+    justify-self: stretch;
+  }
+  .searchConditions {
+    padding-inline: 14px;
+    font-size: 12px;
+  }
+  .searchConditions > div {
+    grid-template-columns: 56px minmax(0, 1fr);
+    padding-block: 10px;
+  }
+}
 .demoNote {
   margin: 16px 0;
-  color: #78859a;
+  color: #8e8379;
   font-size: 12px;
   line-height: 1.7;
 }
@@ -302,7 +659,7 @@
   aspect-ratio: 16 / 9;
   padding: 28px;
   border-radius: 12px;
-  background: radial-gradient(ellipse at 50% 20%, #1c3976, #0d1b38 75%);
+  background: radial-gradient(ellipse at 50% 20%, #3c342c, #211d19 75%);
   color: white;
   text-align: center;
 }
@@ -311,7 +668,7 @@
 }
 .previewLoading p {
   margin: 0;
-  color: #b7c8e8;
+  color: #d3c8bc;
   font-size: 13px;
   line-height: 1.7;
 }
@@ -337,8 +694,8 @@
 }
 .loadingBars span {
   height: 12px;
-  border-radius: 8px;
-  background: #eaf0fa;
+  border-radius: 12px;
+  background: rgb(77 94 112 / 16%);
   animation: pulse 1.3s ease-in-out infinite alternate;
 }
 .loadingBars span:last-child {
@@ -355,20 +712,23 @@
     opacity: 0.4;
   }
 }
+@media (max-width: 980px) {
+  .dateField:not([data-navigation='true']) .calendarPopover {
+    width: min(620px, calc(100vw - 64px));
+  }
+  .dateField:not([data-navigation='true']):last-child .calendarPopover {
+    left: auto;
+    right: 0;
+  }
+}
 @media (max-width: 620px) {
-  .calendarDialog {
-    padding: 20px;
+  .dateField[data-compact='true'] .rangeTrigger {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
   }
-  .months {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  .calendarFooter {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .calendarFooter > div {
-    justify-content: flex-end;
+  .calendarPopover {
+    padding: 14px;
   }
   .filterFields {
     grid-template-columns: 1fr;
@@ -378,6 +738,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .stateActions .primaryButton {
+    transition: none;
+  }
   .spinner,
   .loadingBars span {
     animation: none;

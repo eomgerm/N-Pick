@@ -1,5 +1,6 @@
 package com.npick.clip.domain.model;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -8,6 +9,10 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.npick.clip.domain.error.ClipRegistrationErrorCode;
 import com.npick.clip.domain.model.InitialClipRegistration.PipelineDefinition;
@@ -58,7 +63,7 @@ class InitialClipRegistrationTest {
     }
 
     @Test
-    void preservesIndependentDatesAsUnverifiedClipLevelInputEvidence() {
+    void preservesIndependentDatesAsVerifiedClipLevelInputEvidence() {
         LocalDate broadcast = LocalDate.of(2026, 9, 7);
         LocalDate filmed = LocalDate.of(2024, 2, 29);
         var registration = registration(SourceType.BROADCAST, broadcast, filmed, null, null, definition());
@@ -70,7 +75,8 @@ class InitialClipRegistrationTest {
                 .containsExactly("broadcast_date", "filmed_date");
         assertThat(registration.dateEvidence()).allSatisfy(evidence -> {
             assertThat(evidence.source()).isEqualTo("user_input");
-            assertThat(evidence.verificationStatus()).isEqualTo("unverified");
+            // 사용자 입력은 관측 근거다. 미검증으로 두면 방송일·촬영일 필터가 아무것도 걸러내지 못한다 (F-04, S15P21A501-231).
+            assertThat(evidence.verificationStatus()).isEqualTo("verified");
             assertThat(evidence.confidence()).isNull();
             assertThat(evidence.sceneId()).isNull();
             assertThat(evidence.sourceRefType()).isNull();
@@ -83,6 +89,68 @@ class InitialClipRegistrationTest {
     }
 
     @Test
+    void rejectsFilmedDateAfterRegistrationDay() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.BROADCAST, null, LocalDate.of(2026, 9, 8), null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.FUTURE_FILMED_DATE));
+    }
+
+    @Test
+    void rejectsBroadcastDateAfterRegistrationDay() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.BROADCAST, LocalDate.of(2026, 9, 8), null, null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE));
+    }
+
+    /** 코드마다 가리키는 입력이 하나여야 화면이 방송일 문구를 촬영일 밑에 붙이지 않는다. */
+    @Test
+    void separatesErrorCodePerDateField() {
+        assertThat(ClipRegistrationErrorCode.FUTURE_BROADCAST_DATE.code()).isEqualTo("CLIP_400_013");
+        assertThat(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE.code())
+                .isEqualTo("CLIP_400_013");
+        assertThat(ClipRegistrationErrorCode.FUTURE_FILMED_DATE.code()).isEqualTo("CLIP_400_014");
+    }
+
+    @Test
+    void rejectsBroadcastDateEarlierThanFilmedDate() {
+        assertThatThrownBy(() -> registration(
+                        SourceType.BROADCAST,
+                        LocalDate.of(2026, 9, 5),
+                        LocalDate.of(2026, 9, 6),
+                        null,
+                        null,
+                        definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.BROADCAST_DATE_BEFORE_FILMED_DATE));
+    }
+
+    @Test
+    void acceptsVideoFilmedAndBroadcastOnRegistrationDay() {
+        LocalDate today = LocalDate.of(2026, 9, 7);
+        var registration = registration(SourceType.BROADCAST, today, today, null, null, definition());
+        assertThat(registration.broadcastDate()).isEqualTo(today);
+        assertThat(registration.filmedDate()).isEqualTo(today);
+    }
+
+    /** 미래 날짜 검사를 앞에 끼워 넣어도 자료 영상의 방송일 거부는 그대로 CLIP_400_003 이어야 한다. */
+    @Test
+    void keepsArchiveBroadcastDateRejectionForFutureBroadcastDate() {
+        assertThatThrownBy(() ->
+                        registration(SourceType.ARCHIVE, LocalDate.of(2026, 9, 8), null, null, null, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE));
+    }
+
+    @Test
     void rejectsBroadcastDateForArchiveEvenOutsideHttpValidation() {
         assertThatThrownBy(() ->
                         registration(SourceType.ARCHIVE, LocalDate.of(2026, 9, 7), null, null, null, definition()))
@@ -90,6 +158,62 @@ class InitialClipRegistrationTest {
                         BusinessException.class,
                         error -> assertThat(error.errorCode())
                                 .isEqualTo(ClipRegistrationErrorCode.ARCHIVE_BROADCAST_DATE));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"가, 50", "😀, 25"})
+    void enforcesTitleLimitInUtf16UnitsEvenOutsideHttpValidation(String character, int count) {
+        String title = character.repeat(count);
+        assertThat(titled(title).title()).isEqualTo(title);
+        assertThatThrownBy(() -> titled(title + character)).isInstanceOfSatisfying(BusinessException.class, error -> {
+            assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.TITLE_TOO_LONG);
+            assertThat(error.errorCode().message()).isEqualTo("제목은 50자 이내로 입력해 주세요.");
+        });
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    void treatsBlankOptionalTitleAsAbsent(String title) {
+        assertThat(titled(title).title()).isNull();
+    }
+
+    /**
+     * S15P21A501-226 재현. dev 의 clip 64행 중 53행이 이 상태로 저장돼 있었다.
+     *
+     * <p>「인수위」를 CP949 로 적은 바이트다. UTF-8 로 읽으면 {@code CE BC} 만 우연히 유효한 두 바이트 문자(μ)로 살아남고 나머지는 한 바이트씩 U+FFFD 가 된다. 사라진 바이트
+     * 값은 어디에도 남지 않아 되돌릴 수 없으므로, 저장 전에 거절하는 것 말고는 손쓸 방법이 없다.
+     */
+    @Test
+    void rejectsTitleThatLostBytesToAFailedDecode() {
+        byte[] cp949 = {(byte) 0xC0, (byte) 0xCE, (byte) 0xBC, (byte) 0xF6, (byte) 0xC0, (byte) 0xA7};
+        String mojibake = new String(cp949, StandardCharsets.UTF_8);
+        assertThat(mojibake).contains(String.valueOf((char) 0xFFFD));
+
+        assertThatThrownBy(() -> titled(mojibake))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.TITLE_NOT_UTF8));
+        assertThat(titled("설 연휴 교통 정보").title()).isEqualTo("설 연휴 교통 정보");
+    }
+
+    /**
+     * 226 이 제목에만 건 가드를 일반 대본에도 건다 (S15P21A501-258). 대본 컬럼은 {@code text} 라 길이로는 걸리지 않으므로, 깨진 바이트를 받으면 되돌릴 수 없는 대본이 그대로
+     * 저장되고 VLM 이 그것을 참고 자료로 읽는다.
+     */
+    @Test
+    void rejectsScriptTextThatLostBytesToAFailedDecode() {
+        byte[] cp949 = {(byte) 0xC0, (byte) 0xCE, (byte) 0xBC, (byte) 0xF6, (byte) 0xC0, (byte) 0xA7};
+        String mojibake = new String(cp949, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> registration(SourceType.BROADCAST, null, null, null, mojibake, definition()))
+                .isInstanceOfSatisfying(
+                        BusinessException.class,
+                        error -> assertThat(error.errorCode())
+                                .isEqualTo(ClipRegistrationErrorCode.SCRIPT_TEXT_NOT_UTF8));
+        assertThat(registration(SourceType.BROADCAST, null, null, null, "앵커 멘트 전문", definition())
+                        .scriptText())
+                .isEqualTo("앵커 멘트 전문");
     }
 
     @Test
@@ -109,6 +233,23 @@ class InitialClipRegistrationTest {
                         BusinessException.class,
                         error ->
                                 assertThat(error.errorCode()).isEqualTo(ClipRegistrationErrorCode.INVALID_SOURCE_TYPE));
+    }
+
+    private InitialClipRegistration titled(String title) {
+        return new InitialClipRegistration(
+                123,
+                456,
+                SourceType.BROADCAST,
+                "clips/123/original",
+                "a".repeat(64),
+                title,
+                null,
+                null,
+                789,
+                null,
+                null,
+                definition(),
+                registeredAt);
     }
 
     private PipelineDefinition definition() {

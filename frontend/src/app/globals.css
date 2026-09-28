@@ -1,10 +1,14 @@
 @import 'tailwindcss';
 
+@theme inline {
+  --font-sans: var(--font-ui);
+}
+
 :root {
   color-scheme: light;
   background: #ffffff;
   color: #1a1c20;
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-ui);
 }
 
 * {
@@ -43,6 +47,13 @@ button {
 
 button:disabled {
   cursor: not-allowed;
+}
+
+/* 라우트 이동 시 스크린리더 안내용으로 프로그램 포커스되는 제목(tabindex=-1)에는
+   기본 검정 아웃라인을 그리지 않는다. 사용자가 포커스한 것이 아니므로 시각적 박스로 보이면 안 된다. */
+:is(h1, h2)[tabindex='-1']:focus,
+:is(h1, h2)[tabindex='-1']:focus-visible {
+  outline: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
