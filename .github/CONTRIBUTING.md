@@ -1,6 +1,6 @@
 # 협업 규칙 (Gitmoji 기반)
 
-커밋 메시지, 브랜치, Merge Request 규칙 문서입니다.
+커밋 메시지, 브랜치, 이슈, Pull Request 규칙 문서입니다.
 커밋 메시지와 브랜치 이름은 Git hook(lefthook)으로 **자동 검사**됩니다. 규칙을 어기면 커밋이 막히고 고치는 방법이 출력됩니다.
 
 ## 0. 최초 1회 설정
@@ -16,39 +16,39 @@ npm install
 ### 형식
 
 ```
-<:gitmoji:> <type>(<scope>): <설명> (지라 키)
+<:gitmoji:> <type>(<scope>): <설명> (#이슈 번호)
 ```
 
 ```
-:sparkles: feat(fe): 로그인 페이지 UI 구현 (S15P21A501-123)
-:bug: fix(be): 회원가입 시 이메일 중복 체크 오류 수정 (S15P21A501-56)
-:wrench: chore(infra): Jenkins 파이프라인 설정 추가 (S15P21A501-4)
+:sparkles: feat(fe): 로그인 페이지 UI 구현 (#123)
+:bug: fix(be): 회원가입 시 이메일 중복 체크 오류 수정 (#56)
+:wrench: chore(infra): Jenkins 파이프라인 설정 추가 (#4)
 ```
 
-- 이모지는 **shortcode**(`:sparkles:`)로 씁니다. GitLab/GitHub가 자동으로 이모지로 렌더링해줍니다.
+- 이모지는 **shortcode**(`:sparkles:`)로 씁니다. GitHub가 자동으로 이모지로 렌더링해줍니다.
 - **scope는 필수**이며 `fe`, `be`, `ai`, `infra` 중 하나입니다.
 - **type은 반드시 소문자**로 씁니다 (`docs:` O, `Docs:` X)
 - 설명은 한글/영문 모두 가능, **1~60자**
-- 지라 키는 항상 맨 뒤에 괄호로 붙입니다 (지라 티켓 이름이 길어 중간에 넣으면 가독성이 떨어지기 때문)
+- 이슈 번호는 항상 맨 뒤에 괄호로 붙입니다 (`#123` 은 GitHub가 이슈 링크로 연결해줍니다)
 - shortcode와 type이 짝이 맞지 않으면(`:bug: feat(fe):`) 커밋이 막힙니다.
 - `npx gitmoji -c` 로 이모지를 골라 대화형 커밋을 할 수 있습니다.
   - 이모지를 고른 뒤 title 입력란에 `feat(fe): 로그인 페이지 UI 구현` 처럼 **type과 scope까지 함께** 입력하세요.
   - gitmoji-cli의 scope 프롬프트는 `(fe):` 만 붙이고 type을 빼기 때문에 `.gitmojirc.json`에서 `scopePrompt: false`로 꺼두었습니다.
   - 마찬가지로 title 첫 글자를 대문자로 바꾸는 동작도 `capitalizeTitle: false`로 꺼두었습니다 (소문자 type 규칙과 충돌).
 
-### 지라 키 자동 완성
+### 이슈 번호 자동 완성
 
-브랜치 이름(`type/설명-지라키`)에 이미 지라 키가 들어있으므로, 커밋 메시지에는 직접 안 써도 됩니다.
+브랜치 이름(`type/설명-이슈번호`)에 이미 이슈 번호가 들어있으므로, 커밋 메시지에는 직접 안 써도 됩니다.
 
 ```bash
-# fe/feat/login-page-S15P21A501-123 브랜치에서
+# fe/feat/login-page-123 브랜치에서
 git commit -m ":sparkles: feat(fe): 로그인 페이지 UI 구현"
-# -> ":sparkles: feat(fe): 로그인 페이지 UI 구현 (S15P21A501-123)" 으로 자동 완성
+# -> ":sparkles: feat(fe): 로그인 페이지 UI 구현 (#123)" 으로 자동 완성
 ```
 
-- `main`/`dev`처럼 지라 키가 없는 보호 브랜치에서는 동작하지 않으므로 직접 적어야 합니다.
-- 이미 같은 지라 키가 있으면(`--amend` 등) 중복으로 붙이지 않습니다.
-- 자동 완성이 실패해도 최종적으로 `commit-msg` 검사가 지라 키 유무를 다시 확인합니다.
+- `main`/`dev`처럼 이슈 번호가 없는 보호 브랜치에서는 동작하지 않으므로 직접 적어야 합니다.
+- 이미 같은 이슈 번호가 있으면(`--amend` 등) 중복으로 붙이지 않습니다.
+- 자동 완성이 실패해도 최종적으로 `commit-msg` 검사가 이슈 번호 유무를 다시 확인합니다.
 
 ### Gitmoji ↔ type 매핑
 
@@ -79,34 +79,37 @@ git commit -m ":sparkles: feat(fe): 로그인 페이지 UI 구현"
 ### 형식
 
 ```
-[<플랫폼>/]<커밋타입>/<설명(kebab-case, 영문 또는 한글)>-<지라 키>
+[<플랫폼>/]<커밋타입>/<설명(kebab-case, 영문 또는 한글)>-<이슈 번호>
 ```
 
 ```
-feat/login-page-S15P21A501-123
-fix/signup-email-validation-S15P21A501-56
-ai/feat/model-serving-S15P21A501-8
-fe/fix/버그-수정-S15P21A501-45
-infra/chore/jenkins-pipeline-S15P21A501-4
+feat/login-page-123
+fix/signup-email-validation-56
+ai/feat/model-serving-8
+fe/fix/버그-수정-45
+infra/chore/jenkins-pipeline-4
 ```
 
 - **플랫폼**(선택): `fe`, `be`, `ai`, `infra` 중 하나. 구분이 필요할 때만 붙이고 없어도 됩니다.
 - **커밋타입**(필수): 커밋 메시지와 완전히 동일한 목록 → 위 매핑 표 참고. 임의의 단어는 허용되지 않습니다.
 - 설명은 소문자 영문/숫자/한글/하이픈만 씁니다.
-- 지라 키는 항상 맨 뒤에 붙입니다 (중간에 넣으면 브랜치 이름이 잘려 보이기 때문)
+- 이슈 번호는 항상 맨 뒤에 `-` 로 이어 붙입니다 (`#` 은 셸에서 주석으로 해석되므로 브랜치 이름에는 쓰지 않습니다)
 - `main`, `master`, `develop`, `dev`, `dev-be`, `dev-fe`, `dev-ai`, `release/*` 는 검사에서 제외됩니다.
 - 브랜치와 커밋이 같은 타입 목록(`scripts/git-rules.cjs`의 `TYPES`)을 참조합니다.
 
-## 3. Merge Request 규칙
+## 3. 이슈 / Pull Request 규칙
 
-- **머지 대상 브랜치**: 기능/버그 브랜치는 `dev`로 MR을 올립니다. `main`은 배포 시점에만 머지합니다.
-- **제목 형식**: 커밋 메시지와 동일하게 `<:gitmoji:> <type>(<scope>): <설명> (지라 키)`
-- **템플릿**: MR 생성 시 "Choose a template" 드롭다운에서 선택합니다.
-  - 신규 기능 → [Feature.md](merge_request_templates/Feature.md)
-  - 버그 수정 → [Fix.md](merge_request_templates/Fix.md)
+- **이슈**: 작업 전에 이슈를 먼저 만들고, 그 번호로 브랜치를 만듭니다. "New issue"에서 템플릿을 고릅니다.
+  - 기능 구현 → [feature.md](ISSUE_TEMPLATE/feature.md)
+  - 버그 제보 → [bug.md](ISSUE_TEMPLATE/bug.md)
+- **머지 대상 브랜치**: 기능/버그 브랜치는 `dev`로 PR을 올립니다. `main`은 배포 시점에만 머지합니다.
+- **제목 형식**: 커밋 메시지와 동일하게 `<:gitmoji:> <type>(<scope>): <설명> (#이슈 번호)`
+- **템플릿**: GitHub PR에는 템플릿 선택 드롭다운이 없습니다.
+  - 신규 기능 → [pull_request_template.md](pull_request_template.md) (PR 생성 시 자동 적용)
+  - 버그 수정 → [fix.md](PULL_REQUEST_TEMPLATE/fix.md) (PR 생성 URL 끝에 `?template=fix.md` 를 붙입니다)
 - **리뷰어**: 최소 1인 이상 지정, 승인(approve) 후 머지
-- **머지 방식**: 일반 머지 커밋, 머지 후 소스 브랜치 삭제. Squash 머지는 프로젝트 설정(`squash_option: never`)에서 막혀 있어 개별 MR에서 켜지 않습니다.
-- **연결된 지라 티켓**: "관련 이슈"에 지라 티켓 링크(또는 키)를 반드시 작성
+- **머지 방식**: 일반 머지 커밋, 머지 후 소스 브랜치 삭제. Squash 머지는 쓰지 않습니다.
+- **연결된 이슈**: "관련 이슈"에 이슈 번호(`#123`)를 반드시 작성
 
 ## 4. 자동 검사 구조
 
@@ -115,7 +118,7 @@ infra/chore/jenkins-pipeline-S15P21A501-4
 | 훅 | 실행 명령 | 역할 |
 |---|---|---|
 | `prepare-commit-msg` | `git-rules.cjs branch` | 브랜치 이름 검사 |
-| `prepare-commit-msg` | `git-rules.cjs prepare` | 브랜치에서 지라 키를 추출해 메시지 끝에 부착 |
+| `prepare-commit-msg` | `git-rules.cjs prepare` | 브랜치에서 이슈 번호를 추출해 메시지 끝에 부착 |
 | `commit-msg` | `git-rules.cjs verify` | 커밋 메시지 형식 최종 검사 |
 
 - 설정 파일: [`lefthook.yml`](../lefthook.yml)
