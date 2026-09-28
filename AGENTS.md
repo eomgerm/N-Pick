@@ -19,6 +19,26 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 - 브랜치 이름에 지라 키가 있으면 커밋 메시지에 자동으로 붙으므로 직접 쓰지 않아도 됩니다.
 - 클론 직후 1회: `npm install`
 
+## 아키텍처 정본
+
+시스템 전체 구조는 C4 다이어그램 3종이 정본입니다. 기술 표기가 문서 간에 어긋나면 [02 Container](docs/architecture/02-container.md)의 *요소* 표를 따릅니다.
+
+| 레벨 | 문서 | 범위 |
+| --- | --- | --- |
+| L1 Context | [docs/architecture/01-context.md](docs/architecture/01-context.md) | 사용자와 시스템 경계, 경계 밖으로 나가는 데이터 |
+| L2 Container | [docs/architecture/02-container.md](docs/architecture/02-container.md) | 배포 단위와 통신 프로토콜, **기술 스택 정본** |
+| Deployment | [docs/architecture/03-deployment.md](docs/architecture/03-deployment.md) | P0 노드 배치 (EC2 + RunPod GPU 파드) |
+
+## 하위 규약
+
+| 범위 | 문서 |
+| --- | --- |
+| `frontend/` (Next.js) | [frontend/AGENTS.md](frontend/AGENTS.md) → 설계 정본 [frontend/docs/architecture.md](frontend/docs/architecture.md) |
+| `backend/` (Spring Boot) | [backend/AGENTS.md](backend/AGENTS.md) → 설계 정본 [backend/docs/ddd-package-architecture.md](backend/docs/ddd-package-architecture.md) |
+| `ai/` (Python Pipeline Worker) | [ai/AGENTS.md](ai/AGENTS.md) → 처리 정본 [docs/frd.md](docs/frd.md) §5 |
+
+해당 디렉터리에서 작업하기 전에 그 문서를 먼저 읽는다.
+
 ## 문서 템플릿
 
 문서를 새로 만들 때는 반드시 해당 템플릿을 읽고 그 구조 그대로 채운다. 임의로 섹션을 추가/삭제하지 않는다.

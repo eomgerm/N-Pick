@@ -1,0 +1,21 @@
+# 운영 동작 설정. FRD §15.6 Gate D.
+
+version: 0
+frozen: false
+
+time:
+  storage_timezone: UTC
+  display_timezone: Asia/Seoul
+
+logging:
+  destination: local_rolling_file
+  external_telemetry: false
+  max_file_bytes: null
+  retain_days: null
+
+network:
+  bind: loopback   # 실제 강제는 compose.yaml 의 127.0.0.1 매핑
+
+api:
+  require_expected_version_on_update: true
+  require_idempotency_key_on_create: true
