@@ -177,6 +177,38 @@ test('처리 상세는 완료 단계 수와 지금 진행 중인 단계를 막�
   await expect(page.getByRole('tab', { name: /3단계 영상 속 글자 읽기 · 진행 중/ })).toBeVisible();
 });
 
+test('움직임 최소화 설정이면 진행 요약의 흐름 애니메이션을 끈다', async ({ browser }) => {
+  // 명시도가 낮은 선택자로 끄면 미디어 쿼리 안이어도 원래 규칙에 져서 계속 돈다. 계산된
+  // animation-name 으로 확인한다.
+  const context = await browser.newContext({ reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  await context.addCookies([
+    { name: 'JSESSIONID', value: 'e2e-reviewer', url: 'http://127.0.0.1:3116' },
+    { name: 'XSRF-TOKEN', value: 'test-csrf', url: 'http://127.0.0.1:3116' },
+  ]);
+  await page.route('**/api/v1/clips/21', (route) =>
+    success(
+      route,
+      detail('running', [stage('scene_detection', 'succeeded'), stage('frame_extraction', 'running')]),
+    ),
+  );
+  await page.route('**/api/v1/clips/21/runs/32/scenes?*', (route) =>
+    success(route, { items: [], page: 0, size: 20, total_elements: 0, total_pages: 0, has_next: false }),
+  );
+  await page.goto('/review?view=processing&clip=21');
+
+  const bar = page.getByRole('progressbar', { name: '영상 처리 진행률' });
+  await expect(bar).toBeVisible();
+  const animations = await bar.evaluate((el) => ({
+    fill: getComputedStyle(el.querySelector('span') as Element, '::after').animationName,
+    marker: getComputedStyle(
+      document.querySelector('[data-status="running"] span') as Element,
+    ).animationName,
+  }));
+  expect(animations).toEqual({ fill: 'none', marker: 'none' });
+  await context.close();
+});
+
 test('작업자가 아직 가져가지 않은 처리는 대기 중이라고 알린다', async ({ page }) => {
   await page.route('**/api/v1/clips/21', (route) =>
     success(route, detail('queued', [stage('scene_detection', 'pending')])),

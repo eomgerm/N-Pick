@@ -98,7 +98,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .summary .track > span::after,
+  /* 만드는 쪽과 같은 선택자를 쓴다. `.summary .track > span::after` 로 줄이면 명시도가 낮아
+     (0,2,2 < 0,3,2) 미디어 쿼리 안이어도 위 규칙에 져서 흐름이 그대로 돈다. */
+  .summary:is([data-state='running'], [data-state='waiting']) .track > span::after,
   .summary[data-state='waiting'] .track::after,
   .step[data-status='running'] .marker,
   .step[data-status='running']::before {
