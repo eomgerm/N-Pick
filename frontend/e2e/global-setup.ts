@@ -27,7 +27,7 @@ export default async function globalSetup() {
         'access-control-allow-origin': frontendUrl,
         'access-control-allow-credentials': 'true',
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': 'Content-Type, X-XSRF-TOKEN',
+        'access-control-allow-headers': 'Content-Type, X-XSRF-TOKEN, Idempotency-Key',
       });
       response.end();
       return;
@@ -125,6 +125,26 @@ export default async function globalSetup() {
         code: 'COMM_200',
         message: '성공',
         data: { tags: [], parsePatches: [], sceneExcludes: [] },
+      });
+      return;
+    }
+
+    // 실제 네트워크로 받는 영상 등록 (S15P21A501-325). page.route 로 가로채면 브라우저가 업로드
+    // 진행률을 내지 않으므로, 대기 화면의 전송→서버 확인 전환은 이 경로로 검증한다. 본문을 다 받은 뒤
+    // 서버 검사 시간을 흉내 내 잠시 기다렸다 답한다.
+    if (request.method === 'POST' && url.pathname === '/api/v1/clips') {
+      request.resume();
+      request.on('end', () => {
+        setTimeout(
+          () =>
+            sendJson(response, 200, {
+              isSuccess: true,
+              code: 'COMM_200',
+              message: '성공',
+              data: { clip_id: '21', pipeline_run_id: '32', status: 'queued' },
+            }),
+          2_500,
+        );
       });
       return;
     }

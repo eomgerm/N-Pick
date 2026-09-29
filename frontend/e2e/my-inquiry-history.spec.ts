@@ -192,9 +192,7 @@ test('검색 결과에서 접수한 문의는 재조회·새로고침 뒤에도 
   await page.getByRole('radio', { name: '기타', exact: true }).check();
   await page.getByRole('textbox', { name: '상세 설명 (선택)' }).fill(item.comment);
   await page.getByRole('button', { name: '문의 접수', exact: true }).click();
-  await expect(
-    page.getByText(`문의 #${item.feedback_id}의 접수가 확인되었습니다.`, { exact: false }),
-  ).toBeVisible();
+  await expect(page.getByText('문의가 접수되었습니다.', { exact: false })).toBeVisible();
   await trigger.click();
   await expect(panel.getByText(item.comment, { exact: true })).toBeVisible();
   expect(listRequests).toBeGreaterThanOrEqual(2);

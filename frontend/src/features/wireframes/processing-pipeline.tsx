@@ -9,6 +9,7 @@ import {
   processingStageOrder,
   stageStatusLabels,
 } from '@/features/wireframes/clip-processing-view';
+import motion from '@/features/wireframes/processing-run-progress.module.css';
 import styles from '@/features/wireframes/reviewer-progress.module.css';
 
 interface ProcessingPipelineProps {
@@ -48,7 +49,7 @@ export function ProcessingPipeline({
             const statusLabel = stage ? stageStatusLabels[stage.status] : '기록 없음';
             return (
               <div
-                className={styles.pipelineStep}
+                className={`${styles.pipelineStep} ${motion.step}`}
                 key={name}
                 role="presentation"
                 data-status={stage?.status}
@@ -71,7 +72,7 @@ export function ProcessingPipeline({
                   onClick={() => onActiveNameChange(name)}
                   onKeyDown={(event) => handleKeyDown(event, index)}
                 >
-                  <span className={styles.stageMarker} aria-hidden="true">
+                  <span className={`${styles.stageMarker} ${motion.marker}`} aria-hidden="true">
                     {stage?.status === 'succeeded' ? <Check /> : String(index + 1).padStart(2, '0')}
                   </span>
                   <strong>{processingStageLabel(name)}</strong>

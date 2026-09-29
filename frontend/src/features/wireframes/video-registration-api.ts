@@ -1,4 +1,5 @@
 import { ApiClientError, fetchJson } from '@/lib/api/client';
+import type { UploadProgressEvent } from '@/lib/api/xhr-transport';
 import { createIdempotencyKey } from '@/lib/api/idempotency';
 import { readUserMessage } from '@/lib/api/error';
 
@@ -146,12 +147,14 @@ export function parseClipRegistrationResponse(value: unknown): ClipRegistrationR
 export async function registerClip(
   submission: ClipRegistrationSubmission,
   signal?: AbortSignal,
+  onUploadProgress?: (event: UploadProgressEvent) => void,
 ): Promise<ClipRegistrationResult> {
   const response = await fetchJson<unknown>('/clips', {
     method: 'POST',
     body: await createClipRegistrationFormData(submission.snapshot),
     idempotencyKey: submission.key,
     signal,
+    onUploadProgress,
   });
   return parseClipRegistrationResponse(response);
 }
