@@ -46,6 +46,24 @@ function withFakeXhr(context) {
   });
 }
 
+test('상대 API 주소의 정상 절대 응답 URL은 리다이렉트로 오인하지 않는다', async (context) => {
+  withFakeXhr(context);
+  globalThis.document = { baseURI: 'https://npick.test/review?view=registration' };
+  context.after(() => delete globalThis.document);
+  const pending = sendWithUploadProgress('/api/v1/clips', { method: 'POST' }, () => {});
+  FakeXhr.last.respond(201, '{}', '', 'https://npick.test/api/v1/clips');
+  assert.equal((await pending).status, 201);
+});
+
+test('상대 API 주소라도 다른 경로로 옮겨진 응답은 거부한다', async (context) => {
+  withFakeXhr(context);
+  globalThis.document = { baseURI: 'https://npick.test/review' };
+  context.after(() => delete globalThis.document);
+  const pending = sendWithUploadProgress('/api/v1/clips', { method: 'POST' }, () => {});
+  FakeXhr.last.respond(200, '{}', '', 'https://npick.test/login');
+  await assert.rejects(pending, TypeError);
+});
+
 test('헤더·쿠키 전송과 업로드 진행률을 넘기고 응답을 Response로 돌려준다', async (context) => {
   withFakeXhr(context);
   const progress = [];

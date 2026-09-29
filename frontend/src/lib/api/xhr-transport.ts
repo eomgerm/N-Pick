@@ -17,8 +17,10 @@ export function sendWithUploadProgress(
       reject(new DOMException('The operation was aborted.', 'AbortError'));
       return;
     }
+    // responseURL은 항상 절대 URL이다. XHR과 같은 기준으로 상대 주소를 먼저 해석한다.
+    const requestUrl = new URL(url, typeof document === 'undefined' ? undefined : document.baseURI);
     const xhr = new XMLHttpRequest();
-    xhr.open((options.method ?? 'GET').toUpperCase(), String(url));
+    xhr.open((options.method ?? 'GET').toUpperCase(), requestUrl.href);
     xhr.withCredentials = options.credentials === 'include';
     new Headers(options.headers).forEach((value, name) => xhr.setRequestHeader(name, value));
     xhr.upload.onprogress = (event) =>
@@ -34,7 +36,7 @@ export function sendWithUploadProgress(
       // 재전송된 뒤 여기에 닿으므로, fetch 의 redirect: 'error' 와 달리 전송 자체는 못 막는다.
       // 전송 차단은 프록시 몫이고(infra/nginx/snippets/app-routes.conf 의 /api/ 가 3xx 를 끊는다),
       // 이 함수가 보장하는 것은 옮겨진 응답을 성공으로 처리하지 않는 것까지다.
-      if (xhr.status < 200 || (xhr.responseURL && xhr.responseURL !== String(url))) {
+      if (xhr.status < 200 || (xhr.responseURL && xhr.responseURL !== requestUrl.href)) {
         reject(new TypeError('Upload response was redirected or incomplete.'));
         return;
       }

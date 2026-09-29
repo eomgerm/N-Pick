@@ -140,7 +140,7 @@ test('실행 중이지만 단계 사이면 다음 단계 준비로 표시한다'
   assert.equal(progress.label, '1/10 완료 · 다음 단계를 준비하는 중');
 });
 
-test('실패한 단계가 있으면 진행 중보다 실패를 먼저 알린다', () => {
+test('전체 실행이 실패하면 실패한 단계를 알린다', () => {
   const progress = processingRunProgress('failed', [
     stage('scene_detection', 'succeeded'),
     stage('frame_extraction', 'failed'),
@@ -148,6 +148,33 @@ test('실패한 단계가 있으면 진행 중보다 실패를 먼저 알린다'
   assert.equal(progress.state, 'failed');
   assert.equal(progress.currentName, 'frame_extraction');
   assert.match(progress.label, /^1\/10 완료 · .+ 단계에서 멈춤$/);
+});
+
+test('비치명 단계가 실패해도 실행 중이면 현재 진행 단계를 표시한다', () => {
+  const progress = processingRunProgress('running', [
+    stage('ocr', 'failed'),
+    stage('indexing', 'running'),
+  ]);
+  assert.equal(progress.state, 'running');
+  assert.equal(progress.currentName, 'indexing');
+  assert.match(progress.label, /진행 중$/);
+});
+
+test('비치명 단계 실패 후 다음 단계 대기를 중단으로 표시하지 않는다', () => {
+  const progress = processingRunProgress('running', [stage('ocr', 'failed')]);
+  assert.equal(progress.state, 'waiting');
+  assert.equal(progress.label, '0/10 완료 · 다음 단계를 준비하는 중');
+});
+
+test('비치명 단계 실패가 남아 있어도 성공한 실행은 완료로 표시한다', () => {
+  const progress = processingRunProgress('succeeded', [
+    stage('ocr', 'failed'),
+    stage('indexing', 'succeeded'),
+  ]);
+  assert.equal(progress.state, 'done');
+  assert.equal(progress.currentName, null);
+  assert.equal(progress.done, 1);
+  assert.equal(progress.label, '1/10 완료');
 });
 
 test('완료된 실행은 완료 수만 보여 준다', () => {
