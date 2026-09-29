@@ -110,6 +110,14 @@ test('등록 요청 중에는 폼 위에 대기 화면을 띄우고 전송이 �
   );
   await expect(panel.getByRole('progressbar', { name: '서버 확인 진행 중' })).toBeVisible();
 
+  // 대기창이 열리면 포커스가 안으로 들어오고, Tab 을 눌러도 뒤의 폼으로 새지 않는다.
+  // (대기창 안에 초점 받을 요소가 없어 Tab 은 body 로 빠진다 — 가려진 폼으로는 가지 않는다.)
+  await expect(panel).toBeFocused();
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Tab');
+    expect(await page.evaluate(() => document.activeElement?.closest('form') !== null)).toBe(false);
+  }
+
   await expect(page).toHaveURL(/view=processing&clip=21/);
   await expect(panel).toHaveCount(0);
 });
@@ -130,6 +138,10 @@ test('등록이 실패하면 대기 화면을 닫고 입력을 유지한 폼으�
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('#registration-title')).toHaveValue('유지할 제목');
   await expect(page.locator('#video-selection')).toContainText('preview-fixture.mp4');
+  // 대기창이 닫히면 포커스가 body 에 남지 않고 폼 안으로 돌아온다.
+  await expect
+    .poll(() => page.evaluate(() => document.activeElement?.closest('form') !== null))
+    .toBe(true);
 });
 
 test('처리 상세는 완료 단계 수와 지금 진행 중인 단계를 막대와 문구로 보여 준다', async ({
