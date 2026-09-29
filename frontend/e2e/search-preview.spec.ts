@@ -109,9 +109,7 @@ test('Preview 문의는 저장 결과 ID로 접수하고 재시도 키와 재검
   page,
 }, testInfo) => {
   await page.clock.install();
-  const successToast = page
-    .getByRole('status')
-    .filter({ hasText: '문의 #501의 접수가 확인되었습니다' });
+  const successToast = page.getByRole('status').filter({ hasText: '문의가 접수되었습니다' });
   const requests: { url: string; key: string | undefined; body: unknown }[] = [];
   await page.route('**/api/v1/search/results/*/inquiries', async (route) => {
     const request = route.request();
@@ -149,7 +147,9 @@ test('Preview 문의는 저장 결과 ID로 접수하고 재시도 키와 재검
   await expect(successToast).toHaveCount(0);
   await inquiry.getByRole('button', { name: '다시 시도', exact: true }).click();
   await expect(inquiry).not.toBeVisible();
-  await expect(page.getByText(/문의 #501의 접수가 확인되었습니다/)).toBeVisible();
+  await expect(page.getByText(/문의가 접수되었습니다/)).toBeVisible();
+  // 서버 문의 ID(TSID)는 사용자에게 의미가 없으므로 토스트에 노출하지 않는다 (S15P21A501-325).
+  await expect(successToast).not.toContainText('#501');
   await expect(successToast).toBeVisible();
   await expect(successToast).toHaveCSS('position', 'fixed');
   await expect(successToast).toBeInViewport();

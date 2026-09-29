@@ -25,7 +25,6 @@ import {
   submitInquiry,
   type InquirySubmission,
 } from '@/features/wireframes/inquiry-api';
-import { inquiryStatusLabels } from '@/features/wireframes/inquiry-state';
 import { myInquiryKeys } from '@/features/wireframes/my-inquiry-api';
 import type { WireframeTheme } from '@/features/wireframes/wireframe-themes';
 import styles from '@/features/wireframes/wireframe.module.css';
@@ -256,7 +255,7 @@ export function WireframeShell({
     setIsInquirySubmitting(true);
 
     try {
-      const response = await submitInquiry(submission);
+      await submitInquiry(submission);
       void queryClient.invalidateQueries({ queryKey: myInquiryKeys.all });
       setSubmittedInquiryIds((current) =>
         current.includes(submission.snapshot.resultId)
@@ -264,7 +263,7 @@ export function WireframeShell({
           : [...current, submission.snapshot.resultId],
       );
       showSuccess(
-        `문의 #${response.inquiryId}의 접수가 확인되었습니다. 현재 상태: ${inquiryStatusLabels[response.status]}. 문의 접수 자체로 검색 결과는 변경되지 않습니다.`,
+        '문의가 접수되었습니다. 처리 상황은 문의 사항에서 확인할 수 있습니다. 문의 접수만으로 검색 결과는 바뀌지 않습니다.',
       );
       setInquirySubmission(null);
       setInquiryResultId(null);
