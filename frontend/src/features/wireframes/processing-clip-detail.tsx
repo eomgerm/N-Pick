@@ -17,6 +17,7 @@ import {
 import { ProcessingStageResults } from '@/features/wireframes/processing-analysis-results';
 import { ProcessingFinalAnalysisResults } from '@/features/wireframes/processing-final-analysis-results';
 import { ProcessingPipeline } from '@/features/wireframes/processing-pipeline';
+import { ProcessingRunProgress } from '@/features/wireframes/processing-run-progress';
 import {
   ProcessingRefreshStatus,
   useProcessingRefreshState,
@@ -239,6 +240,7 @@ export function ProcessingClipDetail({ clipId }: ProcessingClipDetailProps) {
                   {processingRecordLabel(processing.record_status)}
                 </p>
               )}
+            <ProcessingRunProgress runStatus={run?.status} stages={processing?.stages ?? []} />
             <ProcessingPipeline
               activeName={activeStageName}
               onActiveNameChange={(name) => {

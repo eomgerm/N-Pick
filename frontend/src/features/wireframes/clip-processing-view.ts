@@ -94,6 +94,66 @@ export function defaultProcessingStage(
     processingStageOrder[0]
   );
 }
+export interface ProcessingRunProgress {
+  total: number;
+  /** 성공·생략한 단계 수. 생략도 더 기다릴 일이 없으므로 완료로 센다. */
+  done: number;
+  state: 'waiting' | 'running' | 'failed' | 'done';
+  /** 진행 중이거나 멈춘 단계. 단계 사이 대기 중이면 null. */
+  currentName: string | null;
+  label: string;
+}
+
+// 처리 상세의 10단계 진행 요약 (S15P21A501-325). 실패 → 진행 중 → 대기 순으로 우선한다.
+export function processingRunProgress(
+  runStatus: ClipRunStatus | null | undefined,
+  stages: ReadonlyArray<{ name: string; status: ProcessingStageStatus }>,
+): ProcessingRunProgress | null {
+  // 단계 기록이 없으면 0단계 완료로 꾸미지 않는다 — 기록 없음은 목록·파이프라인이 따로 알린다.
+  if (!runStatus || stages.length === 0) return null;
+  const total = processingStageOrder.length;
+  const statusOf = (name: string) => stages.find((stage) => stage.name === name)?.status;
+  const done = processingStageOrder.filter((name) =>
+    ['succeeded', 'skipped'].includes(statusOf(name) ?? ''),
+  ).length;
+  const counted = `${done}/${total} 완료`;
+  const failed = processingStageOrder.find((name) => statusOf(name) === 'failed');
+  if (failed) {
+    return {
+      total,
+      done,
+      state: 'failed',
+      currentName: failed,
+      label: `${counted} · ${processingStageLabel(failed)} 단계에서 멈춤`,
+    };
+  }
+  const running = processingStageOrder.find((name) => statusOf(name) === 'running');
+  if (running) {
+    return {
+      total,
+      done,
+      state: 'running',
+      currentName: running,
+      label: `${counted} · 지금 ${processingStageLabel(running)} 진행 중`,
+    };
+  }
+  if (runStatus === 'succeeded') {
+    return { total, done, state: 'done', currentName: null, label: counted };
+  }
+  if (runStatus === 'failed') {
+    return { total, done, state: 'failed', currentName: null, label: `${counted} · 처리가 중단됨` };
+  }
+  return {
+    total,
+    done,
+    state: 'waiting',
+    currentName: null,
+    label:
+      runStatus === 'queued'
+        ? `${counted} · 처리 서버가 작업을 가져가길 기다리는 중`
+        : `${counted} · 다음 단계를 준비하는 중`,
+  };
+}
 export function processingRecordLabel(status: ProcessingRecordStatus | undefined) {
   return status === 'available'
     ? '처리 기록 확인됨'

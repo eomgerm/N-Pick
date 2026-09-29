@@ -109,3 +109,73 @@ test('확실한 장면 산출물이 없는 단계는 완료 여부만 표시한�
     assert.equal(processingStageResultMode(stage), 'scene');
   }
 });
+
+const { processingRunProgress } = await import('./clip-processing-view.ts');
+const stage = (name, status) => ({ name, status });
+
+test('진행 요약은 성공·생략을 완료로 세고 진행 중 단계를 알려 준다', () => {
+  const progress = processingRunProgress('running', [
+    stage('scene_detection', 'succeeded'),
+    stage('frame_extraction', 'succeeded'),
+    stage('ocr', 'running'),
+    stage('asr', 'skipped'),
+  ]);
+  assert.equal(progress.total, 10);
+  assert.equal(progress.done, 3);
+  assert.equal(progress.state, 'running');
+  assert.equal(progress.currentName, 'ocr');
+  assert.match(progress.label, /^3\/10 완료 · 지금 .+ 진행 중$/);
+});
+
+test('실행이 대기 중이고 진행 중 단계가 없으면 작업자 대기를 알린다', () => {
+  const progress = processingRunProgress('queued', [stage('scene_detection', 'pending')]);
+  assert.equal(progress.state, 'waiting');
+  assert.equal(progress.currentName, null);
+  assert.equal(progress.label, '0/10 완료 · 처리 서버가 작업을 가져가길 기다리는 중');
+});
+
+test('실행 중이지만 단계 사이면 다음 단계 준비로 표시한다', () => {
+  const progress = processingRunProgress('running', [stage('scene_detection', 'succeeded')]);
+  assert.equal(progress.state, 'waiting');
+  assert.equal(progress.label, '1/10 완료 · 다음 단계를 준비하는 중');
+});
+
+test('실패한 단계가 있으면 진행 중보다 실패를 먼저 알린다', () => {
+  const progress = processingRunProgress('failed', [
+    stage('scene_detection', 'succeeded'),
+    stage('frame_extraction', 'failed'),
+  ]);
+  assert.equal(progress.state, 'failed');
+  assert.equal(progress.currentName, 'frame_extraction');
+  assert.match(progress.label, /^1\/10 완료 · .+ 단계에서 멈춤$/);
+});
+
+test('완료된 실행은 완료 수만 보여 준다', () => {
+  const stages = [
+    'scene_detection',
+    'frame_extraction',
+    'ocr',
+    'transcript_selection',
+    'asr',
+    'scene_transcript_mapping',
+    'vlm_metadata',
+    'entity_extraction',
+    'text_embedding',
+    'indexing',
+  ].map((name) => stage(name, name === 'asr' ? 'skipped' : 'succeeded'));
+  const progress = processingRunProgress('succeeded', stages);
+  assert.equal(progress.state, 'done');
+  assert.equal(progress.label, '10/10 완료');
+});
+
+test('처리 기록이 없으면 요약을 만들지 않는다', () => {
+  assert.equal(processingRunProgress(null, []), null);
+  // 실행은 있어도 단계 기록을 못 받았으면 0단계 완료로 꾸미지 않는다.
+  assert.equal(processingRunProgress('failed', []), null);
+});
+
+test('실패한 실행에 실패 단계 기록이 없으면 중단으로 표시한다', () => {
+  const progress = processingRunProgress('failed', [stage('scene_detection', 'succeeded')]);
+  assert.equal(progress.state, 'failed');
+  assert.equal(progress.label, '1/10 완료 · 처리가 중단됨');
+});

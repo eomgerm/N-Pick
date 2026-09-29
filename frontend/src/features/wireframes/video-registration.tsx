@@ -11,6 +11,8 @@ import {
   VideoFileField,
 } from '@/features/wireframes/registration-file-fields';
 import { RegistrationDatePicker } from '@/features/wireframes/registration-date-picker';
+import { RegistrationUploadProgress } from '@/features/wireframes/registration-upload-progress';
+import type { UploadProgress } from '@/features/wireframes/registration-upload-phase';
 import {
   registrationDateBounds,
   registrationToday,
@@ -119,6 +121,12 @@ export function VideoRegistration({
   const [errorPresentation, setErrorPresentation] =
     useState<ClipRegistrationErrorPresentation | null>(null);
   const [liveMessage, setLiveMessage] = useState('영상 등록 내용을 입력할 수 있어요.');
+  // 요청 중에만 채운다. 폼 위 대기 화면이 파일 이름·전송량을 보여 준다 (S15P21A501-325).
+  const [upload, setUpload] = useState<{
+    fileName: string;
+    fileSize: number;
+    progress: UploadProgress | null;
+  } | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const globalErrorRef = useRef<HTMLDivElement>(null);
   const lockedRef = useRef(false);
@@ -129,7 +137,9 @@ export function VideoRegistration({
     mutationFn: async () => {
       const submission = activeSubmissionRef.current;
       if (!submission) throw new Error('Missing registration submission.');
-      return registerClip(submission);
+      return registerClip(submission, undefined, (progress) =>
+        setUpload((current) => (current ? { ...current, progress } : current)),
+      );
     },
     gcTime: 0,
     onSuccess: (result) => {
@@ -168,6 +178,7 @@ export function VideoRegistration({
       scheduleErrorFocus(presentation.fieldErrors, presentation.showGlobal);
     },
     onSettled: () => {
+      setUpload(null);
       activeSubmissionRef.current = null;
       lockedRef.current = false;
       setIsSubmissionLocked(false);
@@ -278,6 +289,11 @@ export function VideoRegistration({
     lockedRef.current = true;
     setIsSubmissionLocked(true);
     activeSubmissionRef.current = submission;
+    setUpload({
+      fileName: submission.snapshot.video.name,
+      fileSize: submission.snapshot.video.size,
+      progress: null,
+    });
     setErrorPresentation(null);
     setFieldErrors({});
     setLiveMessage('일반 대본을 확인하고 영상 등록 요청을 보내고 있어요.');
@@ -618,6 +634,7 @@ export function VideoRegistration({
           </footer>
         </div>
       </form>
+      {upload ? <RegistrationUploadProgress {...upload} /> : null}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { env } from '@/lib/env';
 import { logApiResponse } from '@/lib/api/log';
 import { ApiClientError, readRequestId } from '@/lib/api/error';
+import { sendWithUploadProgress, type UploadProgressEvent } from '@/lib/api/xhr-transport';
 
 export { ApiClientError } from '@/lib/api/error';
 
@@ -20,6 +21,8 @@ interface JsonRequestInit extends Omit<RequestInit, 'body' | 'cache'> {
   cache?: RequestCache;
   idempotencyKey?: string;
   query?: URLSearchParams;
+  /** 주면 브라우저에서 XHR 로 보내 업로드 진행률을 받는다. 그 외 처리는 fetch 경로와 같다. */
+  onUploadProgress?: (event: UploadProgressEvent) => void;
 }
 
 interface JsonParseContext {
@@ -148,7 +151,15 @@ async function fetchJsonOnce<ResponseData>(
   init: JsonRequestInit = {},
   baseUrl = env.apiBaseUrl,
 ): Promise<ResponseData> {
-  const { body, cache = 'no-store', headers, idempotencyKey, query, ...requestInit } = init;
+  const {
+    body,
+    cache = 'no-store',
+    headers,
+    idempotencyKey,
+    onUploadProgress,
+    query,
+    ...requestInit
+  } = init;
   const requestHeaders = new Headers(headers);
   const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(
     (requestInit.method ?? 'GET').toUpperCase(),
@@ -194,7 +205,10 @@ async function fetchJsonOnce<ResponseData>(
   let loggedError: ApiClientError | undefined;
   try {
     try {
-      response = await fetch(url, options);
+      response =
+        onUploadProgress && typeof XMLHttpRequest !== 'undefined'
+          ? await sendWithUploadProgress(url, options, onUploadProgress)
+          : await fetch(url, options);
     } catch (cause) {
       throw new ApiClientError(requestInit.signal?.aborted ? 'aborted' : 'network', 0, {
         diagnostics: { cause },
