@@ -193,6 +193,8 @@ async function fetchJsonOnce<ResponseData>(
     ...requestInit,
     credentials: 'include',
     // Do not forward session cookies or CSRF headers through an API redirect.
+    // The XHR branch below cannot honour this — XHR follows redirects itself, so /api/
+    // redirects are cut at the proxy (infra/nginx/snippets/app-routes.conf).
     redirect: 'error',
     body: isFormData ? body : body === undefined ? undefined : JSON.stringify(body),
     cache,

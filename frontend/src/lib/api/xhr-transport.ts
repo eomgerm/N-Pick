@@ -30,7 +30,10 @@ export function sendWithUploadProgress(
 
     xhr.onload = () => {
       settle();
-      // XHR 은 리다이렉트를 막을 수 없다. 다른 곳으로 옮겨진 응답은 fetch 의 redirect: 'error' 처럼 버린다.
+      // XHR 은 리다이렉트를 막지 못한다. 307/308 이면 본문·쿠키·CSRF 헤더가 새 대상으로 이미
+      // 재전송된 뒤 여기에 닿으므로, fetch 의 redirect: 'error' 와 달리 전송 자체는 못 막는다.
+      // 전송 차단은 프록시 몫이고(infra/nginx/snippets/app-routes.conf 의 /api/ 가 3xx 를 끊는다),
+      // 이 함수가 보장하는 것은 옮겨진 응답을 성공으로 처리하지 않는 것까지다.
       if (xhr.status < 200 || (xhr.responseURL && xhr.responseURL !== String(url))) {
         reject(new TypeError('Upload response was redirected or incomplete.'));
         return;

@@ -86,7 +86,7 @@ test('본문 없는 성공 상태는 본문 없이 돌려준다', async (context
   assert.equal((await pending).status, 204);
 });
 
-test('리다이렉트된 응답은 fetch의 redirect: error처럼 거부한다', async (context) => {
+test('옮겨진 응답은 성공으로 처리하지 않는다(전송 차단은 프록시 몫)', async (context) => {
   withFakeXhr(context);
   const pending = sendWithUploadProgress(
     new URL('http://api.test/x'),
