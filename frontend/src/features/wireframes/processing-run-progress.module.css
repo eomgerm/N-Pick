@@ -1,0 +1,112 @@
+.summary {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+.track > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent-strong);
+  transition: width 0.4s ease;
+}
+/* 진행 중·대기 중에는 채워진 막대 끝에 빛이 흐르게 해 멈춘 것이 아님을 보인다. */
+.summary:is([data-state='running'], [data-state='waiting']) .track > span::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  min-width: 48px;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 55%), transparent);
+  animation: shimmer 1.6s linear infinite;
+}
+/* 대기 중에는 채워진 막대가 없을 수 있어 트랙 전체에 흐름을 보인다. */
+.summary[data-state='waiting'] .track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent-strong) 22%, transparent),
+    transparent
+  );
+  animation: shimmer 1.8s linear infinite;
+}
+.summary[data-state='failed'] .track > span {
+  background: #c2573f;
+}
+.summary[data-state='done'] .track > span {
+  background: #2f7a5c;
+}
+.label {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+.summary[data-state='failed'] .label {
+  color: #913b2b;
+}
+
+/* ProcessingPipeline 의 단계 마커·연결선 애니메이션. */
+.step[data-status='running'] .marker {
+  animation: pulse 1.6s ease-out infinite;
+}
+.step[data-status='succeeded']::before {
+  background: #9cc9b3;
+}
+.step[data-status='running']::before {
+  background: linear-gradient(
+    90deg,
+    #9cc9b3 0%,
+    var(--accent-strong) 45%,
+    var(--line) 55%,
+    var(--line) 100%
+  );
+  background-size: 200% 100%;
+  animation: flow 1.8s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-strong) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 12px transparent;
+  }
+}
+@keyframes flow {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 만드는 쪽과 같은 선택자를 쓴다. `.summary .track > span::after` 로 줄이면 명시도가 낮아
+     (0,2,2 < 0,3,2) 미디어 쿼리 안이어도 위 규칙에 져서 흐름이 그대로 돈다. */
+  .summary:is([data-state='running'], [data-state='waiting']) .track > span::after,
+  .summary[data-state='waiting'] .track::after,
+  .step[data-status='running'] .marker,
+  .step[data-status='running']::before {
+    animation: none;
+  }
+  .track > span {
+    transition: none;
+  }
+}

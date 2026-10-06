@@ -19,6 +19,7 @@ const localFiles = {
   '@/features/wireframes/media-time': './media-time.ts',
   '@/lib/api/client': '../../lib/api/client.ts',
   '@/lib/api/log': '../../lib/api/log.ts',
+  '@/lib/api/xhr-transport': '../../lib/api/xhr-transport.ts',
   '@/lib/api/error': '../../lib/api/error.ts',
   '@/lib/env': '../../lib/env.ts',
   '@/lib/auth/session-events': '../../lib/auth/session-events.ts',

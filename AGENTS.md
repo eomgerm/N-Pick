@@ -4,19 +4,19 @@
 
 ## 커밋 / 브랜치 규칙
 
-lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gitlab/CONTRIBUTING.md)
+lefthook이 자동 검사합니다. 전체 규칙: [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md)
 
 ```
-커밋:   <:gitmoji:> <type>(<scope>): <설명> (지라 키)
-        :sparkles: feat(fe): 로그인 페이지 UI 구현 (S15P21A501-123)
+커밋:   <:gitmoji:> <type>(<scope>): <설명> (#이슈 번호)
+        :sparkles: feat(fe): 로그인 페이지 UI 구현 (#123)
 
-브랜치: [<플랫폼>/]<type>/<설명-kebab>-<지라 키>
-        fe/feat/login-page-S15P21A501-123
+브랜치: [<플랫폼>/]<type>/<설명-kebab>-<이슈 번호>
+        fe/feat/login-page-123
 ```
 
 - scope/플랫폼: `fe` `be` `ai` `infra` (커밋은 필수, 브랜치는 선택)
 - type 15종과 이모지 매핑, 검사 로직 단일 소스: `scripts/git-rules.cjs`
-- 브랜치 이름에 지라 키가 있으면 커밋 메시지에 자동으로 붙으므로 직접 쓰지 않아도 됩니다.
+- 브랜치 이름에 이슈 번호가 있으면 커밋 메시지에 자동으로 붙으므로 직접 쓰지 않아도 됩니다.
 - 클론 직후 1회: `npm install`
 
 ## 아키텍처 정본
@@ -50,7 +50,8 @@ lefthook이 자동 검사합니다. 전체 규칙: [.gitlab/CONTRIBUTING.md](.gi
 | PRD | (팀 제공 예정) | `docs/prd/<기능명>.md` |
 | FRD | (팀 제공 예정) | `docs/frd/<기능명>.md` |
 | Jira 이슈 | `docs/templates/jira-issue.md` | Jira (프로젝트 `S15P21A501`) |
-| GitLab MR | `.gitlab/merge_request_templates/Feature.md`, `Fix.md` | GitLab이 자동 적용 |
+| GitHub 이슈 | `.github/ISSUE_TEMPLATE/feature.md`, `bug.md` | GitHub가 "New issue"에서 선택지로 제공 |
+| GitHub PR | `.github/pull_request_template.md`, `.github/PULL_REQUEST_TEMPLATE/fix.md` | 기본 템플릿은 자동 적용, fix는 `?template=fix.md` |
 
 ## 기능 개발 절차
 
