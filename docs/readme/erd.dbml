@@ -1,0 +1,267 @@
+// N-Pick ERD — backend/src/main/resources/db/migration 의 Flyway 마이그레이션(V20260907092019 ~ V20260922120000)을 모두 적용한 최종 스키마.
+// Spring Session 기본 테이블(SPRING_SESSION, SPRING_SESSION_ATTRIBUTES)은 뺐다.
+// 렌더: dbdiagram.io 에 붙여 넣고 SVG 로 내보낸 뒤 1920x1080 흰 배경에 맞춘다 → docs/readme/erd.svg
+
+Project npick {
+  database_type: 'PostgreSQL'
+  Note: 'schema npick'
+}
+
+Table member {
+  member_id bigint [pk]
+  login_id varchar(64) [not null, unique]
+  password_hash varchar(255) [not null]
+  name varchar(100) [not null]
+  role varchar(32) [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '편집기자·검수자 계정'
+}
+
+Table login_refresh {
+  token_hash char(64) [pk]
+  login_id varchar(100) [not null]
+  access_session_id char(36) [not null]
+  expires_at timestamptz [not null]
+}
+
+Table clip {
+  clip_id bigint [pk]
+  source_type varchar(32) [not null]
+  storage_key text [not null]
+  content_hash varchar(64) [not null]
+  transcript_file_key text
+  title varchar(500)
+  transcript_source varchar(32) [not null]
+  script_text text
+  registered_by_id bigint [not null]
+  active_pipeline_run_id bigint
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  deleted_at timestamptz
+  Note: '영상 1건과 원본 파일'
+}
+
+Table registration_request {
+  actor_id bigint [pk]
+  key_hash varchar(64) [pk]
+  request_hash varchar(64) [not null]
+  content_hash varchar(64) [not null]
+  state varchar(16) [not null]
+  clip_id bigint
+  pipeline_run_id bigint
+  result_status varchar(32)
+  outcome varchar(16)
+  updated_at timestamptz [not null, default: `now()`]
+  Note: '등록 재전송 멱등 상태'
+}
+
+Table pipeline_run {
+  pipeline_run_id bigint [pk]
+  clip_id bigint [not null]
+  processing_no integer [not null]
+  pipeline_version varchar(128) [not null]
+  status varchar(32) [not null]
+  stage_states_json jsonb [not null]
+  error_code varchar(64)
+  lease_id uuid
+  lease_stage varchar(48)
+  lease_worker_id varchar(64)
+  lease_expires_at timestamptz
+  lease_heartbeat_at timestamptz
+  created_at timestamptz [not null]
+  started_at timestamptz
+  finished_at timestamptz
+  updated_at timestamptz [not null]
+  Indexes {
+    (clip_id, processing_no) [unique]
+  }
+  Note: '영상 1건의 분석 실행'
+}
+
+Table scene {
+  scene_id bigint [pk]
+  clip_id bigint [not null]
+  pipeline_run_id bigint [not null]
+  start_time_ms bigint [not null]
+  end_time_ms bigint [not null]
+  caption text
+  caption_tokens text
+  shot_type varchar(32) [not null]
+  transcript_text text
+  transcript_tokens text
+  transcript_json jsonb
+  transcript_source varchar(32)
+  embedding "vector(1024)"
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Note: '검색 결과 단위인 장면 구간'
+}
+
+Table keyframe {
+  keyframe_id bigint [pk]
+  scene_id bigint [not null]
+  timestamp_ms bigint [not null]
+  storage_key text [not null]
+  Indexes {
+    (scene_id, timestamp_ms) [unique]
+  }
+}
+
+Table ocr_observation {
+  ocr_observation_id bigint [pk]
+  keyframe_id bigint [not null]
+  raw_text text [not null]
+  tokens text [not null]
+  confidence "numeric(5,4)" [not null]
+  bounding_box_json jsonb [not null]
+}
+
+Table tag {
+  tag_id bigint [pk]
+  tag_type varchar(32) [not null]
+  match_value varchar(255) [not null]
+  name text [not null]
+  Indexes {
+    (tag_type, match_value) [unique]
+  }
+}
+
+Table tagging {
+  tagging_id bigint [pk]
+  clip_id bigint [not null]
+  scene_id bigint
+  tag_id bigint [not null]
+  created_at timestamptz [not null]
+  Indexes {
+    (clip_id, scene_id, tag_id) [unique]
+  }
+}
+
+Table tag_evidence {
+  evidence_id bigint [pk]
+  tagging_id bigint [not null]
+  source varchar(32) [not null]
+  confidence "numeric(5,4)"
+  verification_status varchar(32) [not null]
+  confirmed boolean [not null, default: true]
+  source_ref_type varchar(32)
+  source_ref_id bigint
+  source_feedback_id bigint
+  created_at timestamptz [not null]
+}
+
+Table search_execution {
+  search_execution_id bigint [pk]
+  searched_by_id bigint [not null]
+  parent_execution_id bigint
+  query_text text [not null]
+  normalized_query text
+  explicit_filters_json jsonb
+  normalized_filters_json jsonb
+  query_fingerprint varchar(64)
+  normalization_version varchar(128)
+  execution_type varchar(32) [not null]
+  replay_of_feedback_id bigint
+  status varchar(32) [not null]
+  degraded_reasons_json jsonb
+  error_code varchar(64)
+  parse_source varchar(32)
+  parsed_query_json jsonb
+  parser_version varchar(128)
+  parse_ms integer
+  resolver_output_json jsonb
+  candidates_json jsonb
+  filtered_json jsonb
+  applied_excludes_json jsonb
+  applied_rules_json jsonb
+  verification_context_json jsonb
+  search_config_json jsonb
+  config_version varchar(128)
+  execution_ms integer
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  deleted_at timestamptz
+  Note: '일반 검색 또는 검증 replay 1회'
+}
+
+Table search_result {
+  search_result_id bigint [pk]
+  search_execution_id bigint [not null]
+  scene_id bigint [not null]
+  result_rank integer [not null]
+  explain_json jsonb [not null]
+  Indexes {
+    (search_execution_id, result_rank) [unique]
+    (search_execution_id, scene_id) [unique]
+  }
+}
+
+Table feedback {
+  feedback_id bigint [pk]
+  search_result_id bigint [not null]
+  created_by_id bigint [not null]
+  comment text
+  status varchar(32) [not null]
+  reviewed_by_id bigint
+  resolution varchar(32)
+  created_rule_id bigint
+  verified_by_execution_id bigint
+  resolution_note text
+  created_at timestamptz [not null]
+  review_started_at timestamptz
+  closed_at timestamptz
+  updated_at timestamptz [not null]
+  Indexes {
+    (search_result_id, created_by_id) [unique]
+  }
+  Note: '검색 결과 문의'
+}
+
+Table search_rule {
+  search_rule_id bigint [pk]
+  query_fingerprint varchar(64) [not null]
+  normalized_query text [not null]
+  normalized_filters_json jsonb [not null]
+  normalization_version varchar(128) [not null]
+  action varchar(32) [not null, note: 'exclude_scene | patch_parse']
+  target_scene_id bigint
+  condition_json jsonb
+  patch_json jsonb
+  source_feedback_id bigint [not null]
+  replaces_rule_id bigint
+  request_key varchar(64)
+  active boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  Indexes {
+    (source_feedback_id, request_key) [unique]
+  }
+  Note: '문의로 만든 교정 규칙'
+}
+
+Ref: login_refresh.login_id > member.login_id [delete: cascade]
+Ref: clip.registered_by_id > member.member_id
+Ref: clip.active_pipeline_run_id > pipeline_run.pipeline_run_id
+Ref: pipeline_run.clip_id > clip.clip_id
+Ref: scene.clip_id > clip.clip_id
+Ref: scene.pipeline_run_id > pipeline_run.pipeline_run_id
+Ref: keyframe.scene_id > scene.scene_id
+Ref: ocr_observation.keyframe_id > keyframe.keyframe_id
+Ref: tagging.clip_id > clip.clip_id
+Ref: tagging.scene_id > scene.scene_id
+Ref: tagging.tag_id > tag.tag_id
+Ref: tag_evidence.tagging_id > tagging.tagging_id
+Ref: tag_evidence.source_feedback_id > feedback.feedback_id
+Ref: search_execution.searched_by_id > member.member_id
+Ref: search_execution.replay_of_feedback_id > feedback.feedback_id
+Ref: search_result.search_execution_id > search_execution.search_execution_id
+Ref: search_result.scene_id > scene.scene_id
+Ref: feedback.search_result_id > search_result.search_result_id
+Ref: feedback.created_by_id > member.member_id
+Ref: feedback.reviewed_by_id > member.member_id
+Ref: feedback.created_rule_id > search_rule.search_rule_id
+Ref: feedback.verified_by_execution_id > search_execution.search_execution_id
+Ref: search_rule.target_scene_id > scene.scene_id
+Ref: search_rule.source_feedback_id > feedback.feedback_id
+Ref: search_rule.replaces_rule_id > search_rule.search_rule_id
