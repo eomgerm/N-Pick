@@ -120,7 +120,7 @@
 
 ## 🏗 아키텍처
 
-<img src="docs/readme/architecture.svg" alt="N-Pick 시스템 아키텍처 — SSAFY EC2 위 Docker Compose 서비스와 RunPod·SSAFY GPU 워커, 외부 GMS·GitLab"/>
+<img src="docs/readme/architecture.drawio.png" alt="N-Pick 시스템 아키텍처 — SSAFY EC2 위 Docker Compose 서비스와 RunPod·SSAFY GPU 워커, 외부 GMS·GitLab"/>
 
 검색은 p95 기준 10초 안에 끝나야 하는 동기 작업이고, 장면 분석은 클립 하나에 GPU를 몇 분씩 쓰는 비동기 작업입니다. 그래서 AI 코드는 저장소 하나에 두되, 배포는 검색어를 해석하는 질의 리졸버(EC2 상주)와 영상을 분석하는 파이프라인 워커(GPU)로 나눴습니다.
 
