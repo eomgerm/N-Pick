@@ -1,6 +1,6 @@
 // N-Pick ERD — backend/src/main/resources/db/migration 의 Flyway 마이그레이션(V20260907092019 ~ V20260922120000)을 모두 적용한 최종 스키마.
 // Spring Session 기본 테이블(SPRING_SESSION, SPRING_SESSION_ATTRIBUTES)은 뺐다.
-// 렌더: dbdiagram.io 에 붙여 넣고 SVG 로 내보낸 뒤 1920x1080 흰 배경에 맞춘다 → docs/readme/erd.svg
+// 렌더: dbdiagram.io 에서 SVG 로 내보낸 뒤 표를 6열로 다시 배치하고 관계선을 직각 경로로 다시 그려 1920x1080 흰 배경에 맞췄다 → docs/readme/erd.svg
 
 Project npick {
   database_type: 'PostgreSQL'
