@@ -1,4 +1,4 @@
-# Git 훅 설정. 전체 규칙 문서: .gitlab/CONTRIBUTING.md
+# Git 훅 설정. 전체 규칙 문서: .github/CONTRIBUTING.md
 # 최초 1회 활성화: npm install  (prepare 스크립트가 lefthook install 을 실행)
 #
 # 검사 로직은 scripts/git-rules.cjs 한 파일에 모여 있다.
@@ -12,7 +12,7 @@ prepare-commit-msg:
     branch-name:
       priority: 1
       run: node scripts/git-rules.cjs branch
-    jira-key:
+    issue-number:
       priority: 2
       run: node scripts/git-rules.cjs prepare {1} {2}
 
